@@ -44,6 +44,33 @@ const CANONICAL = Object.freeze({
   }),
   candidateGraphHash: "sha256:candidate-parity-graph-hash",
   submitGraphHash: "sha256:submit-parity-graph-hash",
+  candidateTransaction: Object.freeze({
+    contract_version: "candidate_transaction_v1",
+    state: "candidate_ready",
+    session_id: "sess-parity-001",
+    turn_id: "turn-parity-001",
+    plan_hash: "plan-parity-001",
+    generation: 1,
+    lease_nonce: "lease-parity-001",
+    plan: Object.freeze({
+      schema_version: "2.0.0",
+      delta_ops_envelope: Object.freeze({ schema_version: "2.0.0", ops: Object.freeze([]) }),
+      delta_hash: "delta-parity-001",
+      op_count: 0,
+      schema_provenance: Object.freeze({}),
+    }),
+    hashes: Object.freeze({
+      submit_graph_hash: "sha256:submit-parity-graph-hash",
+      submit_structural_graph_hash: "sha256:submit-parity-structural-hash",
+      candidate_graph_hash: "sha256:candidate-parity-graph-hash",
+      candidate_structural_graph_hash: "sha256:candidate-parity-structural-hash",
+      authority_receipt_hash: "receipt-parity-001",
+    }),
+    authority: Object.freeze({ replay_ok: true, candidate_matches: true, verification_kind: "delta_replay" }),
+    available_actions: Object.freeze(["apply", "reject"]),
+    terminal: false,
+    last_error: null,
+  }),
   eligibility: Object.freeze({
     applyable: true,
     reason: "applyable",
@@ -100,6 +127,7 @@ function productionAdapter(panel, fixture) {
     message: fixture.message,
     outcome: { kind: "candidate" },
     eligibility: fixture.eligibility,
+    candidate_transaction: fixture.candidateTransaction,
     report: {},
   };
   commitTerminalResponse(panel, {
@@ -140,6 +168,7 @@ function previewAdapter(panel, fixture) {
     message: fixture.message,
     outcome: { kind: "candidate" },
     eligibility: fixture.eligibility,
+    candidate_transaction: fixture.candidateTransaction,
     report: {},
   };
   commitTerminalResponse(panel, {
@@ -184,6 +213,7 @@ function replayAdapter(panel, fixture) {
     message: fixture.message,
     outcome: { kind: "candidate" },
     eligibility: fixture.eligibility,
+    candidate_transaction: fixture.candidateTransaction,
     report: {},
   };
   commitTerminalResponse(panel, {

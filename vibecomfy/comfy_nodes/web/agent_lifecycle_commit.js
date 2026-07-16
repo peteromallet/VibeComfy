@@ -819,6 +819,7 @@ export function commitRollbackFailure(panel, payload = {}) {
 export function commitReconcileReceipts(panel, payload = {}) {
   return transition(panel, "RECONCILE_RECEIPTS", {
     receipts: payload.receipts || null,
+    candidateTransaction: payload.candidateTransaction || null,
     ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),
   });
 }

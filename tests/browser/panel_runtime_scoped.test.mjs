@@ -136,6 +136,26 @@ test("SCOPE_SNAPSHOT_EXCLUDE excludes ephemeral render state", async () => {
   }
 });
 
+test("scopeActivationEpoch is runtime-affine and never restored from a workflow snapshot", async () => {
+  const { saveScopeSnapshot, restoreScopeSnapshot, getAgentPanelRuntime } = await loadRuntime();
+  const panel = makePanel({
+    chatScopeId: "scope-activation",
+    scopeActivationEpoch: 4,
+    sessionId: "sess-activation",
+  });
+
+  saveScopeSnapshot("scope-activation", panel);
+  const snapshot = getAgentPanelRuntime()._scopeSnapshots.get("scope-activation");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(snapshot, "scopeActivationEpoch"),
+    false,
+  );
+
+  panel.state.scopeActivationEpoch = 9;
+  restoreScopeSnapshot("scope-activation", panel);
+  assert.equal(panel.state.scopeActivationEpoch, 9);
+});
+
 // ── saveScopeSnapshot / restoreScopeSnapshot ──────────────────────────────
 
 test("saveScopeSnapshot captures all panel.state fields except excluded ones", async () => {

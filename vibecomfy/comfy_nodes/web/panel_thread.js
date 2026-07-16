@@ -27,6 +27,10 @@ const RATING_WIDGET_DISABLED_LS_KEY = "vibecomfy_rating_widget_disabled";
 export function collectThreadMessageEntries(panel, deps = {}) {
   const { messageStableKey } = deps;
   const threadMessages = selectTranscriptMessages(panel);
+  // selectTranscriptMessages already projects the local synthetic transaction
+  // message alongside the durable backend transcript.  Do not append it a
+  // second time here: a prepare rejection must have exactly one actionable
+  // bubble, including across rehydrate and scheduled renders.
   return threadMessages.map((msg, index) => ({
     msg,
     index,
@@ -1717,6 +1721,14 @@ export function reconcileChatBubbles(panel, messagesMount, displayEntries, deps 
   }
 
   for (const child of Array.from(messagesMount?.children || [])) {
+    const mountedKey = child?.dataset?.vibecomfyMessageKey;
+    // A scheduled and an immediate lifecycle render may overlap before the
+    // cache write-through below.  Reclaim a mounted bubble by its durable DOM
+    // key so the same synthetic failure cannot be appended twice.
+    if (typeof mountedKey === "string" && mountedKey && !priorBubbleMap[mountedKey]) {
+      priorBubbleMap[mountedKey] = { node: child };
+      knownMountedNodes.add(child);
+    }
     if (!knownMountedNodes.has(child)) {
       messagesMount.removeChild(child);
     }

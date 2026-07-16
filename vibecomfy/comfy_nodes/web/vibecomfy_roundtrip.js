@@ -82,6 +82,7 @@ import {
   RENDER_SECTIONS,
   normalizeDeltaOpsFromSubmit,
   normalizeObligationDirtySections,
+  projectCompensatedFailure,
   transition,
 } from "./agent_edit_lifecycle.js";
 import {
@@ -129,6 +130,19 @@ import {
   resolvePreparedMutationPlan,
   transactionAllows,
 } from "./agent_edit_transaction.js";
+import {
+  canonicalSessionJsonString,
+} from "./canonical_hash.js";
+import {
+  buildLayoutGraphProjection,
+  buildStructuralGraphProjection,
+  layoutGraphProjectionJson,
+  structuralGraphProjectionJson,
+} from "./graph_projection.js";
+export {
+  buildLayoutGraphProjection,
+  buildStructuralGraphProjection,
+} from "./graph_projection.js";
 
 import {
   configureDiagnosticsDeps,
@@ -1954,7 +1968,12 @@ function readGraphActualForOp(graph, op) {
     return readNodeLinkSource(graph, op.to || op.target);
   }
   if (op.op === "add_node" || op.op === "remove_node") {
-    const nodeRef = op.target ?? ["nodes", op.scope_path];
+    const nodeRef = op.target ?? [
+      Array.isArray(op.scope_path) ? op.scope_path : (op.scope_path ?? ""),
+      typeof op.uid === "string" && op.uid
+        ? op.uid
+        : (typeof op.node_id === "string" && op.node_id ? op.node_id : op.scope_path),
+    ];
     const parsed = resolveGraphTarget(nodeRef);
     const node = resolveGraphNode(graph, parsed.uidOrId);
     if (!node) {
@@ -2143,7 +2162,10 @@ function nodeTargetRefForRollback(op) {
 
 export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
   const inverseOps = [];
-  for (const op of deltaOps) {
+  // Compensate in reverse dependency order.  A forward add-node/add-node/link
+  // sequence must remove its link before either endpoint; conversely the
+  // inverse of remove-node recreates the node before its historic links.
+  for (const op of [...deltaOps].reverse()) {
     if (!op || typeof op !== "object" || typeof op.op !== "string") {
       continue;
     }
@@ -3026,22 +3048,7 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function canonicalizeJsonValue(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => canonicalizeJsonValue(entry));
-  }
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entryValue]) => [key, canonicalizeJsonValue(entryValue)]);
-    return Object.fromEntries(entries);
-  }
-  return value;
-}
-
-function canonicalJsonString(value) {
-  return JSON.stringify(canonicalizeJsonValue(value));
-}
+const canonicalJsonString = canonicalSessionJsonString;
 
 async function sha256HexUtf8(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -3060,174 +3067,17 @@ function captureLiveCanvasRevision() {
   return revision == null ? null : String(revision);
 }
 
-// Apply-state freshness must ignore editor-only serialization churn. ComfyUI can
-// rewrite layout, preview, and other non-execution fields between submit and
-// apply even when the graph the user edits is unchanged. This projection keeps
-// only execution identity: node ids/classes, link endpoints, widget values, and
-// mode. A real add/remove/rewire/widget edit changes it; pos/size/flags/groups,
-// view state, properties, and preview blobs do not.
-function _normalizeStructuralLink(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => _normalizeStructuralLink(entry));
-  }
-  if (value && typeof value === "object") {
-    return canonicalizeJsonValue(value);
-  }
-  return value;
-}
-
-function _naturalStructuralNodeIdKey(value) {
-  const text = String(value ?? "");
-  if (/^-?\d+$/.test(text)) {
-    return { kind: 0, value: Number.parseInt(text, 10) };
-  }
-  return { kind: 1, value: text };
-}
-
-function _compareNaturalStructuralNodeIds(left, right) {
-  const leftKey = _naturalStructuralNodeIdKey(left);
-  const rightKey = _naturalStructuralNodeIdKey(right);
-  if (leftKey.kind !== rightKey.kind) {
-    return leftKey.kind - rightKey.kind;
-  }
-  if (leftKey.value < rightKey.value) {
-    return -1;
-  }
-  if (leftKey.value > rightKey.value) {
-    return 1;
-  }
-  return 0;
-}
-
-function _isPreviewLikeKey(key) {
-  return /(?:^|_)(?:video)?preview(?:_|$)/i.test(String(key || ""));
-}
-
-function _normalizeStructuralWidgetValue(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => _normalizeStructuralWidgetValue(entry));
-  }
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value)
-      .filter(([key]) => !_isPreviewLikeKey(key))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entryValue]) => [key, _normalizeStructuralWidgetValue(entryValue)]);
-    return Object.fromEntries(entries);
-  }
-  return value;
-}
-
-function _structuralSocketNames(sockets) {
-  return Array.isArray(sockets)
-    ? sockets.map((socket) => (socket && typeof socket === "object" ? socket.name ?? null : null))
-    : [];
-}
-
-function _structuralSlotName(names, slot) {
-  if (Number.isInteger(slot) && slot >= 0 && slot < names.length) {
-    return names[slot] ?? null;
-  }
-  return slot ?? null;
-}
-
-export function buildStructuralGraphProjection(graph) {
-  if (!graph || typeof graph !== "object") {
-    return { nodes: [], links: [] };
-  }
-  const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
-  const inputNames = new Map();
-  const outputNames = new Map();
-  for (const rawNode of rawNodes) {
-    if (!rawNode || typeof rawNode !== "object") {
-      continue;
-    }
-    const nodeId = rawNode.id ?? null;
-    inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
-    outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
-  }
-
-  const nodes = rawNodes.map((rawNode) => {
-    const node = rawNode && typeof rawNode === "object" ? rawNode : {};
-    const wiredInputs = Array.isArray(node.inputs)
-      ? node.inputs
-          .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
-          .map((input) => String(input.name))
-          .sort()
-      : [];
-    const liveOutputs = Array.isArray(node.outputs)
-      ? node.outputs
-          .filter((output) => {
-            if (!output || typeof output !== "object" || output.name == null) {
-              return false;
-            }
-            return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
-          })
-          .map((output) => String(output.name))
-          .sort()
-      : [];
-    return {
-      id: node.id ?? null,
-      type: node.type ?? null,
-      mode: node.mode ?? null,
-      inputs: wiredInputs,
-      outputs: liveOutputs,
-      widgets_values: _normalizeStructuralWidgetValue(node.widgets_values ?? []),
-    };
-  });
-  nodes.sort((left, right) => {
-    const idCmp = _compareNaturalStructuralNodeIds(left.id, right.id);
-    if (idCmp) {
-      return idCmp;
-    }
-    const leftType = String(left.type ?? "");
-    const rightType = String(right.type ?? "");
-    if (leftType < rightType) {
-      return -1;
-    }
-    if (leftType > rightType) {
-      return 1;
-    }
-    return 0;
-  });
-  const links = Array.isArray(graph?.links)
-    ? graph.links
-        .map((link) => {
-          let originId;
-          let originSlot;
-          let targetId;
-          let targetSlot;
-          let linkType;
-          if (Array.isArray(link) && link.length >= 6) {
-            [, originId, originSlot, targetId, targetSlot, linkType] = link;
-          } else if (link && typeof link === "object") {
-            originId = link.origin_id;
-            originSlot = link.origin_slot;
-            targetId = link.target_id;
-            targetSlot = link.target_slot;
-            linkType = link.type;
-          } else {
-            return null;
-          }
-          return {
-            from: originId ?? null,
-            out: _structuralSlotName(outputNames.get(originId ?? null) ?? [], originSlot),
-            to: targetId ?? null,
-            in: _structuralSlotName(inputNames.get(targetId ?? null) ?? [], targetSlot),
-            type: linkType ?? null,
-          };
-        })
-        .filter((link) => link != null)
-    : [];
-  links.sort((left, right) =>
-    JSON.stringify(canonicalizeJsonValue(_normalizeStructuralLink(left))).localeCompare(
-      JSON.stringify(canonicalizeJsonValue(_normalizeStructuralLink(right))),
-    ),
-  );
-  return { nodes, links };
-}
-
 async function structuralGraphHash(graph) {
-  return sha256HexUtf8(canonicalJsonString(buildStructuralGraphProjection(graph)));
+  return sha256HexUtf8(structuralGraphProjectionJson(graph));
+}
+
+async function layoutGraphHash(graph) {
+  try {
+    return sha256HexUtf8(layoutGraphProjectionJson(graph));
+  } catch (error) {
+    if (error?.code === "UNSUPPORTED_NESTED_LAYOUT_SCOPE") return null;
+    throw error;
+  }
 }
 
 // ── T6: Scope resolver ────────────────────────────────────────────────────
@@ -3696,6 +3546,7 @@ async function buildSubmitSnapshot(panel) {
   const graphJson = canonicalJsonString(graph);
   const graphHash = await sha256HexUtf8(graphJson);
   const structuralHash = await structuralGraphHash(graph);
+  const layoutHash = await layoutGraphHash(graph);
   const liveCanvasToken = captureLiveCanvasToken(graphHash, structuralHash);
   const route = normalizeRoutePreference(panel.fields.route.value);
   const model = normalizeModelPreference(panel.fields.model.value);
@@ -3705,7 +3556,7 @@ async function buildSubmitSnapshot(panel) {
     route,
     model,
   });
-  return { graph, graphJson, graphHash, structuralHash, liveCanvasToken, route, model, idempotencyKey };
+  return { graph, graphJson, graphHash, structuralHash, layoutHash, liveCanvasToken, route, model, idempotencyKey };
 }
 
 async function buildCanvasSnapshot() {
@@ -3713,8 +3564,9 @@ async function buildCanvasSnapshot() {
   const graphJson = canonicalJsonString(graph);
   const graphHash = await sha256HexUtf8(graphJson);
   const structuralHash = await structuralGraphHash(graph);
+  const layoutHash = await layoutGraphHash(graph);
   const liveCanvasToken = captureLiveCanvasToken(graphHash, structuralHash);
-  return { graph, graphJson, graphHash, structuralHash, liveCanvasToken };
+  return { graph, graphJson, graphHash, structuralHash, layoutHash, liveCanvasToken };
 }
 
 function createAgentPanelShell() {
@@ -6120,36 +5972,6 @@ export function resetThreadRenderState(panel) {
 
 // ── End T10 helpers ──────────────────────────────────────────────────────
 
-function buildSyntheticAgentMessage(panel) {
-  if (!panel?.state) {
-    return null;
-  }
-  // T10: Only create synthetic transcript entries from explicitly-set
-  // panel.state.syntheticAgentMessage (set by local-only failure/cancellation
-  // handlers).  Do NOT fall through to panel.state.message — that field is a
-  // status/display hint, not transcript storage.  Successful durable lifecycle
-  // events (submit, rehydrate, accept, reject, rebaseline) produce canonical
-  // backend chatMessages and MUST NOT generate synthetic assistant entries.
-  if (panel.state.syntheticAgentMessage && typeof panel.state.syntheticAgentMessage === "object") {
-    const synthetic = panel.state.syntheticAgentMessage;
-    const text = typeof synthetic.text === "string" ? synthetic.text : "";
-    const turnId =
-      typeof synthetic.turn_id === "string" && synthetic.turn_id
-        ? synthetic.turn_id
-        : (typeof synthetic.detail_turn_id === "string" && synthetic.detail_turn_id ? synthetic.detail_turn_id : null);
-    const alreadyInThread = Array.isArray(panel.state.chatMessages)
-      ? panel.state.chatMessages.some((msg) => (
-          msg?.role === "agent"
-          && typeof msg.text === "string"
-          && msg.text === text
-          && (!turnId || msg.turn_id === turnId)
-        ))
-      : false;
-    return alreadyInThread ? null : mutableTranscriptMessage(synthetic);
-  }
-  return null;
-}
-
 function mutableTranscriptMessage(message) {
   const projected = projectTranscriptMessage(message);
   return projected ? clonePlainData(projected) : null;
@@ -6442,6 +6264,37 @@ function syntheticFailureAgentMessage(panel, failure, fallbackStage = "frontend"
     failure_stage: stage,
     local_id: `failure:${detailTurnId || "local"}:${kind}:${stage}`,
   };
+}
+
+// Canonical projection for every V2 exit after prepare.  Transport/canvas code
+// supplies the causal evidence; the lifecycle reducer owns storing and
+// rendering this single terminal outcome.
+function compensatedFailurePayload(panel, failure, {
+  transactionRollback = null,
+  actionBody = null,
+  fallbackStage = "compensation",
+  rebaselineRecovery = null,
+  recoveryRequired = null,
+} = {}) {
+  const recovery = rebaselineRecovery
+    || recoveryForFailure(failure, panel, actionBody)
+    || {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "compensation_recovery",
+      last_known_baseline_graph_hash: panel?.state?.baselineGraphHash || null,
+      client_graph_hash: actionBody?.client_graph_hash || null,
+      client_structural_graph_hash: actionBody?.client_structural_graph_hash || null,
+    };
+  return projectCompensatedFailure({
+    failure,
+    rolledBack: transactionRollback?.ok === true,
+    rollbackReceipt: transactionRollback?.rollback_receipt || transactionRollback?.response?.receipt || null,
+    recoveryRequired: recoveryRequired === null ? transactionRollback?.ok !== true : recoveryRequired,
+    syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, fallbackStage),
+    rebaselineRecovery: recoveryForPanelState(recovery),
+    transactionRollback,
+  });
 }
 
 function upsertBatchTurn(panel, payload, options = {}) {
@@ -6792,7 +6645,6 @@ function ensureThreadRenderState(panel) {
 
 function collectThreadMessageEntries(panel) {
   return collectThreadMessageEntriesImpl(panel, {
-    buildSyntheticAgentMessage,
     messageStableKey,
   });
 }
@@ -9602,6 +9454,15 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
     }
   }
 
+  if (obligations.abortSubmitController) {
+    try {
+      obligations.abortSubmitController.abort();
+    } catch (_error) {
+      // Best-effort cancellation. The scope activation token remains the
+      // authoritative stale-response guard if the transport cannot abort.
+    }
+  }
+
   if (Array.isArray(obligations?.dirtySections) && obligations.dirtySections.length) {
     markAgentPanelDirty(panel, obligations.dirtySections);
   }
@@ -9835,7 +9696,13 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     let submitHttpStatus = null;
     let submitDeadlineMs = currentSubmitDeadlineMs(panel);
     const submitAbsoluteDeadlineMs = currentSubmitAbsoluteDeadlineMs();
-    const isCurrentSubmit = () => panel?.state?.submitEpoch === submitEpoch;
+    const submitScopeActivationEpoch = Number.isFinite(panel?.state?.scopeActivationEpoch)
+      ? panel.state.scopeActivationEpoch
+      : 0;
+    const isCurrentSubmit = () => (
+      panel?.state?.submitEpoch === submitEpoch
+      && panel?.state?.scopeActivationEpoch === submitScopeActivationEpoch
+    );
     // Re-resolve the prompt element from the live DOM at submit time: a durable
     // panel re-render can replace the textarea, leaving panel.fields.prompt as a
     // stale, detached reference whose .value reads empty — a false "MissingTask".
@@ -9888,10 +9755,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         // Emit scope switch transition to update chatScopeId/chatScopeFingerprint.
         const newCanvasScope = resolveActiveCanvasScope();
         const scopeSwitchObligations = transition(panel, "SCOPE_SWITCH", {
-          chatScopeId: newCanvasScope?.scopeId || null,
-          chatScopeFingerprint: newCanvasScope?.fingerprint || null,
-          departingScopeId: currentChatScopeId || undefined,
-          arrivingScopeId: newCanvasScope?.scopeId || null,
+          scopeId: newCanvasScope?.scopeId || null,
+          fingerprint: newCanvasScope?.fingerprint || null,
           debugPayload: {
             reason: `submit_auto_switch:${scopeAssertion.reason}`,
             previousScopeId: currentChatScopeId,
@@ -10803,7 +10668,7 @@ async function applyAgentCandidate(panel) {
           prepared.candidateTransaction,
         );
       } catch (error) {
-        const transactionRollback = prepared
+        let transactionRollback = prepared
           ? await rollbackPreparedAgentCandidate(panel, beforeApply, {
               silent: true,
               triggerStage: "prepared_plan_resolution",
@@ -10811,6 +10676,26 @@ async function applyAgentCandidate(panel) {
               canvasWasMutated: false,
             })
           : null;
+        let recoveryRequired = Boolean(prepared && transactionRollback?.ok !== true);
+        if (!prepared) {
+          try {
+            await reconcilePreparedTransactionState(panel);
+            const reconciled = normalizeCandidateTransaction(panel.state.candidateTransaction);
+            if (["prepared", "canvas_verified"].includes(reconciled?.state)) {
+              transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+                silent: true,
+                triggerStage: "prepare_response_uncertain",
+                triggerFailure: error,
+                canvasWasMutated: false,
+              });
+              recoveryRequired = transactionRollback?.ok !== true;
+            }
+          } catch (_reconcileError) {
+            // The prepare request may have committed before its response was
+            // lost. Preserve recovery authority until reconciliation succeeds.
+            recoveryRequired = true;
+          }
+        }
         const failure = error?.ok === false
           ? error
           : agentPanelFailure("PrepareError", String(error), {
@@ -10819,8 +10704,21 @@ async function applyAgentCandidate(panel) {
               next_action: "Retry Apply after the backend can prepare the transaction.",
               transaction_rollback: transactionRollback,
             });
+        const compensation = compensatedFailurePayload(panel, failure, {
+          transactionRollback,
+          actionBody: prepareBody,
+          fallbackStage: "prepare",
+          recoveryRequired,
+          // A rejected prepare can still carry an authoritative stale-state
+          // recovery instruction.  Keep it on the lifecycle transition so
+          // the failure bubble offers the same rebaseline path as the other
+          // stale-state boundaries.
+          rebaselineRecovery:
+            recoveryForPanelState(failure?.rebaselineRecovery || failure?.rebaseline_recovery)
+            || recoveryForFailure(failure, panel, prepareBody),
+        });
         const obligations = commitPrepareFailure(panel, {
-          failure,
+          ...compensation,
           debugPayload: {
             prepare_request: prepareBody,
             prepare_failure: boundedBrowserTransactionError(error, "prepare_or_plan_resolution", {
@@ -10831,6 +10729,78 @@ async function applyAgentCandidate(panel) {
         fulfillLifecycleTransitionObligations(panel, obligations);
         renderLifecycleTransition(panel, obligations);
         return;
+      }
+
+      // A prepared V2 transaction may not overwrite a touched region that
+      // changed while the server held the lease.  Compare only authoritative
+      // operation targets against the pre-prepare canvas snapshot; this is a
+      // scoped race check, not an inferred whole-graph delta.  Unlike the
+      // legacy accept flow, an "already applied" target is still a race here:
+      // the prepared transaction must either own the mutation or roll back.
+      let localPrecheck = { ok: true, entries: [] };
+      if (preparedMutationPlan.verificationKind !== "layout_structural_noop") {
+        const currentBeforeMutation = await buildCanvasSnapshot();
+        const v2ScopedVerification = {
+          entries: preparedMutationPlan.deltaOps.map((op) => ({
+            target: clonePlainData(op.target ?? op.to ?? null),
+            expected_old: readGraphActualForOp(beforeApply.graph, op),
+            desired_new: readGraphActualForOp(panel.state.candidateGraph, op),
+          })),
+        };
+        const validatedPrecheck = validateScopedCanvasPreconditions(
+          currentBeforeMutation.graph,
+          preparedMutationPlan.deltaOps,
+          v2ScopedVerification,
+        );
+        // A prepared lease owns the mutation.  Even an "already applied"
+        // target is a race at this point: publishing it as a successful
+        // precheck would let the browser finalize work it did not perform.
+        localPrecheck = {
+          ...validatedPrecheck,
+          ok: validatedPrecheck.entries.every((entry) => entry.status === "ok"),
+        };
+        if (!localPrecheck.entries.every((entry) => entry.status === "ok")) {
+          const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+            restoreCanvas: false,
+            silent: true,
+            triggerStage: "prepared_scoped_precheck",
+            triggerFailure: localPrecheck,
+            canvasWasMutated: false,
+          });
+          const failure = agentPanelFailure(
+            "StaleStateMismatch",
+            "The touched region changed after backend acceptance. Scoped Apply is blocked.",
+            {
+              retryable: true,
+              graph_unchanged: true,
+              next_action: "Rebaseline and retry from the current canvas.",
+              transaction_rollback: transactionRollback,
+              canvas_apply: {
+                mode: "scoped_delta",
+                local_precheck: localPrecheck,
+                accept_live_canvas_token: beforeApply.liveCanvasToken,
+                current_live_canvas_token: currentBeforeMutation.liveCanvasToken,
+              },
+            },
+          );
+          const obligations = commitVerifyCanvasFailure(panel, {
+            ...compensatedFailurePayload(panel, failure, {
+              transactionRollback,
+              actionBody: prepareBody,
+              fallbackStage: "canvas_apply",
+            }),
+            debugPayload: {
+              transactional_apply: true,
+              prepare_response: prepared.raw || prepared,
+              canvas_apply_verification: {
+                local_precheck: localPrecheck,
+              },
+            },
+          });
+          fulfillLifecycleTransitionObligations(panel, obligations);
+          renderLifecycleTransition(panel, obligations);
+          return;
+        }
       }
 
       const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
@@ -10896,7 +10866,11 @@ async function applyAgentCandidate(panel) {
           },
         });
         const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
-          failure,
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "canvas_apply",
+          }),
           debugPayload: {
             transactional_apply: true,
             prepare_response: prepared.raw || prepared,
@@ -10937,7 +10911,11 @@ async function applyAgentCandidate(panel) {
           },
         );
         const serializeObligations = commitVerifyCanvasFailure(panel, {
-          failure,
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "post_apply_serialize",
+          }),
           debugPayload: {
             transactional_apply: true,
             prepare_response: prepared.raw || prepared,
@@ -10946,6 +10924,49 @@ async function applyAgentCandidate(panel) {
         });
         fulfillLifecycleTransitionObligations(panel, serializeObligations);
         renderLifecycleTransition(panel, serializeObligations);
+        return;
+      }
+      const localPostcheck = preparedMutationPlan.verificationKind === "layout_structural_noop"
+        ? { ok: true, entries: [] }
+        : verifyScopedCanvasResults(afterApply.graph, preparedMutationPlan.deltaOps, {
+            entries: preparedMutationPlan.deltaOps.map((op) => ({
+              target: clonePlainData(op.target ?? op.to ?? null),
+              desired_new: readGraphActualForOp(panel.state.candidateGraph, op),
+            })),
+          });
+      if (!localPostcheck.ok) {
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "post_apply_scoped_postcheck",
+          triggerFailure: localPostcheck,
+          canvasWasMutated: true,
+        });
+        const failure = agentPanelFailure(
+          "StaleStateMismatch",
+          "The applied canvas does not match the authoritative touched-region result.",
+          {
+            retryable: true,
+            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
+            next_action: "Retry Apply or Rebaseline from the current canvas.",
+            transaction_rollback: transactionRollback,
+            canvas_apply: { mode: "scoped_delta", local_precheck: localPrecheck, local_postcheck: localPostcheck },
+          },
+        );
+        const obligations = commitVerifyCanvasFailure(panel, {
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "post_apply_scoped_postcheck",
+          }),
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            canvas_apply_verification: { local_precheck: localPrecheck, local_postcheck: localPostcheck },
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
         return;
       }
       const verifyStarted = commitVerifyCanvasStarted(panel, {
@@ -10964,12 +10985,14 @@ async function applyAgentCandidate(panel) {
       });
       fulfillLifecycleTransitionObligations(panel, verifyStarted);
 
-      // ── T26: Verify post-apply structural hash matches candidate ──────
-      // The live canvas structure after mutation must match the candidate
-      // graph structure.  A mismatch means the apply did not produce the
-      // expected graph; roll back and fail closed.
+      // Whole-graph equality is meaningful only for an authority mode that
+      // explicitly requires it.  delta_replay deliberately authorizes a
+      // scoped mutation: unrelated live state and deterministic browser node
+      // decoration must not make a successfully pre/post-checked delta fail.
       const expectedStructuralHashAfter = candidateTransaction.hashes.candidate_structural_graph_hash;
       if (
+        preparedMutationPlan.verificationKind === "structural_graph_equality"
+        &&
         typeof afterApply.structuralHash === "string"
         && afterApply.structuralHash
         && typeof expectedStructuralHashAfter === "string"
@@ -10999,7 +11022,11 @@ async function applyAgentCandidate(panel) {
           },
         );
         const hashObligations = commitVerifyCanvasFailure(panel, {
-          failure,
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "post_apply_verification",
+          }),
           debugPayload: {
             transactional_apply: true,
             prepare_response: prepared.raw || prepared,
@@ -11013,38 +11040,56 @@ async function applyAgentCandidate(panel) {
         renderLifecycleTransition(panel, hashObligations);
         return;
       }
-      const expectedLayoutGraphHash = candidateTransaction.hashes.candidate_graph_hash;
-      if (
-        preparedMutationPlan.verificationKind === "layout_structural_noop"
-        && afterApply.graphHash !== expectedLayoutGraphHash
-      ) {
+      const layoutVerification = preparedMutationPlan.layoutVerification;
+      const expectedLayoutGraphHash = layoutVerification?.candidate_layout_graph_hash || null;
+      const legacyExpectedGraphHash = candidateTransaction.hashes.candidate_graph_hash;
+      const layoutMismatch = preparedMutationPlan.verificationKind === "layout_structural_noop"
+        && (
+          layoutVerification
+            ? afterApply.layoutHash !== expectedLayoutGraphHash
+            : afterApply.graphHash !== legacyExpectedGraphHash
+        );
+      if (layoutMismatch) {
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
           restoreCanvas: true,
           silent: true,
           triggerStage: "post_apply_layout_verification",
           triggerFailure: {
             kind: "StaleStateMismatch",
-            message: "Applied layout does not exactly match the authoritative candidate.",
+            message: layoutVerification
+              ? "Applied layout geometry does not match the authoritative candidate."
+              : "Applied legacy layout graph does not exactly match the authoritative candidate.",
           },
           canvasWasMutated: true,
         });
         const failure = agentPanelFailure(
           "StaleStateMismatch",
-          "Applied layout does not exactly match the authoritative candidate.",
+          layoutVerification
+            ? "Applied layout geometry does not match the authoritative candidate."
+            : "Applied legacy layout graph does not exactly match the authoritative candidate.",
           {
             retryable: true,
             graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-            expected_graph_hash: expectedLayoutGraphHash,
+            expected_layout_hash: expectedLayoutGraphHash,
+            actual_layout_hash: afterApply.layoutHash,
+            expected_graph_hash: layoutVerification ? null : legacyExpectedGraphHash,
             actual_graph_hash: afterApply.graphHash,
             transaction_rollback: transactionRollback,
           },
         );
         const obligations = commitVerifyCanvasFailure(panel, {
-          failure,
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "post_apply_layout_verification",
+          }),
           debugPayload: {
             transactional_apply: true,
             verification_kind: "layout_structural_noop",
-            expected_graph_hash: expectedLayoutGraphHash,
+            expected_layout_hash: expectedLayoutGraphHash,
+            actual_layout_hash: afterApply.layoutHash,
+            layout_verification: layoutVerification,
+            expected_graph_hash: layoutVerification ? null : legacyExpectedGraphHash,
             actual_graph_hash: afterApply.graphHash,
           },
         });
@@ -11138,6 +11183,10 @@ async function applyAgentCandidate(panel) {
           toast: "Agent candidate applied",
           debugPayload: {
             prepare_response: prepared.raw || prepared,
+            canvas_apply_verification: {
+              local_precheck: localPrecheck,
+              local_postcheck: localPostcheck,
+            },
             finalize_request: {
               plan_hash: finalizeBody.plan_hash,
               applied_delta_hash: finalizeBody.applied_delta_hash,
@@ -11215,9 +11264,11 @@ async function applyAgentCandidate(panel) {
           failure.transaction_rollback = transactionRollback;
         }
         const obligations = commitFinalizeFailure(panel, {
-          failure,
-          rolledBack: transactionRollback.ok === true,
-          rollbackReceipt: transactionRollback.response?.receipt || null,
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: finalizeBody,
+            fallbackStage: "finalize",
+          }),
           debugPayload: {
             transactional_apply: true,
             finalize_boundary_rollback: true,
@@ -11925,6 +11976,7 @@ function normalizeLifecycleReceiptsFromEvents(events) {
     if (eventType === "prepared") {
       receipts.preparedReceipt = receipt;
     } else if (eventType === "finalized") {
+      receipts.finalizedReceipt = receipt;
       receipts.verifiedReceipt = {
         plan_hash: receipt.plan_hash || null,
         generation: receipt.generation ?? null,
@@ -11964,14 +12016,32 @@ async function reconcilePreparedTransactionState(panel) {
     ? payload.raw.receipts_by_turn[panel.state.turnId]
     : [];
   const receipts = normalizeLifecycleReceiptsFromEvents(events);
+  const candidateTransaction = normalizeCandidateTransaction(
+    payload?.raw?.transactions_by_turn?.[panel.state.turnId],
+  );
+  const recoveryGraph = payload?.raw?.recovery_graphs_by_turn?.[panel.state.turnId];
+  if (recoveryGraph?.graph && typeof recoveryGraph.graph === "object") {
+    pendingTransactionSnapshotByPanel.set(panel, {
+      graph: clonePlainData(recoveryGraph.graph),
+      graphHash: recoveryGraph.graph_hash || null,
+      structuralHash: recoveryGraph.structural_graph_hash || null,
+      layoutHash: recoveryGraph.layout_graph_hash || null,
+      liveCanvasToken: null,
+    });
+  }
   const obligations = commitReconcileReceipts(panel, {
     receipts,
+    candidateTransaction,
     debugPayload: {
       reconcile_response: payload.raw || payload,
       reconciled_receipts: receipts,
+      recovery_graph_available: Boolean(recoveryGraph?.graph),
     },
   });
   fulfillLifecycleTransitionObligations(panel, obligations);
+  if (candidateTransaction?.state === "finalized") {
+    pendingTransactionSnapshotByPanel.delete(panel);
+  }
   return payload;
 }
 
@@ -11986,6 +12056,8 @@ async function rollbackPreparedAgentCandidate(
     canvasWasMutated = restoreCanvas,
   } = {},
 ) {
+  const expectedLayoutHash = snapshot?.layoutHash
+    || (snapshot?.graph ? await layoutGraphHash(snapshot.graph) : null);
   const canvasRestore = {
     attempted: Boolean(restoreCanvas),
     restored: !restoreCanvas,
@@ -11993,6 +12065,8 @@ async function rollbackPreparedAgentCandidate(
     actual_structural_hash: null,
     expected_graph_hash: snapshot?.graphHash || null,
     actual_graph_hash: null,
+    expected_layout_hash: expectedLayoutHash,
+    actual_layout_hash: null,
     error: null,
   };
   if (restoreCanvas) {
@@ -12033,8 +12107,9 @@ async function rollbackPreparedAgentCandidate(
       let restoredSnapshot = await buildCanvasSnapshot();
       canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
       canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
+      canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
       canvasRestore.restored = layoutTransaction
-        ? Boolean(snapshot.graphHash && restoredSnapshot.graphHash === snapshot.graphHash)
+        ? Boolean(expectedLayoutHash && restoredSnapshot.layoutHash === expectedLayoutHash)
         : Boolean(snapshot.structuralHash && restoredSnapshot.structuralHash === snapshot.structuralHash);
       canvasRestore.scoped_inverse.restored = canvasRestore.restored;
       if (!canvasRestore.restored && !layoutTransaction) {
@@ -12043,13 +12118,14 @@ async function rollbackPreparedAgentCandidate(
         restoredSnapshot = await buildCanvasSnapshot();
         canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
         canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
+        canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
         canvasRestore.restored = Boolean(snapshot.structuralHash
           && restoredSnapshot.structuralHash === snapshot.structuralHash);
         canvasRestore.whole_graph_last_resort.restored = canvasRestore.restored;
       }
       if (!canvasRestore.restored) {
         canvasRestore.error = layoutTransaction
-          ? "Restored layout did not match the exact pre-apply graph hash."
+          ? "Restored layout geometry did not match the pre-apply layout hash."
           : "Restored canvas did not match the pre-apply structural hash.";
       }
     } catch (error) {
@@ -12154,6 +12230,7 @@ async function rollbackPreparedAgentCandidate(
     return {
       ok: true,
       server_rolled_back: true,
+      rollback_receipt: rolledBack.receipt || null,
       canvas_restore: canvasRestore,
       response: rolledBack.raw || rolledBack,
     };
@@ -12224,8 +12301,45 @@ async function rejectAgentCandidate(panel) {
 
   if (
     isV2ApplyCandidate(panel)
-    && (panel.state.phase === PANEL_STATE.APPLY_PREPARED || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED)
+    && (
+      panel.state.phase === PANEL_STATE.APPLY_PREPARED
+      || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
+      || panel.state.phase === PANEL_STATE.FINALIZING
+      || panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
+    )
   ) {
+    const recoveryMayHaveMutatedCanvas = (
+      panel.state.phase === PANEL_STATE.FINALIZING
+      || (
+        panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
+        && panel.state.failure?.graph_unchanged !== true
+      )
+    );
+    if (
+      panel.state.phase === PANEL_STATE.FINALIZING
+      || panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
+    ) {
+      try {
+        await reconcilePreparedTransactionState(panel);
+      } catch (error) {
+        const failure = agentPanelFailure("ReconcileError", String(error), {
+          retryable: true,
+          graph_unchanged: false,
+          next_action: "Retry transaction recovery when the server is reachable.",
+        });
+        const obligations = transition(panel, "ROLLBACK_FAILURE", {
+          failure,
+          debugPayload: { recovery_reconcile_failure: failure },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+      const reconciled = normalizeCandidateTransaction(panel.state.candidateTransaction);
+      if (reconciled?.state === "finalized" || reconciled?.state === "rollback_complete") {
+        return;
+      }
+    }
     const compensationSnapshot = pendingTransactionSnapshotByPanel.get(panel) || null;
     const liveStructuralHash = snapshot.structuralHash || null;
     const baselineStructuralHash = compensationSnapshot?.structuralHash || null;
@@ -12238,7 +12352,8 @@ async function rejectAgentCandidate(panel) {
     const canvasMatchesCandidate = Boolean(
       candidateStructuralHash && liveStructuralHash === candidateStructuralHash,
     );
-    let canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
+    let canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
+      || recoveryMayHaveMutatedCanvas;
     if (canvasMatchesBaseline) {
       canvasWasMutated = false;
     } else if (canvasMatchesCandidate) {

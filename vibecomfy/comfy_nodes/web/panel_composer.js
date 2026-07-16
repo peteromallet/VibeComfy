@@ -419,12 +419,15 @@ export function renderComposerActions(panel, deps = {}) {
   // removing Apply / Reject and leaving the transaction with no action.
   const v2Prepared = phase === PANEL_STATE.APPLY_PREPARED;
   const v2CanvasVerified = phase === PANEL_STATE.CANVAS_VERIFIED;
+  const v2Finalizing = phase === PANEL_STATE.FINALIZING;
+  const v2RecoveryRequired = phase === PANEL_STATE.RECOVERY_REQUIRED;
   const v2Finalized = phase === PANEL_STATE.FINALIZED;
   const v2RollbackPrepared = phase === PANEL_STATE.ROLLBACK_PREPARED;
   const v2RollbackComplete = phase === PANEL_STATE.ROLLBACK_COMPLETE;
   const v2ReviewBound = phase === PANEL_STATE.REVIEW_BOUND;
 
-  const v2Active = v2Prepared || v2CanvasVerified || v2RollbackPrepared;
+  const v2Active = v2Prepared || v2CanvasVerified || v2Finalizing
+    || v2RecoveryRequired || v2RollbackPrepared;
   const v2Terminal = v2Finalized || v2RollbackComplete;
 
   const canSubmit =

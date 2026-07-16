@@ -71,6 +71,59 @@ test("Prepare must return the exact persisted mutation plan", () => {
   );
 });
 
+test("versioned layout verification must match between candidate and prepare", () => {
+  const layoutVerification = {
+    contract_version: "layout_verification_v1",
+    projection: "browser_layout_v1",
+    candidate_layout_graph_hash: "a".repeat(64),
+  };
+  const ready = transaction("candidate_ready", {
+    authority: {
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      layout_verification: layoutVerification,
+    },
+  });
+  const prepared = transaction("prepared", {
+    authority: {
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      layout_verification: layoutVerification,
+    },
+  });
+  assert.equal(
+    resolvePreparedMutationPlan(ready, prepared).layoutVerification.projection,
+    "browser_layout_v1",
+  );
+
+  prepared.authority.layout_verification = {
+    ...layoutVerification,
+    candidate_layout_graph_hash: "b".repeat(64),
+  };
+  assert.throws(
+    () => resolvePreparedMutationPlan(ready, prepared),
+    /layout verification contract differs/,
+  );
+});
+
+test("unknown layout verification contracts fail closed", () => {
+  const malformed = transaction("candidate_ready", {
+    authority: {
+      replay_ok: true,
+      candidate_matches: true,
+      verification_kind: "layout_structural_noop",
+      layout_verification: {
+        contract_version: "layout_verification_v999",
+        projection: "browser_layout_v1",
+        candidate_layout_graph_hash: "a".repeat(64),
+      },
+    },
+  });
+  assert.equal(normalizeCandidateTransaction(malformed), null);
+});
+
 test("landed plan rejects missing, reordered, or invented provenance", () => {
   const ops = transaction().plan.delta_ops_envelope.ops;
   assert.deepEqual(

@@ -31,6 +31,8 @@ const PREVIEW_DIFF_CORE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes"
 const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
 const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_delta.js");
 const CANONICAL_HASH_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_hash.js");
+const GRAPH_PROJECTION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "graph_projection.js");
+const LAYOUT_VERIFICATION_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "layout_verification_contract.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -467,7 +469,7 @@ export async function createBrowserHarness({
   }
 
   function _buildLiveNode(node) {
-    return {
+    const liveNode = {
       id: node.id,
       type: node.type,
       properties: clone(node.properties || {}),
@@ -487,6 +489,58 @@ export async function createBrowserHarness({
       },
       __vibecomfyOriginal: clone(node),
     };
+    // Modern LiteGraph owns link creation through the source node.  Model
+    // that contract in the browser harness instead of falling through to the
+    // adapter's legacy plain-object link path: callers must receive a real
+    // link record and both endpoint slots must be kept in sync.
+    if (withGraphMutation) {
+      liveNode.connect = function connect(sourceSlot, targetNode, targetSlot) {
+        const graph = app?.canvas?.graph;
+        const output = Array.isArray(this.outputs) ? this.outputs[Number(sourceSlot)] : null;
+        const input = Array.isArray(targetNode?.inputs) ? targetNode.inputs[Number(targetSlot)] : null;
+        if (!graph || !output || !input) {
+          return null;
+        }
+        if (input.link != null && typeof graph.removeLink === "function") {
+          graph.removeLink(input.link);
+        }
+        const existingIds = Object.values(graph.links || {})
+          .map((entry) => Number(entry?.id))
+          .filter(Number.isFinite);
+        const declaredLastId = Number(currentGraph?.last_link_id);
+        const linkId = Math.max(
+          Number.isFinite(declaredLastId) ? declaredLastId + 1 : 1,
+          existingIds.length ? Math.max(...existingIds) + 1 : 1,
+        );
+        const link = _decorateLiveLinkRecord({
+          id: linkId,
+          origin_id: this.id,
+          origin_slot: Number(sourceSlot),
+          target_id: targetNode.id,
+          target_slot: Number(targetSlot),
+          type: output.type ?? input.type ?? null,
+        });
+        graph.links[String(linkId)] = link;
+        if (!Array.isArray(output.links)) output.links = [];
+        output.links.push(linkId);
+        input.link = linkId;
+        if (currentGraph && typeof currentGraph === "object") {
+          currentGraph.last_link_id = linkId;
+        }
+        const entry = {
+          sourceNodeId: this.id,
+          sourceSlot: Number(sourceSlot),
+          targetNodeId: targetNode.id,
+          targetSlot: Number(targetSlot),
+          linkType: link.type,
+          timestamp: Date.now(),
+        };
+        graphConnectCalls.push(entry);
+        operationLog.push({ kind: "graph.connect", ...entry });
+        return link;
+      };
+    }
+    return liveNode;
   }
 
   class FakeGraphGroup {
@@ -649,6 +703,24 @@ export async function createBrowserHarness({
         setDirtyCanvas(fg, bg) {
           graphDirtyCanvasCalls.push([fg, bg]);
           operationLog.push({ kind: "graph.setDirtyCanvas", fg, bg });
+        },
+        removeLink(linkId) {
+          const link = this.links?.[String(linkId)] || null;
+          if (!link) return false;
+          const sourceNode = this._nodes.find((entry) => String(entry?.id) === String(link.origin_id));
+          const targetNode = this._nodes.find((entry) => String(entry?.id) === String(link.target_id));
+          const output = Array.isArray(sourceNode?.outputs) ? sourceNode.outputs[link.origin_slot] : null;
+          const input = Array.isArray(targetNode?.inputs) ? targetNode.inputs[link.target_slot] : null;
+          if (Array.isArray(output?.links)) {
+            output.links = output.links.filter((entry) => String(entry) !== String(link.id));
+            if (!output.links.length) output.links = null;
+          }
+          if (input && String(input.link) === String(link.id)) input.link = null;
+          delete this.links[String(link.id)];
+          const entry = { linkId: link.id, timestamp: Date.now() };
+          graphDisconnectCalls.push(entry);
+          operationLog.push({ kind: "graph.disconnect", ...entry });
+          return true;
         },
         add(node) {
           if (!withGraphMutation) {
@@ -902,6 +974,8 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "canonical_delta.js"), await readFile(CANONICAL_DELTA_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "canonical_hash.js"), await readFile(CANONICAL_HASH_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "graph_projection.js"), await readFile(GRAPH_PROJECTION_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "layout_verification_contract.js"), await readFile(LAYOUT_VERIFICATION_CONTRACT_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {

@@ -914,7 +914,7 @@ test("commitVerifyCanvasFailure clears verifiedReceipt and goes to ERROR", () =>
   assert.ok(obligations.render);
 });
 
-test("commitFinalizeStarted sets FINALIZED phase", () => {
+test("commitFinalizeStarted sets FINALIZING phase", () => {
   const panel = makePanel({
     turnId: "turn-v2",
     mutationPlanHash: "deadbeef".repeat(8),
@@ -923,7 +923,7 @@ test("commitFinalizeStarted sets FINALIZED phase", () => {
   });
   const obligations = commitFinalizeStarted(panel, {});
 
-  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZING);
   assert.equal(panel.state.failure, null);
   assert.ok(obligations.render);
 });
@@ -967,7 +967,7 @@ test("commitFinalizeFailure syncs baseline from failure payload", () => {
   };
   const obligations = commitFinalizeFailure(panel, { failure });
 
-  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED);
   assert.equal(panel.state.failure, failure);
   assert.equal(panel.state.baselineGraphHash, "server-baseline");
   assert.ok(obligations.render);
@@ -1012,12 +1012,12 @@ test("commitRollbackSuccess records receipt and clears candidate", () => {
   assert.ok(obligations.persistSession);
 });
 
-test("commitRollbackFailure clears receipt and goes to ERROR", () => {
+test("commitRollbackFailure clears receipt and keeps recovery actionable", () => {
   const panel = makePanel({ turnId: "turn-v2" });
   const failure = { code: "ROLLBACK_FAILED", message: "Cannot rollback" };
   const obligations = commitRollbackFailure(panel, { failure });
 
-  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED);
   assert.equal(panel.state.failure, failure);
   assert.equal(panel.state.rollbackReceipt, null);
   assert.ok(obligations.render);

@@ -1,0 +1,144 @@
+{
+  "session_id": "a66422e6dac2409b8a52d30ee1aec1f2",
+  "turn_id": "0001",
+  "coverage": [
+    "numeric_object_keys",
+    "canonical_link_order",
+    "duplicate_group_titles",
+    "compiler_only_group_nodes",
+    "native_group_normalization",
+    "stable_group_identity"
+  ],
+  "original": {
+    "extra": {
+      "prompt": {
+        "1": {"class_type": "Loader"},
+        "11": {"class_type": "Noise"},
+        "2": {"class_type": "Encode"},
+        "20": {"class_type": "Sampler"},
+        "100": {"class_type": "Preview"}
+      }
+    },
+    "nodes": [
+      {
+        "id": 239,
+        "type": "GetNode",
+        "pos": [5955, 74],
+        "size": [210, 40],
+        "widgets_values": ["latent"],
+        "properties": {"vibecomfy_uid": "get-latent"},
+        "outputs": [{"name": "LATENT", "links": [40, 41]}]
+      },
+      {
+        "id": 113,
+        "type": "Sampler",
+        "pos": [5477, 930],
+        "size": [270, 100],
+        "properties": {"vibecomfy_uid": "sampler"},
+        "inputs": [{"name": "latent_image", "link": 41}]
+      },
+      {
+        "id": 206,
+        "type": "Scheduler",
+        "pos": [1002, 2460],
+        "size": [210, 40],
+        "properties": {"vibecomfy_uid": "scheduler"},
+        "inputs": [{"name": "latent", "link": 40}]
+      }
+    ],
+    "links": [
+      [40, 239, 0, 206, 0, "LATENT"],
+      [41, 239, 0, 113, 0, "LATENT"]
+    ],
+    "groups": [
+      {
+        "id": 7,
+        "title": "Prompt / Text",
+        "bounding": [5000, 0, 800, 1100],
+        "color": "#3f789e",
+        "flags": {}
+      },
+      {
+        "id": 12,
+        "title": "Conditioning",
+        "bounding": [700, 2300, 900, 600],
+        "color": "#3f789e",
+        "flags": {}
+      }
+    ]
+  },
+  "historical_candidate_groups": [
+    {
+      "title": "Prompt / Text",
+      "bounding": [5846, 70, 400, 260],
+      "color": "#3f789e",
+      "nodes": [239]
+    },
+    {
+      "title": "Prompt / Text",
+      "bounding": [4497, 70, 520, 260],
+      "color": "#3f789e",
+      "nodes": [113, 206]
+    }
+  ],
+  "candidate": {
+    "extra": {
+      "prompt": {
+        "1": {"class_type": "Loader"},
+        "11": {"class_type": "Noise"},
+        "2": {"class_type": "Encode"},
+        "20": {"class_type": "Sampler"},
+        "100": {"class_type": "Preview"}
+      }
+    },
+    "nodes": [
+      {
+        "id": 239,
+        "type": "GetNode",
+        "pos": [5846, 238],
+        "size": [112, 36],
+        "widgets_values": ["latent"],
+        "properties": {"vibecomfy_uid": "get-latent"},
+        "outputs": [{"name": "LATENT", "links": [40, 41]}]
+      },
+      {
+        "id": 113,
+        "type": "Sampler",
+        "pos": [4497, 70],
+        "size": [270, 100],
+        "properties": {"vibecomfy_uid": "sampler"},
+        "inputs": [{"name": "latent_image", "link": 41}]
+      },
+      {
+        "id": 206,
+        "type": "Scheduler",
+        "pos": [4789, 824],
+        "size": [112, 36],
+        "properties": {"vibecomfy_uid": "scheduler"},
+        "inputs": [{"name": "latent", "link": 40}]
+      }
+    ],
+    "links": [
+      [40, 239, 0, 206, 0, "LATENT"],
+      [41, 239, 0, 113, 0, "LATENT"]
+    ],
+    "groups": [
+      {
+        "id": "prompt-text-a",
+        "scope_path": "",
+        "title": "Prompt / Text",
+        "bounding": [5846, 70, 400, 260],
+        "color": "#3f789e",
+        "nodes": [239]
+      },
+      {
+        "id": "prompt-text-b",
+        "scope_path": "",
+        "title": "Prompt / Text",
+        "bounding": [4497, 70, 520, 900],
+        "color": "#3f789e",
+        "nodes": [113, 206]
+      }
+    ]
+  }
+}

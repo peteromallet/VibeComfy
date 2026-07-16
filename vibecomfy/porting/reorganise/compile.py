@@ -2761,6 +2761,27 @@ def _wall_section_rank(section: _CompileSection) -> int:
     the group wall follows the visual convention users expect in shared Comfy
     graphs.
     """
+    # Generated wall buckets carry a stronger semantic signal than their
+    # human-facing title.  Consult that stable identity first: for example,
+    # ``root__custom__displays`` is a conditioning-side support section, but
+    # its title "Displays / Labels" used to hit the generic ``"label"`` title
+    # rule and get sent to the far-right notes rank.
+    bucket_id = _wall_bucket_id_from_section_id(section.id)
+    if bucket_id in {"models", "clip", "vae", "lora", "input", "settings", "model_patching", "video_io"}:
+        return 0
+    if bucket_id in {"prompt", "conditioning", "displays"}:
+        return 1
+    if bucket_id == "labels":
+        return 7
+    if bucket_id == "setget":
+        return 0
+    if bucket_id in {"custom", "prep", "imageprep", "latent", "loop_control"}:
+        return 2
+    if bucket_id in {"sampling_settings", "samplers", "video_generation"}:
+        return 3
+    if bucket_id in {"upscale", "postprocess", "color_match", "cleanup"}:
+        return 5
+
     title = (section.title or "").lower()
     if "input" in title or "setting" in title or "model" in title or "lora" in title:
         return 0
@@ -2780,19 +2801,6 @@ def _wall_section_rank(section: _CompileSection) -> int:
         return 0
     if "label" in title or "note" in title:
         return 7
-    bucket_id = _wall_bucket_id_from_section_id(section.id)
-    if bucket_id in {"models", "clip", "vae", "lora", "input", "settings", "model_patching", "video_io"}:
-        return 0
-    if bucket_id in {"labels", "prompt", "conditioning", "displays"}:
-        return 1
-    if bucket_id == "setget":
-        return 0
-    if bucket_id in {"custom", "prep", "imageprep", "latent", "loop_control"}:
-        return 2
-    if bucket_id in {"sampling_settings", "samplers", "video_generation"}:
-        return 3
-    if bucket_id in {"upscale", "postprocess", "color_match", "cleanup"}:
-        return 5
     if section.kind == SECTION_KIND_OUTPUT or "output" in title or "save" in title:
         return 6
     if section.kind in {SECTION_KIND_DECODE, SECTION_KIND_POSTPROCESS}:
@@ -2811,11 +2819,20 @@ def _wall_section_rank(section: _CompileSection) -> int:
 
 
 def _huge_wall_band(section: _CompileSection) -> int:
-    title = (section.title or "").lower()
     bucket_id = _wall_bucket_id_from_section_id(section.id)
-    if "set / get" in title or "helper" in title or bucket_id == "setget":
+    # As with wall rank, generated bucket identity must win over ambiguous
+    # presentation text.  "Displays / Labels" belongs in the main flow band;
+    # only the dedicated labels/notes bucket is a footer band.
+    if bucket_id == "setget":
         return 0
-    if "label" in title or "note" in title or bucket_id == "labels":
+    if bucket_id == "labels":
+        return 1
+    if bucket_id:
+        return 0
+    title = (section.title or "").lower()
+    if "set / get" in title or "helper" in title:
+        return 0
+    if "label" in title or "note" in title:
         return 1
     return 0
 
@@ -6957,6 +6974,8 @@ def _entry_for_layout(
 
 def _sidecar_group(group: CompiledGroupLayout) -> Mapping[str, Any]:
     return {
+        "id": group.id,
+        "scope_path": group.scope_path,
         "title": group.title,
         "bounding": [group.x, group.y, group.width, group.height],
         "color": group.color,

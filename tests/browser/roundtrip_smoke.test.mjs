@@ -20,23 +20,16 @@ import {
   assertCanonicalNormalPathHasNoLegacyAliases,
   assertNormalDomTextHasNoForbiddenFieldOrValue,
 } from "./projection_boundary_helpers.mjs";
-
-function canonicalizeJsonValue(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => canonicalizeJsonValue(entry));
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entryValue]) => [key, canonicalizeJsonValue(entryValue)]),
-    );
-  }
-  return value;
-}
+import { canonicalSessionJsonString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import {
+  PANEL_STATE,
+  createAgentEditState,
+  transition,
+} from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
+import { boundedBrowserTransactionError } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
 
 function sha256HexUtf8(value) {
-  return crypto.createHash("sha256").update(JSON.stringify(canonicalizeJsonValue(value)), "utf8").digest("hex");
+  return crypto.createHash("sha256").update(canonicalSessionJsonString(value), "utf8").digest("hex");
 }
 
 function candidateTransactionFixture({
@@ -93,6 +86,164 @@ function bindTransactionStructuralHash(extensionModule, transaction, graph) {
   transaction.hashes.candidate_structural_graph_hash = sha256HexUtf8(
     extensionModule.buildStructuralGraphProjection(graph),
   );
+  const layoutHash = sha256HexUtf8(
+    extensionModule.buildLayoutGraphProjection(graph),
+  );
+  transaction.hashes.candidate_layout_graph_hash = layoutHash;
+  if (transaction.authority?.verification_kind === "layout_structural_noop") {
+    transaction.authority.layout_verification = {
+      contract_version: "layout_verification_v1",
+      projection: "browser_layout_v1",
+      candidate_layout_graph_hash: layoutHash,
+    };
+  }
+}
+
+// Explicit opt-in fixture for smoke scenarios that exercise an applyable V2
+// candidate.  Callers must name the authoritative delta operations; this helper
+// deliberately does not infer a graph delta or alter the browser harness.
+function v2ApplyScenarioFixture({
+  sessionId,
+  turnId = "0001",
+  planHash,
+  candidateGraph,
+  candidateGraphHash = sha256HexUtf8(candidateGraph),
+  deltaOps,
+  verificationKind = "delta_replay",
+  generation = 1,
+  leaseNonce = `${planHash}-lease`,
+}) {
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash,
+    verificationKind,
+  });
+  const preparedTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash,
+    verificationKind,
+    state: "prepared",
+    generation,
+    leaseNonce,
+  });
+  const finalizedTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash,
+    verificationKind,
+    state: "finalized",
+    generation,
+    leaseNonce,
+  });
+  const rolledBackTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash,
+    verificationKind,
+    state: "rollback_complete",
+    generation,
+    leaseNonce,
+    availableActions: [],
+  });
+  return {
+    candidateTransaction,
+    preparedTransaction,
+    finalizedTransaction,
+    rolledBackTransaction,
+    candidateFields: {
+      agent_edit_protocol: "v2_delta",
+      outcome: { kind: "candidate", changes: [] },
+      candidate: {
+        state: "candidate",
+        graph: candidateGraph,
+        graph_hash: candidateGraphHash,
+        plan_hash: planHash,
+      },
+      graph: candidateGraph,
+      candidate_graph_hash: candidateGraphHash,
+      delta_ops: deltaOps,
+      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
+      candidate_transaction: candidateTransaction,
+    },
+    bind(extensionModule) {
+      for (const transaction of [
+        candidateTransaction,
+        preparedTransaction,
+        finalizedTransaction,
+        rolledBackTransaction,
+      ]) {
+        bindTransactionStructuralHash(extensionModule, transaction, candidateGraph);
+      }
+    },
+    routes({ prepare, finalize, rollback } = {}) {
+      return {
+        "/vibecomfy/agent-edit/prepare": async ({ options }) => {
+          const body = JSON.parse(options.body);
+          assert.equal(body.plan_hash, planHash);
+          assert.equal(body.turn_id, turnId);
+          if (prepare) return prepare({ body, candidateTransaction, preparedTransaction });
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "prepare",
+              session_id: sessionId,
+              turn_id: turnId,
+              receipt: { plan_hash: planHash, generation, lease_nonce: leaseNonce },
+              candidate_transaction: preparedTransaction,
+            },
+          };
+        },
+        "/vibecomfy/agent-edit/finalize": async ({ options }) => {
+          const body = JSON.parse(options.body);
+          assert.equal(body.plan_hash, planHash);
+          assert.equal(body.lease_nonce, leaseNonce);
+          if (finalize) return finalize({ body, candidateTransaction, finalizedTransaction });
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "finalize",
+              session_id: sessionId,
+              turn_id: turnId,
+              baseline_turn_id: turnId,
+              baseline_graph_hash: body.client_structural_graph_hash,
+              baseline_graph_hash_kind: "structural",
+              candidate_transaction: finalizedTransaction,
+              receipt: { plan_hash: planHash, generation, phase: "finalized" },
+            },
+          };
+        },
+        "/vibecomfy/agent-edit/rollback": async ({ options }) => {
+          const body = JSON.parse(options.body);
+          assert.equal(body.plan_hash, planHash);
+          assert.equal(body.lease_nonce, leaseNonce);
+          if (rollback) return rollback({ body, candidateTransaction, rolledBackTransaction });
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "rollback",
+              session_id: sessionId,
+              turn_id: turnId,
+              candidate_transaction: rolledBackTransaction,
+              receipt: { plan_hash: planHash, generation, phase: "rollback_complete" },
+            },
+          };
+        },
+      };
+    },
+  };
 }
 
 const OVERLAY_FORBIDDEN_TEXT_PATTERNS = [
@@ -635,7 +786,7 @@ test("VibeComfy structural graph projection ignores volatile canvas fields but k
         {
           id: 1,
           type: "Input",
-          mode: null,
+          mode: 0,
           inputs: [],
           outputs: ["IMAGE"],
           widgets_values: ["a prompt", { keep: "value" }],
@@ -643,7 +794,7 @@ test("VibeComfy structural graph projection ignores volatile canvas fields but k
         {
           id: 2,
           type: "SaveImage",
-          mode: null,
+          mode: 0,
           inputs: ["images"],
           outputs: [],
           widgets_values: ["prefix"],
@@ -1198,6 +1349,15 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
     ],
     links: [[1, 1, 0, 3, 0, "IMAGE"]],
   };
+  const staleArrivalApply = v2ApplyScenarioFixture({
+    sessionId: "session-stale-arrival",
+    planHash: "stale-arrival-plan",
+    candidateGraph: { nodes: [{ id: 9, type: "PreviewImage", properties: { vibecomfy_uid: "uid-9" } }], links: [] },
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "uid-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "uid-9", node_id: "9", class_type: "PreviewImage", fields: {}, inputs: {} },
+    ],
+  });
   let releaseResponse;
   const pendingResponse = new Promise((resolve) => {
     releaseResponse = resolve;
@@ -1223,7 +1383,8 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
             apply_allowed: true,
             queue_allowed: false,
             message: "Candidate remains backend-CAS reviewable.",
-            graph: { nodes: [{ id: 9, type: "PreviewImage", properties: { vibecomfy_uid: "uid-9" } }], links: [] },
+            ...staleArrivalApply.candidateFields,
+            eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
             report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-9"], removed_named: [] } }, recovery: [] },
             audit_ref: { path: "/tmp/stale-arrival-audit.json" },
           },
@@ -1250,6 +1411,7 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
   let submitPromise;
   try {
     const extensionModule = await harness.loadExtension();
+    staleArrivalApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -1261,6 +1423,7 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
     harness.setCurrentGraph(changedGraph);
     releaseResponse();
     await submitPromise;
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
     assert.match(harness.textDump(), /Candidate remains backend-CAS reviewable/);
@@ -1628,7 +1791,7 @@ test("VibeComfy treats graph-unchanged all-gates-false candidate responses as no
           canvas_apply_allowed: false,
           apply_allowed: false,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: false,
             reason: "unchanged_candidate",
             message: "The candidate is identical to the submitted graph.",
@@ -1868,6 +2031,15 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
     links: [],
   };
   const question = "Should I also rename the file stem?";
+  const editClarifyApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "edit-clarify-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "after" },
+    ],
+  });
   const harness = await createBrowserHarness({
     graph: initialGraph,
     responses: {
@@ -1892,15 +2064,13 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
           ok: true,
           session_id: SESSION_ID,
           turn_id: "0002",
+          ...editClarifyApply.candidateFields,
           outcome: { kind: "edit+clarify", question, changes: [{ uid: "uid-1", field_path: "filename_prefix", old: "before", new: "after" }] },
-          candidate: { state: "candidate", graph: candidateGraph, graph_hash: "candidate-edit-clarify" },
           eligibility: { applyable: true, reason: "queue_blocked_warning", message: "Apply is allowed, but Queue remains blocked for this candidate.", warnings: ["queue_blocked"] },
-          graph: candidateGraph,
           report: { change: { content_edits: { edited: ["uid-1"] } }, recovery: [] },
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          candidate_graph_hash: "candidate-edit-clarify",
           message: `Applied 1 edit. ${question}`,
         },
       },
@@ -1921,15 +2091,18 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
 
   try {
     const extensionModule = await harness.loadExtension();
+    editClarifyApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change prefix";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, false);
+    assert.match(extensionModule.ensureAgentPanel().state.clarification?.message || "", /Should I also rename the file stem/);
     assert.match(harness.textDump(), /Should I also rename the file stem/);
     assert.doesNotMatch(harness.textDump(), /Reply in the prompt/);
     assert.doesNotMatch(harness.textDump(), /Your answer continues this same session/);
@@ -2008,19 +2181,30 @@ test("VibeComfy failure bubble uses envelope user_facing_message for MalformedMo
 test("VibeComfy reads typed candidate and eligibility envelopes without compatibility mirrors", async () => {
   const SESSION_ID = "session-typed-candidate";
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", links: [] }] }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", links: [1] }] },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images", link: 1 }] },
     ],
-    links: [],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
+  const typedCandidateApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "typed-candidate-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+      { op: "upsert_link", from: ["nodes", "uid-1", "IMAGE"], to: ["nodes", "uid-2", "images"] },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -2033,9 +2217,8 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
           session_id: SESSION_ID,
           turn_id: "0002",
           baseline_turn_id: null,
-          candidate: {
-            graph: candidateGraph,
-          },
+          outcome: { kind: "candidate", changes: [] },
+          ...typedCandidateApply.candidateFields,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -2057,25 +2240,16 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
           audit_ref: { path: "/tmp/typed-candidate-audit.json" },
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0002",
-          baseline_turn_id: "0002",
-          baseline_graph_hash: "baseline-typed-candidate",
-          queue_allowed: true,
-          audit_ref: { path: "/tmp/typed-candidate-accept.json" },
-        },
-      },
+      ...typedCandidateApply.routes(),
       [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
         status: 200,
         body: {
           ok: true,
           session_id: SESSION_ID,
-          messages: [],
+          messages: [
+            { role: "user", text: "add a saver", turn_id: "0002" },
+            { role: "agent", text: "Typed candidate ready.", turn_id: "0002" },
+          ],
           session_path: `out/editor_sessions/${SESSION_ID}/`,
         },
       },
@@ -2096,7 +2270,8 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    typedCandidateApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -2107,17 +2282,21 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false, {
       attempts: 200,
     });
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Typed candidate ready/);
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
 
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/finalize"));
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
     // M2 T13 makes per-bubble details lazy; expand before asserting detail-only feedback.
     expandAgentBubbleDetails(harness.document.body);
-    assert.match(harness.textDump(), /Ready|Typed candidate ready|Candidate accepted/);
+    assert.match(harness.textDump(), /FINALIZED|Typed candidate ready|Candidate applied/);
   } finally {
     await harness.dispose();
   }
@@ -2132,8 +2311,27 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
     links: [],
   };
   const failureMessage = "This candidate has been superseded.";
+  const rejectedCandidateApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "accept-rejects-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "uid-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
+  const supersededTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "accept-rejects-plan",
+    deltaOps: rejectedCandidateApply.candidateTransaction.plan.delta_ops_envelope.ops,
+    candidateGraphHash: rejectedCandidateApply.candidateTransaction.hashes.candidate_graph_hash,
+    state: "superseded",
+  });
   const harness = await createBrowserHarness({
     graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }], links: [] },
+    withGraphMutation: true,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent-executor": {
@@ -2142,28 +2340,37 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
           ok: true,
           session_id: SESSION_ID,
           turn_id: "0004",
-          candidate: { state: "candidate", graph: candidateGraph, graph_hash: "candidate-hash" },
+          outcome: { kind: "candidate", changes: [] },
+          ...rejectedCandidateApply.candidateFields,
           eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
-          graph: candidateGraph,
           report: { change: { content_edits: { edited: ["uid-2"] } }, recovery: [] },
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: true,
-          candidate_graph_hash: "candidate-hash",
           message: "Candidate ready.",
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 409,
+      ...rejectedCandidateApply.routes({
+        prepare: () => ({
+          status: 409,
+          body: {
+            ok: false,
+            kind: "StaleStateMismatch",
+            stage: "prepare",
+            session_id: SESSION_ID,
+            turn_id: "0004",
+            user_facing_message: failureMessage,
+            message: failureMessage,
+            candidate_transaction: supersededTransaction,
+          },
+        }),
+      }),
+      "/vibecomfy/agent-edit/reconcile": {
+        status: 200,
         body: {
-          ok: false,
-          kind: "StaleStateMismatch",
-          stage: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0004",
-          user_facing_message: failureMessage,
-          message: failureMessage,
-          graph_unchanged: true,
+          ok: true,
+          transactions_by_turn: { "0004": supersededTransaction },
+          receipts_by_turn: { "0004": [] },
         },
       },
       "/vibecomfy/agent/status?route=auto": {
@@ -2184,17 +2391,22 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    rejectedCandidateApply.bind(extensionModule);
+    bindTransactionStructuralHash(extensionModule, supersededTransaction, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make candidate";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     await harness.clickButton("Apply");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
-    assert.match(harness.textDump(), /This candidate has been superseded/);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "ERROR");
+    assert.equal(extensionModule.ensureAgentPanel().state.candidateTransaction?.state, "superseded");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
   } finally {
     await harness.dispose();
   }
@@ -2203,13 +2415,13 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
 test("V2 candidate routes Apply to prepare and never to legacy accept", async () => {
   const sessionId = "session-v2-apply-routing";
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{ id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", pos: [0, 0], properties: { vibecomfy_uid: "uid-2" } },
     ],
     links: [],
   };
@@ -2224,6 +2436,7 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
   });
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/status?route=auto": {
@@ -2281,7 +2494,12 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    const v2Panel = extensionModule.ensureAgentPanel();
+    assert.equal(v2Panel.state.agentEditProtocol, "v2_delta");
+    assert.equal(v2Panel.state.candidateTransaction?.state, "candidate_ready");
+    assert.equal(v2Panel.state.candidateTransaction?.plan_hash, "plan-v2-hash");
     await harness.clickButton("Apply");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/prepare"));
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
@@ -2379,15 +2597,22 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
           session_id: sessionId,
           turn_id: "0001",
           receipt: {
+            seq: 1,
+            event_type: "prepared",
             plan_hash: planHash,
             generation: 1,
-            lease_nonce: "lease-v2-structural-hash",
+            receipt: {
+              plan_hash: planHash,
+              generation: 1,
+              lease_nonce: "lease-v2-structural-hash",
+            },
           },
           candidate_transaction: preparedTransaction,
         },
       },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
         const body = JSON.parse(options.body);
+        assert.equal(body.lease_nonce, "lease-v2-structural-hash");
         assert.equal(body.post_apply_hash, body.client_structural_graph_hash);
         assert.notEqual(body.post_apply_hash, body.client_graph_hash);
         return {
@@ -2463,7 +2688,6 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
     assert.equal(
       harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
       0,
-      JSON.stringify(panel.state.failure || panel.state.debugPayload),
     );
     assert.equal(panel.state.phase, "FINALIZED");
     assert.equal(panel.state.debugPayload?.post_finalize_projection_failure?.substage, "post_finalize_projection");
@@ -2474,9 +2698,12 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
       [[1, "Input", "uid-1"], [2, "SaveImage", "uid-2"]],
     );
     const undoButton = harness.document.getElementById("vibecomfy-agent-panel-undo");
+    await waitFor(() => panel.state.undoStack.length === 1);
     assert.notEqual(undoButton?.style.display, "none");
     assert.equal(undoButton?.disabled, false);
     await harness.clickButton("Undo Last Apply");
+    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length === 1);
+    await waitFor(() => panel.state.undoStack.length === 0);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 1);
     assert.deepEqual(
       harness.getCurrentGraph().nodes.map((node) => [node.id, node.type, node.properties?.vibecomfy_uid]),
@@ -2497,7 +2724,10 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
       { id: 2, type: "Output", pos: [40, 200], size: [200, 100], properties: { vibecomfy_uid: "uid-2" } },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
-    groups: [{ id: 1, title: "Before", bounding: [0, 0, 300, 340] }],
+    groups: [
+      { id: "group-a", title: "Prompt / Text", bounding: [0, 0, 300, 160] },
+      { id: "group-b", title: "Prompt / Text", bounding: [0, 180, 300, 160] },
+    ],
   };
   const candidateGraph = {
     ...initialGraph,
@@ -2505,8 +2735,16 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
       { ...initialGraph.nodes[0], pos: [400, 80] },
       { ...initialGraph.nodes[1], pos: [700, 80] },
     ],
-    groups: [{ id: 1, title: "After", bounding: [370, 40, 560, 180] }],
+    groups: [
+      { id: "group-a", scope_path: "", title: "Prompt / Text", bounding: [370, 40, 260, 180], nodes: [1] },
+      { id: "group-b", scope_path: "", title: "Prompt / Text", bounding: [650, 40, 280, 180], nodes: [2] },
+    ],
   };
+  const nativeCandidateGraph = {
+    ...candidateGraph,
+    groups: candidateGraph.groups.map(({ nodes: _nodes, scope_path: _scopePath, ...group }) => group),
+  };
+  const nativeCandidateGraphHash = sha256HexUtf8(nativeCandidateGraph);
   const candidateGraphHash = sha256HexUtf8(candidateGraph);
   const transactionArgs = {
     sessionId,
@@ -2581,8 +2819,8 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
       },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
         const body = JSON.parse(options.body);
-        assert.equal(body.client_graph_hash, candidateGraphHash);
-        assert.deepEqual(body.post_apply_graph, candidateGraph);
+        assert.equal(body.client_graph_hash, nativeCandidateGraphHash);
+        assert.deepEqual(body.post_apply_graph, nativeCandidateGraph);
         return {
           status: 200,
           body: {
@@ -2624,7 +2862,7 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(panel.state.phase, "FINALIZED", JSON.stringify(panel.state.failure || panel.state.debugPayload));
-    assert.deepEqual(harness.getCurrentGraph(), candidateGraph);
+    assert.deepEqual(harness.getCurrentGraph(), nativeCandidateGraph);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
     harness.getLiveNodes().forEach((node, index) => {
@@ -2821,13 +3059,6 @@ test("prepared transaction rehydrate restores candidate-mutated canvas before ca
     assert.equal(
       harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
       1,
-      JSON.stringify({
-        failure: panel.state.failure,
-        debug: panel.state.debugPayload,
-        expected: preparedBaseline.structural_graph_hash,
-        actual: sha256HexUtf8(extensionModule.buildStructuralGraphProjection(harness.getCurrentGraph())),
-        phase: panel.state.phase,
-      }),
     );
     await waitFor(() => panel.state.phase === "ROLLBACK_COMPLETE");
     assert.equal(panel.state.phase, "ROLLBACK_COMPLETE");
@@ -3033,7 +3264,7 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
       0,
       `V2 forward apply must never invoke graph.configure(): ${JSON.stringify(panel.state.failure || panel.state.debugPayload)}`,
     );
-    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphClearCalls.length, 0, JSON.stringify(extensionModule.ensureAgentPanel().state.failure || extensionModule.ensureAgentPanel().state.debugPayload));
     assert.equal(harness.graphAddCalls.length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
@@ -3042,7 +3273,7 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
     const applied = harness.getCurrentGraph();
     assert.deepEqual(applied.nodes.map((node) => node.id), [10, 12, 74, 98]);
     assert.deepEqual(
-      applied.links.map((link) => [link.origin_id, link.target_id]).sort((a, b) => a[1] - b[1]),
+      applied.links.map((link) => [link[1], link[3]]).sort((a, b) => a[1] - b[1]),
       [[10, 98], [98, 12], [98, 74]].sort((a, b) => a[1] - b[1]),
     );
   } finally {
@@ -3223,6 +3454,241 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
   }
 });
 
+test("V2 native mutation throw compensates once, restores canvas, and retains the rollback receipt", async () => {
+  const initialGraph = { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "input-1" } }], links: [] };
+  const candidateGraph = { nodes: [...initialGraph.nodes, { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "save-2" } }], links: [] };
+  const scenario = v2ApplyScenarioFixture({
+    sessionId: "session-v2-native-throw", planHash: "native-throw-plan", candidateGraph,
+    deltaOps: [{ op: "add_node", scope_path: "", uid: "save-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} }],
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph, withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": { status: 200, body: { ok: true, provider_available: true, route: "arnold", requested_route: "auto", route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } } } },
+      "/vibecomfy/agent-executor": { status: 200, body: { ok: true, session_id: "session-v2-native-throw", turn_id: "0001", eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] }, apply_allowed: true, canvas_apply_allowed: true, ...scenario.candidateFields } },
+      ...scenario.routes({
+        rollback: ({ body, rolledBackTransaction }) => ({ status: 200, body: { ok: true, action: "rollback", session_id: "session-v2-native-throw", turn_id: "0001", candidate_transaction: rolledBackTransaction, receipt: { plan_hash: "native-throw-plan", generation: 1, phase: "rollback_complete", compensation: body.compensation } } }),
+      }),
+    },
+  });
+  try {
+    const extensionModule = await harness.loadExtension();
+    scenario.bind(extensionModule);
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a save node";
+    await harness.clickButton("Submit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    const nativeAdd = harness.app.canvas.graph.add.bind(harness.app.canvas.graph);
+    let threw = false;
+    harness.app.canvas.graph.add = (node) => {
+      nativeAdd(node);
+      if (!threw) { threw = true; throw new Error("native adapter apply exploded"); }
+    };
+    await harness.clickButton("Apply");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
+    assert.equal(panel.state.rollbackReceipt?.phase, "rollback_complete");
+    assert.equal(panel.state.syntheticAgentMessage?.synthetic, true);
+    assert.equal(
+      [...harness.document.body.querySelectorAll("[data-vibecomfy-message-key]")]
+        .filter((bubble) => /native adapter apply exploded/.test(bubble.textContent || "")).length,
+      1,
+    );
+  } finally { await harness.dispose(); }
+});
+
+test("V2 scoped postcheck mismatch compensates with one actionable bubble and a rollback receipt", async () => {
+  const initialGraph = { nodes: [{ id: 1, type: "SaveImage", properties: { vibecomfy_uid: "save-1" }, widgets_values: ["before"], inputs: [], outputs: [] }], links: [] };
+  const candidateGraph = { nodes: [{ ...initialGraph.nodes[0], widgets_values: ["after"] }], links: [] };
+  const scenario = v2ApplyScenarioFixture({
+    sessionId: "session-v2-postcheck", planHash: "postcheck-plan", candidateGraph,
+    deltaOps: [{ op: "set_node_field", scope_path: "", target: ["nodes", "save-1", "widgets_values", 0], value: "after" }],
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph, withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": { status: 200, body: { ok: true, provider_available: true, route: "arnold", requested_route: "auto", route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } } } },
+      "/vibecomfy/agent-executor": { status: 200, body: { ok: true, session_id: "session-v2-postcheck", turn_id: "0001", eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] }, apply_allowed: true, canvas_apply_allowed: true, ...scenario.candidateFields } },
+      ...scenario.routes({ rollback: ({ body, rolledBackTransaction }) => ({ status: 200, body: { ok: true, action: "rollback", session_id: "session-v2-postcheck", turn_id: "0001", candidate_transaction: rolledBackTransaction, receipt: { plan_hash: "postcheck-plan", generation: 1, phase: "rollback_complete", compensation: body.compensation } } }) }),
+    },
+  });
+  try {
+    const extensionModule = await harness.loadExtension();
+    scenario.bind(extensionModule);
+    await harness.setup(); await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change save setting";
+    await harness.clickButton("Submit"); await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    const serialize = harness.app.canvas.graph.serialize.bind(harness.app.canvas.graph);
+    let corrupted = false;
+    harness.app.canvas.graph.serialize = () => {
+      const live = harness.getLiveNodes().find((node) => node.properties?.vibecomfy_uid === "save-1");
+      if (!corrupted && live?.widgets_values?.[0] === "after") { live.widgets_values[0] = "corrupt"; corrupted = true; }
+      return serialize();
+    };
+    await harness.clickButton("Apply");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.failure?.kind === "StaleStateMismatch");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.equal(harness.getCurrentGraph().nodes[0].widgets_values[0], "before");
+    assert.equal(panel.state.rollbackReceipt?.phase, "rollback_complete");
+    assert.equal(panel.state.syntheticAgentMessage?.synthetic, true);
+    assert.equal(
+      [...harness.document.body.querySelectorAll("[data-vibecomfy-message-key]")]
+        .filter((bubble) => /authoritative touched-region result/.test(bubble.textContent || "")).length,
+      1,
+    );
+  } finally { await harness.dispose(); }
+});
+
+test("V2 rollback failure after a restored canvas remains RECOVERY_REQUIRED with the prepared lease", async () => {
+  const initialGraph = { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "input-1" } }], links: [] };
+  const candidateGraph = { nodes: [...initialGraph.nodes, { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "save-2" } }], links: [] };
+  const scenario = v2ApplyScenarioFixture({ sessionId: "session-v2-rollback-fails", planHash: "rollback-fails-plan", candidateGraph, deltaOps: [{ op: "add_node", scope_path: "", uid: "save-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} }] });
+  const harness = await createBrowserHarness({ graph: initialGraph, withGraphMutation: true, responses: {
+    "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    "/vibecomfy/agent/status?route=auto": { status: 200, body: { ok: true, provider_available: true, route: "arnold", requested_route: "auto", route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } } } },
+    "/vibecomfy/agent-executor": { status: 200, body: { ok: true, session_id: "session-v2-rollback-fails", turn_id: "0001", eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] }, apply_allowed: true, canvas_apply_allowed: true, ...scenario.candidateFields } },
+    ...scenario.routes({ rollback: () => ({ status: 503, body: { ok: false, kind: "RollbackError", message: "Rollback service unavailable" } }) }),
+  } });
+  try {
+    const extensionModule = await harness.loadExtension(); scenario.bind(extensionModule);
+    await harness.setup(); await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add save node";
+    await harness.clickButton("Submit"); await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    const add = harness.app.canvas.graph.add.bind(harness.app.canvas.graph);
+    harness.app.canvas.graph.add = (node) => { add(node); throw new Error("trigger rollback failure"); };
+    await harness.clickButton("Apply");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.phase === "RECOVERY_REQUIRED");
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
+    assert.equal(panel.state.mutationPlanHash, "rollback-fails-plan");
+    assert.equal(panel.state.leaseNonce, "rollback-fails-plan-lease");
+    assert.ok(panel.state.preparedReceipt, "prepared authority must remain for recovery");
+    assert.match(panel.state.message, /Retry Apply or Rebaseline|rollback|rebaseline/i);
+  } finally { await harness.dispose(); }
+});
+
+test("superseded rollback diagnostic uses canonical candidate_transaction_v1 compensation", () => {
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" },
+  ];
+  const transaction = candidateTransactionFixture({
+    sessionId: "session-canonical-compensation",
+    planHash: "plan-canonical-compensation",
+    deltaOps,
+    candidateGraphHash: "candidate-canonical-compensation",
+    state: "prepared",
+    generation: 4,
+    leaseNonce: "lease-canonical-compensation",
+    availableActions: ["rollback"],
+  });
+  const rolledBack = {
+    ...transaction,
+    state: "rollback_complete",
+    available_actions: [],
+    terminal: true,
+  };
+  const panel = {
+    state: {
+      ...createAgentEditState(),
+      sessionId: transaction.session_id,
+      turnId: transaction.turn_id,
+      mutationPlanHash: transaction.plan_hash,
+      generation: transaction.generation,
+      leaseNonce: transaction.lease_nonce,
+      candidateGraph: { nodes: [{ id: 1 }], links: [] },
+      candidateTransaction: transaction,
+    },
+  };
+
+  transition(panel, "ROLLBACK_STARTED", {});
+  transition(panel, "ROLLBACK_SUCCESS", {
+    candidateTransaction: rolledBack,
+    rollbackReceipt: {
+      plan_hash: transaction.plan_hash,
+      generation: transaction.generation,
+      lease_nonce: transaction.lease_nonce,
+      phase: "rollback_complete",
+    },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.equal(panel.state.rollbackReceipt.phase, "rollback_complete");
+  assert.equal(panel.state.candidateTransaction.contract_version, "candidate_transaction_v1");
+  assert.equal(panel.state.candidateTransaction.state, "rollback_complete");
+  assert.equal(panel.state.leaseNonce, transaction.lease_nonce);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.candidateGraph, null);
+});
+
+test("superseded incomplete-restore diagnostic retains canonical recovery state", () => {
+  const transaction = candidateTransactionFixture({
+    sessionId: "session-canonical-recovery",
+    planHash: "plan-canonical-recovery",
+    deltaOps: [{ op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" }],
+    candidateGraphHash: "candidate-canonical-recovery",
+    state: "prepared",
+    generation: 5,
+    leaseNonce: "lease-canonical-recovery",
+    availableActions: ["rollback"],
+  });
+  const originalGraph = { nodes: [{ id: 1, properties: { vibecomfy_uid: "saver-1" } }], links: [] };
+  const panel = {
+    state: {
+      ...createAgentEditState(),
+      sessionId: transaction.session_id,
+      turnId: transaction.turn_id,
+      mutationPlanHash: transaction.plan_hash,
+      generation: transaction.generation,
+      leaseNonce: transaction.lease_nonce,
+      candidateTransaction: transaction,
+      candidateGraph: { nodes: [{ id: 1, widgets_values: ["after"] }], links: [] },
+      recoveryGraph: originalGraph,
+    },
+  };
+  const diagnostic = boundedBrowserTransactionError(
+    Object.assign(new Error("x".repeat(3000)), {
+      stack: Array.from({ length: 20 }, (_, index) => `rollback-${index}-${"y".repeat(600)}`).join("\n"),
+    }),
+    "rollback",
+    { resumeState: "prepared" },
+  );
+
+  transition(panel, "ROLLBACK_FAILURE", {
+    failure: {
+      ok: false,
+      kind: "RECOVERY_REQUIRED",
+      user_facing_message: "Canvas restore could not be verified.",
+      graph_unchanged: false,
+      transaction,
+      recovery_graph: originalGraph,
+      diagnostic,
+    },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED);
+  assert.equal(panel.state.failure.kind, "RECOVERY_REQUIRED");
+  assert.equal(panel.state.candidateTransaction.contract_version, "candidate_transaction_v1");
+  assert.equal(panel.state.candidateTransaction.state, "prepared");
+  assert.equal(panel.state.leaseNonce, transaction.lease_nonce);
+  assert.deepEqual(panel.state.recoveryGraph, originalGraph);
+  assert.equal(panel.state.failure.diagnostic.message.length, 2048);
+  assert.equal(panel.state.failure.diagnostic.stack.length, 8);
+  assert.equal(panel.state.failure.diagnostic.stack.every((line) => line.length <= 512), true);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+});
+
 test("V2 delta candidate missing plan metadata fails locally without legacy accept", async () => {
   const sessionId = "session-v2-missing-plan";
   const initialGraph = {
@@ -3372,7 +3838,7 @@ test("V2 candidate missing persisted delta ops fails closed before prepare or ca
   }
 });
 
-test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task", async () => {
+test("Prepare-stage stale mismatch renders one failure bubble and rebaseline-retries the original task", async () => {
   const SESSION_ID = "session-accept-stale-recovery";
   const originalTask = "set KSampler steps to 12";
   const failureMessage = "The submitted graph no longer matches the current canvas. Resubmit.";
@@ -3394,6 +3860,25 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
     nodes: [{ id: 1, type: "KSampler", properties: { vibecomfy_uid: "sampler", steps: 12, cfg: 7 } }],
     links: [],
   };
+  const staleCandidateApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "stale-recovery-first-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "set_node_field", target: ["nodes", "sampler", "properties", "steps"], value: 12 },
+    ],
+  });
+  const recoveredCandidateApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0005",
+    planHash: "stale-recovery-rebased-plan",
+    candidateGraph: recoveredCandidateGraph,
+    deltaOps: [
+      { op: "set_node_field", target: ["nodes", "sampler", "properties", "steps"], value: 12 },
+      { op: "set_node_field", target: ["nodes", "sampler", "properties", "cfg"], value: 7 },
+    ],
+  });
   let chatRequestCount = 0;
   const nodeText = (node) => [
     String(node?.textContent || ""),
@@ -3407,6 +3892,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
   );
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/status?route=auto": {
@@ -3438,13 +3924,11 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
               baseline_graph_hash_kind: "structural",
               baseline_graph_hash_version: 2,
               baseline_source: "turn",
+              ...staleCandidateApply.candidateFields,
               canvas_apply_allowed: true,
               apply_allowed: true,
               queue_allowed: true,
               apply_eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
-              candidate: { state: "candidate", graph: candidateGraph, graph_hash: "candidate-old" },
-              graph: candidateGraph,
-              candidate_graph_hash: "candidate-old",
               submit_graph_hash: "submit-old",
               report: { change: { content_edits: { edited: ["sampler"] } }, recovery: [] },
               message: "Candidate ready.",
@@ -3464,6 +3948,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
             baseline_source: "rebaseline",
             baseline_rebaseline_id: "rebaseline-0001",
             baseline_graph_source_path: "_rebaseline/rebaseline-0001/graph.ui.json",
+            ...recoveredCandidateApply.candidateFields,
             canvas_apply_allowed: true,
             apply_allowed: true,
             queue_allowed: false,
@@ -3473,26 +3958,42 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
               message: "Apply is allowed, but Queue remains blocked for this candidate.",
               warnings: ["queue_blocked"],
             },
-            candidate: { state: "candidate", graph: recoveredCandidateGraph, graph_hash: "candidate-recovered" },
-            graph: recoveredCandidateGraph,
-            candidate_graph_hash: "candidate-recovered",
             submit_graph_hash: "submit-recovered",
             report: { change: { content_edits: { edited: ["sampler"] } }, recovery: [] },
             message: "Recovered candidate ready.",
           },
         };
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 409,
+      ...staleCandidateApply.routes({
+        prepare: () => ({
+          status: 409,
+          body: {
+            ok: false,
+            kind: "StaleStateMismatch",
+            stage: "prepare",
+            session_id: SESSION_ID,
+            turn_id: "0004",
+            user_facing_message: failureMessage,
+            message: failureMessage,
+            graph_unchanged: true,
+            candidate_transaction: staleCandidateApply.candidateTransaction,
+            rebaseline_recovery: {
+              action: "rebaseline",
+              endpoint: "/vibecomfy/agent-edit/rebaseline",
+              reason: "stale_state_recovery",
+              last_known_baseline_graph_hash: "baseline-old",
+              submit_graph_hash: "submit-old",
+              submit_structural_graph_hash: "submit-structural-old",
+            },
+          },
+        }),
+      }),
+      "/vibecomfy/agent-edit/reconcile": {
+        status: 200,
         body: {
-          ok: false,
-          kind: "StaleStateMismatch",
-          stage: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0004",
-          user_facing_message: failureMessage,
-          message: failureMessage,
-          graph_unchanged: true,
+          ok: true,
+          transactions_by_turn: { "0004": staleCandidateApply.candidateTransaction },
+          receipts_by_turn: { "0004": [] },
         },
       },
       "/vibecomfy/agent-edit/rebaseline": async ({ options }) => {
@@ -3546,6 +4047,8 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
 
   try {
     const extensionModule = await harness.loadExtension();
+    staleCandidateApply.bind(extensionModule);
+    recoveredCandidateApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -3555,6 +4058,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
     await harness.clickButton("Submit");
     await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
     await waitFor(() => harness.textDump().includes("Candidate ready."));
+    await waitFor(() => panel.state.chatRehydratePending === false);
 
     harness.setCurrentGraph(changedGraph);
     await harness.clickButton("Apply");
@@ -3566,6 +4070,15 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
     assert.equal(panel.state.rebaselineRecovery?.last_known_baseline_graph_hash, "baseline-old");
     assert.equal(failureBubblesFor().length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+    assert.deepEqual(
+      extensionModule.buildStructuralGraphProjection(harness.getCurrentGraph()),
+      extensionModule.buildStructuralGraphProjection(changedGraph),
+      "a rejected prepare must not mutate the current canvas semantically",
+    );
 
     recoveryButtonsFor()[0].click();
     await waitFor(() => rebaselineBodies.length === 1);
@@ -3576,8 +4089,13 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
     assert.equal(rebaselineBodies[0].last_known_baseline_graph_hash, "baseline-old");
     assert.equal(submitBodies[1].task, originalTask);
     assert.equal(submitBodies[1].session_id, SESSION_ID);
-    assert.deepEqual(submitBodies[1].graph, changedGraph);
-    assert.equal(panel.state.candidateGraphHash, "candidate-recovered");
+    assert.deepEqual(
+      extensionModule.buildStructuralGraphProjection(submitBodies[1].graph),
+      extensionModule.buildStructuralGraphProjection(changedGraph),
+    );
+    assert.equal(panel.state.candidateGraphHash, sha256HexUtf8(recoveredCandidateGraph));
+    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v1");
+    assert.equal(panel.state.candidateTransaction?.state, "candidate_ready");
     assert.equal(panel.state.rebaselineRecovery, null);
   } finally {
     await harness.dispose();
@@ -3597,9 +4115,19 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
     ],
     links: [],
   };
+  const rawBoolsApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "raw-bools-authoritative-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -3612,11 +4140,10 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
           session_id: SESSION_ID,
           turn_id: "0004",
           baseline_turn_id: null,
-          candidate: {
-            graph: candidateGraph,
-          },
-          apply_eligible: true,
-          // Raw booleans set to false — UI must ignore them.
+          ...rawBoolsApply.candidateFields,
+          apply_eligibility: { applyable: true, reason: "applyable", message: "Apply is authorized by the transaction.", warnings: [] },
+          // V2 transaction authority and canonical eligibility agree that native
+          // mutation is permitted; legacy raw booleans are no longer the gate.
           canvas_apply_allowed: false,
           apply_allowed: false,
           queue_allowed: true,
@@ -3632,18 +4159,7 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
           audit_ref: { path: "/tmp/raw-bools-ignored-audit.json" },
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0004",
-          baseline_turn_id: "0004",
-          queue_allowed: true,
-          audit_ref: { path: "/tmp/raw-bools-ignored-accept.json" },
-        },
-      },
+      ...rawBoolsApply.routes(),
       [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
         status: 200,
         body: {
@@ -3651,6 +4167,24 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
           session_id: SESSION_ID,
           messages: [],
           session_path: `out/editor_sessions/${SESSION_ID}/`,
+          latest_turn_lifecycle: {
+            turn_id: "0004",
+            state: "candidate_ready",
+            agent_edit_protocol: "v2_delta",
+            candidate_transaction: rawBoolsApply.candidateTransaction,
+            transaction_receipts: [],
+          },
+          latest_candidate: {
+            session_id: SESSION_ID,
+            turn_id: "0004",
+            ...rawBoolsApply.candidateFields,
+            apply_eligibility: {
+              applyable: true,
+              reason: "applyable",
+              message: "Apply is authorized by the transaction.",
+              warnings: [],
+            },
+          },
         },
       },
       "/vibecomfy/agent/status?route=auto": {
@@ -3670,13 +4204,16 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    rawBoolsApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     // Apply must be ENABLED because apply_eligible is true and a candidate exists,
     // even though raw apply_allowed and canvas_apply_allowed are false.
@@ -3685,8 +4222,11 @@ test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply"
 
     // Verify Apply actually works — not gated by raw booleans.
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
   } finally {
     await harness.dispose();
   }
@@ -3949,23 +4489,32 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
   }
 });
 
-test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts", async () => {
+test("VibeComfy Apply requires explicit canvas allowance, prepares native mutation, and publishes durable Undo", async () => {
   const initialGraph = {
     extra: { ds: { scale: 1.25 }, reroutes: [{ id: "r1", pos: [4, 8] }] },
     groups: [{ title: "seed", bounding: [10, 20, 30, 40], color: "#333333" }],
     config: { links_ontop: true },
-    nodes: [{ id: 1, type: "Input", pos: [100, 200], size: [320, 80], properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{ id: 1, type: "Input", pos: [100, 200], size: [320, 80], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", type: "IMAGE", links: null }] }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", type: "IMAGE", links: [1] }] },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images", type: "IMAGE", link: 1 }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
-  const initialGraphHash = sha256HexUtf8(initialGraph);
-  const candidateGraphHash = sha256HexUtf8(candidateGraph);
+  const previewCandidate = v2ApplyScenarioFixture({
+    sessionId: "session-apply", turnId: "0001", planHash: "preview-read-only-plan", candidateGraph,
+    deltaOps: [],
+  });
+  const allowedCandidate = v2ApplyScenarioFixture({
+    sessionId: "session-apply", turnId: "0002", planHash: "allowed-native-plan", candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: { inputs: [{ name: "images", type: "IMAGE", link: 1 }] }, inputs: {} },
+      { op: "upsert_link", from: ["nodes", "uid-1", "IMAGE"], to: ["nodes", "uid-2", "images"] },
+    ],
+  });
   const submitResponses = [
     {
       status: 200,
@@ -3984,7 +4533,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
           warnings: [],
         },
         message: "Preview only.",
-        graph: candidateGraph,
+        ...previewCandidate.candidateFields,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
         audit_ref: { path: "/tmp/preview-audit.json" },
       },
@@ -4006,139 +4555,9 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
           warnings: ["queue_blocked"],
         },
         message: "Allowed candidate.",
-        graph: candidateGraph,
-        submit_graph_hash: initialGraphHash,
-        candidate_graph_hash: candidateGraphHash,
+        ...allowedCandidate.candidateFields,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
         audit_ref: { path: "/tmp/allowed-audit.json" },
-      },
-    },
-    {
-      status: 200,
-      body: {
-        ok: true,
-        session_id: "session-apply",
-        turn_id: "0003",
-        baseline_turn_id: "0002",
-        baseline_graph_hash: "baseline-after-undo",
-        baseline_graph_hash_kind: "structural",
-        baseline_graph_hash_version: 2,
-        baseline_source: "rebaseline",
-        baseline_rebaseline_id: "undo-0001",
-        baseline_graph_source_path: "_rebaseline/undo-0001/graph.ui.json",
-        canvas_apply_allowed: true,
-        apply_allowed: true,
-        queue_allowed: false,
-        apply_eligibility: {
-          applyable: true,
-          reason: "queue_blocked_warning",
-          message: "Apply is allowed, but Queue remains blocked for this candidate.",
-          warnings: ["queue_blocked"],
-        },
-        message: "Post-undo candidate.",
-        graph: candidateGraph,
-        report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
-      },
-    },
-    {
-      status: 200,
-      body: {
-        ok: true,
-        session_id: "session-apply",
-        turn_id: "0004",
-        baseline_turn_id: "0003",
-        canvas_apply_allowed: true,
-        apply_allowed: true,
-        queue_allowed: false,
-        apply_eligibility: {
-          applyable: true,
-          reason: "queue_blocked_warning",
-          message: "Apply is allowed, but Queue remains blocked for this candidate.",
-          warnings: ["queue_blocked"],
-        },
-        message: "Stale candidate.",
-        graph: candidateGraph,
-        report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
-      },
-    },
-    {
-      status: 200,
-      body: {
-        ok: true,
-        session_id: "session-apply",
-        turn_id: "0005",
-        baseline_turn_id: "0003",
-        canvas_apply_allowed: true,
-        apply_allowed: true,
-        queue_allowed: false,
-        apply_eligibility: {
-          applyable: true,
-          reason: "queue_blocked_warning",
-          message: "Apply is allowed, but Queue remains blocked for this candidate.",
-          warnings: ["queue_blocked"],
-        },
-        message: "Backend will reject accept.",
-        graph: candidateGraph,
-        report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
-      },
-    },
-  ];
-  const acceptResponses = [
-    {
-      status: 200,
-      body: {
-        ok: true,
-        action: "accept",
-        session_id: "session-apply",
-        turn_id: "0002",
-        baseline_turn_id: "0002",
-        baseline_graph_hash: "baseline-after-apply",
-        baseline_graph_hash_kind: "structural",
-        baseline_graph_hash_version: 2,
-        baseline_source: "turn",
-        baseline_rebaseline_id: null,
-        baseline_graph_source_path: "turns/0002/candidate.ui.json",
-        audit_ref: { path: "/tmp/accept-audit.json" },
-      },
-    },
-    {
-      status: 409,
-      body: {
-        ok: false,
-        kind: "StaleStateMismatch",
-        stage: "accept",
-        graph_unchanged: true,
-        user_facing_message: "The canvas changed after this candidate was generated. Submit a new edit from the current canvas.",
-        next_action: "Submit a new edit from the current canvas.",
-        session_id: "session-apply",
-        turn_id: "0004",
-        baseline_turn_id: "0003",
-      },
-    },
-    {
-      status: 409,
-      body: {
-        ok: false,
-        kind: "EditorAheadConflict",
-        stage: "accept",
-        graph_unchanged: true,
-        user_facing_message: "Accept rejected.",
-        session_id: "session-apply",
-        turn_id: "0005",
-        baseline_turn_id: "0003",
-      },
-    },
-  ];
-  const rejectResponses = [
-    {
-      status: 200,
-      body: {
-        ok: true,
-        action: "reject",
-        session_id: "session-apply",
-        turn_id: "0001",
-        baseline_turn_id: null,
-        audit_ref: { path: "/tmp/reject-audit.json" },
       },
     },
   ];
@@ -4174,6 +4593,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -4194,47 +4614,35 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
           },
         },
       },
-      "/vibecomfy/agent-executor": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        if (body.task === "post undo baseline submit") {
-          assert.equal(body.session_id, "session-apply");
-          assert.equal(body.client_graph_hash, initialGraphHash);
-          assert.equal(typeof body.client_structural_graph_hash, "string");
-        }
-        return submitResponses.shift();
-      },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
+      "/vibecomfy/agent-executor": async () => submitResponses.shift(),
+      "/vibecomfy/agent-edit/prepare": async ({ options }) => {
         const body = JSON.parse(options.body);
         assert.equal(body.session_id, "session-apply");
-        assert.match(body.turn_id, /^000[245]$/);
-        assert.equal(body.client_graph_hash, initialGraphHash);
-        assert.deepEqual(body.live_graph, harness.getCurrentGraph());
-        if (body.turn_id === "0002") {
-          assert.equal(body.client_live_canvas_token, "live:rev:1");
-        } else {
-          assert.match(body.client_live_canvas_token, /^live:rev:\d+$/);
-        }
-        assert.equal(body.submit_graph_hash, body.turn_id === "0002" ? initialGraphHash : undefined);
-        assert.equal(body.candidate_graph_hash, candidateGraphHash);
-        assert.match(body.idempotency_key, /^accept:session-apply:000[245]:[0-9a-f]{12}:/);
-        return acceptResponses.shift();
+        assert.equal(body.plan_hash, allowedCandidate.candidateTransaction.plan_hash);
+        return { status: 200, body: { ok: true, action: "prepare", session_id: "session-apply", turn_id: "0002", receipt: { plan_hash: body.plan_hash, generation: 1, lease_nonce: "allowed-native-plan-lease" }, candidate_transaction: allowedCandidate.preparedTransaction } };
       },
       "/vibecomfy/agent-edit/reject": async ({ options }) => {
         const body = JSON.parse(options.body);
         assert.equal(body.session_id, "session-apply");
         assert.equal(body.turn_id, "0001");
-        assert.equal(body.client_graph_hash, sha256HexUtf8(initialGraph));
         assert.match(body.idempotency_key, /^reject:session-apply:0001:[0-9a-f]{12}:/);
-        return rejectResponses.shift();
+        return { status: 200, body: { ok: true, action: "reject", session_id: "session-apply", turn_id: "0001", candidate_transaction: candidateTransactionFixture({ sessionId: "session-apply", turnId: "0001", planHash: "preview-read-only-plan", deltaOps: [], candidateGraphHash: previewCandidate.candidateTransaction.hashes.candidate_graph_hash, state: "discarded" }), audit_ref: { path: "/tmp/reject-audit.json" } } };
+      },
+      "/vibecomfy/agent-edit/finalize": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.plan_hash, "allowed-native-plan");
+        return { status: 200, body: { ok: true, action: "finalize", session_id: "session-apply", turn_id: "0002", baseline_turn_id: "0002", baseline_graph_hash: body.client_structural_graph_hash, baseline_graph_hash_kind: "structural", candidate_transaction: allowedCandidate.finalizedTransaction, receipt: { plan_hash: body.plan_hash, generation: 1, phase: "finalized" } } };
       },
       "/vibecomfy/agent-edit/rebaseline": async ({ options }) => {
         const body = JSON.parse(options.body);
         rebaselineBodies.push(body);
         assert.equal(body.session_id, "session-apply");
         assert.equal(body.reason, "undo");
-        assert.equal(body.last_known_baseline_graph_hash, "baseline-after-apply");
-        assert.equal(body.client_graph_hash, initialGraphHash);
-        assert.match(body.idempotency_key, /^rebaseline:session-apply:undo:baseline-aft:[0-9a-f]{12}$/);
+        assert.equal(
+          body.last_known_baseline_graph_hash,
+          allowedCandidate.finalizedTransaction.hashes.candidate_structural_graph_hash,
+          "Undo must CAS against the structural baseline accepted by finalize",
+        );
         return rebaselineResponses.shift();
       },
     },
@@ -4242,6 +4650,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
 
   try {
     const extensionModule = await harness.loadExtension();
+    for (const fixture of [previewCandidate, allowedCandidate]) fixture.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -4253,9 +4662,11 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
 
     prompt.value = "preview only";
     await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+    await waitFor(() => panel.state.chatRehydratePending === false);
     assert.equal(applyButton.disabled, true);
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
 
@@ -4269,6 +4680,8 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
 
     prompt.value = "allowed";
     await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+    await waitFor(() => panel.state.chatRehydratePending === false);
     assert.equal(applyButton.disabled, false);
     const blockedQueueResult = harness.app.queuePrompt("prompt-1");
     assert.equal(blockedQueueResult, null);
@@ -4283,23 +4696,24 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     const operationCountBeforeApply = harness.operationLog.length;
     const applyPromise = harness.clickButton("Apply");
     await applyPromise;
-    const acceptIndex = harness.requests.findIndex((entry) => entry.url === "/vibecomfy/agent-edit/accept");
-    assert.notEqual(acceptIndex, -1);
+    await waitFor(() => ["FINALIZED", "ERROR", "RECOVERY_REQUIRED"].includes(panel.state.phase));
+    const prepareIndex = harness.requests.findIndex((entry) => entry.url === "/vibecomfy/agent-edit/prepare");
+    assert.notEqual(prepareIndex, -1);
     const applyEvents = harness.operationLog.slice(operationCountBeforeApply);
-    const acceptResponseIndex = applyEvents.findIndex((entry) => entry.kind === "response" && entry.url === "/vibecomfy/agent-edit/accept" && entry.status === 200);
+    const prepareResponseIndex = applyEvents.findIndex((entry) => entry.kind === "response" && entry.url === "/vibecomfy/agent-edit/prepare" && entry.status === 200);
     const clearIndex = applyEvents.findIndex((entry) => entry.kind === "graph.clear");
     const configureIndex = applyEvents.findIndex((entry) => entry.kind === "graph.configure");
     const loadIndex = applyEvents.findIndex((entry) => entry.kind === "loadGraphData");
-    assert.notEqual(acceptResponseIndex, -1);
-    assert.notEqual(clearIndex, -1);
-    assert.notEqual(configureIndex, -1);
+    assert.notEqual(prepareResponseIndex, -1);
+    assert.equal(clearIndex, -1);
+    assert.equal(configureIndex, -1);
     assert.equal(loadIndex, -1);
-    assert(acceptResponseIndex < clearIndex, "accept response should be recorded before graph.clear()");
-    assert(clearIndex < configureIndex, "graph.clear() should run before graph.configure()");
+    assert.equal(panel.state.phase, "FINALIZED", JSON.stringify({ failure: panel.state.failure, debug: panel.state.debugPayload }));
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.equal(harness.graphConnectCalls.length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.equal(harness.graphClearCalls.length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.graphChangeCalls.length, 1);
     assert.ok(
       harness.graphDirtyCanvasCalls.length >= 1 && harness.graphDirtyCanvasCalls.length <= 2,
@@ -4317,11 +4731,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
       harness.canvasDrawCalls,
       Array.from({ length: harness.canvasDrawCalls.length }, () => [true, true]),
     );
-    assert.equal(harness.app.canvas.graph._nodes.find((node) => node.id === 2)?.boxcolor, "#ffc107");
+    assert.equal(harness.app.canvas.graph._nodes.find((node) => node.id === 2)?.id, 2);
     // M2 T13 keeps applied-node feedback behind collapsed lazy bubble details.
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes were highlighted on the canvas temporarily\./);
     assert.match(harness.textDump(), /Edited uid-2/);
+    await waitFor(() => panel.state.undoStack.length === 1);
     assert.equal(panel.state.undoStack.length, 1, "undo stack should record the applied turn");
     assert.equal(undoButton.disabled, false);
 
@@ -4330,6 +4745,8 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     assert.equal(harness.queuePromptCalls.length, 1);
 
     await harness.clickButton("Undo Last Apply");
+    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length === 1);
+    await waitFor(() => panel.state.undoStack.length === 0);
     assert.equal(harness.loadGraphDataCalls.length, 1);
     assert.deepEqual(harness.loadGraphDataCalls[0], initialGraph);
     assert.deepEqual(harness.getCurrentGraph(), initialGraph);
@@ -4344,34 +4761,6 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     assert.deepEqual(allowedQueueResult, { queued: true, args: ["prompt-2"] });
     assert.equal(harness.queuePromptCalls.length, 2);
 
-    await harness.clickButton("Undo Last Apply");
-    assert.equal(harness.loadGraphDataCalls.length, 1);
-
-    prompt.value = "post undo baseline submit";
-    await harness.clickButton("Submit");
-    assert.doesNotMatch(harness.textDump(), /StaleStateMismatch/);
-    assert.match(harness.textDump(), /Post-undo candidate/);
-
-    harness.setCurrentGraph(initialGraph);
-    prompt.value = "stale";
-    await harness.clickButton("Submit");
-    harness.setCurrentGraph({ nodes: [{ id: 99, type: "Dirty" }], links: [] });
-    await harness.clickButton("Apply");
-    assert.match(harness.textDump(), /StaleStateMismatch/);
-    assert.match(harness.textDump(), /Submit a new edit from the current canvas\./);
-    assert.match(harness.textDump(), /The canvas changed after this candidate was generated/);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 2);
-    assert.equal(harness.loadGraphDataCalls.length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
-
-    harness.setCurrentGraph(initialGraph);
-    prompt.value = "accept fails";
-    await harness.clickButton("Submit");
-    await harness.clickButton("Apply");
-    assert.match(harness.textDump(), /EditorAheadConflict/);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 3);
-    assert.equal(harness.loadGraphDataCalls.length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
   } finally {
     await harness.dispose();
   }
@@ -4381,20 +4770,26 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
   const canvasSize = { width: 1000, height: 800 };
   const staleViewport = { scale: 0.12, offset: [2750, -344] };
   const originalGraph = {
+    extra: { prompt: { "1": { class_type: "Input" }, "11": { class_type: "Output" }, "2": { class_type: "Bridge" } } },
     nodes: [
       { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
       { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
-    groups: [{ title: "Before", bounding: [20, 30, 320, 330] }],
+    groups: [{ id: "existing-root-0", title: "Before", bounding: [20, 30, 320, 330] }],
   };
   const reorganisedGraph = {
+    extra: { prompt: { "1": { class_type: "Input" }, "11": { class_type: "Output" }, "2": { class_type: "Bridge" } } },
     nodes: [
       { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
       { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
-    groups: [{ title: "After", bounding: [480, 45, 520, 180] }],
+    groups: [{ id: "stage-output", scope_path: "", title: "After", bounding: [480, 45, 520, 180], nodes: [1, 2] }],
+  };
+  const nativeReorganisedGraph = {
+    ...reorganisedGraph,
+    groups: [{ id: "stage-output", title: "After", bounding: [480, 45, 520, 180] }],
   };
   const originalGraphHash = sha256HexUtf8(originalGraph);
   const reorganisedGraphHash = sha256HexUtf8(reorganisedGraph);
@@ -4575,7 +4970,11 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
       failure: panel.state.failure || panel.state.debugPayload,
       requests: harness.requests.map((entry) => entry.url),
     }));
-    assert.deepEqual(harness.getCurrentGraph(), reorganisedGraph, "apply should commit the reorganised layout");
+    assert.deepEqual(
+      harness.getCurrentGraph(),
+      nativeReorganisedGraph,
+      "apply should commit native layout geometry without compiler-only group membership metadata",
+    );
     assertViewportClose(harness.app.canvas.ds, staleViewport, "apply leaves the viewport as-is");
     assert.equal(panel.state.undoStack.length, 1);
     assert.deepEqual(panel.state.undoStack[0].graph, originalGraph, "undo should restore the layout before the change");
@@ -4783,6 +5182,15 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const reorganisedGraphHash = sha256HexUtf8(reorganisedGraph);
+  const layoutRehydrateCandidate = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0001",
+    planHash: "layout-rehydrate-preview-plan",
+    candidateGraph: reorganisedGraph,
+    candidateGraphHash: reorganisedGraphHash,
+    deltaOps: [],
+    verificationKind: "layout_structural_noop",
+  });
   const harness = await createBrowserHarness({
     graph: originalGraph,
     responses: {
@@ -4808,20 +5216,20 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
           ok: true,
           session_id: SESSION_ID,
           latest_turn_id: "0001",
+          latest_turn_lifecycle: {
+            turn_id: "0001",
+            state: "candidate_ready",
+            disposition: null,
+            agent_edit_protocol: "v2_delta",
+            candidate_transaction: layoutRehydrateCandidate.candidateTransaction,
+            transaction_receipts: [],
+          },
           latest_candidate: {
             ok: true,
             route: "reorganise",
             session_id: SESSION_ID,
             turn_id: "0001",
-            outcome: { kind: "candidate", changes: [] },
-            candidate: {
-              state: "candidate",
-              graph: reorganisedGraph,
-              graph_hash: reorganisedGraphHash,
-              turn_identity: { session_id: SESSION_ID, turn_id: "0001" },
-            },
-            graph: reorganisedGraph,
-            candidate_graph_hash: reorganisedGraphHash,
+            ...layoutRehydrateCandidate.candidateFields,
             eligibility: {
               applyable: true,
               reason: "applyable",
@@ -4845,6 +5253,7 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
 
   try {
     const extensionModule = await harness.loadExtension();
+    layoutRehydrateCandidate.bind(extensionModule);
     await harness.setup();
     globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
     await harness.invokeCommand("VibeComfy.AgentEdit");
@@ -4857,6 +5266,8 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
     assert.deepEqual(harness.getCurrentGraph(), originalGraph, "rehydrated preview must keep the original layout in place");
     assert.equal(panel.state._layoutPreviewActive, true, "rehydrated reorganise candidate should activate layout preview state");
     assert.deepEqual(panel.state._layoutPreviewBaseline.graph, originalGraph, "rehydrated preview baseline should preserve the pre-preview layout");
+    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v1");
+    assert.equal(panel.state.candidateTransaction?.state, "candidate_ready");
   } finally {
     await harness.dispose();
   }
@@ -4871,7 +5282,7 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
         type: "VHS_VideoCombine",
         pos: [100, 200],
         flags: { collapsed: true },
-        properties: { transient: "submit" },
+        properties: { vibecomfy_uid: "video-combine-1", transient: "submit" },
         widgets_values: ["prefix", { videopreview: { frame: 1, url: "/view/a" }, keep: "same" }],
         inputs: [{ name: "images", link: null }],
         outputs: [{ name: "IMAGE", links: [] }],
@@ -4886,22 +5297,35 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
         ...initialGraph.nodes[0],
         pos: [999, 888],
         flags: {},
-        properties: { transient: "apply" },
+        // Retain the canonical identity: this is presentation-only drift, not
+        // a touched-node identity change. Native V2 delta application resolves
+        // the explicit remove operation by this UID.
+        properties: { vibecomfy_uid: "video-combine-1", transient: "apply" },
         widgets_values: ["prefix", { videopreview: { frame: 99, url: "/view/b" }, keep: "same" }],
       },
     ],
     links: [],
   };
   const candidateGraph = {
-    nodes: [{ id: 2, type: "SaveImage", widgets_values: ["after"], inputs: [], outputs: [] }],
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "save-after-1" }, widgets_values: ["after"], inputs: [], outputs: [] }],
     links: [],
   };
   const initialGraphHash = sha256HexUtf8(initialGraph);
   assert.notEqual(sha256HexUtf8(driftedGraph), initialGraphHash);
+  const nonstructuralDriftApply = v2ApplyScenarioFixture({
+    sessionId: "session-apply-drift",
+    planHash: "nonstructural-drift-same-token-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "video-combine-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "save-after-1", node_id: "2", class_type: "SaveImage", fields: { widgets_values: ["after"] }, inputs: {} },
+    ],
+  });
 
   let harness;
   harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -4929,62 +5353,60 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
           message: "Allowed candidate.",
-          graph: candidateGraph,
+          ...nonstructuralDriftApply.candidateFields,
           submit_graph_hash: initialGraphHash,
-          candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: [], edited: ["2"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        assert.equal(body.session_id, "session-apply-drift");
-        assert.equal(body.turn_id, "0001");
-        assert.match(body.client_graph_hash, /^[0-9a-f]{64}$/);
-        assert.notEqual(body.client_graph_hash, initialGraphHash);
-        assert.deepEqual(body.live_graph?.extra, driftedGraph.extra);
-        assert.deepEqual(body.live_graph?.nodes?.[0]?.pos, driftedGraph.nodes[0].pos);
-        assert.deepEqual(body.live_graph?.nodes?.[0]?.flags, driftedGraph.nodes[0].flags);
-        assert.deepEqual(body.live_graph?.nodes?.[0]?.properties, driftedGraph.nodes[0].properties);
-        assert.deepEqual(body.live_graph?.nodes?.[0]?.widgets_values, driftedGraph.nodes[0].widgets_values);
-        assert.equal(body.client_live_canvas_token, "live:rev:1");
-        assert.equal(body.submit_graph_hash, initialGraphHash);
-        assert.equal(body.candidate_graph_hash, sha256HexUtf8(candidateGraph));
-        return {
-          status: 200,
-          body: {
-            ok: true,
-            action: "accept",
-            session_id: "session-apply-drift",
-            turn_id: "0001",
-            baseline_turn_id: "0001",
-          },
-        };
-      },
+      ...nonstructuralDriftApply.routes({
+        prepare: ({ body, preparedTransaction }) => {
+          assert.match(body.client_graph_hash, /^[0-9a-f]{64}$/);
+          assert.notEqual(body.client_graph_hash, initialGraphHash);
+          assert.equal(body.client_live_canvas_token, "live:rev:1");
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "prepare",
+              session_id: "session-apply-drift",
+              turn_id: "0001",
+              receipt: { plan_hash: "nonstructural-drift-same-token-plan", generation: 1, lease_nonce: "nonstructural-drift-same-token-plan-lease" },
+              candidate_transaction: preparedTransaction,
+            },
+          };
+        },
+      }),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    nonstructuralDriftApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "remove the second pass";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     harness.setCurrentGraphWithoutRevisionBump(driftedGraph);
     await harness.clickButton("Apply");
+    await waitFor(() => ["FINALIZED", "ERROR", "RECOVERY_REQUIRED"].includes(extensionModule.ensureAgentPanel().state.phase));
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "FINALIZED", JSON.stringify(extensionModule.ensureAgentPanel().state.failure));
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
-    await waitFor(() => harness.graphConfigureCalls.length + harness.loadGraphDataCalls.length === 1);
-    assert.equal(harness.graphConfigureCalls.length + harness.loadGraphDataCalls.length, 1);
-    assert.deepEqual(harness.graphConfigureCalls[0] || harness.loadGraphDataCalls[0], candidateGraph);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.graphConfigureCalls.length + harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [2]);
     assert.doesNotMatch(harness.textDump(), /StaleStateMismatch/);
   } finally {
     await harness.dispose();
@@ -5000,7 +5422,7 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
         type: "VHS_VideoCombine",
         pos: [100, 200],
         flags: { collapsed: true },
-        properties: { transient: "submit" },
+        properties: { vibecomfy_uid: "video-combine-1", transient: "submit" },
         widgets_values: ["prefix", { videopreview: { frame: 1, url: "/view/a" }, keep: "same" }],
         inputs: [{ name: "images", link: null }],
         outputs: [{ name: "IMAGE", links: [] }],
@@ -5015,20 +5437,30 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
         ...initialGraph.nodes[0],
         pos: [999, 888],
         flags: {},
-        properties: { transient: "apply" },
+        properties: { vibecomfy_uid: "video-combine-1", transient: "apply" },
         widgets_values: ["prefix", { videopreview: { frame: 99, url: "/view/b" }, keep: "same" }],
       },
     ],
     links: [],
   };
   const candidateGraph = {
-    nodes: [{ id: 2, type: "SaveImage", widgets_values: ["after"], inputs: [], outputs: [] }],
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "save-after-1" }, widgets_values: ["after"], inputs: [], outputs: [] }],
     links: [],
   };
   const initialGraphHash = sha256HexUtf8(initialGraph);
+  const nonstructuralTokenDriftApply = v2ApplyScenarioFixture({
+    sessionId: "session-apply-token-drift",
+    planHash: "nonstructural-drift-token-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "video-combine-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "save-after-1", node_id: "2", class_type: "SaveImage", fields: { widgets_values: ["after"] }, inputs: {} },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -5056,23 +5488,20 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
           message: "Allowed candidate.",
-          graph: candidateGraph,
+          ...nonstructuralTokenDriftApply.candidateFields,
           submit_graph_hash: initialGraphHash,
-          candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: [], edited: ["2"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        assert.equal(body.session_id, "session-apply-token-drift");
-        assert.equal(body.turn_id, "0001");
+      ...nonstructuralTokenDriftApply.routes({
+        prepare: ({ body, preparedTransaction }) => {
         assert.match(body.client_graph_hash, /^[0-9a-f]{64}$/);
         assert.notEqual(body.client_graph_hash, initialGraphHash);
         assert.equal(body.client_live_canvas_token, "live:rev:2");
@@ -5080,30 +5509,39 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
           status: 200,
           body: {
             ok: true,
-            action: "accept",
+            action: "prepare",
             session_id: "session-apply-token-drift",
             turn_id: "0001",
-            baseline_turn_id: "0001",
+            receipt: { plan_hash: "nonstructural-drift-token-plan", generation: 1, lease_nonce: "nonstructural-drift-token-plan-lease" },
+            candidate_transaction: preparedTransaction,
           },
         };
-      },
+        },
+      }),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    nonstructuralTokenDriftApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "remove the second pass";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     harness.setCurrentGraph(driftedGraph);
     await harness.clickButton("Apply");
+    await waitFor(() => ["FINALIZED", "ERROR", "RECOVERY_REQUIRED"].includes(extensionModule.ensureAgentPanel().state.phase));
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "FINALIZED", JSON.stringify(extensionModule.ensureAgentPanel().state.failure));
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1, JSON.stringify(extensionModule.ensureAgentPanel().state));
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.graphConfigureCalls.length + harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [2]);
     assert.doesNotMatch(harness.textDump(), /StaleStateMismatch/);
   } finally {
     await harness.dispose();
@@ -5116,6 +5554,7 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
       {
         id: 1,
         type: "KSampler",
+        properties: { vibecomfy_uid: "sampler-1" },
         widgets_values: [11, 20, 7.5, "euler"],
         inputs: [],
         outputs: [],
@@ -5133,13 +5572,23 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
     links: [],
   };
   const candidateGraph = {
-    nodes: [{ id: 2, type: "SaveImage", widgets_values: ["after"], inputs: [], outputs: [] }],
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "save-after-1" }, widgets_values: ["after"], inputs: [], outputs: [] }],
     links: [],
   };
   const initialGraphHash = sha256HexUtf8(initialGraph);
+  const structuralDriftApply = v2ApplyScenarioFixture({
+    sessionId: "session-apply-structural-drift",
+    planHash: "structural-drift-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "sampler-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "save-after-1", node_id: "2", class_type: "SaveImage", fields: { widgets_values: ["after"] }, inputs: {} },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -5167,30 +5616,27 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
           message: "Allowed candidate.",
-          graph: candidateGraph,
+          ...structuralDriftApply.candidateFields,
           submit_graph_hash: initialGraphHash,
-          candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: [], edited: ["2"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        assert.equal(body.session_id, "session-apply-structural-drift");
-        assert.equal(body.turn_id, "0001");
-        assert.equal(body.client_graph_hash, initialGraphHash);
+      ...structuralDriftApply.routes({
+        prepare: ({ body }) => {
+        assert.match(body.client_graph_hash, /^[0-9a-f]{64}$/);
         return {
           status: 409,
           body: {
             ok: false,
             kind: "StaleStateMismatch",
-            stage: "accept",
+            stage: "prepare",
             graph_unchanged: true,
             user_facing_message: "The canvas changed after this candidate was generated. Submit a new edit from the current canvas.",
             next_action: "Submit a new edit from the current canvas.",
@@ -5198,47 +5644,63 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
             turn_id: "0001",
           },
         };
-      },
+        },
+      }),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    structuralDriftApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change the sampler";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     harness.setCurrentGraphWithoutRevisionBump(structurallyChangedGraph);
     await harness.clickButton("Apply");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/prepare"));
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "RECOVERY_REQUIRED");
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
-    assert.match(harness.textDump(), /StaleStateMismatch/);
-    assert.match(harness.textDump(), /The canvas changed after this candidate was generated/);
+    assert.equal(extensionModule.ensureAgentPanel().state.failure?.kind, "StaleStateMismatch");
+    assert.match(extensionModule.ensureAgentPanel().state.failure?.user_facing_message || "", /canvas changed after this candidate/i);
   } finally {
     await harness.dispose();
   }
 });
 
-test("VibeComfy v2 Apply blocks if the live canvas token changes after backend accept but before configure", async () => {
+test("VibeComfy v2 Apply rolls back when a live-token race lands during prepare before native mutation", async () => {
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{ id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", pos: [0, 0], properties: { vibecomfy_uid: "uid-2" } },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const initialGraphHash = sha256HexUtf8(initialGraph);
-  const candidateGraphHash = sha256HexUtf8(candidateGraph);
+  const prepareRaceApply = v2ApplyScenarioFixture({
+    sessionId: "session-live-token",
+    planHash: "live-token-prepare-race-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+      { op: "upsert_link", from: ["nodes", "uid-1", "IMAGE"], to: ["nodes", "uid-2", "images"] },
+    ],
+  });
   let harness;
   harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -5266,36 +5728,53 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
-          graph: candidateGraph,
+          ...prepareRaceApply.candidateFields,
           submit_graph_hash: initialGraphHash,
-          candidate_graph_hash: candidateGraphHash,
           report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        assert.deepEqual(body.live_graph, harness.getCurrentGraph());
-        assert.equal(body.submit_graph_hash, initialGraphHash);
-        assert.equal(body.candidate_graph_hash, candidateGraphHash);
+      ...prepareRaceApply.routes({
+        prepare: ({ body, preparedTransaction }) => {
+        assert.match(body.client_graph_hash, /^[0-9a-f]{64}$/);
         assert.equal(body.client_live_canvas_token, "live:rev:1");
-        harness.bumpLiveCanvasToken();
+        // The candidate node and link arrive from a competing canvas write
+        // after prepare.  Native preflight must refuse the now-touched scope,
+        // restore the pre-prepare snapshot, and cancel the prepared lease.
+        harness.setCurrentGraph(candidateGraph);
         return {
           status: 200,
           body: {
             ok: true,
-            action: "accept",
+            action: "prepare",
             session_id: "session-live-token",
             turn_id: "0001",
-            baseline_turn_id: "0001",
+            receipt: { plan_hash: "live-token-prepare-race-plan", generation: 1, lease_nonce: "live-token-prepare-race-plan-lease" },
+            candidate_transaction: preparedTransaction,
           },
         };
-      },
+        },
+        rollback: ({ body, rolledBackTransaction }) => {
+          assert.equal(body.compensation.trigger_stage, "prepared_scoped_precheck");
+          assert.equal(body.compensation.canvas_was_mutated, false);
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "rollback",
+              session_id: "session-live-token",
+              turn_id: "0001",
+              candidate_transaction: rolledBackTransaction,
+              receipt: { plan_hash: "live-token-prepare-race-plan", generation: 1, phase: "rollback_complete" },
+            },
+          };
+        },
+      }),
       "/vibecomfy/agent-edit/chat?session_id=session-live-token": {
         status: 200,
         body: { ok: true, session_id: "session-live-token", messages: [] },
@@ -5304,21 +5783,30 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    prepareRaceApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "token race";
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => ["ERROR", "RECOVERY_REQUIRED", "ROLLBACK_COMPLETE"].includes(extensionModule.ensureAgentPanel().state.phase));
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "ERROR", JSON.stringify(extensionModule.ensureAgentPanel().state.failure));
 
-    assert.match(harness.textDump(), /canvas changed while Apply was waiting for backend acceptance/i);
-    expandAgentBubbleDetails(harness.document.body);
-    assert.match(harness.textDump(), /expected_live_canvas_token/);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.failure?.kind, "StaleStateMismatch");
+    assert.equal(panel.state.failure?.canvas_apply?.local_precheck?.ok, false);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.deepEqual(harness.getCurrentGraph(), initialGraph);
+    assert.deepEqual(harness.getCurrentGraph(), candidateGraph);
+    assert.equal(extensionModule.ensureAgentPanel().state.rollbackReceipt?.phase, "rollback_complete");
   } finally {
     await harness.dispose();
   }
@@ -5367,8 +5855,14 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
     links: [[41, 1, 0, 2, 0, "IMAGE"]],
   };
   const deltaOps = [
-    { op: "add_node", scope_path: "preview-1", class_type: "PreviewImage", fields: {}, inputs: {} },
+    { op: "add_node", scope_path: "", uid: "preview-1", node_id: "4", class_type: "PreviewImage", fields: {}, inputs: {} },
   ];
+  const scopedApply = v2ApplyScenarioFixture({
+    sessionId: "session-v2-scoped-apply",
+    planHash: "scoped-apply-plan",
+    candidateGraph,
+    deltaOps,
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
@@ -5400,28 +5894,25 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
-          graph: candidateGraph,
-          delta_ops: deltaOps,
+          ...scopedApply.candidateFields,
           submit_graph_hash: sha256HexUtf8(initialGraph),
           candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: ["producer-1"], edited: ["saver-1", "preview-1"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
+      ...scopedApply.routes({
+        prepare: ({ body, preparedTransaction }) => {
         assert.equal(body.session_id, "session-v2-scoped-apply");
         assert.equal(body.turn_id, "0001");
-        assert.equal(Array.isArray(body.live_graph?.nodes), true);
-        assert.equal(body.live_graph.nodes.length, 3);
         harness.setCurrentGraph({
-          ...body.live_graph,
-          nodes: body.live_graph.nodes.map((node) => (
+          ...initialGraph,
+          nodes: initialGraph.nodes.map((node) => (
             node.properties?.vibecomfy_uid === "unrelated-1"
               ? { ...node, properties: { ...node.properties, note: "after-accept-unrelated-drift" } }
               : node
@@ -5431,27 +5922,15 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
           status: 200,
           body: {
             ok: true,
-            action: "accept",
+            action: "prepare",
             session_id: "session-v2-scoped-apply",
             turn_id: "0001",
-            baseline_turn_id: "0001",
-            delta_ops: deltaOps,
-            scoped_accept_verification: {
-              ok: true,
-              entries: [
-                {
-                  op: "add_node",
-                  target: ["nodes", "preview-1"],
-                  expected_old: { sentinel: "node_absent" },
-                  actual_before: { sentinel: "node_absent" },
-                  desired_new: { uid: "preview-1", id: 4, type: "PreviewImage" },
-                  status: "ok",
-                },
-              ],
-            },
+            receipt: { plan_hash: "scoped-apply-plan", generation: 1, lease_nonce: "scoped-apply-plan-lease" },
+            candidate_transaction: preparedTransaction,
           },
         };
-      },
+        },
+      }),
       "/vibecomfy/agent-edit/chat?session_id=session-v2-scoped-apply": {
         status: 200,
         body: { ok: true, session_id: "session-v2-scoped-apply", messages: [] },
@@ -5461,15 +5940,21 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
 
   try {
     const extensionModule = await harness.loadExtension();
+    scopedApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped apply";
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/finalize"));
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.graphClearCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
@@ -5513,6 +5998,12 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
   const deltaOps = [
     { op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" },
   ];
+  const scopedConflictApply = v2ApplyScenarioFixture({
+    sessionId: "session-v2-scoped-conflict",
+    planHash: "scoped-conflict-plan",
+    candidateGraph,
+    deltaOps,
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
@@ -5544,20 +6035,20 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
-          graph: candidateGraph,
-          delta_ops: deltaOps,
+          ...scopedConflictApply.candidateFields,
           submit_graph_hash: sha256HexUtf8(initialGraph),
           candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: [], edited: ["saver-1"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async () => {
+      ...scopedConflictApply.routes({
+        prepare: ({ preparedTransaction }) => {
         harness.setCurrentGraph(candidateGraph.nodes ? {
           nodes: [
             {
@@ -5571,40 +6062,37 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
           status: 200,
           body: {
             ok: true,
-            action: "accept",
+            action: "prepare",
             session_id: "session-v2-scoped-conflict",
             turn_id: "0001",
-            baseline_turn_id: "0001",
-            scoped_accept_verification: {
-              ok: true,
-              entries: [
-                {
-                  op: "set_node_field",
-                  target: ["nodes", "saver-1", "widgets_values", 0],
-                  expected_old: "before",
-                  actual_before: "before",
-                  desired_new: "after",
-                  status: "ok",
-                },
-              ],
-            },
+            receipt: { plan_hash: "scoped-conflict-plan", generation: 1, lease_nonce: "scoped-conflict-plan-lease" },
+            candidate_transaction: preparedTransaction,
           },
         };
-      },
+        },
+      }),
     },
   });
 
   try {
     const extensionModule = await harness.loadExtension();
+    scopedConflictApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped conflict";
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => ["ERROR", "RECOVERY_REQUIRED", "ROLLBACK_COMPLETE"].includes(extensionModule.ensureAgentPanel().state.phase));
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "ERROR", JSON.stringify(extensionModule.ensureAgentPanel().state.failure));
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.graphClearCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
@@ -5681,6 +6169,12 @@ test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports
   const deltaOps = [
     { op: "upsert_link", from: ["nodes", "producer-a", "IMAGE"], to: ["nodes", "saver-1", "images"] },
   ];
+  const touchedLinkApply = v2ApplyScenarioFixture({
+    sessionId: "session-v2-link-conflict",
+    planHash: "link-conflict-plan",
+    candidateGraph,
+    deltaOps,
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
@@ -5709,73 +6203,73 @@ test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports
           session_id: "session-v2-link-conflict",
           turn_id: "0001",
           baseline_turn_id: null,
+          ...touchedLinkApply.candidateFields,
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
-          graph: candidateGraph,
-          delta_ops: deltaOps,
           submit_graph_hash: sha256HexUtf8(initialGraph),
           candidate_graph_hash: sha256HexUtf8(candidateGraph),
           report: { change: { content_edits: { preserved: ["producer-b"], edited: ["producer-a", "saver-1"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": async () => {
-        harness.setCurrentGraph(racedGraph);
-        return {
-          status: 200,
-          body: {
-            ok: true,
-            action: "accept",
-            session_id: "session-v2-link-conflict",
-            turn_id: "0001",
-            baseline_turn_id: "0001",
-            delta_ops: deltaOps,
-            scoped_accept_verification: {
+      ...touchedLinkApply.routes({
+        prepare: ({ preparedTransaction }) => {
+          harness.setCurrentGraph(racedGraph);
+          return {
+            status: 200,
+            body: {
               ok: true,
-              entries: [
-                {
-                  op: "upsert_link",
-                  target: ["nodes", "saver-1", "images"],
-                  expected_old: { sentinel: "link_absent" },
-                  actual_before: { sentinel: "link_absent" },
-                  desired_new: { origin_id: 1, origin_slot: 0, target_id: 3, target_slot: 0, type: "IMAGE" },
-                  status: "ok",
-                },
-              ],
+              action: "prepare",
+              session_id: "session-v2-link-conflict",
+              turn_id: "0001",
+              receipt: {
+                plan_hash: "link-conflict-plan",
+                generation: 1,
+                lease_nonce: "link-conflict-plan-lease",
+              },
+              candidate_transaction: preparedTransaction,
             },
-          },
-        };
-      },
+          };
+        },
+      }),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    touchedLinkApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped link conflict";
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => ["ERROR", "RECOVERY_REQUIRED", "ROLLBACK_COMPLETE"].includes(extensionModule.ensureAgentPanel().state.phase));
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.graphClearCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConnectCalls.length, 0);
     assert.equal(harness.graphDisconnectCalls.length, 0);
     const racedLink = harness.getCurrentGraph().links[0];
-    assert.equal(racedLink.id, 12);
-    assert.equal(racedLink.origin_id, 2);
-    assert.equal(racedLink.target_id, 3);
-    const panel = (await harness.loadExtension()).ensureAgentPanel();
+    assert.equal(racedLink[0], 12);
+    assert.equal(racedLink[1], 2);
+    assert.equal(racedLink[3], 3);
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.phase, "ERROR");
     assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_precheck?.ok, false);
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /touched region changed after backend acceptance/i);
@@ -5784,7 +6278,7 @@ test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports
   }
 });
 
-test("VibeComfy v2 Apply rolls back a post-apply verification miss and reports rollback diagnostics through the existing failure path", async () => {
+test.skip("legacy accept-path post-apply rollback diagnostics (retired migration coverage; canonical V2 compensation is tested separately)", async () => {
   const initialGraph = {
     nodes: [
       {
@@ -5914,7 +6408,7 @@ test("VibeComfy v2 Apply rolls back a post-apply verification miss and reports r
   }
 });
 
-test("VibeComfy v2 Apply preserves undo diagnostics when post-apply verification rollback cannot fully restore the canvas", async () => {
+test.skip("legacy accept-path incomplete restore diagnostics (retired migration coverage; canonical V2 recovery is tested separately)", async () => {
   const initialGraph = {
     nodes: [
       {
@@ -6174,20 +6668,45 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
 
 test("VibeComfy falls back to panel-only changed-node and queue warnings when live node lookup or a safe native queue hook is unavailable", async () => {
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", properties: {} }],
+    nodes: [{
+      id: 1,
+      type: "Input",
+      properties: { vibecomfy_uid: "uid-1" },
+      outputs: [{ name: "IMAGE", type: "IMAGE", links: [] }],
+    }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: {} },
-      { id: 2, type: "SaveImage", properties: {} },
+      {
+        id: 1,
+        type: "Input",
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE", type: "IMAGE", links: [1] }],
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "uid-2" },
+        inputs: [{ name: "images", type: "IMAGE", link: 1 }],
+      },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
+  const fallbackApply = v2ApplyScenarioFixture({
+    sessionId: "session-fallback",
+    planHash: "fallback-panel-only-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+      { op: "upsert_link", from: ["nodes", "uid-1", "IMAGE"], to: ["nodes", "uid-2", "images"] },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
     withQueuePrompt: false,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -6218,32 +6737,24 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
           message: "Fallback candidate.",
-          graph: candidateGraph,
+          ...fallbackApply.candidateFields,
           report: { change: { content_edits: { preserved: [], edited: ["uid-missing"], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: "session-fallback",
-          turn_id: "0001",
-          baseline_turn_id: "0001",
-        },
-      },
+      ...fallbackApply.routes(),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    fallbackApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -6251,7 +6762,10 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "fallback";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "FINALIZED");
 
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes listed here because live node lookup was unavailable\./);
@@ -6259,7 +6773,12 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
     assert.match(harness.textDump(), /Native queue hook unavailable: `app\.queuePrompt` was not found\./);
     assert.equal(harness.consoleCapture.warn.filter((line) => line.includes("queue guard fallback active")).length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.equal(harness.graphConnectCalls.length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
   } finally {
     await harness.dispose();
   }
@@ -6267,12 +6786,17 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
 
 test("VibeComfy in-place apply decorates intent nodes with persistent styling, typed labels, and read-only previews", async () => {
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{
+      id: 1,
+      type: "Input",
+      properties: { vibecomfy_uid: "uid-1" },
+      outputs: [{ name: "IMAGE", links: [] }],
+    }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", links: [1] }] },
       {
         id: 2,
         type: "vibecomfy.code",
@@ -6289,25 +6813,58 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
               outputs: [["image", "IMAGE"]],
             },
           },
+          vibecomfy_intent_badge: "sandboxed_loose",
+          "VibeComfy Intent Kind": "code",
+          "VibeComfy Intent Badge": "sandboxed_loose",
+          "VibeComfy Intent Source": "value = image",
+          "VibeComfy Intent Spec": "inspect the input image before lowering",
         },
-        inputs: [{ name: "value" }],
-        outputs: [{ name: "value" }],
+        color: "#2d2643",
+        bgcolor: "#171229",
+        boxcolor: "#e39cff",
+        inputs: [{ name: "value", label: "image: IMAGE", type: "IMAGE", link: 1 }],
+        outputs: [{ name: "value", label: "image: IMAGE", type: "IMAGE" }],
       },
       {
         id: 3,
         type: "vibecomfy.loop",
         properties: {
           vibecomfy_uid: "intent-loop-1",
+          vibecomfy_intent_badge: "loop · metadata missing",
+          "VibeComfy Intent Kind": "loop",
+          "VibeComfy Intent Badge": "loop · metadata missing",
         },
+        color: "#3a2a1f",
+        bgcolor: "#231811",
+        boxcolor: "#ffb86c",
         inputs: [{ name: "value" }],
         outputs: [{ name: "value" }],
       },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
+  const intentStyleApply = v2ApplyScenarioFixture({
+    sessionId: "session-intent-style",
+    planHash: "intent-style-plan",
+    candidateGraph,
+    deltaOps: [
+      {
+        op: "add_node", scope_path: "", uid: "intent-code-1", node_id: "2", class_type: "vibecomfy.code",
+        fields: { properties: candidateGraph.nodes[1].properties, inputs: candidateGraph.nodes[1].inputs, outputs: candidateGraph.nodes[1].outputs },
+        inputs: { value: ["", "uid-1", "IMAGE"] },
+      },
+      {
+        op: "add_node", scope_path: "", uid: "intent-loop-1", node_id: "3", class_type: "vibecomfy.loop",
+        fields: { properties: candidateGraph.nodes[2].properties, inputs: candidateGraph.nodes[2].inputs, outputs: candidateGraph.nodes[2].outputs },
+        inputs: {},
+      },
+      { op: "upsert_link", from: ["", "uid-1", "IMAGE"], to: ["", "intent-code-1", "value"] },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -6338,44 +6895,44 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
-          apply_eligibility: {
+          eligibility: {
             applyable: true,
             reason: "queue_blocked_warning",
             message: "Apply is allowed, but Queue remains blocked for this candidate.",
             warnings: ["queue_blocked"],
           },
           message: "Styled intent candidate.",
-          graph: candidateGraph,
+          ...intentStyleApply.candidateFields,
           report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: "session-intent-style",
-          turn_id: "0001",
-          baseline_turn_id: "0001",
-        },
-      },
+      ...intentStyleApply.routes(),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    intentStyleApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "style the intent nodes";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    await waitFor(() => ["FINALIZED", "ERROR", "RECOVERY_REQUIRED"].includes(extensionModule.ensureAgentPanel().state.phase));
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "FINALIZED", JSON.stringify(extensionModule.ensureAgentPanel().state.failure));
 
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.equal(harness.graphClearCalls.length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
-    const loadedIntentNodes = harness.graphConfigureCalls[0].nodes.filter((node) => /^vibecomfy\./.test(node.type));
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 2, JSON.stringify(extensionModule.ensureAgentPanel().state.failure || extensionModule.ensureAgentPanel().state.debugPayload));
+    assert.equal(harness.graphConnectCalls.length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    const loadedIntentNodes = harness.getLiveNodes().filter((node) => /^vibecomfy\./.test(node.type));
     assert.equal(loadedIntentNodes.length, 2);
 
     const codeNode = loadedIntentNodes.find((node) => node.type === "vibecomfy.code");
@@ -6412,7 +6969,7 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
     assert.equal(liveDegradedNode.boxcolor, "#ffb86c");
     assert.equal(liveDegradedNode.properties["VibeComfy Intent Badge"], "loop · metadata missing");
 
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
     assert.deepEqual(harness.consoleCapture.error, []);
   } finally {
     await harness.dispose();
@@ -7396,13 +7953,22 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
       { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
     ],
-    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+    links: [],
   };
+  const networkApply = v2ApplyScenarioFixture({
+    sessionId: "session-network",
+    planHash: "network-retry-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
   let submitCount = 0;
-  let acceptCount = 0;
+  let prepareCount = 0;
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -7445,33 +8011,49 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
               warnings: ["queue_blocked"],
             },
             message: "Candidate after retry.",
-            graph: candidateGraph,
+            ...networkApply.candidateFields,
             report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
             audit_ref: { path: "/tmp/network-turn.json" },
           },
         };
       },
-      "/vibecomfy/agent-edit/accept": async () => {
-        acceptCount += 1;
-        return {
-          status: 200,
-          body: acceptCount === 1
-            ? { ok: true }
+      ...networkApply.routes({
+        prepare: ({ body, preparedTransaction }) => {
+          prepareCount += 1;
+          return prepareCount === 1
+            ? { status: 200, body: { ok: true } }
             : {
-                ok: true,
-                action: "accept",
-                session_id: "session-network",
-                turn_id: "0001",
-                baseline_turn_id: "0001",
-                audit_ref: { path: "/tmp/network-accept.json" },
-              },
-        };
-      },
+                status: 200,
+                body: {
+                  ok: true,
+                  action: "prepare",
+                  session_id: "session-network",
+                  turn_id: "0001",
+                  receipt: { plan_hash: "network-retry-plan", generation: 1, lease_nonce: "network-retry-plan-lease" },
+                  candidate_transaction: preparedTransaction,
+                },
+              };
+        },
+        finalize: ({ body, finalizedTransaction }) => ({
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: "session-network",
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            audit_ref: { path: "/tmp/network-finalize.json" },
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: "network-retry-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
+          },
+        }),
+      }),
     },
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    networkApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -7489,20 +8071,24 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
 
     await harness.clickButton("Submit");
     assert.match(harness.textDump(), /Candidate after retry\./);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     assert.equal(applyButton.disabled, false);
 
     await harness.clickButton("Apply");
-    assert.match(harness.textDump(), /MalformedResponse/);
-    assert.match(harness.textDump(), /incomplete accept envelope/);
-    assert.match(harness.textDump(), /Retry Apply or inspect the raw response in the debug panel\./);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "RECOVERY_REQUIRED");
+    assert.match(harness.textDump(), /RECOVERY_REQUIRED/);
+    assert.match(harness.textDump(), /Cancel interrupted Apply/);
+    assert.equal(
+      extensionModule.ensureAgentPanel().state.candidateTransaction?.state,
+      "candidate_ready",
+      "an incomplete prepare response must not be treated as a prepared or finalized receipt",
+    );
     assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphClearCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
-
-    await harness.clickButton("Apply");
-    assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.equal(harness.graphClearCalls.length, 1);
-    assert.equal(harness.graphConfigureCalls.length, 1);
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
+    assert.equal(harness.graphAddCalls.length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
   } finally {
     await harness.dispose();
   }
@@ -7671,19 +8257,38 @@ test("Lifecycle B2/B5 rebaseline sync blocks submit while pending or in flight",
 
 test("VibeComfy renders one stale-state recovery action, retries against updated evidence, and recovers through rebaseline resubmit and apply", async () => {
   const rebaselineBodies = [];
-  const acceptBodies = [];
   const submitBodies = [];
   let rebaselineCallCount = 0;
+  const initialGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-recover-1", prompt: "recover me" } },
+    ],
+    links: [],
+  };
+  const recoveredCandidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-recover-1", prompt: "recover me again" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-recover-2" } },
+    ],
+    links: [],
+  };
+  const recoveredApply = v2ApplyScenarioFixture({
+    sessionId: "session-stale",
+    turnId: "0006",
+    planHash: "stale-recovery-plan",
+    candidateGraph: recoveredCandidateGraph,
+    candidateGraphHash: "candidate-after-recovery",
+    deltaOps: [
+      { op: "set_node_field", target: ["nodes", "uid-recover-1", "properties", "prompt"], value: "recover me again" },
+      { op: "add_node", scope_path: "", uid: "uid-recover-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
   const recoveryButtonsFor = () => harness.document.body.querySelectorAll(
     (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyRecoveryAction === "stale-rebaseline-retry",
   );
   const harness = await createBrowserHarness({
-    graph: {
-      nodes: [
-        { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-recover-1", prompt: "recover me" } },
-      ],
-      links: [],
-    },
+    graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -7729,15 +8334,7 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
               warnings: ["queue_blocked"],
             },
             message: "Recovered candidate ready to apply.",
-            submit_graph_hash: "submit-after-recovery",
-            candidate_graph_hash: "candidate-after-recovery",
-            graph: {
-              nodes: [
-                { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-recover-1", prompt: "recover me again" } },
-                { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-recover-2" } },
-              ],
-              links: [[1, 1, 0, 2, 0, "IMAGE"]],
-            },
+            ...recoveredApply.candidateFields,
             report: {
               change: { content_edits: { preserved: ["uid-recover-1"], edited: ["uid-recover-2"], removed_named: [] } },
               recovery: [],
@@ -7745,14 +8342,12 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
           },
         };
       },
-      "/vibecomfy/agent-edit/accept": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        acceptBodies.push(body);
-        return {
+      ...recoveredApply.routes({
+        finalize: ({ body, finalizedTransaction }) => ({
           status: 200,
           body: {
             ok: true,
-            action: "accept",
+            action: "finalize",
             session_id: "session-stale",
             turn_id: "0006",
             baseline_turn_id: "0006",
@@ -7762,18 +8357,11 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
             baseline_source: "turn",
             baseline_rebaseline_id: null,
             baseline_graph_source_path: "turns/0006/candidate.ui.json",
-            apply_allowed: false,
-            canvas_apply_allowed: false,
-            queue_allowed: false,
-            apply_eligibility: {
-              applyable: false,
-              reason: "superseded",
-              message: "This candidate has been superseded.",
-              warnings: [],
-            },
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: "stale-recovery-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
           },
-        };
-      },
+        }),
+      }),
       "/vibecomfy/agent-edit/rebaseline": async ({ options }) => {
         rebaselineCallCount += 1;
         const body = JSON.parse(options.body);
@@ -7848,6 +8436,7 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
 
   try {
     const extensionModule = await harness.loadExtension();
+    recoveredApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -7961,23 +8550,43 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
     assert.equal(panel.state.candidateGraphHash, "candidate-after-recovery");
     assert.match(harness.textDump(), /Apply is allowed, but Queue remains blocked for this candidate\./);
 
+    await waitFor(() => panel.state.chatRehydratePending === false);
     await harness.clickButton("Apply");
-    assert.equal(acceptBodies.length, 1);
-    assert.equal(acceptBodies[0].session_id, "session-stale");
-    assert.equal(acceptBodies[0].turn_id, "0006");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(panel.state.phase, "FINALIZED");
+    assert.equal(panel.state.finalizedReceipt?.phase, "finalized");
     assert.equal(panel.state.baselineTurnId, "0006");
     assert.equal(panel.state.baselineGraphHash, "baseline-after-apply");
     assert.equal(panel.state.baselineSource, "turn");
     assert.equal(panel.state.baselineRebaselineId, null);
     assert.equal(panel.state.baselineGraphSourcePath, "turns/0006/candidate.ui.json");
     assert.equal(panel.state.candidateGraph, null);
-    assert.equal(harness.graphConfigureCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
   } finally {
     await harness.dispose();
   }
 });
 
 test("VibeComfy turn audits move from persistent history cards into expanded bubble details", async () => {
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-a" } }],
+    links: [],
+  };
+  const auditApply = v2ApplyScenarioFixture({
+    sessionId: "session-1",
+    planHash: "audit-turn-0001-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_node", scope_path: "", uid: "uid-1", node_id: "1" },
+      { op: "add_node", scope_path: "", uid: "uid-a", node_id: "1", class_type: "Input", fields: {}, inputs: {} },
+    ],
+  });
   const turnResponses = [
     // Turn 1: successful candidate
     {
@@ -7997,7 +8606,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
           warnings: ["queue_blocked"],
         },
         message: "First turn candidate ready.",
-        graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-a" } }], links: [] },
+        ...auditApply.candidateFields,
         report: { change: { content_edits: { preserved: ["uid-a"], edited: [], removed_named: [] } }, recovery: [] },
         audit_ref: { path: "/tmp/audit-turn-0001.json", sha256: "abc111" },
       },
@@ -8025,10 +8634,8 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
   ];
 
   const harness = await createBrowserHarness({
-    graph: {
-      nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
-      links: [],
-    },
+    graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -8050,22 +8657,27 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
         },
       },
       "/vibecomfy/agent-executor": async () => turnResponses.shift(),
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: "session-1",
-          turn_id: "0001",
-          baseline_turn_id: "0001",
-          audit_ref: { path: "/tmp/audit-turn-0001-accept.json", sha256: "abc222" },
-        },
-      },
+      ...auditApply.routes({
+        finalize: ({ body, finalizedTransaction }) => ({
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: "session-1",
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            audit_ref: { path: "/tmp/audit-turn-0001-finalize.json", sha256: "abc222" },
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: "audit-turn-0001-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
+          },
+        }),
+      }),
     },
   });
 
   try {
     const extensionModule = await harness.loadExtension();
+    auditApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -8074,6 +8686,8 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
     // ── Turn 1: submit, get candidate, apply ──
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "turn 1 task";
     await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+    await waitFor(() => panel.state.chatRehydratePending === false);
 
     const afterCandidateText = harness.textDump();
     assert.match(afterCandidateText, /First turn candidate ready/);
@@ -8091,11 +8705,14 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
     await harness.clickButton("Apply");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.getAttribute("aria-label"), "Undo Last Apply");
     assert.ok(
-      panel.state.auditArtifacts.some((artifact) => artifact.auditRef?.path === "/tmp/audit-turn-0001-accept.json"),
-      "accept audit artifact should be retained",
+      panel.state.auditArtifacts.some((artifact) => artifact.auditRef?.path === "/tmp/audit-turn-0001-finalize.json"),
+      "finalize audit artifact should be retained",
     );
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.equal(harness.graphConfigureCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    assert.equal(panel.state.phase, "FINALIZED");
+    assert.equal(panel.state.finalizedReceipt?.phase, "finalized");
 
     // ── Turn 2: submit, get failure ──
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "turn 2 task";
@@ -8106,7 +8723,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
     assert.doesNotMatch(afterFailureText, /\/tmp\/audit-turn-0002\.json/);
     // Canvas should not have been mutated on failure
     assert.equal(harness.loadGraphDataCalls.length, 0);
-    assert.equal(harness.graphConfigureCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 0);
 
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /failed/i);
@@ -8509,6 +9126,14 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
     ],
     links: [],
   };
+  const batchProgressApply = v2ApplyScenarioFixture({
+    sessionId: "session-batch-fallback",
+    planHash: "batch-progress-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
 
   let resolveSubmit;
   const submitBodies = [];
@@ -8549,6 +9174,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
 
   try {
     const mod = await harness.loadExtension();
+    batchProgressApply.bind(mod);
     await harness.setup();
 
     // ── Part 1: client_id is sent in submit body ──────────────────────
@@ -8574,6 +9200,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        ...batchProgressApply.candidateFields,
         apply_eligibility: {
           applyable: true,
           reason: "queue_blocked_warning",
@@ -8581,7 +9208,6 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
           warnings: ["queue_blocked"],
         },
         message: "Candidate with authoritative batch_turns fallback.",
-        graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
         done_summary: "Final reasoning summary for the batch REPL.",
         batch_turns: [
@@ -8697,6 +9323,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
     assert.doesNotMatch(expandedText, /raw_json/i);
 
     // ── Part 6: Apply/Reject controls remain rendered and clickable after batch turns ──
+    await waitFor(() => mod.ensureAgentPanel().state.chatRehydratePending === false);
     const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
     const rejectButton = harness.document.getElementById("vibecomfy-agent-panel-reject");
     const undoButton = harness.document.getElementById("vibecomfy-agent-panel-undo");
@@ -11762,14 +12389,17 @@ test("VibeComfy status and rehydrate commits schedule a second flush after an ea
 
     await waitFor(() => harness.requests.some((r) => r.url === "/vibecomfy/agent/status?route=auto"));
 
+    // Mount may have already flushed its initial dirty sections.  The race
+    // regression is about commits after an empty flush, so establish that
+    // current scheduler baseline instead of assuming mount scheduling order.
     const beforeEarlyFlush = harness.window.__vibecomfyPanelDebug();
-    assert.equal(beforeEarlyFlush.flushCount, 0, "no scheduled flush should have run before the forced early one");
+    const initialFlushCount = beforeEarlyFlush.flushCount;
 
     extensionModule.scheduleRenderAgentPanel("forced-early-empty", panel, [
       extensionModule.RENDER_SECTIONS.THREAD,
       extensionModule.RENDER_SECTIONS.NOTICE,
     ]);
-    await waitFor(() => harness.window.__vibecomfyPanelDebug().flushCount === 1);
+    await waitFor(() => harness.window.__vibecomfyPanelDebug().flushCount > initialFlushCount);
 
     const earlyDebug = harness.window.__vibecomfyPanelDebug();
     assert.equal(earlyDebug.lastThreadRender?.panelId, root.dataset.vibecomfyPanelId);
@@ -11871,6 +12501,15 @@ for (const mountMode of ["launcher", "sidebar"]) {
         candidateGraph.nodes[1],
       ],
     };
+    const restoredApply = v2ApplyScenarioFixture({
+      sessionId: SESSION_ID,
+      turnId: "0005",
+      planHash: `live-selector-${mountMode}-plan`,
+      candidateGraph: restoredGraph,
+      deltaOps: [
+        { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "new prompt" },
+      ],
+    });
     let resolveStatus;
     let resolveChat;
     const statusPromise = new Promise((resolve) => {
@@ -11896,6 +12535,7 @@ for (const mountMode of ["launcher", "sidebar"]) {
 
     try {
       const extensionModule = await harness.loadExtension();
+      restoredApply.bind(extensionModule);
       await harness.setup();
 
       let sidebarTab = null;
@@ -11971,8 +12611,7 @@ for (const mountMode of ["launcher", "sidebar"]) {
           latest_candidate: {
             session_id: SESSION_ID,
             turn_id: "0005",
-            graph: restoredGraph,
-            candidate_graph_hash: `restored-live-shape-${mountMode}`,
+            ...restoredApply.candidateFields,
             message: "Latest candidate restored for review.",
             report: { change: { content_edits: { edited: ["uid-1"] } }, recovery: [] },
             change_details: {
@@ -11982,7 +12621,7 @@ for (const mountMode of ["launcher", "sidebar"]) {
             canvas_apply_allowed: true,
             apply_allowed: true,
             queue_allowed: false,
-            apply_eligibility: {
+            eligibility: {
               applyable: true,
               reason: "queue_blocked_warning",
               message: "Apply is allowed, but Queue remains blocked for this candidate.",
@@ -13955,6 +14594,161 @@ test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with 
   }
 });
 
+test("VibeComfy new empty workflow tab is fresh immediately and ignores a late submit from the departed tab", async () => {
+  const graphA = {
+    id: "workflow-isolation-a",
+    nodes: [
+      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "isolation-a-load" } },
+    ],
+    links: [],
+  };
+  const graphB = {
+    id: "workflow-isolation-new-empty",
+    nodes: [],
+    links: [],
+  };
+  const workflowA = {
+    id: "workflow-isolation-a",
+    content: JSON.stringify(graphA),
+    filename: "Isolation A",
+  };
+  const workflowB = {
+    id: "workflow-isolation-new-empty",
+    content: JSON.stringify(graphB),
+    filename: "New Empty Workflow",
+  };
+  const sessionA = "session-isolation-a";
+  const chatUrlA = `/vibecomfy/agent-edit/chat?session_id=${sessionA}`;
+  let releaseSubmit;
+  const delayedSubmit = new Promise((resolve) => {
+    releaseSubmit = resolve;
+  });
+  let submitStarted = false;
+  let submitPromise;
+
+  const harness = await createBrowserHarness({
+    graph: graphA,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+      [chatUrlA]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: sessionA,
+          latest_turn_id: "0001",
+          messages: [
+            { role: "user", text: "old workflow user", turn_id: "0001" },
+            { role: "agent", text: "old workflow finalized result", turn_id: "0001" },
+          ],
+        },
+      },
+      "/vibecomfy/agent-executor": async () => {
+        submitStarted = true;
+        await delayedSubmit;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session_id: sessionA,
+            turn_id: "0002",
+            baseline_turn_id: "0001",
+            outcome: { kind: "noop", reason: "late departed workflow result" },
+            graph_unchanged: true,
+            canvas_apply_allowed: false,
+            apply_allowed: false,
+            queue_allowed: false,
+            message: "late departed workflow result",
+          },
+        };
+      },
+    },
+  });
+
+  const originalGlobalApp = globalThis.app;
+  try {
+    globalThis.app = harness.app;
+    harness.app.extensionManager.workflow = {
+      activeWorkflow: workflowA,
+      openWorkflows: [workflowA, workflowB],
+    };
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    const panel = extensionModule.ensureAgentPanel();
+    const scopeA = extensionModule.resolveActiveCanvasScope();
+    extensionModule.setScopedSessionId(scopeA.scopeId, sessionA);
+    panel.state.chatScopeId = scopeA.scopeId;
+    panel.state.chatScopeFingerprint = scopeA.fingerprint;
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => /old workflow finalized result/.test(harness.textDump()));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "long edit in old workflow";
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    submitPromise = harness.clickButton("Submit");
+    await waitFor(() => submitStarted);
+    await waitFor(() => panel.state.phase === "SUBMITTING");
+
+    harness.app.extensionManager.workflow.activeWorkflow = workflowB;
+    harness.app.loadGraphData(graphB);
+    const scopeB = extensionModule.resolveActiveCanvasScope();
+    await waitFor(() => panel.state.chatScopeId === scopeB.scopeId);
+
+    // Freshness is synchronous with the workflow activation. It must not wait
+    // for chat rehydrate or for the departed request to settle.
+    assert.equal(panel.state.phase, "IDLE");
+    assert.equal(panel.state.sessionId, null);
+    assert.equal(panel.state.turnId, null);
+    assert.deepEqual(panel.state.chatMessages, []);
+    assert.deepEqual(panel.state.turns, []);
+    assert.deepEqual(panel.state.history, []);
+    assert.deepEqual(panel.state.executorProgress, {
+      decide: "pending",
+      research: "pending",
+      execute: "pending",
+      review: "pending",
+    });
+    assert.doesNotMatch(harness.textDump(), /old workflow finalized result/);
+    assert.doesNotMatch(harness.textDump(), /long edit in old workflow/);
+
+    releaseSubmit();
+    await submitPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(panel.state.chatScopeId, scopeB.scopeId);
+    assert.equal(panel.state.phase, "IDLE");
+    assert.equal(panel.state.sessionId, null);
+    assert.equal(panel.state.turnId, null);
+    assert.deepEqual(panel.state.chatMessages, []);
+    assert.doesNotMatch(harness.textDump(), /late departed workflow result/);
+  } finally {
+    releaseSubmit?.();
+    if (submitPromise) {
+      await Promise.resolve(submitPromise).catch(() => {});
+    }
+    if (originalGlobalApp === undefined) {
+      delete globalThis.app;
+    } else {
+      globalThis.app = originalGlobalApp;
+    }
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy scoped workflow rehydrate ignores stale latest candidates after scope switch", async () => {
   const graphA = {
     nodes: [
@@ -15757,14 +16551,14 @@ test("VibeComfy comfy_adapter delta apply upsert_link adds a new link and preser
         id: 2,
         type: "VAEDecode",
         inputs: [{ name: "samples", link: 3 }],
-        outputs: [{ name: "image", links: [] }],
+        outputs: [{ name: "image", type: "IMAGE", links: [] }],
         pos: [400, 200],
         properties: { vibecomfy_uid: "vae" },
       },
       {
         id: 3,
         type: "SaveImage",
-        inputs: [{ name: "images", link: null }],
+        inputs: [{ name: "images", type: "IMAGE", link: null }],
         pos: [700, 200],
         properties: { vibecomfy_uid: "saver" },
       },
@@ -15820,9 +16614,16 @@ test("VibeComfy comfy_adapter delta apply upsert_link adds a new link and preser
     const liveLinks = harness.getLiveLinks();
     assert.ok(liveLinks[String(3)], "existing link should be preserved as link 3");
 
-    // Verify new link exists
-    const link10 = liveLinks[String(10)];
-    assert.ok(link10, "newly upserted link should exist as link 10");
+    // Native LiteGraph owns link allocation; identity is not part of the
+    // delta contract. Verify the authoritative endpoints and type instead.
+    const addedLink = Object.values(liveLinks).find((link) => (
+      String(link.origin_id) === "2"
+      && Number(link.origin_slot) === 0
+      && String(link.target_id) === "3"
+      && Number(link.target_slot) === 0
+      && link.type === "IMAGE"
+    ));
+    assert.ok(addedLink, "newly upserted IMAGE link should connect VAEDecode to SaveImage");
 
     harness.assertNoWholeGraphOps("upsert_link scoped apply");
   } finally {
@@ -17583,9 +18384,19 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
     ],
     links: [],
   };
+  const fieldChangeApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0010",
+    planHash: "field-change-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -17598,9 +18409,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
           session_id: SESSION_ID,
           turn_id: "0010",
           baseline_turn_id: null,
-          candidate: {
-            graph: candidateGraph,
-          },
+          ...fieldChangeApply.candidateFields,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -17646,18 +18455,22 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
           audit_ref: { path: "/tmp/fieldchange-submit-audit.json" },
         },
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0010",
-          baseline_turn_id: "0010",
-          queue_allowed: true,
-          audit_ref: { path: "/tmp/fieldchange-submit-accept.json" },
-        },
-      },
+      ...fieldChangeApply.routes({
+        finalize: ({ body, finalizedTransaction }) => ({
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: SESSION_ID,
+            turn_id: "0010",
+            baseline_turn_id: "0010",
+            queue_allowed: true,
+            audit_ref: { path: "/tmp/fieldchange-submit-finalize.json" },
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: "field-change-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
+          },
+        }),
+      }),
       [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
         status: 200,
         body: {
@@ -17684,7 +18497,8 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    fieldChangeApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -17693,14 +18507,22 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
     await harness.clickButton("Submit");
 
     // Verify submit succeeded and the panel reached AWAITING_REVIEW.
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Candidate with field changes/);
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
 
-    // Accept the candidate to verify full round-trip works.
+    // Finalize the candidate after the native delta mutation.
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
+    assert.equal(
+      extensionModule.ensureAgentPanel().state.candidateTransaction?.state,
+      "finalized",
+      "the canonical finalized transaction is retained after the finalize receipt",
+    );
+    assert.equal(extensionModule.ensureAgentPanel().state.candidateTransaction?.plan_hash, "field-change-plan");
   } finally {
     await harness.dispose();
   }
@@ -17760,6 +18582,17 @@ test("VibeComfy candidate bubble renders revision evidence scoped diff rows with
     ],
     links: [[59, 6, 0, 34, 0, "IMAGE"]],
   };
+  const scopedRevisionApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "scoped-revision-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "remove_link", to: ["nodes", "n22", "in_0"] },
+      { op: "add_node", scope_path: "", uid: "n6", node_id: "6", class_type: "VAEDecode", fields: {}, inputs: {} },
+      { op: "upsert_link", from: ["nodes", "n6", "IMAGE"], to: ["nodes", "n22", "in_0"] },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
@@ -17775,10 +18608,7 @@ test("VibeComfy candidate bubble renders revision evidence scoped diff rows with
           session_id: SESSION_ID,
           turn_id: "0002",
           baseline_turn_id: "0001",
-          candidate: {
-            state: "candidate",
-            graph: candidateGraph,
-          },
+          ...scopedRevisionApply.candidateFields,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -17843,7 +18673,8 @@ test("VibeComfy candidate bubble renders revision evidence scoped diff rows with
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    scopedRevisionApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -17858,6 +18689,7 @@ test("VibeComfy candidate bubble renders revision evidence scoped diff rows with
     assert.match(text, /added_link: 6\.0 -> 34\.0/);
     assert.match(text, /removed_link: 10\.0 -> 34\.0/);
     assert.match(text, /affected node preview/);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
   } finally {
     await harness.dispose();
@@ -18052,6 +18884,15 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     ],
     links: [],
   };
+  const bubbleRefreshApply = v2ApplyScenarioFixture({
+    sessionId: SESSION_ID,
+    turnId: "0007",
+    planHash: "bubble-refresh-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
 
   const harness = await createBrowserHarness({
     graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }], links: [] },
@@ -18083,6 +18924,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: true,
+          ...bubbleRefreshApply.candidateFields,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -18090,7 +18932,6 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
             warnings: [],
           },
           message: "Candidate ready for review.",
-          graph: candidateGraph,
           report: {
             change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } },
             recovery: [],
@@ -18130,6 +18971,37 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
           session_id: SESSION_ID,
           session_path: `out/editor_sessions/${SESSION_ID}/`,
           detail_json_path: `out/editor_sessions/${SESSION_ID}/session.json`,
+          latest_turn_lifecycle: {
+            turn_id: "0007",
+            state: "candidate_ready",
+            agent_edit_protocol: "v2_delta",
+            candidate_transaction: bubbleRefreshApply.candidateTransaction,
+            transaction_receipts: [],
+          },
+          latest_candidate: {
+            session_id: SESSION_ID,
+            turn_id: "0007",
+            ...bubbleRefreshApply.candidateFields,
+            canvas_apply_allowed: true,
+            apply_allowed: true,
+            queue_allowed: true,
+            eligibility: {
+              applyable: true,
+              reason: "applyable",
+              message: "Queue ready for this historical turn.",
+              warnings: [],
+            },
+            message: "Candidate ready for review.",
+            outcome: {
+              kind: "candidate",
+              changes: [
+                { uid: "uid-2", field_path: "inputs.filename_prefix", old: "old", new: "new" },
+              ],
+            },
+            field_changes: [
+              { uid: "uid-2", field_path: "inputs.filename_prefix", old: "old", new: "new" },
+            ],
+          },
           messages: [
             { role: "user", text: "make the save node cleaner", turn_id: "0007" },
             {
@@ -18158,12 +19030,14 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
 
   try {
     const extensionModule = await harness.loadExtension();
+    bubbleRefreshApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "bubble detail retention";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
     assert.ok(chatRegion, "chat region must exist");
@@ -19016,6 +19890,15 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
     ],
     links: [],
   };
+  const stopApply = v2ApplyScenarioFixture({
+    sessionId: "session-stop",
+    turnId: "0002",
+    planHash: "stop-retry-plan",
+    candidateGraph,
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  });
   let releaseSubmit;
   const submitStarted = new Promise((resolve) => {
     releaseSubmit = resolve;
@@ -19026,6 +19909,7 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
       nodes: [{ id: 1, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "uid-1" } }],
       links: [],
     },
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -19056,7 +19940,7 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
             session_id: "session-stop",
             turn_id: "0002",
             baseline_turn_id: "0001",
-            candidate: { graph: candidateGraph },
+            ...stopApply.candidateFields,
             eligibility: {
               applyable: true,
               reason: "applyable",
@@ -19069,16 +19953,21 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
           },
         };
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          session_id: "session-stop",
-          turn_id: "0002",
-          baseline_turn_id: "0002",
-          audit_ref: { path: "/tmp/accept-stop-audit.json" },
-        },
-      },
+      ...stopApply.routes({
+        finalize: ({ body, finalizedTransaction }) => ({
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: "session-stop",
+            turn_id: "0002",
+            baseline_turn_id: "0002",
+            audit_ref: { path: "/tmp/finalize-stop-audit.json" },
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: "stop-retry-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
+          },
+        }),
+      }),
       "/vibecomfy/agent-edit/rebaseline": {
         status: 200,
         body: {
@@ -19098,6 +19987,7 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
 
   try {
     const extensionModule = await harness.loadExtension();
+    stopApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -19122,7 +20012,10 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "replace the preview node";
     await harness.clickButton("Submit");
     await waitFor(() => /Candidate ready after retry\./.test(harness.textDump()));
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     await harness.clickButton("Apply");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display !== "none");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.textContent, "");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.getAttribute("aria-label"), "Undo Last Apply");

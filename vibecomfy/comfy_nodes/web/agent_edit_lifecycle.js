@@ -23,6 +23,7 @@ import {
   splitRehydrateProjectionInput,
 } from "./agent_edit_response_contract.js";
 import { normalizeCandidateTransaction, transactionAllows } from "./agent_edit_transaction.js";
+import { createExecutorProgressSnapshot } from "./executor_progress.js";
 
 // ── T7: Runtime snapshot helpers for scope switching ─────────────────────
 import {
@@ -59,6 +60,8 @@ export const PANEL_STATE = Object.freeze({
   REVIEW_BOUND: "REVIEW_BOUND",
   APPLY_PREPARED: "APPLY_PREPARED",
   CANVAS_VERIFIED: "CANVAS_VERIFIED",
+  FINALIZING: "FINALIZING",
+  RECOVERY_REQUIRED: "RECOVERY_REQUIRED",
   FINALIZED: "FINALIZED",
   ROLLBACK_PREPARED: "ROLLBACK_PREPARED",
   ROLLBACK_COMPLETE: "ROLLBACK_COMPLETE",
@@ -149,6 +152,10 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   // The scope id under which the current submit was initiated.  Set on
   // SUBMIT_START, cleared on SUBMIT_FINALLY and NEW_CONVERSATION.
   "submittingScopeId",
+  // Monotonic activation token for the visible workflow. Async work captures
+  // this alongside its normal request epoch so switching away and back cannot
+  // resurrect a response started during an earlier activation.
+  "scopeActivationEpoch",
 
   // Baseline authority (mirrored from backend CAS)
   "baselineTurnId",
@@ -242,6 +249,8 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "verifiedReceipt",
   // rollbackReceipt — durable receipt from the rollback route
   "rollbackReceipt",
+  // rolledBack — whether the current compensated terminal failure was safely rolled back
+  "rolledBack",
   // lifecycleEvents — append-only log of transaction lifecycle events for recovery
   "lifecycleEvents",
 ]);
@@ -278,6 +287,7 @@ export function createAgentEditState() {
     chatScopeFingerprint: null,
     candidateScopeId: null,
     submittingScopeId: null,
+    scopeActivationEpoch: 0,
 
     // Baseline authority
     baselineTurnId: null,
@@ -359,6 +369,7 @@ export function createAgentEditState() {
     preparedReceipt: null,
     verifiedReceipt: null,
     rollbackReceipt: null,
+    rolledBack: false,
     lifecycleEvents: [],
   };
 }
@@ -1976,6 +1987,9 @@ function _handleNewConversation(panel) {
   // Scope B's saved state (in _scopeSnapshots) is untouched.
   const departingScopeId = panel.state.chatScopeId;
   const departingScopeFingerprint = panel.state.chatScopeFingerprint;
+  const scopeActivationEpoch = Number.isFinite(panel.state.scopeActivationEpoch)
+    ? panel.state.scopeActivationEpoch
+    : 0;
   _handleInvalidateCandidate(panel, { repaint: false });
   Object.assign(panel.state, createAgentEditState(), {
     submitEpoch: nextSubmitEpoch,
@@ -1983,6 +1997,7 @@ function _handleNewConversation(panel) {
     // ── T9: Keep the panel bound to the same workflow scope ────────────
     chatScopeId: departingScopeId,
     chatScopeFingerprint: departingScopeFingerprint,
+    scopeActivationEpoch,
   });
   return _obligations({
     render: true,
@@ -2010,6 +2025,9 @@ function _handleNewConversation(panel) {
 // excludes undoStack from all snapshot operations (SD3).
 function _handleScopeSwitch(panel, payload) {
   const oldScopeId = panel.state.chatScopeId;
+  const oldSubmitAbortController = panel.state.submitAbortController;
+  const nextScopeActivationEpoch =
+    (Number.isFinite(panel.state.scopeActivationEpoch) ? panel.state.scopeActivationEpoch : 0) + 1;
   const scopeId = typeof payload?.scopeId === "string" && payload.scopeId
     ? payload.scopeId
     : null;
@@ -2027,27 +2045,53 @@ function _handleScopeSwitch(panel, payload) {
     saveScopeSnapshot(oldScopeId, panel);
   }
 
-  // Invalidate the current candidate — it belongs to the old scope.
-  _handleInvalidateCandidate(panel, { repaint: false });
-
-  // Update scope identity from payload.
-  panel.state.chatScopeId = scopeId;
-  panel.state.chatScopeFingerprint = fingerprint;
-  panel.state.candidateScopeId = null;
-  panel.state.submittingScopeId = null;
-
-  // Clear submit-in-flight state — any in-flight submit belongs to the old scope.
-  panel.state.inFlightSubmit = null;
-  panel.state.submitAbortController = null;
-  panel.state.failure = null;
-  panel.state.clarification = null;
+  // A workflow switch is a complete state-boundary transition. Start from
+  // canonical fresh lifecycle state before restoring an arriving snapshot.
+  // The previous implementation mutated only a few fields, which left phase,
+  // session, turn, transcript and progress from the departed workflow visible
+  // in a brand-new tab until async rehydrate happened to clear some of them.
+  Object.assign(panel.state, createAgentEditState(), {
+    chatScopeId: scopeId,
+    chatScopeFingerprint: fingerprint,
+    scopeActivationEpoch: nextScopeActivationEpoch,
+  });
+  panel.state.history = [];
+  panel.state.turns = [];
+  panel.state.chatMessages = [];
+  panel.state.chatLoaded = false;
+  panel.state.chatError = null;
+  panel.state.chatSessionPath = null;
+  panel.state.chatDetailJsonPath = null;
+  panel.state.chatSessionPathResolved = null;
+  panel.state.chatDetailJsonPathResolved = null;
+  panel.state.executorProgress = createExecutorProgressSnapshot();
+  panel.state.expandedTurnKeys = {};
+  panel.state.expandedBubbleTurnKeys = {};
+  panel.state.turnDetailSnapshots = {};
 
   // ── T7: Restore arriving scope state (if snapshot exists) ──────────────
-  // The snapshot restoration merges all saved fields back onto panel.state
-  // while leaving undoStack untouched.  When no snapshot exists this is a
-  // true fresh-scope transition — the lifecycle fields remain at their
-  // post-switch defaults.
+  // Restoring is intentionally done onto fresh state rather than by merging
+  // into the departed workflow. The activation epoch is runtime-affine and
+  // excluded from snapshots, so re-assert it after restoration.
   const restored = scopeId ? restoreScopeSnapshot(scopeId, panel) : false;
+  panel.state.scopeActivationEpoch = nextScopeActivationEpoch;
+  panel.state.inFlightSubmit = null;
+  panel.state.submitAbortController = null;
+  panel.state.inFlightApply = null;
+  panel.state.inFlightRebaseline = null;
+  if (
+    panel.state.phase === PANEL_STATE.SUBMITTING
+    || panel.state.phase === PANEL_STATE.APPLYING
+    || panel.state.phase === PANEL_STATE.FINALIZING
+  ) {
+    // In-memory work cannot be resumed from a snapshot. Durable chat/
+    // transaction rehydrate below is the authority for its eventual state.
+    panel.state.phase = PANEL_STATE.IDLE;
+    panel.state.message = null;
+    panel.state.failure = null;
+    panel.state.clarification = null;
+    panel.state.executorProgress = createExecutorProgressSnapshot();
+  }
 
   return _obligations({
     render: true,
@@ -2074,6 +2118,7 @@ function _handleScopeSwitch(panel, payload) {
     // Metadata for the obligation fulfiller so it can save the departing
     // scope's draft before the DOM repaint clears the prompt box.
     departingScopeId: oldScopeId !== scopeId ? oldScopeId : null,
+    abortSubmitController: oldSubmitAbortController || null,
     restored,
   });
 }
@@ -2614,6 +2659,48 @@ function _projectSyntheticTranscriptMessage(message) {
   return projectTranscriptMessage(message);
 }
 
+// Every failure after a V2 prepare is a compensation boundary.  Keep the
+// terminal projection in one place: callers may differ in *why* compensation
+// started, but the user-visible outcome must never lose the rollback evidence,
+// recovery instruction, or transcript entry that explains it.
+export function projectCompensatedFailure(payload = {}) {
+  const failure = payload?.failure || null;
+  const rollbackReceipt = payload?.rollbackReceipt
+    || payload?.transactionRollback?.rollback_receipt
+    || payload?.transaction_rollback?.rollback_receipt
+    || null;
+  const rolledBack = payload?.rolledBack === true;
+  const hasCompensationData = [
+    "rolledBack",
+    "rollbackReceipt",
+    "transactionRollback",
+    "transaction_rollback",
+    "recoveryRequired",
+    "rebaselineRecovery",
+  ].some((key) => Object.prototype.hasOwnProperty.call(payload || {}, key));
+  const recoveryRequired = payload?.recoveryRequired === true;
+  const nextAction = typeof failure?.next_action === "string" && failure.next_action.trim()
+    ? failure.next_action.trim()
+    : (recoveryRequired
+      ? "Keep the prepared transaction open, restore the canvas if needed, then retry rollback or rebaseline."
+      : null);
+  const baseMessage = failure?.user_facing_message || failure?.message || failure?.error || null;
+  const message = baseMessage && nextAction && !String(baseMessage).includes(nextAction)
+    ? `${baseMessage}\n\n${nextAction}`
+    : (baseMessage || nextAction);
+  const syntheticAgentMessage = payload?.syntheticAgentMessage || null;
+  return {
+    failure,
+    rolledBack,
+    rollbackReceipt,
+    syntheticAgentMessage,
+    rebaselineRecovery: payload?.rebaselineRecovery || null,
+    recoveryRequired,
+    message,
+    hasCompensationData,
+  };
+}
+
 export function ingestChatRehydratePayload(panelState, payload) {
   const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
   const existingProjection = splitRehydrateProjectionInput({
@@ -2817,21 +2904,33 @@ function _handleStaleCanvasApply(panel, payload) {
 }
 
 function _handleCanvasApplyFailure(panel, payload) {
-  const failure = payload?.failure || null;
-  panel.state.phase = PANEL_STATE.ERROR;
+  const compensation = projectCompensatedFailure(payload);
+  const { failure, recoveryRequired, rolledBack, rollbackReceipt, syntheticAgentMessage, rebaselineRecovery, message, hasCompensationData } = compensation;
+  panel.state.phase = recoveryRequired ? PANEL_STATE.RECOVERY_REQUIRED : PANEL_STATE.ERROR;
   panel.state.failure = failure;
-  panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(payload?.syntheticAgentMessage);
+  panel.state.rolledBack = rolledBack;
+  panel.state.message = message || panel.state.message;
+  panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(syntheticAgentMessage);
+  _syncRebaselineRecovery(panel, { rebaselineRecovery });
+  if (rollbackReceipt) panel.state.rollbackReceipt = rollbackReceipt;
   panel.state.auditRef = failure?.audit_ref || panel.state.auditRef;
   panel.state.debugPayload = payload?.debugPayload || {
     ...(failure || {}),
     accepted: payload?.accepted || null,
     undo_stack_depth: Number.isFinite(payload?.undoStackDepth) ? payload.undoStackDepth : null,
   };
-  _handleInvalidateCandidate(panel, { repaint: false });
+  const clearCandidate = hasCompensationData ? rolledBack && !recoveryRequired : !recoveryRequired;
+  if (clearCandidate) {
+    _handleInvalidateCandidate(panel, { repaint: false });
+  }
   return _obligations({
     render: true,
-    invalidateCandidate: true,
-    clearCandidatePreview: true,
+    ...(syntheticAgentMessage
+      ? { dirtySections: [...STATUS_DIRTY_SECTIONS, RENDER_SECTIONS.THREAD] }
+      : {}),
+    invalidateCandidate: clearCandidate,
+    clearCandidatePreview: clearCandidate,
+    ...(recoveryRequired ? { persistSession: panel.state.sessionId || null } : {}),
   });
 }
 
@@ -2897,6 +2996,7 @@ function _handlePrepareStarted(panel, payload) {
   panel.state.generation = generation;
   panel.state.leaseNonce = leaseNonce;
   panel.state.failure = null;
+  panel.state.rolledBack = false;
   panel.state.debugPayload = payload?.debugPayload || {
     preparing_turn_id: panel.state.turnId,
     plan_hash: mutationPlanHash,
@@ -2911,6 +3011,9 @@ function _handlePrepareSuccess(panel, payload) {
   const receipt = payload?.receipt || payload?.preparedReceipt || null;
   const transaction = payload?.candidateTransaction
     || _readCandidateTransactionForTransition(payload);
+  const durableReceipt = receipt?.receipt && typeof receipt.receipt === "object"
+    ? receipt.receipt
+    : receipt;
   panel.state.phase = PANEL_STATE.APPLY_PREPARED;
   panel.state.preparedReceipt = receipt;
   panel.state.candidateTransaction = transaction || panel.state.candidateTransaction;
@@ -2918,11 +3021,23 @@ function _handlePrepareSuccess(panel, payload) {
     ? clonePlainData(transaction.plan.delta_ops_envelope.ops)
     : panel.state.deltaOps;
   panel.state.mutationPlanHash = transaction?.plan_hash
-    || receipt?.plan_hash || receipt?.planHash || panel.state.mutationPlanHash;
+    || durableReceipt?.plan_hash || durableReceipt?.planHash
+    || receipt?.plan_hash || receipt?.planHash
+    || panel.state.mutationPlanHash;
   panel.state.generation = transaction?.generation
-    ?? receipt?.generation ?? panel.state.generation ?? null;
-  panel.state.leaseNonce = receipt?.lease_nonce || receipt?.leaseNonce || panel.state.leaseNonce;
+    ?? durableReceipt?.generation
+    ?? receipt?.generation
+    ?? panel.state.generation
+    ?? null;
+  panel.state.leaseNonce = transaction?.lease_nonce
+    || transaction?.leaseNonce
+    || durableReceipt?.lease_nonce
+    || durableReceipt?.leaseNonce
+    || receipt?.lease_nonce
+    || receipt?.leaseNonce
+    || panel.state.leaseNonce;
   panel.state.failure = null;
+  panel.state.rolledBack = false;
   panel.state.debugPayload = payload?.debugPayload || {
     prepared_receipt: receipt,
   };
@@ -2935,18 +3050,35 @@ function _handlePrepareSuccess(panel, payload) {
 }
 
 function _handlePrepareFailure(panel, payload) {
-  const failure = payload?.failure || null;
-  panel.state.phase = PANEL_STATE.ERROR;
+  const compensation = projectCompensatedFailure(payload);
+  const { failure, recoveryRequired, rolledBack, rollbackReceipt, syntheticAgentMessage, rebaselineRecovery, message } = compensation;
+  panel.state.phase = recoveryRequired ? PANEL_STATE.RECOVERY_REQUIRED : PANEL_STATE.ERROR;
   panel.state.failure = failure;
-  panel.state.preparedReceipt = null;
-  panel.state.leaseNonce = null;
+  panel.state.rolledBack = rolledBack;
+  panel.state.message = message || panel.state.message;
+  panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(syntheticAgentMessage);
+  _syncRebaselineRecovery(panel, { rebaselineRecovery });
+  if (rollbackReceipt) panel.state.rollbackReceipt = rollbackReceipt;
+  if (!recoveryRequired) {
+    panel.state.preparedReceipt = null;
+    panel.state.leaseNonce = null;
+  }
+  if (rolledBack) {
+    _handleInvalidateCandidate(panel, { repaint: false });
+  }
   panel.state.debugPayload = payload?.debugPayload || {
     prepare_failure: failure,
   };
   _recordLifecycleEvent(panel, "prepare_failure", payload);
   return _obligations({
     render: true,
-    dirtySections: STATUS_DIRTY_SECTIONS,
+    // A local synthetic failure transcript requires a thread repaint.
+    dirtySections: syntheticAgentMessage
+      ? [...STATUS_DIRTY_SECTIONS, RENDER_SECTIONS.THREAD]
+      : STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: rolledBack,
+    clearCandidatePreview: rolledBack,
+    ...(recoveryRequired ? { persistSession: panel.state.sessionId || null } : {}),
   });
 }
 
@@ -2966,6 +3098,7 @@ function _handleVerifyCanvasSuccess(panel, payload) {
   panel.state.phase = PANEL_STATE.CANVAS_VERIFIED;
   panel.state.verifiedReceipt = receipt;
   panel.state.failure = null;
+  panel.state.rolledBack = false;
   panel.state.debugPayload = payload?.debugPayload || {
     verified_receipt: receipt,
     post_apply_hash: receipt?.post_apply_hash || receipt?.postApplyHash || null,
@@ -2979,22 +3112,36 @@ function _handleVerifyCanvasSuccess(panel, payload) {
 }
 
 function _handleVerifyCanvasFailure(panel, payload) {
-  const failure = payload?.failure || null;
-  panel.state.phase = PANEL_STATE.ERROR;
+  const compensation = projectCompensatedFailure(payload);
+  const { failure, recoveryRequired, rolledBack, rollbackReceipt, syntheticAgentMessage, rebaselineRecovery, message } = compensation;
+  panel.state.phase = recoveryRequired ? PANEL_STATE.RECOVERY_REQUIRED : PANEL_STATE.ERROR;
   panel.state.failure = failure;
+  panel.state.rolledBack = rolledBack;
+  panel.state.message = message || panel.state.message;
   panel.state.verifiedReceipt = null;
+  if (rollbackReceipt) panel.state.rollbackReceipt = rollbackReceipt;
+  panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(syntheticAgentMessage);
+  _syncRebaselineRecovery(panel, { rebaselineRecovery });
   panel.state.debugPayload = payload?.debugPayload || {
     verify_canvas_failure: failure,
   };
+  if (rolledBack) {
+    _handleInvalidateCandidate(panel, { repaint: false });
+  }
   _recordLifecycleEvent(panel, "verify_canvas_failure", payload);
   return _obligations({
     render: true,
-    dirtySections: STATUS_DIRTY_SECTIONS,
+    dirtySections: syntheticAgentMessage
+      ? [...STATUS_DIRTY_SECTIONS, RENDER_SECTIONS.THREAD]
+      : STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: rolledBack,
+    clearCandidatePreview: rolledBack,
+    ...(recoveryRequired ? { persistSession: panel.state.sessionId || null } : {}),
   });
 }
 
 function _handleFinalizeStarted(panel, payload) {
-  panel.state.phase = PANEL_STATE.FINALIZED;
+  panel.state.phase = PANEL_STATE.FINALIZING;
   panel.state.failure = null;
   panel.state.debugPayload = payload?.debugPayload || {
     finalizing_turn_id: panel.state.turnId,
@@ -3015,10 +3162,16 @@ function _handleFinalizeSuccess(panel, payload) {
   _handleSyncBaseline(panel, accepted);
   panel.state.baselineTurnId = panel.state.baselineTurnId || panel.state.turnId || null;
   panel.state.auditRef = accepted.audit_ref || panel.state.auditRef;
+  panel.state.finalizedReceipt = receipt;
+  // Finalize is a durable server response in its own right. Preserve its
+  // audit reference in the same local projection compartments as submit and
+  // failure responses so bubble details retain the terminal audit artifact.
+  _recordExplicitLocalPayload(panel, accepted);
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateTransaction = transaction;
   panel.state.message = null;
   panel.state.failure = null;
+  panel.state.rolledBack = false;
   panel.state.queueAllowed = false;
   panel.state.canvasApplyAllowed = false;
   panel.state.applyAllowed = false;
@@ -3044,12 +3197,18 @@ function _handleFinalizeSuccess(panel, payload) {
 }
 
 function _handleFinalizeFailure(panel, payload) {
-  const failure = payload?.failure || null;
-  const rolledBack = payload?.rolledBack === true;
-  panel.state.phase = PANEL_STATE.ERROR;
+  const compensation = projectCompensatedFailure(payload);
+  const { failure, recoveryRequired, rolledBack, rollbackReceipt, syntheticAgentMessage, rebaselineRecovery, message, hasCompensationData } = compensation;
+  panel.state.phase = (recoveryRequired || (!hasCompensationData && !rolledBack))
+    ? PANEL_STATE.RECOVERY_REQUIRED
+    : PANEL_STATE.ERROR;
   panel.state.failure = failure;
+  panel.state.rolledBack = rolledBack;
+  panel.state.message = message || panel.state.message;
+  panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(syntheticAgentMessage);
+  _syncRebaselineRecovery(panel, { rebaselineRecovery });
   if (rolledBack) {
-    panel.state.rollbackReceipt = payload?.rollbackReceipt || panel.state.rollbackReceipt;
+    panel.state.rollbackReceipt = rollbackReceipt || panel.state.rollbackReceipt;
     _handleInvalidateCandidate(panel, { repaint: false });
     panel.state.queueAllowed = false;
     panel.state.canvasApplyAllowed = false;
@@ -3062,11 +3221,14 @@ function _handleFinalizeFailure(panel, payload) {
   _handleSyncBaseline(panel, failure || {});
   return _obligations({
     render: true,
-    dirtySections: STATUS_DIRTY_SECTIONS,
+    dirtySections: syntheticAgentMessage
+      ? [...STATUS_DIRTY_SECTIONS, RENDER_SECTIONS.THREAD]
+      : STATUS_DIRTY_SECTIONS,
     invalidateCandidate: rolledBack,
     clearCandidatePreview: rolledBack,
     queueGuardClear: rolledBack,
     refreshQueueGuard: rolledBack,
+    persistSession: rolledBack ? null : panel.state.sessionId || null,
   });
 }
 
@@ -3089,6 +3251,7 @@ function _handleRollbackSuccess(panel, payload) {
   panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
   panel.state.rollbackReceipt = receipt;
   panel.state.failure = null;
+  panel.state.rolledBack = true;
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateTransaction = transaction;
   panel.state.message = payload?.message || "Rollback complete. Baseline restored.";
@@ -3113,9 +3276,14 @@ function _handleRollbackSuccess(panel, payload) {
 
 function _handleRollbackFailure(panel, payload) {
   const failure = payload?.failure || null;
-  panel.state.phase = PANEL_STATE.ERROR;
+  panel.state.phase = PANEL_STATE.RECOVERY_REQUIRED;
   panel.state.failure = failure;
+  panel.state.rolledBack = false;
   panel.state.rollbackReceipt = null;
+  // Rollback is a user-actionable recovery boundary. Preserve the server's
+  // safe message rather than leaving the panel on an opaque generic phase.
+  panel.state.message = failure?.user_facing_message || failure?.message
+    || "Rollback failed. Retry rollback or rebaseline from the current canvas.";
   panel.state.debugPayload = payload?.debugPayload || {
     rollback_failure: failure,
   };
@@ -3123,6 +3291,7 @@ function _handleRollbackFailure(panel, payload) {
   return _obligations({
     render: true,
     dirtySections: STATUS_DIRTY_SECTIONS,
+    persistSession: panel.state.sessionId || null,
   });
 }
 
@@ -3138,6 +3307,7 @@ function _handleReconcileReceipts(panel, payload) {
     panel.state.generation = transaction.generation ?? panel.state.generation;
     panel.state.deltaOps = clonePlainData(transaction.plan.delta_ops_envelope.ops);
   }
+  let terminalReconciled = false;
   if (receipts && typeof receipts === "object") {
     if (receipts.preparedReceipt || receipts.prepared_receipt) {
       panel.state.preparedReceipt = receipts.preparedReceipt || receipts.prepared_receipt;
@@ -3175,7 +3345,16 @@ function _handleReconcileReceipts(panel, payload) {
       }
     }
     // Recover lifecycle state from the latest receipt
-    if (panel.state.verifiedReceipt && !panel.state.rollbackReceipt) {
+    if (
+      transaction?.state === "finalized"
+      || receipts.finalizedReceipt
+      || receipts.finalized_receipt
+    ) {
+      panel.state.phase = PANEL_STATE.FINALIZED;
+      _handleInvalidateCandidate(panel, { repaint: false });
+      panel.state.candidateTransaction = transaction;
+      terminalReconciled = true;
+    } else if (panel.state.verifiedReceipt && !panel.state.rollbackReceipt) {
       panel.state.phase = PANEL_STATE.CANVAS_VERIFIED;
     } else if (panel.state.preparedReceipt && !panel.state.verifiedReceipt) {
       panel.state.phase = PANEL_STATE.APPLY_PREPARED;
@@ -3190,6 +3369,8 @@ function _handleReconcileReceipts(panel, payload) {
   return _obligations({
     render: true,
     dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    invalidateCandidate: terminalReconciled,
+    clearCandidatePreview: terminalReconciled,
   });
 }
 

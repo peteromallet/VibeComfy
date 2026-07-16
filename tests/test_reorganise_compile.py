@@ -1574,6 +1574,30 @@ def test_compile_layout_plan_splits_recognized_huge_custom_families_semantically
         "Displays / Labels",
         "Cleanup",
     } <= titles
+    groups_by_title = {group.title: group for group in result.group_layouts}
+    assert groups_by_title["Displays / Labels"].x < groups_by_title["Video Generation"].x
+
+
+def test_huge_wall_uses_bucket_identity_before_ambiguous_display_title() -> None:
+    displays = _CompileSection(
+        "root__custom__displays",
+        "utility",
+        "Displays / Labels",
+        None,
+        (CanonicalNodeRef("", "display"),),
+    )
+    notes = _CompileSection(
+        "root__custom__labels",
+        "utility",
+        "Labels / Notes",
+        None,
+        (CanonicalNodeRef("", "note"),),
+    )
+
+    assert compile_module._wall_section_rank(displays) == 1
+    assert compile_module._huge_wall_band(displays) == 0
+    assert compile_module._wall_section_rank(notes) == 7
+    assert compile_module._huge_wall_band(notes) == 1
 
 
 def test_compile_layout_plan_preserves_collapsed_setget_sizes_and_marks_auto_collapsed_helpers() -> None:

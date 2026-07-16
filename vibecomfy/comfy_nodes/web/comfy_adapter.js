@@ -1149,7 +1149,15 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       continue;
     }
     if (opKind === "remove_node") {
-      const parsed = parseNodeTarget(op.target);
+      // Canonical root-scope remove_node operations carry the same explicit
+      // uid/node_id authority as add_node.  Do not silently treat that shape
+      // as an absent node merely because it omits the legacy `target` tuple.
+      const explicitUid = typeof op.uid === "string" && op.uid ? op.uid : null;
+      const explicitNodeId = typeof op.node_id === "string" && op.node_id ? op.node_id : null;
+      const parsed = parseNodeTarget(
+        op.target
+          ?? [Array.isArray(op.scope_path) ? op.scope_path : (op.scope_path ?? ""), explicitUid ?? explicitNodeId],
+      );
       requireRootScope(parsed, opKind);
       const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
       if (!node) {
@@ -1382,16 +1390,21 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
   return { graph, capability, plan, nextGraph };
 }
 
-function serializedGroupKey(group, index) {
-  if (group?.id !== null && group?.id !== undefined) return `id:${String(group.id)}`;
-  if (typeof group?.title === "string" && group.title.trim()) return `title:${group.title.trim()}`;
-  return `index:${index}`;
+function serializedGroupKey(group) {
+  if (group?.id === null || group?.id === undefined || String(group.id) === "") {
+    const error = new Error("Layout group is missing a stable id.");
+    error.code = "LAYOUT_GROUP_ID_REQUIRED";
+    throw error;
+  }
+  return `id:${String(group.id)}`;
 }
 
 function configureLiveGroup(group, serialized) {
   const payload = cloneJson(serialized);
+  group.id = payload.id;
   if (typeof group?.configure === "function") {
     group.configure(payload);
+    group.id = payload.id;
     return;
   }
   group.id = payload.id ?? group.id;
@@ -1471,6 +1484,24 @@ export function applyGraphLayoutInPlace(app, { candidateGraph }, options = {}) {
   if (!candidateGraph || typeof candidateGraph !== "object") {
     throw new Error("candidateGraph must be an object.");
   }
+  const definitions = candidateGraph.definitions;
+  if (
+    definitions
+    && typeof definitions === "object"
+    && !Array.isArray(definitions)
+    && Object.keys(definitions).length > 0
+  ) {
+    const error = new Error("Nested-scope layout application is not supported.");
+    error.code = "UNSUPPORTED_NESTED_LAYOUT_SCOPE";
+    throw error;
+  }
+  for (const group of Array.isArray(candidateGraph.groups) ? candidateGraph.groups : []) {
+    if (String(group?.scope_path ?? "") !== "") {
+      const error = new Error("Nested-scope layout groups are not supported.");
+      error.code = "UNSUPPORTED_NESTED_LAYOUT_SCOPE";
+      throw error;
+    }
+  }
 
   const liveSnapshot = graph.serialize();
   const liveNodes = Array.isArray(liveSnapshot?.nodes) ? liveSnapshot.nodes : [];
@@ -1509,14 +1540,13 @@ export function applyGraphLayoutInPlace(app, { candidateGraph }, options = {}) {
 
   const candidateGroups = Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [];
   const liveGroups = graph._groups.slice();
-  const liveByKey = new Map(liveGroups.map((group, index) => [serializedGroupKey(
+  const liveByKey = new Map(liveGroups.map((group) => [serializedGroupKey(
     typeof group.serialize === "function" ? group.serialize() : group,
-    index,
   ), group]));
   const nextGroups = [];
   for (let index = 0; index < candidateGroups.length; index += 1) {
     const serialized = candidateGroups[index];
-    const key = serializedGroupKey(serialized, index);
+    const key = serializedGroupKey(serialized);
     let group = liveByKey.get(key) || null;
     if (group) {
       liveByKey.delete(key);

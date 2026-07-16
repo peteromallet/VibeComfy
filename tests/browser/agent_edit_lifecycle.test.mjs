@@ -151,7 +151,7 @@ const META_AND_THREAD_DIRTY_SECTIONS = Object.freeze([
 
 // ── PANEL_STATE ─────────────────────────────────────────────────────────────
 
-test("PANEL_STATE exports frozen phase taxonomy with 12 phases matching the contract", () => {
+test("PANEL_STATE exports frozen phase taxonomy matching the contract", () => {
   assert.ok(Object.isFrozen(PANEL_STATE));
   const keys = Object.keys(PANEL_STATE).sort();
   assert.deepEqual(keys, [
@@ -162,7 +162,9 @@ test("PANEL_STATE exports frozen phase taxonomy with 12 phases matching the cont
     "CLARIFY",
     "ERROR",
     "FINALIZED",
+    "FINALIZING",
     "IDLE",
+    "RECOVERY_REQUIRED",
     "REVIEW_BOUND",
     "ROLLBACK_COMPLETE",
     "ROLLBACK_PREPARED",
@@ -279,9 +281,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 65 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 67 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 65);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 67);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -292,6 +294,7 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 65 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatScopeFingerprint"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateScopeId"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("submittingScopeId"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("scopeActivationEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("baselineTurnId"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("baselineGraphHash"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateGraph"));
@@ -340,12 +343,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 65 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 65);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 67);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 65 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 67 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -356,9 +359,9 @@ test("createAgentEditState initializes all 65 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 65 fields
+  // No extra own keys beyond the lifecycle fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 65);
+  assert.equal(ownKeys.length, 67);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -367,6 +370,7 @@ test("createAgentEditState initializes all 65 lifecycle fields to defaults", () 
   assert.equal(state.sessionId, null);
   assert.equal(state.turnId, null);
   assert.equal(state.agentEditProtocol, null);
+  assert.equal(state.scopeActivationEpoch, 0);
 
   // Baseline defaults
   assertBaselineDefaults(state);
@@ -5918,6 +5922,70 @@ test("T9: NEW_CONVERSATION preserves scope identity (chatScopeId + fingerprint) 
   assert.equal(obligations.refreshQueueGuard, true);
 });
 
+test("SCOPE_SWITCH gives a never-seen workflow fresh state and invalidates departed async work", () => {
+  const abortController = new AbortController();
+  const panel = makePanel({
+    phase: PANEL_STATE.FINALIZED,
+    chatScopeId: "scope-departing-finalized",
+    chatScopeFingerprint: "fp-departing",
+    scopeActivationEpoch: 7,
+    sessionId: "sess-departing",
+    turnId: "0002",
+    message: "Old workflow finalized",
+    submitEpoch: 12,
+    submitAbortController: abortController,
+    inFlightSubmit: Promise.resolve(),
+  });
+  Object.assign(panel.state, {
+    history: ["old history"],
+    turns: [{ turn_id: "0002", status: "applied" }],
+    chatMessages: [{ role: "agent", text: "old workflow result" }],
+    chatLoaded: true,
+    chatSessionPath: "out/editor_sessions/sess-departing/",
+    executorProgress: {
+      decide: "done",
+      research: "done",
+      execute: "done",
+      review: "done",
+    },
+    expandedTurnKeys: { "0002": true },
+    expandedBubbleTurnKeys: { "0002": true },
+    turnDetailSnapshots: { "0002": { message: "old detail" } },
+  });
+
+  const obligations = transition(panel, "SCOPE_SWITCH", {
+    scopeId: "scope-brand-new-empty-tab",
+    fingerprint: "fp-empty",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.chatScopeId, "scope-brand-new-empty-tab");
+  assert.equal(panel.state.chatScopeFingerprint, "fp-empty");
+  assert.equal(panel.state.scopeActivationEpoch, 8);
+  assert.equal(panel.state.sessionId, null);
+  assert.equal(panel.state.turnId, null);
+  assert.equal(panel.state.message, null);
+  assert.deepEqual(panel.state.history, []);
+  assert.deepEqual(panel.state.turns, []);
+  assert.deepEqual(panel.state.chatMessages, []);
+  assert.equal(panel.state.chatLoaded, false);
+  assert.equal(panel.state.chatSessionPath, null);
+  assert.deepEqual(panel.state.executorProgress, {
+    decide: "pending",
+    research: "pending",
+    execute: "pending",
+    review: "pending",
+  });
+  assert.deepEqual(panel.state.expandedTurnKeys, {});
+  assert.deepEqual(panel.state.expandedBubbleTurnKeys, {});
+  assert.deepEqual(panel.state.turnDetailSnapshots, {});
+  assert.equal(panel.state.inFlightSubmit, null);
+  assert.equal(panel.state.submitAbortController, null);
+  assert.equal(obligations.abortSubmitController, abortController);
+  assert.equal(obligations.rehydrateChat, true);
+  assert.equal(obligations.restored, false);
+});
+
 test("T9: NEW_CONVERSATION queueGuardClearScope is null when no scope is active", () => {
   const panel = makePanel({
     phase: PANEL_STATE.IDLE,
@@ -7733,6 +7801,37 @@ test("PREPARE_SUCCESS records receipt and advances to APPLY_PREPARED with prepar
   assert.ok(obligations.dirtySections.includes(RENDER_SECTIONS.COMPOSER));
 });
 
+test("PREPARE_SUCCESS preserves the lease nonce from the canonical transaction and wrapped durable receipt", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+  });
+  const transaction = canonicalTransaction([], {
+    state: "prepared",
+    generation: 4,
+    lease_nonce: "transaction-lease",
+  });
+  const receipt = {
+    seq: 1,
+    event_type: "prepared",
+    generation: 4,
+    receipt: {
+      plan_hash: transaction.plan_hash,
+      generation: 4,
+      lease_nonce: "durable-receipt-lease",
+    },
+  };
+
+  transition(panel, "PREPARE_SUCCESS", {
+    candidateTransaction: transaction,
+    preparedReceipt: receipt,
+  });
+
+  assert.equal(panel.state.generation, 4);
+  assert.equal(panel.state.leaseNonce, "transaction-lease");
+  assert.deepEqual(panel.state.preparedReceipt, receipt);
+});
+
 test("PREPARE_FAILURE clears preparedReceipt and transitions to ERROR", () => {
   const panel = makePanel({
     turnId: "turn-abc",
@@ -7803,7 +7902,7 @@ test("VERIFY_CANVAS_FAILURE clears verifiedReceipt and transitions to ERROR", ()
   assert.ok(obligations.render);
 });
 
-test("FINALIZE_STARTED sets phase to FINALIZED", () => {
+test("FINALIZE_STARTED sets phase to FINALIZING", () => {
   const panel = makePanel({
     turnId: "turn-abc",
     mutationPlanHash: "deadbeef".repeat(8),
@@ -7812,7 +7911,7 @@ test("FINALIZE_STARTED sets phase to FINALIZED", () => {
   });
   const obligations = transition(panel, "FINALIZE_STARTED", {});
 
-  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZING);
   assert.equal(panel.state.failure, null);
   assert.ok(obligations.render);
 });
@@ -7829,8 +7928,10 @@ test("FINALIZE_SUCCESS syncs baseline and clears candidate", () => {
     undoStack: [{ turn_id: "prev" }],
   });
   const receipt = {
-    audit_ref: "audit-999",
+    audit_ref: { path: "/tmp/audit-999.json" },
     baseline_graph_hash: "new-baseline",
+    session_id: "sess-finalize",
+    turn_id: "turn-abc",
   };
   const obligations = transition(panel, "FINALIZE_SUCCESS", {
     receipt,
@@ -7846,14 +7947,19 @@ test("FINALIZE_SUCCESS syncs baseline and clears candidate", () => {
   assert.equal(panel.state.applyAllowed, false);
   assert.equal(panel.state.queueAllowed, false);
   assert.equal(panel.state.canvasApplyAllowed, false);
-  assert.equal(panel.state.auditRef, "audit-999");
+  assert.deepEqual(panel.state.auditRef, { path: "/tmp/audit-999.json" });
+  assert.equal(panel.state.finalizedReceipt, receipt);
+  assert.ok(
+    panel.state.auditArtifacts.some((artifact) => artifact.auditRef?.path === "/tmp/audit-999.json"),
+    "finalize audit artifacts are retained for expanded bubble details",
+  );
   assert.equal(panel.state.failure, null);
   assert.ok(obligations.render);
   assert.ok(obligations.invalidateCandidate);
   assert.ok(obligations.clearCandidatePreview);
 });
 
-test("FINALIZE_FAILURE transitions to ERROR and syncs baseline from failure payload", () => {
+test("FINALIZE_FAILURE transitions to recovery and syncs baseline from failure payload", () => {
   const panel = makePanel({
     turnId: "turn-abc",
     mutationPlanHash: "deadbeef".repeat(8),
@@ -7866,11 +7972,88 @@ test("FINALIZE_FAILURE transitions to ERROR and syncs baseline from failure payl
   };
   const obligations = transition(panel, "FINALIZE_FAILURE", { failure });
 
-  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED);
   assert.equal(panel.state.failure, failure);
   // Baseline should be synced from the failure payload
   assert.equal(panel.state.baselineGraphHash, "server-baseline");
   assert.ok(obligations.render);
+});
+
+test("post-prepare compensation handlers project one actionable transcript, rollback receipt, and recovery authority", () => {
+  const rollbackReceipt = { plan_hash: "compensated-plan", generation: 7, phase: "rollback_complete" };
+  const failure = {
+    kind: "CanvasApplyError",
+    message: "Native mutation failed after prepare.",
+    next_action: "Retry Apply or Rebaseline from the restored canvas.",
+  };
+  const syntheticAgentMessage = {
+    role: "agent",
+    text: `${failure.message}\n\n${failure.next_action}`,
+    synthetic: true,
+    local_id: "compensation:canvas-apply",
+  };
+  const rebaselineRecovery = {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "compensation_recovery",
+  };
+  for (const event of ["PREPARE_FAILURE", "VERIFY_CANVAS_FAILURE", "FINALIZE_FAILURE", "CANVAS_APPLY_FAILURE"]) {
+    const panel = makePanel({
+      sessionId: "sess-compensation",
+      turnId: "turn-compensation",
+      mutationPlanHash: "compensated-plan",
+      generation: 7,
+      leaseNonce: "lease-compensation",
+      preparedReceipt: { plan_hash: "compensated-plan", lease_nonce: "lease-compensation" },
+    });
+    const obligations = transition(panel, event, {
+      failure,
+      rolledBack: true,
+      rollbackReceipt,
+      syntheticAgentMessage,
+      rebaselineRecovery,
+      recoveryRequired: false,
+    });
+    assert.equal(panel.state.phase, PANEL_STATE.ERROR, event);
+    assert.equal(panel.state.rolledBack, true, event);
+    assert.deepEqual(panel.state.rollbackReceipt, rollbackReceipt, event);
+    assert.deepEqual(panel.state.syntheticAgentMessage, syntheticAgentMessage, event);
+    assert.deepEqual(panel.state.rebaselineRecovery, rebaselineRecovery, event);
+    assert.match(panel.state.message, /Retry Apply or Rebaseline/, event);
+    assert.ok(obligations.dirtySections.includes(RENDER_SECTIONS.THREAD), event);
+  }
+});
+
+test("compensation restore or rollback failure enters recovery without losing prepared authority", () => {
+  for (const event of ["PREPARE_FAILURE", "VERIFY_CANVAS_FAILURE", "FINALIZE_FAILURE", "CANVAS_APPLY_FAILURE"]) {
+    const panel = makePanel({
+      sessionId: "sess-recovery",
+      turnId: "turn-recovery",
+      mutationPlanHash: "recovery-plan",
+      generation: 9,
+      leaseNonce: "lease-recovery",
+      preparedReceipt: { plan_hash: "recovery-plan", generation: 9, lease_nonce: "lease-recovery" },
+    });
+    const failure = {
+      kind: "CanvasRestoreError",
+      message: "Canvas restore or server rollback failed.",
+      next_action: "Keep the prepared transaction open and retry rollback.",
+    };
+    const obligations = transition(panel, event, {
+      failure,
+      rolledBack: false,
+      recoveryRequired: true,
+      syntheticAgentMessage: { role: "agent", text: failure.next_action, synthetic: true, local_id: `recovery:${event}` },
+      rebaselineRecovery: { action: "rebaseline", endpoint: "/vibecomfy/agent-edit/rebaseline" },
+    });
+    assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED, event);
+    assert.equal(panel.state.rolledBack, false, event);
+    assert.equal(panel.state.mutationPlanHash, "recovery-plan", event);
+    assert.equal(panel.state.generation, 9, event);
+    assert.equal(panel.state.leaseNonce, "lease-recovery", event);
+    assert.match(panel.state.message, /Keep the prepared transaction open/, event);
+    assert.ok(obligations.dirtySections.includes(RENDER_SECTIONS.THREAD), event);
+  }
 });
 
 test("ROLLBACK_STARTED sets phase to ROLLBACK_PREPARED", () => {
@@ -7910,12 +8093,12 @@ test("ROLLBACK_SUCCESS records rollbackReceipt and clears candidate", () => {
   assert.ok(obligations.clearCandidatePreview);
 });
 
-test("ROLLBACK_FAILURE transitions to ERROR", () => {
+test("ROLLBACK_FAILURE preserves an actionable recovery phase", () => {
   const panel = makePanel({ turnId: "turn-abc" });
   const failure = { code: "ROLLBACK_FAILED", message: "Cannot rollback" };
   const obligations = transition(panel, "ROLLBACK_FAILURE", { failure });
 
-  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.phase, PANEL_STATE.RECOVERY_REQUIRED);
   assert.equal(panel.state.failure, failure);
   assert.equal(panel.state.rollbackReceipt, null);
   assert.ok(obligations.render);

@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import {
   canonicalizeJsonLike,
   canonicalJsonString,
+  canonicalSessionJsonString,
+  compareCanonicalSessionJson,
   canonicalJsonBytes,
   sha256Hex,
   sha256HexFromString,
@@ -31,6 +33,51 @@ test("browser-compatible SHA-256 matches standard UTF-8 vectors", () => {
     sha256HexFromString("café 漢字"),
     "fc66759ac2df3f128edc4aa992b29b7a486db987b60f017acbb15db47a79ad80",
   );
+});
+
+test("session canonical JSON preserves lexical ordering for integer-like keys", () => {
+  const value = {
+    prompt: {
+      "9": { value: 9 },
+      "21": { value: 21 },
+      "2": { value: 2 },
+      "11": { value: 11 },
+      "1": { value: 1 },
+    },
+  };
+  assert.equal(
+    canonicalSessionJsonString(value),
+    '{"prompt":{"1":{"value":1},"11":{"value":11},"2":{"value":2},"21":{"value":21},"9":{"value":9}}}',
+  );
+});
+
+test("session canonical JSON matches the Python session payload hash fixture", () => {
+  const value = {
+    extra: {
+      prompt: {
+        "1": { class_type: "Loader", inputs: { model: "café.safetensors" } },
+        "11": { class_type: "Noise", inputs: { seed: 10 } },
+        "2": { class_type: "Encode", inputs: { text: "漢字" } },
+      },
+    },
+    nodes: [{ id: 1, mode: 0, widgets_values: [0.95] }],
+  };
+  assert.equal(
+    sha256HexFromString(canonicalSessionJsonString(value)),
+    "77f6c09615f286d5b52ab66b334a0e30937a020f85659ab803a347543aff7ef7",
+  );
+});
+
+test("canonical session comparison does not use locale collation", () => {
+  const latent = { from: 239, in: "latent", out: "LATENT", to: 206, type: "LATENT" };
+  const latentImage = {
+    from: 239,
+    in: "latent_image",
+    out: "LATENT",
+    to: 113,
+    type: "LATENT",
+  };
+  assert.equal(compareCanonicalSessionJson(latent, latentImage), -1);
 });
 
 // ── Fixtures ────────────────────────────────────────────────────────────────

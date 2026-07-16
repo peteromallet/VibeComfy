@@ -3,6 +3,8 @@
 // Apply/Reject/rollback/finalize availability.
 
 import { normalizeDeltaEnvelope } from "./canonical_delta.js";
+import { canonicalSessionJsonString } from "./canonical_hash.js";
+import { normalizeLayoutVerification } from "./layout_verification_contract.js";
 
 export const CANDIDATE_TRANSACTION_CONTRACT_VERSION = "candidate_transaction_v1";
 
@@ -40,14 +42,6 @@ function clonePlainData(value) {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clonePlainData(entry)]));
   }
   return value;
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 export function canonicalTransactionState(value) {
@@ -91,6 +85,11 @@ export function normalizeCandidateTransaction(value) {
   if (typeof value.plan_hash !== "string" || !value.plan_hash) return null;
   if (typeof value.hashes.candidate_graph_hash !== "string") return null;
   if (typeof value.hashes.candidate_structural_graph_hash !== "string") return null;
+  const rawLayoutVerification = value.authority.layout_verification;
+  const layoutVerification = rawLayoutVerification == null
+    ? null
+    : normalizeLayoutVerification(rawLayoutVerification);
+  if (rawLayoutVerification != null && !layoutVerification) return null;
   const actions = Array.isArray(value.available_actions)
     ? [...new Set(value.available_actions.filter((action) => typeof action === "string"))]
     : [];
@@ -110,6 +109,10 @@ export function normalizeCandidateTransaction(value) {
       ...clonePlainData(value.plan),
       delta_ops_envelope: clonePlainData(envelope),
       op_count: envelope.ops.length,
+    },
+    authority: {
+      ...clonePlainData(value.authority),
+      ...(layoutVerification ? { layout_verification: layoutVerification } : {}),
     },
     available_actions: actions,
   });
@@ -147,7 +150,10 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   }
   if (candidate.plan_hash !== prepared.plan_hash) throw new Error("Prepared plan hash differs from candidate authority.");
   if (candidate.plan.delta_hash !== prepared.plan.delta_hash) throw new Error("Prepared delta hash differs from candidate authority.");
-  if (canonicalJson(candidate.plan.delta_ops_envelope) !== canonicalJson(prepared.plan.delta_ops_envelope)) {
+  if (
+    canonicalSessionJsonString(candidate.plan.delta_ops_envelope)
+    !== canonicalSessionJsonString(prepared.plan.delta_ops_envelope)
+  ) {
     throw new Error("Prepared operations differ from persisted candidate operations.");
   }
   const candidateVerificationKind = candidate.authority?.verification_kind || "delta_replay";
@@ -155,11 +161,20 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   if (candidateVerificationKind !== preparedVerificationKind) {
     throw new Error("Prepared verification mode differs from candidate authority.");
   }
+  const candidateLayoutVerification = candidate.authority?.layout_verification || null;
+  const preparedLayoutVerification = prepared.authority?.layout_verification || null;
+  if (
+    canonicalSessionJsonString(candidateLayoutVerification)
+    !== canonicalSessionJsonString(preparedLayoutVerification)
+  ) {
+    throw new Error("Prepared layout verification contract differs from candidate authority.");
+  }
   return {
     envelope: clonePlainData(prepared.plan.delta_ops_envelope),
     deltaOps: clonePlainData(prepared.plan.delta_ops_envelope.ops),
     deltaHash: prepared.plan.delta_hash,
     verificationKind: preparedVerificationKind,
+    layoutVerification: preparedLayoutVerification,
   };
 }
 

@@ -177,6 +177,45 @@ function _stringifyAsciiSafe(value) {
   return _escapeNonAscii(raw);
 }
 
+function _stringifyUtf8Safe(value) {
+  return JSON.stringify(
+    value,
+    function _replacer(_key, val) {
+      if (typeof val === "bigint") return String(val);
+      if (typeof val === "function") return String(val);
+      if (typeof val === "symbol") return String(val);
+      if (typeof val === "undefined") return "undefined";
+      if (val instanceof Date) return val.toISOString();
+      if (val instanceof RegExp) return String(val);
+      return val;
+    },
+  );
+}
+
+function _compareCanonicalKeys(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function _serializeCanonical(value, { ensureAscii }) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => _serializeCanonical(entry, { ensureAscii })).join(",")}]`;
+  }
+  if (_isPlainObject(value)) {
+    return `{${Object.keys(value)
+      .sort(_compareCanonicalKeys)
+      .map((key) => {
+        const encodedKey = ensureAscii
+          ? _stringifyAsciiSafe(key)
+          : _stringifyUtf8Safe(key);
+        return `${encodedKey}:${_serializeCanonical(value[key], { ensureAscii })}`;
+      })
+      .join(",")}}`;
+  }
+  return ensureAscii ? _stringifyAsciiSafe(value) : _stringifyUtf8Safe(value);
+}
+
 // ── Canonicalization (mirrors _freeze_jsonish) ──────────────────────────────
 
 /**
@@ -266,7 +305,23 @@ export function canonicalizeJsonLike(value) {
  */
 export function canonicalJsonString(value) {
   const canonical = canonicalizeJsonLike(value);
-  return _stringifyAsciiSafe(canonical);
+  return _serializeCanonical(canonical, { ensureAscii: true });
+}
+
+/**
+ * Canonical JSON used by agent-edit session authority. This is a serialization
+ * profile of the one browser owner, not an independent canonicalizer.
+ */
+export function canonicalSessionJsonString(value) {
+  const canonical = canonicalizeJsonLike(value);
+  return _serializeCanonical(canonical, { ensureAscii: false });
+}
+
+export function compareCanonicalSessionJson(left, right) {
+  return _compareCanonicalKeys(
+    canonicalSessionJsonString(left),
+    canonicalSessionJsonString(right),
+  );
 }
 
 /**

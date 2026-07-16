@@ -25,6 +25,9 @@ frontend helper.
 | `preview_picker.js` | `vibecomfy/comfy_nodes/web/preview_picker.js` | Dev/demo preview picker UI and scenario playback. It may commit demo lifecycle transitions through `agent_lifecycle_commit.js` and must fulfill returned obligations instead of mutating lifecycle-owned preview state directly. |
 | `agent_edit_response_contract.js` | `vibecomfy/comfy_nodes/web/agent_edit_response_contract.js` | Response normalizers, field readers, turn identity readers, stage snapshot readers, and route-apply affordance checks. |
 | `agent_edit_response_contract_generated.js` | `vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js` | Auto-generated contract shapes. Do not hand-edit. |
+| `canonical_hash.js` | `vibecomfy/comfy_nodes/web/canonical_hash.js` | Sole owner of canonical JSON serialization and browser/session SHA-256 comparison profiles. |
+| `graph_projection.js` | `vibecomfy/comfy_nodes/web/graph_projection.js` | Sole owner of structural and layout graph projections, including root-scope validation and stable group-ID requirements. |
+| `layout_verification_contract.js` | `vibecomfy/comfy_nodes/web/layout_verification_contract.js` | Versioned layout-verification authority normalization. Unknown versions fail closed. |
 | `comfy_adapter.js` | `vibecomfy/comfy_nodes/web/comfy_adapter.js` | Graph apply/delta in-place, queue guard installation, preview foreground overlay installation, typed socket labels, and exec-node normalization. |
 | `agent_turn_feed.js` | `vibecomfy/comfy_nodes/web/agent_turn_feed.js` | Turn payload normalization, activity state derivation, activity feed reduction, progress labels, and statement formatting. |
 | `executor_progress.js` | `vibecomfy/comfy_nodes/web/executor_progress.js` | Executor phase normalization, progress snapshots, phase-to-progress mapping, and decision/progress labels. |
@@ -150,6 +153,10 @@ owner functions.
 
 - Owns candidate/preview state invalidation when reducer transitions leave
   preview mode.
+- Owns transaction receipt projection, including generation and lease-nonce
+  extraction from canonical transactions and wrapped durable receipts.
+- Owns the distinction between `FINALIZING`, terminal `FINALIZED`, and
+  actionable `RECOVERY_REQUIRED`.
 - Stop/abort, apply success, authoritative accept rejection, and rebaseline
   success clear candidate preview state through the lifecycle invalidation
   primitive.
@@ -183,6 +190,10 @@ owner functions.
 | Preview overlay | `panel_overlay.js` owns preview overlay implementation. The shell imports and delegates to it; DOM preview-chip rendering is removed. |
 | Diagnostics mirrors | Runtime diagnostics use `_lastThreadRender` and `_lastNoticeRender` as canonical fields. Duplicate `last*Render` mirrors should not be reintroduced. |
 | Demo preview picker | `preview_picker.js` owns demo UI only. Lifecycle state projection goes through commit helpers, and preview cleanup goes through returned obligations. |
+| Canonical hashing | `canonical_hash.js` is the only canonical JSON/hash owner. The removed `session_hash.js` owner must not be recreated. |
+| Graph projections | `graph_projection.js` owns structural/layout projections and the root-scope gate. |
+| Layout authority | `layout_verification_contract.js` owns `layout_verification_v1` / `browser_layout_v1` normalization. |
+| Native groups | `comfy_adapter.js` applies groups by stable serialized `id` only. Title or array-index identity fallback is forbidden. |
 
 ## 4. Ownership Principles
 
@@ -198,3 +209,5 @@ owner functions.
 5. Static ownership tests should guard against reintroducing local shell copies
    of status-poller, composer/developer/settings, scheduler status-section,
    preview overlay, thread-detail, and candidate-action owner symbols.
+6. Canonical hashing, graph projection, and layout contract versioning each
+   have one explicit owner; orchestration modules must import rather than copy.

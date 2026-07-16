@@ -168,6 +168,11 @@ export function nextAgentPanelId() {
 // Fields that are NEVER included in scope snapshots.
 const SCOPE_SNAPSHOT_EXCLUDE = new Set([
   "undoStack",
+  // Monotonic activation token for the visible singleton panel. It belongs
+  // to the browser runtime, not to any workflow snapshot: restoring an older
+  // scope must never roll this token back and make a departed async response
+  // current again.
+  "scopeActivationEpoch",
   "buttons",
   "sections",
   "fields",

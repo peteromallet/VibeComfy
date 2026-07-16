@@ -16,6 +16,8 @@ from typing import Any, Literal
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, schema_for
 
 CANDIDATE_TRANSACTION_CONTRACT_VERSION = "candidate_transaction_v1"
+LAYOUT_VERIFICATION_CONTRACT_VERSION = "layout_verification_v1"
+LAYOUT_VERIFICATION_PROJECTION = "browser_layout_v1"
 SCHEMA_WITNESS_CONTRACT_VERSION = "candidate_schema_witness_v1"
 CANDIDATE_TRANSACTION_FILENAME = "candidate_transaction.json"
 
@@ -364,6 +366,8 @@ def build_candidate_transaction(
     replay_ok: bool,
     candidate_matches: bool,
     applyable: bool,
+    candidate_layout_graph_hash: str | None = None,
+    layout_verification: Mapping[str, Any] | None = None,
     verification_kind: str = "delta_replay",
     state: str = "candidate_ready",
 ) -> dict[str, Any]:
@@ -394,6 +398,7 @@ def build_candidate_transaction(
             "submit_structural_graph_hash": submit_structural_graph_hash,
             "candidate_graph_hash": candidate_graph_hash,
             "candidate_structural_graph_hash": candidate_structural_graph_hash,
+            "candidate_layout_graph_hash": candidate_layout_graph_hash,
             "authority_receipt_hash": authority_receipt_hash,
         },
         "authority": {
@@ -401,6 +406,11 @@ def build_candidate_transaction(
             "candidate_matches": candidate_matches,
             "verification_kind": verification_kind,
             "schema_witness_hash": schema_witness.get("witness_hash"),
+            **(
+                {"layout_verification": dict(layout_verification)}
+                if isinstance(layout_verification, Mapping)
+                else {}
+            ),
         },
         "available_actions": list(actions),
         "terminal": canonical_state in TERMINAL_TRANSACTION_STATES,
@@ -454,6 +464,25 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     required_hashes = ("candidate_graph_hash", "candidate_structural_graph_hash", "authority_receipt_hash")
     if any(not isinstance(hashes.get(field), str) or not hashes.get(field) for field in required_hashes):
         return False, "missing_candidate_transaction_hash"
+    layout_verification = authority.get("layout_verification")
+    if layout_verification is not None:
+        if not isinstance(layout_verification, Mapping):
+            return False, "malformed_layout_verification_contract"
+        if (
+            layout_verification.get("contract_version")
+            != LAYOUT_VERIFICATION_CONTRACT_VERSION
+            or layout_verification.get("projection")
+            != LAYOUT_VERIFICATION_PROJECTION
+        ):
+            return False, "unsupported_layout_verification_contract"
+        layout_hash = layout_verification.get("candidate_layout_graph_hash")
+        if (
+            not isinstance(layout_hash, str)
+            or len(layout_hash) != 64
+            or any(character not in "0123456789abcdef" for character in layout_hash)
+            or hashes.get("candidate_layout_graph_hash") != layout_hash
+        ):
+            return False, "invalid_layout_verification_hash"
     actions = value.get("available_actions")
     if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
         return False, "malformed_candidate_transaction_actions"

@@ -13,6 +13,7 @@ Every applyable V2 turn persists an immutable aggregate at
 - session, turn, and mutation-plan identity;
 - the normalized `delta_ops_envelope` and its content hash;
 - submit and candidate full/structural graph hashes;
+- an optional, explicitly versioned layout authority for layout-only turns;
 - the immutable authority-receipt hash;
 - persisted schema-witness provenance and replay verdict.
 
@@ -28,16 +29,28 @@ browser actions are suspended until this durable projection is known.
 
 Preview and Apply consume the same persisted normalized plan. Prepare returns
 that exact plan plus its generation and lease; the browser rejects any changed
-plan, hash, ordering, or landed step without persisted provenance. The sole V2
-forward executor is `applyGraphDeltaInPlace` using live LiteGraph primitives.
-It must not call `graph.clear()` or whole-graph `graph.configure()`.
+plan, hash, ordering, or landed step without persisted provenance. The V2
+functional-edit executor is `applyGraphDeltaInPlace` using live LiteGraph
+primitives. Layout-only authority uses `applyGraphLayoutInPlace`, which mutates
+only node geometry and native groups. Neither forward path may call
+`graph.clear()` or whole-graph `graph.configure()`.
+
+`layout_verification_v1` binds the candidate layout hash to the
+`browser_layout_v1` projection. That projection contains root-scope node
+position/size and native group id/scope/title/bounds/color, while excluding
+compiler-only group membership and native serialization defaults. Groups
+without stable IDs and nested-scope layouts are rejected. Unknown versions fail
+closed. Historical layout transactions without this authority retain their
+historical full-graph verification semantics.
 
 Finalize receives the complete serialized post-apply graph and the applied
-delta hash. The backend recomputes full and structural hashes, requires the
+delta hash. The backend recomputes full and structural hashes and, for a
+versioned layout turn, the bound layout projection hash. It requires the
 structural result to equal the persisted candidate, requires the applied delta
-hash to equal the persisted plan, records `canvas_verified`, then records
-`finalized` and advances the baseline. A duplicate identical terminal request
-is idempotent; an opposite terminal request is a typed conflict.
+hash to equal the persisted plan, and requires the versioned layout hash when
+present. It records `canvas_verified`, then `finalized`, and advances the
+baseline. A duplicate identical terminal request is idempotent; an opposite
+terminal request is a typed conflict.
 
 Replay uses the schema witness frozen into the authority receipt. Ambient node
 schema discovery after candidate publication cannot redefine replay.
@@ -62,6 +75,18 @@ partial lifecycle. Prepared leases carry an ownership nonce, are renewed while
 held, and rollback must present the exact nonce. Browser diagnostics retain only
 a bounded message, substage, and at most eight bounded stack lines.
 
+Every failure after prepare must end in one of two observable conditions:
+
+- verified compensation completed, with the server in `rollback_complete`; or
+- `RECOVERY_REQUIRED`, retaining the canonical transaction, lease identity,
+  original recovery graph, and a visible rollback action.
+
+`FINALIZING` is non-terminal. A lost or ambiguous prepare/finalize response is
+reconciled against durable server receipts before the browser decides whether
+to retry, roll back, or project `FINALIZED`. The lease nonce is read from the
+canonical prepared transaction or the nested durable receipt; a receipt
+envelope must never erase it.
+
 ## Migration boundary
 
 Historical candidates without `candidate_transaction_v1` are read-only: they
@@ -73,4 +98,6 @@ whole-graph code remains unreachable behind this adapter until that removal.
 Contract coverage lives in the focused transaction tests in
 `tests/test_comfy_nodes_agent_backend_spine.py`,
 `tests/test_authority_receipts.py`, `tests/browser/agent_edit_transaction.test.mjs`,
-and the V2 roundtrip cases in `tests/browser/roundtrip_smoke.test.mjs`.
+`tests/browser/graph_projection.test.mjs`, the exact
+`tests/fixtures/agent_edit/a66422e6_layout_regression.json` fixture, and the V2
+roundtrip cases in `tests/browser/roundtrip_smoke.test.mjs`.

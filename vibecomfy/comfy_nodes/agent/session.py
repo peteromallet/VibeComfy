@@ -17,6 +17,8 @@ from typing import Any, Callable, Iterator, Literal
 from .contracts import DiagnosticRecord, FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from .candidate_transaction import (
     CANDIDATE_TRANSACTION_FILENAME,
+    LAYOUT_VERIFICATION_CONTRACT_VERSION,
+    LAYOUT_VERIFICATION_PROJECTION,
     build_candidate_transaction,
     canonical_transaction_state,
     project_transaction_state,
@@ -1163,6 +1165,95 @@ def structural_graph_hash(graph: Any) -> str | None:
     if not isinstance(graph, Mapping):
         return None
     return payload_hash(structural_graph_projection(graph))
+
+
+def _normalize_layout_number(value: Any) -> Any:
+    if isinstance(value, float) and not isinstance(value, bool):
+        if value == value and value not in (float("inf"), float("-inf")):
+            if value.is_integer():
+                return int(value)
+    return value
+
+
+def _layout_vector(value: Any, length: int) -> list[Any] | None:
+    if not isinstance(value, (list, tuple)) or len(value) < length:
+        return None
+    return [_normalize_layout_number(entry) for entry in value[:length]]
+
+
+def browser_layout_scope_issues(graph: Any) -> list[dict[str, str]]:
+    if not isinstance(graph, Mapping):
+        return []
+    issues: list[dict[str, str]] = []
+    definitions = graph.get("definitions")
+    if isinstance(definitions, Mapping) and definitions:
+        issues.append({"scope_path": "definitions", "reason": "nested_definitions"})
+    groups = graph.get("groups")
+    if isinstance(groups, list):
+        for group in groups:
+            if not isinstance(group, Mapping):
+                continue
+            scope_path = str(group.get("scope_path") or "")
+            if scope_path:
+                issues.append({"scope_path": scope_path, "reason": "nested_group"})
+    return issues
+
+
+def layout_graph_projection(graph: Any) -> dict[str, Any]:
+    """Project browser-realizable node and native group geometry."""
+    if not isinstance(graph, Mapping):
+        return {
+            "contract_version": LAYOUT_VERIFICATION_PROJECTION,
+            "nodes": [],
+            "groups": [],
+        }
+    issues = browser_layout_scope_issues(graph)
+    if issues:
+        raise ValueError(f"unsupported_nested_layout_scope:{issues!r}")
+    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    nodes = [
+        {
+            "id": node.get("id"),
+            "pos": _layout_vector(node.get("pos"), 2),
+            "size": _layout_vector(node.get("size"), 2),
+        }
+        for node in raw_nodes
+        if isinstance(node, Mapping)
+    ]
+    nodes.sort(key=lambda node: _natural_id_key(node.get("id")))
+    groups = [
+        {
+            "id": group.get("id"),
+            "scope_path": str(group.get("scope_path") or ""),
+            "title": group.get("title"),
+            "bounding": _layout_vector(group.get("bounding"), 4),
+            "color": group.get("color"),
+        }
+        for group in (
+            graph.get("groups") if isinstance(graph.get("groups"), list) else []
+        )
+        if isinstance(group, Mapping)
+    ]
+    groups.sort(
+        key=lambda group: json.dumps(
+            group.get("id"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+    )
+    return {
+        "contract_version": LAYOUT_VERIFICATION_PROJECTION,
+        "nodes": nodes,
+        "groups": groups,
+    }
+
+
+def layout_graph_hash(graph: Any) -> str | None:
+    if not isinstance(graph, Mapping):
+        return None
+    try:
+        projection = layout_graph_projection(graph)
+    except ValueError:
+        return None
+    return payload_hash(projection)
 
 
 def _candidate_structural_hash_from_turn_dir(
@@ -2667,26 +2758,57 @@ def finalize_turn_transaction(
                 },
             )
         authority = _payload_mapping(transaction.get("authority"))
-        if (
-            authority.get("verification_kind") == "layout_structural_noop"
-            and post_apply_graph_hash != hashes.get("candidate_graph_hash")
-        ):
-            return _transaction_failure(
-                kind=FailureKind.STALE_STATE_MISMATCH,
-                stage="finalize",
-                session_id=session_id,
-                turn_id=turn_id,
-                state=state,
-                explanation=(
-                    "Finalize layout graph did not exactly match the prepared "
-                    "layout candidate."
-                ),
-                evidence={
-                    "post_apply_graph_hash": post_apply_graph_hash,
-                    "expected_candidate_graph_hash": hashes.get("candidate_graph_hash"),
-                    "verification_kind": "layout_structural_noop",
-                },
-            )
+        if authority.get("verification_kind") == "layout_structural_noop":
+            layout_verification = authority.get("layout_verification")
+            if isinstance(layout_verification, Mapping):
+                expected_layout_hash = layout_verification.get(
+                    "candidate_layout_graph_hash"
+                )
+                post_apply_layout_hash = layout_graph_hash(post_apply_graph)
+                if (
+                    layout_verification.get("contract_version")
+                    != LAYOUT_VERIFICATION_CONTRACT_VERSION
+                    or layout_verification.get("projection")
+                    != LAYOUT_VERIFICATION_PROJECTION
+                    or not isinstance(expected_layout_hash, str)
+                    or post_apply_layout_hash != expected_layout_hash
+                ):
+                    return _transaction_failure(
+                        kind=FailureKind.STALE_STATE_MISMATCH,
+                        stage="finalize",
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        state=state,
+                        explanation=(
+                            "Finalize layout geometry did not match the prepared "
+                            "layout verification contract."
+                        ),
+                        evidence={
+                            "post_apply_layout_hash": post_apply_layout_hash,
+                            "expected_candidate_layout_hash": expected_layout_hash,
+                            "post_apply_graph_hash": post_apply_graph_hash,
+                            "layout_verification": dict(layout_verification),
+                        },
+                    )
+            elif post_apply_graph_hash != hashes.get("candidate_graph_hash"):
+                return _transaction_failure(
+                    kind=FailureKind.STALE_STATE_MISMATCH,
+                    stage="finalize",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    state=state,
+                    explanation=(
+                        "Finalize legacy layout graph did not exactly match the "
+                        "prepared layout candidate."
+                    ),
+                    evidence={
+                        "post_apply_graph_hash": post_apply_graph_hash,
+                        "expected_candidate_graph_hash": hashes.get(
+                            "candidate_graph_hash"
+                        ),
+                        "verification_kind": "layout_structural_noop",
+                    },
+                )
         claimed_post_hash = _payload_str(
             payload, "post_apply_hash", "browser_verified_post_apply_hash", "canvas_hash"
         )
@@ -3088,6 +3210,18 @@ def reconcile_turn_transactions(
             )
             for tid in turn_ids
         }
+        recovery_graphs_by_turn: dict[str, Any] = {}
+        for tid in turn_ids:
+            original_graph = _load_json(
+                turn_dir_for(session_root, session_id, tid) / "original.ui.json"
+            )
+            if isinstance(original_graph, Mapping):
+                recovery_graphs_by_turn[tid] = {
+                    "graph": dict(original_graph),
+                    "graph_hash": payload_hash(original_graph),
+                    "structural_graph_hash": structural_graph_hash(original_graph),
+                    "layout_graph_hash": layout_graph_hash(original_graph),
+                }
         return {
             "ok": True,
             "action": "reconcile",
@@ -3098,6 +3232,10 @@ def reconcile_turn_transactions(
             "apply_idempotency_records": dict(state.get("apply_idempotency_records", {})),
             "receipts_by_turn": receipts_by_turn,
             "transactions_by_turn": transactions_by_turn,
+            "recovery_graphs_by_turn": recovery_graphs_by_turn,
+            "baseline_turn_id": state.get("baseline_turn_id"),
+            "baseline_graph_hash": state.get("baseline_graph_hash"),
+            "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
         }
 
 
@@ -3947,6 +4085,11 @@ def record_idempotent_response(
             stamped_response = response
     candidate_graph_hash = _mapping_graph_hash(stamped_response)
     candidate_structural_graph_hash = _mapping_graph_structural_hash(stamped_response)
+    candidate_layout_graph_hash = (
+        layout_graph_hash(stamped_response.get("graph"))
+        if isinstance(stamped_response, Mapping)
+        else None
+    )
     agent_edit_protocol = _validated_agent_edit_protocol(stamped_response)
     candidate_payload = (
         stamped_response.get("candidate")
@@ -3987,6 +4130,18 @@ def record_idempotent_response(
             and isinstance(eligibility, Mapping)
             and eligibility.get("applyable") is True
         )
+        layout_verification = None
+        if authority_receipt.replay.verification_kind == "layout_structural_noop":
+            layout_verification = (
+                {
+                    "contract_version": LAYOUT_VERIFICATION_CONTRACT_VERSION,
+                    "projection": LAYOUT_VERIFICATION_PROJECTION,
+                    "candidate_layout_graph_hash": candidate_layout_graph_hash,
+                }
+                if isinstance(candidate_layout_graph_hash, str)
+                else None
+            )
+            applyable = applyable and layout_verification is not None
         transaction = build_candidate_transaction(
             session_id=session_id,
             turn_id=turn_id,
@@ -4001,6 +4156,8 @@ def record_idempotent_response(
             ),
             candidate_graph_hash=candidate_graph_hash,
             candidate_structural_graph_hash=candidate_structural_graph_hash,
+            candidate_layout_graph_hash=candidate_layout_graph_hash,
+            layout_verification=layout_verification,
             authority_receipt_hash=payload_hash(authority_receipt.to_dict()),
             schema_witness=authority_receipt.schema_witness,
             replay_ok=authority_receipt.replay.replay_ok,
