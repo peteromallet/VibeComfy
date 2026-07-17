@@ -36,10 +36,15 @@
   ],
   "m2-native-adapter": [
     {
-      "status": "slices_1_2_accepted_slices_3_6_pending",
+      "status": "slices_1_2_and_family_a_prep_accepted_s3_s4_atomic_cut_pending",
       "verified": {
         "focused_adapter_ownership_projection_m1": "77/77",
-        "browser_contracts": "519/519",
+        "family_a_focused_adapter_ownership": "65/65",
+        "browser_contracts": "532/532",
+        "browser_smoke": "1413 passed, 0 failed, 2 intentional skips",
+        "eb45e_fixture_reproducibility": "byte-identical rebuild; SHA-256 75ed55efc91267f31844d0e01aaf80cd6cfb8ff66daafe59660a014a576f36f9",
+        "coupled_s3_ownership_transfer": "0/27; S3 not closed",
+        "s3_s4_boundary": "seven persistent-write/harness rows remain S4 migration debt; versioned contracts and atomic cutover pending",
         "roundtrip": "238 passed, 0 failed, 2 intentional legacy skips",
         "native_authority_ledger": "78 unique stable rows, 120 unique file/region/kind mappings",
         "ledger_schema_and_bypass_sentinels": "passed",
@@ -50,7 +55,13 @@
       "artifacts": {
         "machine_ledger": "tests/fixtures/agent_edit/native_authority_ledger_v1.json",
         "derived_ledger_view": "vibecomfy/comfy_nodes/web/native_normalization_ledger.md",
+        "family_a_fixture_builder": "scripts/build_eb45e_fixture.mjs",
+        "family_a_fixture": "tests/fixtures/agent_edit/eb45e_dynamic_exec_v1.json",
         "bounded_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-1-2-acceptance.md",
+        "s3_s4_implementation": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-3-4-implementation.md",
+        "family_a_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slice-3-acceptance.md",
+        "family_a_adversarial": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slice-3-adversarial.md",
+        "s3_s4_atomic_review": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-3-4-atomic-review.md",
         "full_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-full-acceptance.md",
         "authority_review": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-adapter-authority-review.md"
       },

@@ -4,9 +4,12 @@ This full-milestone acceptance design applies the M2 locked decisions to the cur
 It incorporates an independent DeepSeek Pro audit and the reconstructed
 17-path native-access inventory.
 
-Current substate (2026-07-17): ordered M2 Slices 1–2 are accepted under the
-bounded checklist. Ordered Slices 3–6 and every unchecked full-milestone gate
-in this document remain pending; M2 is not complete.
+Current substate (2026-07-17): ordered M2 Slices 1–2 and the observation-only
+Family-A preparation are accepted under their bounded checklists. Family A
+does not close S3: 0/27 coupled ownership rows have transferred. The versioned
+layout/materialization contracts and one atomic S3+S4 consumer/deletion/ledger
+cut remain pending, as do Slices 5–6 and every unchecked full-milestone gate
+in this document. M2 is not complete.
 
 The acceptance rule is stricter than “a new adapter file exists”:
 

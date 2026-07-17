@@ -106,6 +106,8 @@ test("factory returns a frozen object that does not expose the live graph", () =
   assert.deepEqual(keys, [
     "capabilities",
     "capture",
+    "captureDrawSnapshot",
+    "captureNormalized",
     "captureRevision",
     "contract_version",
     "enumerateNodes",
@@ -482,4 +484,283 @@ test("projection preserves missing_identity instead of flattening it", () => {
   const result = createIntentGraphAdapter(makeApp(graph)).project("structural_v1");
   assert.equal(result.ok, false);
   assert.equal(result.diagnostic.code, "missing_identity");
+});
+
+// ---------------------------------------------------------------------------
+// Slice 3 focused cases: detached normalized capture, draw snapshot identity
+// refusal matrix, and the exact eb45e dynamic-exec incident fixture.
+// ---------------------------------------------------------------------------
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const eb45ePath = path.join(repoRoot, "tests", "fixtures", "agent_edit", "eb45e_dynamic_exec_v1.json");
+const eb45eFixture = JSON.parse(readFileSync(eb45ePath, "utf8"));
+
+// Build a live-graph shim whose serialize() returns a captured plain graph, so
+// the adapter exercises the real capture boundary without touching live nodes.
+function liveAppFromGraph(plainGraph) {
+  const store = JSON.parse(JSON.stringify(plainGraph));
+  const graph = {
+    serialize() { return JSON.parse(JSON.stringify(store)); },
+  };
+  return { canvas: { graph }, graph };
+}
+
+test("eb45e fixture is reconstructed from the real incident, not a reduced graph", () => {
+  assert.equal(eb45eFixture.contract, "eb45e_dynamic_exec_v1");
+  assert.equal(eb45eFixture.provenance.session_id, "eb45e0ef50e146c6985417bf1449e96a");
+  assert.deepEqual(eb45eFixture.provenance.source_files, [
+    "original.ui.json",
+    "candidate.ui.json",
+    "messages.jsonl",
+    "response.json",
+    "narrative_context.json",
+    "narrative_validation.json",
+  ]);
+  assert.ok(eb45eFixture.original.nodes.length >= 90, "original graph must be the full incident graph");
+  assert.ok(eb45eFixture.candidate.nodes.length >= 90, "candidate graph must be the full incident graph");
+  assert.equal(eb45eFixture.candidate.nodes.length, eb45eFixture.original.nodes.length + 1);
+});
+
+test("eb45e fixture provenance pins all four required source SHA-256 digests", () => {
+  // The four required digests over the raw bytes of original, candidate,
+  // messages, and response at acceptance. These pin the exact incident
+  // artifacts the fixture was reconstructed from; any drift must be caught.
+  const digests = eb45eFixture.provenance.source_digests;
+  assert.ok(digests && typeof digests === "object");
+  assert.deepEqual(Object.keys(digests).sort(), [
+    "candidate.ui.json",
+    "messages.jsonl",
+    "original.ui.json",
+    "response.json",
+  ]);
+  assert.equal(digests["original.ui.json"], "829fe306efb90413e2d5adbef60713dece62b1819f2bdca2a6f56a7f8c88926c");
+  assert.equal(digests["candidate.ui.json"], "710c79865b320dc53f3e2824cd8df0f725382fc943170d0b1240cbcd06854e80");
+  assert.equal(digests["messages.jsonl"], "982ef57b4cefb455cd899a17976a8af3273d6de70bd51e2d44d0a883242f68c3");
+  assert.equal(digests["response.json"], "8830157f2c7ff14b1954500eb989734ce971a957dd2fe5dc9b1763c3ce0349e4");
+  assert.equal(eb45eFixture.provenance.digest_algorithm, "sha256");
+  assert.equal(eb45eFixture.provenance.digest_scope, "full source file bytes");
+});
+
+test("eb45e fixture embeds the small response outcome envelope without the 567KB body", () => {
+  // response.json is ~567KB; only the decision-relevant outcome slice is
+  // embedded. The full body is referenced by provenance.source_digests.
+  const outcome = eb45eFixture.response_outcome;
+  assert.ok(outcome && typeof outcome === "object");
+  assert.equal(outcome.session_id, "eb45e0ef50e146c6985417bf1449e96a");
+  assert.equal(outcome.turn_id, "0001");
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.route, "revise");
+  assert.equal(outcome.contract_version, "agent_edit_turn_v2");
+  assert.equal(outcome.agent_edit_protocol, "v2_delta");
+  assert.ok(outcome.outcome && typeof outcome.outcome === "object");
+  assert.equal(outcome.outcome.kind, "candidate");
+  assert.ok(Array.isArray(outcome.outcome.changes));
+  assert.ok(outcome.outcome.changes.some((change) => change.field_path === "images"));
+  // The fixture must NOT embed the heavyweight response fields.
+  assert.equal(eb45eFixture.response, undefined);
+  assert.equal(eb45eFixture.response_body, undefined);
+  assert.equal(eb45eFixture.full_response, undefined);
+});
+
+test("captureNormalized byte-preserves the full 98-node eb45e candidate graph detached and leaves the fixture unchanged", () => {
+  // Deep-compare the entire detached captured graph (all nodes, links, groups,
+  // and opaque top-level fields such as config/extra/id/last_link_id/last_node_id
+  // /revision/version) against the full fixture candidate. This replaces an
+  // earlier 3-node/2-link incident slice that could not prove whole-graph
+  // fidelity and could not distinguish a faithful capture from one that
+  // silently dropped opaque fields.
+  const candidate = eb45eFixture.candidate;
+  assert.equal(candidate.nodes.length, 98, "fixture candidate must carry the full 98-node incident graph");
+  assert.equal(candidate.links.length, 77);
+  assert.equal(candidate.groups.length, 17);
+
+  const fixtureSnapshot = JSON.stringify(candidate);
+  const adapter = createIntentGraphAdapter(liveAppFromGraph(candidate));
+  const result = adapter.captureNormalized();
+  assert.equal(result.ok, true, result.diagnostic?.detail);
+  assert.equal(result.operation, "capture_normalized");
+
+  // Minimal contract/version evidence tag only: no semantic exec descriptors,
+  // no live_writes self-attestation, no native ids.
+  assert.ok(Object.isFrozen(result.data.normalization));
+  assert.equal(result.data.normalization.contract, "native_normalization_v1");
+  assert.deepEqual(
+    Object.keys(result.data.normalization).sort(),
+    ["contract", "evidence"],
+  );
+
+  // The entire detached captured graph deep-compares to the fixture candidate,
+  // including every node, link, group, and opaque top-level field. No field is
+  // silently dropped or rewritten.
+  assert.deepEqual(result.data.graph, candidate);
+
+  // Detached evidence must not expose the live graph shim and is deeply frozen.
+  assert.equal(result.data.graph.serialize, undefined);
+  assert.ok(Object.isFrozen(result.data.graph));
+  assert.ok(Object.isFrozen(result.data.graph.nodes));
+  assert.ok(Object.isFrozen(result.data.graph.links));
+  assert.ok(Object.isFrozen(result.data.graph.groups));
+
+  // The fixture input is unchanged by the capture: no write reached it.
+  assert.equal(JSON.stringify(candidate), fixtureSnapshot);
+});
+
+test("capture rejects an unknown native normalization contract before serializing", () => {
+  let serializeCalls = 0;
+  const graph = makeGraph();
+  graph.serialize = () => { serializeCalls += 1; return { nodes: [] }; };
+  const result = createIntentGraphAdapter(makeApp(graph))
+    .capture({ native_normalization: "future_normalization_v2" });
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostic.code, "unsupported_normalization");
+  assert.equal(serializeCalls, 0);
+});
+
+test("repeated normalized capture is idempotent and leaves the live store unchanged", () => {
+  // The adapter does not derive semantic exec descriptors; the normalized
+  // capture is the complete detached graph plus a frozen minimal evidence tag.
+  // Repeated capture over the same live store must be byte-identical and must
+  // not mutate the store.
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "uid-1" }, inputs: [], outputs: [] },
+      {
+        id: 2,
+        type: "vibecomfy.exec",
+        properties: { vibecomfy_uid: "uid-2" },
+        widgets_values: ["src"],
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const storeBefore = JSON.stringify(captured);
+  const adapter = createIntentGraphAdapter(liveAppFromGraph(captured));
+  const first = adapter.captureNormalized();
+  const second = adapter.captureNormalized();
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.data.normalization, second.data.normalization);
+  assert.deepEqual(first.data.graph, second.data.graph);
+  // The live store backing the shim is untouched: S3 capture performs no write.
+  assert.equal(JSON.stringify(captured), storeBefore);
+});
+
+test("captureDrawSnapshot refuses with missing_identity rather than silently omitting unstamped nodes/groups", () => {
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "uid-a" }, pos: [10, 20], size: [100, 50], title: "A", color: "#fff" },
+      { id: 2, type: "B", pos: [0, 0] }, // unstamped -> must trigger missing_identity
+    ],
+    groups: [
+      { vibecomfy_group_id: "g1", bounding: [0, 0, 10, 10], title: "G1" },
+      { title: "NoId" }, // unstamped -> must trigger missing_identity
+    ],
+    links: [],
+  };
+  const result = createIntentGraphAdapter(liveAppFromGraph(captured)).captureDrawSnapshot();
+  assert.equal(result.ok, false);
+  assert.equal(result.operation, "capture_draw_snapshot");
+  assert.equal(result.diagnostic.code, "missing_identity");
+  assert.match(result.diagnostic.detail, /1 node/);
+  assert.match(result.diagnostic.detail, /1 group/);
+});
+
+test("captureDrawSnapshot returns frozen plain geometry keyed by stable UID when every node/group is stamped", () => {
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "uid-a" }, pos: [10, 20], size: [100, 50], title: "A", color: "#fff" },
+      { id: 2, type: "B", properties: { vibecomfy_uid: "uid-b" }, pos: [0, 0] },
+    ],
+    groups: [
+      { vibecomfy_group_id: "g1", bounding: [0, 0, 10, 10], title: "G1" },
+    ],
+    links: [],
+  };
+  const result = createIntentGraphAdapter(liveAppFromGraph(captured)).captureDrawSnapshot();
+  assert.equal(result.ok, true);
+  assert.ok(Object.isFrozen(result.data.snapshot));
+  assert.equal(result.data.snapshot.nodes.length, 2);
+  assert.equal(result.data.snapshot.nodes[0].uid, "uid-a");
+  assert.deepEqual(result.data.snapshot.nodes[0].pos, [10, 20]);
+  assert.equal(result.data.snapshot.groups.length, 1);
+  assert.equal(result.data.snapshot.groups[0].id, "g1");
+});
+
+test("captureDrawSnapshot keeps duplicate group titles with distinct IDs valid", () => {
+  // Two groups sharing a title but carrying distinct stable ids remain valid;
+  // identity is the stable id, not the human-readable title.
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "uid-a" }, pos: [0, 0] },
+    ],
+    groups: [
+      { vibecomfy_group_id: "g1", bounding: [0, 0, 1, 1], title: "Same" },
+      { vibecomfy_group_id: "g2", bounding: [0, 0, 1, 1], title: "Same" },
+    ],
+    links: [],
+  };
+  const result = createIntentGraphAdapter(liveAppFromGraph(captured)).captureDrawSnapshot();
+  assert.equal(result.ok, true);
+  assert.equal(result.data.snapshot.groups.length, 2);
+  assert.equal(result.data.snapshot.groups[0].title, "Same");
+  assert.equal(result.data.snapshot.groups[1].title, "Same");
+  assert.notEqual(result.data.snapshot.groups[0].id, result.data.snapshot.groups[1].id);
+});
+
+test("captureDrawSnapshot reports ambiguous_identity for duplicate node stable UIDs", () => {
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "dup" }, pos: [0, 0] },
+      { id: 2, type: "B", properties: { vibecomfy_uid: "dup" }, pos: [1, 1] },
+    ],
+    groups: [],
+    links: [],
+  };
+  const result = createIntentGraphAdapter(liveAppFromGraph(captured)).captureDrawSnapshot();
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostic.code, "ambiguous_identity");
+  assert.ok(result.diagnostic.detail.includes("dup"));
+});
+
+test("captureDrawSnapshot reports ambiguous_identity for duplicate group stable IDs", () => {
+  const captured = {
+    nodes: [
+      { id: 1, type: "A", properties: { vibecomfy_uid: "uid-a" }, pos: [0, 0] },
+    ],
+    groups: [
+      { vibecomfy_group_id: "dup", title: "G1" },
+      { id: "dup", title: "G2" },
+    ],
+    links: [],
+  };
+  const result = createIntentGraphAdapter(liveAppFromGraph(captured)).captureDrawSnapshot();
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostic.code, "ambiguous_identity");
+  assert.ok(result.diagnostic.detail.includes("dup"));
+});
+
+test("the seven reclassified mutation rows are classified as S4, not S3", () => {
+  const ledger = JSON.parse(readFileSync(
+    path.join(repoRoot, "tests", "fixtures", "agent_edit", "native_authority_ledger_v1.json"),
+    "utf8",
+  ));
+  const reclassified = ["NGA-048", "NGA-050", "NGA-062", "NGA-067", "NGA-070", "NGA-072", "NGA-078"];
+  for (const id of reclassified) {
+    const row = ledger.rows.find((entry) => entry.id === id);
+    assert.ok(row, `${id} must exist`);
+    assert.equal(row.slice, "S4", `${id} must be reclassified to S4 (mutation/harness), not S3`);
+    assert.equal(row.semantic_owner, "vibecomfy_roundtrip");
+    assert.equal(row.support_status, "migration_debt");
+    assert.ok(row.purpose.startsWith("S4 "), `${id} purpose must declare the S4 mutation reason`);
+    // They must not be advertised as S3 native normalization.
+    assert.notEqual(row.target_api, "nativeNormalization");
+    assert.notEqual(row.target_api, "nativeNormalization.rebuildSockets");
+    assert.notEqual(row.target_api, "nativeNormalization.widgets");
+    assert.notEqual(row.target_api, "enumerateLinks");
+  }
 });

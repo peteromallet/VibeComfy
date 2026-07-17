@@ -69,15 +69,20 @@ must fail before mutation.
 
 ### Current substate — 2026-07-17
 
-Slices 1–2 are implemented and independently accepted. Evidence: 77/77
-focused adapter/ownership/projection/M1 tests, 519/519 browser contracts, 238
-roundtrip passes with 2 intentional legacy skips, and a schema-validated sole
-machine ledger with 78 unique stable rows and 120 unique file/region/kind
-mappings. Both Arnold profiles and all 68 agent specs parse through the
-production parser; `git diff --check` is clean.
+Slices 1–2 are implemented and independently accepted. The observation-only
+Family-A preparation for coupled S3+S4 is also accepted: 65/65 focused
+adapter/ownership tests, 532/532 browser contracts, and 1,413 browser-smoke
+passes with 2 intentional skips are green; the exact `eb45e0ef…` incident
+fixture rebuilds byte-identically. The sole machine ledger still has 78 unique
+stable rows and 120 unique file/region/kind mappings, with seven persistent-
+write/harness rows truthfully reclassified as S4 migration debt.
 
-This is a bounded acceptance only. Slices 3–6 below remain pending, and the M2
-done criteria are not yet satisfied.
+This remains a bounded preparation acceptance only. S3 is not closed, 0/27
+coupled identity/index/link ownership rows have transferred, and Slices 3–6
+remain pending. Before the atomic S3+S4 cut, the versioned
+`layout_operation_v1` and `mutation_materialization_v1` contracts must land;
+then consumers, old implementations, and ledger ownership move together. The
+M2 done criteria are not yet satisfied.
 
 ### Slice 1 — Inventory and freeze every native graph access
 

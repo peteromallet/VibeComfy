@@ -8,11 +8,14 @@ import {
   projectGraphV1,
   projectionSpecV1,
   projectionReferenceV1,
+  nodeIdentityV1,
+  groupIdentityV1,
 } from "./projection_registry_v1.js";
 
 export const INTENT_GRAPH_ADAPTER_V1 = "intent_graph_adapter_v1";
 export const HARNESS_DELTA_APPLY_FALLBACK_MARKER =
   "__vibecomfyAllowDeltaSerializeConfigureFallback";
+export const NATIVE_NORMALIZATION_V1 = "native_normalization_v1";
 
 const MAX_BOUND = 512;
 
@@ -38,6 +41,12 @@ export const DIAGNOSTIC_CODES = Object.freeze({
   REPAINT_UNAVAILABLE: "repaint_unavailable",
   REPAINT_FAILED: "repaint_failed",
   PROJECTION_FAILED: "projection_failed",
+  // Slice 3 identity / normalization diagnostics. Identity validity and field
+  // meaning stay owned by projection_registry_v1.js; the adapter only emits
+  // these typed refusals at its boundary.
+  MISSING_IDENTITY: "missing_identity",
+  AMBIGUOUS_IDENTITY: "ambiguous_identity",
+  UNSUPPORTED_NORMALIZATION: "unsupported_normalization",
 });
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
@@ -303,6 +312,131 @@ function captureEnvelope(graph, scopeCtx) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Slice 3 detached capture evidence.
+//
+// This module exposes only preparatory observational evidence. Slice 3 is NOT
+// closed: the seven reclassified S4 mutation/harness rows (NGA-048/050/062/
+// 067/070/072/078 in vibecomfy_roundtrip.js) implement the private
+// live-normalization bridge whose coupling makes full S3 closure atomic with
+// Slice 4. No partial "S3 complete" claim is implied by these helpers.
+//
+// Every routine below operates on already-captured, detached plain data. It
+// performs NO live writes and publishes NO live node/link/group/factory/slot.
+// Semantic exec io/widget/socket normalization and stable identity validity,
+// field meaning, ordering, and hashing stay owned by
+// projection_registry_v1.js. The adapter does not derive semantic exec
+// descriptors, does not hand-pick between `properties.vibecomfy.io` and
+// `widgets_values[1]`, and does not self-attest a live-write count it cannot
+// prove. The normalized capture only validates the requested contract and
+// attaches a minimal contract/version evidence tag to the detached graph.
+//
+// Historical live exec hydration, widget assignment, link sanitation, socket
+// splicing, and graph-link-store replacement are S4 mutation/harness behavior
+// and are NOT performed here.
+// ---------------------------------------------------------------------------
+
+function normalizeOptionV1(options) {
+  const opts = options ?? {};
+  const requested = hasOwn(opts, "native_normalization")
+    ? opts.native_normalization
+    : null;
+  if (requested === null || requested === undefined) {
+    return null;
+  }
+  if (requested !== NATIVE_NORMALIZATION_V1) {
+    const err = new Error("unsupported native normalization contract");
+    err.code = "unsupported_normalization";
+    throw err;
+  }
+  return NATIVE_NORMALIZATION_V1;
+}
+
+// Minimal, frozen contract/version evidence tag attached to a normalized
+// detached capture. It declares only which normalization contract the
+// capture honors and that the evidence is the detached serialized graph. It
+// carries no semantic exec descriptors, no native ids, and no live-write
+// count: those authorities stay with projection_registry_v1.js and the S4
+// live-normalization bridge.
+function nativeNormalizationEvidenceTag() {
+  return Object.freeze({
+    contract: NATIVE_NORMALIZATION_V1,
+    evidence: "detached_serialized_graph_only",
+  });
+}
+
+function drawSnapshotFromCaptured(captured) {
+  const nodes = Array.isArray(captured?.nodes) ? captured.nodes : [];
+  const groups = Array.isArray(captured?.groups) ? captured.groups : [];
+  const seenNodeUids = new Set();
+  const seenGroupIds = new Set();
+  const ambiguousNodeUids = [];
+  const ambiguousGroupIds = [];
+  let missingNodeCount = 0;
+  let missingGroupCount = 0;
+  const nodeGeometry = [];
+  for (const node of nodes) {
+    let stableUid;
+    try {
+      stableUid = nodeIdentityV1(node);
+    } catch (_err) {
+      stableUid = null;
+    }
+    if (stableUid === null) {
+      // Unstamped node geometry cannot be keyed by stable UID. The caller MUST
+      // refuse with `missing_identity` rather than silently omitting it.
+      missingNodeCount += 1;
+      continue;
+    }
+    if (seenNodeUids.has(stableUid)) {
+      if (!ambiguousNodeUids.includes(stableUid)) ambiguousNodeUids.push(stableUid);
+      continue;
+    }
+    seenNodeUids.add(stableUid);
+    nodeGeometry.push({
+      uid: stableUid,
+      pos: Array.isArray(node?.pos) ? node.pos.slice(0, 2) : null,
+      size: Array.isArray(node?.size) ? node.size.slice(0, 2) : null,
+      title: typeof node?.title === "string" ? node.title : null,
+      color: node?.color ?? null,
+      bgcolor: node?.bgcolor ?? null,
+    });
+  }
+  const groupGeometry = [];
+  for (const group of groups) {
+    let stableId;
+    try {
+      stableId = groupIdentityV1(group);
+    } catch (_err) {
+      stableId = null;
+    }
+    if (stableId === null) {
+      missingGroupCount += 1;
+      continue;
+    }
+    if (seenGroupIds.has(stableId)) {
+      if (!ambiguousGroupIds.includes(stableId)) ambiguousGroupIds.push(stableId);
+      continue;
+    }
+    seenGroupIds.add(stableId);
+    // Duplicate titles with distinct IDs remain valid: identity is the stable
+    // id, not the human-readable title.
+    groupGeometry.push({
+      id: stableId,
+      bounding: Array.isArray(group?.bounding) ? group.bounding.slice(0, 4) : null,
+      title: typeof group?.title === "string" ? group.title : null,
+      color: group?.color ?? null,
+    });
+  }
+  return {
+    snapshot: { nodes: nodeGeometry, groups: groupGeometry },
+    ambiguous_node_uids: ambiguousNodeUids,
+    ambiguous_group_ids: ambiguousGroupIds,
+    missing_node_count: missingNodeCount,
+    missing_group_count: missingGroupCount,
+  };
+}
+
 function retagFailure(result, operation) {
   if (result.ok) return result;
   return envelope(false, result.diagnostic, {
@@ -314,9 +448,82 @@ function retagFailure(result, operation) {
 
 export function createIntentGraphAdapter(app) {
   function capture(options) {
-    return withGraph(app, "capture", options, (graph, scopeCtx) =>
+    let normalizationContract;
+    try {
+      normalizationContract = normalizeOptionV1(options);
+    } catch (error) {
+      return envelope(false, {
+        code: DIAGNOSTIC_CODES.UNSUPPORTED_NORMALIZATION,
+        message: "unsupported native normalization contract",
+        detail: error?.message || "unsupported_normalization",
+      }, { operation: "capture" });
+    }
+    const result = withGraph(app, "capture", options, (graph, scopeCtx) =>
       captureEnvelope(graph, scopeCtx)
     );
+    if (!result.ok) return result;
+    if (normalizationContract === null) return result;
+    // Normalized capture: validate the requested contract and attach a minimal,
+    // frozen contract/version evidence tag to the complete detached serialized
+    // graph. The adapter performs no live write and derives no semantic exec
+    // io/widget descriptors; that authority stays with
+    // projection_registry_v1.js and the S4 live-normalization bridge.
+    const payload = {
+      graph: result.data.graph,
+      normalization: nativeNormalizationEvidenceTag(),
+    };
+    return envelope(true, payload, {
+      operation: "capture",
+      scope: result.scope,
+      scope_contract: result.scope_contract,
+    });
+  }
+
+  function captureNormalized(options) {
+    const withOption = { ...(options ?? {}), native_normalization: NATIVE_NORMALIZATION_V1 };
+    const result = capture(withOption);
+    if (!result.ok) return retagFailure(result, "capture_normalized");
+    return envelope(true, result.data, {
+      operation: "capture_normalized",
+      scope: result.scope,
+      scope_contract: result.scope_contract,
+    });
+  }
+
+  function captureDrawSnapshot(options) {
+    const result = capture(options);
+    if (!result.ok) return retagFailure(result, "capture_draw_snapshot");
+    const analysis = drawSnapshotFromCaptured(result.data.graph);
+    const ctx = {
+      operation: "capture_draw_snapshot",
+      scope: result.scope,
+      scope_contract: result.scope_contract,
+    };
+    if (analysis.ambiguous_node_uids.length > 0 || analysis.ambiguous_group_ids.length > 0) {
+      const parts = [];
+      if (analysis.ambiguous_node_uids.length) {
+        parts.push(`node uids: ${analysis.ambiguous_node_uids.join(", ")}`);
+      }
+      if (analysis.ambiguous_group_ids.length) {
+        parts.push(`group ids: ${analysis.ambiguous_group_ids.join(", ")}`);
+      }
+      return envelope(false, {
+        code: DIAGNOSTIC_CODES.AMBIGUOUS_IDENTITY,
+        message: "duplicate stable identity in captured graph draw snapshot",
+        detail: `ambiguous ${parts.join("; ")}`,
+      }, ctx);
+    }
+    if (analysis.missing_node_count > 0 || analysis.missing_group_count > 0) {
+      const parts = [];
+      if (analysis.missing_node_count) parts.push(`${analysis.missing_node_count} node(s)`);
+      if (analysis.missing_group_count) parts.push(`${analysis.missing_group_count} group(s)`);
+      return envelope(false, {
+        code: DIAGNOSTIC_CODES.MISSING_IDENTITY,
+        message: "captured graph draw snapshot has unstamped node/group geometry",
+        detail: `${parts.join(" and ")} lack a stable identity; refusing per S3 identity contract`,
+      }, ctx);
+    }
+    return envelope(true, { snapshot: analysis.snapshot }, ctx);
   }
 
   function enumerateNodes(options) {
@@ -487,6 +694,8 @@ export function createIntentGraphAdapter(app) {
   return Object.freeze({
     contract_version: INTENT_GRAPH_ADAPTER_V1,
     capture,
+    captureNormalized,
+    captureDrawSnapshot,
     enumerateNodes,
     capabilities,
     captureRevision,
