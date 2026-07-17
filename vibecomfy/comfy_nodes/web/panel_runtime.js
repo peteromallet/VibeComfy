@@ -23,13 +23,12 @@ function createAgentPanelRuntimeState() {
     _scheduledAgentPanelRender: null,
     _scheduledAgentPanelRenders: [],
     _scheduledAgentPanelRenderQueued: false,
-    _agentPanelFlushCount: 0,
-    _lastAgentPanelFlushReason: "",
-    _lastThreadRender: null,
-    _lastNoticeRender: null,
-    _statusCommitAt: null,
-    _rehydrateCommitAt: null,
-    _marksAfterCommit: 0,
+    _cancelScheduledAgentPanelRender: null,
+    // Monotonic owner token for one queued render cycle. A callback may flush
+    // only the cycle that created it; replacement panels and new workflow
+    // activations revoke older cycles instead of letting their callbacks
+    // satisfy the new owner.
+    _agentPanelRenderScheduleGeneration: 0,
     _overlayDrawModelCache: null,
     // ── T7: Per-scope runtime snapshot maps ───────────────────────────────
     // Keyed by scopeId.  Each entry is a plain object capturing the
@@ -137,7 +136,26 @@ export function currentAgentPanel() {
 
 export function setCurrentAgentPanel(panel) {
   const runtime = getAgentPanelRuntime();
+  const previous = runtime.agentPanel || null;
+  if (previous !== (panel || null)) {
+    if (typeof runtime._cancelScheduledAgentPanelRender === "function") {
+      runtime._cancelScheduledAgentPanelRender();
+    }
+    runtime._cancelScheduledAgentPanelRender = null;
+    runtime._agentPanelRenderScheduleGeneration += 1;
+    runtime._scheduledAgentPanelRender = null;
+    runtime._scheduledAgentPanelRenders = [];
+    runtime._scheduledAgentPanelRenderQueued = false;
+    if (previous && typeof previous === "object") {
+      previous.__renderFlushPending = false;
+      previous.__renderScheduleRevoked = true;
+    }
+  }
   runtime.agentPanel = panel || null;
+  if (runtime.agentPanel && typeof runtime.agentPanel === "object") {
+    runtime.agentPanel.__agentPanelRuntime = runtime;
+    runtime.agentPanel.__renderScheduleRevoked = false;
+  }
   return runtime.agentPanel;
 }
 

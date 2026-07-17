@@ -358,3 +358,92 @@ export function sha256Hex(value) {
 export function sha256HexFromString(canonicalJson) {
   return _sha256HexUtf8(canonicalJson);
 }
+
+// ── Cross-language numeric normaliser (§0.3.1) ──────────────────────────────
+
+// Maximum exactly-representable integer in IEEE-754 double (2**53 - 1).  JS
+// ``Number`` values whose magnitude exceeds this cannot round-trip through
+// Python's arbitrary-precision ``int``, so they are rejected as non-canonical
+// rather than silently serialised to divergent bytes.
+const _JS_SAFE_INTEGER_MAX = 9007199254740991;
+const _NON_CANONICAL_NUMBER = "non_canonical_number";
+
+/**
+ * Normalise numeric values to the spelling JavaScript's ``JSON.stringify``
+ * already emits, so that the shared hash produces a byte-identical preimage on
+ * both sides.
+ *
+ * This is a *value* preprocessor: it recursively walks plain objects (by
+ * value) and arrays (by element) and, for every leaf:
+ *
+ *   - finite safe-integer ``number`` -> returned unchanged
+ *     (``JSON.stringify`` is already canonical: ``1``, ``1.5``, ``100``).
+ *   - ``NaN`` / ``Infinity`` / ``-Infinity`` -> throws the caller-supplied
+ *     ``finiteErrorCode`` (e.g. ``"non_finite_geometry"`` or
+ *     ``"non_finite_materialization"``).
+ *   - ``boolean`` -> rejected with ``non_canonical_number`` (a boolean in a
+ *     numeric position has no JS-compatible numeric spelling; mirrors Python's
+ *     ``bool`` rejection even though JS does not subclass ``Boolean`` from
+ *     ``Number``).
+ *   - finite ``number`` that is integer-valued but outside the JS safe integer
+ *     range (``abs(n) > 2**53 - 1``) -> rejected with ``non_canonical_number``
+ *     (the shortest round-trippable spelling differs from the exact decimal
+ *     Python would emit, so the two sides cannot agree on bytes).
+ *
+ * It does NOT sort keys, emit JSON text, or compute a digest — the hashing
+ * identity remains ``sha256Hex`` / ``canonicalJsonString``.  This mirrors the
+ * Python leaf's ``canonicalize_contract_numeric``; both sides run it before
+ * hashing so integer-valued floats (``1.0``), ``-0.0``, and exponents
+ * (``1e2``) collapse to the same canonical spelling.
+ *
+ * @param {*} value
+ * @param {{ finiteErrorCode?: string }} [options]
+ * @returns {*}
+ */
+export function canonicalizeContractNumeric(value, options = {}) {
+  const finiteErrorCode = options.finiteErrorCode || "non_finite_number";
+  return _normalizeNumericJs(value, finiteErrorCode);
+}
+
+function _normalizeNumericJs(value, finiteErrorCode) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => _normalizeNumericJs(entry, finiteErrorCode));
+  }
+  if (_isPlainObject(value)) {
+    const result = /** @type {object} */ ({});
+    for (const [key, entry] of Object.entries(value)) {
+      result[key] = _normalizeNumericJs(entry, finiteErrorCode);
+    }
+    return result;
+  }
+  if (typeof value === "boolean") {
+    // JS does not subclass Boolean from Number, but a boolean in a numeric
+    // position has no canonical spelling that both languages agree on (Python
+    // would serialise ``True`` as ``1`` via its ``int`` subclass; JS emits
+    // ``true``).  Reject it so the shared diagnostic is symmetric.
+    const error = new Error("Boolean is not a canonical numeric value");
+    error.code = _NON_CANONICAL_NUMBER;
+    throw error;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      const error = new Error(
+        `Non-finite numeric value is not canonical (${finiteErrorCode}).`,
+      );
+      error.code = finiteErrorCode;
+      throw error;
+    }
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      // Outside ±(2**53 - 1) the shortest round-trippable JS spelling can
+      // diverge from the exact decimal Python emits (e.g. 2**60 serialises as
+      // "...476" in Python but "...500" in JS).  Reject so both sides agree.
+      const error = new Error(
+        "Integer value exceeds the JS safe integer range",
+      );
+      error.code = _NON_CANONICAL_NUMBER;
+      throw error;
+    }
+    return value;
+  }
+  return value;
+}

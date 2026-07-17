@@ -42,11 +42,25 @@ tasks, but they may not weaken these requirements.
       authority freeze; later migration dispositions remain S3–S6 work.
 - [x] Add bounded S1/S2 adapter ownership guardrails; the final sole-owner gate
       remains Slice 6 work.
+- [x] C0: land the versioned layout/materialization/inverse contracts, shared
+      JS/Python goldens, numeric parity, strict authority binding, and legacy
+      migration without transferring native ownership.
+- [x] C1: prove a private prepared-authority-only plan builder with external
+      zero-native-call sentinels and complete dependency-closure guardrails.
+- [x] Fence queued panel rendering by concrete panel and workflow activation;
+      revoke late callbacks and keep render diagnostics panel-affine.
+- [ ] C2: perform the atomic consumer/deletion/ledger cutover for all 27
+      coupled S3 rows and seven S4-debt rows. No partial owner transfer.
 - [ ] Prove all supported delta operations through real LiteGraph.
 
-Slices 1–2 are accepted with 77/77 focused tests, 519/519 browser contracts,
-238 roundtrip passes plus 2 intentional legacy skips, and a 78-row/120-mapping
-machine ledger. M2 remains open for Slices 3–6.
+Slices 1–2, Family-A observation prep, C0–C1, and the scheduler activation
+fence are accepted. The latest checkpoint passes 156/156 focused JavaScript,
+118/118 focused Python, 294/294 lifecycle, 60/60 repair/compatibility,
+569/569 browser contracts, 1,531 browser-smoke tests plus 2 intentional skips,
+and two complete roundtrip runs of 238 passes plus 2 intentional skips. The
+78-row/120-mapping machine ledger remains truthful: 0/27 coupled S3 rows have
+transferred and all seven S4-debt rows remain open. M2 remains open for the C2
+atomic cutover and Slices 5–6.
 
 ## M3 — Verifier
 

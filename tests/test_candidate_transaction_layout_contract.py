@@ -5,6 +5,20 @@ from vibecomfy.comfy_nodes.agent.candidate_transaction import (
     content_hash,
     validate_candidate_transaction,
 )
+from vibecomfy.comfy_nodes.agent.layout_operation_v1 import (
+    compute_layout_operation_digest,
+)
+
+
+def _layout_operation_envelope():
+    ops = [{"op": "set_node_geometry", "uid": "node-1", "pos": [300, 100]}]
+    digest = compute_layout_operation_digest(ops)
+    return {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": ops,
+        "digest": digest,
+    }
 
 
 def _transaction(*, layout_verification=None, state="candidate_ready"):
@@ -39,13 +53,14 @@ def _transaction(*, layout_verification=None, state="candidate_ready"):
         candidate_graph_hash="candidate",
         candidate_structural_graph_hash="candidate-structural",
         candidate_layout_graph_hash="a" * 64 if layout_verification else None,
-        authority_receipt_hash="f" * 64,
+        authority_receipt_hash="a" * 64,
         schema_witness={},
         replay_ok=True,
         candidate_matches=True,
         applyable=True,
         verification_kind="layout_structural_noop",
         layout_verification=layout_verification,
+        layout_operation_envelope=_layout_operation_envelope(),
         state=state,
     )
 

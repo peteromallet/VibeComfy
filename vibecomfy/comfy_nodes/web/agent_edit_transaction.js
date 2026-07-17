@@ -6,8 +6,8 @@ import { normalizeDeltaEnvelope } from "./canonical_delta.js";
 import { canonicalSessionJsonString } from "./canonical_hash.js";
 import { normalizeLayoutVerification } from "./layout_verification_contract.js";
 import { classifyLegacyMigrationV1 } from "./legacy_migration_v1.js";
-import { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "./prepared_authority_v1.js";
-export { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "./prepared_authority_v1.js";
+import { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, CANDIDATE_AUTHORITY_V0_LEGACY, validateCandidateTransactionV2, validatePreparedAuthorityV1, migrateLegacyCandidateAuthorityV0Legacy } from "./prepared_authority_v1.js";
+export { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, CANDIDATE_AUTHORITY_V0_LEGACY, validateCandidateTransactionV2, validatePreparedAuthorityV1, migrateLegacyCandidateAuthorityV0Legacy } from "./prepared_authority_v1.js";
 
 export const CANDIDATE_TRANSACTION_CONTRACT_VERSION = CANDIDATE_TRANSACTION_V2;
 
@@ -81,23 +81,36 @@ function canonicalActionsForState(state, resumeState = null) {
 export function normalizeCandidateTransaction(value) {
   if (!isObject(value)) return null;
   if (value.contract_version !== CANDIDATE_TRANSACTION_CONTRACT_VERSION) return null;
-  const state = canonicalTransactionState(value.state);
-  if (!state || !isObject(value.plan) || !isObject(value.hashes) || !isObject(value.authority)) return null;
-  try { validateCandidateTransactionV2(value); } catch (_error) { return null; }
-  const envelope = normalizeDeltaEnvelope(value.plan.delta_ops_envelope, { strict: false });
-  if (typeof value.plan.delta_hash !== "string" || !value.plan.delta_hash) return null;
-  if (typeof value.plan_hash !== "string" || !value.plan_hash) return null;
-  if (typeof value.hashes.candidate_graph_hash !== "string") return null;
-  if (typeof value.hashes.candidate_structural_graph_hash !== "string") return null;
-  const rawLayoutVerification = value.authority.layout_verification;
+  // ── §M1.6: Legacy persisted authority migration at the load boundary ──────
+  // A candidate_transaction_v2 envelope may carry a candidate_authority_v0_legacy
+  // inner from a pre-strict-digest deployment. The v0_legacy inner is upgraded
+  // to its strict v1 counterpart (sole effect: restoration_strategy.digest is
+  // recomputed) BEFORE strict v2 validation runs. Malformed v1/v2 inners NEVER
+  // carry a v0_legacy marker, so they cannot reach the migrator — they
+  // fail-closed in validateCandidateTransactionV2. A structurally invalid
+  // v0_legacy inner throws inside its migrator and is treated as fail-closed
+  // here (returns null). No catch-all fallback. Candidate-ready transactions
+  // that carry a prepared authority are rejected by strict v2 validation's
+  // unexpected_prepared_authority check.
+  const source = _migrateLegacyV0LegacyEnvelope(value);
+  if (source === null) return null;
+  const state = canonicalTransactionState(source.state);
+  if (!state || !isObject(source.plan) || !isObject(source.hashes) || !isObject(source.authority)) return null;
+  try { validateCandidateTransactionV2(source); } catch (_error) { return null; }
+  const envelope = normalizeDeltaEnvelope(source.plan.delta_ops_envelope, { strict: false });
+  if (typeof source.plan.delta_hash !== "string" || !source.plan.delta_hash) return null;
+  if (typeof source.plan_hash !== "string" || !source.plan_hash) return null;
+  if (typeof source.hashes.candidate_graph_hash !== "string") return null;
+  if (typeof source.hashes.candidate_structural_graph_hash !== "string") return null;
+  const rawLayoutVerification = source.authority.layout_verification;
   const layoutVerification = rawLayoutVerification == null
     ? null
     : normalizeLayoutVerification(rawLayoutVerification);
   if (rawLayoutVerification != null && !layoutVerification) return null;
-  const actions = Array.isArray(value.available_actions)
-    ? [...new Set(value.available_actions.filter((action) => typeof action === "string"))]
+  const actions = Array.isArray(source.available_actions)
+    ? [...new Set(source.available_actions.filter((action) => typeof action === "string"))]
     : [];
-  const expectedActions = canonicalActionsForState(state, value.resume_state);
+  const expectedActions = canonicalActionsForState(state, source.resume_state);
   const actionsMatch = actions.length === expectedActions.length
     && actions.every((action, index) => action === expectedActions[index]);
   // A fail-closed candidate may intentionally advertise no actions. Every
@@ -106,20 +119,41 @@ export function normalizeCandidateTransaction(value) {
     return null;
   }
   return Object.freeze({
-    ...clonePlainData(value),
+    ...clonePlainData(source),
     state,
-    resume_state: canonicalTransactionState(value.resume_state),
+    resume_state: canonicalTransactionState(source.resume_state),
     plan: {
-      ...clonePlainData(value.plan),
+      ...clonePlainData(source.plan),
       delta_ops_envelope: clonePlainData(envelope),
       op_count: envelope.ops.length,
     },
     authority: {
-      ...clonePlainData(value.authority),
+      ...clonePlainData(source.authority),
       ...(layoutVerification ? { layout_verification: layoutVerification } : {}),
     },
     available_actions: actions,
   });
+}
+
+// §M1.6 — Detect a persisted candidate_authority_v0_legacy inner and upgrade
+// it to its strict v1 counterpart in a shallow-cloned envelope. Returns the
+// (possibly upgraded) envelope, or null when a v0_legacy inner is present but
+// structurally invalid (fail-closed). When no v0_legacy marker is present the
+// original value is returned unchanged so strict v2 validation runs verbatim.
+function _migrateLegacyV0LegacyEnvelope(value) {
+  const candidateInner = value.candidate_authority;
+  const candidateIsLegacy = isObject(candidateInner)
+    && candidateInner.contract_version === CANDIDATE_AUTHORITY_V0_LEGACY;
+  if (!candidateIsLegacy) {
+    return value;
+  }
+  try {
+    const next = { ...value };
+    next.candidate_authority = migrateLegacyCandidateAuthorityV0Legacy(candidateInner);
+    return next;
+  } catch (_error) {
+    return null;
+  }
 }
 
 export function readCandidateTransaction(value) {

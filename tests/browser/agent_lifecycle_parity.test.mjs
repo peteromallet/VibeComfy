@@ -48,7 +48,13 @@ const CANONICAL = Object.freeze({
     contract_version: "candidate_transaction_v2",
     state: "candidate_ready",
     candidate_authority: Object.freeze({
-      contract_version: "candidate_authority_v1",
+      // §M1.6 — This fixture models a VALID persisted legacy authority from a
+      // pre-strict-digest deployment. The v0_legacy marker routes it through the
+      // load-boundary migrator (migrateLegacyCandidateAuthorityV0Legacy), which
+      // recomputes restoration_strategy.digest from the actual payload. The
+      // migrated output is an explicit candidate_authority_v1 that passes strict
+      // validation, so Apply remains true. See legacy_authority_migration tests.
+      contract_version: "candidate_authority_v0_legacy",
       transaction_id: "tx-parity-001",
       candidate_id: "candidate-parity-001",
       workflow_id: "123e4567-e89b-12d3-a456-426614174000",
@@ -75,7 +81,7 @@ const CANONICAL = Object.freeze({
       restoration_strategy: Object.freeze({
         contract_version: "inverse_delta_v1",
         digest: "b".repeat(64),
-        payload: Object.freeze([]),
+        payload: Object.freeze({ ops: Object.freeze([]) }),
       }),
       plan_hash: "plan-parity-001",
       authority_receipt_contract_version: "authority_receipt_v2",

@@ -9,10 +9,34 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from functools import cmp_to_key
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
+
+# Shared canonical-hash identity lives in the zero-dependency leaf
+# ``_canonical_contract_primitives``.  These symbols are relocated *verbatim*
+# (no logic change) and re-exported here with identical identity so every
+# existing ``from projection_registry_v1 import ...`` caller resolves to the
+# same objects.  The new cross-language contract modules
+# (``layout_operation_v1``, ``mutation_materialization_v1``) import the leaf
+# directly to avoid the import cycle that would otherwise form between those
+# modules and this registry's common authority validator.
+from ._canonical_contract_primitives import (
+    ContractError,
+    _compare_utf16_keys,
+    _hash,
+    _order_json_objects_utf16,
+    canonical_json,
+    canonical_json_bytes_v1,
+    canonicalize_contract_numeric,
+)
+# One-way dependency: the registry imports the cross-language contract modules
+# (they import only the zero-dependency leaf), so there is no import cycle.  The
+# common authority validator calls their assert_* entrypoints directly.
+from .layout_operation_v1 import assert_layout_operation_envelope
+from .mutation_materialization_v1 import (
+    assert_mutation_materialization_envelope,
+)
 
 PROJECTION_REGISTRY_V1 = "projection_registry_v1"
 FIELD_REGISTRY_V1 = "field_registry_v1"
@@ -35,47 +59,6 @@ PROJECTIONS_V1 = MappingProxyType({"structural_v1": MappingProxyType({"allowed":
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
-class ContractError(ValueError):
-    def __init__(self, message: str, code: str) -> None:
-        super().__init__(message); self.code = code
-
-def _compare_utf16_keys(left: str, right: str) -> int:
-    """Match JavaScript's UTF-16 code-unit object-key ordering exactly."""
-    left_units = left.encode("utf-16-be", errors="surrogatepass")
-    right_units = right.encode("utf-16-be", errors="surrogatepass")
-    return (left_units > right_units) - (left_units < right_units)
-
-
-def _order_json_objects_utf16(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        ordered: dict[str, Any] = {}
-        entries = sorted(
-            ((str(key), entry) for key, entry in value.items()),
-            key=cmp_to_key(lambda left, right: _compare_utf16_keys(left[0], right[0])),
-        )
-        for key, entry in entries:
-            ordered[key] = _order_json_objects_utf16(entry)
-        return ordered
-    if isinstance(value, (list, tuple)):
-        return [_order_json_objects_utf16(entry) for entry in value]
-    return value
-
-
-def canonical_json(value: Any, *, ensure_ascii: bool = True) -> str:
-    """Canonical JSON with browser-equivalent UTF-16 object-key ordering."""
-    return json.dumps(
-        _order_json_objects_utf16(value),
-        sort_keys=False,
-        separators=(",", ":"),
-        ensure_ascii=ensure_ascii,
-    )
-
-
-def canonical_json_bytes_v1(value: Any, *, ensure_ascii: bool = False) -> bytes:
-    return canonical_json(value, ensure_ascii=ensure_ascii).encode("utf-8")
-
-def _hash(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 def field_category_v1(entity: str, path: str, node_type: str | None = None) -> str:
     if entity == "node" and node_type == "vibecomfy.exec" and path == "widgets_values.io": return "derived_native"
@@ -442,9 +425,489 @@ def _strict_delta(ops: Any) -> list[Any]:
     if envelope.legacy_bridge is not None: raise ContractError("Legacy delta bridge is not authority", "legacy_delta_shape")
     return [item for item in ops]
 
-def _restoration(value: Any) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or not isinstance(value.get("contract_version"), str) or not isinstance(value.get("digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", value["digest"]) or not ("payload" in value or "ref" in value): raise ContractError("Restoration strategy requires version, digest, payload or ref", "invalid_restoration_strategy")
+RESTORATION_STRATEGY_TAGS = frozenset({
+    "inverse_delta_v1",
+    "inverse_delta_v2",
+    "inverse_layout_operation_v1",
+    "baseline_snapshot_v1",
+})
+RESTORATION_COMPENSATION_CONTRACT_V1 = "baseline_snapshot_v1"
+RESTORATION_COMPENSATION_WIRE_VERSION = "1.0.0"
+_FENCE_KEYS = frozenset({
+    "transaction_id", "candidate_id", "plan_hash", "lease_nonce",
+    "generation", "pre_projection_digest", "post_projection_digest",
+})
+
+
+def _link_to(op: Mapping[str, Any]) -> Any:
+    """Stable endpoint identity for link ops (the `to` field tuple)."""
+    to = op.get("to")
+    if isinstance(to, (list, tuple)):
+        return tuple(to)
+    return None
+
+
+def _link_forward_key(link_op_name: str, op: Mapping[str, Any]) -> tuple[str, str, Any]:
+    """Forward uniqueness identity for a link op: (op class, destination `to`).
+
+    A ComfyUI input (`to`) holds exactly one inbound link, so `to` is the stable
+    endpoint.  But a canonical rewire is ``remove_link(to=X)`` followed by
+    ``upsert_link(from=new, to=X)`` — two distinct causal ops at the same ``to``.
+    Including the op class keeps both ops (the rewire is valid) while still
+    rejecting a true duplicate: two ``upsert_link``s to the same ``to``, or two
+    ``remove_link``s of the same ``to``, collide on ``(op, to)``.
+
+    Canonical ``remove_link`` carries only ``to`` (no ``from``): the prior source
+    it disconnects is restored by the inverse ``upsert_link``, not recorded here.
+    """
+    return ("link", link_op_name, _link_to(op))
+
+
+def _delta_op_identity(op: Mapping[str, Any]) -> tuple[str, Any]:
+    name = op.get("op")
+    if name == "set_node_field":
+        target = op.get("target")
+        return ("set_node_field", tuple(target[1:]) if isinstance(target, (list, tuple)) else None)
+    if name == "set_mode":
+        target = op.get("target")
+        return ("set_mode", target[1] if isinstance(target, (list, tuple)) and len(target) > 1 else None)
+    if name == "add_node":
+        return ("node", op.get("uid"))
+    if name == "remove_node":
+        target = op.get("target")
+        return ("node", target[1] if isinstance(target, (list, tuple)) and len(target) > 1 else None)
+    if name in ("upsert_link", "remove_link"):
+        return _link_forward_key(name, op)
+    if name == "set_node_geometry":
+        return ("set_node_geometry", op.get("uid"))
+    if name == "add_group":
+        return ("group", op.get("id"))
+    if name == "set_group_geometry":
+        return ("set_group_geometry", op.get("id"))
+    if name == "remove_group":
+        return ("group", op.get("id"))
+    return (name or "", None)
+
+
+def _inverse_bindable_forward_keys(
+    inv: Mapping[str, Any], forward_by_id: Mapping[tuple[str, Any], Mapping[str, Any]]
+) -> list[tuple[str, Any]]:
+    """Return all class-valid forward identities at the inverse op's locus."""
+    name = inv.get("op")
+    if name in ("remove_link", "upsert_link"):
+        keys: list[tuple[str, Any]] = []
+        for forward_name in ("upsert_link", "remove_link"):
+            key = _link_forward_key(forward_name, inv)
+            if key in forward_by_id and name in _mandated_inverse_class(forward_name):
+                keys.append(key)
+        return keys
+    key = _delta_op_identity(inv)
+    forward = forward_by_id.get(key)
+    return [key] if forward is not None and name in _mandated_inverse_class(forward.get("op")) else []
+
+
+def _forward_keys_at_locus(
+    inv: Mapping[str, Any], forward_by_id: Mapping[tuple[str, Any], Mapping[str, Any]]
+) -> list[tuple[str, Any]]:
+    if inv.get("op") in ("remove_link", "upsert_link"):
+        return [
+            key
+            for key in (
+                _link_forward_key("upsert_link", inv),
+                _link_forward_key("remove_link", inv),
+            )
+            if key in forward_by_id
+        ]
+    key = _delta_op_identity(inv)
+    return [key] if key in forward_by_id else []
+
+
+def _complete_matchings(
+    adjacency: list[list[tuple[str, Any]]], forward_count: int
+) -> list[list[tuple[str, Any]]]:
+    """Enumerate at most two complete bipartite matchings (zero/one/many)."""
+    used: set[tuple[str, Any]] = set()
+    assignments: list[list[tuple[str, Any]]] = []
+
+    def visit(index: int, current: list[tuple[str, Any]]) -> None:
+        if len(assignments) > 1:
+            return
+        if index == len(adjacency):
+            if len(used) == forward_count:
+                assignments.append(list(current))
+            return
+        for key in adjacency[index]:
+            if key in used:
+                continue
+            used.add(key)
+            current.append(key)
+            visit(index + 1, current)
+            current.pop()
+            used.remove(key)
+
+    visit(0, [])
+    return assignments
+
+
+def _assert_inverse_relation(
+    forward_ops: Any,
+    inverse_ops: Any,
+    family: str,
+    *,
+    prior_link_witnesses: list[Mapping[str, Any]] | None = None,
+) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
+    """Require exactly one order-independent complete causal matching."""
+    forward = forward_ops if isinstance(forward_ops, list) else []
+    inverse = inverse_ops if isinstance(inverse_ops, list) else []
+    forward_by_id: dict[tuple[str, Any], Mapping[str, Any]] = {}
+    for op in forward:
+        if not isinstance(op, Mapping):
+            continue
+        identity = _delta_op_identity(op)
+        if identity in forward_by_id:
+            raise ContractError("Duplicate forward identity in delta", "duplicate_identity")
+        forward_by_id[identity] = op
+    for inv in inverse:
+        if not isinstance(inv, Mapping):
+            raise ContractError("Inverse op is not an object", "inverse_missing_prior_state")
+    if not inverse and forward:
+        raise ContractError("Inverse shares no identity with forward", "inverse_unrelated")
+    adjacency = [_inverse_bindable_forward_keys(inv, forward_by_id) for inv in inverse]
+    matches = _complete_matchings(adjacency, len(forward_by_id))
+    if not matches:
+        for index, candidates in enumerate(adjacency):
+            if candidates:
+                continue
+            if _forward_keys_at_locus(inverse[index], forward_by_id):
+                raise ContractError("Inverse class is not mandated at its forward locus", "inverse_class_mismatch")
+            if not forward_by_id:
+                raise ContractError("Inverse shares no identity with forward", "inverse_unrelated")
+            raise ContractError("Inverse op identity is not bound to any forward op", "inverse_identity_unbound")
+        raise ContractError("Forward op has no matching inverse", "inverse_coverage_gap")
+    if len(matches) > 1:
+        raise ContractError("Inverse relation admits multiple complete matchings", "inverse_multiple_match")
+
+    witness_by_to = {
+        _link_to(witness): witness for witness in (prior_link_witnesses or [])
+    }
+    pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    for index, inverse_op in enumerate(inverse):
+        forward_op = forward_by_id[matches[0][index]]
+        _check_prior_state_binding(str(forward_op.get("op")), forward_op, inverse_op)
+        if forward_op.get("op") == "remove_link" and prior_link_witnesses is not None:
+            witness = witness_by_to.get(_link_to(forward_op))
+            if (
+                witness is None
+                or tuple(witness.get("from", ())) != tuple(inverse_op.get("from", ()))
+                or _link_to(witness) != _link_to(inverse_op)
+            ):
+                raise ContractError("Inverse upsert_link does not match prior-link witness", "inverse_missing_prior_state")
+        pairs.append((forward_op, inverse_op))
+    return pairs
+
+
+def _mandated_inverse_class(forward_name: str) -> frozenset[str]:
+    return {
+        "set_node_field": frozenset({"set_node_field"}),
+        "set_mode": frozenset({"set_mode"}),
+        "add_node": frozenset({"remove_node"}),
+        "remove_node": frozenset({"add_node"}),
+        "upsert_link": frozenset({"remove_link", "upsert_link"}),
+        "remove_link": frozenset({"upsert_link"}),
+        # layout ops
+        "set_node_geometry": frozenset({"set_node_geometry"}),
+        "add_group": frozenset({"remove_group"}),
+        "set_group_geometry": frozenset({"set_group_geometry"}),
+        "remove_group": frozenset({"add_group"}),
+    }.get(forward_name, frozenset())
+
+
+def _check_prior_state_binding(forward_name: str, forward_op: Mapping[str, Any], inverse_op: Mapping[str, Any]) -> None:
+    if forward_name == "set_node_field":
+        if inverse_op.get("value") == forward_op.get("value"):
+            raise ContractError(
+                "Inverse set_node_field carries the forward value, not the prior value",
+                "invalid_inverse_strategy",
+            )
+    elif forward_name == "set_mode":
+        if inverse_op.get("mode") == forward_op.get("mode"):
+            raise ContractError(
+                "Inverse set_mode carries the forward mode, not the prior mode",
+                "invalid_inverse_strategy",
+            )
+    elif forward_name == "add_node":
+        # Inverse is remove_node targeting the same uid; no prior payload.
+        target = inverse_op.get("target")
+        if not isinstance(target, (list, tuple)) or len(target) < 2 or target[1] != forward_op.get("uid"):
+            raise ContractError("Inverse remove_node does not bind the added uid", "inverse_missing_prior_state")
+    elif forward_name == "remove_node":
+        # Inverse is add_node reconstructing the node.  The forward remove_node
+        # op carries only target=[_, uid]; the pre-removal payload (node_id,
+        # class_type, fields, inputs) comes from authoritative captured state
+        # and is bound on the inverse add_node — not verifiable from the forward
+        # op alone.  Verify the uid binds.
+        target = forward_op.get("target")
+        forward_uid = target[1] if isinstance(target, (list, tuple)) and len(target) > 1 else None
+        if inverse_op.get("uid") != forward_uid:
+            raise ContractError(
+                "Inverse add_node does not bind the removed uid",
+                "inverse_missing_prior_state",
+            )
+    elif forward_name == "upsert_link":
+        if inverse_op.get("op") == "remove_link":
+            if _link_to(inverse_op) != _link_to(forward_op):
+                raise ContractError("Inverse remove_link endpoint mismatch", "inverse_missing_prior_state")
+        # upsert_link inverse restores prior endpoints (accepted structurally).
+    elif forward_name == "remove_link":
+        if _link_to(inverse_op) != _link_to(forward_op):
+            raise ContractError("Inverse upsert_link endpoint mismatch", "inverse_missing_prior_state")
+    elif forward_name in ("set_node_geometry", "set_group_geometry"):
+        # Self-class inverse must carry the prior value(s); reject an exact
+        # clone (self-inverse with the forward value).
+        if _dict_without_op(forward_op) == _dict_without_op(inverse_op):
+            raise ContractError(
+                "Inverse geometry op is a verbatim clone of the forward op",
+                "invalid_inverse_strategy",
+            )
+    # add_group -> remove_group / remove_group -> add_group: identity-bound only.
+
+
+def _dict_without_op(op: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in op.items() if k != "op"}
+
+
+def forward_operation_digest(forward_ops: Any) -> str:
+    """Bind inverse_delta_v2 to the exact canonical forward operation list."""
+    normalized_ops = _strict_delta(forward_ops)
+    return _hash(canonicalize_contract_numeric({
+        "delta_contract": DELTA_V1,
+        "wire_version": DELTA_WIRE_VERSION,
+        "ops": normalized_ops,
+    }, finite_error_code="non_finite_materialization"))
+
+
+def _root_endpoint(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 3
+        and value[0] == ""
+        and isinstance(value[1], str)
+        and bool(value[1])
+        and isinstance(value[2], str)
+        and bool(value[2])
+    )
+
+
+def _restoration(value: Any, *, family: str | None = None, forward_ops: list | None = None) -> Mapping[str, Any]:
+    """Validate the mandatory ``restoration_strategy`` slot (closed tag set).
+
+    Accepts versioned structural inverse payloads, the layout inverse payload,
+    or the grandfathered
+    ``baseline_snapshot_v1`` ref tag.  ``payload`` and ``ref`` are mutually
+    exclusive.  Digests are recomputed over the shared hash owner.
+    """
+    if not isinstance(value, Mapping):
+        raise ContractError("Restoration strategy must be an object", "malformed_restoration_payload")
+    tag = value.get("contract_version")
+    if tag not in RESTORATION_STRATEGY_TAGS:
+        raise ContractError("Unknown restoration strategy tag", "unknown_restoration_strategy")
+    has_payload = "payload" in value
+    has_ref = "ref" in value
+    if has_payload and has_ref:
+        raise ContractError("Restoration payload and ref are mutually exclusive", "malformed_restoration_payload")
+    if not has_payload and not has_ref:
+        raise ContractError("Restoration requires payload or ref", "malformed_restoration_payload")
+    if not isinstance(value.get("digest"), str) or not _HEX64.fullmatch(value["digest"]):
+        raise ContractError("Restoration digest must be hex64", "malformed_restoration_payload")
+    if tag == "baseline_snapshot_v1":
+        # Grandfathered ref shape (the sole permitted ref tag).
+        if not has_ref:
+            raise ContractError("baseline_snapshot_v1 restoration must use ref", "malformed_restoration_payload")
+        ref = value.get("ref")
+        if not isinstance(ref, str) or not ref:
+            raise ContractError("baseline_snapshot_v1 ref must be a non-empty string", "malformed_restoration_payload")
+        expected = _hash({"contract_version": tag, "ref": ref})
+        if value["digest"] != expected:
+            raise ContractError("Restoration digest mismatch", "restoration_digest_mismatch")
+        return value
+    # Payload-tagged inverse restoration.
+    if not has_payload:
+        raise ContractError("inverse restoration must use payload", "malformed_restoration_payload")
+    if family is not None:
+        allowed_tags = (
+            {"inverse_layout_operation_v1"}
+            if family == "layout"
+            else {"inverse_delta_v1", "inverse_delta_v2"}
+        )
+        if tag not in allowed_tags:
+            raise ContractError("Restoration family mismatch", "restoration_family_mismatch")
+    payload = value.get("payload")
+    if not isinstance(payload, Mapping):
+        raise ContractError("Restoration payload must be an object", "malformed_restoration_payload")
+    normalized_payload = canonicalize_contract_numeric(payload, finite_error_code="non_finite_materialization")
+    expected = _hash({"contract_version": tag, "payload": normalized_payload})
+    if value["digest"] != expected:
+        raise ContractError("Restoration digest mismatch", "restoration_digest_mismatch")
+    _validate_restoration_payload(tag, payload, family, forward_ops)
     return value
+
+
+def _validate_restoration_payload(tag: str, payload: Mapping[str, Any], family: str | None, forward_ops: list | None) -> None:
+    if tag in ("inverse_delta_v1", "inverse_delta_v2"):
+        is_v2 = tag == "inverse_delta_v2"
+        allowed = {"ops", "mutation_materialization", "mutation_materialization_digest"}
+        if is_v2:
+            allowed.update({"forward_operation_digest", "prior_link_witnesses"})
+        extras = sorted(k for k in payload if k not in allowed)
+        if extras:
+            raise ContractError(f"{tag} payload has extra keys", "malformed_restoration_payload")
+        ops = payload.get("ops")
+        if not isinstance(ops, list):
+            raise ContractError(f"{tag} payload requires ops", "malformed_restoration_payload")
+        _strict_delta(ops)
+        has_add_node = any(isinstance(o, Mapping) and o.get("op") == "add_node" for o in ops)
+        has_mat = "mutation_materialization" in payload
+        has_mat_digest = "mutation_materialization_digest" in payload
+        if has_mat != has_mat_digest:
+            raise ContractError("mutation_materialization presence parity violated", "malformed_restoration_payload")
+        if has_add_node and not has_mat:
+            raise ContractError("add_node inverse requires materialization", "malformed_restoration_payload")
+        if not has_add_node and has_mat:
+            raise ContractError("materialization without add_node inverse", "malformed_restoration_payload")
+        if has_mat:
+            mat = payload.get("mutation_materialization")
+            assert_mutation_materialization_envelope(mat, accompanying_ops=ops)
+            if payload.get("mutation_materialization_digest") != mat.get("digest"):
+                raise ContractError("mutation_materialization_digest mismatch", "restoration_digest_mismatch")
+        witnesses: list[Mapping[str, Any]] | None = None
+        if is_v2:
+            forward_digest = payload.get("forward_operation_digest")
+            if not isinstance(forward_digest, str) or not _HEX64.fullmatch(forward_digest):
+                raise ContractError("forward_operation_digest must be hex64", "malformed_restoration_payload")
+            raw_witnesses = payload.get("prior_link_witnesses")
+            if not isinstance(raw_witnesses, list):
+                raise ContractError("prior_link_witnesses must be an array", "malformed_restoration_payload")
+            witnesses = []
+            witness_destinations: set[Any] = set()
+            for witness in raw_witnesses:
+                if (
+                    not isinstance(witness, Mapping)
+                    or set(witness) != {"from", "to"}
+                    or not _root_endpoint(witness.get("from"))
+                    or not _root_endpoint(witness.get("to"))
+                ):
+                    raise ContractError("prior-link witness must be exactly {from,to} root endpoints", "malformed_restoration_payload")
+                destination = _link_to(witness)
+                if destination in witness_destinations:
+                    raise ContractError("duplicate prior-link witness destination", "malformed_restoration_payload")
+                witness_destinations.add(destination)
+                witnesses.append(witness)
+        if family is not None and forward_ops is not None:
+            if is_v2 and payload.get("forward_operation_digest") != forward_operation_digest(forward_ops):
+                raise ContractError("forward_operation_digest mismatch", "forward_operation_digest_mismatch")
+            if is_v2:
+                remove_destinations = {
+                    _link_to(op)
+                    for op in forward_ops
+                    if isinstance(op, Mapping) and op.get("op") == "remove_link"
+                }
+                witness_destinations = {_link_to(witness) for witness in (witnesses or [])}
+                if remove_destinations != witness_destinations:
+                    raise ContractError("prior-link witnesses do not exactly cover forward remove_link ops", "inverse_missing_prior_state")
+            _assert_inverse_relation(
+                forward_ops,
+                ops,
+                family,
+                prior_link_witnesses=witnesses,
+            )
+    elif tag == "inverse_layout_operation_v1":
+        allowed = {"layout_operation", "layout_operation_digest"}
+        extras = sorted(k for k in payload if k not in allowed)
+        if extras:
+            raise ContractError("inverse_layout_operation_v1 payload has extra keys", "malformed_restoration_payload")
+        layout = payload.get("layout_operation")
+        if not isinstance(layout, Mapping):
+            raise ContractError("inverse_layout_operation_v1 requires layout_operation", "malformed_restoration_payload")
+        assert_layout_operation_envelope(layout)
+        if payload.get("layout_operation_digest") != layout.get("digest"):
+            raise ContractError("layout_operation_digest mismatch", "restoration_digest_mismatch")
+
+
+def family_ops_for_inverse(family: str, _unused: Any) -> Any:
+    """Forward ops are supplied by the caller via the bound authority operation.
+
+    The inverse-relation check is invoked from the prepared-authority validator
+    where the forward ``operation.ops`` is available; this indirection keeps the
+    restoration validator decoupled from the authority envelope.
+    """
+    # The actual forward ops binding is performed in
+    # _validate_candidate_authority_common which passes operation.ops directly.
+    return []
+
+
+def _restoration_compensation(value: Any, *, authority: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Validate the prepare-owned optional ``restoration_strategy_compensation``.
+
+    Carries a ``baseline_snapshot_v1`` compensation-only ref bound to the
+    prepared authority's own identity/projection fence.  Separately digested.
+    """
+    if not isinstance(value, Mapping):
+        raise ContractError("restoration_strategy_compensation must be an object", "malformed_restoration_compensation")
+    extras = sorted(k for k in value if k not in {"contract_version", "wire_version", "ref", "fence", "digest"})
+    if extras:
+        raise ContractError("restoration_strategy_compensation has extra keys", "malformed_restoration_compensation")
+    if value.get("contract_version") != RESTORATION_COMPENSATION_CONTRACT_V1:
+        raise ContractError("compensation must use baseline_snapshot_v1", "unknown_restoration_strategy")
+    if value.get("wire_version") != RESTORATION_COMPENSATION_WIRE_VERSION:
+        raise ContractError("compensation wire version mismatch", "unsupported_wire_version")
+    ref = value.get("ref")
+    if not isinstance(ref, str) or not ref:
+        raise ContractError("compensation ref must be a non-empty string", "malformed_restoration_compensation")
+    fence = value.get("fence")
+    if not isinstance(fence, Mapping):
+        raise ContractError("compensation fence must be an object", "malformed_restoration_compensation")
+    fence_extras = sorted(k for k in fence if k not in _FENCE_KEYS)
+    missing = sorted(k for k in _FENCE_KEYS if k not in fence)
+    if fence_extras or missing:
+        raise ContractError("compensation fence key set is not closed", "malformed_restoration_compensation")
+    if not isinstance(fence.get("generation"), int) or isinstance(fence.get("generation"), bool) or fence["generation"] <= 0:
+        raise ContractError("compensation generation must be a positive int", "malformed_restoration_compensation")
+    for key in ("transaction_id", "candidate_id", "plan_hash", "lease_nonce"):
+        if not isinstance(fence.get(key), str) or not fence[key]:
+            raise ContractError(f"compensation fence {key} must be non-empty string", "malformed_restoration_compensation")
+    for key in ("pre_projection_digest", "post_projection_digest"):
+        if not isinstance(fence.get(key), str) or not _HEX64.fullmatch(fence[key]):
+            raise ContractError(f"compensation fence {key} must be hex64", "malformed_restoration_compensation")
+    # Fence binding: every value must equal the enclosing prepared authority.
+    bindings = {
+        "transaction_id": authority.get("transaction_id"),
+        "candidate_id": authority.get("candidate_id"),
+        "plan_hash": authority.get("plan_hash"),
+        "lease_nonce": authority.get("lease_nonce"),
+        "generation": authority.get("generation"),
+        "pre_projection_digest": authority.get("precondition", {}).get("digest") if isinstance(authority.get("precondition"), Mapping) else None,
+        "post_projection_digest": authority.get("postcondition", {}).get("digest") if isinstance(authority.get("postcondition"), Mapping) else None,
+    }
+    for key, expected in bindings.items():
+        if fence.get(key) != expected:
+            raise ContractError("compensation fence is not bound to this authority", "compensation_fence_unbound")
+    # Digest (separate from restoration_strategy.digest).
+    normalized_fence = canonicalize_contract_numeric(fence, finite_error_code="non_finite_materialization")
+    expected_digest = _hash({
+        "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
+        "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,
+        "ref": ref,
+        "fence": normalized_fence,
+    })
+    if not isinstance(value.get("digest"), str) or value["digest"] != expected_digest:
+        raise ContractError("compensation digest mismatch", "compensation_digest_mismatch")
+    return value
+
+
+def assert_restoration_strategy_compensation(value: Any, *, authority: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Public entrypoint for the prepare-owned compensation validator."""
+    return _restoration_compensation(value, authority=authority)
+
 
 def _frozen(value: Any) -> Any:
     if isinstance(value, Mapping): return MappingProxyType({str(k): _frozen(v) for k, v in value.items()})
@@ -472,13 +935,50 @@ def _validate_candidate_authority_common(raw: Any) -> Any:
     if family == "layout":
         witness = assert_projection_reference_v1(raw.get("structural_witness"), "structural_v1")
         if witness.get("precondition_digest") != witness.get("postcondition_digest"): raise ContractError("Layout requires structural no-op witness", "layout_structural_witness_mismatch")
-    _restoration(raw.get("restoration_strategy"))
+    _bind_family_contracts(raw, family)
+    _restoration(raw.get("restoration_strategy"), family=family, forward_ops=operation["ops"])
+    # Prepare-owned optional compensation slot: validated only on prepared
+    # authority (candidate presence is rejected by validate_candidate_authority_v1).
+    if "restoration_strategy_compensation" in raw and raw.get("contract_version") == PREPARED_AUTHORITY_V1:
+        _restoration_compensation(raw["restoration_strategy_compensation"], authority=raw)
     return raw
+
+
+def _bind_family_contracts(raw: Mapping[str, Any], family: str) -> None:
+    """Bind layout_operation / mutation_materialization per §1.5 / §2.5."""
+    operation = raw.get("operation")
+    ops = operation.get("ops") if isinstance(operation, Mapping) else None
+    if family == "layout":
+        if operation.get("ops"):
+            raise ContractError("Layout family requires empty structural ops", "layout_family_requires_empty_structural_ops")
+        layout = operation.get("layout_operation")
+        if layout is None:
+            raise ContractError("Layout family requires layout_operation", "missing_layout_operation")
+        assert_layout_operation_envelope(layout)
+        if operation.get("layout_operation_digest") != layout.get("digest"):
+            raise ContractError("layout_operation_digest mismatch", "layout_operation_digest_mismatch")
+        if "mutation_materialization" in operation:
+            raise ContractError("Layout family must not carry mutation_materialization", "unexpected_materialization")
+    else:  # structural
+        if "layout_operation" in operation:
+            raise ContractError("Structural family must not carry layout_operation", "unexpected_layout_operation")
+        has_add_node = any(isinstance(o, Mapping) and o.get("op") == "add_node" for o in (ops or []))
+        has_mat = "mutation_materialization" in operation
+        if has_add_node and not has_mat:
+            raise ContractError("Structural family with add_node requires mutation_materialization", "missing_materialization")
+        if not has_add_node and has_mat:
+            raise ContractError("Structural family without add_node must not carry mutation_materialization", "unexpected_materialization")
+        if has_mat:
+            mat = operation.get("mutation_materialization")
+            assert_mutation_materialization_envelope(mat, accompanying_ops=ops)
+            if operation.get("mutation_materialization_digest") != mat.get("digest"):
+                raise ContractError("mutation_materialization_digest mismatch", "mutation_materialization_digest_mismatch")
 
 def validate_candidate_authority_v1(raw: Any, *, freeze: bool = False) -> Any:
     _validate_candidate_authority_common(raw)
     if raw.get("contract_version") != CANDIDATE_AUTHORITY_V1: raise ContractError("Unsupported candidate authority version", "unknown_authority_version")
     if "generation" in raw or "lease_nonce" in raw: raise ContractError("Candidate authority cannot infer prepare-time identity", "unexpected_prepare_identity")
+    if "restoration_strategy_compensation" in raw: raise ContractError("Candidate authority may not carry restoration_strategy_compensation", "candidate_compensation_forbidden")
     clean = json.loads(json.dumps(raw))
     return _frozen(clean) if freeze else clean
 
@@ -511,6 +1011,15 @@ def validate_candidate_transaction_v2(value: Any) -> Any:
         prepared = validate_prepared_authority_v1(prepared)
         for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash", "workflow_id", "scope", "operation", "operation_family", "precondition", "postcondition", "rollback_projection", "restoration_strategy", "authority_receipt_contract_version", "authority_receipt_delta_schema", "authority_receipt_digest"):
             if prepared.get(key) != candidate.get(key): raise ContractError("Prepared authority changed candidate-time authority", "prepared_authority_transition_mismatch")
+        # restoration_strategy_compensation: sole prepare-owned additive key.
+        # Candidate presence is forbidden (caught above); prepared absence is
+        # legal; prepared presence must be byte-identical across transitions.
+        candidate_has_comp = "restoration_strategy_compensation" in candidate
+        prepared_has_comp = "restoration_strategy_compensation" in prepared
+        if candidate_has_comp:
+            raise ContractError("Candidate authority carries restoration_strategy_compensation", "candidate_compensation_forbidden")
+        if prepared_has_comp and prepared.get("restoration_strategy_compensation") is None:
+            raise ContractError("restoration_strategy_compensation may not be null", "malformed_restoration_compensation")
     elif state == "discarded":
         if prepared is not None: raise ContractError("Discarded unprepared candidate cannot carry prepared authority", "unexpected_prepared_authority")
     else:
@@ -550,4 +1059,4 @@ def classify_legacy_migration_v1(value: Any) -> dict[str, Any]:
         return {"classification": "legacy_prepared_nonresumable", "actions": ["rebaseline", "cancel"], "rollback_allowed": exact}
     return {"classification": "legacy_non_resumable", "actions": ["rebaseline", "cancel"], "rollback_allowed": False}
 
-__all__ = [name for name in globals() if name.endswith("_V1") or name in {"ContractError", "DELTA_V1", "DELTA_WIRE_VERSION", "AUTHORITY_RECEIPT_CONTRACT_VERSION", "ROOT_SCOPE", "FIELD_CATEGORIES", "PROJECTIONS_V1", "canonical_json", "canonical_json_bytes_v1", "field_category_v1", "assert_root_scope_v1", "assert_root_graph_v1", "workflow_identity_v1", "node_identity_v1", "group_identity_v1", "issued_identity_v1", "project_graph_v1", "projection_reference_v1", "assert_projection_reference_v1", "build_structural_graph_projection", "structural_graph_hash_compat", "browser_layout_scope_issues_v1", "build_layout_graph_projection", "layout_graph_hash_compat", "validate_candidate_authority_v1", "validate_prepared_authority_v1", "validate_candidate_transaction_v2", "validate_journal_durable_v1", "classify_legacy_migration_v1"}]
+__all__ = [name for name in globals() if name.endswith("_V1") or name in {"ContractError", "DELTA_V1", "DELTA_WIRE_VERSION", "AUTHORITY_RECEIPT_CONTRACT_VERSION", "ROOT_SCOPE", "FIELD_CATEGORIES", "PROJECTIONS_V1", "RESTORATION_STRATEGY_TAGS", "canonical_json", "canonical_json_bytes_v1", "canonicalize_contract_numeric", "field_category_v1", "assert_root_scope_v1", "assert_root_graph_v1", "workflow_identity_v1", "node_identity_v1", "group_identity_v1", "issued_identity_v1", "project_graph_v1", "projection_reference_v1", "assert_projection_reference_v1", "build_structural_graph_projection", "structural_graph_hash_compat", "browser_layout_scope_issues_v1", "build_layout_graph_projection", "layout_graph_hash_compat", "forward_operation_digest", "validate_candidate_authority_v1", "validate_prepared_authority_v1", "validate_candidate_transaction_v2", "validate_journal_durable_v1", "classify_legacy_migration_v1"}]

@@ -263,12 +263,12 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
   if (!notice) {
     return;
   }
-  const runtime = getAgentPanelRuntime();
-  runtime._lastNoticeRender = {
+  const noticeRender = {
     panelId: panel?.panelId || null,
     readySeen: Boolean(readinessState?.ready),
     at: new Date().toISOString(),
   };
+  panel.__lastNoticeRender = noticeRender;
   clearNode(notice);
   let hasContent = false;
 

@@ -26,6 +26,8 @@ import {
   syncComposerButtons,
 } from "../../vibecomfy/comfy_nodes/web/panel_composer.js";
 
+import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
+
 import {
   reduceAgentActivityFeed,
   deriveAgentActivityState,
@@ -51,68 +53,13 @@ function makePanel(overrides = {}) {
 }
 
 function canonicalTransaction(deltaOps = [], overrides = {}) {
-  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
-  const projectionRef = {
-    kind: "projection_ref_v1",
-    projection: "structural_v1",
-    digest: "a".repeat(64),
-  };
-  const candidateAuthority = {
-    contract_version: "candidate_authority_v1",
-    transaction_id: "tx-canonical",
-    candidate_id: "candidate-canonical",
-    workflow_id: workflowId,
-    scope: { kind: "root", path: "" },
-    session_id: "sess-canonical",
-    turn_id: "turn-canonical",
-    operation: {
-      delta_contract: "delta_v1",
-      wire_version: "2.0.0",
-      ops: deltaOps,
-    },
-    operation_family: "structural",
-    precondition: projectionRef,
-    postcondition: projectionRef,
-    rollback_projection: "structural_v1",
-    restoration_strategy: {
-      contract_version: "inverse_delta_v1",
-      digest: "b".repeat(64),
-      payload: [],
-    },
-    plan_hash: "plan-canonical",
-    authority_receipt_contract_version: "authority_receipt_v2",
-    authority_receipt_delta_schema: "2.0.0",
-    authority_receipt_digest: "c".repeat(64),
-  };
-  return {
-    contract_version: "candidate_transaction_v2",
-    state: "candidate_ready",
-    candidate_authority: candidateAuthority,
-    prepared_authority: null,
-    resume_state: null,
-    session_id: "sess-canonical",
-    turn_id: "turn-canonical",
-    plan_hash: "plan-canonical",
-    generation: null,
-    lease_nonce: null,
-    plan: {
-      schema_version: "2.0.0",
-      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
-      delta_hash: "delta-canonical",
-      op_count: deltaOps.length,
-      schema_provenance: {},
-    },
-    hashes: {
-      candidate_graph_hash: "candidate-hash-canonical",
-      candidate_structural_graph_hash: "candidate-structural-canonical",
-      authority_receipt_hash: "c".repeat(64),
-    },
-    authority: { replay_ok: true, candidate_matches: true },
-    available_actions: ["apply", "reject"],
-    terminal: false,
-    last_error: null,
-    ...overrides,
-  };
+  return makeValidCandidateTransactionV2({
+    sessionId: "sess-canonical",
+    turnId: "turn-canonical",
+    planHash: "plan-canonical",
+    deltaOps,
+    overrides,
+  });
 }
 
 function assertBaselineDefaults(state) {

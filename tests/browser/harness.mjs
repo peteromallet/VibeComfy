@@ -5,42 +5,225 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const EXTENSION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "vibecomfy_roundtrip.js");
-const PANEL_RUNTIME_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_runtime.js");
-const PANEL_SCHEDULER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_scheduler.js");
-const PANEL_THREAD_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_thread.js");
-const PANEL_OVERLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_overlay.js");
-const PANEL_COMPOSER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_composer.js");
-const LIFECYCLE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_lifecycle.js");
-const LIFECYCLE_COMMIT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_lifecycle_commit.js");
-const NODE_PACK_INSTALLER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_node_pack_installer.js");
-const ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "comfy_adapter.js");
-const INTENT_GRAPH_ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "intent_graph_adapter.js");
-const RESPONSE_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_response_contract.js");
-const TRANSACTION_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_transaction.js");
-const DIAGNOSTICS_REPORTING_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "diagnostics_reporting.js");
-const EXECUTOR_PROGRESS_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "executor_progress.js");
-const AGENT_TURN_FEED_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_turn_feed.js");
-const AGENT_STATUS_POLLER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_status_poller.js");
-const AGENT_CANDIDATE_ACTIONS_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_candidate_actions.js");
-const ACTIVE_CANVAS_SCOPE_GUARD_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "active_canvas_scope_guard.js");
-const SCOPE_RESOLVER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "scope_resolver.js");
-const SCOPED_SESSION_STORAGE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "scoped_session_storage.js");
-const MARKDOWN_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "markdown.js");
-const PREVIEW_PICKER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_picker.js");
-const PREVIEW_DIFF_CORE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_diff_core.js");
-const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
-const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_delta.js");
-const CANONICAL_HASH_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_hash.js");
-const GRAPH_PROJECTION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "graph_projection.js");
-const LAYOUT_VERIFICATION_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "layout_verification_contract.js");
-const FIELD_REGISTRY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "field_registry_v1.js");
-const ROOT_SCOPE_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "root_scope_v1.js");
-const IDENTITY_CONTRACT_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "identity_contract_v1.js");
-const PROJECTION_REGISTRY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "projection_registry_v1.js");
-const PREPARED_AUTHORITY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "prepared_authority_v1.js");
-const LEGACY_MIGRATION_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "legacy_migration_v1.js");
-const JOURNAL_DURABLE_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "journal_durable_v1.js");
+const WEB_SOURCE_ROOT = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web");
+
+// ── Staged web modules — single source of truth ───────────────────────────
+//
+// Every ComfyUI web module copied into the temp custom_nodes root MUST appear
+// here.  `verifyStagedDependencyClosure` (below) walks each entry's relative
+// ESM imports recursively and fails the harness with a precise diagnostic if a
+// transitive dependency is missing from this list — preventing the
+// ERR_MODULE_NOT_FOUND that occurs when a staged module imports a sibling the
+// harness never copied (e.g. layout_operation_v1.js / mutation_materialization_v1.js
+// pulled in transitively via prepared_authority_v1.js).
+export const STAGED_WEB_MODULES = [
+  "vibecomfy_roundtrip.js",
+  "panel_runtime.js",
+  "panel_scheduler.js",
+  "panel_thread.js",
+  "panel_overlay.js",
+  "panel_composer.js",
+  "agent_edit_lifecycle.js",
+  "agent_lifecycle_commit.js",
+  "agent_edit_node_pack_installer.js",
+  "comfy_adapter.js",
+  "intent_graph_adapter.js",
+  "agent_edit_response_contract.js",
+  "agent_edit_transaction.js",
+  "diagnostics_reporting.js",
+  "executor_progress.js",
+  "agent_turn_feed.js",
+  "agent_status_poller.js",
+  "agent_candidate_actions.js",
+  "active_canvas_scope_guard.js",
+  "scope_resolver.js",
+  "scoped_session_storage.js",
+  "markdown.js",
+  "preview_picker.js",
+  "preview_diff_core.js",
+  "agentic_replay.js",
+  "canonical_delta.js",
+  "canonical_hash.js",
+  "graph_projection.js",
+  "layout_verification_contract.js",
+  "field_registry_v1.js",
+  "root_scope_v1.js",
+  "identity_contract_v1.js",
+  "projection_registry_v1.js",
+  "prepared_authority_v1.js",
+  "layout_operation_v1.js",
+  "mutation_materialization_v1.js",
+  "legacy_migration_v1.js",
+  "journal_durable_v1.js",
+];
+
+// Relative imports that intentionally escape the web module directory.  They
+// resolve against the temp comfyRoot (staged under comfyRoot/scripts by the
+// harness) rather than the web root.  Any ../ import NOT listed here is a
+// configuration error and is reported by the closure guard.
+export const ALLOWED_EXTERNAL_RELATIVE_IMPORTS = new Set([
+  "../../scripts/app.js",
+  "../../scripts/api.js",
+]);
+
+// Bare (non-relative) ESM specifiers permitted in staged web modules.  Kept
+// explicit so an accidental native/runtime/npm dependency is surfaced
+// immediately rather than failing opaquely at module-load time.
+export const ALLOWED_BARE_IMPORTS = new Set([
+  // (none currently — the staged web modules are dependency-free pure JS)
+]);
+
+function _stripJsComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|\n)\s*\/\/[^\n]*/g, "$1");
+}
+
+// Plausible module specifier (npm-style or scoped).  Used to filter out regex
+// false positives (e.g. `from "..."` matched inside arbitrary code) when
+// collecting *bare* specifiers.  Relative specifiers are matched precisely via
+// the `\.{1,2}/` anchor, so they never produce false positives.
+const _PLAUSIBLE_BARE_SPEC_RE = /^[a-zA-Z@][\w@./-]*$/;
+
+// Collect ESM import specifiers from module source, split into relative and
+// bare sets.  Mirrors the comment-strip + relative-from regex strategy proven
+// by the ownership-static tests; dynamic import() and side-effect import are
+// also covered.
+export function _collectImportSpecifiers(src) {
+  const stripped = _stripJsComments(src);
+  const relative = new Set();
+  const bare = new Set();
+  const record = (spec) => {
+    if (spec.startsWith(".")) relative.add(spec);
+    else if (_PLAUSIBLE_BARE_SPEC_RE.test(spec)) bare.add(spec);
+  };
+  let m;
+  // import {…} from "spec"  /  export {…} from "spec"
+  const fromRe = /\bfrom\s*["'`]([^"'`]+)["'`]/g;
+  while ((m = fromRe.exec(stripped))) record(m[1]);
+  // dynamic import("spec")
+  const dynRe = /\bimport\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
+  while ((m = dynRe.exec(stripped))) record(m[1]);
+  // side-effect import "spec"
+  const sideRe = /\bimport\s+["'`]([^"'`]+)["'`]/g;
+  while ((m = sideRe.exec(stripped))) record(m[1]);
+  return { relative: [...relative], bare: [...bare] };
+}
+
+// Resolve a relative specifier (./ or ../) against the web source root to a
+// staged module name, tolerating extensionless specifiers.  Returns null when
+// the specifier escapes the web root (a ../ import) — those are handled by the
+// external allowlist.
+function _resolveWebModuleName(spec, knownNames) {
+  if (spec.startsWith("..") || spec.startsWith("/")) return null;
+  const norm = spec.replace(/^\.\//, "");
+  const candidates = [norm];
+  if (!/\.(js|mjs)$/.test(norm)) candidates.push(`${norm}.js`, `${norm}.mjs`);
+  for (const candidate of candidates) {
+    if (knownNames.has(candidate)) return candidate;
+  }
+  return candidates[0]; // best guess for a precise missing-module diagnostic
+}
+
+/**
+ * Walk the transitive closure of relative ESM imports starting from EVERY
+ * staged entry module and verify each resolved dependency is itself staged.
+ * Relative imports that escape the web root must be in the external allowlist;
+ * bare (non-relative) imports must be in the bare allowlist.
+ *
+ * Returns { ok, errors } where each error carries a precise `kind` and
+ * human-readable `message`:
+ *   - "missing-source": a staged module has no source file
+ *   - "missing-staged-module": a relative import resolves to a file not staged
+ *   - "undeclared-external-import": a ../ import is not allowlisted
+ *   - "undeclared-bare-import": a bare import is not allowlisted
+ */
+export async function verifyStagedDependencyClosure({
+  webSourceRoot,
+  stagedModuleNames,
+  allowedExternalRelative = ALLOWED_EXTERNAL_RELATIVE_IMPORTS,
+  allowedBareImports = ALLOWED_BARE_IMPORTS,
+}) {
+  const stagedSet = new Set(stagedModuleNames);
+  const errors = [];
+  const visited = new Set();
+
+  async function readSource(name) {
+    try {
+      return await readFile(path.join(webSourceRoot, name), "utf8");
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  for (const entry of stagedModuleNames) {
+    const stack = [entry];
+    while (stack.length) {
+      const current = stack.pop();
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const src = await readSource(current);
+      if (src == null) {
+        errors.push({
+          entry,
+          module: current,
+          kind: "missing-source",
+          message:
+            `staged module "${current}" has no source file under ${webSourceRoot}; ` +
+            `restore the source or remove it from STAGED_WEB_MODULES`,
+        });
+        continue;
+      }
+      const { relative, bare } = _collectImportSpecifiers(src);
+      for (const specifier of bare) {
+        if (!allowedBareImports.has(specifier)) {
+          errors.push({
+            entry,
+            module: current,
+            kind: "undeclared-bare-import",
+            specifier,
+            message:
+              `"${current}" imports bare specifier "${specifier}" which is not in ` +
+              `ALLOWED_BARE_IMPORTS; add it explicitly or remove the import`,
+          });
+        }
+      }
+      for (const specifier of relative) {
+        const resolved = _resolveWebModuleName(specifier, stagedSet);
+        if (resolved == null) {
+          if (!allowedExternalRelative.has(specifier)) {
+            errors.push({
+              entry,
+              module: current,
+              kind: "undeclared-external-import",
+              specifier,
+              message:
+                `"${current}" imports external relative "${specifier}" which is not in ` +
+                `ALLOWED_EXTERNAL_RELATIVE_IMPORTS; stage it under the web root or allowlist it`,
+            });
+          }
+          continue;
+        }
+        if (!stagedSet.has(resolved)) {
+          errors.push({
+            entry,
+            module: current,
+            kind: "missing-staged-module",
+            specifier,
+            resolved,
+            message:
+              `staged module "${current}" imports "${specifier}" (resolves to "${resolved}") ` +
+              `but "${resolved}" is not in STAGED_WEB_MODULES; add it to the manifest ` +
+              `to avoid ERR_MODULE_NOT_FOUND`,
+          });
+          continue;
+        }
+        if (!visited.has(resolved)) stack.push(resolved);
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -962,42 +1145,30 @@ export async function createBrowserHarness({
   await writeFile(path.join(comfyRoot, "package.json"), '{ "type": "module" }\n');
   await writeFile(path.join(scriptsRoot, "app.js"), "export const app = globalThis.__VIBECOMFY_BROWSER_APP__;\n");
   await writeFile(path.join(scriptsRoot, "api.js"), "export const api = globalThis.__VIBECOMFY_BROWSER_API__;\n");
-  await writeFile(path.join(webRoot, "vibecomfy_roundtrip.js"), await readFile(EXTENSION_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_runtime.js"), await readFile(PANEL_RUNTIME_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_scheduler.js"), await readFile(PANEL_SCHEDULER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_thread.js"), await readFile(PANEL_THREAD_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_overlay.js"), await readFile(PANEL_OVERLAY_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_composer.js"), await readFile(PANEL_COMPOSER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_edit_lifecycle.js"), await readFile(LIFECYCLE_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_lifecycle_commit.js"), await readFile(LIFECYCLE_COMMIT_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_edit_node_pack_installer.js"), await readFile(NODE_PACK_INSTALLER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "comfy_adapter.js"), await readFile(ADAPTER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "intent_graph_adapter.js"), await readFile(INTENT_GRAPH_ADAPTER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_edit_response_contract.js"), await readFile(RESPONSE_CONTRACT_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_edit_transaction.js"), await readFile(TRANSACTION_CONTRACT_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "diagnostics_reporting.js"), await readFile(DIAGNOSTICS_REPORTING_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "executor_progress.js"), await readFile(EXECUTOR_PROGRESS_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_turn_feed.js"), await readFile(AGENT_TURN_FEED_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_status_poller.js"), await readFile(AGENT_STATUS_POLLER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agent_candidate_actions.js"), await readFile(AGENT_CANDIDATE_ACTIONS_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "active_canvas_scope_guard.js"), await readFile(ACTIVE_CANVAS_SCOPE_GUARD_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "scope_resolver.js"), await readFile(SCOPE_RESOLVER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "scoped_session_storage.js"), await readFile(SCOPED_SESSION_STORAGE_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "markdown.js"), await readFile(MARKDOWN_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "preview_picker.js"), await readFile(PREVIEW_PICKER_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "preview_diff_core.js"), await readFile(PREVIEW_DIFF_CORE_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "canonical_delta.js"), await readFile(CANONICAL_DELTA_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "canonical_hash.js"), await readFile(CANONICAL_HASH_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "graph_projection.js"), await readFile(GRAPH_PROJECTION_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "layout_verification_contract.js"), await readFile(LAYOUT_VERIFICATION_CONTRACT_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "field_registry_v1.js"), await readFile(FIELD_REGISTRY_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "root_scope_v1.js"), await readFile(ROOT_SCOPE_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "identity_contract_v1.js"), await readFile(IDENTITY_CONTRACT_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "projection_registry_v1.js"), await readFile(PROJECTION_REGISTRY_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "prepared_authority_v1.js"), await readFile(PREPARED_AUTHORITY_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "legacy_migration_v1.js"), await readFile(LEGACY_MIGRATION_V1_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "journal_durable_v1.js"), await readFile(JOURNAL_DURABLE_V1_SOURCE, "utf8"));
+  // Stage every declared web module into the temp custom_nodes web root.
+  // `STAGED_WEB_MODULES` is the single source of truth; the closure guard
+  // invoked just below verifies no transitive dependency is missing.
+  for (const moduleName of STAGED_WEB_MODULES) {
+    await writeFile(
+      path.join(webRoot, moduleName),
+      await readFile(path.join(WEB_SOURCE_ROOT, moduleName), "utf8"),
+    );
+  }
+  // ── Transitive dependency-closure guard ─────────────────────────────────
+  // Verify every staged module's relative ESM imports resolve to another
+  // staged module (or an allowlisted external path).  Fails fast with a
+  // precise diagnostic rather than ERR_MODULE_NOT_FOUND at module-load time.
+  const stagedClosure = await verifyStagedDependencyClosure({
+    webSourceRoot: WEB_SOURCE_ROOT,
+    stagedModuleNames: STAGED_WEB_MODULES,
+  });
+  assert.equal(
+    stagedClosure.ok,
+    true,
+    `browser harness staged-module dependency closure is incomplete:\n${stagedClosure.errors
+      .map((err) => `  - [${err.kind}] ${err.message}`)
+      .join("\n")}`,
+  );
 
   const apiEventListeners = {};
   const mockApi = {
@@ -1387,4 +1558,187 @@ export async function createBrowserHarness({
       await rm(tempRoot, { recursive: true, force: true });
     },
   };
+}
+
+// ── C1: externally-owned sentinel instrumentation (§6.3 line 2, §6.6 step 10) ─
+//
+// A throwaway instrumented graph/app/canvas/LiteGraph whose every named native
+// primitive boundary is wrapped by a sentinel.  Each sentinel increments a
+// counter held BY THE HARNESS (never by any subject under test) and throws a
+// sentinel marker, so a subject that reached a native primitive could not
+// silently proceed.  The counters are owned, reset, and read here — entirely
+// outside any plan builder.  This module performs NO native graph write: the
+// sentinels only trip (and the subjects under test in C1 never reach them).
+//
+// The instrumented object exists so the zero-native-call proof is produced
+// EXTERNALLY: the test resets the harness counters, invokes the (pure) plan
+// builder, then reads the counters back from the harness and asserts every one
+// is exactly zero.  The subject cannot import, mutate, or return these
+// counters (Gate #4).  The named boundaries cover every future
+// factory/configure/add/remove/connect/unlink/widget/mode/socket/group/
+// geometry/repaint/serialize path without making C1 execute any of them.
+
+export const SENTINEL_NATIVE_BOUNDARY_KEYS = Object.freeze([
+  "factory_createNode",
+  "graph_configure",
+  "graph_clear",
+  "node_add",
+  "node_remove",
+  "link_connect",
+  "link_disconnect",
+  "widget_write",
+  "mode_write",
+  "socket_repair",
+  "group_construct",
+  "group_configure",
+  "group_add",
+  "group_remove",
+  "geometry_assign",
+  "repaint",
+  "serialize",
+  "graph_change",
+]);
+
+export const SENTINEL_MARKER_CODE = "SENTINEL_NATIVE_PRIMITIVE_CALLED";
+
+export function createSentinelGraph() {
+  const counters = {};
+  for (const key of SENTINEL_NATIVE_BOUNDARY_KEYS) counters[key] = 0;
+
+  function trip(name) {
+    counters[name] = counters[name] + 1;
+    const err = new Error(`sentinel native primitive boundary reached: ${name}`);
+    err.code = SENTINEL_MARKER_CODE;
+    err.boundary = name;
+    throw err;
+  }
+
+  // Native widget/value write boundary.
+  const sentinelWidget = {
+    name: null,
+    value: undefined,
+    set value(v) { trip("widget_write"); },
+    setValue() { trip("widget_write"); },
+    callback() { trip("widget_write"); },
+  };
+
+  // Native node mutation boundaries (factory-constructed node stand-in).
+  const sentinelNode = {
+    id: 0,
+    type: "SentinelNode",
+    pos: [0, 0],
+    size: [210, 100],
+    mode: 0,
+    properties: {},
+    widgets: [],
+    widgets_values: [],
+    inputs: [],
+    outputs: [],
+    setProperty(_name, _value) { trip("widget_write"); },
+    setMode(_mode) { trip("mode_write"); },
+    setWidgetValue(_value) { trip("widget_write"); },
+    setPos(_pos) { trip("geometry_assign"); },
+    setSize(_size) { trip("geometry_assign"); },
+    connect(_target, _slot) { trip("link_connect"); },
+    disconnectInput(_slot) { trip("link_disconnect"); },
+    repairSocket() { trip("socket_repair"); },
+    serialize() { trip("serialize"); },
+  };
+
+  // Native group boundaries.
+  const sentinelGroup = {
+    id: 0,
+    title: "SentinelGroup",
+    bounding: [0, 0, 0, 0],
+    color: null,
+    recomputeInsideNodes() { trip("group_configure"); },
+    setBounding(_box) { trip("group_configure"); },
+    configure(_data) { trip("group_configure"); },
+  };
+
+  // Native LiteGraph factory boundary.
+  const sentinelLiteGraph = {
+    createNode(_type) { trip("factory_createNode"); return sentinelNode; },
+    createGroup() { trip("group_construct"); return sentinelGroup; },
+    NODE_TITLE_HEIGHT: 30,
+    NODE_SLOT_HEIGHT: 20,
+  };
+
+  // Native graph mutation boundaries.
+  const sentinelGraph = {
+    _nodes: [],
+    _groups: [],
+    links: [],
+    last_node_id: 0,
+    last_link_id: 0,
+    add(_node) { trip("node_add"); },
+    remove(_node) { trip("node_remove"); },
+    connect(_from, _to) { trip("link_connect"); },
+    disconnect(_id) { trip("link_disconnect"); },
+    removeLink(_id) { trip("link_disconnect"); },
+    configure(_data) { trip("graph_configure"); },
+    clear() { trip("graph_clear"); },
+    serialize() { trip("serialize"); },
+    setDirtyCanvas(_fg, _bg) { trip("repaint"); },
+    change() { trip("graph_change"); },
+    getNodeById(_id) { return null; },
+    addGroup(_group) { trip("group_add"); },
+    removeGroup(_group) { trip("group_remove"); },
+    getGroup(_id) { return null; },
+  };
+
+  // Native repaint boundaries (canvas).
+  const sentinelCanvas = {
+    setDirty(_fg, _bg) { trip("repaint"); },
+    draw(_fg, _bg) { trip("repaint"); },
+    canvas: { width: 0, height: 0, getContext() { return null; } },
+  };
+
+  // Native app aggregator (the object adapters receive).
+  const sentinelApp = {
+    canvas: sentinelCanvas,
+    graph: sentinelGraph,
+    LiteGraph: sentinelLiteGraph,
+    // Harness-only capability marker kept as a plain string so the harness
+    // does not import intent_graph_adapter.js; a real adapter reads the same
+    // literal.  C1 never drives the adapter, so this never trips a primitive.
+    __vibecomfyAllowDeltaSerializeConfigureFallback: true,
+  };
+
+  function reset() {
+    for (const key of SENTINEL_NATIVE_BOUNDARY_KEYS) counters[key] = 0;
+  }
+
+  function snapshot() {
+    const out = {};
+    for (const key of SENTINEL_NATIVE_BOUNDARY_KEYS) out[key] = counters[key];
+    return Object.freeze(out);
+  }
+
+  function assertAllZero(message) {
+    const label = message || "expected every native sentinel boundary to remain zero";
+    for (const key of SENTINEL_NATIVE_BOUNDARY_KEYS) {
+      assert.equal(
+        counters[key],
+        0,
+        `${label}: native primitive "${key}" was reached ${counters[key]} time(s)`,
+      );
+    }
+  }
+
+  return Object.freeze({
+    graph: sentinelGraph,
+    app: sentinelApp,
+    canvas: sentinelCanvas,
+    LiteGraph: sentinelLiteGraph,
+    node: sentinelNode,
+    group: sentinelGroup,
+    widget: sentinelWidget,
+    counters,
+    boundaryKeys: SENTINEL_NATIVE_BOUNDARY_KEYS,
+    markerCode: SENTINEL_MARKER_CODE,
+    reset,
+    snapshot,
+    assertAllZero,
+  });
 }

@@ -6730,8 +6730,7 @@ function renderChatThread(panel) {
   });
 }
 
-function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
-  const runtime = getAgentPanelRuntime();
+function buildAgentPanelDebugSnapshot(panel = currentAgentPanel(), runtime = getAgentPanelRuntime()) {
   const routeStatus = routeStatusState(panel);
   const readinessState = submitReadinessState(panel);
   let threadEntries = [];
@@ -6746,12 +6745,14 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
   const previewDiffSummary = compactPanelPreviewDiff(panel);
   return {
     panelId: panel?.panelId || null,
-    panelsCreated: panelsCreatedCount(),
-    lastThreadRender: runtime._lastThreadRender,
-    lastNoticeRender: runtime._lastNoticeRender,
-    statusCommitAt: runtime._statusCommitAt,
-    rehydrateCommitAt: runtime._rehydrateCommitAt,
-    marksAfterCommit: runtime._marksAfterCommit,
+    panelsCreated: Number.isFinite(runtime?.panelsCreated) ? runtime.panelsCreated : 0,
+    lastThreadRender: panel?.__lastThreadRender || null,
+    lastNoticeRender: panel?.__lastNoticeRender || null,
+    statusCommitAt: panel?.state?.statusCommitAt || null,
+    rehydrateCommitAt: panel?.state?.rehydrateCommitAt || null,
+    marksAfterCommit: Number.isFinite(panel?.state?.marksAfterCommit)
+      ? panel.state.marksAfterCommit
+      : 0,
     phase: panel?.state?.phase || null,
     demoStage: panel?.state?.__demoStage || null,
     demoScenarioId: panel?.state?.__demoScenarioId || null,
@@ -6779,9 +6780,14 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
     previewDiff: previewDiffSummary,
     debugError,
     mountMode: panel?.state?.mountMode || null,
-    flushPending: hasPendingAgentPanelFlush(),
-    flushCount: runtime._agentPanelFlushCount,
-    lastFlushReason: runtime._lastAgentPanelFlushReason,
+    flushPending: hasPendingAgentPanelFlush(panel),
+    // Render scheduling is panel/workflow-activation affine. Global counters
+    // can be advanced by a late callback from a disposed harness/window and
+    // must never satisfy observability for this panel.
+    flushCount: Number.isFinite(panel?.__renderFlushCount) ? panel.__renderFlushCount : 0,
+    lastFlushReason: typeof panel?.__lastRenderFlushReason === "string"
+      ? panel.__lastRenderFlushReason
+      : "",
     mountedCheck: isAgentPanelRootConnected(panel),
     epochs: {
       status: Number.isFinite(panel?.state?.statusRequestEpoch) ? panel.state.statusRequestEpoch : 0,
@@ -6799,7 +6805,14 @@ function installAgentPanelDebugHook() {
   if (!targetWindow) {
     return;
   }
-  targetWindow.__vibecomfyPanelDebug = () => buildAgentPanelDebugSnapshot(currentAgentPanel());
+  // Bind observability to the runtime owned by this concrete window. During a
+  // replacement, resolving through mutable globalThis.window at callback time
+  // can otherwise expose another window's panel and flush counters.
+  const ownerRuntime = getAgentPanelRuntime();
+  targetWindow.__vibecomfyPanelDebug = () => buildAgentPanelDebugSnapshot(
+    ownerRuntime.agentPanel,
+    ownerRuntime,
+  );
   targetWindow.__vibecomfyRoundtripDebug = {
     applyGraphInPlaceWithIntentDecoration,
     captureSerializedGraphForAgent,

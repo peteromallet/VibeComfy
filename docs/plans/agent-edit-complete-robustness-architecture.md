@@ -346,11 +346,39 @@ The incident work provides a useful base:
 - exact-scope snapshot restoration;
 - monotonic workflow activation epochs;
 - late asynchronous response rejection;
+- panel- and workflow-activation-fenced render callbacks with panel-affine
+  flush/render evidence;
 - actionable transaction recovery states;
 - exact regression fixtures for known incidents;
 - real ComfyUI Apply/finalize and rollback coverage.
 
 These changes should remain acceptance gates for the larger architecture.
+
+### Restoration authority hardening
+
+Structural restoration now has an explicit `inverse_delta_v2` contract for the
+cases where an inverse delta, rather than a baseline snapshot, is authoritative.
+It closes a subtle hole in the original transaction spine:
+
+- link operations keep a kind-qualified multiplicity identity, so a legitimate
+  `remove_link` + `upsert_link` rewire is distinct while duplicate removes or
+  duplicate upserts are rejected;
+- forward and inverse operations are related by a complete, order-independent
+  bipartite match, not by greedy first-match behavior;
+- zero matches fail with a specific class, identity, or coverage diagnostic;
+- multiple complete matches fail as `inverse_multiple_match`;
+- the restoration payload binds the canonical forward operation list with
+  `forward_operation_digest`;
+- every forward `remove_link` requires an authoritative prior-link witness; and
+- the uniquely matched inverse `upsert_link` must restore exactly that witnessed
+  source and destination.
+
+`inverse_delta_v1` remains frozen for existing persisted authorities. It is not
+silently reinterpreted as v2, and the explicit legacy migration path cannot
+claim the post-legacy v2 contract. New inverse-delta producers should emit v2
+only when they possess real pre-mutation witnesses; they must not synthesize
+prior state. Snapshot restoration remains the safe production strategy when
+such evidence is unavailable.
 
 ## Open questions and unknowns
 

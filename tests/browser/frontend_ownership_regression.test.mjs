@@ -189,22 +189,28 @@ test("vibecomfy_roundtrip render dispatch uses composer wrappers instead of dupl
   assert.doesNotMatch(roundtripSource, /RENDER_SECTIONS\.NOTICE,[\s\S]{0,260}renderComposerNoticeSectionImpl\(nextPanel/);
 });
 
-test("frontend render diagnostics keep a single canonical runtime mirror", () => {
+test("frontend render diagnostics are panel-affine and have no runtime-global mirror", () => {
   assert.doesNotMatch(panelRuntimeSource, /\blastThreadRender:\s*null/);
   assert.doesNotMatch(panelRuntimeSource, /\blastNoticeRender:\s*null/);
-  assert.match(panelRuntimeSource, /_lastThreadRender:\s*null/);
-  assert.match(panelRuntimeSource, /_lastNoticeRender:\s*null/);
+  assert.doesNotMatch(panelRuntimeSource, /_lastThreadRender:\s*null/);
+  assert.doesNotMatch(panelRuntimeSource, /_lastNoticeRender:\s*null/);
+  assert.doesNotMatch(panelRuntimeSource, /_agentPanelFlushCount/);
+  assert.doesNotMatch(panelRuntimeSource, /_lastAgentPanelFlushReason/);
 
   assert.doesNotMatch(panelThreadSource, /runtime\.lastThreadRender\s*=/);
   assert.doesNotMatch(panelThreadSource, /panel\.lastThreadRender\s*=/);
-  assert.match(panelThreadSource, /runtime\._lastThreadRender\s*=/);
+  assert.doesNotMatch(panelThreadSource, /runtime\._lastThreadRender\s*=/);
+  assert.match(panelThreadSource, /panel\.__lastThreadRender\s*=/);
 
   assert.doesNotMatch(panelComposerSource, /runtime\.lastNoticeRender\s*=/);
   assert.doesNotMatch(panelComposerSource, /panel\.lastNoticeRender\s*=/);
-  assert.match(panelComposerSource, /runtime\._lastNoticeRender\s*=/);
+  assert.doesNotMatch(panelComposerSource, /runtime\._lastNoticeRender\s*=/);
+  assert.match(panelComposerSource, /panel\.__lastNoticeRender\s*=/);
 
-  assert.match(roundtripSource, /lastThreadRender:\s*runtime\._lastThreadRender/);
-  assert.match(roundtripSource, /lastNoticeRender:\s*runtime\._lastNoticeRender/);
+  assert.match(roundtripSource, /lastThreadRender:\s*panel\?\.__lastThreadRender/);
+  assert.match(roundtripSource, /lastNoticeRender:\s*panel\?\.__lastNoticeRender/);
+  assert.match(roundtripSource, /flushCount:\s*Number\.isFinite\(panel\?\.__renderFlushCount\)/);
+  assert.match(roundtripSource, /flushPending:\s*hasPendingAgentPanelFlush\(panel\)/);
 });
 
 test("panel_composer developer renderer preserves constructed DOM", () => {

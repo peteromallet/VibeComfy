@@ -7,6 +7,9 @@ import { assertForwardProjectionV1, assertProjectionReferenceV1, projectGraphV1,
 import { canonicalJsonString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 import { validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 import { normalizeDeltaV1 } from "../../vibecomfy/comfy_nodes/web/canonical_delta.js";
+import { computeLayoutOperationDigest } from "../../vibecomfy/comfy_nodes/web/layout_operation_v1.js";
+import { computeMutationMaterializationDigest } from "../../vibecomfy/comfy_nodes/web/mutation_materialization_v1.js";
+import { sha256Hex, canonicalizeContractNumeric } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 import { classifyLegacyMigrationV1 } from "../../vibecomfy/comfy_nodes/web/legacy_migration_v1.js";
 import { isLegacyUndoCacheEntryV1, isNonAuthoritativeUndoCacheV1, validateJournalDurableV1 } from "../../vibecomfy/comfy_nodes/web/journal_durable_v1.js";
 import { classifyCandidateTransactionBoundary } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
@@ -15,7 +18,71 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const corpus = JSON.parse(await readFile(path.join(root, "tests/fixtures/agent_edit/m1_projection_golden_v1.json"), "utf8"));
 const UUID = "123e4567-e89b-12d3-a456-426614174000";
 const ref = (projection) => ({ kind: "projection_ref_v1", projection, digest: "a".repeat(64) });
-function authority(family = "structural") { const projection = family === "layout" ? "layout_v1" : "structural_v1"; const value = { contract_version: "prepared_authority_v1", transaction_id: "tx-1", candidate_id: "candidate-1", workflow_id: UUID, scope: { kind: "root", path: "" }, session_id: "session-1", turn_id: "turn-1", operation: { delta_contract: "delta_v1", wire_version: "2.0.0", ops: corpus.delta_ops }, operation_family: family, precondition: ref(projection), postcondition: ref(projection), rollback_projection: projection, restoration_strategy: { contract_version: "inverse_delta_v1", digest: "b".repeat(64), payload: [] }, plan_hash: "plan-1", generation: 1, lease_nonce: "nonce-1", authority_receipt_contract_version: "authority_receipt_v2", authority_receipt_delta_schema: "2.0.0", authority_receipt_digest: "d".repeat(64) }; if (family === "layout") value.structural_witness = { ...ref("structural_v1"), precondition_digest: "c".repeat(64), postcondition_digest: "c".repeat(64) }; return value; }
+
+function _baselineRefRestoration() {
+  const refTag = "original.ui.json";
+  return {
+    contract_version: "baseline_snapshot_v1",
+    digest: sha256Hex({ contract_version: "baseline_snapshot_v1", ref: refTag }),
+    ref: refTag,
+  };
+}
+
+function _addNodeIndices(ops) {
+  const indices = [];
+  for (let i = 0; i < ops.length; i++) {
+    if (ops[i] && ops[i].op === "add_node") indices.push(i);
+  }
+  return indices;
+}
+
+function authority(family = "structural") {
+  const projection = family === "layout" ? "layout_v1" : "structural_v1";
+  let operation;
+  if (family === "layout") {
+    const layoutOps = [{ op: "set_node_geometry", uid: "node-1", pos: [10, 20] }];
+    const layoutEnv = {
+      contract_version: "layout_operation_v1",
+      wire_version: "1.0.0",
+      ops: layoutOps,
+    };
+    layoutEnv.digest = computeLayoutOperationDigest(layoutOps);
+    operation = {
+      delta_contract: "delta_v1", wire_version: "2.0.0", ops: [],
+      layout_operation: layoutEnv,
+      layout_operation_digest: layoutEnv.digest,
+    };
+  } else {
+    const ops = corpus.delta_ops;
+    operation = { delta_contract: "delta_v1", wire_version: "2.0.0", ops };
+    const addIndices = _addNodeIndices(ops);
+    if (addIndices.length > 0) {
+      const entries = addIndices.map((i) => ({ source_op_index: i, kind: "add_node" }));
+      const mat = {
+        contract_version: "mutation_materialization_v1",
+        wire_version: "1.0.0",
+        entries,
+      };
+      mat.digest = computeMutationMaterializationDigest(entries, ops);
+      operation.mutation_materialization = mat;
+      operation.mutation_materialization_digest = mat.digest;
+    }
+  }
+  const value = {
+    contract_version: "prepared_authority_v1",
+    transaction_id: "tx-1", candidate_id: "candidate-1", workflow_id: UUID,
+    scope: { kind: "root", path: "" }, session_id: "session-1", turn_id: "turn-1",
+    operation,
+    operation_family: family, precondition: ref(projection), postcondition: ref(projection),
+    rollback_projection: projection, restoration_strategy: _baselineRefRestoration(),
+    plan_hash: "plan-1", generation: 1, lease_nonce: "nonce-1",
+    authority_receipt_contract_version: "authority_receipt_v2",
+    authority_receipt_delta_schema: "2.0.0",
+    authority_receipt_digest: "d".repeat(64),
+  };
+  if (family === "layout") value.structural_witness = { ...ref("structural_v1"), precondition_digest: "c".repeat(64), postcondition_digest: "c".repeat(64) };
+  return value;
+}
 
 test("M1 browser and Python consume one golden projection corpus", () => {
   for (const item of corpus.projection_cases) {
@@ -144,4 +211,108 @@ test("typed projection references bind embedded canonical evidence", () => {
     () => assertProjectionReferenceV1(tampered, { expected: "structural_v1" }),
     (error) => error.code === "projection_digest_mismatch",
   );
+});
+
+// ── C0 authority binding: compensation + fail-closed (§3.4 / §5.3) ──────────
+
+function _compensationEnvelope(auth, { ref = "compensation.json", digestOverride = null } = {}) {
+  const fence = {
+    transaction_id: auth.transaction_id,
+    candidate_id: auth.candidate_id,
+    plan_hash: auth.plan_hash,
+    lease_nonce: auth.lease_nonce,
+    generation: auth.generation,
+    pre_projection_digest: auth.precondition.digest,
+    post_projection_digest: auth.postcondition.digest,
+  };
+  const normalizedFence = canonicalizeContractNumeric(fence, { finiteErrorCode: "non_finite_materialization" });
+  let digestVal = sha256Hex({
+    contract_version: "baseline_snapshot_v1",
+    wire_version: "1.0.0",
+    ref,
+    fence: normalizedFence,
+  });
+  if (digestOverride !== null) digestVal = digestOverride;
+  return { contract_version: "baseline_snapshot_v1", wire_version: "1.0.0", ref, fence, digest: digestVal };
+}
+
+test("candidate authority rejects restoration_strategy_compensation", () => {
+  const prepared = authority();
+  const candidate = structuredClone(prepared);
+  delete candidate.generation; delete candidate.lease_nonce;
+  candidate.contract_version = "candidate_authority_v1";
+  candidate.restoration_strategy_compensation = _compensationEnvelope(prepared);
+  assert.throws(
+    () => validateCandidateTransactionV2({ contract_version: "candidate_transaction_v2", state: "candidate_ready", candidate_authority: candidate }),
+    (error) => error.code === "candidate_compensation_forbidden",
+  );
+});
+
+test("prepared authority without compensation is valid", () => {
+  const prepared = authority();
+  const candidate = structuredClone(prepared);
+  delete candidate.generation; delete candidate.lease_nonce;
+  candidate.contract_version = "candidate_authority_v1";
+  assert.ok(validateCandidateTransactionV2({ contract_version: "candidate_transaction_v2", state: "prepared", candidate_authority: candidate, prepared_authority: prepared }));
+});
+
+test("prepared authority with valid compensation is valid", () => {
+  const prepared = authority();
+  prepared.restoration_strategy_compensation = _compensationEnvelope(prepared);
+  const candidate = structuredClone(prepared);
+  delete candidate.generation; delete candidate.lease_nonce;
+  delete candidate.restoration_strategy_compensation;
+  candidate.contract_version = "candidate_authority_v1";
+  assert.ok(validateCandidateTransactionV2({ contract_version: "candidate_transaction_v2", state: "prepared", candidate_authority: candidate, prepared_authority: prepared }));
+});
+
+test("compensation fence unbound fails closed", () => {
+  const prepared = authority();
+  const other = authority(); other.transaction_id = "different";
+  prepared.restoration_strategy_compensation = _compensationEnvelope(other);
+  const candidate = structuredClone(prepared);
+  delete candidate.generation; delete candidate.lease_nonce;
+  delete candidate.restoration_strategy_compensation;
+  candidate.contract_version = "candidate_authority_v1";
+  assert.throws(
+    () => validateCandidateTransactionV2({ contract_version: "candidate_transaction_v2", state: "prepared", candidate_authority: candidate, prepared_authority: prepared }),
+    (error) => error.code === "compensation_fence_unbound",
+  );
+});
+
+test("compensation digest mismatch fails closed", () => {
+  const prepared = authority();
+  prepared.restoration_strategy_compensation = _compensationEnvelope(prepared, { digestOverride: "0".repeat(64) });
+  const candidate = structuredClone(prepared);
+  delete candidate.generation; delete candidate.lease_nonce;
+  delete candidate.restoration_strategy_compensation;
+  candidate.contract_version = "candidate_authority_v1";
+  assert.throws(
+    () => validateCandidateTransactionV2({ contract_version: "candidate_transaction_v2", state: "prepared", candidate_authority: candidate, prepared_authority: prepared }),
+    (error) => error.code === "compensation_digest_mismatch",
+  );
+});
+
+test("structural family with add_node missing materialization fails closed", () => {
+  const value = authority();
+  delete value.operation.mutation_materialization;
+  delete value.operation.mutation_materialization_digest;
+  assert.throws(() => validatePreparedAuthorityV1(value), (error) => error.code === "missing_materialization");
+});
+
+test("layout family missing layout_operation fails closed", () => {
+  const value = authority("layout");
+  delete value.operation.layout_operation;
+  delete value.operation.layout_operation_digest;
+  assert.throws(() => validatePreparedAuthorityV1(value), (error) => error.code === "missing_layout_operation");
+});
+
+test("C0 ownership: new contract modules have no candidateGraph and no second hash owner", async () => {
+  const webRoot = path.join(root, "vibecomfy", "comfy_nodes", "web");
+  for (const name of ["layout_operation_v1.js", "mutation_materialization_v1.js"]) {
+    const text = await readFile(path.join(webRoot, name), "utf8");
+    assert.equal(text.includes("candidateGraph"), false, `${name} must not reference candidateGraph`);
+    assert.equal(text.includes("candidate_graph"), false, `${name} must not reference candidate_graph`);
+    assert.doesNotMatch(text, /function\s+canonicalizeContractNumeric\s*\(/, `${name} must not define its own normalizer`);
+  }
 });

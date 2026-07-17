@@ -19,12 +19,78 @@ from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
     validate_candidate_transaction_v2,
     validate_journal_durable_v1,
     validate_prepared_authority_v1,
+    _hash,
+)
+from vibecomfy.comfy_nodes.agent.layout_operation_v1 import (
+    compute_layout_operation_digest,
+)
+from vibecomfy.comfy_nodes.agent.mutation_materialization_v1 import (
+    compute_mutation_materialization_digest,
 )
 from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
 from vibecomfy.porting.edit.ops import EditOpParseError, normalize_delta_v1
 
 CORPUS = json.loads((Path(__file__).parent / "fixtures/agent_edit/m1_projection_golden_v1.json").read_text())
 UUID = "123e4567-e89b-12d3-a456-426614174000"
+
+
+def _baseline_ref_restoration() -> dict[str, object]:
+    """Grandfathered baseline_snapshot_v1 ref restoration (family-agnostic)."""
+    ref = "original.ui.json"
+    return {
+        "contract_version": "baseline_snapshot_v1",
+        "digest": _hash({"contract_version": "baseline_snapshot_v1", "ref": ref}),
+        "ref": ref,
+    }
+
+
+def _add_node_indices(ops: list) -> list[int]:
+    return [i for i, op in enumerate(ops) if isinstance(op, dict) and op.get("op") == "add_node"]
+
+
+def _authority(*, family: str = "structural") -> dict[str, object]:
+    projection = "layout_v1" if family == "layout" else "structural_v1"
+    if family == "layout":
+        ops: list = []
+        layout_env = {
+            "contract_version": "layout_operation_v1",
+            "wire_version": "1.0.0",
+            "ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [10, 20]}],
+        }
+        layout_env["digest"] = compute_layout_operation_digest(layout_env["ops"])
+        operation: dict[str, object] = {
+            "delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": ops,
+            "layout_operation": layout_env,
+            "layout_operation_digest": layout_env["digest"],
+        }
+    else:
+        ops = CORPUS["delta_ops"]
+        operation = {"delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": ops}
+        add_indices = _add_node_indices(ops)
+        if add_indices:
+            entries = [{"source_op_index": i, "kind": "add_node"} for i in add_indices]
+            mat = {
+                "contract_version": "mutation_materialization_v1",
+                "wire_version": "1.0.0",
+                "entries": entries,
+            }
+            mat["digest"] = compute_mutation_materialization_digest(entries, ops)
+            operation["mutation_materialization"] = mat
+            operation["mutation_materialization_digest"] = mat["digest"]
+    value: dict[str, object] = {
+        "contract_version": PREPARED_AUTHORITY_V1,
+        "transaction_id": "tx-1", "candidate_id": "candidate-1", "workflow_id": UUID,
+        "scope": {"kind": "root", "path": ""}, "session_id": "session-1", "turn_id": "turn-1",
+        "operation": operation,
+        "operation_family": family, "precondition": _ref(projection), "postcondition": _ref(projection),
+        "rollback_projection": projection, "restoration_strategy": _baseline_ref_restoration(),
+        "plan_hash": "plan-1", "generation": 1, "lease_nonce": "nonce-1",
+        "authority_receipt_contract_version": "authority_receipt_v2",
+        "authority_receipt_delta_schema": "2.0.0",
+        "authority_receipt_digest": "d" * 64,
+    }
+    if family == "layout": value["structural_witness"] = {**_ref("structural_v1"), "precondition_digest": "c" * 64, "postcondition_digest": "c" * 64}
+    return value
 
 
 def test_shared_m1_golden_projection_corpus() -> None:
@@ -43,24 +109,6 @@ def test_shared_m1_golden_projection_corpus() -> None:
 
 def _ref(projection: str) -> dict[str, str]:
     return {"kind": "projection_ref_v1", "projection": projection, "digest": "a" * 64}
-
-
-def _authority(*, family: str = "structural") -> dict[str, object]:
-    projection = "layout_v1" if family == "layout" else "structural_v1"
-    value: dict[str, object] = {
-        "contract_version": PREPARED_AUTHORITY_V1,
-        "transaction_id": "tx-1", "candidate_id": "candidate-1", "workflow_id": UUID,
-        "scope": {"kind": "root", "path": ""}, "session_id": "session-1", "turn_id": "turn-1",
-        "operation": {"delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": CORPUS["delta_ops"]},
-        "operation_family": family, "precondition": _ref(projection), "postcondition": _ref(projection),
-        "rollback_projection": projection, "restoration_strategy": {"contract_version": "inverse_delta_v1", "digest": "b" * 64, "payload": []},
-        "plan_hash": "plan-1", "generation": 1, "lease_nonce": "nonce-1",
-        "authority_receipt_contract_version": "authority_receipt_v2",
-        "authority_receipt_delta_schema": "2.0.0",
-        "authority_receipt_digest": "d" * 64,
-    }
-    if family == "layout": value["structural_witness"] = {**_ref("structural_v1"), "precondition_digest": "c" * 64, "postcondition_digest": "c" * 64}
-    return value
 
 
 def test_delta_v1_and_prepared_authority_are_strict_and_immutable() -> None:
@@ -241,3 +289,200 @@ def test_python_only_delta_v1_end_to_end_uses_explicit_workflow_identity() -> No
 
     with pytest.raises(ContractError, match="workflow_id"):
         apply_delta_v1_python(workflow_id="not-a-workflow-uuid", graph=graph, delta=delta)
+
+
+# ---------------------------------------------------------------------------
+# C0 authority binding: compensation slot (§3.4) and ownership guards (§6.7)
+# ---------------------------------------------------------------------------
+
+def _compensation_envelope(authority, *, ref="compensation-baseline.json", digest_override=None):
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        RESTORATION_COMPENSATION_CONTRACT_V1,
+        RESTORATION_COMPENSATION_WIRE_VERSION,
+        canonicalize_contract_numeric,
+    )
+    fence = {
+        "transaction_id": authority["transaction_id"],
+        "candidate_id": authority["candidate_id"],
+        "plan_hash": authority["plan_hash"],
+        "lease_nonce": authority["lease_nonce"],
+        "generation": authority["generation"],
+        "pre_projection_digest": authority["precondition"]["digest"],
+        "post_projection_digest": authority["postcondition"]["digest"],
+    }
+    normalized = canonicalize_contract_numeric(fence, finite_error_code="non_finite_materialization")
+    digest_val = _hash({
+        "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
+        "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,
+        "ref": ref,
+        "fence": normalized,
+    })
+    if digest_override is not None:
+        digest_val = digest_override
+    return {
+        "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
+        "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,
+        "ref": ref,
+        "fence": fence,
+        "digest": digest_val,
+    }
+
+
+def test_candidate_authority_rejects_compensation():
+    candidate = _authority()
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    candidate.pop("generation")
+    candidate.pop("lease_nonce")
+    candidate["restoration_strategy_compensation"] = _compensation_envelope(_authority())
+    with pytest.raises(ContractError) as caught:
+        validate_candidate_transaction_v2({
+            "contract_version": CANDIDATE_TRANSACTION_V2,
+            "state": "candidate_ready",
+            "candidate_authority": candidate,
+        })
+    assert caught.value.code == "candidate_compensation_forbidden"
+
+
+def test_candidate_authority_rejects_null_compensation():
+    candidate = _authority()
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    candidate.pop("generation")
+    candidate.pop("lease_nonce")
+    candidate["restoration_strategy_compensation"] = None
+    with pytest.raises(ContractError) as caught:
+        validate_candidate_transaction_v2({
+            "contract_version": CANDIDATE_TRANSACTION_V2,
+            "state": "candidate_ready",
+            "candidate_authority": candidate,
+        })
+    assert caught.value.code == "candidate_compensation_forbidden"
+
+
+def test_prepared_authority_without_compensation_is_valid():
+    prepared = _authority()
+    candidate = {k: v for k, v in prepared.items() if k not in {"generation", "lease_nonce"}}
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    assert validate_candidate_transaction_v2({
+        "contract_version": CANDIDATE_TRANSACTION_V2,
+        "state": "prepared",
+        "candidate_authority": candidate,
+        "prepared_authority": prepared,
+    })
+
+
+def test_prepared_authority_with_valid_compensation_is_valid():
+    prepared = _authority()
+    prepared["restoration_strategy_compensation"] = _compensation_envelope(prepared)
+    candidate = {k: v for k, v in prepared.items() if k not in {"generation", "lease_nonce", "restoration_strategy_compensation"}}
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    assert validate_candidate_transaction_v2({
+        "contract_version": CANDIDATE_TRANSACTION_V2,
+        "state": "prepared",
+        "candidate_authority": candidate,
+        "prepared_authority": prepared,
+    })
+
+
+def test_prepared_authority_compensation_fence_unbound():
+    prepared = _authority()
+    other = _authority()
+    other["transaction_id"] = "different-tx"
+    prepared["restoration_strategy_compensation"] = _compensation_envelope(other)
+    candidate = {k: v for k, v in prepared.items() if k not in {"generation", "lease_nonce", "restoration_strategy_compensation"}}
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    with pytest.raises(ContractError) as caught:
+        validate_candidate_transaction_v2({
+            "contract_version": CANDIDATE_TRANSACTION_V2,
+            "state": "prepared",
+            "candidate_authority": candidate,
+            "prepared_authority": prepared,
+        })
+    assert caught.value.code == "compensation_fence_unbound"
+
+
+def test_prepared_authority_compensation_digest_mismatch():
+    prepared = _authority()
+    prepared["restoration_strategy_compensation"] = _compensation_envelope(prepared, digest_override="0" * 64)
+    candidate = {k: v for k, v in prepared.items() if k not in {"generation", "lease_nonce", "restoration_strategy_compensation"}}
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    with pytest.raises(ContractError) as caught:
+        validate_candidate_transaction_v2({
+            "contract_version": CANDIDATE_TRANSACTION_V2,
+            "state": "prepared",
+            "candidate_authority": candidate,
+            "prepared_authority": prepared,
+        })
+    assert caught.value.code == "compensation_digest_mismatch"
+
+
+def test_prepared_authority_malformed_compensation():
+    prepared = _authority()
+    comp = _compensation_envelope(prepared)
+    comp["extra_key"] = "bad"
+    prepared["restoration_strategy_compensation"] = comp
+    candidate = {k: v for k, v in prepared.items() if k not in {"generation", "lease_nonce", "restoration_strategy_compensation"}}
+    candidate["contract_version"] = CANDIDATE_AUTHORITY_V1
+    with pytest.raises(ContractError) as caught:
+        validate_candidate_transaction_v2({
+            "contract_version": CANDIDATE_TRANSACTION_V2,
+            "state": "prepared",
+            "candidate_authority": candidate,
+            "prepared_authority": prepared,
+        })
+    assert caught.value.code == "malformed_restoration_compensation"
+
+
+def test_structural_family_missing_materialization_fails_closed():
+    """Structural family with add_node but no mutation_materialization fails."""
+    authority = _authority()
+    authority["operation"].pop("mutation_materialization", None)
+    authority["operation"].pop("mutation_materialization_digest", None)
+    with pytest.raises(ContractError) as caught:
+        validate_prepared_authority_v1(authority)
+    assert caught.value.code == "missing_materialization"
+
+
+def test_layout_family_missing_layout_operation_fails_closed():
+    authority = _authority(family="layout")
+    authority["operation"].pop("layout_operation")
+    authority["operation"].pop("layout_operation_digest")
+    with pytest.raises(ContractError) as caught:
+        validate_prepared_authority_v1(authority)
+    assert caught.value.code == "missing_layout_operation"
+
+
+def test_structural_family_unexpected_materialization_fails_closed():
+    authority = _authority()
+    # Structural ops in CORPUS have no add_node after materialization is added;
+    # remove materialization then verify structural-without-add_node rejects it.
+    # Instead build a minimal structural authority with no add_node:
+    authority["operation"] = {
+        "delta_contract": "delta_v1", "wire_version": "2.0.0",
+        "ops": [{"op": "set_mode", "target": ["", "n"], "mode": 4}],
+        "mutation_materialization": {"contract_version": "mutation_materialization_v1", "wire_version": "1.0.0", "entries": [], "digest": "0" * 64},
+        "mutation_materialization_digest": "0" * 64,
+    }
+    with pytest.raises(ContractError) as caught:
+        validate_prepared_authority_v1(authority)
+    assert caught.value.code == "unexpected_materialization"
+
+
+def test_c0_ownership_guards():
+    """§6.7: no second hash/validator/normalizer owner; no candidateGraph in C0 modules."""
+    root = Path(__file__).parents[1]
+    agent_root = root / "vibecomfy/comfy_nodes/agent"
+    # No second hash owner: only the leaf and the registry re-export.
+    from vibecomfy.comfy_nodes.agent._canonical_contract_primitives import ContractError as LeafContractError
+    assert ContractError is LeafContractError, "ContractError identity must be the leaf"
+    # New C0 contract modules must not define their own hash/normalizer.
+    for module_name in ("layout_operation_v1.py", "mutation_materialization_v1.py"):
+        text = (agent_root / module_name).read_text()
+        assert "hashlib.sha256" not in text, f"{module_name} must not call hashlib directly"
+        assert "def canonicalize_contract_numeric" not in text, f"{module_name} must not define a normalizer"
+        assert "candidateGraph" not in text and "candidate_graph" not in text, f"{module_name} must not reference candidateGraph"
+    # No second validator: layout/materialization assert functions are in their owners,
+    # and the sole authority validator is projection_registry_v1.py.
+    # New C0 modules have no candidateGraph path.
+    for module_name in ("layout_operation_v1.py", "mutation_materialization_v1.py", "_canonical_contract_primitives.py"):
+        text = (agent_root / module_name).read_text()
+        assert "candidate_graph" not in text.lower(), f"{module_name} references candidate_graph"

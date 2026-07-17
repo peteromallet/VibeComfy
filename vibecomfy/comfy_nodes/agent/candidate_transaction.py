@@ -14,17 +14,29 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, schema_for
+from .layout_operation_v1 import (
+    compute_layout_operation_digest as _compute_layout_operation_digest,
+    normalize_layout_operation_v1 as _normalize_layout_operation_v1,
+)
+from .mutation_materialization_v1 import (
+    compute_mutation_materialization_digest as _compute_mutation_materialization_digest,
+    normalize_mutation_materialization_v1 as _normalize_mutation_materialization_v1,
+)
 from .projection_registry_v1 import (
     CANDIDATE_TRANSACTION_V2,
     CANDIDATE_AUTHORITY_V1,
     PREPARED_AUTHORITY_V1,
+    RESTORATION_COMPENSATION_CONTRACT_V1,
+    RESTORATION_COMPENSATION_WIRE_VERSION,
     canonical_json_bytes_v1 as _registry_canonical_json_bytes,
+    canonicalize_contract_numeric as _registry_canonicalize_contract_numeric,
     classify_legacy_migration_v1,
     projection_reference_v1,
     validate_candidate_transaction_v2,
     validate_prepared_authority_v1,
     workflow_identity_v1,
 )
+from .projection_registry_v1 import _hash as _registry_hash
 
 # New production records are v2.  v1 is handled only by the explicit
 # historical migration classifier in session/browser rehydration.
@@ -384,6 +396,8 @@ def build_candidate_transaction(
     layout_verification: Mapping[str, Any] | None = None,
     verification_kind: str = "delta_replay",
     state: str = "candidate_ready",
+    layout_operation_envelope: Mapping[str, Any] | None = None,
+    mutation_materialization_envelope: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
@@ -404,7 +418,48 @@ def build_candidate_transaction(
     projection = "layout_v1" if family == "layout" else "structural_v1"
     precondition = projection_reference_v1(submit_graph, projection)
     postcondition = projection_reference_v1(candidate_graph, projection)
-    restoration_digest = content_hash(submit_graph)
+    # §3.1: the grandfathered baseline_snapshot_v1 ref restoration is digested
+    # over {contract_version, ref} via the shared hash owner so the validator's
+    # recomputation matches byte-for-byte.
+    restoration_ref = "original.ui.json"
+    restoration_digest = _registry_hash(
+        {"contract_version": "baseline_snapshot_v1", "ref": restoration_ref}
+    )
+    delta_ops = list(delta_ops_envelope.get("ops", []))
+    operation: dict[str, Any] = {
+        "delta_contract": "delta_v1",
+        "wire_version": "2.0.0",
+        "ops": delta_ops,
+    }
+    hashes_extra: dict[str, Any] = {}
+    if family == "layout":
+        # §1.6: layout family binds operation.layout_operation + digest.
+        if layout_operation_envelope is None:
+            raise ValueError(
+                "Layout (layout_structural_noop) verification requires a layout_operation_envelope."
+            )
+        normalized_layout = _normalize_layout_operation_v1(layout_operation_envelope)
+        layout_digest = normalized_layout["digest"]
+        operation["layout_operation"] = normalized_layout
+        operation["layout_operation_digest"] = layout_digest
+        hashes_extra["layout_operation_digest"] = layout_digest
+    else:
+        add_node_present = any(
+            isinstance(op, Mapping) and op.get("op") == "add_node" for op in delta_ops
+        )
+        if add_node_present:
+            # §2.5: structural family with add_node binds mutation_materialization.
+            if mutation_materialization_envelope is None:
+                raise ValueError(
+                    "Structural delta with add_node requires a mutation_materialization_envelope."
+                )
+            normalized_mat = _normalize_mutation_materialization_v1(
+                mutation_materialization_envelope, accompanying_ops=delta_ops
+            )
+            mat_digest = normalized_mat["digest"]
+            operation["mutation_materialization"] = normalized_mat
+            operation["mutation_materialization_digest"] = mat_digest
+            hashes_extra["mutation_materialization_digest"] = mat_digest
     candidate_authority = {
         "contract_version": CANDIDATE_AUTHORITY_V1,
         "transaction_id": transaction_id,
@@ -414,11 +469,7 @@ def build_candidate_transaction(
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
-        "operation": {
-            "delta_contract": "delta_v1",
-            "wire_version": "2.0.0",
-            "ops": list(delta_ops_envelope.get("ops", [])),
-        },
+        "operation": operation,
         "operation_family": family,
         "precondition": precondition,
         "postcondition": postcondition,
@@ -426,7 +477,7 @@ def build_candidate_transaction(
         "restoration_strategy": {
             "contract_version": "baseline_snapshot_v1",
             "digest": restoration_digest,
-            "ref": "original.ui.json",
+            "ref": restoration_ref,
         },
         "authority_receipt_contract_version": AUTHORITY_RECEIPT_CONTRACT_VERSION,
         "authority_receipt_delta_schema": AUTHORITY_RECEIPT_DELTA_SCHEMA,
@@ -469,6 +520,7 @@ def build_candidate_transaction(
             "candidate_structural_graph_hash": candidate_structural_graph_hash,
             "candidate_layout_graph_hash": candidate_layout_graph_hash,
             "authority_receipt_hash": authority_receipt_hash,
+            **hashes_extra,
         },
         "authority": {
             "replay_ok": replay_ok,
@@ -487,6 +539,51 @@ def build_candidate_transaction(
     }
 
 
+def _mint_restoration_compensation(
+    prepared_authority: Mapping[str, Any],
+    *,
+    compensation_ref: str,
+) -> dict[str, Any]:
+    """Mint a prepare-owned optional compensation envelope (§3.4).
+
+    Sole minter: the trusted prepare step (``project_transaction_state``),
+    invoked only **after** ``lease_nonce`` and ``generation`` have been issued.
+    The fence binds the prepared authority's own identity/projection fields so
+    the compensation cannot be replayed against a different prepared authority.
+    The digest is computed over the shared hash owner (identical preimage to the
+    validator's recomputation).
+    """
+    if not isinstance(compensation_ref, str) or not compensation_ref:
+        raise ValueError("compensation_ref must be a non-empty durable ref string.")
+    precondition = prepared_authority.get("precondition")
+    postcondition = prepared_authority.get("postcondition")
+    fence = {
+        "transaction_id": prepared_authority.get("transaction_id"),
+        "candidate_id": prepared_authority.get("candidate_id"),
+        "plan_hash": prepared_authority.get("plan_hash"),
+        "lease_nonce": prepared_authority.get("lease_nonce"),
+        "generation": prepared_authority.get("generation"),
+        "pre_projection_digest": precondition.get("digest") if isinstance(precondition, Mapping) else None,
+        "post_projection_digest": postcondition.get("digest") if isinstance(postcondition, Mapping) else None,
+    }
+    normalized_fence = _registry_canonicalize_contract_numeric(
+        fence, finite_error_code="non_finite_materialization"
+    )
+    digest = _registry_hash({
+        "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
+        "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,
+        "ref": compensation_ref,
+        "fence": normalized_fence,
+    })
+    return {
+        "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
+        "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,
+        "ref": compensation_ref,
+        "fence": fence,
+        "digest": digest,
+    }
+
+
 def project_transaction_state(
     candidate: Mapping[str, Any],
     *,
@@ -495,6 +592,7 @@ def project_transaction_state(
     lease_nonce: str | None = None,
     last_error: Mapping[str, Any] | None = None,
     resume_state: str | None = None,
+    compensation_ref: str | None = None,
 ) -> dict[str, Any]:
     projected = json.loads(json.dumps(candidate))
     if state not in CANONICAL_TRANSACTION_STATES:
@@ -515,6 +613,12 @@ def project_transaction_state(
         prepared["contract_version"] = PREPARED_AUTHORITY_V1
         prepared["generation"] = generation
         prepared["lease_nonce"] = lease_nonce
+        # Sole prepare-owned additive: optionally mint restoration_strategy_compensation
+        # after lease/generation issuance.  Candidate authority never carries it.
+        if compensation_ref is not None:
+            prepared["restoration_strategy_compensation"] = _mint_restoration_compensation(
+                prepared, compensation_ref=compensation_ref
+            )
         projected["prepared_authority"] = prepared
     else:
         projected["prepared_authority"] = None
@@ -540,6 +644,7 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     plan = value.get("plan")
     hashes = value.get("hashes")
     authority = value.get("authority")
+    candidate_authority = value.get("candidate_authority")
     if not all(isinstance(item, Mapping) for item in (plan, hashes, authority)):
         return False, "malformed_candidate_transaction"
     envelope = plan.get("delta_ops_envelope")
@@ -550,6 +655,25 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     required_hashes = ("candidate_graph_hash", "candidate_structural_graph_hash", "authority_receipt_hash")
     if any(not isinstance(hashes.get(field), str) or not hashes.get(field) for field in required_hashes):
         return False, "missing_candidate_transaction_hash"
+    # Recompute layout_operation / mutation_materialization digests bound on the
+    # candidate operation and compare against the transaction-level hashes block
+    # (§1.6).  The authority validator already checks operation-internal digest
+    # consistency; this is the cross-block tamper check.
+    operation = candidate_authority.get("operation") if isinstance(candidate_authority, Mapping) else None
+    if isinstance(operation, Mapping):
+        if isinstance(operation.get("layout_operation"), Mapping):
+            recomputed_layout = _compute_layout_operation_digest(
+                operation["layout_operation"].get("ops", [])
+            )
+            if hashes.get("layout_operation_digest") != recomputed_layout:
+                return False, "layout_operation_digest_mismatch"
+        if isinstance(operation.get("mutation_materialization"), Mapping):
+            recomputed_mat = _compute_mutation_materialization_digest(
+                operation["mutation_materialization"].get("entries", []),
+                operation.get("ops", []),
+            )
+            if hashes.get("mutation_materialization_digest") != recomputed_mat:
+                return False, "mutation_materialization_digest_mismatch"
     layout_verification = authority.get("layout_verification")
     if layout_verification is not None:
         if not isinstance(layout_verification, Mapping):

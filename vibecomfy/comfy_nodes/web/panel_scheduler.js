@@ -1,12 +1,9 @@
 // panel_scheduler.js — Render scheduling for the active agent panel.
 //
-// T4 audit note: This module uses currentAgentPanel() (a singleton accessor)
-// because SD1 mandates a single visible VibeComfy panel.  The scheduler tracks
-// dirty sections per-panel via panel.pendingDirtySections, and all render
-// flushes operate on the single active panel instance.  No per-workflow-scope
-// awareness is needed here — the lifecycle store (agent_edit_lifecycle.js)
-// owns scope identity, and render scheduling is scope-agnostic by design.
-// Intentionally unchanged for per-workflow scoping.
+// A queued callback is authority-bearing work. It is fenced by the concrete
+// panel object plus that panel's workflow activation identity, so a callback
+// created for a departed workflow or replaced panel can never render (or count
+// as a flush for) the new owner.
 
 import { RENDER_SECTIONS, normalizeObligationDirtySections } from "./agent_edit_lifecycle.js";
 import { currentAgentPanel, getAgentPanelRuntime } from "./panel_runtime.js";
@@ -58,21 +55,70 @@ export function isAgentPanelRootConnected(panel) {
   return Boolean(panel?.root?.isConnected);
 }
 
-export function hasPendingAgentPanelFlush() {
-  const runtime = getAgentPanelRuntime();
-  return Boolean(runtime._scheduledAgentPanelRenderQueued || runtime._scheduledAgentPanelRender);
+function _panelActivationIdentity(panel) {
+  return {
+    panelId: typeof panel?.panelId === "string" ? panel.panelId : null,
+    scopeActivationEpoch: Number.isFinite(panel?.state?.scopeActivationEpoch)
+      ? panel.state.scopeActivationEpoch
+      : 0,
+    chatScopeId: typeof panel?.state?.chatScopeId === "string"
+      ? panel.state.chatScopeId
+      : null,
+  };
+}
+
+function _samePanelActivation(left, right) {
+  return Boolean(left && right)
+    && left.panelId === right.panelId
+    && left.scopeActivationEpoch === right.scopeActivationEpoch
+    && left.chatScopeId === right.chatScopeId;
+}
+
+function _scheduledOwnerIsCurrent(scheduled, runtime) {
+  const panel = scheduled?.panel;
+  return Boolean(panel)
+    && panel === runtime?.agentPanel
+    && !panel.__renderScheduleRevoked
+    && _samePanelActivation(scheduled.activation, _panelActivationIdentity(panel));
+}
+
+function _revokeQueuedCycle(runtime) {
+  if (typeof runtime._cancelScheduledAgentPanelRender === "function") {
+    runtime._cancelScheduledAgentPanelRender();
+  }
+  for (const scheduled of Array.isArray(runtime._scheduledAgentPanelRenders)
+    ? runtime._scheduledAgentPanelRenders
+    : []) {
+    if (scheduled?.panel?.__renderScheduleGeneration === scheduled.scheduleGeneration) {
+      scheduled.panel.__renderFlushPending = false;
+    }
+  }
+  runtime._cancelScheduledAgentPanelRender = null;
+  runtime._scheduledAgentPanelRender = null;
+  runtime._scheduledAgentPanelRenders = [];
+  runtime._scheduledAgentPanelRenderQueued = false;
+  runtime._agentPanelRenderScheduleGeneration += 1;
+}
+
+export function hasPendingAgentPanelFlush(panel = currentAgentPanel()) {
+  return Boolean(
+    panel
+    && panel.__renderFlushPending
+    && !panel.__renderScheduleRevoked
+    && _samePanelActivation(
+      panel.__renderScheduledActivation,
+      _panelActivationIdentity(panel),
+    ),
+  );
 }
 
 export function noteAgentPanelCommit(panel, commitKind) {
-  const runtime = getAgentPanelRuntime();
   const at = new Date().toISOString();
   if (commitKind === "status") {
-    runtime._statusCommitAt = at;
     if (panel?.state) {
       panel.state.statusCommitAt = at;
     }
   } else if (commitKind === "rehydrate") {
-    runtime._rehydrateCommitAt = at;
     if (panel?.state) {
       panel.state.rehydrateCommitAt = at;
     }
@@ -129,10 +175,11 @@ export function markAgentPanelDirtyAfterCommit(panel, sections, commitKind) {
   noteAgentPanelCommit(panel, commitKind);
   const normalized = normalizeDirtySectionList(sections);
   if (Array.isArray(normalized) && normalized.length) {
-    const runtime = getAgentPanelRuntime();
-    runtime._marksAfterCommit += 1;
+    panel.__marksAfterCommit = Number.isFinite(panel.__marksAfterCommit)
+      ? panel.__marksAfterCommit + 1
+      : 1;
     if (panel.state) {
-      panel.state.marksAfterCommit = runtime._marksAfterCommit;
+      panel.state.marksAfterCommit = panel.__marksAfterCommit;
     }
   }
   return markAgentPanelDirty(panel, normalized);
@@ -157,15 +204,16 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
     ? normalizeDirtySectionList(fallbackSections)
     : undefined;
 
-  if (!isAgentPanelRootConnected(panel)) {
+  const runtime = panel?.__agentPanelRuntime || getAgentPanelRuntime();
+  if (!isAgentPanelRootConnected(panel) || panel !== runtime.agentPanel) {
     return;
   }
-  const runtime = getAgentPanelRuntime();
   if (safeFallback !== undefined) {
     markAgentPanelDirty(panel, safeFallback, { schedule: false });
   }
   const nextScheduled = {
     panel,
+    activation: _panelActivationIdentity(panel),
     reason,
     fallbackSections: safeFallback,
     dirtyOnly: Boolean(options.dirtyOnly),
@@ -175,19 +223,33 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
     : [];
   if (runtime._scheduledAgentPanelRenderQueued) {
     const existingIndex = scheduledBatch.findIndex((entry) => entry?.panel === panel);
-    if (existingIndex >= 0) {
+    const existing = existingIndex >= 0 ? scheduledBatch[existingIndex] : null;
+    if (existing && _samePanelActivation(existing.activation, nextScheduled.activation)) {
+      nextScheduled.scheduleGeneration = existing.scheduleGeneration;
       scheduledBatch[existingIndex] = nextScheduled;
-    } else {
-      scheduledBatch.push(nextScheduled);
+      runtime._scheduledAgentPanelRenders = scheduledBatch;
+      runtime._scheduledAgentPanelRender = nextScheduled;
+      return;
     }
-    runtime._scheduledAgentPanelRenders = scheduledBatch;
-    runtime._scheduledAgentPanelRender = nextScheduled;
-    return;
+    // A different panel or workflow activation owns this new work. Revoke the
+    // old cycle and arm a fresh callback; never let its callback flush the new
+    // activation merely because both happened before the next frame.
+    _revokeQueuedCycle(runtime);
   }
+  const scheduleGeneration = runtime._agentPanelRenderScheduleGeneration + 1;
+  runtime._agentPanelRenderScheduleGeneration = scheduleGeneration;
+  nextScheduled.scheduleGeneration = scheduleGeneration;
   runtime._scheduledAgentPanelRender = nextScheduled;
   runtime._scheduledAgentPanelRenders = [nextScheduled];
+  panel.__renderScheduleGeneration = scheduleGeneration;
+  panel.__renderScheduledActivation = nextScheduled.activation;
+  panel.__renderFlushPending = true;
+  panel.__renderScheduleRevoked = false;
   const flush = () => {
-    const gateway = renderGateway || getAgentPanelRuntime().renderDirtyAgentPanelSections;
+    if (runtime._agentPanelRenderScheduleGeneration !== scheduleGeneration) {
+      return;
+    }
+    const gateway = renderGateway || runtime.renderDirtyAgentPanelSections;
     const scheduledBatch = Array.isArray(runtime._scheduledAgentPanelRenders)
       && runtime._scheduledAgentPanelRenders.length
       ? runtime._scheduledAgentPanelRenders.slice()
@@ -195,13 +257,25 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
     runtime._scheduledAgentPanelRender = null;
     runtime._scheduledAgentPanelRenders = [];
     runtime._scheduledAgentPanelRenderQueued = false;
-    runtime._agentPanelFlushCount += 1;
-    const lastScheduled = scheduledBatch[scheduledBatch.length - 1];
-    runtime._lastAgentPanelFlushReason = typeof lastScheduled?.reason === "string" ? lastScheduled.reason : "";
+    runtime._cancelScheduledAgentPanelRender = null;
+    const currentBatch = scheduledBatch.filter((scheduled) =>
+      scheduled?.scheduleGeneration === scheduleGeneration
+      && _scheduledOwnerIsCurrent(scheduled, runtime));
     for (const scheduled of scheduledBatch) {
-      if (!isAgentPanelRootConnected(scheduled?.panel)) {
+      if (scheduled?.panel?.__renderScheduleGeneration === scheduleGeneration) {
+        scheduled.panel.__renderFlushPending = false;
+      }
+    }
+    for (const scheduled of currentBatch) {
+      if (!isAgentPanelRootConnected(scheduled.panel)) {
         continue;
       }
+      scheduled.panel.__renderFlushCount = Number.isFinite(scheduled.panel.__renderFlushCount)
+        ? scheduled.panel.__renderFlushCount + 1
+        : 1;
+      scheduled.panel.__lastRenderFlushReason = typeof scheduled.reason === "string"
+        ? scheduled.reason
+        : "";
       if (
         scheduled.dirtyOnly
         && scheduled.fallbackSections === undefined
@@ -220,6 +294,19 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
   runtime._scheduledAgentPanelRenderQueued = true;
   let flushed = false;
   let timeoutId = null;
+  let animationFrameId = null;
+  const cancel = () => {
+    if (flushed) {
+      return;
+    }
+    flushed = true;
+    if (timeoutId !== null && typeof clearTimeout === "function") {
+      clearTimeout(timeoutId);
+    }
+    if (animationFrameId !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(animationFrameId);
+    }
+  };
   const flushOnce = () => {
     if (flushed) {
       return;
@@ -228,10 +315,14 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
     if (timeoutId !== null && typeof clearTimeout === "function") {
       clearTimeout(timeoutId);
     }
+    if (runtime._agentPanelRenderScheduleGeneration !== scheduleGeneration) {
+      return;
+    }
     flush();
   };
+  runtime._cancelScheduledAgentPanelRender = cancel;
   if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(flushOnce);
+    animationFrameId = requestAnimationFrame(flushOnce);
     if (typeof setTimeout === "function") {
       timeoutId = setTimeout(flushOnce, AGENT_PANEL_RENDER_TIMEOUT_MS);
     }

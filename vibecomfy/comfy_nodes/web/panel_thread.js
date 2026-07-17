@@ -1,4 +1,3 @@
-import { getAgentPanelRuntime } from "./panel_runtime.js";
 import { renderMarkdown } from "./markdown.js";
 import {
   formatActivityHeadline,
@@ -85,10 +84,13 @@ export function renderThreadSection(panel, deps = {}) {
   }
 }
 
-export function recordThreadRender(runtimePayload) {
-  const runtime = getAgentPanelRuntime();
-  runtime._lastThreadRender = runtimePayload;
-  return runtime._lastThreadRender;
+export function recordThreadRender(panelOrPayload, maybePayload = undefined) {
+  const panel = maybePayload === undefined ? null : panelOrPayload;
+  const runtimePayload = maybePayload === undefined ? panelOrPayload : maybePayload;
+  if (panel && typeof panel === "object") {
+    panel.__lastThreadRender = runtimePayload;
+  }
+  return runtimePayload;
 }
 
 function _readSelectorOrNull(selector, value, options = {}) {
@@ -1817,7 +1819,7 @@ export function renderChatThread(panel, deps = {}) {
 
   const threadEntries = collectThreadMessageEntriesImpl(panel);
   if (!threadEntries.length) {
-    recordThreadRenderImpl({
+    recordThreadRenderImpl(panel, {
       panelId: panel?.panelId || null,
       messagesSeen: 0,
       branch: "picker",
@@ -1848,7 +1850,7 @@ export function renderChatThread(panel, deps = {}) {
   messagesMount.style.display = "grid";
   clearNode(emptyMount);
   const { displayEntries, hiddenCount } = computeThreadDisplayEntries(panel, threadEntries);
-  recordThreadRenderImpl({
+  recordThreadRenderImpl(panel, {
     panelId: panel?.panelId || null,
     messagesSeen: threadEntries.length,
     branch: "messages",

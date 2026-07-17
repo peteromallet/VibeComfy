@@ -1,0 +1,702 @@
+{
+  "contract_version": "mutation_materialization_golden_v1",
+  "add_node_template": {
+    "op": "add_node",
+    "scope_path": "",
+    "uid": "new-uid",
+    "node_id": "9001",
+    "class_type": "PreviewImage",
+    "fields": {
+      "filename_prefix": "after"
+    },
+    "inputs": {}
+  },
+  "cases": [
+    {
+      "id": "single_add_node_one_entry",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        }
+      ],
+      "expected_digest": "b4ae7995cfd808843d2ae7387b6fce3cb20f16ddb0394a96abbfd5558de0c9f6"
+    },
+    {
+      "id": "add_node_widgets_array",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "widgets_values": [
+            "latent"
+          ]
+        }
+      ],
+      "expected_digest": "baa747fedfa76c7f09bb539b622cc619e0093f79c318dab51427559212ff5ffa"
+    },
+    {
+      "id": "exec_widgets_object_dynamic_io",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "exec-uid",
+          "node_id": "9003",
+          "class_type": "vibecomfy.exec",
+          "fields": {},
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "widgets_values": {
+            "code": "x=1",
+            "io": {
+              "rebuilt": true
+            }
+          }
+        }
+      ],
+      "expected_digest": "14f906ccf9ab93f2abc1823df51f1fc1ee46d648b1d2769d558a18bead4679a6"
+    },
+    {
+      "id": "add_node_pos_size_opaque",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "pos": [
+            100,
+            200
+          ],
+          "size": [
+            320,
+            240
+          ],
+          "opaque": {
+            "vendor": {
+              "k": 1
+            }
+          }
+        }
+      ],
+      "expected_digest": "bdf95b2df93a4175957400149fe5efcd92e05be893cc93db3724156431382a58"
+    },
+    {
+      "id": "two_add_nodes_interleaved",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "second-uid",
+          "node_id": "9002",
+          "class_type": "CLIPTextEncode",
+          "fields": {},
+          "inputs": {}
+        },
+        {
+          "op": "upsert_link",
+          "from": [
+            "",
+            "seed-node",
+            "IMAGE"
+          ],
+          "to": [
+            "",
+            "preview-node",
+            "images"
+          ]
+        },
+        {
+          "op": "set_node_field",
+          "target": [
+            "",
+            "seed-node",
+            "inputs.seed"
+          ],
+          "value": 7
+        },
+        {
+          "op": "set_mode",
+          "target": [
+            "",
+            "mute-node"
+          ],
+          "mode": 4
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        },
+        {
+          "source_op_index": 1,
+          "kind": "add_node",
+          "widgets_values": [
+            "t"
+          ]
+        }
+      ],
+      "expected_digest": "5dc1573bcc009282407740b94524a61070e69ca83cf2e2f932220ce659bf6216"
+    },
+    {
+      "id": "full_forward_chain_two_adds",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "second-uid",
+          "node_id": "9002",
+          "class_type": "CLIPTextEncode",
+          "fields": {},
+          "inputs": {}
+        },
+        {
+          "op": "upsert_link",
+          "from": [
+            "",
+            "seed-node",
+            "IMAGE"
+          ],
+          "to": [
+            "",
+            "preview-node",
+            "images"
+          ]
+        },
+        {
+          "op": "set_node_field",
+          "target": [
+            "",
+            "seed-node",
+            "inputs.seed"
+          ],
+          "value": 7
+        },
+        {
+          "op": "set_mode",
+          "target": [
+            "",
+            "mute-node"
+          ],
+          "mode": 4
+        },
+        {
+          "op": "remove_link",
+          "to": [
+            "",
+            "preview-node",
+            "images"
+          ]
+        },
+        {
+          "op": "remove_node",
+          "target": [
+            "",
+            "old-node"
+          ]
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        },
+        {
+          "source_op_index": 1,
+          "kind": "add_node"
+        }
+      ],
+      "expected_digest": "a3caf33562ca8f90978cf9d379baea7df7106bf24084e0b987da094dbd893565"
+    },
+    {
+      "id": "inverse_envelope_readd",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "old-node",
+          "node_id": "5001",
+          "class_type": "LoadCheckpoint",
+          "fields": {
+            "cfg": 7.0
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "widgets_values": [
+            "model"
+          ]
+        }
+      ],
+      "expected_digest": "5a50436f1180917e1eed18046d905d9fc1169ae72563cacb2b9df1db87be861a"
+    }
+  ],
+  "parity_cases": [
+    {
+      "id": "numeric_normalize_float_negzero",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "pos": [
+            1.0,
+            -0.0
+          ]
+        }
+      ],
+      "expected_digest": "c9a7714773521ea399d38ff571ae18708efedb6e8fa29f42dfa15487f6d81a0b"
+    },
+    {
+      "id": "numeric_normalize_plain_int",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "pos": [
+            1,
+            0
+          ]
+        }
+      ],
+      "expected_digest": "c9a7714773521ea399d38ff571ae18708efedb6e8fa29f42dfa15487f6d81a0b"
+    },
+    {
+      "id": "numeric_normalize_safe_integer_boundary",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "pos": [
+            9007199254740991,
+            0
+          ]
+        }
+      ],
+      "expected_digest": "f3a39ae80e4d0f9c7f143fb7dea78c90520197abee5078957aab3018bb5e2be9"
+    }
+  ],
+  "rebind_case": {
+    "id": "rebind_detection",
+    "accompanying_ops_original": [
+      {
+        "op": "add_node",
+        "scope_path": "",
+        "uid": "new-uid",
+        "node_id": "9001",
+        "class_type": "PreviewImage",
+        "fields": {
+          "filename_prefix": "after"
+        },
+        "inputs": {}
+      }
+    ],
+    "accompanying_ops_rebind": [
+      {
+        "op": "add_node",
+        "scope_path": "",
+        "uid": "second-uid",
+        "node_id": "9002",
+        "class_type": "CLIPTextEncode",
+        "fields": {},
+        "inputs": {}
+      }
+    ],
+    "entries": [
+      {
+        "source_op_index": 0,
+        "kind": "add_node"
+      }
+    ]
+  },
+  "negative_cases": [
+    {
+      "id": "duplicate_source_op_index_non_add_node",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "set_node_field",
+          "target": [
+            "",
+            "seed-node",
+            "inputs.seed"
+          ],
+          "value": 7
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        },
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        }
+      ],
+      "expected_code": "unreferenced_materialization_entry"
+    },
+    {
+      "id": "duplicate_source_op_index_pure",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "set_node_field",
+          "target": [
+            "",
+            "seed-node",
+            "inputs.seed"
+          ],
+          "value": 7
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 1,
+          "kind": "add_node"
+        },
+        {
+          "source_op_index": 1,
+          "kind": "add_node"
+        }
+      ],
+      "expected_code": "duplicate_materialization_source_op"
+    },
+    {
+      "id": "index_out_of_range",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 5,
+          "kind": "add_node"
+        }
+      ],
+      "expected_code": "materialization_source_op_index_out_of_range"
+    },
+    {
+      "id": "index_kind_mismatch",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "set_node_field",
+          "target": [
+            "",
+            "seed-node",
+            "inputs.seed"
+          ],
+          "value": 7
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 1,
+          "kind": "add_node"
+        }
+      ],
+      "expected_code": "materialization_source_op_kind_mismatch"
+    },
+    {
+      "id": "missing_materialization_entry",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        },
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "second-uid",
+          "node_id": "9002",
+          "class_type": "CLIPTextEncode",
+          "fields": {},
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        }
+      ],
+      "expected_code": "missing_materialization_entry"
+    },
+    {
+      "id": "forbidden_uid_key",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "uid": "dup"
+        }
+      ],
+      "expected_code": "malformed_materialization_entry"
+    },
+    {
+      "id": "widgets_values_non_array_non_exec",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "widgets_values": {
+            "code": "x"
+          }
+        }
+      ],
+      "expected_code": "malformed_materialization_entry"
+    },
+    {
+      "id": "unsupported_kind",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "remove_node_inverse"
+        }
+      ],
+      "expected_code": "unsupported_materialization_kind"
+    },
+    {
+      "id": "extra_entry_key",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node",
+          "bonus": 1
+        }
+      ],
+      "expected_code": "malformed_materialization_entry"
+    },
+    {
+      "id": "tampered_digest",
+      "accompanying_ops": [
+        {
+          "op": "add_node",
+          "scope_path": "",
+          "uid": "new-uid",
+          "node_id": "9001",
+          "class_type": "PreviewImage",
+          "fields": {
+            "filename_prefix": "after"
+          },
+          "inputs": {}
+        }
+      ],
+      "entries": [
+        {
+          "source_op_index": 0,
+          "kind": "add_node"
+        }
+      ],
+      "envelope_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expected_code": "mutation_materialization_digest_mismatch"
+    }
+  ]
+}

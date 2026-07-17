@@ -20,9 +20,12 @@ hard execution.
 - M0 is committed, proven, and closed.
 - M1 is committed, proven, and closed.
 - M2 Slices 1–2 are implemented and independently accepted. The observation-
-  only Family-A preparation for the coupled S3+S4 work is also accepted, but
-  S3 is not closed: 0/27 coupled ownership rows have transferred. Slices 3–6
-  remain open, so M2 is not complete.
+  only Family-A preparation and the C0–C1 contract checkpoint are also
+  accepted. The adjacent panel/workflow scheduler activation fence is proven
+  and accepted. None of these closes native ownership: 0/27 coupled S3 rows
+  have transferred, all seven S4-debt rows remain open, and the C2 atomic
+  native-owner cutover is pending. Slices 3–6 remain open, so M2 is not
+  complete.
 - M3–M6 and the final nine-point audit remain pending.
 
 ## Active work
@@ -46,12 +49,34 @@ checkpoint performs no coupled owner cut: the transfer count is **0/27**, S3
 is **not closed**, and `vibecomfy_roundtrip.js` remains the truthful owner of
 the coupled legacy behavior pending the atomic cut.
 
-M2 continues from the coupled S3+S4 contract/cutover work in
-`briefs/m2-slices-3-4-implementation.md`. The versioned
-`layout_operation_v1` and `mutation_materialization_v1` contracts must land
-before one atomic consumer/deletion/ledger cut moves stable identity,
-index/link mechanics, canonical mutation, inverse, and restoration behind the
-adapter. Slices 5–6 then prove real incident behavior and final ownership.
+The C0–C1 checkpoint is accepted as a contract and private-plan proof only.
+It adds the cross-language `layout_operation_v1`,
+`mutation_materialization_v1`, and inverse-relation contracts; shared goldens;
+strict numeric parity; prepared-authority/restoration binding; legacy
+authority migration; the dependency-closure guard; and a pure private prepared
+plan builder. The builder is externally proven to make zero native calls. The
+shared browser authority factory preserves the exact operation list and order;
+it does not deduplicate rewires or any other operations. Acceptance evidence is
+156/156 focused JavaScript, 118/118 focused Python, 294/294 lifecycle, 60/60
+repair/compatibility, and 569/569 browser-contract tests. Canonical parity is
+green for 64 templates and both Arnold profiles parse all 68 configured agent
+specs.
+
+The scheduler activation fence is accepted as an adjacent release-safety fix,
+not as C2 mutation ownership. Queued render work is fenced by the concrete
+panel and workflow activation; late callbacks from replaced panels or departed
+workflows are revoked, and render diagnostics are panel-affine. Browser smoke
+passes 1,531 tests with 2 intentional skips, and the full roundtrip file passes
+238 tests with 2 intentional skips in two consecutive full-file runs. This
+changes scheduling/observability only; it does not route native mutation,
+transfer a ledger row, or claim S3/S4 closure.
+
+M2 continues at C2 in the coupled S3+S4 work described by
+`briefs/m2-slices-3-4-implementation.md`. The versioned contracts and private
+plan proof are now landed prerequisites. The next step is one atomic
+consumer/deletion/ledger cut moving stable identity, index/link mechanics,
+canonical mutation, inverse, and restoration behind the adapter. Slices 5–6
+then prove real incident behavior and final ownership.
 
 ## M1 proof
 

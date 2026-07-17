@@ -49,6 +49,7 @@ BROWSER_CONTRACT_TESTS := \
 	tests/browser/intent_graph_adapter_ownership_static.test.mjs \
 	tests/browser/agent_lifecycle_commit.test.mjs \
 	tests/browser/agent_lifecycle_parity.test.mjs \
+	tests/browser/legacy_authority_migration.test.mjs \
 	tests/browser/frontend_browser_boundary.test.mjs \
 	tests/browser/render_section_safety.test.mjs
 

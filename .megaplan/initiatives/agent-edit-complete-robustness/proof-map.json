@@ -36,21 +36,30 @@
   ],
   "m2-native-adapter": [
     {
-      "status": "slices_1_2_and_family_a_prep_accepted_s3_s4_atomic_cut_pending",
+      "status": "slices_1_2_family_a_c0_c1_and_scheduler_fence_accepted_c2_atomic_cut_pending",
       "verified": {
         "focused_adapter_ownership_projection_m1": "77/77",
         "family_a_focused_adapter_ownership": "65/65",
-        "browser_contracts": "532/532",
-        "browser_smoke": "1413 passed, 0 failed, 2 intentional skips",
+        "c0_c1_focused_javascript": "156/156",
+        "c0_c1_focused_python": "118/118",
+        "c0_c1_lifecycle_compatibility": "294/294",
+        "c0_c1_dependency_migration_inverse_m1": "60/60",
+        "browser_contracts": "569/569",
+        "browser_smoke": "1531 passed, 0 failed, 2 intentional skips",
         "eb45e_fixture_reproducibility": "byte-identical rebuild; SHA-256 75ed55efc91267f31844d0e01aaf80cd6cfb8ff66daafe59660a014a576f36f9",
         "coupled_s3_ownership_transfer": "0/27; S3 not closed",
-        "s3_s4_boundary": "seven persistent-write/harness rows remain S4 migration debt; versioned contracts and atomic cutover pending",
-        "roundtrip": "238 passed, 0 failed, 2 intentional legacy skips",
+        "s3_s4_boundary": "seven persistent-write/harness rows remain S4 migration debt; C0-C1 contracts accepted; C2 atomic cutover pending",
+        "roundtrip": "two complete runs, each 238 passed, 0 failed, 2 intentional legacy skips",
+        "scheduler_activation_fence": "browser smoke plus two full roundtrip repetitions; late replaced-panel/departed-workflow callbacks revoked",
+        "python_fast": "584 passed, 1 intentional skip",
+        "canonical_parity": "64 templates",
+        "shared_fixture_exact_operation_order": "duplicate remove/upsert/remove probe preserved 3/3 operations without deduplication",
+        "inverse_delta_v2": "exact rewire witness, coverage, transplant, source, and outer-digest regressions passed in JS and Python",
         "native_authority_ledger": "78 unique stable rows, 120 unique file/region/kind mappings",
         "ledger_schema_and_bypass_sentinels": "passed",
         "arnold_profile_parse": "2 profiles, 68 agent specs",
         "diff_check": "passed",
-        "independent_acceptance": "DeepSeek Pro; no blocker"
+        "independent_acceptance": "DeepSeek Pro release-curator acceptance; no blocker"
       },
       "artifacts": {
         "machine_ledger": "tests/fixtures/agent_edit/native_authority_ledger_v1.json",
@@ -61,11 +70,18 @@
         "s3_s4_implementation": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-3-4-implementation.md",
         "family_a_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slice-3-acceptance.md",
         "family_a_adversarial": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slice-3-adversarial.md",
+        "c0_c1_contract_checkpoint": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-contract-checkpoint.md",
+        "c0_c1_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-contract-checkpoint-acceptance.md",
+        "c0_c1_adversarial": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-contract-checkpoint-adversarial.md",
+        "shared_browser_authority_factory": "tests/browser/authority_factory.mjs",
+        "staged_dependency_closure": "tests/browser/harness_dependency_closure.test.mjs",
+        "scheduler_activation_fence": "tests/browser/panel_scheduler_activation_fence.test.mjs",
         "s3_s4_atomic_review": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-3-4-atomic-review.md",
         "full_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-full-acceptance.md",
         "authority_review": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-adapter-authority-review.md"
       },
       "remaining_slices": [3, 4, 5, 6],
+      "next_checkpoint": "C2 atomic native consumer/deletion/ledger cutover; no partial S3/S4 transfer",
       "excluded_artifacts": [
         "scorecard.png",
         "docs/plans/vibecomfy-screen-share-recording-brief.md"

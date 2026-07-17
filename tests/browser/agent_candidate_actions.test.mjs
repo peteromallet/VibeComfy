@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import * as candidateActions from "../../vibecomfy/comfy_nodes/web/agent_candidate_actions.js";
-import { projectionReferenceV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+
+import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 const {
   APPLY_ELIGIBILITY_REASON,
@@ -14,64 +15,13 @@ const {
 } = candidateActions;
 
 function candidateTransaction(state = "candidate_ready") {
-  const operations = [];
-  const projection = projectionReferenceV1({ nodes: [], links: [] }, "structural_v1");
-  const authorityReceiptDigest = "c".repeat(64);
-  const candidateAuthority = {
-    contract_version: "candidate_authority_v1",
-    transaction_id: "transaction-1",
-    candidate_id: "candidate-1",
-    workflow_id: "123e4567-e89b-12d3-a456-426614174000",
-    scope: { kind: "root", path: "" },
-    session_id: "session-1",
-    turn_id: "0002",
-    operation: {
-      delta_contract: "delta_v1",
-      wire_version: "2.0.0",
-      ops: operations,
-    },
-    operation_family: "structural",
-    precondition: projection,
-    postcondition: projection,
-    rollback_projection: "structural_v1",
-    restoration_strategy: {
-      contract_version: "inverse_delta_v1",
-      digest: "b".repeat(64),
-      payload: [],
-    },
-    plan_hash: "plan-1",
-    authority_receipt_contract_version: "authority_receipt_v2",
-    authority_receipt_delta_schema: "2.0.0",
-    authority_receipt_digest: authorityReceiptDigest,
-  };
-  return {
-    contract_version: "candidate_transaction_v2",
+  return makeValidCandidateTransactionV2({
+    sessionId: "session-1",
+    planHash: "plan-1",
+    turnId: "0002",
+    deltaOps: [],
     state,
-    candidate_authority: candidateAuthority,
-    prepared_authority: null,
-    resume_state: null,
-    session_id: "session-1",
-    turn_id: "0002",
-    plan_hash: "plan-1",
-    generation: null,
-    lease_nonce: null,
-    plan: {
-      schema_version: "2.0.0",
-      delta_ops_envelope: { schema_version: "2.0.0", ops: operations },
-      delta_hash: "delta-1",
-      op_count: operations.length,
-      schema_provenance: {},
-    },
-    hashes: {
-      candidate_graph_hash: projection.digest,
-      candidate_structural_graph_hash: projection.digest,
-      authority_receipt_hash: authorityReceiptDigest,
-    },
-    authority: { replay_ok: true, candidate_matches: true, verification_kind: "delta_replay" },
-    available_actions: ["apply", "reject"],
-    terminal: false,
-    last_error: null,
-  };
+  });
 }
 
 test("agent_candidate_actions exposes the candidate action owner API", () => {

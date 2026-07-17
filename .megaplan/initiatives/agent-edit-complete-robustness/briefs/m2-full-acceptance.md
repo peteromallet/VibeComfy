@@ -4,12 +4,22 @@ This full-milestone acceptance design applies the M2 locked decisions to the cur
 It incorporates an independent DeepSeek Pro audit and the reconstructed
 17-path native-access inventory.
 
-Current substate (2026-07-17): ordered M2 Slices 1–2 and the observation-only
-Family-A preparation are accepted under their bounded checklists. Family A
-does not close S3: 0/27 coupled ownership rows have transferred. The versioned
-layout/materialization contracts and one atomic S3+S4 consumer/deletion/ledger
-cut remain pending, as do Slices 5–6 and every unchecked full-milestone gate
-in this document. M2 is not complete.
+Current substate (2026-07-17): ordered M2 Slices 1–2, the observation-only
+Family-A preparation, and the C0–C1 contract/private-plan checkpoint are
+accepted under their bounded checklists. The adjacent panel/workflow scheduler
+activation fence is also accepted. Family A and C0–C1 do not close S3: 0/27
+coupled ownership rows have transferred and all seven S4-debt rows remain
+open. The C2 atomic S3+S4 consumer/deletion/ledger cut remains pending, as do
+Slices 5–6 and every unchecked full-milestone gate in this document. M2 is not
+complete.
+
+Accepted C0–C1 proof: 156/156 focused JavaScript, 118/118 focused Python,
+294/294 lifecycle, 60/60 repair/compatibility, and 569/569 browser-contract
+tests; 64-template canonical parity; and successful parsing of all 68 Arnold
+profile specs. Accepted scheduler-fence proof: browser smoke 1,531 passed with
+2 intentional skips, plus two full roundtrip runs at 238 passed with 2
+intentional skips each. These are prerequisite and release-safety proofs only;
+they do not satisfy any unchecked native-owner/full-milestone item below.
 
 The acceptance rule is stricter than “a new adapter file exists”:
 

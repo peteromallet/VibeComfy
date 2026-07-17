@@ -33,9 +33,9 @@ const NATIVE_ACCESS_PATTERNS = Object.freeze([
   ["graph_dirty", /\b(?:graph|liveGraph|network)(?:\s*\?\.\s*|\s*\.\s*)setDirtyCanvas\s*\(/g],
   ["group_construct", /\bnew\s+(?:(?:globalThis\s*\.\s*)?(?:(?:window\s*\?*\.\s*)?LiteGraph\s*\?*\.\s*)?LGraphGroup|GroupCtor)\s*\(/g],
   ["group_configure", /\b(?:group|liveGroup|nativeGroup)(?:\s*\?\.\s*|\s*\.\s*)configure\s*\(/g],
-  ["socket_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)(?:addInput|addOutput|removeInput|removeOutput|disconnectInput|disconnectOutput)\s*\(/g],
-  ["socket_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)(?:inputs|outputs)\s*(?:=|\[)/g],
-  ["widget_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)widgets(?:_values)?\s*(?:=|\[)/g],
+  ["socket_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)(?:addInput|addOutput|removeInput|removeOutput|disconnectInput|disconnectOutput)\s*\(/g, false],
+  ["socket_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)(?:inputs|outputs)\s*(?:=|\[)/g, true],
+  ["widget_rebuild", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)widgets(?:_values)?\s*(?:=|\[)/g, true],
   ["stable_identity", /\b(?:canonicalNodeUid|stableNodeUidV1|stableNodeIdentityV1|resolveLiveNodeByUid)\s*\(/g],
   ["stable_identity", /\b[A-Za-z_$][\w$]*(?:\s*\?\.\s*|\s*\.\s*)properties(?:\s*\?\.\s*|\s*\.\s*)vibecomfy_uid\b/g],
   ["native_normalization", /\b(?:normalizeLiveExecNodesForSerialization|normalizedSerializedLinks|sanitizeSerializedGraphLinks|ensureLiveGraphLinkStore)\s*\(/g],
@@ -138,6 +138,41 @@ function matchOffsets(text, pattern) {
   return [...text.matchAll(pattern)].map((match) => match.index);
 }
 
+// Pure envelope normalization sentinel.
+//
+// A receiver declared as a fresh object literal (`const|let|var ident = { ... }`)
+// is statically known to carry serialized contract data, never a live/native
+// widget or socket. Writes or index reads of widget/socket data-shape
+// properties (`widgets_values`, `inputs`, `outputs`) onto these receivers are
+// pure envelope validation/normalization (e.g. mutation_materialization_v1
+// building a frozen add_node construction payload) and must NOT classify as a
+// native widget/socket rebuild.
+//
+// This is a narrow AST/context rule grounded in:
+//   - declaration form (`ident = {` object literal), and
+//   - receiver identity (the leading member-access base),
+// It does NOT blanket-ignore the `widgets_values` token, the
+// `mutation_materialization_v1` filename, or any semantic owner. A real live
+// mutation such as `node.widgets_values = []` or `liveNode.inputs = [...]`
+// whose receiver is a live node / function parameter / graph alias is still
+// classified, even when it appears inside an envelope module.
+function plainEnvelopeReceivers(regionBody) {
+  const receivers = new Set();
+  const declaration = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\{/g;
+  for (const match of regionBody.matchAll(declaration)) receivers.add(match[1]);
+  return receivers;
+}
+
+function matchOffsetsExcludingPlainEnvelope(text, pattern, excludedReceivers) {
+  if (excludedReceivers.size === 0) return matchOffsets(text, pattern);
+  const offsets = [];
+  for (const match of text.matchAll(pattern)) {
+    const receiver = (match[0].match(/^[A-Za-z_$][\w$]*/) || [""])[0];
+    if (!excludedReceivers.has(receiver)) offsets.push(match.index);
+  }
+  return offsets;
+}
+
 function accessCounts(region) {
   const offsets = new Map();
   const add = (kind, positions, namespace = "clean") => {
@@ -145,8 +180,13 @@ function accessCounts(region) {
     for (const position of positions) bucket.add(`${namespace}:${position}`);
     offsets.set(kind, bucket);
   };
-  for (const [kind, pattern] of NATIVE_ACCESS_PATTERNS) {
-    add(kind, matchOffsets(region.body, pattern));
+  const plainEnvelopes = plainEnvelopeReceivers(region.body);
+  for (const [kind, pattern, suppressPlainEnvelope = false] of NATIVE_ACCESS_PATTERNS) {
+    if (suppressPlainEnvelope) {
+      add(kind, matchOffsetsExcludingPlainEnvelope(region.body, pattern, plainEnvelopes));
+    } else {
+      add(kind, matchOffsets(region.body, pattern));
+    }
   }
   for (const [kind, pattern] of RAW_COMPUTED_PATTERNS) {
     add(kind, matchOffsets(region.rawBody, pattern), "raw");
@@ -700,6 +740,63 @@ test("scanner sentinel detects group construction/configuration and socket/widge
     { file: "mutation.js", region: "mutate", kind: "socket_rebuild", count: 2 },
     { file: "mutation.js", region: "mutate", kind: "widget_rebuild", count: 1 },
   ]);
+});
+
+test("scanner excludes pure closed-contract widgets_values normalization from widget_rebuild", () => {
+  // Mirrors mutation_materialization_v1.js::_normalizeEntry exactly: the
+  // receiver is a locally-constructed plain object literal that carries
+  // serialized add_node construction data, so writes and index reads of
+  // widgets_values are pure envelope normalization, not a native widget
+  // rebuild, and produce no native-access inventory rows.
+  const inventory = inventoryForSources({
+    "mutation_materialization_v1.js": `function _normalizeEntry(raw) {
+      const result = { source_op_index: raw.source_op_index, kind: "add_node" };
+      if (Object.prototype.hasOwnProperty.call(raw, "widgets_values")) {
+        const wv = raw.widgets_values;
+        result.widgets_values = cloneJsonish(wv);
+      }
+      const probed = result.widgets_values[0];
+      return Object.freeze(result);
+    }`,
+  });
+  assert.deepEqual(inventory, []);
+});
+
+test("scanner still classifies live widget mutation and lookalikes inside a contract module", () => {
+  // A lookalike mutation whose receiver is a live node / function parameter
+  // (NOT a plain object literal) is still classified as widget_rebuild, even
+  // when the surrounding module also performs pure envelope normalization on
+  // a separate plain-envelope receiver. This guards against blanket-ignoring
+  // the token or filename: the rule keys off receiver identity + declaration
+  // form, not off the widgets_values token or the module path.
+  const inventory = inventoryForSources({
+    "contract_module.js": `function applyEnvelopeAndMutate(node, raw) {
+      const result = { source_op_index: raw.source_op_index, kind: "add_node" };
+      result.widgets_values = cloneJsonish(raw.widgets_values);
+      node.widgets_values = [];
+      node.widgets[0].value = "x";
+      return result;
+    }`,
+  });
+  assert.deepEqual(inventory, [
+    { file: "contract_module.js", region: "applyEnvelopeAndMutate", kind: "widget_rebuild", count: 2 },
+  ]);
+});
+
+test("scanner excludes pure envelope inputs/outputs normalization from socket_rebuild but keeps imperative calls", () => {
+  // Same semantic for socket data-shape properties: writing inputs/outputs
+  // onto a plain envelope receiver is normalization and is excluded, while
+  // imperative socket method calls (addInput/addOutput/...) remain always
+  // classified regardless of receiver, because they are live reconstruction.
+  const inventory = inventoryForSources({
+    "envelope.js": `function build(raw) {
+      const result = { kind: "add_node" };
+      result.inputs = cloneSlot(raw.inputs);
+      result.outputs[0] = null;
+      return result;
+    }`,
+  });
+  assert.deepEqual(inventory, []);
 });
 
 test("scanner sentinel detects stable identity, native normalization, and canvas invalidation", () => {

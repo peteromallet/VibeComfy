@@ -201,7 +201,7 @@ owner functions.
 | Candidate actions | `agent_candidate_actions.js` owns candidate action visibility and eligibility selectors. The shell imports the exported selector surface and injects it into composer/thread render deps. |
 | Thread rendering | `panel_thread.js` owns thread rendering and receives required callbacks/deps from the shell. |
 | Preview overlay | `panel_overlay.js` owns preview overlay implementation. The shell imports and delegates to it; DOM preview-chip rendering is removed. |
-| Diagnostics mirrors | Runtime diagnostics use `_lastThreadRender` and `_lastNoticeRender` as canonical fields. Duplicate `last*Render` mirrors should not be reintroduced. |
+| Diagnostics mirrors | Render diagnostics and flush observability are panel-affine (`__lastThreadRender`, `__lastNoticeRender`, and per-panel flush state). Runtime-global mirrors are forbidden because late callbacks from a replaced panel or workflow activation must not satisfy current-panel evidence. |
 | Demo preview picker | `preview_picker.js` owns demo UI only. Lifecycle state projection goes through commit helpers, and preview cleanup goes through returned obligations. |
 | Canonical hashing | `canonical_hash.js` is the only canonical JSON/hash owner. The removed `session_hash.js` owner must not be recreated. |
 | Graph projections | `projection_registry_v1.js` is the sole semantic owner; `graph_projection.js`, `field_registry_v1.js`, and `identity_contract_v1.js` are compatibility facades. Native node IDs may be registry-local lookup keys while normalizing a live graph, but never authority identity. |

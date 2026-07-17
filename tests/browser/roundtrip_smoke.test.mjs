@@ -28,6 +28,7 @@ import {
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 import { boundedBrowserTransactionError } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
 import { projectionReferenceV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import { makeValidCandidateTransactionV2, bindTransactionHashes } from "./authority_factory.mjs";
 
 function sha256HexUtf8(value) {
   return crypto.createHash("sha256").update(canonicalSessionJsonString(value), "utf8").digest("hex");
@@ -48,163 +49,98 @@ function candidateTransactionFixture({
   verificationKind = "delta_replay",
   legacy = false,
 }) {
-  const resolvedActions = availableActions || (
-    state === "candidate_ready"
-      ? ["apply", "reject"]
-      : state === "prepared"
-        ? ["rollback"]
-        : state === "canvas_verified"
-          ? ["finalize", "rollback"]
+  // ── Legacy path (candidate_transaction_v1, no authority) ────────────────
+  if (legacy) {
+    const canonicalDeltaOps = deltaOps.map((op) => {
+      const normalized = structuredClone(op);
+      if (Array.isArray(normalized.target) && normalized.target[0] === "nodes") normalized.target[0] = "";
+      if (Array.isArray(normalized.from) && normalized.from[0] === "nodes") normalized.from[0] = "";
+      if (Array.isArray(normalized.to) && normalized.to[0] === "nodes") normalized.to[0] = "";
+      if (normalized.op === "set_node_field" && normalized.target?.length > 3) {
+        normalized.target = [normalized.target[0], normalized.target[1], normalized.target.slice(2).join(".")];
+      }
+      if (normalized.op === "remove_node" && !Array.isArray(normalized.target)) {
+        normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
+        delete normalized.uid; delete normalized.node_id;
+      }
+      if (normalized.op === "set_mode" && !Array.isArray(normalized.target)) {
+        normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
+        delete normalized.uid; delete normalized.node_id;
+      }
+      return normalized;
+    });
+    const resolvedActions = availableActions || (
+      state === "candidate_ready" ? ["apply", "reject"]
+        : state === "prepared" ? ["rollback"]
+        : state === "canvas_verified" ? ["finalize", "rollback"]
         : []
-  );
-  const canonicalDeltaOps = deltaOps.map((op) => {
-    const normalized = structuredClone(op);
-    if (Array.isArray(normalized.target) && normalized.target[0] === "nodes") {
-      normalized.target[0] = "";
-    }
-    if (Array.isArray(normalized.from) && normalized.from[0] === "nodes") {
-      normalized.from[0] = "";
-    }
-    if (Array.isArray(normalized.to) && normalized.to[0] === "nodes") {
-      normalized.to[0] = "";
-    }
-    if (normalized.op === "set_node_field" && normalized.target?.length > 3) {
-      normalized.target = [
-        normalized.target[0],
-        normalized.target[1],
-        normalized.target.slice(2).join("."),
-      ];
-    }
-    if (normalized.op === "remove_node" && !Array.isArray(normalized.target)) {
-      normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
-      delete normalized.uid;
-      delete normalized.node_id;
-    }
-    if (normalized.op === "set_mode" && !Array.isArray(normalized.target)) {
-      normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
-      delete normalized.uid;
-      delete normalized.node_id;
-    }
-    return normalized;
-  });
-  const transaction = {
-    contract_version: legacy ? "candidate_transaction_v1" : "candidate_transaction_v2",
-    state,
-    resume_state: null,
-    session_id: sessionId,
-    turn_id: turnId,
-    plan_hash: planHash,
-    generation,
-    lease_nonce: leaseNonce,
-    plan: {
-      schema_version: "2.0.0",
-      delta_ops_envelope: {
+    );
+    return {
+      contract_version: "candidate_transaction_v1",
+      state,
+      resume_state: null,
+      session_id: sessionId,
+      turn_id: turnId,
+      plan_hash: planHash,
+      generation,
+      lease_nonce: leaseNonce,
+      plan: {
         schema_version: "2.0.0",
-        ops: legacy ? deltaOps : canonicalDeltaOps,
+        delta_ops_envelope: { schema_version: "2.0.0", ops: canonicalDeltaOps },
+        delta_hash: `${planHash}-delta`,
+        op_count: canonicalDeltaOps.length,
+        schema_provenance: {},
       },
-      delta_hash: `${planHash}-delta`,
-      op_count: canonicalDeltaOps.length,
-      schema_provenance: {},
-    },
-    hashes: {
-      submit_graph_hash: "submit-full-hash",
-      submit_structural_graph_hash: "submit-structural-hash",
-      candidate_graph_hash: candidateGraphHash,
-      candidate_structural_graph_hash: candidateStructuralGraphHash,
-      authority_receipt_hash: "c".repeat(64),
-    },
-    authority: { replay_ok: true, candidate_matches: true, verification_kind: verificationKind },
-    available_actions: resolvedActions,
-    terminal: ["finalized", "discarded", "rollback_complete", "superseded"].includes(state),
-    last_error: null,
-  };
-  if (legacy) return transaction;
-
-  const operationFamily = verificationKind === "layout_structural_noop" ? "layout" : "structural";
-  const projection = operationFamily === "layout" ? "layout_v1" : "structural_v1";
-  const candidateDigest = /^[0-9a-f]{64}$/.test(candidateStructuralGraphHash)
-    ? candidateStructuralGraphHash
-    : sha256HexUtf8(candidateStructuralGraphHash);
-  const projectionRef = { kind: "projection_ref_v1", projection, digest: candidateDigest };
-  const candidateAuthority = {
-    contract_version: "candidate_authority_v1",
-    transaction_id: `tx-${planHash}`,
-    candidate_id: `candidate-${planHash}`,
-    workflow_id: workflowId,
-    scope: { kind: "root", path: "" },
-    session_id: sessionId,
-    turn_id: turnId,
-    operation: { delta_contract: "delta_v1", wire_version: "2.0.0", ops: canonicalDeltaOps },
-    operation_family: operationFamily,
-    precondition: { ...projectionRef },
-    postcondition: { ...projectionRef },
-    rollback_projection: projection,
-    restoration_strategy: {
-      contract_version: "inverse_delta_v1",
-      digest: "b".repeat(64),
-      payload: [],
-    },
-    plan_hash: planHash,
-    authority_receipt_contract_version: "authority_receipt_v2",
-    authority_receipt_delta_schema: "2.0.0",
-    authority_receipt_digest: "c".repeat(64),
-  };
-  if (operationFamily === "layout") {
-    candidateAuthority.structural_witness = {
-      kind: "projection_ref_v1",
-      projection: "structural_v1",
-      digest: candidateDigest,
-      precondition_digest: candidateDigest,
-      postcondition_digest: candidateDigest,
+      hashes: {
+        submit_graph_hash: "submit-full-hash",
+        submit_structural_graph_hash: "submit-structural-hash",
+        candidate_graph_hash: candidateGraphHash,
+        candidate_structural_graph_hash: candidateStructuralGraphHash,
+        authority_receipt_hash: "c".repeat(64),
+      },
+      authority: { replay_ok: true, candidate_matches: true, verification_kind: verificationKind },
+      available_actions: resolvedActions,
+      terminal: ["finalized", "discarded", "rollback_complete", "superseded"].includes(state),
+      last_error: null,
     };
   }
-  transaction.candidate_authority = candidateAuthority;
-  transaction.prepared_authority = [
-    "prepared",
-    "canvas_verified",
-    "finalized",
-    "rollback_complete",
-    "superseded",
-  ].includes(state)
-    ? {
-        ...structuredClone(candidateAuthority),
-        contract_version: "prepared_authority_v1",
-        generation: generation ?? 1,
-        lease_nonce: leaseNonce || `${planHash}-lease`,
-      }
-    : null;
+
+  // ── Current-v2 path — delegate to the shared authority factory ──────────
+  const family = verificationKind === "layout_structural_noop" ? "layout" : "structural";
+  const resolvedActions = availableActions || (
+    state === "candidate_ready" ? ["apply", "reject"]
+      : state === "prepared" ? ["rollback"]
+      : state === "canvas_verified" ? ["finalize", "rollback"]
+      : []
+  );
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    family,
+    state,
+    generation,
+    leaseNonce,
+    workflowId,
+    verificationKind,
+    overrides: {
+      available_actions: resolvedActions,
+      hashes: {
+        ...makeValidCandidateTransactionV2({ sessionId, planHash, deltaOps: [] }).hashes,
+        submit_graph_hash: "submit-full-hash",
+        submit_structural_graph_hash: "submit-structural-hash",
+        candidate_graph_hash: candidateGraphHash,
+        candidate_structural_graph_hash: candidateStructuralGraphHash,
+        authority_receipt_hash: "c".repeat(64),
+      },
+    },
+  });
   return transaction;
 }
 
 function bindTransactionStructuralHash(extensionModule, transaction, graph, preconditionGraph = null) {
-  const liveGraph = globalThis.__VIBECOMFY_BROWSER_APP__?.canvas?.graph?.serialize?.();
-  const evidencePreconditionGraph = preconditionGraph || liveGraph || graph;
-  const preconditionHash = projectionReferenceV1(evidencePreconditionGraph, "structural_v1").digest;
-  const structuralHash = projectionReferenceV1(graph, "structural_v1").digest;
-  transaction.hashes.submit_structural_graph_hash = preconditionHash;
-  transaction.hashes.candidate_structural_graph_hash = structuralHash;
-  const layoutHash = projectionReferenceV1(graph, "layout_v1").digest;
-  transaction.hashes.candidate_layout_graph_hash = layoutHash;
-  for (const authority of [transaction.candidate_authority, transaction.prepared_authority]) {
-    if (!authority) continue;
-    const authorityDigest = authority.operation_family === "layout" ? layoutHash : structuralHash;
-    authority.precondition.digest = authority.operation_family === "layout"
-      ? projectionReferenceV1(evidencePreconditionGraph, "layout_v1").digest
-      : preconditionHash;
-    authority.postcondition.digest = authorityDigest;
-    if (authority.structural_witness) {
-      authority.structural_witness.digest = structuralHash;
-      authority.structural_witness.precondition_digest = preconditionHash;
-      authority.structural_witness.postcondition_digest = structuralHash;
-    }
-  }
-  if (transaction.authority?.verification_kind === "layout_structural_noop") {
-    transaction.authority.layout_verification = {
-      contract_version: "layout_verification_v1",
-      projection: "browser_layout_v1",
-      candidate_layout_graph_hash: layoutHash,
-    };
-  }
+  bindTransactionHashes(extensionModule, transaction, graph, preconditionGraph);
 }
 
 // Explicit opt-in fixture for smoke scenarios that exercise an applyable V2
@@ -274,11 +210,11 @@ function v2ApplyScenarioFixture({
       candidate: {
         state: "candidate",
         graph: candidateGraph,
-        graph_hash: candidateGraphHash,
+        graph_hash: candidateTransaction.hashes.candidate_graph_hash,
         plan_hash: planHash,
       },
       graph: candidateGraph,
-      candidate_graph_hash: candidateGraphHash,
+      candidate_graph_hash: candidateTransaction.hashes.candidate_graph_hash,
       delta_ops: candidateTransaction.plan.delta_ops_envelope.ops,
       delta_ops_envelope: structuredClone(candidateTransaction.plan.delta_ops_envelope),
       candidate_transaction: candidateTransaction,

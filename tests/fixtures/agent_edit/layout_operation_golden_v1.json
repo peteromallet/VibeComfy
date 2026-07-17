@@ -1,0 +1,679 @@
+{
+  "contract_version": "layout_operation_golden_v1",
+  "cases": [
+    {
+      "id": "set_node_geometry_pos_only",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "node-1",
+          "pos": [
+            100,
+            200
+          ]
+        }
+      ],
+      "expected_digest": "22a71e3771dc0afc3d37f1267c80f50ba7fb35fe3cd88c7918da0f5152f5fbdc",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_node_geometry",
+            "uid": "node-1",
+            "pos": [
+              100,
+              200
+            ]
+          }
+        ],
+        "digest": "22a71e3771dc0afc3d37f1267c80f50ba7fb35fe3cd88c7918da0f5152f5fbdc"
+      }
+    },
+    {
+      "id": "set_node_geometry_pos_and_size",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "node-1",
+          "pos": [
+            10,
+            20
+          ],
+          "size": [
+            300,
+            400
+          ]
+        }
+      ],
+      "expected_digest": "41cb71db4208ad263afc42a72e5655fb7cf43823a57f7d427d89f3ce63e05636",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_node_geometry",
+            "uid": "node-1",
+            "pos": [
+              10,
+              20
+            ],
+            "size": [
+              300,
+              400
+            ]
+          }
+        ],
+        "digest": "41cb71db4208ad263afc42a72e5655fb7cf43823a57f7d427d89f3ce63e05636"
+      }
+    },
+    {
+      "id": "add_group_full_payload",
+      "ops": [
+        {
+          "op": "add_group",
+          "id": "group-1",
+          "bounding": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "title": "Group One",
+          "color": "#3f789e"
+        }
+      ],
+      "expected_digest": "53c723761a5e81279f7a9030175a0bea21eb234dc4248da276efac9518a436e8",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "add_group",
+            "id": "group-1",
+            "bounding": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "title": "Group One",
+            "color": "#3f789e"
+          }
+        ],
+        "digest": "53c723761a5e81279f7a9030175a0bea21eb234dc4248da276efac9518a436e8"
+      }
+    },
+    {
+      "id": "add_group_color_null",
+      "ops": [
+        {
+          "op": "add_group",
+          "id": "group-2",
+          "bounding": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "title": "No Color",
+          "color": null
+        }
+      ],
+      "expected_digest": "afd66b74a64561bc1f2eee47eb3261b2c6fd6d72f08e00f83142b5bb7fe131c8",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "add_group",
+            "id": "group-2",
+            "bounding": [
+              5,
+              6,
+              7,
+              8
+            ],
+            "title": "No Color",
+            "color": null
+          }
+        ],
+        "digest": "afd66b74a64561bc1f2eee47eb3261b2c6fd6d72f08e00f83142b5bb7fe131c8"
+      }
+    },
+    {
+      "id": "set_group_geometry_bounding_only",
+      "ops": [
+        {
+          "op": "set_group_geometry",
+          "id": "group-1",
+          "bounding": [
+            10,
+            20,
+            30,
+            40
+          ]
+        }
+      ],
+      "expected_digest": "a421cc5b6d8c25966fd0eda190fe683f6d308de75108431e1a8edd52ecd015d9",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_group_geometry",
+            "id": "group-1",
+            "bounding": [
+              10,
+              20,
+              30,
+              40
+            ]
+          }
+        ],
+        "digest": "a421cc5b6d8c25966fd0eda190fe683f6d308de75108431e1a8edd52ecd015d9"
+      }
+    },
+    {
+      "id": "set_group_geometry_title_only",
+      "ops": [
+        {
+          "op": "set_group_geometry",
+          "id": "group-1",
+          "title": "Renamed"
+        }
+      ],
+      "expected_digest": "8e5920c9ee4d7be76bfbe9c9920f74605acfcaa26f8a9af7fc0c0376050c7c33",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_group_geometry",
+            "id": "group-1",
+            "title": "Renamed"
+          }
+        ],
+        "digest": "8e5920c9ee4d7be76bfbe9c9920f74605acfcaa26f8a9af7fc0c0376050c7c33"
+      }
+    },
+    {
+      "id": "set_group_geometry_color_only",
+      "ops": [
+        {
+          "op": "set_group_geometry",
+          "id": "group-1",
+          "color": "#ff0000"
+        }
+      ],
+      "expected_digest": "246f7175379ecc81d3800b2c515e68314905152a6d0dc5af62b83c8ac34f5b52",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_group_geometry",
+            "id": "group-1",
+            "color": "#ff0000"
+          }
+        ],
+        "digest": "246f7175379ecc81d3800b2c515e68314905152a6d0dc5af62b83c8ac34f5b52"
+      }
+    },
+    {
+      "id": "remove_group",
+      "ops": [
+        {
+          "op": "remove_group",
+          "id": "group-1"
+        }
+      ],
+      "expected_digest": "982edb5f651ba91892cf4ee92b1b3393279ca2b2307d65ee2b71d0efe8a9b828",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "remove_group",
+            "id": "group-1"
+          }
+        ],
+        "digest": "982edb5f651ba91892cf4ee92b1b3393279ca2b2307d65ee2b71d0efe8a9b828"
+      }
+    },
+    {
+      "id": "multi_op_sequence_all_four",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "node-1",
+          "pos": [
+            11,
+            22
+          ]
+        },
+        {
+          "op": "add_group",
+          "id": "g-a",
+          "bounding": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "title": "A",
+          "color": null
+        },
+        {
+          "op": "set_group_geometry",
+          "id": "g-a",
+          "title": "A2"
+        },
+        {
+          "op": "remove_group",
+          "id": "g-a"
+        },
+        {
+          "op": "set_node_geometry",
+          "uid": "node-2",
+          "pos": [
+            33,
+            44
+          ],
+          "size": [
+            50,
+            60
+          ]
+        }
+      ],
+      "expected_digest": "975c2e5e0cec6b0b679c5b37230af16ad3ee6a79151dbaf2a5a89b55dcea321e",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_node_geometry",
+            "uid": "node-1",
+            "pos": [
+              11,
+              22
+            ]
+          },
+          {
+            "op": "add_group",
+            "id": "g-a",
+            "bounding": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "title": "A",
+            "color": null
+          },
+          {
+            "op": "set_group_geometry",
+            "id": "g-a",
+            "title": "A2"
+          },
+          {
+            "op": "remove_group",
+            "id": "g-a"
+          },
+          {
+            "op": "set_node_geometry",
+            "uid": "node-2",
+            "pos": [
+              33,
+              44
+            ],
+            "size": [
+              50,
+              60
+            ]
+          }
+        ],
+        "digest": "975c2e5e0cec6b0b679c5b37230af16ad3ee6a79151dbaf2a5a89b55dcea321e"
+      }
+    },
+    {
+      "id": "duplicate_titles_distinct_ids_succeeds",
+      "ops": [
+        {
+          "op": "add_group",
+          "id": "group-a",
+          "bounding": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "title": "Labels",
+          "color": "blue"
+        },
+        {
+          "op": "add_group",
+          "id": "group-b",
+          "bounding": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "title": "Labels",
+          "color": "red"
+        }
+      ],
+      "expected_digest": "12f92f0912b2cf35cb7baaf428b44e98cf09bf0a8ce70d2c9b01cb587cbae08b",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "add_group",
+            "id": "group-a",
+            "bounding": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "title": "Labels",
+            "color": "blue"
+          },
+          {
+            "op": "add_group",
+            "id": "group-b",
+            "bounding": [
+              5,
+              6,
+              7,
+              8
+            ],
+            "title": "Labels",
+            "color": "red"
+          }
+        ],
+        "digest": "12f92f0912b2cf35cb7baaf428b44e98cf09bf0a8ce70d2c9b01cb587cbae08b"
+      }
+    },
+    {
+      "id": "a66422e6-derived-candidate-groups",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "get-latent",
+          "pos": [
+            5846,
+            238
+          ]
+        },
+        {
+          "op": "set_node_geometry",
+          "uid": "sampler",
+          "pos": [
+            4497,
+            70
+          ]
+        },
+        {
+          "op": "set_node_geometry",
+          "uid": "scheduler",
+          "pos": [
+            4789,
+            824
+          ]
+        },
+        {
+          "op": "add_group",
+          "id": "prompt-text-a",
+          "bounding": [
+            5846,
+            70,
+            400,
+            260
+          ],
+          "title": "Prompt / Text",
+          "color": "#3f789e"
+        },
+        {
+          "op": "add_group",
+          "id": "prompt-text-b",
+          "bounding": [
+            4497,
+            70,
+            520,
+            900
+          ],
+          "title": "Prompt / Text",
+          "color": "#3f789e"
+        }
+      ],
+      "expected_digest": "dfe734e06fe83f13cec20a8d30fbfc6b838b1990ca7f2670164045a0e722f50d",
+      "expected_envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "set_node_geometry",
+            "uid": "get-latent",
+            "pos": [
+              5846,
+              238
+            ]
+          },
+          {
+            "op": "set_node_geometry",
+            "uid": "sampler",
+            "pos": [
+              4497,
+              70
+            ]
+          },
+          {
+            "op": "set_node_geometry",
+            "uid": "scheduler",
+            "pos": [
+              4789,
+              824
+            ]
+          },
+          {
+            "op": "add_group",
+            "id": "prompt-text-a",
+            "bounding": [
+              5846,
+              70,
+              400,
+              260
+            ],
+            "title": "Prompt / Text",
+            "color": "#3f789e"
+          },
+          {
+            "op": "add_group",
+            "id": "prompt-text-b",
+            "bounding": [
+              4497,
+              70,
+              520,
+              900
+            ],
+            "title": "Prompt / Text",
+            "color": "#3f789e"
+          }
+        ],
+        "digest": "dfe734e06fe83f13cec20a8d30fbfc6b838b1990ca7f2670164045a0e722f50d"
+      }
+    }
+  ],
+  "parity_cases": [
+    {
+      "id": "numeric_normalize_float_and_negzero",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "n",
+          "pos": [
+            1.0,
+            -0.0
+          ]
+        }
+      ],
+      "expected_digest": "68dee4d0667eb9619466917f8fa29cd3bc63f3b4d728f578272c445c657e2081"
+    },
+    {
+      "id": "numeric_normalize_exponent",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "n",
+          "pos": [
+            100.0,
+            200
+          ]
+        }
+      ],
+      "expected_digest": "45ec0ff10a7a2e8dd865ef44190cc60c1d48c2e11794143cf08dc37165251e86"
+    },
+    {
+      "id": "numeric_normalize_plain_int",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "n",
+          "pos": [
+            1,
+            0
+          ]
+        }
+      ],
+      "expected_digest": "68dee4d0667eb9619466917f8fa29cd3bc63f3b4d728f578272c445c657e2081"
+    },
+    {
+      "id": "numeric_normalize_safe_integer_boundary",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "n",
+          "pos": [
+            9007199254740991,
+            0
+          ]
+        }
+      ],
+      "expected_digest": "6e71c3d6badc35d5c953611a5b9fffda1c42a22f670432816b1b70d196b79981"
+    }
+  ],
+  "a66422e6_anchor": {
+    "fixture_integrity_raw_file": {
+      "domain": "fixture_integrity_raw_file",
+      "byte_length": 3569,
+      "sha256": "09e01de2c658b33180d9836db2d925a208459cff970cb7b2aa9ae7442edd0534",
+      "informational": true
+    },
+    "structural_witness_v1": {
+      "domain": "structural_witness_v1",
+      "expected_digest": "2bf4f6b53ac2e8d575c7d5739a1b1b143e3b1709cb61503f4523bf759bad2906"
+    }
+  },
+  "negative_cases": [
+    {
+      "id": "unknown_op",
+      "ops": [
+        {
+          "op": "move_node",
+          "uid": "n",
+          "pos": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expected_code": "unsupported_layout_op"
+    },
+    {
+      "id": "unknown_wire_version",
+      "envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.1",
+        "ops": [],
+        "digest": "cef1aa02d0dd21185f026f0377e2dc852bf526d7fd05b69dcb5fb1ebd5014fa6"
+      },
+      "expected_code": "unsupported_wire_version"
+    },
+    {
+      "id": "extra_top_level_key",
+      "envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [],
+        "digest": "cef1aa02d0dd21185f026f0377e2dc852bf526d7fd05b69dcb5fb1ebd5014fa6",
+        "extra": 1
+      },
+      "expected_code": "malformed_layout_operation"
+    },
+    {
+      "id": "extra_per_op_key",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "uid": "n",
+          "pos": [
+            1,
+            2
+          ],
+          "extra": 9
+        }
+      ],
+      "expected_code": "malformed_layout_op"
+    },
+    {
+      "id": "missing_uid",
+      "ops": [
+        {
+          "op": "set_node_geometry",
+          "pos": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expected_code": "missing_identity"
+    },
+    {
+      "id": "missing_group_id",
+      "ops": [
+        {
+          "op": "remove_group"
+        }
+      ],
+      "expected_code": "missing_identity"
+    },
+    {
+      "id": "set_group_geometry_no_change",
+      "ops": [
+        {
+          "op": "set_group_geometry",
+          "id": "g"
+        }
+      ],
+      "expected_code": "malformed_layout_op"
+    },
+    {
+      "id": "tampered_digest",
+      "envelope": {
+        "contract_version": "layout_operation_v1",
+        "wire_version": "1.0.0",
+        "ops": [
+          {
+            "op": "remove_group",
+            "id": "g"
+          }
+        ],
+        "digest": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected_code": "layout_operation_digest_mismatch"
+    }
+  ]
+}

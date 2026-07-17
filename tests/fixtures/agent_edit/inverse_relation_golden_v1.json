@@ -1,0 +1,244 @@
+{
+  "contract_version": "inverse_relation_golden_v1",
+  "description": "Forward/inverse op pairs for every six delta + four layout op class, with the §3.2 failure modes. Consumed identically by Python and JS parity tests.",
+  "structural_cases": [
+    {
+      "id": "set_node_field_positive",
+      "family": "structural",
+      "forward_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "new"}],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "old"}],
+      "expected": "ok"
+    },
+    {
+      "id": "set_node_field_class_mismatch",
+      "family": "structural",
+      "forward_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "new"}],
+      "inverse_ops": [{"op": "set_mode", "target": ["", "uid-1"], "mode": 0}],
+      "expected_code": "inverse_identity_unbound"
+    },
+    {
+      "id": "set_node_field_self_inverse",
+      "family": "structural",
+      "forward_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "same"}],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "same"}],
+      "expected_code": "invalid_inverse_strategy"
+    },
+    {
+      "id": "set_mode_positive",
+      "family": "structural",
+      "forward_ops": [{"op": "set_mode", "target": ["", "uid-2"], "mode": 4}],
+      "inverse_ops": [{"op": "set_mode", "target": ["", "uid-2"], "mode": 0}],
+      "expected": "ok"
+    },
+    {
+      "id": "set_mode_self_inverse",
+      "family": "structural",
+      "forward_ops": [{"op": "set_mode", "target": ["", "uid-2"], "mode": 4}],
+      "inverse_ops": [{"op": "set_mode", "target": ["", "uid-2"], "mode": 4}],
+      "expected_code": "invalid_inverse_strategy"
+    },
+    {
+      "id": "add_node_positive",
+      "family": "structural",
+      "forward_ops": [{"op": "add_node", "scope_path": "", "uid": "added-1", "node_id": "9001", "class_type": "PreviewImage", "fields": {}, "inputs": {}}],
+      "inverse_ops": [{"op": "remove_node", "target": ["", "added-1"]}],
+      "expected": "ok"
+    },
+    {
+      "id": "add_node_class_mismatch",
+      "family": "structural",
+      "forward_ops": [{"op": "add_node", "scope_path": "", "uid": "added-1", "node_id": "9001", "class_type": "PreviewImage", "fields": {}, "inputs": {}}],
+      "inverse_ops": [{"op": "add_node", "scope_path": "", "uid": "added-1", "node_id": "9001", "class_type": "PreviewImage", "fields": {}, "inputs": {}}],
+      "expected_code": "inverse_class_mismatch"
+    },
+    {
+      "id": "remove_node_positive",
+      "family": "structural",
+      "forward_ops": [{"op": "remove_node", "target": ["", "removed-1"]}],
+      "inverse_ops": [{"op": "add_node", "scope_path": "", "uid": "removed-1", "node_id": "5001", "class_type": "LoadCheckpoint", "fields": {}, "inputs": {}}],
+      "expected": "ok"
+    },
+    {
+      "id": "remove_node_missing_prior_state",
+      "family": "structural",
+      "forward_ops": [{"op": "remove_node", "target": ["", "removed-1"]}],
+      "inverse_ops": [{"op": "add_node", "scope_path": "", "uid": "wrong-uid", "node_id": "5001", "class_type": "LoadCheckpoint", "fields": {}, "inputs": {}}],
+      "expected_code": "inverse_identity_unbound"
+    },
+    {
+      "id": "upsert_link_positive_remove_link",
+      "family": "structural",
+      "forward_ops": [{"op": "upsert_link", "from": ["", "src-1", "IMAGE"], "to": ["", "dst-1", "images"]}],
+      "inverse_ops": [{"op": "remove_link", "to": ["", "dst-1", "images"]}],
+      "expected": "ok"
+    },
+    {
+      "id": "remove_link_positive",
+      "family": "structural",
+      "forward_ops": [{"op": "remove_link", "to": ["", "dst-1", "images"]}],
+      "inverse_ops": [{"op": "upsert_link", "from": ["", "src-1", "IMAGE"], "to": ["", "dst-1", "images"]}],
+      "expected": "ok"
+    },
+    {
+      "id": "identity_unbound",
+      "family": "structural",
+      "forward_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "new"}],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-99", "inputs.seed"], "value": "old"}],
+      "expected_code": "inverse_identity_unbound"
+    },
+    {
+      "id": "unrelated_inverse",
+      "family": "structural",
+      "forward_ops": [{"op": "set_node_field", "target": ["", "uid-A", "inputs.seed"], "value": "new"}],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-B", "inputs.seed"], "value": "old"}, {"op": "set_mode", "target": ["", "uid-C"], "mode": 0}],
+      "expected_code": "inverse_identity_unbound"
+    },
+    {
+      "id": "rewire_exact_positive",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "remove_link", "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-new", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "inverse_ops": [
+        {"op": "remove_link", "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-old", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "expected": "ok"
+    },
+    {
+      "id": "rewire_inverse_permutation_positive",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "remove_link", "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-new", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "inverse_ops": [
+        {"op": "upsert_link", "from": ["", "src-old", "IMAGE"], "to": ["", "dst-1", "images"]},
+        {"op": "remove_link", "to": ["", "dst-1", "images"]}
+      ],
+      "expected": "ok"
+    },
+    {
+      "id": "duplicate_forward_remove_link",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "remove_link", "to": ["", "dst-1", "images"]},
+        {"op": "remove_link", "to": ["", "dst-1", "images"]}
+      ],
+      "inverse_ops": [{"op": "upsert_link", "from": ["", "src-old", "IMAGE"], "to": ["", "dst-1", "images"]}],
+      "expected_code": "duplicate_identity"
+    },
+    {
+      "id": "duplicate_forward_upsert_link",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "upsert_link", "from": ["", "src-a", "IMAGE"], "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-b", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "inverse_ops": [{"op": "remove_link", "to": ["", "dst-1", "images"]}],
+      "expected_code": "duplicate_identity"
+    },
+    {
+      "id": "ambiguous_inverse_matching",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "remove_link", "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-new", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "inverse_ops": [
+        {"op": "upsert_link", "from": ["", "src-old-a", "IMAGE"], "to": ["", "dst-1", "images"]},
+        {"op": "upsert_link", "from": ["", "src-old-b", "IMAGE"], "to": ["", "dst-1", "images"]}
+      ],
+      "expected_code": "inverse_multiple_match"
+    },
+    {
+      "id": "coverage_gap",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "new"},
+        {"op": "set_mode", "target": ["", "uid-2"], "mode": 4}
+      ],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "old"}],
+      "expected_code": "inverse_coverage_gap"
+    },
+    {
+      "id": "duplicate_forward_identity",
+      "family": "structural",
+      "forward_ops": [
+        {"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "new"},
+        {"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "other"}
+      ],
+      "inverse_ops": [{"op": "set_node_field", "target": ["", "uid-1", "inputs.seed"], "value": "old"}],
+      "expected_code": "duplicate_identity"
+    }
+  ],
+  "layout_cases": [
+    {
+      "id": "set_node_geometry_positive",
+      "family": "layout",
+      "forward_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [100, 200]}],
+      "inverse_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [10, 20]}],
+      "expected": "ok"
+    },
+    {
+      "id": "set_node_geometry_self_inverse",
+      "family": "layout",
+      "forward_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [100, 200]}],
+      "inverse_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [100, 200]}],
+      "expected_code": "invalid_inverse_strategy"
+    },
+    {
+      "id": "add_group_positive",
+      "family": "layout",
+      "forward_ops": [{"op": "add_group", "id": "group-1", "bounding": [1, 2, 3, 4], "title": "A", "color": "#fff"}],
+      "inverse_ops": [{"op": "remove_group", "id": "group-1"}],
+      "expected": "ok"
+    },
+    {
+      "id": "add_group_class_mismatch",
+      "family": "layout",
+      "forward_ops": [{"op": "add_group", "id": "group-1", "bounding": [1, 2, 3, 4], "title": "A", "color": "#fff"}],
+      "inverse_ops": [{"op": "add_group", "id": "group-1", "bounding": [1, 2, 3, 4], "title": "A", "color": "#fff"}],
+      "expected_code": "inverse_class_mismatch"
+    },
+    {
+      "id": "set_group_geometry_positive",
+      "family": "layout",
+      "forward_ops": [{"op": "set_group_geometry", "id": "group-1", "title": "New"}],
+      "inverse_ops": [{"op": "set_group_geometry", "id": "group-1", "title": "Old"}],
+      "expected": "ok"
+    },
+    {
+      "id": "set_group_geometry_self_inverse",
+      "family": "layout",
+      "forward_ops": [{"op": "set_group_geometry", "id": "group-1", "title": "Same"}],
+      "inverse_ops": [{"op": "set_group_geometry", "id": "group-1", "title": "Same"}],
+      "expected_code": "invalid_inverse_strategy"
+    },
+    {
+      "id": "remove_group_positive",
+      "family": "layout",
+      "forward_ops": [{"op": "remove_group", "id": "group-1"}],
+      "inverse_ops": [{"op": "add_group", "id": "group-1", "bounding": [5, 6, 7, 8], "title": "Restored", "color": null}],
+      "expected": "ok"
+    },
+    {
+      "id": "layout_identity_unbound",
+      "family": "layout",
+      "forward_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [100, 200]}],
+      "inverse_ops": [{"op": "set_node_geometry", "uid": "node-99", "pos": [10, 20]}],
+      "expected_code": "inverse_identity_unbound"
+    },
+    {
+      "id": "layout_coverage_gap",
+      "family": "layout",
+      "forward_ops": [
+        {"op": "set_node_geometry", "uid": "node-1", "pos": [100, 200]},
+        {"op": "set_node_geometry", "uid": "node-2", "pos": [50, 60]}
+      ],
+      "inverse_ops": [{"op": "set_node_geometry", "uid": "node-1", "pos": [10, 20]}],
+      "expected_code": "inverse_coverage_gap"
+    }
+  ]
+}
