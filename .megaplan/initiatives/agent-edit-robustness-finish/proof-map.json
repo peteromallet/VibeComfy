@@ -1,0 +1,41 @@
+{
+  "r1-private-native-core": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-native-execution-fault-matrix.json"
+  ],
+  "r2-cutover-readiness": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r2-readiness-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r2-certified-cutover-manifest.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r2-ledger-rehearsal.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r2-real-fixture-reproduction.json"
+  ],
+  "r3-atomic-owner-cutover": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-native-authority-ledger.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-real-comfy-incidents.json"
+  ],
+  "r4-single-verifier": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json"
+  ],
+  "r5-controller-api": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-async-fence-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
+  ],
+  "r6-recovery-undo-legacy": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-recovery-state-matrix.json"
+  ],
+  "r7-real-comfy-matrix-ci": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-real-comfy-lifecycle-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-compatibility-attribution.json"
+  ],
+  "r8-terminal-cleanup-audit": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r8-acceptance.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r8-terminal-cleanup-audit.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/final-nine-point-audit.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/final-proof-index.json"
+  ]
+}

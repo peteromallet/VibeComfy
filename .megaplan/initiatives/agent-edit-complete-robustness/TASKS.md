@@ -3,6 +3,18 @@
 This is the operator-facing ledger. Milestone plans may add finer-grained
 tasks, but they may not weaken these requirements.
 
+## Execution policy
+
+- Close a bounded unit after two independent acceptances, focused adversarial
+  coverage, and broad green gates.
+- Do not seek a third or fourth review without new contradictory evidence;
+  prioritize the next integration boundary.
+- For an isolated timing flake, run the exact failure once and the full
+  relevant suite once. If both pass, record it and continue rather than
+  polishing indefinitely.
+- These effort rules do not change the full M0–M6 outcome, milestone done
+  criteria, or final nine-point audit.
+
 ## M0 — Incident foundation
 
 - [x] Classify every dirty file as intended baseline or unrelated.
@@ -47,14 +59,23 @@ tasks, but they may not weaken these requirements.
       migration without transferring native ownership.
 - [x] C1: prove a private prepared-authority-only plan builder with external
       zero-native-call sentinels and complete dependency-closure guardrails.
+- [x] C2a review gate only: the private receipt core has two independent
+      acceptances and passes 20/20 focused tests. It remains uncommitted and
+      unintegrated, routes no consumer, changes no production adapter, and
+      transfers no ownership.
+- [ ] C2b: build and accept the exact native resolver/capability layer behind
+      the receipt core; this is the next integration boundary.
 - [x] Fence queued panel rendering by concrete panel and workflow activation;
       revoke late callbacks and keep render diagnostics panel-affine.
 - [ ] C2: perform the atomic consumer/deletion/ledger cutover for all 27
       coupled S3 rows and seven S4-debt rows. No partial owner transfer.
 - [ ] Prove all supported delta operations through real LiteGraph.
 
-Slices 1–2, Family-A observation prep, C0–C1, and the scheduler activation
-fence are accepted. The latest checkpoint passes 156/156 focused JavaScript,
+Slices 1–2, Family-A observation prep, C0–C1, the C2a receipt-core review gate,
+and the scheduler activation fence are accepted within their stated
+boundaries. C2a additionally passes 20/20 focused tests but is still
+uncommitted/unintegrated and makes no production or ledger claim. The latest
+committed checkpoint passes 156/156 focused JavaScript,
 118/118 focused Python, 294/294 lifecycle, 60/60 repair/compatibility,
 569/569 browser contracts, 1,531 browser-smoke tests plus 2 intentional skips,
 and two complete roundtrip runs of 238 passes plus 2 intentional skips. The

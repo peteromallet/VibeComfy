@@ -1,0 +1,125 @@
+base_branch: agent/agent-edit-robustness-foundation
+
+anchors:
+  north_star: NORTHSTAR.md
+
+milestones:
+  - label: r1-private-native-core
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r1-private-native-core.md
+    branch: megaplan/agent-edit-robustness-finish/r1-private-native-core
+    profile: partnered-4
+    vendor: claude
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Verify every resolver and store shape against the pinned real ComfyUI
+      checkout, accepted forensic notes, and native authority ledger; inventory
+      all .js and .mjs scanner coverage before implementation.
+
+  - label: r2-cutover-readiness
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r2-cutover-readiness.md
+    branch: megaplan/agent-edit-robustness-finish/r2-cutover-readiness
+    profile: partnered-4
+    vendor: claude
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Trace every production consumer and legacy native owner, reproduce both
+      exact incidents, and rehearse the source-derived ledger transition without
+      routing a consumer or changing production ownership.
+
+  - label: r3-atomic-owner-cutover
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r3-atomic-owner-cutover.md
+    branch: megaplan/agent-edit-robustness-finish/r3-atomic-owner-cutover
+    profile: partnered-5
+    vendor: claude
+    robustness: thorough
+    depth: xhigh
+    with_prep: true
+    prep_direction: >-
+      Validate the complete R2 readiness handoff against current source, freeze
+      the indivisible routing/deletion/ledger diff, and stop if any rehearsal or
+      exact real-ComfyUI fixture is stale.
+
+  - label: r4-single-verifier
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r4-single-verifier.md
+    branch: megaplan/agent-edit-robustness-finish/r4-single-verifier
+    profile: partnered-4
+    vendor: claude
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Enumerate every precondition, landed-operation, postcondition, finalize,
+      rollback, mismatch, exception, and partial-mutation comparison path before
+      centralizing verification.
+
+  - label: r5-controller-api
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r5-controller-api.md
+    branch: megaplan/agent-edit-robustness-finish/r5-controller-api
+    profile: partnered-5
+    vendor: claude
+    robustness: thorough
+    depth: xhigh
+    with_prep: true
+    prep_direction: >-
+      Trace every transport call, async continuation, reducer dispatch, workflow
+      activation, identity dimension, cancellation, and commit fence before
+      moving coordination.
+
+  - label: r6-recovery-undo-legacy
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r6-recovery-undo-legacy.md
+    branch: megaplan/agent-edit-robustness-finish/r6-recovery-undo-legacy
+    profile: partnered-5
+    vendor: claude
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Inventory every durable transaction state and receipt, refresh/rehydrate
+      path, Undo store, legacy version, and ambiguous failure exit before
+      encoding recovery actions.
+
+  - label: r7-real-comfy-matrix-ci
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r7-real-comfy-matrix-ci.md
+    branch: megaplan/agent-edit-robustness-finish/r7-real-comfy-matrix-ci
+    profile: partnered-4
+    vendor: claude
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Inventory pinned ComfyUI/frontend launchers, extension noise, fixture and
+      lifecycle coverage, failure attribution, CI topology, and reproducibility
+      gaps before freezing the exhaustive matrix.
+
+  - label: r8-terminal-cleanup-audit
+    idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r8-terminal-cleanup-audit.md
+    branch: megaplan/agent-edit-robustness-finish/r8-terminal-cleanup-audit
+    profile: partnered-4
+    vendor: claude
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Reconcile the R7 matrix and R6 recovery evidence with current source;
+      inventory duplicate owners, dead exports/imports, compatibility shims,
+      ledger debt, roundtrip responsibilities, and every proof-map slot.
+
+on_failure:
+  abort: stop_chain
+
+on_escalate:
+  abort: stop_chain
+
+merge_policy: auto
+
+driver:
+  robustness: thorough
+  phase_timeout: 14400
+  auto_approve: true
+  on_escalate: abort
+  max_iterations: 200
+  poll_sleep: 8.0

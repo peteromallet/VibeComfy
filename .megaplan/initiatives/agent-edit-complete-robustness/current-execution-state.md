@@ -15,6 +15,25 @@ The executable profiles use parser-valid effort-only `claude:*` specs. The
 active Claude Code provider must be configured for GLM 5.2 before medium or
 hard execution.
 
+## Integration-first execution policy
+
+The full M0–M6 outcome and final nine-point audit are unchanged. Within that
+outcome, use an integration-first diminishing-returns rule for bounded units:
+
+- two independent acceptances, focused adversarial coverage, and broad green
+  gates close the bounded unit;
+- do not request a third or fourth review unless new contradictory evidence
+  appears;
+- after closure, prioritize the next integration boundary instead of polishing
+  the already-accepted unit in isolation; and
+- an isolated timing flake requires one exact rerun and then one full relevant
+  rerun. If those are green, record the flake and continue; do not enter an
+  unlimited polishing loop without reproducible failure evidence.
+
+This rule controls execution effort, not scope or quality. It cannot waive a
+declared milestone proof, ownership cut, real-ComfyUI scenario, recovery path,
+or final audit item.
+
 ## Milestone state
 
 - M0 is committed, proven, and closed.
@@ -22,10 +41,13 @@ hard execution.
 - M2 Slices 1–2 are implemented and independently accepted. The observation-
   only Family-A preparation and the C0–C1 contract checkpoint are also
   accepted. The adjacent panel/workflow scheduler activation fence is proven
-  and accepted. None of these closes native ownership: 0/27 coupled S3 rows
-  have transferred, all seven S4-debt rows remain open, and the C2 atomic
-  native-owner cutover is pending. Slices 3–6 remain open, so M2 is not
-  complete.
+  and accepted. The bounded C2a receipt core has two independent acceptances
+  and passes its focused 20/20 suite, but it remains uncommitted and
+  unintegrated. It has not changed the production adapter or ownership ledger.
+  C2b native resolver work is next. None of these closes native ownership:
+  0/27 coupled S3 rows have transferred, all seven S4-debt rows remain open,
+  and the C2 atomic native-owner cutover is pending. Slices 3–6 remain open,
+  so M2 is not complete.
 - M3–M6 and the final nine-point audit remain pending.
 
 ## Active work
@@ -73,10 +95,15 @@ transfer a ledger row, or claim S3/S4 closure.
 
 M2 continues at C2 in the coupled S3+S4 work described by
 `briefs/m2-slices-3-4-implementation.md`. The versioned contracts and private
-plan proof are now landed prerequisites. The next step is one atomic
-consumer/deletion/ledger cut moving stable identity, index/link mechanics,
-canonical mutation, inverse, and restoration behind the adapter. Slices 5–6
-then prove real incident behavior and final ownership.
+plan proof are landed prerequisites. The bounded C2a receipt core is accepted
+on 20/20 focused tests but remains an uncommitted, unintegrated private draft;
+it is not a production checkpoint and transfers no ownership. The next
+integration boundary is C2b: resolve the exact native targets and capabilities
+behind that receipt without exposing live objects or routing a consumer. C2c
+then performs the indivisible consumer/deletion/ledger cut moving stable
+identity, index/link mechanics, canonical mutation, inverse, and restoration
+behind the adapter. Slices 5–6 then prove real incident behavior and final
+ownership.
 
 ## M1 proof
 
