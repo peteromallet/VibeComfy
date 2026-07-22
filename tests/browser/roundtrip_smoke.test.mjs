@@ -18599,6 +18599,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
       { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
     ],
   });
+  let loadedExtensionModule = null;
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
@@ -18662,20 +18663,37 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
         },
       },
       ...fieldChangeApply.routes({
-        finalize: ({ body, finalizedTransaction }) => ({
-          status: 200,
-          body: {
-            ok: true,
-            action: "finalize",
-            session_id: SESSION_ID,
-            turn_id: "0010",
-            baseline_turn_id: "0010",
-            queue_allowed: true,
-            audit_ref: { path: "/tmp/fieldchange-submit-finalize.json" },
-            candidate_transaction: finalizedTransaction,
-            receipt: { plan_hash: "field-change-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
-          },
-        }),
+        finalize: ({ body, finalizedTransaction }) => {
+          const compatibilityHash = sha256HexUtf8(
+            loadedExtensionModule.buildStructuralGraphProjection(body.post_apply_graph),
+          );
+          const typedDigest = projectionReferenceV1(
+            body.post_apply_graph,
+            "structural_v1",
+          ).digest;
+          assert.notEqual(
+            typedDigest,
+            compatibilityHash,
+            "the typed v2 digest and session compatibility hash are distinct authorities",
+          );
+          assert.equal(body.post_apply_hash, compatibilityHash);
+          assert.equal(body.client_structural_graph_hash, compatibilityHash);
+          assert.equal(body.postcondition_projection.digest, typedDigest);
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "finalize",
+              session_id: SESSION_ID,
+              turn_id: "0010",
+              baseline_turn_id: "0010",
+              queue_allowed: true,
+              audit_ref: { path: "/tmp/fieldchange-submit-finalize.json" },
+              candidate_transaction: finalizedTransaction,
+              receipt: { plan_hash: "field-change-plan", generation: 1, phase: "finalized", post_apply_hash: body.post_apply_hash },
+            },
+          };
+        },
       }),
       [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
         status: 200,
@@ -18704,6 +18722,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
 
   try {
     const extensionModule = await harness.loadExtension();
+    loadedExtensionModule = extensionModule;
     fieldChangeApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");

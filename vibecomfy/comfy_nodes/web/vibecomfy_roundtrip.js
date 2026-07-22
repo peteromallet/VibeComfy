@@ -3075,13 +3075,19 @@ function captureLiveCanvasRevision() {
   return result.ok ? result.data.revision : null;
 }
 
+// Session/CAS hashes deliberately retain the compatibility projection used by
+// the Python session store. Typed v2 authority is carried separately by
+// projectionReferenceV1 pre/postcondition evidence. These two digest families
+// are both valid but are not interchangeable: sending a typed projection
+// digest as `post_apply_hash` makes finalize reject a correctly applied graph
+// and compensate by restoring the pre-apply canvas.
 async function structuralGraphHash(graph) {
-  return projectionReferenceV1(graph, "structural_v1").digest;
+  return sha256HexUtf8(canonicalJsonString(buildStructuralGraphProjection(graph)));
 }
 
 async function layoutGraphHash(graph) {
   try {
-    return projectionReferenceV1(graph, "layout_v1").digest;
+    return sha256HexUtf8(canonicalJsonString(buildLayoutGraphProjection(graph)));
   } catch (error) {
     if (error?.code === "UNSUPPORTED_NESTED_LAYOUT_SCOPE") return null;
     throw error;

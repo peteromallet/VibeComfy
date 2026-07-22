@@ -14,7 +14,11 @@
 // malformed negatives.  The factory produces valid fixtures by default.
 
 import { sha256Hex, canonicalizeContractNumeric } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
-import { projectionReferenceV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import {
+  buildLayoutGraphProjection,
+  buildStructuralGraphProjection,
+  projectionReferenceV1,
+} from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { computeLayoutOperationDigest } from "../../vibecomfy/comfy_nodes/web/layout_operation_v1.js";
 import { computeMutationMaterializationDigest } from "../../vibecomfy/comfy_nodes/web/mutation_materialization_v1.js";
 
@@ -516,33 +520,38 @@ export function makeValidCandidateTransactionV2({
 export function bindTransactionHashes(extensionModule, transaction, graph, preconditionGraph = null) {
   const liveGraph = globalThis.__VIBECOMFY_BROWSER_APP__?.canvas?.graph?.serialize?.();
   const evidencePreconditionGraph = preconditionGraph || liveGraph || graph;
-  const preconditionHash = projectionReferenceV1(evidencePreconditionGraph, "structural_v1").digest;
-  const structuralHash = projectionReferenceV1(graph, "structural_v1").digest;
-  transaction.hashes.submit_structural_graph_hash = preconditionHash;
-  transaction.hashes.candidate_structural_graph_hash = structuralHash;
-  const layoutHash = projectionReferenceV1(graph, "layout_v1").digest;
-  transaction.hashes.candidate_layout_graph_hash = layoutHash;
+  const typedPreconditionHash = projectionReferenceV1(evidencePreconditionGraph, "structural_v1").digest;
+  const typedStructuralHash = projectionReferenceV1(graph, "structural_v1").digest;
+  const typedLayoutHash = projectionReferenceV1(graph, "layout_v1").digest;
+  const compatibilityPreconditionHash = sha256Hex(
+    buildStructuralGraphProjection(evidencePreconditionGraph),
+  );
+  const compatibilityStructuralHash = sha256Hex(buildStructuralGraphProjection(graph));
+  const compatibilityLayoutHash = sha256Hex(buildLayoutGraphProjection(graph));
+  transaction.hashes.submit_structural_graph_hash = compatibilityPreconditionHash;
+  transaction.hashes.candidate_structural_graph_hash = compatibilityStructuralHash;
+  transaction.hashes.candidate_layout_graph_hash = compatibilityLayoutHash;
 
   for (const authority of [transaction.candidate_authority, transaction.prepared_authority]) {
     if (!authority) continue;
     const authorityDigest =
-      authority.operation_family === "layout" ? layoutHash : structuralHash;
+      authority.operation_family === "layout" ? typedLayoutHash : typedStructuralHash;
     authority.precondition.digest =
       authority.operation_family === "layout"
         ? projectionReferenceV1(evidencePreconditionGraph, "layout_v1").digest
-        : preconditionHash;
+        : typedPreconditionHash;
     authority.postcondition.digest = authorityDigest;
     if (authority.structural_witness) {
-      authority.structural_witness.digest = structuralHash;
-      authority.structural_witness.precondition_digest = preconditionHash;
-      authority.structural_witness.postcondition_digest = structuralHash;
+      authority.structural_witness.digest = typedStructuralHash;
+      authority.structural_witness.precondition_digest = typedPreconditionHash;
+      authority.structural_witness.postcondition_digest = typedStructuralHash;
     }
   }
   if (transaction.authority?.verification_kind === "layout_structural_noop") {
     transaction.authority.layout_verification = {
       contract_version: "layout_verification_v1",
       projection: "browser_layout_v1",
-      candidate_layout_graph_hash: layoutHash,
+      candidate_layout_graph_hash: compatibilityLayoutHash,
     };
   }
 }
