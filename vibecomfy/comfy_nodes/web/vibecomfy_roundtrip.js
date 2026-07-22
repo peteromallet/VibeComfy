@@ -1874,7 +1874,7 @@ function resolveNamedSlotIndex(slots, ref) {
   return -1;
 }
 
-function readNodeFieldValue(node, fieldPath) {
+function readNodeFieldValue(node, fieldPath, { referenceNode = null } = {}) {
   if (!node || !Array.isArray(fieldPath) || fieldPath.length === 0) {
     return undefined;
   }
@@ -1918,6 +1918,18 @@ function readNodeFieldValue(node, fieldPath) {
     }
     return clonePlainData(node.widgets?.[widgetIndex]?.value);
   }
+  // ComfyUI's serialized graph normally contains widgets_values but omits
+  // the native node's widgets descriptors. Resolve semantic field names
+  // (for example KSampler.denoise) through the live carrier, then read the
+  // value at that same serialized index. This is the same representation
+  // bridge used by canonical delta preflight.
+  const referenceWidgetIndex = resolveNamedSlotIndex(referenceNode?.widgets, head);
+  if (referenceWidgetIndex >= 0) {
+    if (Array.isArray(node.widgets_values) && referenceWidgetIndex < node.widgets_values.length) {
+      return clonePlainData(node.widgets_values[referenceWidgetIndex]);
+    }
+    return clonePlainData(referenceNode?.widgets?.[referenceWidgetIndex]?.value);
+  }
   return undefined;
 }
 
@@ -1949,14 +1961,17 @@ function readNodeLinkSource(graph, targetRef) {
   return { sentinel: "link_absent" };
 }
 
-function readGraphActualForOp(graph, op) {
+function readGraphActualForOp(graph, op, { widgetReferenceNodeFor = null } = {}) {
   if (!op || typeof op !== "object") {
     return undefined;
   }
   if (op.op === "set_node_field") {
     const parsed = resolveGraphTarget(op.target);
     const node = resolveGraphNode(graph, parsed.uidOrId);
-    return readNodeFieldValue(node, decodeNodeFieldPathV1(parsed.rest));
+    const referenceNode = typeof widgetReferenceNodeFor === "function"
+      ? widgetReferenceNodeFor(parsed.uidOrId)
+      : null;
+    return readNodeFieldValue(node, decodeNodeFieldPathV1(parsed.rest), { referenceNode });
   }
   if (op.op === "set_mode") {
     const parsed = resolveGraphTarget(op.target);
@@ -2028,13 +2043,13 @@ function resolveScopedDeltaOps(panel, accepted) {
   return { deltaOps: null, source: "none" };
 }
 
-function validateScopedCanvasPreconditions(graph, deltaOps, scopedVerification) {
+function validateScopedCanvasPreconditions(graph, deltaOps, scopedVerification, options = {}) {
   const entries = [];
   const serverEntries = Array.isArray(scopedVerification?.entries) ? scopedVerification.entries : [];
   for (let index = 0; index < deltaOps.length; index += 1) {
     const op = deltaOps[index];
     const serverEntry = serverEntries[index] && typeof serverEntries[index] === "object" ? serverEntries[index] : {};
-    const actualBefore = readGraphActualForOp(graph, op);
+    const actualBefore = readGraphActualForOp(graph, op, options);
     const expectedOld = Object.prototype.hasOwnProperty.call(serverEntry, "expected_old")
       ? serverEntry.expected_old
       : undefined;
@@ -2060,13 +2075,13 @@ function validateScopedCanvasPreconditions(graph, deltaOps, scopedVerification) 
   };
 }
 
-function verifyScopedCanvasResults(graph, deltaOps, scopedVerification) {
+function verifyScopedCanvasResults(graph, deltaOps, scopedVerification, options = {}) {
   const entries = [];
   const serverEntries = Array.isArray(scopedVerification?.entries) ? scopedVerification.entries : [];
   for (let index = 0; index < deltaOps.length; index += 1) {
     const op = deltaOps[index];
     const serverEntry = serverEntries[index] && typeof serverEntries[index] === "object" ? serverEntries[index] : {};
-    const actualAfter = readGraphActualForOp(graph, op);
+    const actualAfter = readGraphActualForOp(graph, op, options);
     const desiredNew = Object.prototype.hasOwnProperty.call(serverEntry, "desired_new")
       ? serverEntry.desired_new
       : op.value;
@@ -10424,87 +10439,151 @@ async function applyAgentCandidate(panel) {
       // legacy accept flow, an "already applied" target is still a race here:
       // the prepared transaction must either own the mutation or roll back.
       let localPrecheck = { ok: true, entries: [] };
-      if (preparedMutationPlan.verificationKind !== "layout_structural_noop") {
-        const currentBeforeMutation = await buildCanvasSnapshot();
-        const v2ScopedVerification = {
-          entries: preparedMutationPlan.deltaOps.map((op) => ({
-            target: clonePlainData(op.target ?? op.to ?? null),
-            expected_old: readGraphActualForOp(beforeApply.graph, op),
-            desired_new: readGraphActualForOp(panel.state.candidateGraph, op),
-          })),
+      let undoEntry;
+      const widgetReferenceNodeFor = (uidOrId) => {
+        const key = String(uidOrId);
+        const liveNodes = Array.isArray(app?.graph?._nodes) ? app.graph._nodes : [];
+        return liveNodes.find((node) => (
+          String(getUid(node) || "") === key
+          || String(node?.id ?? "") === key
+        )) || null;
+      };
+      try {
+        if (preparedMutationPlan.verificationKind !== "layout_structural_noop") {
+          const currentBeforeMutation = await buildCanvasSnapshot();
+          const v2ScopedVerification = {
+            entries: preparedMutationPlan.deltaOps.map((op) => ({
+              target: clonePlainData(op.target ?? op.to ?? null),
+              expected_old: readGraphActualForOp(beforeApply.graph, op, { widgetReferenceNodeFor }),
+              desired_new: readGraphActualForOp(panel.state.candidateGraph, op, { widgetReferenceNodeFor }),
+            })),
+          };
+          const validatedPrecheck = validateScopedCanvasPreconditions(
+            currentBeforeMutation.graph,
+            preparedMutationPlan.deltaOps,
+            v2ScopedVerification,
+            { widgetReferenceNodeFor },
+          );
+          // A prepared lease owns the mutation.  Even an "already applied"
+          // target is a race at this point: publishing it as a successful
+          // precheck would let the browser finalize work it did not perform.
+          localPrecheck = {
+            ...validatedPrecheck,
+            ok: validatedPrecheck.entries.every((entry) => entry.status === "ok"),
+          };
+          if (!localPrecheck.entries.every((entry) => entry.status === "ok")) {
+            const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+              restoreCanvas: false,
+              silent: true,
+              triggerStage: "prepared_scoped_precheck",
+              triggerFailure: localPrecheck,
+              canvasWasMutated: false,
+            });
+            const failure = agentPanelFailure(
+              "StaleStateMismatch",
+              "The touched region changed after backend acceptance. Scoped Apply is blocked.",
+              {
+                retryable: true,
+                graph_unchanged: true,
+                next_action: "Rebaseline and retry from the current canvas.",
+                transaction_rollback: transactionRollback,
+                canvas_apply: {
+                  mode: "scoped_delta",
+                  local_precheck: localPrecheck,
+                  accept_live_canvas_token: beforeApply.liveCanvasToken,
+                  current_live_canvas_token: currentBeforeMutation.liveCanvasToken,
+                },
+              },
+            );
+            const obligations = commitVerifyCanvasFailure(panel, {
+              ...compensatedFailurePayload(panel, failure, {
+                transactionRollback,
+                actionBody: prepareBody,
+                fallbackStage: "canvas_apply",
+              }),
+              debugPayload: {
+                transactional_apply: true,
+                prepare_response: prepared.raw || prepared,
+                canvas_apply_verification: {
+                  local_precheck: localPrecheck,
+                },
+              },
+            });
+            fulfillLifecycleTransitionObligations(panel, obligations);
+            renderLifecycleTransition(panel, obligations);
+            return;
+          }
+        }
+
+        const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
+        undoEntry = {
+          session_id: panel.state.sessionId,
+          turn_id: panel.state.turnId,
+          graph: clonePlainData(undoSnapshot.graph),
+          client_graph_hash: undoSnapshot.graphHash,
+          // Filled with the newly accepted baseline after finalize succeeds. The
+          // pre-finalize baseline is not valid CAS authority for an immediate
+          // Undo and was the reason Undo only recovered after rehydration.
+          accepted_baseline_graph_hash: null,
+          captured_at: new Date().toISOString(),
+          chat_scope_id: panel.state.chatScopeId || null,
+          chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
+          canvas_structural_hash: undoSnapshot.structuralHash || null,
         };
-        const validatedPrecheck = validateScopedCanvasPreconditions(
-          currentBeforeMutation.graph,
-          preparedMutationPlan.deltaOps,
-          v2ScopedVerification,
-        );
-        // A prepared lease owns the mutation.  Even an "already applied"
-        // target is a race at this point: publishing it as a successful
-        // precheck would let the browser finalize work it did not perform.
-        localPrecheck = {
-          ...validatedPrecheck,
-          ok: validatedPrecheck.entries.every((entry) => entry.status === "ok"),
-        };
-        if (!localPrecheck.entries.every((entry) => entry.status === "ok")) {
-          const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+        pendingTransactionSnapshotByPanel.set(panel, clonePlainData(undoSnapshot));
+      } catch (error) {
+        let transactionRollback = null;
+        let rollbackError = null;
+        try {
+          transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
             restoreCanvas: false,
             silent: true,
-            triggerStage: "prepared_scoped_precheck",
-            triggerFailure: localPrecheck,
+            triggerStage: "post_prepare_pre_mutation",
+            triggerFailure: error,
             canvasWasMutated: false,
           });
-          const failure = agentPanelFailure(
-            "StaleStateMismatch",
-            "The touched region changed after backend acceptance. Scoped Apply is blocked.",
-            {
-              retryable: true,
-              graph_unchanged: true,
-              next_action: "Rebaseline and retry from the current canvas.",
-              transaction_rollback: transactionRollback,
-              canvas_apply: {
-                mode: "scoped_delta",
-                local_precheck: localPrecheck,
-                accept_live_canvas_token: beforeApply.liveCanvasToken,
-                current_live_canvas_token: currentBeforeMutation.liveCanvasToken,
-              },
-            },
-          );
-          const obligations = commitVerifyCanvasFailure(panel, {
-            ...compensatedFailurePayload(panel, failure, {
-              transactionRollback,
-              actionBody: prepareBody,
-              fallbackStage: "canvas_apply",
-            }),
-            debugPayload: {
-              transactional_apply: true,
-              prepare_response: prepared.raw || prepared,
-              canvas_apply_verification: {
-                local_precheck: localPrecheck,
-              },
-            },
-          });
-          fulfillLifecycleTransitionObligations(panel, obligations);
-          renderLifecycleTransition(panel, obligations);
-          return;
+        } catch (caughtRollbackError) {
+          rollbackError = caughtRollbackError;
         }
+        const recoveryRequired = transactionRollback?.ok !== true;
+        const failure = agentPanelFailure(
+          "CanvasPreflightError",
+          `Could not complete the prepared canvas preflight: ${String(error?.message || error)}`,
+          {
+            retryable: true,
+            graph_unchanged: true,
+            next_action: recoveryRequired
+              ? "Cancel this interrupted Apply, then submit the edit again."
+              : "Submit the edit again from the unchanged canvas.",
+            transaction_rollback: transactionRollback,
+          },
+        );
+        const obligations = commitVerifyCanvasFailure(panel, {
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "post_prepare_pre_mutation",
+            recoveryRequired,
+          }),
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            pre_mutation_failure: boundedBrowserTransactionError(
+              error,
+              "post_prepare_pre_mutation",
+              { resumeState: "prepared" },
+            ),
+            rollback_failure: rollbackError
+              ? boundedBrowserTransactionError(rollbackError, "post_prepare_pre_mutation_rollback", {
+                  resumeState: "prepared",
+                })
+              : null,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
       }
-
-      const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
-      const undoEntry = {
-        session_id: panel.state.sessionId,
-        turn_id: panel.state.turnId,
-        graph: clonePlainData(undoSnapshot.graph),
-        client_graph_hash: undoSnapshot.graphHash,
-        // Filled with the newly accepted baseline after finalize succeeds. The
-        // pre-finalize baseline is not valid CAS authority for an immediate
-        // Undo and was the reason Undo only recovered after rehydration.
-        accepted_baseline_graph_hash: null,
-        captured_at: new Date().toISOString(),
-        chat_scope_id: panel.state.chatScopeId || null,
-        chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
-        canvas_structural_hash: undoSnapshot.structuralHash || null,
-      };
-      pendingTransactionSnapshotByPanel.set(panel, clonePlainData(undoSnapshot));
 
       let canvasApplyResult = null;
       try {
@@ -10618,9 +10697,9 @@ async function applyAgentCandidate(panel) {
         : verifyScopedCanvasResults(afterApply.graph, preparedMutationPlan.deltaOps, {
             entries: preparedMutationPlan.deltaOps.map((op) => ({
               target: clonePlainData(op.target ?? op.to ?? null),
-              desired_new: readGraphActualForOp(panel.state.candidateGraph, op),
+              desired_new: readGraphActualForOp(panel.state.candidateGraph, op, { widgetReferenceNodeFor }),
             })),
-          });
+          }, { widgetReferenceNodeFor });
       if (!localPostcheck.ok) {
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
           restoreCanvas: true,

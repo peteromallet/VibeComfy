@@ -6114,6 +6114,208 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
   }
 });
 
+test("VibeComfy v2 Apply resolves semantic KSampler fields through native widgets when serialization omits descriptors", async () => {
+  const widgetNames = ["seed", "control_after_generate", "steps", "cfg", "sampler_name", "scheduler", "denoise"];
+  const initialGraph = {
+    nodes: [{
+      id: 5,
+      type: "KSampler",
+      properties: { vibecomfy_uid: "n5" },
+      widgets_values: [42, "fixed", 25, 7, "euler", "normal", 1],
+      inputs: [],
+      outputs: [],
+    }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [{ ...initialGraph.nodes[0], widgets_values: [42, "fixed", 25, 7, "euler", "normal", 0.7] }],
+    links: [],
+  };
+  const semanticApply = v2ApplyScenarioFixture({
+    sessionId: "session-semantic-k-sampler",
+    planHash: "semantic-k-sampler-plan",
+    candidateGraph,
+    deltaOps: [{ op: "set_node_field", target: ["", "n5", "denoise"], value: 0.7 }],
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-semantic-k-sampler",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          eligibility: { applyable: true, reason: "queue_blocked_warning", message: "Apply is allowed." },
+          ...semanticApply.candidateFields,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: [], edited: ["n5"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      ...semanticApply.routes(),
+      "/vibecomfy/agent-edit/chat?session_id=session-semantic-k-sampler": {
+        status: 200,
+        body: { ok: true, session_id: "session-semantic-k-sampler", messages: [] },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    semanticApply.bind(extensionModule);
+    await harness.setup();
+    // Real ComfyUI keeps widget descriptors on the native node but omits
+    // them from graph.serialize(). Reproduce that exact split representation.
+    const liveSampler = harness.app.canvas.graph._nodes[0];
+    liveSampler.widgets = widgetNames.map((name, index) => ({ name, value: initialGraph.nodes[0].widgets_values[index] }));
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make this img2img";
+    await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    await harness.clickButton("Apply");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/finalize"));
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 0);
+    assert.equal(harness.app.canvas.graph._nodes[0].widgets_values[6], 0.7);
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "FINALIZED");
+    assert.equal(extensionModule.ensureAgentPanel().state.debugPayload?.canvas_apply_verification?.local_precheck?.ok, true);
+    assert.equal(extensionModule.ensureAgentPanel().state.debugPayload?.canvas_apply_verification?.local_postcheck?.ok, true);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply compensates an exception after prepare and before native mutation", async () => {
+  const initialGraph = { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "n1" }, outputs: [] }], links: [] };
+  const candidateGraph = {
+    nodes: [...initialGraph.nodes, { id: 2, type: "PreviewImage", properties: { vibecomfy_uid: "n2" }, inputs: [] }],
+    links: [],
+  };
+  const supervisedApply = v2ApplyScenarioFixture({
+    sessionId: "session-post-prepare-supervisor",
+    planHash: "post-prepare-supervisor-plan",
+    candidateGraph,
+    deltaOps: [{ op: "add_node", scope_path: "", uid: "n2", node_id: "2", class_type: "PreviewImage", fields: {}, inputs: {} }],
+  });
+  let harness;
+  harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-post-prepare-supervisor",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          eligibility: { applyable: true, reason: "queue_blocked_warning", message: "Apply is allowed." },
+          ...supervisedApply.candidateFields,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          report: { change: { content_edits: { preserved: ["n1"], edited: ["n2"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      ...supervisedApply.routes({
+        prepare: ({ preparedTransaction }) => {
+          const serialize = harness.app.canvas.graph.serialize.bind(harness.app.canvas.graph);
+          let throwOnce = true;
+          harness.app.canvas.graph.serialize = () => {
+            if (throwOnce) {
+              throwOnce = false;
+              throw new Error("injected post-prepare snapshot failure");
+            }
+            return serialize();
+          };
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "prepare",
+              session_id: "session-post-prepare-supervisor",
+              turn_id: "0001",
+              receipt: { plan_hash: "post-prepare-supervisor-plan", generation: 1, lease_nonce: "supervisor-lease" },
+              candidate_transaction: preparedTransaction,
+            },
+          };
+        },
+        rollback: ({ body, rolledBackTransaction }) => {
+          assert.equal(body.compensation.trigger_stage, "post_prepare_pre_mutation");
+          assert.equal(body.compensation.canvas_was_mutated, false);
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "rollback",
+              session_id: "session-post-prepare-supervisor",
+              turn_id: "0001",
+              receipt: { plan_hash: "post-prepare-supervisor-plan", generation: 1, phase: "rollback_complete" },
+              candidate_transaction: rolledBackTransaction,
+            },
+          };
+        },
+      }),
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    supervisedApply.bind(extensionModule);
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "trigger supervised apply";
+    await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    await harness.clickButton("Apply");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "ERROR");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
+    assert.equal(harness.graphAddCalls.length, 0);
+    assert.equal(extensionModule.ensureAgentPanel().state.failure?.kind, "CanvasPreflightError");
+    assert.equal(extensionModule.ensureAgentPanel().state.rollbackReceipt?.phase, "rollback_complete");
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy v2 Apply blocks when the touched region drifts after backend accept, even if delta ops only exist in panel state", async () => {
   const initialGraph = {
     nodes: [

@@ -48,6 +48,10 @@ terminal error without retry, reconciliation, verified rollback, or exact
 retained recovery evidence is forbidden.
 Native mutation and compensation attempts leave durable step-level receipts, so
 `RECOVERY_REQUIRED` is reconstructible even after the browser document is gone.
+One transaction supervisor owns the entire interval from durable prepare through
+finalize. It records `preflight_complete` and `mutation_started` checkpoints;
+there is no unguarded browser-only gap in which snapshotting, typed scoped
+verification, Undo capture, or adapter setup can strand a prepared lease.
 Semantic workflow fields resolve through native widget identity and adapter
 carrier evidence. Serialized input-descriptor order is never treated as widget
 serialization order: ComfyUI may serialize auxiliary widgets that have no input

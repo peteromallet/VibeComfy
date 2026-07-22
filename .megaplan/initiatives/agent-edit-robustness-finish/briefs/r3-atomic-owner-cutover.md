@@ -46,6 +46,11 @@ does not reconcile with current source.
 - Make the transition from side-effect-free preflight to the first native write
   explicit in adapter evidence. A preflight failure has an empty landed prefix
   and cannot authorize inverse mutation or whole-graph compensation.
+- Put prepare response handling, snapshotting, scoped precheck, Undo capture,
+  native mutation, verification, and finalize under one transaction supervisor.
+  Persist `preflight_complete` and `mutation_started` before crossing each
+  boundary; no exception or lost page context may leave an unclassified
+  browser-only gap after durable prepare.
 
 ## OUT
 

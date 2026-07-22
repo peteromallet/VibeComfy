@@ -41,6 +41,12 @@ contracts, including refresh and workflow switching.
   with `mutation_started=false` cancels/rolls back the lease without applying an
   inverse delta or restoring the canvas; it must not be projected as a partial
   Apply merely because prepare succeeded.
+- Persist `preflight_complete` separately from `mutation_started`. If either
+  checkpoint is absent after prepare, recovery compares the live typed
+  projection with the authoritative pre/post projections and deterministically
+  cancels, restores, or resumes; it never infers mutation status from panel
+  phase or assumes `canvas_was_mutated=false` merely because the browser died
+  before advancing UI state.
 - Enforce versioned legacy continuation/migration/non-resumable behavior.
 - Declare `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` as the
   fingerprint-qualified session-key → workflow-UUID-owned key migration. Only

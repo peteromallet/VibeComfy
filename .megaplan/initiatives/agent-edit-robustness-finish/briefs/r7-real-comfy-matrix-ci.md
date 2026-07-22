@@ -49,6 +49,11 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   inverse delta, node disappearance, or whole-graph restore. Before Apply, the
   real preview must remain canonical-delta-derived and show both added nodes,
   the removed latent node, the rewire, and the denoise edit.
+- For that exact img2img transaction, inject an exception and page-context loss
+  after prepare at every boundary through the first native write (snapshot,
+  semantic scoped read, Undo capture, adapter entry, and immediately after
+  `mutation_started`). Assert durable checkpoint evidence, no stranded prepared
+  lease, and a verified unchanged, restored, or finalized canvas.
 - Inject a same-workflow `/chat` 500 and prove messages remain visible with a
   retry path. Then prove a confirmed missing session clears only that workflow,
   legacy fingerprint-qualified keys migrate, and equal graphs under different
@@ -117,6 +122,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   back only the lease with an empty landed prefix and unchanged canvas. Preview
   and Apply expose identical authoritative plan coverage for the full img2img
   mutation; no legacy preview fallback is accepted.
+- Post-prepare fault injection proves the transaction supervisor always emits a
+  terminal compensation/recovery receipt; recovery decisions use durable
+  `preflight_complete`/`mutation_started` evidence plus typed pre/post
+  projections, never volatile panel phase.
 - The machine matrix validates its required identity/transcript/receipt-source
   schema and covers every rehydrate and migration classification above.
 - Compatibility matrix is deterministic, representative, and precisely attributed.
