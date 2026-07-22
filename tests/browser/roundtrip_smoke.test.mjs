@@ -16302,6 +16302,103 @@ test("VibeComfy comfy_adapter uses native LLink APIs for Proxy Map link stores",
   }
 });
 
+test("VibeComfy comfy_adapter resolves native link slots by port name rather than candidate array position", async () => {
+  const harness = await createBrowserHarness({ graph: { nodes: [], links: [] }, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const graph = {
+      _nodes: [],
+      links: new Map(),
+      add() {},
+      remove() {},
+      removeLink() {},
+      serialize() {
+        return {
+          nodes: this._nodes.map((node) => ({
+            id: node.id,
+            type: node.type,
+            inputs: structuredClone(node.inputs),
+            outputs: structuredClone(node.outputs),
+            properties: structuredClone(node.properties),
+          })),
+          links: [...this.links.values()].map((link) => [
+            link.id,
+            link.origin_id,
+            link.origin_slot,
+            link.target_id,
+            link.target_slot,
+            link.type,
+          ]),
+        };
+      },
+    };
+    const source = {
+      id: 4,
+      type: "EmptyLatentImage",
+      inputs: [],
+      outputs: [{ name: "LATENT", type: "LATENT", links: [] }],
+      properties: { vibecomfy_uid: "latent" },
+      connect(originSlot, target, targetSlot) {
+        if (this.outputs[originSlot]?.type !== target.inputs[targetSlot]?.type) return null;
+        const link = {
+          id: 1,
+          origin_id: this.id,
+          origin_slot: originSlot,
+          target_id: target.id,
+          target_slot: targetSlot,
+          type: this.outputs[originSlot].type,
+        };
+        graph.links.set(link.id, link);
+        this.outputs[originSlot].links.push(link.id);
+        target.inputs[targetSlot].link = link.id;
+        return link;
+      },
+    };
+    const sampler = {
+      id: 5,
+      type: "KSampler",
+      inputs: [
+        { name: "model", type: "MODEL", link: null },
+        { name: "positive", type: "CONDITIONING", link: null },
+        { name: "negative", type: "CONDITIONING", link: null },
+        { name: "latent_image", type: "LATENT", link: null },
+      ],
+      outputs: [],
+      properties: { vibecomfy_uid: "sampler" },
+    };
+    graph._nodes.push(source, sampler);
+    harness.app.canvas.graph = graph;
+
+    const candidateGraph = {
+      nodes: [
+        { ...graph.serialize().nodes[0], outputs: [{ name: "LATENT", type: "LATENT", links: [9] }] },
+        {
+          ...graph.serialize().nodes[1],
+          // A synthetic producer may serialize only connected inputs, so its
+          // numeric slot differs from the native KSampler ABI.
+          inputs: [{ name: "latent_image", type: "LATENT", link: 9 }],
+        },
+      ],
+      links: [[9, 4, 0, 5, 0, "LATENT"]],
+    };
+
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [{
+        op: "upsert_link",
+        from: ["", "latent", "LATENT"],
+        to: ["", "sampler", "latent_image"],
+      }],
+      candidateGraph,
+    });
+
+    assert.equal(sampler.inputs[0].link, null, "MODEL slot must not receive LATENT");
+    assert.equal(sampler.inputs[3].link, 1, "named latent_image port resolves to native slot 3");
+    assert.equal(graph.links.get(1).target_slot, 3);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy rollback inverse identifies root-scoped added nodes by uid", async () => {
   const harness = await createBrowserHarness();
   try {

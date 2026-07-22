@@ -559,12 +559,17 @@ function findCandidateLinkForOp(candidateGraph, op) {
     ) {
       continue;
     }
+    const candidateIndex = buildGraphIndex(candidateGraph);
+    const sourceNode = resolveNodeFromIndex(candidateIndex, String(link.origin_id));
+    const targetNode = resolveNodeFromIndex(candidateIndex, String(link.target_id));
     return {
       id: link.id,
       origin_id: link.origin_id,
       origin_slot: link.origin_slot,
+      origin_slot_name: slotNameOrIndex(sourceNode?.outputs?.[link.origin_slot], link.origin_slot),
       target_id: link.target_id,
       target_slot: link.target_slot,
+      target_slot_name: slotNameOrIndex(targetNode?.inputs?.[link.target_slot], link.target_slot),
       type: link.type ?? null,
     };
   }
@@ -686,6 +691,14 @@ function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
     .filter((link) => addedIds.has(String(link.origin_id)) || addedIds.has(String(link.target_id)))
     .sort((a, b) => Number(a.id) - Number(b.id));
   for (const link of links) {
+    const candidateIndex = buildGraphIndex(candidateGraph);
+    const sourceNode = resolveNodeFromIndex(candidateIndex, String(link.origin_id));
+    const targetNode = resolveNodeFromIndex(candidateIndex, String(link.target_id));
+    const namedLink = {
+      ...link,
+      origin_slot_name: slotNameOrIndex(sourceNode?.outputs?.[link.origin_slot], link.origin_slot),
+      target_slot_name: slotNameOrIndex(targetNode?.inputs?.[link.target_slot], link.target_slot),
+    };
     // An add_node carries input intent in the canonical contract. Materialize
     // those edges explicitly so native LiteGraph nodes are never configured
     // with link ids that are absent from graph.links.
@@ -707,7 +720,7 @@ function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
         .sort((left, right) => right.source_op_index - left.source_op_index)[0];
       plan.push({
         op: "upsert_link",
-        link: { ...link },
+        link: namedLink,
         derivedFromAddNode: true,
         source_op_index: sourceStep?.source_op_index ?? null,
         source_op_kind: "add_node",
@@ -939,19 +952,30 @@ function removeLiveLink(graph, linkId) {
 }
 
 function upsertLiveLink(graph, link) {
-  const prior = liveLinkEntries(graph)
-    .map((entry) => normalizeLinkRecord(entry))
-    .find((entry) => entry && String(entry.target_id) === String(link.target_id) && Number(entry.target_slot) === Number(link.target_slot));
-  if (prior) {
-    removeLiveLink(graph, prior.id);
-  }
   const sourceNode = resolveLiveNode(graph, String(link.origin_id));
   const targetNode = resolveLiveNode(graph, String(link.target_id));
   if (!sourceNode || !targetNode) {
     throw new Error("Could not resolve live nodes for link mutation.");
   }
-  const output = Array.isArray(sourceNode.outputs) ? sourceNode.outputs[link.origin_slot] : null;
-  const input = Array.isArray(targetNode.inputs) ? targetNode.inputs[link.target_slot] : null;
+  const originSlot = typeof link.origin_slot_name === "string"
+    ? findSlotIndex(sourceNode.outputs, link.origin_slot_name, "name")
+    : Number(link.origin_slot);
+  const targetSlot = typeof link.target_slot_name === "string"
+    ? findSlotIndex(targetNode.inputs, link.target_slot_name, "name")
+    : Number(link.target_slot);
+  if (originSlot < 0 || targetSlot < 0) {
+    throw new Error(
+      `Could not resolve live named slots for link mutation: ${String(link.origin_slot_name)} -> ${String(link.target_slot_name)}.`,
+    );
+  }
+  const prior = liveLinkEntries(graph)
+    .map((entry) => normalizeLinkRecord(entry))
+    .find((entry) => entry && String(entry.target_id) === String(link.target_id) && Number(entry.target_slot) === targetSlot);
+  if (prior) {
+    removeLiveLink(graph, prior.id);
+  }
+  const output = Array.isArray(sourceNode.outputs) ? sourceNode.outputs[originSlot] : null;
+  const input = Array.isArray(targetNode.inputs) ? targetNode.inputs[targetSlot] : null;
   if (!output || !input) {
     throw new Error("Could not resolve live slots for link mutation.");
   }
@@ -960,9 +984,11 @@ function upsertLiveLink(graph, link) {
   // LLink.serialize(). Let LiteGraph construct and register the link itself;
   // structural transaction authority intentionally does not depend on link ids.
   if (typeof sourceNode.connect === "function") {
-    const connected = sourceNode.connect(link.origin_slot, targetNode, link.target_slot);
+    const connected = sourceNode.connect(originSlot, targetNode, targetSlot);
     if (connected === false || connected == null) {
-      throw new Error("LiteGraph node.connect() did not create the requested link.");
+      throw new Error(
+        `LiteGraph node.connect() did not create ${String(link.origin_slot_name ?? originSlot)} -> ${String(link.target_slot_name ?? targetSlot)}.`,
+      );
     }
     return;
   }

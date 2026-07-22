@@ -251,7 +251,18 @@ def _apply_add_node(
 
     link_ids: list[int] = []
     diagnostics: list[PortIssue] = list(group_issues)
-    for input_name in sorted(spec.resolved_inputs):
+    # LiteGraph slot indexes are positional runtime ABI, not presentation
+    # order.  In particular, alphabetizing KSampler's connected inputs turns
+    # latent_image into slot 0 even though the native node owns model at slot
+    # 0.  Follow the schema declaration order for known inputs and retain a
+    # deterministic fallback only for dynamic/unknown inputs.
+    ordered_input_names = [
+        input_name for input_name in spec.schema_inputs if input_name in spec.resolved_inputs
+    ]
+    ordered_input_names.extend(
+        sorted(input_name for input_name in spec.resolved_inputs if input_name not in spec.schema_inputs)
+    )
+    for input_name in ordered_input_names:
         source = spec.resolved_inputs[input_name]
         input_spec = spec.resolved_input_specs.get(input_name) or spec.schema_inputs.get(input_name)
         target_type = _normalize_type(getattr(input_spec, "type", None))

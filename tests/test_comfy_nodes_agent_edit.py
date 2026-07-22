@@ -13574,6 +13574,26 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
     assert result["change_details"]["landed_operation_count"] == 7
     assert result["candidate"] is not None
     assert len(result["candidate"]["graph"]["nodes"]) == 7
+    sampler_node = next(
+        node for node in result["candidate"]["graph"]["nodes"] if node["type"] == "KSampler"
+    )
+    assert [input_slot["name"] for input_slot in sampler_node["inputs"]] == [
+        "model",
+        "positive",
+        "negative",
+        "latent_image",
+    ]
+    sampler_links = {
+        link[4]: link[5]
+        for link in result["candidate"]["graph"]["links"]
+        if str(link[3]) == str(sampler_node["id"])
+    }
+    assert sampler_links == {
+        0: "MODEL",
+        1: "CONDITIONING",
+        2: "CONDITIONING",
+        3: "LATENT",
+    }
     sampler_projection = next(
         node
         for node in result["candidate_transaction"]["candidate_authority"]["postcondition"]["canonical"]["nodes"]
