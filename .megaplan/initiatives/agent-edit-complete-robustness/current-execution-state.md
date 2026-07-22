@@ -41,9 +41,9 @@ or final audit item.
 - M2 Slices 1–2 are implemented and independently accepted. The observation-
   only Family-A preparation and the C0–C1 contract checkpoint are also
   accepted. The adjacent panel/workflow scheduler activation fence is proven
-  and accepted. The bounded C2a receipt core has two independent acceptances
-  and passes its focused 20/20 suite, but it remains uncommitted and
-  unintegrated. It has not changed the production adapter or ownership ledger.
+  and accepted. The bounded C2a receipt core has two independent acceptances,
+  passes its focused 20/20 suite, and was committed in `7934834f`. It has not
+  changed the production adapter or ownership ledger.
   C2b native resolver work is next. None of these closes native ownership:
   0/27 coupled S3 rows have transferred, all seven S4-debt rows remain open,
   and the C2 atomic native-owner cutover is pending. Slices 3–6 remain open,
@@ -96,8 +96,8 @@ transfer a ledger row, or claim S3/S4 closure.
 M2 continues at C2 in the coupled S3+S4 work described by
 `briefs/m2-slices-3-4-implementation.md`. The versioned contracts and private
 plan proof are landed prerequisites. The bounded C2a receipt core is accepted
-on 20/20 focused tests but remains an uncommitted, unintegrated private draft;
-it is not a production checkpoint and transfers no ownership. The next
+on 20/20 focused tests and committed as a private, unrouted draft; it is not a
+production checkpoint and transfers no ownership. The next
 integration boundary is C2b: resolve the exact native targets and capabilities
 behind that receipt without exposing live objects or routing a consumer. C2c
 then performs the indivisible consumer/deletion/ledger cut moving stable

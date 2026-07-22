@@ -14,13 +14,27 @@ review, and each produces a durable handoff consumed by the next.
 - `.megaplan/initiatives/agent-edit-complete-robustness/TASKS.md`
 - `.megaplan/initiatives/agent-edit-complete-robustness/current-execution-state.md`
 - `.megaplan/initiatives/agent-edit-complete-robustness/proof-map.json`
-- accepted commits through `3f828c4c`
-- accepted, uncommitted C2a receipt core and its focused tests
+- accepted foundation through `a395c243`, as enumerated by the tracked
+  `FOUNDATION.md` launch receipt
+- foundation includes the committed C2a receipt core and incident repairs for empty
+  canvases, native port identity, projection normalization, hash authority,
+  finalized chat retention, scope migration, and native widget resolution
 
 M0 and M1 are closed. M2 observation/contract checkpoints are accepted, but
 the public adapter remains observation-only, coupled native ownership remains
 0/27 transferred, seven S4 debt rows remain, and the C2 atomic cut is open.
 M3–M6 are residual work, not assumed foundation.
+
+The chain may launch only from `agent/agent-edit-robustness-foundation` after
+the tracked foundation receipt and its `a395c243` content check pass. This
+prevents a launch from the former `7934834f` branch tip.
+Before R1, record a zero exit from `git merge-base --is-ancestor a395c243
+agent/agent-edit-robustness-foundation`; the current chain schema cannot express
+that ancestry assertion directly.
+
+`FOUNDATION.md` supersedes predecessor status text only for C2a's committed
+state and the later incident repairs. The predecessor remains authoritative
+for M0–M2 closure and native-owner transfer state.
 
 ## Dial decisions
 

@@ -4,11 +4,14 @@ This residual epic completes the architecture defined by
 `docs/plans/agent-edit-complete-robustness-architecture.md` without rewriting
 the running history under `agent-edit-complete-robustness`.
 
-It starts from accepted commits `070a672d`, `41a83fb6`, `728aa747`,
-`9f34ccfa`, `95ede97c`, `8a1c91b5`, and `3f828c4c`, plus the independently
-accepted but currently uncommitted C2a receipt core. The current-state ledger
-in the predecessor initiative remains the authority for what is already
-proved.
+It starts from the repaired `agent/agent-edit-robustness-foundation` history,
+including every repair through `a395c243`. `FOUNDATION.md` enumerates that
+stack and is a tracked, content-checked chain launch precondition. The chain
+must not launch from the former `7934834f` tip. The current-state ledger in the
+predecessor initiative remains the authority for what is already proved.
+For clarity, `FOUNDATION.md` supersedes predecessor status text about C2a being
+uncommitted and records the later repairs; predecessor ledgers remain
+authoritative for M0–M2 closure and native-owner transfer.
 
 ## Routing policy
 

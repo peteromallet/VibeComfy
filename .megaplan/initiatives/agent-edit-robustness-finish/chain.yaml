@@ -3,6 +3,17 @@ base_branch: agent/agent-edit-robustness-foundation
 anchors:
   north_star: NORTHSTAR.md
 
+launch_preconditions:
+  - name: repaired foundation receipt is tracked
+    kind: git_tracked
+    path: .megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md
+  - name: getter-safe incident repair is in the foundation receipt
+    kind: artifact
+    path: .megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md
+    check:
+      kind: contains_text
+      text: a395c243
+
 milestones:
   - label: r1-private-native-core
     idea: .megaplan/initiatives/agent-edit-robustness-finish/briefs/r1-private-native-core.md

@@ -1,5 +1,6 @@
 {
   "r1-private-native-core": [
+    ".megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-native-execution-fault-matrix.json"
   ],
@@ -16,16 +17,21 @@
   ],
   "r4-single-verifier": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-hash-authority-boundary.json"
   ],
   "r5-controller-api": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-async-fence-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-workflow-chat-identity-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
   ],
   "r6-recovery-undo-legacy": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-acceptance.md",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-recovery-state-matrix.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-recovery-state-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-chat-scope-migration-contract.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-chat-scope-migration-evidence.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-finalized-receipt-projection.json"
   ],
   "r7-real-comfy-matrix-ci": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-acceptance.md",

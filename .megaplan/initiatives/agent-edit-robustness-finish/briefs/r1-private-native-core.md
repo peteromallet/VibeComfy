@@ -8,8 +8,10 @@ faults but unreachable from production consumers.
 
 ## Input handoff
 
-- Accepted commits through `3f828c4c` and predecessor current-state/proof map.
-- Accepted uncommitted `_intent_graph_receipt_core.mjs` and its 20/20 test.
+- Accepted repaired foundation through `a395c243`, the tracked `FOUNDATION.md`
+  launch receipt, and the predecessor current-state/proof map.
+- Accepted `_intent_graph_receipt_core.mjs` and its 20/20 test, committed in
+  the foundation history.
 - C2 forensic, receipt/fence, atomic-cutover, and ownership-ledger briefs under
   `.megaplan/initiatives/agent-edit-complete-robustness/briefs/`.
 - M1 versioned authority, layout, materialization, inverse, projection, identity,
@@ -17,8 +19,8 @@ faults but unreachable from production consumers.
 
 ## IN
 
-- Commit the accepted C2a core and its evidence without silently changing its
-  contract.
+- Ratify and seal the already committed C2a core and its evidence without
+  silently changing its contract.
 - Extend ownership scanners to inspect both `.js` and `.mjs`; a file extension
   may never hide a duplicate owner.
 - Resolve supported real ComfyUI node, group, link, registry, measurement, and
@@ -73,8 +75,8 @@ unless the evidence is genuinely absent.
 ## Done criteria
 
 - Two independent acceptances plus focused adversarial review.
-- C2a is committed with its focused suite green and `.mjs` scanner coverage
-  enforced.
+- C2a's existing commit is ratified with its focused suite green and `.mjs`
+  scanner coverage enforced.
 - Every supported operation and partial-prefix failure has externally
   instrumented proof; no self-attested write counter is accepted.
 - Unsupported native shapes refuse before mutation with bounded diagnostics.
@@ -97,7 +99,7 @@ touch protected files.
 ## Output handoff and proof artifacts
 
 - Private execution core and fault-matrix suite.
-- Accepted C2a commit SHA and acceptance records.
+- Ratified C2a commit SHA and acceptance records.
 - Machine-readable preliminary cutover inventory enumerating observed consumers,
   legacy definition/export/call candidates, expected ledger categories, and
   harness needs; R2 remains responsible for completeness and certification.
@@ -111,5 +113,6 @@ depth: **high**; vendor: **claude** with active GLM 5.2; prep required. The risk
 is incorrect native-shape modeling that locally passes a harness and poisons the
 later atomic cut; full rigor is sufficient because no production owner moves.
 
-Prep direction: verify every supported native shape and `.js`/`.mjs` scanner
+Prep direction: first record that `a395c243` is an ancestor of the resolved base
+branch, then verify every supported native shape and `.js`/`.mjs` scanner
 boundary against the pinned checkout and accepted ledger before implementation.

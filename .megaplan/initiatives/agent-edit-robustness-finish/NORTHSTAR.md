@@ -21,6 +21,12 @@ decision:
   workflows, scopes, nodes, groups, sessions, turns, candidates, and
   transactions.
 
+The Comfy workflow UUID owns workflow context and conversation identity. A tab
+nonce may namespace browser persistence but never owns the conversation. A
+graph fingerprint is revision and precondition evidence, never identity;
+structural edits under one workflow UUID must not create a new session, scope,
+or transcript.
+
 There is no production `candidateGraph` or whole-graph path to native forward
 mutation. Whole-graph loading may exist only as an explicitly authorized,
 receipt-bound compensation strategy. Compatibility code survives only when it
@@ -38,9 +44,25 @@ terminal error without retry, reconciliation, verified rollback, or exact
 retained recovery evidence is forbidden.
 Native mutation and compensation attempts leave durable step-level receipts, so
 `RECOVERY_REQUIRED` is reconstructible even after the browser document is gone.
+Rehydration has one exhaustive classification: a stale response is ignored; a
+valid success replaces the safe projection; an explicit
+`CHAT_REHYDRATE_MISSING_SESSION` clears only the current workflow's binding;
+every other transport, server, schema, or projection failure preserves the last
+safe transcript and exposes retry. Activating another workflow first
+deactivates the departed context, so retention cannot leak messages across
+workflows. Finalization changes transaction state only: it neither creates
+persistent conversation content nor clears the thread.
+
+Compatibility/session CAS digests are versioned boundary values, not typed
+transaction projection witnesses. A finalized rehydrate recovers the exact
+generation and lease from one coherent durable identity source bound to the
+same transaction and generation, even when a terminal receipt does not repeat
+those fields at its top level. Identity fragments from different generations
+must never be combined.
 
 The exact `a66422e…`, `eb45e…`, detached `Displays / Labels`, duplicate-title,
-and workflow-tab isolation incidents remain permanent gates. Real ComfyUI must
+workflow-tab isolation, fingerprint-scoped chat, and getter-only native-widget
+incidents remain permanent gates. Real ComfyUI must
 prove forward success, native serialization, verification, finalize, refresh,
 persistence, injected failure, rollback, recovery, and switching for every
 supported transaction family.

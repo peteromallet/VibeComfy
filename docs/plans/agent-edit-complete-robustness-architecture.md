@@ -209,7 +209,9 @@ aggregate:
 
 ```text
 WorkflowEditContext
-├── workflow ID
+├── Comfy workflow UUID (context and conversation identity)
+├── tab nonce (browser-persistence namespace only)
+├── graph fingerprint (revision/precondition evidence only)
 ├── activation epoch
 ├── active session
 ├── lifecycle state
@@ -234,6 +236,15 @@ The controller alone should coordinate:
 - workflow activation;
 - workflow deactivation;
 - cancellation and late-result rejection.
+
+Structural edits may change the graph fingerprint but must not mint a new
+workflow context, session, scope, or transcript. Finalization is a transaction
+state transition only: it creates no persistent conversation entry and clears
+no thread. Rehydration ignores stale responses, replaces from valid success,
+clears only the current binding on explicit `CHAT_REHYDRATE_MISSING_SESSION`,
+and preserves the last safe transcript with retry for every other transport,
+server, schema, or projection failure. Activating a new workflow deactivates
+the departed one before fetching, preventing retained-state leakage.
 
 An asynchronous result may commit only when all of the following still match:
 
@@ -263,6 +274,12 @@ Every post-prepare state must have a deterministic recovery path.
 
 A generic terminal `ERROR` with no safe next action is not an acceptable
 post-prepare outcome.
+
+Finalized reconstruction must recover the exact generation and lease from one
+coherent durable identity source bound to the same transaction/generation,
+including a nested journal identity fence or validated prepared lease when the
+terminal receipt omits top-level fields. It must never combine identity pieces
+from different generations.
 
 ### 6. Make stable identity mandatory
 
@@ -461,6 +478,16 @@ contracts. We need an explicit policy:
 - or mark them safely non-resumable and provide rebaseline or rollback.
 
 Silent reinterpretation under a newer projection is unsafe.
+
+`workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` is the declared
+fingerprint-qualified session-key to workflow-UUID-owned key migration. The v1
+key wins, migration checks only the current revision's legacy key, malformed
+keys fail closed, repeats are idempotent, and other UUIDs/fingerprints are never
+scanned or copied. The v0 key remains read-only until its telemetry-backed
+retention window and reviewed version-bump age-out.
+
+Compatibility/session CAS digests stay at an explicit versioned compatibility
+boundary and cannot stand in for typed transaction projection witnesses.
 
 ### Browser and Python equivalence
 

@@ -33,6 +33,9 @@ does not reconcile with current source.
 - Prove full `a66422e…` and `eb45e…` prepare → Apply → native serialize →
   verify → finalize → reload/persist, plus meaningful partial failures, inverse,
   compensation, rollback, and tab-switch zero writes in real ComfyUI.
+- Resolve semantic fields such as `width`, `height`, `ckpt_name`, and
+  `filename_prefix` through native widget identity. Layout-owned getter-only
+  node properties must never be treated as logical workflow fields or written.
 
 ## OUT
 
@@ -68,6 +71,8 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
 - Forbidden old definitions/imports/exports/calls/fallbacks are absent.
 - Exact incidents pass forward finalize/reload and failure/inverse/compensation/
   rollback in real ComfyUI.
+- The getter-only width fixture proves semantic widget mutation without an
+  arbitrary JavaScript node-property write.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 

@@ -40,7 +40,7 @@ recovery requirement, or final audit item.
 | --- | --- | --- | --- |
 | M0 | Ratify and freeze the incident foundation | Medium | Complete |
 | M1 | Versioned operation, projection, identity, Undo, and migration contracts | Hard | Complete |
-| M2 | Native graph adapter and canonical mutation path | Hard | In progress — S1/S2 accepted; C2a receipt core accepted 20/20 but uncommitted/unintegrated; C2b resolver next; S3–S6 pending |
+| M2 | Native graph adapter and canonical mutation path | Hard | In progress — S1/S2 accepted; C2a receipt core accepted 20/20 and committed as private/unrouted; C2b resolver next; S3–S6 pending |
 | M3 | Single Apply/rollback verifier | Hard | Pending |
 | M4 | Workflow-scoped controller and transport boundary | Hard | Pending |
 | M5 | Exhaustive recovery, Undo, and legacy closure | Hard | Pending |

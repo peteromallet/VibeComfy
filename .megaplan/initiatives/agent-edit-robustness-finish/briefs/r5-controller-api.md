@@ -18,6 +18,9 @@ event wiring, and view composition.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
+- Key that context and its conversation by the Comfy workflow UUID. The tab
+  nonce only namespaces browser persistence; the structural fingerprint is
+  revision/precondition evidence and must never mint a context or session.
 - Coordinate submit, prepare, Apply, verify, finalize, reject, rollback, Undo,
   rehydrate, activate/deactivate, cancel, and late-result rejection.
 - Bind every browser controller context to the server's exact frontend build
@@ -31,6 +34,10 @@ event wiring, and view composition.
 - Prove fresh activation versus exact restoration, switching during every phase,
   late callbacks, refresh, empty workflows, and structurally identical tabs.
 - Delete old coordinator/transport owners, copied aggregates, dead exports, and shims.
+- Treat finalization strictly as a transaction-state transition. It must not
+  append durable conversation content, clear the transcript, or render the
+  composer notice "Transaction finalized / The mutation has been committed to
+  the baseline. You may submit a new edit."
 
 ## OUT
 
@@ -44,11 +51,19 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - Activation atomically installs fresh or exact-restored context; deactivation
   revokes all prior async authority.
 - Durable transaction state outranks panel phase; rollback targets the originating workflow.
+- Rehydration is exhaustive: ignore stale responses; replace from valid
+  success; on explicit `CHAT_REHYDRATE_MISSING_SESSION`, clear only the current
+  workflow binding; on every other transport, 5xx, malformed-schema, or
+  projection failure, preserve the last safe transcript and expose retry.
+- Scope activation deactivates the departed workflow before fetching the new
+  scope, preventing preserved state from becoming a cross-workflow projection.
+- R5 owns workflow-affine browser binding and the safe transcript projection;
+  R6 owns durable receipt and restart reconstruction.
 
 ## Open questions for the planner
 
 - Safe bounded inactive-context retention.
-- Whether draft/transcript persistence beyond the browser belongs here or R6.
+- Safe bounded retention duration for inactive workflow contexts.
 - Cancellation semantics after durable prepare; authority cannot be discarded.
 
 ## Constraints
@@ -60,6 +75,14 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 
 - Switching during every phase yields no leak, cross-tab write, or stale commit.
 - Refresh restores exact workflow/transaction context; identical tabs remain distinct.
+- Structural Apply/finalize may change the graph fingerprint but preserves the
+  workflow UUID, session, scope, and transcript; the next submission reuses the
+  original session.
+- Stale, `/chat` 500, transport, malformed-schema, and projection-failure
+  responses leave prior messages safe and retryable; a confirmed missing
+  session clears only the current workflow.
+- Finalization produces no finalized composer notice and no persistent chat
+  entry.
 - A server/frontend build mismatch is detected before prepare or native mutation,
   and a fresh document proves the matching build before authority is restored.
 - Static gates prove one controller/API/reducer and no coordination/transport/
@@ -80,7 +103,8 @@ compatibility facade, fence weakening, or protected-file change.
 ## Output handoff and proof artifacts
 
 - Controller/API contracts and `WorkflowEditContext` schema.
-- Full async-fence/tab-switch matrix and roundtrip responsibility audit.
+- Full async-fence/tab-switch and workflow-chat-identity matrices, plus the
+  roundtrip responsibility audit.
 - Stable durable-context interface consumed by R6.
 
 ## Megaplan dial

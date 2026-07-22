@@ -25,6 +25,13 @@ and bounded mismatch evidence, and delete every inline competing decision.
   equivalent zero-widget encodings. In particular, `showAdvanced` must be
   classified as non-semantic, and omitted, `null`, `[]`, and `{}` zero-widget
   representations must produce one structural projection in browser and Python.
+- Reject a compatibility/session CAS digest as evidence for a typed
+  transaction projection witness. Keep that digest only at an explicit,
+  versioned compatibility boundary until its migration or retirement.
+- Fail before native mutation when a semantic field cannot resolve to its
+  native widget carrier, or when the candidate projection and typed delta do
+  not describe the same field update. A getter-only layout property is not a
+  workflow-field fallback.
 
 ## OUT
 
@@ -59,6 +66,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - All fault exits and named fixtures pass the same public API.
 - Browser/Python goldens prove native `showAdvanced` and every zero-widget
   encoding cannot create a false postcondition mismatch.
+- Hash-authority fixtures prove a compatibility/session CAS digest cannot
+  satisfy a typed witness, and getter-only field fixtures fail closed before
+  mutation when widget resolution is unavailable.
 - Focused verifier/ownership and broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances complete.
 
@@ -75,6 +85,7 @@ generic framework, compatibility wrapper, or protected-file modification.
 ## Output handoff and proof artifacts
 
 - Verifier implementation/public contract and versioned bounded-diff schema.
+- Versioned hash-authority boundary and semantic-field consistency evidence.
 - Complete verifier fault matrix and comparison-owner deletion audit consumed by R5/R6.
 
 ## Megaplan dial

@@ -29,6 +29,20 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   prepare → 7-native-node/9-link Apply → landed-plan audit → typed postcondition
   → finalize case. It must exercise native port-order divergence, `showAdvanced`,
   and zero-widget serialization; adapter-only replay is insufficient evidence.
+- Extend that case through Apply/finalize and a follow-up submission: the
+  structural fingerprint changes while workflow UUID, scope, session, and
+  transcript remain; the follow-up reuses the original session; refresh
+  restores the transcript and exact generation/lease.
+- Exercise SD1.5 → SDXL semantic updates for `ckpt_name`, `width`, `height`,
+  and `filename_prefix` against getter-only native node properties. All updates
+  must land through native widgets, with unresolved fields and candidate/delta
+  disagreement refusing before mutation.
+- Inject a same-workflow `/chat` 500 and prove messages remain visible with a
+  retry path. Then prove a confirmed missing session clears only that workflow,
+  legacy fingerprint-qualified keys migrate, and equal graphs under different
+  workflow UUIDs remain isolated.
+- Add stale-response, malformed/schema/projection failure, v1-key-wins,
+  malformed legacy-key, and no-broad-key-search variants.
 - Restart/switch the serving VibeComfy checkout while keeping the existing
   browser document alive. Prove stale ESM cannot Submit/Apply, the UI requires a
   real document reload, and the reloaded content-addressed build completes the
@@ -39,6 +53,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   schedule only the justified heavier compatibility subset.
 - Produce machine-readable results with environment hashes, receipts,
   projections, serialized graphs, landed prefixes, recovery outcomes, and logs.
+  Each conversation-lifecycle row records before/after workflow UUID, scope ID,
+  fingerprint, session ID, binding-storage key, transcript count/digest,
+  finalized generation/lease and its durable source, HTTP/action
+  classification, and zero cross-workflow messages.
 
 ## OUT
 
@@ -75,6 +93,12 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Every named incident/adversarial fixture passes in full form.
 - The SD1.5 case finalizes from an empty real canvas, and injected link,
   projection, and rollback failures leave durable step-level receipts.
+- No finalized composer notice appears, the finalized state does not add a chat
+  message, and a follow-up preserves the prior transcript/session.
+- The getter-only width case applies successfully through the widget carrier;
+  fail-closed variants make zero native writes.
+- The machine matrix validates its required identity/transcript/receipt-source
+  schema and covers every rehydrate and migration classification above.
 - Compatibility matrix is deterministic, representative, and precisely attributed.
 - CI blocks on minimal correctness and required lifecycle failures; scheduled
   compatibility jobs retain artifacts and clear ownership.

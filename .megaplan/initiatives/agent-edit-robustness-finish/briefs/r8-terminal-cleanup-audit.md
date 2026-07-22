@@ -23,6 +23,11 @@ match current source and environment hashes.
 - Audit and delete remaining duplicate owners, copied canonicalizers, dead
   imports/exports, fallback native mutation, stale compatibility facades, title
   identity, scanner exclusions, obsolete helpers, and misleading comments/docs.
+- Retain `migrateFingerprintScopedSessionId` only as the declared
+  `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` migration until its
+  telemetry-backed retention window and reviewed version-bump age-out;
+  then delete it through that migration contract rather than treating it as an
+  unexplained shim.
 - Prove the source-derived ledger has zero open S3/S4/migration-debt rows and
   exactly matches production source in both directions.
 - Prove `vibecomfy_roundtrip.js` contains only bootstrap, event wiring, and view
@@ -48,6 +53,10 @@ or unrelated repository cleanup.
 - Cleanup is a release requirement, not optional polish.
 - A compatibility shim survives only if it implements an explicit versioned
   migration contract and is named in the final audit.
+- Static ownership rejects graph fingerprints appended to workflow/chat
+  identity, compatibility/session CAS hashes used as typed witnesses,
+  finalized composer notices, and arbitrary logical-field writes to JavaScript
+  node properties when a native widget owns the field.
 - Green tests do not prove completion unless their scope directly covers the requirement.
 - Manifest generation is terminal evidence, not a substitute for the audit.
 - Protected files are excluded from staging and manifest inputs.
@@ -69,6 +78,9 @@ or unrelated repository cleanup.
 
 - Repository-wide cleanup finds no unjustified duplicate/dead owner, export/import,
   fallback path, shim, canonicalizer, identity heuristic, scanner bypass, or stale doc.
+- The declared fingerprint-key migration remains explainable and tested until
+  age-out, including v1-wins/malformed/no-broad-search semantics; getter-only
+  layout properties remain adapter-owned and unwritten.
 - Zero open S3/S4 rows; scanner and ledger exact both directions.
 - Roundtrip passes its composition-only responsibility gate.
 - All R7 composed lifecycle and R6 recovery evidence remains green after cleanup.
