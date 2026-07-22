@@ -637,6 +637,7 @@ class ExecutorRequest:
 
     query: str
     graph: dict[str, Any] | None = None
+    workflow_id: str | None = None
     session_id: str | None = None
     profile: str | None = None
     idempotency_key: str | None = None
@@ -648,6 +649,8 @@ class ExecutorRequest:
         payload: dict[str, Any] = {"query": self.query}
         if self.graph is not None:
             payload["graph"] = self.graph
+        if self.workflow_id is not None:
+            payload["workflow_id"] = self.workflow_id
         if self.session_id is not None:
             payload["session_id"] = self.session_id
         if self.profile is not None:
@@ -670,6 +673,31 @@ class ExecutorRequest:
         graph = payload.get("graph")
         if graph is not None and not isinstance(graph, dict):
             raise ValueError("ExecutorRequest `graph` must be a dict or null.")
+        workflow_id = payload.get("workflow_id")
+        if workflow_id is not None and not isinstance(workflow_id, str):
+            raise ValueError("ExecutorRequest `workflow_id` must be a string or null.")
+        graph_workflow_id = graph.get("id") if isinstance(graph, dict) else None
+        if workflow_id is None and isinstance(graph_workflow_id, str):
+            # Older already-loaded browser modules did not send the new
+            # top-level fence. Canonicalize the identity at ingress from the
+            # same serialized graph instead of failing after model execution.
+            workflow_id = graph_workflow_id
+        if workflow_id is not None:
+            from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (  # noqa: PLC0415
+                ContractError,
+                workflow_identity_v1,
+            )
+
+            try:
+                workflow_identity_v1(workflow_id)
+                if isinstance(graph_workflow_id, str):
+                    workflow_identity_v1(graph_workflow_id)
+            except ContractError as exc:
+                raise ValueError(str(exc)) from exc
+            if isinstance(graph_workflow_id, str) and graph_workflow_id != workflow_id:
+                raise ValueError(
+                    "ExecutorRequest `workflow_id` must match the attached graph `id`."
+                )
         session_id = payload.get("session_id")
         if session_id is not None and not isinstance(session_id, str):
             raise ValueError("ExecutorRequest `session_id` must be a string or null.")
@@ -699,6 +727,7 @@ class ExecutorRequest:
         return cls(
             query=query.strip(),
             graph=graph,
+            workflow_id=workflow_id,
             session_id=session_id,
             profile=profile,
             idempotency_key=idempotency_key,

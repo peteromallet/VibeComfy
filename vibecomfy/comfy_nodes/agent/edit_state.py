@@ -353,21 +353,23 @@ def _duration_ms(start: float) -> int:
 
 
 def _total_landed_edit_count(state: AgentEditState) -> int:
-    # Only non-noop field changes count as landed edits.
-    real = _net_field_changes(tuple(state.batch_field_changes or ()))
-    count = len(real)
-    if count > 0:
-        return count
-    total = 0
+    # FieldChange captures field, mode, and link mutations, but node creation
+    # and deletion have no FieldChange representation. Count those from the
+    # effective canonical delta evidence so add-only and mixed edits remain
+    # visible without resurrecting lint-dropped or same-value operations.
+    total = len(_net_field_changes(tuple(state.batch_field_changes or ())))
     for turn in state.batch_turns:
-        # Prefer the actual field changes list; if it exists and is empty,
-        # the turn produced no real edits (only no-ops) and should not count.
-        field_changes = turn.get("field_changes")
-        if isinstance(field_changes, list) and not field_changes:
-            continue
-        landed = turn.get("landed_op_count")
-        if isinstance(landed, int) and landed > 0:
-            total += landed
+        envelope = turn.get("delta_ops_envelope")
+        if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
+            delta_ops = envelope["ops"]
+        else:
+            flat_delta_ops = turn.get("delta_ops")
+            delta_ops = flat_delta_ops if isinstance(flat_delta_ops, list) else ()
+        total += sum(
+            1
+            for op in delta_ops
+            if isinstance(op, Mapping) and op.get("op") in {"add_node", "remove_node"}
+        )
     return total
 
 

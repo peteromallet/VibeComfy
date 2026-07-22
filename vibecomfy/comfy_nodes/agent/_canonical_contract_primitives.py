@@ -94,7 +94,12 @@ def _hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
-def canonicalize_contract_numeric(value: Any, *, finite_error_code: str) -> Any:
+def canonicalize_contract_numeric(
+    value: Any,
+    *,
+    finite_error_code: str,
+    allow_bool: bool = False,
+) -> Any:
     """Normalise numeric values to the JavaScript-compatible spelling.
 
     Recursively walks mappings (by value) and lists/tuples (by element).  For
@@ -123,11 +128,22 @@ def canonicalize_contract_numeric(value: Any, *, finite_error_code: str) -> Any:
     ``canonical_json_bytes_v1``; this function only prepares the value so the
     shared hash produces a byte-identical preimage on both sides.
     """
-    return _normalize_numeric(value, finite_error_code=finite_error_code)
+    return _normalize_numeric(
+        value,
+        finite_error_code=finite_error_code,
+        allow_bool=allow_bool,
+    )
 
 
-def _normalize_numeric(value: Any, *, finite_error_code: str) -> Any:
+def _normalize_numeric(
+    value: Any,
+    *,
+    finite_error_code: str,
+    allow_bool: bool,
+) -> Any:
     if isinstance(value, bool):
+        if allow_bool:
+            return value
         # bool is a subclass of int in Python but has no numeric spelling in
         # the JS canonical contract; reject it explicitly.
         raise ContractError(
@@ -161,12 +177,20 @@ def _normalize_numeric(value: Any, *, finite_error_code: str) -> Any:
         return value
     if isinstance(value, Mapping):
         return {
-            str(key): _normalize_numeric(entry, finite_error_code=finite_error_code)
+            str(key): _normalize_numeric(
+                entry,
+                finite_error_code=finite_error_code,
+                allow_bool=allow_bool,
+            )
             for key, entry in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [
-            _normalize_numeric(entry, finite_error_code=finite_error_code)
+            _normalize_numeric(
+                entry,
+                finite_error_code=finite_error_code,
+                allow_bool=allow_bool,
+            )
             for entry in value
         ]
     return value

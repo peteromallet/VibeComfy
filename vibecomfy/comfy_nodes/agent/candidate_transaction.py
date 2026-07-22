@@ -213,6 +213,14 @@ def _schema_payload(class_type: str, schema: Any) -> dict[str, Any]:
                 key=lambda item: str(item[0]),
             )
         },
+        # JSON object key order is not authority: durable writers and other
+        # languages may sort it. LiteGraph widget materialization, however,
+        # follows the provider's declared input order, so preserve that order
+        # as explicit replay evidence.
+        "input_order": [
+            str(name)
+            for name in (inputs.keys() if isinstance(inputs, Mapping) else ())
+        ],
         "outputs": [
             _output_spec_payload(spec)
             for spec in outputs if spec is not None
@@ -292,9 +300,18 @@ class FrozenSchemaProvider:
                 continue
             raw_inputs = raw.get("inputs")
             inputs: dict[str, InputSpec] = {}
-            for name, spec in (
-                raw_inputs.items() if isinstance(raw_inputs, Mapping) else ()
-            ):
+            raw_input_order = raw.get("input_order")
+            ordered_names = (
+                [name for name in raw_input_order if isinstance(name, str)]
+                if isinstance(raw_input_order, list)
+                else []
+            )
+            if isinstance(raw_inputs, Mapping):
+                ordered_names.extend(
+                    str(name) for name in raw_inputs if str(name) not in ordered_names
+                )
+            for name in ordered_names:
+                spec = raw_inputs.get(name) if isinstance(raw_inputs, Mapping) else None
                 if not isinstance(spec, Mapping):
                     continue
                 choices = spec.get("choices")

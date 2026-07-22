@@ -25,6 +25,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _narrate_final_message,
     _narrator_fast_path_applies,
     _net_field_changes,
+    _total_landed_edit_count,
     _write_narrative_artifacts,
 )
 from vibecomfy.comfy_nodes.agent.contracts import (
@@ -131,6 +132,50 @@ def _make_state(**overrides: Any) -> AgentEditState:
     }
     defaults.update(overrides)
     return AgentEditState(**defaults)
+
+
+def test_total_landed_edit_count_includes_add_only_structural_edits() -> None:
+    state = _make_state(
+        batch_turns=[{
+            "field_changes": [],
+            "landed_op_count": 1,
+            "delta_ops_envelope": {"ops": [{"op": "add_node"}]},
+        }],
+    )
+
+    assert _total_landed_edit_count(state) == 1
+
+
+def test_total_landed_edit_count_combines_fields_and_node_structure() -> None:
+    state = _make_state(
+        batch_field_changes=(
+            FieldChange(uid="sampler", field_path="steps", old=20, new=30),
+        ),
+        batch_turns=[{
+            "field_changes": [{"uid": "sampler", "field_path": "steps"}],
+            "delta_ops_envelope": {
+                "ops": [
+                    {"op": "set_node_field"},
+                    {"op": "add_node"},
+                ],
+            },
+        }],
+    )
+
+    assert _total_landed_edit_count(state) == 2
+
+
+def test_total_landed_edit_count_trusts_empty_canonical_envelope() -> None:
+    state = _make_state(
+        batch_turns=[{
+            "field_changes": [],
+            "landed_op_count": 1,
+            "delta_ops": [{"op": "add_node"}],
+            "delta_ops_envelope": {"ops": []},
+        }],
+    )
+
+    assert _total_landed_edit_count(state) == 0
 
 
 # ── NarrativeContext dataclass ──────────────────────────────────────────────

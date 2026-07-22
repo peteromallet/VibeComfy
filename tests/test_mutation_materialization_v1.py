@@ -12,8 +12,25 @@ from vibecomfy.comfy_nodes.agent.mutation_materialization_v1 import (
     MutationMaterializationError,
     assert_mutation_materialization_envelope,
     compute_mutation_materialization_digest,
+    build_mutation_materialization_v1,
     normalize_mutation_materialization_v1,
 )
+
+
+def test_builder_binds_every_add_node_and_ignores_other_ops() -> None:
+    ops = [
+        {"op": "set_node_field", "target": ["", "n1", "steps"], "value": 30},
+        {"op": "add_node", "scope_path": "", "uid": "n2", "node_id": "2", "class_type": "SaveImage", "fields": {}, "inputs": {}},
+        {"op": "add_node", "scope_path": "", "uid": "n3", "node_id": "3", "class_type": "PreviewImage", "fields": {}, "inputs": {}},
+    ]
+
+    envelope = build_mutation_materialization_v1(ops)
+
+    assert envelope["entries"] == [
+        {"source_op_index": 1, "kind": "add_node"},
+        {"source_op_index": 2, "kind": "add_node"},
+    ]
+    assert_mutation_materialization_envelope(envelope, accompanying_ops=ops)
 
 FIXTURE = (
     Path(__file__).parent

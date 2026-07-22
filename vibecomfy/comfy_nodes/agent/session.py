@@ -36,6 +36,7 @@ from .projection_registry_v1 import (
     structural_graph_hash_compat as _registry_structural_graph_hash,
     workflow_identity_v1,
 )
+from .mutation_materialization_v1 import build_mutation_materialization_v1
 from vibecomfy.porting.edit.ops import parse_edit_delta
 
 STATE_FILE_NAME = "session_state.json"
@@ -4038,10 +4039,16 @@ def allocate_turn(
     session_id: str,
     request_payload: Any,
     idempotency_key: str | None = None,
+    idempotency_request_hash: str | None = None,
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> TurnAllocation:
     session_dir = session_dir_for(session_root, session_id)
-    request_digest = payload_hash(request_payload)
+    request_digest = (
+        idempotency_request_hash
+        if isinstance(idempotency_request_hash, str)
+        and re.fullmatch(r"[0-9a-f]{64}", idempotency_request_hash)
+        else payload_hash(request_payload)
+    )
     submit_graph_hash = _mapping_graph_hash(request_payload)
     submit_structural_graph_hash = _mapping_graph_structural_hash(request_payload)
     submitted_client_graph_hash = _client_graph_hash(request_payload)
@@ -4334,6 +4341,16 @@ def record_idempotent_response(
             verification_kind=authority_receipt.replay.verification_kind,
             applyable=applyable,
             state="candidate_ready" if applyable else "recoverable_error",
+            mutation_materialization_envelope=(
+                build_mutation_materialization_v1(
+                    authority_receipt.cumulative_delta_envelope.get("ops", [])
+                )
+                if any(
+                    isinstance(op, Mapping) and op.get("op") == "add_node"
+                    for op in authority_receipt.cumulative_delta_envelope.get("ops", [])
+                )
+                else None
+            ),
         )
         write_candidate_transaction(response_path.parent, transaction)
         stamped_response = dict(stamped_response)

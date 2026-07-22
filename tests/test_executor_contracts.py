@@ -51,6 +51,7 @@ class TestExecutorRequest:
         req = ExecutorRequest(query="hello")
         assert req.query == "hello"
         assert req.graph is None
+        assert req.workflow_id is None
         assert req.session_id is None
         assert req.profile is None
         assert req.idempotency_key is None
@@ -63,6 +64,7 @@ class TestExecutorRequest:
         req = ExecutorRequest(
             query="set seed to 42",
             graph=graph,
+            workflow_id="6b4611de-b2b2-42f2-b358-5f566d6a8933",
             session_id="sess-1",
             profile="default",
             idempotency_key="idem-1",
@@ -71,6 +73,7 @@ class TestExecutorRequest:
             client_live_canvas_token="live-token",
         )
         assert req.graph == graph
+        assert req.workflow_id == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
         assert req.session_id == "sess-1"
         assert req.profile == "default"
         assert req.idempotency_key == "idem-1"
@@ -88,6 +91,7 @@ class TestExecutorRequest:
         req = ExecutorRequest(
             query="set seed",
             graph=graph,
+            workflow_id="6b4611de-b2b2-42f2-b358-5f566d6a8933",
             session_id="sess-1",
             profile="default",
             idempotency_key="idem-1",
@@ -98,6 +102,7 @@ class TestExecutorRequest:
         d = req.to_dict()
         assert d["query"] == "set seed"
         assert d["graph"] == graph
+        assert d["workflow_id"] == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
         assert d["session_id"] == "sess-1"
         assert d["profile"] == "default"
         assert d["idempotency_key"] == "idem-1"
@@ -114,6 +119,7 @@ class TestExecutorRequest:
         req = ExecutorRequest.from_payload({
             "query": "edit graph",
             "graph": graph,
+            "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
             "session_id": "s1",
             "profile": "default",
             "idempotency_key": "ik1",
@@ -122,10 +128,33 @@ class TestExecutorRequest:
             "client_live_canvas_token": "live-token",
         })
         assert req.graph == graph
+        assert req.workflow_id == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
         assert req.session_id == "s1"
         assert req.client_graph_hash == "graph-hash"
         assert req.client_structural_graph_hash == "structural-hash"
         assert req.client_live_canvas_token == "live-token"
+
+    def test_from_payload_derives_workflow_id_from_graph_for_stale_clients(self) -> None:
+        workflow_id = "6b4611de-b2b2-42f2-b358-5f566d6a8933"
+
+        req = ExecutorRequest.from_payload({
+            "query": "build a workflow",
+            "graph": {"id": workflow_id, "nodes": [], "links": []},
+        })
+
+        assert req.workflow_id == workflow_id
+
+    def test_from_payload_rejects_mismatched_workflow_identity(self) -> None:
+        with pytest.raises(ValueError, match="must match"):
+            ExecutorRequest.from_payload({
+                "query": "build a workflow",
+                "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
+                "graph": {
+                    "id": "f6137f22-d44c-45a6-a20f-5f078499f39a",
+                    "nodes": [],
+                    "links": [],
+                },
+            })
 
     def test_from_payload_missing_query_raises(self) -> None:
         with pytest.raises(ValueError, match="non-empty string"):

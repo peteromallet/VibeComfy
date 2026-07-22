@@ -997,7 +997,8 @@ def _run_implement(
 ) -> ImplementationResult:
     """Run the implement phase via ``handle_agent_edit``.
 
-    Forwards the request as ``{task, query, graph, route, model, session_id}`` (SD2).
+    Forwards the request as ``{task, query, graph, route, model, workflow_id,
+    session_id, idempotency_key}`` (SD2).
     The resolved *spec* supplies ``route`` and ``model`` so the edit engine
     uses the profile-configured provider path.
     When research has run, its summary and structured sources are forwarded so
@@ -1185,6 +1186,10 @@ def _run_implement(
         payload["research_brief"] = research_brief
     if request.session_id:
         payload["session_id"] = request.session_id
+    if request.workflow_id:
+        payload["workflow_id"] = request.workflow_id
+    if request.idempotency_key:
+        payload["idempotency_key"] = request.idempotency_key
     if request.client_graph_hash:
         payload["client_graph_hash"] = request.client_graph_hash
     if request.client_structural_graph_hash:
@@ -1193,7 +1198,15 @@ def _run_implement(
         payload["client_live_canvas_token"] = request.client_live_canvas_token
 
     try:
-        result = handle_agent_edit(payload, client_id=client_id)
+        from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415
+
+        result = handle_agent_edit(
+            payload,
+            client_id=client_id,
+            # Classifier/research output is server-derived and may vary across
+            # retries. Bind deduplication to the stable public submit instead.
+            idempotency_request_hash=payload_hash(request.to_dict()),
+        )
     except Exception as exc:
         failure = classify_failure("implement", exc)
         raise _ExecutorPhaseError(

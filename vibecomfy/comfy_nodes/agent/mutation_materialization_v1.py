@@ -216,6 +216,29 @@ def compute_mutation_materialization_digest(
     return _hash(preimage)
 
 
+def build_mutation_materialization_v1(accompanying_ops: Any) -> dict[str, Any]:
+    """Build the minimal canonical native-construction witness for add-node ops.
+
+    The add-node delta already owns node identity, type, fields, and inputs.
+    Optional LiteGraph-only construction details may be added by richer
+    producers later; every add-node still needs a bound entry even when there
+    are no such extras.
+    """
+    ops = _validate_accompanying_ops(accompanying_ops)
+    entries = [
+        {"source_op_index": index, "kind": "add_node"}
+        for index, op in enumerate(ops)
+        if op.get("op") == "add_node"
+    ]
+    envelope = {
+        "contract_version": MUTATION_MATERIALIZATION_CONTRACT_V1,
+        "wire_version": MUTATION_MATERIALIZATION_WIRE_VERSION,
+        "entries": entries,
+        "digest": compute_mutation_materialization_digest(entries, ops),
+    }
+    return assert_mutation_materialization_envelope(envelope, accompanying_ops=ops)
+
+
 def normalize_mutation_materialization_v1(
     envelope: Any, *, accompanying_ops: Any
 ) -> dict[str, Any]:
@@ -391,6 +414,7 @@ __all__ = [
     "MATERIALIZATION_KINDS",
     "MutationMaterializationError",
     "compute_mutation_materialization_digest",
+    "build_mutation_materialization_v1",
     "normalize_mutation_materialization_v1",
     "assert_mutation_materialization_envelope",
 ]

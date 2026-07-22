@@ -9,6 +9,7 @@ def handle_agent_edit(
     deepseek_client: DeepSeekClient | None = None,
     session_root: Path | None = None,
     client_id: str | None = None,
+    idempotency_request_hash: str | None = None,
 ) -> dict[str, Any]:
     """Convert current UI JSON to Python, ask the agent to edit it, emit UI JSON."""
     from vibecomfy.schema import get_schema_provider
@@ -51,6 +52,7 @@ def handle_agent_edit(
         idempotency_key=payload.get("idempotency_key")
         if isinstance(payload.get("idempotency_key"), str)
         else None,
+        idempotency_request_hash=idempotency_request_hash,
     )
     if allocation.replay is not None:
         replayed = dict(allocation.replay.response)

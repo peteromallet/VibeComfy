@@ -13487,6 +13487,7 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
     )
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     captured_messages: list[list[dict[str, str]]] = []
+    workflow_id = "6b4611de-b2b2-42f2-b358-5f566d6a8933"
 
     def _provider(messages):
         captured_messages.append(messages)
@@ -13516,7 +13517,7 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
                 "config": {},
                 "extra": {},
                 "groups": [],
-                "id": "empty-sd15",
+                "id": workflow_id,
                 "last_link_id": 0,
                 "last_node_id": 0,
                 "links": [],
@@ -13525,6 +13526,7 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
             },
             "task": "Generate the standard SD1.5 workflow",
             "query": "Generate the standard SD1.5 workflow",
+            "workflow_id": workflow_id,
             "route": "revise",
             "executor_route": "revise",
             "provider_route": "codex",
@@ -13568,14 +13570,26 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
     assert "VAEDecode" in result["message"]
     assert "SaveImage" in result["message"]
     assert result["apply_allowed"] is True
+    assert result["queue_allowed"] is True
+    assert result["change_details"]["landed_operation_count"] == 7
     assert result["candidate"] is not None
     assert len(result["candidate"]["graph"]["nodes"]) == 7
+    sampler_projection = next(
+        node
+        for node in result["candidate_transaction"]["candidate_authority"]["postcondition"]["canonical"]["nodes"]
+        if node["type"] == "KSampler"
+    )
+    assert sampler_projection["widgets_values"][3] == 7
+    assert isinstance(sampler_projection["widgets_values"][3], int)
     evidence = result["report"]["revision_evidence"]
     assert evidence["candidate_eligible"] is True
     assert evidence["scoped_diff"]["candidate_eligible"] is True
     assert evidence["scoped_diff"]["eligibility_blockers"] == []
     turn_dir = turn_dir_for(tmp_path, "empty-sd15-workflow", str(result["turn_id"]))
     assert (turn_dir / "model_request.json").exists()
+    assert (turn_dir / "response.json").exists()
+    assert (turn_dir / "authority" / "receipt.json").exists()
+    assert len(list((turn_dir / "transactions").glob("*/candidate_transaction.json"))) == 1
 
 
 def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(

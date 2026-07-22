@@ -1086,6 +1086,7 @@ class TestGraphDescribeFlow:
         request = ExecutorRequest(
             query="switch to depth",
             graph={"nodes": [{"id": 1, "type": "ControlNetLoaderAdvanced"}], "links": []},
+            workflow_id="6b4611de-b2b2-42f2-b358-5f566d6a8933",
             session_id="session-1",
             profile="default",
             idempotency_key="submit-key",
@@ -1099,9 +1100,16 @@ class TestGraphDescribeFlow:
         assert result.ok is True
         payload = mock_edit.call_args[0][0]
         assert payload["session_id"] == "session-1"
+        assert payload["workflow_id"] == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
+        assert payload["idempotency_key"] == "submit-key"
         assert payload["client_graph_hash"] == "client-graph-hash"
         assert payload["client_structural_graph_hash"] == "client-structural-hash"
         assert payload["client_live_canvas_token"] == "client-live-token"
+        from vibecomfy.comfy_nodes.agent.session import payload_hash
+
+        assert mock_edit.call_args.kwargs["idempotency_request_hash"] == payload_hash(
+            request.to_dict()
+        )
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)

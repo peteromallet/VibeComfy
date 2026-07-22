@@ -410,6 +410,41 @@ def test_session_idempotency_replays_same_hash_and_conflicts_on_different_hash(
     assert conflict.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
 
 
+def test_executor_idempotency_hash_ignores_volatile_inner_payload(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    stable_hash = payload_hash({"task": "build it", "graph": {"nodes": []}})
+    first = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "build it", "executor_classification": {"summary": "first"}},
+        idempotency_key="same-submit",
+        idempotency_request_hash=stable_hash,
+    )
+    response = {"ok": True, "turn_id": first.context.turn_id}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="same-submit",
+        request_hash=first.request_hash,
+        response=response,
+        response_path=first.turn_dir / "response.json",
+        operation="edit",
+        turn_id=first.context.turn_id,
+    )
+
+    replay = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "build it", "executor_classification": {"summary": "second"}},
+        idempotency_key="same-submit",
+        idempotency_request_hash=stable_hash,
+    )
+
+    assert replay.replay is not None
+    assert replay.replay.response == response
+
+
 # ── T8: idempotency regression tests (no hash-value assertions) ──────────
 
 

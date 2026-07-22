@@ -191,7 +191,14 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
     return {"projection": projection, "nodes": _sort(result_nodes), "groups": _sort(result_groups)}
 
 def projection_reference_v1(graph: Any, projection: str) -> dict[str, Any]:
-    canonical = project_graph_v1(graph, projection)
+    # JSON has a single Number type in the browser: integral floats such as
+    # 7.0 are parsed and serialized as 7. Normalize before both publication
+    # and hashing so Python and JavaScript bind identical projection bytes.
+    canonical = canonicalize_contract_numeric(
+        project_graph_v1(graph, projection),
+        finite_error_code="non_finite_projection",
+        allow_bool=True,
+    )
     return {"kind": "projection_ref_v1", "projection": projection, "digest": _hash(canonical), "canonical": canonical}
 
 def assert_projection_reference_v1(value: Any, expected: str | None = None) -> Mapping[str, Any]:
@@ -202,7 +209,12 @@ def assert_projection_reference_v1(value: Any, expected: str | None = None) -> M
         canonical = value.get("canonical")
         if not isinstance(canonical, Mapping) or canonical.get("projection") != value["projection"]:
             raise ContractError("Projection evidence has the wrong canonical family", "projection_canonical_mismatch")
-        if _hash(canonical) != value["digest"]:
+        normalized_canonical = canonicalize_contract_numeric(
+            canonical,
+            finite_error_code="non_finite_projection",
+            allow_bool=True,
+        )
+        if _hash(normalized_canonical) != value["digest"]:
             raise ContractError("Projection evidence digest does not bind its canonical payload", "projection_digest_mismatch")
     return value
 
