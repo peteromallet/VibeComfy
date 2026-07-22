@@ -58,6 +58,25 @@ export function transactionAllows(transaction, action) {
     && transaction.available_actions.includes(action);
 }
 
+export function transactionAllowsRejectOrFailClosedDiscard(
+  transaction,
+  { rawTransaction = null, agentEditProtocol = null, candidatePresent = false } = {},
+) {
+  if (transactionAllows(transaction, "reject") || transactionAllows(transaction, "rollback")) {
+    return true;
+  }
+  // Apply must never trust malformed authority. Reject is different: it only
+  // discards server-held candidate state, and the reject endpoint rechecks the
+  // session/turn/CAS fence. Keep invalid V2 candidates recoverably cancellable
+  // instead of trapping the panel in AWAITING_REVIEW forever.
+  return Boolean(
+    candidatePresent
+    && agentEditProtocol === "v2_delta"
+    && isObject(rawTransaction)
+    && rawTransaction.contract_version === CANDIDATE_TRANSACTION_V2,
+  );
+}
+
 export function isLayoutAuthorityTransaction(transaction) {
   const normalized = normalizeCandidateTransaction(transaction);
   return Boolean(

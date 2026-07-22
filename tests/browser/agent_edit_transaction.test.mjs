@@ -5,9 +5,28 @@ import {
   auditLandedMutationPlan,
   boundedBrowserTransactionError,
   normalizeCandidateTransaction,
+  transactionAllowsRejectOrFailClosedDiscard,
   resolvePreparedMutationPlan,
   transactionAllows,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
+
+test("malformed V2 authority remains rejectable but never applyable", () => {
+  const malformed = transaction();
+  malformed.candidate_authority.workflow_id = "not-a-workflow-uuid";
+  const normalized = normalizeCandidateTransaction(malformed);
+
+  assert.equal(normalized, null);
+  assert.equal(transactionAllowsRejectOrFailClosedDiscard(normalized, {
+    rawTransaction: malformed,
+    agentEditProtocol: "v2_delta",
+    candidatePresent: true,
+  }), true);
+  assert.equal(transactionAllowsRejectOrFailClosedDiscard(normalized, {
+    rawTransaction: malformed,
+    agentEditProtocol: "v2_delta",
+    candidatePresent: false,
+  }), false);
+});
 
 import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 

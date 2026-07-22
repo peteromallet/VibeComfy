@@ -127,6 +127,7 @@ import {
   normalizeCandidateTransaction,
   resolvePreparedMutationPlan,
   transactionAllows,
+  transactionAllowsRejectOrFailClosedDiscard,
 } from "./agent_edit_transaction.js";
 import {
   canonicalSessionJsonString,
@@ -11400,7 +11401,15 @@ async function rejectAgentCandidate(panel) {
   const rejectTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
   const legacyCancelAllowed = Array.isArray(panel.state.legacyMigration?.actions)
     && panel.state.legacyMigration.actions.includes("cancel");
-  if (!transactionAllows(rejectTransaction, "reject") && !legacyCancelAllowed) {
+  const failClosedDiscardAllowed = transactionAllowsRejectOrFailClosedDiscard(
+    rejectTransaction,
+    {
+      rawTransaction: panel.state.candidateTransaction,
+      agentEditProtocol: panel.state.agentEditProtocol,
+      candidatePresent: Boolean(panel.state.candidateGraph),
+    },
+  );
+  if (!failClosedDiscardAllowed && !legacyCancelAllowed) {
     const failure = agentPanelFailure(
       "TransactionNotActionable",
       "This transaction is read-only and cannot be rejected or resumed.",

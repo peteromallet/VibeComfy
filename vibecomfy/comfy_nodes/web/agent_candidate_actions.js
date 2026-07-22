@@ -1,4 +1,8 @@
-import { normalizeCandidateTransaction, transactionAllows } from "./agent_edit_transaction.js";
+import {
+  normalizeCandidateTransaction,
+  transactionAllows,
+  transactionAllowsRejectOrFailClosedDiscard,
+} from "./agent_edit_transaction.js";
 
 export const APPLY_ELIGIBILITY_REASON = Object.freeze({
   APPLYABLE: "applyable",
@@ -189,6 +193,14 @@ export function candidateActionState(panel, message = null, snapshot = null) {
   const transaction = active
     ? normalizeCandidateTransaction(panel?.state?.candidateTransaction)
     : projectedTransaction;
+  const failClosedDiscardAuthorized = transactionAllowsRejectOrFailClosedDiscard(
+    transaction,
+    {
+      rawTransaction: panel?.state?.candidateTransaction,
+      agentEditProtocol: panel?.state?.agentEditProtocol,
+      candidatePresent,
+    },
+  );
   let eligibility;
   if (!message && !snapshot) {
     eligibility = applyEligibility(panel);
@@ -208,7 +220,9 @@ export function candidateActionState(panel, message = null, snapshot = null) {
   }
   if (!transaction) {
     eligibility = missingContractApplyEligibility(panel, {
-      message: "Candidate transaction authority is missing. Apply and Reject are disabled until the session is reconciled.",
+      message: failClosedDiscardAuthorized
+        ? "Candidate transaction authority is invalid. Apply is disabled; Reject can safely discard the candidate."
+        : "Candidate transaction authority is missing. Apply and Reject are disabled until the session is reconciled.",
     });
   } else if (!transactionAllows(transaction, "apply")) {
     eligibility = disabledApplyEligibility(
@@ -219,8 +233,7 @@ export function candidateActionState(panel, message = null, snapshot = null) {
   }
 
   const applyAuthorized = transactionAllows(transaction, "apply");
-  const rejectAuthorized = transactionAllows(transaction, "reject")
-    || transactionAllows(transaction, "rollback");
+  const rejectAuthorized = failClosedDiscardAuthorized;
 
   const blockerMessage =
     rehydrating

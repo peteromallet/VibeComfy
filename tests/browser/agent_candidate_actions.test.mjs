@@ -147,6 +147,32 @@ test("candidateActionState suspends stale candidate actions while durable author
   assert.equal(state.blockerMessage, "Checking whether this candidate is still available.");
 });
 
+test("candidateActionState disables Apply but keeps malformed V2 candidates rejectable", () => {
+  const malformed = candidateTransaction();
+  malformed.candidate_authority.workflow_id = "not-a-workflow-uuid";
+  const panel = {
+    state: {
+      phase: "AWAITING_REVIEW",
+      agentEditProtocol: "v2_delta",
+      candidateGraph: { nodes: [] },
+      candidateTransaction: malformed,
+      turnId: "0002",
+      applyEligibility: {
+        applyable: true,
+        reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+        message: "Server produced a candidate.",
+        warnings: [],
+      },
+    },
+  };
+
+  const state = candidateActionState(panel);
+
+  assert.equal(state.applyDisabled, true);
+  assert.equal(state.rejectDisabled, false);
+  assert.match(state.eligibility.message, /Reject can safely discard/i);
+});
+
 test("candidateActionState preserves optional reorganise candidate eligibility and stale history", () => {
   const panel = {
     state: {
