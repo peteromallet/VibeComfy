@@ -27,6 +27,7 @@
   "r5-controller-api": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-async-fence-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-runtime-provenance-attestation.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-workflow-chat-identity-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
   ],

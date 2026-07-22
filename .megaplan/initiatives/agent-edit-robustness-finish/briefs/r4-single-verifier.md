@@ -90,6 +90,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Browser/Python and real-native goldens prove `LoadImage([filename])` and the
   frontend-materialized `LoadImage([filename, "image"])` have one semantic
   structural witness, while changing `filename` still changes that witness.
+- Cross-runtime compatibility goldens compute the browser claim in JavaScript
+  and verify it independently in Python for the same native graph. Tests that
+  derive claimant and verifier evidence from one implementation are forbidden.
 - Every mismatch receipt persists expected and actual projection versions and
   digests plus a deterministic bounded semantic diff; a generic browser-only
   mismatch string is insufficient recovery evidence.

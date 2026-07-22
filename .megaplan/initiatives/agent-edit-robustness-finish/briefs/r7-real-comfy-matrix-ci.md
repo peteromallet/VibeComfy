@@ -55,6 +55,9 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   filename to prove normalization does not hide a real workflow change. The
   successful native serialization must become the durable compatibility
   baseline, and an immediate follow-up submit must pass CAS without rebaseline.
+  Capture the real JavaScript `post_apply_hash` from the finalize request and
+  require Python to recompute the same digest; a Python-generated stand-in does
+  not satisfy this acceptance case.
 - For that exact img2img transaction, inject an exception and page-context loss
   after prepare at every boundary through the first native write (snapshot,
   semantic scoped read, Undo capture, adapter entry, and immediately after
