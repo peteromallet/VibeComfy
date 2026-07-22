@@ -69,15 +69,16 @@ export function computeStructuralGraphFingerprint(graph) {
  *
  *   <tab-nonce>:<structural-fingerprint>
  *
- * When a Comfy workflow-window id is supplied, the scope id is:
+ * When a stable Comfy workflow-window id is supplied, the scope id is:
  *
- *   <tab-nonce>:<workflow-id>:<structural-fingerprint>
+ *   <tab-nonce>:<workflow-id>
  *
  * This guarantees:
  *  - Same graph in the same tab → same scope id (session reused)
  *  - Same graph in different tabs → different scope ids (SD2 fork)
- *  - Different graphs in the same tab → different scope ids
+ *  - Different unowned graphs in the same tab → different scope ids
  *  - Same/empty graph in different Comfy workflow tabs → different scope ids
+ *  - Structural edits within one identified workflow → same scope id
  *
  * Returns null when the graph is empty (no nodes) and no workflow id is
  * supplied.
@@ -98,7 +99,7 @@ export function computeScopeId(graph, { workflowId = null } = {}) {
   const fingerprint = computeStructuralGraphFingerprint(graph);
   const nonce = _tabNonce();
   return normalizedWorkflowId
-    ? `${nonce}:${encodeURIComponent(normalizedWorkflowId)}:${fingerprint}`
+    ? `${nonce}:${encodeURIComponent(normalizedWorkflowId)}`
     : `${nonce}:${fingerprint}`;
 }
 
@@ -165,7 +166,7 @@ export function captureInitialScopeId(graph, { forceRefresh = false, workflowId 
   const currentFingerprint = computeStructuralGraphFingerprint(graph);
   const nonce = _tabNonce();
   const currentScopeId = normalizedWorkflowId
-    ? `${nonce}:${encodeURIComponent(normalizedWorkflowId)}:${currentFingerprint}`
+    ? `${nonce}:${encodeURIComponent(normalizedWorkflowId)}`
     : `${nonce}:${currentFingerprint}`;
 
   // Check cache (unless force refresh)
@@ -173,6 +174,18 @@ export function captureInitialScopeId(graph, { forceRefresh = false, workflowId 
     const cacheKey = _scopeFingerprintCacheKey(currentScopeId);
     try {
       const cached = _ssGet(cacheKey);
+      if (cached !== null && normalizedWorkflowId) {
+        // The UUID owns scope identity. Keep the cached revision current, but
+        // do not report an ordinary structural edit as a newly-created scope.
+        if (cached !== currentFingerprint) {
+          _ssSet(cacheKey, currentFingerprint);
+        }
+        return {
+          scopeId: currentScopeId,
+          fingerprint: currentFingerprint,
+          isNew: false,
+        };
+      }
       if (cached === currentFingerprint) {
         // Cache hit — fingerprint still matches, return existing scope id
         return {

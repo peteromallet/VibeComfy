@@ -4093,7 +4093,7 @@ test("CHAT_REHYDRATE_MISSING_SESSION clears visible chat state and forgets only 
   assert.equal(panel.state.candidateGraphHash, "candidate-hash");
 });
 
-test("CHAT_REHYDRATE_FAILURE clears only chat display state and leaves current failure/candidate state intact", () => {
+test("CHAT_REHYDRATE_FAILURE preserves chat display state and leaves current failure/candidate state intact", () => {
   const panel = makePanel({
     chatRehydrateEpoch: 12,
     candidateGraphHash: "candidate-hash",
@@ -4116,7 +4116,10 @@ test("CHAT_REHYDRATE_FAILURE clears only chat display state and leaves current f
     render: false,
     dirtySections: THREAD_DIRTY_SECTIONS,
   });
-  assert.deepEqual(panel.state.chatMessages, [{ role: "user", text: "optimistic", optimistic: true }]);
+  assert.deepEqual(panel.state.chatMessages, [
+    { role: "agent", text: "stale" },
+    { role: "user", text: "optimistic", optimistic: true },
+  ]);
   assert.deepEqual(panel.state.transcriptMessages, panel.state.chatMessages);
   assert.equal(panel.state.chatLoaded, false);
   assert.equal(panel.state.chatError, "Server returned 500");
@@ -6370,7 +6373,7 @@ test("resolveActiveCanvasScope: uses Comfy active workflow id for empty workflow
     const result = resolveActiveCanvasScope();
     assert.ok(result);
     assert.equal(result.workflowId, workflowId);
-    assert.match(result.scopeId, /^[a-z0-9]+-[a-z0-9]+:123e4567-e89b-12d3-a456-426614174001:[0-9a-f]{16}$/);
+    assert.match(result.scopeId, /^[a-z0-9]+-[a-z0-9]+:123e4567-e89b-12d3-a456-426614174001$/);
   } finally {
     if (previousApp === undefined) {
       delete globalThis.app;

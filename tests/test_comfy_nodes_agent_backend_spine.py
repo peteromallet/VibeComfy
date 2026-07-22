@@ -12615,6 +12615,19 @@ class TestFinalizeTransaction:
         assert state["baseline_graph_hash"] == structural_hash
         assert state["baseline_turn_id"] == turn_id
 
+        # A finalized turn must remain rehydratable. Finalized receipts carry
+        # the lease in journal_durable.identity_fence rather than as a direct
+        # receipt field; losing it here used to make GET /chat return HTTP 500
+        # and caused the browser to erase the prior conversation.
+        from vibecomfy.comfy_nodes.agent.edit import read_session_chat
+
+        chat = read_session_chat(root, session_id)
+        lifecycle = chat["latest_turn_lifecycle"]
+        assert lifecycle["state"] == "finalized"
+        assert lifecycle["candidate_transaction"]["state"] == "finalized"
+        assert lifecycle["candidate_transaction"]["generation"] == prep["generation"]
+        assert lifecycle["candidate_transaction"]["lease_nonce"] == prep["lease_nonce"]
+
     def test_finalize_fails_without_active_prepared(self, tmp_path: Path) -> None:
         """Finalize fails when no prepared transaction exists."""
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (

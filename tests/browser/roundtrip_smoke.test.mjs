@@ -18742,6 +18742,8 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
+    assert.doesNotMatch(harness.textDump(), /Transaction finalized/);
+    assert.doesNotMatch(harness.textDump(), /mutation has been committed to the baseline/);
     assert.equal(
       extensionModule.ensureAgentPanel().state.candidateTransaction?.state,
       "finalized",

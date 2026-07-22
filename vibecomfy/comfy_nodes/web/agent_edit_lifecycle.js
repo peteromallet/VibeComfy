@@ -2837,12 +2837,11 @@ function _handleChatRehydrateFailure(panel, payload) {
   if (_isStaleChatRehydrate(panel, payload?.requestEpoch)) {
     return { render: false, stale: true };
   }
-  // Preserve locally-built optimistic messages (including promoted pending
-  // response bubbles) so a failed backend rehydrate does not wipe the thread.
-  // Non-optimistic durable messages are cleared as before.
+  // A same-scope backend failure must not erase the visible conversation.
+  // Scope switching clears the prior workflow before rehydrate begins, so
+  // retaining this projection cannot leak messages across workflows.
   panel.state.chatMessages = Array.isArray(panel.state.chatMessages)
     ? panel.state.chatMessages
-      .filter((message) => message?.optimistic === true)
       .map(projectTranscriptMessage)
       .filter(Boolean)
     : [];

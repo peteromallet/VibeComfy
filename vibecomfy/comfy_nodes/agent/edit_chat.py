@@ -373,21 +373,51 @@ def _latest_turn_lifecycle_payload(
         )
         if isinstance(aggregate, Mapping) and receipts:
             latest_event = receipts[-1]
-            receipt = latest_event.get("receipt")
+            latest_generation = (
+                latest_event.get("generation")
+                if isinstance(latest_event.get("generation"), int)
+                else turn.get("finalized_generation")
+                if isinstance(turn.get("finalized_generation"), int)
+                else turn.get("prepared_generation")
+                if isinstance(turn.get("prepared_generation"), int)
+                else None
+            )
+            latest_lease_nonce = None
+            # Terminal receipts do not necessarily repeat the lease at their
+            # top level. Recover it from the newest event that carries it, the
+            # durable identity fence, or the turn's prepared lease. Rehydrate
+            # must project the same transaction identity used by finalize.
+            for event in reversed(receipts):
+                receipt = event.get("receipt")
+                if not isinstance(receipt, Mapping):
+                    continue
+                direct_nonce = receipt.get("lease_nonce")
+                if isinstance(direct_nonce, str) and direct_nonce:
+                    latest_lease_nonce = direct_nonce
+                    break
+                journal = receipt.get("journal_durable")
+                identity_fence = (
+                    journal.get("identity_fence")
+                    if isinstance(journal, Mapping)
+                    else None
+                )
+                fenced_nonce = (
+                    identity_fence.get("lease_nonce")
+                    if isinstance(identity_fence, Mapping)
+                    else None
+                )
+                if isinstance(fenced_nonce, str) and fenced_nonce:
+                    latest_lease_nonce = fenced_nonce
+                    break
+            if latest_lease_nonce is None:
+                prepared_nonce = turn.get("prepared_lease_nonce")
+                if isinstance(prepared_nonce, str) and prepared_nonce:
+                    latest_lease_nonce = prepared_nonce
             aggregate = project_transaction_state(
                 aggregate,
                 state=str(latest_event.get("event_type") or aggregate.get("state")),
-                generation=(
-                    latest_event.get("generation")
-                    if isinstance(latest_event.get("generation"), int)
-                    else None
-                ),
-                lease_nonce=(
-                    receipt.get("lease_nonce")
-                    if isinstance(receipt, Mapping)
-                    and isinstance(receipt.get("lease_nonce"), str)
-                    else None
-                ),
+                generation=latest_generation,
+                lease_nonce=latest_lease_nonce,
             )
         return {
             "turn_id": turn_id,

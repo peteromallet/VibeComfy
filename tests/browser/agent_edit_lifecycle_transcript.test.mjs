@@ -495,7 +495,7 @@ test("CHAT_REHYDRATE_SUCCESS consumes public diagnostic and audit buckets outsid
   assert.equal("audit_artifacts" in panel.state.chatMessages[1], false);
 });
 
-test("CHAT_REHYDRATE_FAILURE preserves only safe optimistic transcript fields", () => {
+test("CHAT_REHYDRATE_FAILURE preserves the existing safe transcript projection", () => {
   const panel = makePanel({
     sessionId: "sess-local-safe",
     chatRehydrateEpoch: 5,
@@ -531,10 +531,11 @@ test("CHAT_REHYDRATE_FAILURE preserves only safe optimistic transcript fields", 
     chatError: "network down",
   });
 
-  assert.equal(panel.state.chatMessages.length, 2);
+  assert.equal(panel.state.chatMessages.length, 3);
   assert.deepEqual(panel.state.transcriptMessages, panel.state.chatMessages);
   assert.equal(panel.state.chatMessages[0].submit_epoch, 15);
   assert.equal(panel.state.chatMessages[1].pending_response, true);
+  assert.equal(panel.state.chatMessages[2].text, "durable old message");
   assert.equal("executor_pending" in panel.state.chatMessages[1], false);
   for (const message of panel.state.chatMessages) {
     assertNormalProjectionHasNoForbiddenFieldOrValue(message, {

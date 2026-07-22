@@ -414,7 +414,7 @@ test("computeScopeId uses workflow id to scope empty Comfy workflow tabs", async
   assert.equal(typeof scopeA, "string");
   assert.equal(typeof scopeB, "string");
   assert.notEqual(scopeA, scopeB);
-  assert.match(scopeA, /^[a-z0-9]+-[a-z0-9]+:workflow-window-a:[0-9a-f]{16}$/);
+  assert.match(scopeA, /^[a-z0-9]+-[a-z0-9]+:workflow-window-a$/);
 });
 
 test("computeScopeId separates identical graphs in different Comfy workflow tabs", async () => {
@@ -430,7 +430,40 @@ test("computeScopeId separates identical graphs in different Comfy workflow tabs
   assert.notEqual(scopeA, computeScopeId(graph));
 });
 
+test("computeScopeId keeps one identified workflow scoped across structural edits", async () => {
+  resetStorage();
+  const mod = await loadResolver();
+  const { computeScopeId, computeStructuralGraphFingerprint } = mod;
+
+  const before = emptyGraph();
+  const after = baseGraph();
+  const workflowId = "workflow-window-stable";
+
+  assert.notEqual(
+    computeStructuralGraphFingerprint(before),
+    computeStructuralGraphFingerprint(after),
+  );
+  assert.equal(
+    computeScopeId(before, { workflowId }),
+    computeScopeId(after, { workflowId }),
+  );
+});
+
 // ── Tests: captureInitialScopeId ──────────────────────────────────────────
+
+test("captureInitialScopeId treats structural edits to an identified workflow as the same scope", async () => {
+  resetStorage();
+  const mod = await loadResolver();
+  const workflowId = "workflow-window-stable";
+
+  const before = mod.captureInitialScopeId(emptyGraph(), { workflowId });
+  const after = mod.captureInitialScopeId(baseGraph(), { workflowId });
+
+  assert.equal(before.isNew, true);
+  assert.equal(after.isNew, false);
+  assert.equal(after.scopeId, before.scopeId);
+  assert.notEqual(after.fingerprint, before.fingerprint);
+});
 
 test("captureInitialScopeId returns scope info with isNew=true on first call", async () => {
   resetStorage();

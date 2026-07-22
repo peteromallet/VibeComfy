@@ -324,19 +324,6 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
     hasContent = true;
   }
 
-  // ── V2: Finalized notice ──────────────────────────────────────────────────
-  if (panel.state.phase === PANEL_STATE.FINALIZED) {
-    const heading = el("div", "Transaction finalized");
-    heading.style.color = "#50fa7b";
-    heading.style.fontWeight = "700";
-    heading.style.marginBottom = "4px";
-    notice.appendChild(heading);
-    const detail = el("div", "The mutation has been committed to the baseline. You may submit a new edit.");
-    detail.style.color = "#edf2f7";
-    notice.appendChild(detail);
-    hasContent = true;
-  }
-
   const recovery = (panel.state.phase === PANEL_STATE.ERROR && allowsApply)
     ? panel.state.rebaselineRecovery
     : null;
