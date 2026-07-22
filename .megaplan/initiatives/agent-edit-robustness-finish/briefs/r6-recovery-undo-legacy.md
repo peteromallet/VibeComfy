@@ -47,6 +47,12 @@ contracts, including refresh and workflow switching.
   cancels, restores, or resumes; it never infers mutation status from panel
   phase or assumes `canvas_was_mutated=false` merely because the browser died
   before advancing UI state.
+- Bind every recovery decision to client-build attestation and a bounded lease
+  deadline. When the live typed projection equals the precondition, expose an
+  idempotent Resume Apply that consumes the existing generation/lease without a
+  second prepare; when it equals the postcondition, resume finalize; otherwise
+  restore or require explicit recovery from durable evidence. Never leave a
+  prepared lease waiting forever on an in-memory browser promise.
 - Enforce versioned legacy continuation/migration/non-resumable behavior.
 - Declare `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` as the
   fingerprint-qualified session-key → workflow-UUID-owned key migration. Only

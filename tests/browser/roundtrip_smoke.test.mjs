@@ -6316,6 +6316,97 @@ test("VibeComfy v2 Apply compensates an exception after prepare and before nativ
   }
 });
 
+test("VibeComfy resumes a durably prepared transaction from an unchanged canvas without preparing again", async () => {
+  const initialGraph = { nodes: [], links: [] };
+  const candidateGraph = {
+    nodes: [{ id: 2, type: "PreviewImage", properties: { vibecomfy_uid: "n2" }, inputs: [], outputs: [] }],
+    links: [],
+  };
+  const resumedApply = v2ApplyScenarioFixture({
+    sessionId: "session-resume-prepared",
+    planHash: "resume-prepared-plan",
+    candidateGraph,
+    deltaOps: [{ op: "add_node", scope_path: "", uid: "n2", node_id: "2", class_type: "PreviewImage", fields: {}, inputs: {} }],
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-resume-prepared",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          eligibility: { applyable: true, reason: "queue_blocked_warning", message: "Apply is allowed." },
+          ...resumedApply.candidateFields,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          report: { change: { content_edits: { preserved: [], edited: ["n2"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      ...resumedApply.routes(),
+      "/vibecomfy/agent-edit/chat?session_id=session-resume-prepared": {
+        status: 200,
+        body: { ok: true, session_id: "session-resume-prepared", messages: [] },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    resumedApply.bind(extensionModule);
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add preview";
+    await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.candidateTransaction = structuredClone(resumedApply.preparedTransaction);
+    panel.state.preparedReceipt = {
+      plan_hash: "resume-prepared-plan",
+      generation: 1,
+      lease_nonce: "resume-prepared-plan-lease",
+    };
+    panel.state.mutationPlanHash = "resume-prepared-plan";
+    panel.state.generation = 1;
+    panel.state.leaseNonce = "resume-prepared-plan-lease";
+    panel.state.phase = "RECOVERY_REQUIRED";
+    panel.state.failure = { kind: "RECOVERY_REQUIRED", graph_unchanged: true };
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["COMPOSER", "NOTICE"] });
+
+    const resumeButton = harness.document.getElementById("vibecomfy-agent-panel-resume-apply");
+    assert.equal(resumeButton?.style.display, "inline-flex");
+    assert.equal(resumeButton?.disabled, false);
+    await harness.clickButton("Resume Apply");
+    await waitFor(() => panel.state.phase === "FINALIZED");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 0);
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [2]);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy v2 Apply blocks when the touched region drifts after backend accept, even if delta ops only exist in panel state", async () => {
   const initialGraph = {
     nodes: [

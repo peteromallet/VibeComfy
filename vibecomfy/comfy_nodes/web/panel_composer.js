@@ -416,6 +416,12 @@ export function renderComposerActions(panel, deps = {}) {
 
   const v2Active = v2Prepared || v2CanvasVerified || v2Finalizing
     || v2RecoveryRequired || v2RollbackPrepared;
+  const preparedTransactionCanResume = (
+    panel.state.candidateTransaction?.state === "prepared"
+    && Array.isArray(panel.state.candidateTransaction?.available_actions)
+    && panel.state.candidateTransaction.available_actions.includes("rollback")
+    && Boolean(panel.state.candidateGraph)
+  );
   const v2Terminal = v2Finalized || v2RollbackComplete;
 
   const canSubmit =
@@ -477,6 +483,14 @@ export function renderComposerActions(panel, deps = {}) {
     panel.buttons.rollback.style.display = v2Active ? "inline-flex" : "none";
     panel.buttons.rollback.disabled = Boolean(
       panel.state.inFlightApply || panel.state.inFlightRebaseline,
+    );
+  }
+  if (panel.buttons.resumeApply) {
+    panel.buttons.resumeApply.style.display = (
+      preparedTransactionCanResume && (v2Prepared || v2RecoveryRequired)
+    ) ? "inline-flex" : "none";
+    panel.buttons.resumeApply.disabled = Boolean(
+      panel.state.inFlightApply || panel.state.inFlightRebaseline || panel.state.chatRehydratePending,
     );
   }
 

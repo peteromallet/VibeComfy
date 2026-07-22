@@ -54,6 +54,11 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   semantic scoped read, Undo capture, adapter entry, and immediately after
   `mutation_started`). Assert durable checkpoint evidence, no stranded prepared
   lease, and a verified unchanged, restored, or finalized canvas.
+- Drop the prepare response, hard-reload the tab, kill the renderer, and serve a
+  different frontend build after prepare. Prove build attestation rejects stale
+  code, the unchanged precondition can Resume Apply on the same generation and
+  lease, an already-landed postcondition resumes finalize, and the lease
+  watchdog prevents indefinite `prepared` state.
 - Inject a same-workflow `/chat` 500 and prove messages remain visible with a
   retry path. Then prove a confirmed missing session clears only that workflow,
   legacy fingerprint-qualified keys migrate, and equal graphs under different

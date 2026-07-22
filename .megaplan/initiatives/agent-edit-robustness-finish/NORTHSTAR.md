@@ -42,6 +42,8 @@ turn replaces that projection atomically, so evidence from turn N cannot be
 combined with or projected onto turn N+1.
 The loaded frontend build is part of that authority: server restart or checkout
 switch cannot let a stale browser module graph mutate against a different build.
+Submit, prepare, checkpoints, recovery, and finalize attest that client build;
+server `/info` identity alone is not proof of which module graph executed.
 
 Every durable post-prepare state has an idempotent recovery action. A generic
 terminal error without retry, reconciliation, verified rollback, or exact
@@ -52,6 +54,9 @@ One transaction supervisor owns the entire interval from durable prepare through
 finalize. It records `preflight_complete` and `mutation_started` checkpoints;
 there is no unguarded browser-only gap in which snapshotting, typed scoped
 verification, Undo capture, or adapter setup can strand a prepared lease.
+A prepared lease has a bounded deadline and a deterministic projection-based
+resume/cancel action after response loss, reload, renderer death, or restart; it
+cannot remain indefinitely prepared merely because an in-memory promise vanished.
 Semantic workflow fields resolve through native widget identity and adapter
 carrier evidence. Serialized input-descriptor order is never treated as widget
 serialization order: ComfyUI may serialize auxiliary widgets that have no input

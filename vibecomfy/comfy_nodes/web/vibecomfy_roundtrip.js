@@ -3859,6 +3859,10 @@ function createAgentPanelShell() {
   stopBtn.style.display = "none";
   const applyBtn = button("Apply", () => applyAgentCandidate(currentAgentPanel()));
   applyBtn.id = PANEL_IDS.apply;
+  const resumeApplyBtn = button("Resume Apply", () => applyAgentCandidate(currentAgentPanel(), { resumePrepared: true }));
+  resumeApplyBtn.id = "vibecomfy-agent-panel-resume-apply";
+  resumeApplyBtn.dataset.vibecomfyAction = "resume-apply";
+  resumeApplyBtn.style.display = "none";
   const rejectBtn = button("Reject", () => rejectAgentCandidate(currentAgentPanel()));
   rejectBtn.id = PANEL_IDS.reject;
   const rollbackBtn = button("Cancel interrupted Apply", () => rejectAgentCandidate(currentAgentPanel()));
@@ -3882,7 +3886,7 @@ function createAgentPanelShell() {
 
   // Keep all action buttons on a single line; stretch them to share the width
   // and shrink (with an ellipsis) rather than wrap when the panel is narrow.
-  for (const b of [submitBtn, stopBtn, applyBtn, rejectBtn, rollbackBtn, undoBtn, newConvBtn]) {
+  for (const b of [submitBtn, stopBtn, applyBtn, resumeApplyBtn, rejectBtn, rollbackBtn, undoBtn, newConvBtn]) {
     b.style.flex = "1 1 0";
     b.style.minWidth = "0";
     b.style.whiteSpace = "nowrap";
@@ -3900,6 +3904,7 @@ function createAgentPanelShell() {
   composerButtons.appendChild(submitBtn);
   composerButtons.appendChild(stopBtn);
   composerButtons.appendChild(applyBtn);
+  composerButtons.appendChild(resumeApplyBtn);
   composerButtons.appendChild(rejectBtn);
   composerButtons.appendChild(rollbackBtn);
   composerButtons.appendChild(newConvBtn);
@@ -4235,6 +4240,7 @@ function createAgentPanelShell() {
     buttons: {
       submit: submitBtn,
       apply: applyBtn,
+      resumeApply: resumeApplyBtn,
       reject: rejectBtn,
       rollback: rollbackBtn,
       undo: undoBtn,
@@ -10133,7 +10139,7 @@ function stopAgentSubmit(panel) {
   return true;
 }
 
-async function applyAgentCandidate(panel) {
+async function applyAgentCandidate(panel, { resumePrepared = false } = {}) {
   // ── T8: Demo-only apply branch (local state only, no backend accept) ──
   // Delegates to preview_picker which handles graph application, lifecycle
   // reflection, and state cleanup inline.  No POST to /agent-edit/accept.
@@ -10201,6 +10207,11 @@ async function applyAgentCandidate(panel) {
 
   if (isV2ApplyCandidate(panel)) {
     const candidateTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
+    const resumingPreparedTransaction = Boolean(
+      resumePrepared
+      && candidateTransaction?.state === "prepared"
+      && transactionAllows(candidateTransaction, "rollback"),
+    );
     const v2DeltaOps = candidateTransaction
       ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
       : null;
@@ -10214,7 +10225,9 @@ async function applyAgentCandidate(panel) {
       : { available: false, strategy: null };
     const missingTransactionFields = [];
     if (!candidateTransaction) missingTransactionFields.push("candidate_transaction");
-    if (!transactionAllows(candidateTransaction, "apply")) missingTransactionFields.push("apply_authorization");
+    if (!transactionAllows(candidateTransaction, "apply") && !resumingPreparedTransaction) {
+      missingTransactionFields.push("apply_authorization");
+    }
     if (!v2DeltaOps) {
       missingTransactionFields.push("delta_ops");
     }
@@ -10293,7 +10306,9 @@ async function applyAgentCandidate(panel) {
         return;
       }
 
-      const eligibility = applyEligibility(panel, beforeApply);
+      const eligibility = resumingPreparedTransaction
+        ? { applyable: true, reason: "resume_prepared", message: "Resume the durably prepared transaction." }
+        : applyEligibility(panel, beforeApply);
       if (!eligibility.applyable) {
         const failure = agentPanelFailure("StaleStateMismatch", eligibility.message || "Apply is blocked for this candidate.", {
           retryable: true,
@@ -10335,40 +10350,51 @@ async function applyAgentCandidate(panel) {
         }),
       };
 
-      const startedObligations = transition(panel, "APPLY_STARTED", {
-        acceptBody: prepareBody,
-        debugPayload: {
-          applying_turn_id: panel.state.turnId,
-          transactional_apply: true,
-          prepare_request: prepareBody,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, startedObligations);
-      const prepareStarted = commitPrepareStarted(panel, {
-        mutationPlanHash: candidateTransaction.plan_hash,
-        debugPayload: { prepare_request: prepareBody },
-      });
-      fulfillLifecycleTransitionObligations(panel, prepareStarted);
-      renderLifecycleTransition(panel, prepareStarted);
-
       let prepared;
       let preparedMutationPlan;
-      try {
-        prepared = await postAgentLifecycleAction("prepare", prepareBody, "prepare");
-        const obligations = commitPrepareSuccess(panel, {
-          preparedReceipt: prepared.receipt || null,
-          candidateTransaction: prepared.candidateTransaction,
-          debugPayload: {
-            prepare_request: prepareBody,
-            prepare_response: prepared.raw || prepared,
+      if (resumingPreparedTransaction) {
+        prepared = {
+          receipt: clonePlainData(panel.state.preparedReceipt),
+          candidateTransaction: clonePlainData(candidateTransaction),
+          raw: {
+            action: "resume_prepared",
+            receipt: clonePlainData(panel.state.preparedReceipt),
+            candidate_transaction: clonePlainData(candidateTransaction),
           },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        preparedMutationPlan = resolvePreparedMutationPlan(
-          candidateTransaction,
-          prepared.candidateTransaction,
-        );
-      } catch (error) {
+        };
+        preparedMutationPlan = resolvePreparedMutationPlan(candidateTransaction, candidateTransaction);
+      } else try {
+          const startedObligations = transition(panel, "APPLY_STARTED", {
+            acceptBody: prepareBody,
+            debugPayload: {
+              applying_turn_id: panel.state.turnId,
+              transactional_apply: true,
+              prepare_request: prepareBody,
+            },
+          });
+          fulfillLifecycleTransitionObligations(panel, startedObligations);
+          const prepareStarted = commitPrepareStarted(panel, {
+            mutationPlanHash: candidateTransaction.plan_hash,
+            debugPayload: { prepare_request: prepareBody },
+          });
+          fulfillLifecycleTransitionObligations(panel, prepareStarted);
+          renderLifecycleTransition(panel, prepareStarted);
+
+          prepared = await postAgentLifecycleAction("prepare", prepareBody, "prepare");
+          const obligations = commitPrepareSuccess(panel, {
+            preparedReceipt: prepared.receipt || null,
+            candidateTransaction: prepared.candidateTransaction,
+            debugPayload: {
+              prepare_request: prepareBody,
+              prepare_response: prepared.raw || prepared,
+            },
+          });
+          fulfillLifecycleTransitionObligations(panel, obligations);
+          preparedMutationPlan = resolvePreparedMutationPlan(
+            candidateTransaction,
+            prepared.candidateTransaction,
+          );
+        } catch (error) {
         let transactionRollback = prepared
           ? await rollbackPreparedAgentCandidate(panel, beforeApply, {
               silent: true,
@@ -10430,7 +10456,7 @@ async function applyAgentCandidate(panel) {
         fulfillLifecycleTransitionObligations(panel, obligations);
         renderLifecycleTransition(panel, obligations);
         return;
-      }
+        }
 
       // A prepared V2 transaction may not overwrite a touched region that
       // changed while the server held the lease.  Compare only authoritative
