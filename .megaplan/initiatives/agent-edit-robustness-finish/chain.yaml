@@ -13,6 +13,15 @@ launch_preconditions:
     check:
       kind: contains_text
       text: a395c243
+  - name: repaired foundation ancestry proof is tracked
+    kind: git_tracked
+    path: .megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json
+  - name: repaired foundation ancestry check passed
+    kind: artifact
+    path: .megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json
+    check:
+      kind: contains_text
+      text: '"exit_code": 0'
 
 milestones:
   - label: r1-private-native-core

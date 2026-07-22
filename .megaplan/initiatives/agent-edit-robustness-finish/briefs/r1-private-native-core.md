@@ -9,7 +9,8 @@ faults but unreachable from production consumers.
 ## Input handoff
 
 - Accepted repaired foundation through `a395c243`, the tracked `FOUNDATION.md`
-  launch receipt, and the predecessor current-state/proof map.
+  launch receipt, committed ancestry proof, and the predecessor
+  current-state/proof map.
 - Accepted `_intent_graph_receipt_core.mjs` and its 20/20 test, committed in
   the foundation history.
 - C2 forensic, receipt/fence, atomic-cutover, and ownership-ledger briefs under
@@ -100,6 +101,7 @@ touch protected files.
 
 - Private execution core and fault-matrix suite.
 - Ratified C2a commit SHA and acceptance records.
+- Revalidated foundation ancestry evidence for the resolved launch head.
 - Machine-readable preliminary cutover inventory enumerating observed consumers,
   legacy definition/export/call candidates, expected ledger categories, and
   harness needs; R2 remains responsible for completeness and certification.

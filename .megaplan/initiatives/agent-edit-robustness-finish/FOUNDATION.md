@@ -23,8 +23,9 @@ The launch checkout must use this tracked receipt and pass:
 git merge-base --is-ancestor a395c243 agent/agent-edit-robustness-foundation
 ```
 
-The current Megaplan precondition schema verifies that the receipt is committed
-and contains the required repair SHA; it does not itself execute the ancestry
-command. Record that command and its zero exit status before R1 starts. The base
-branch remains `agent/agent-edit-robustness-foundation`; the receipt changes its
-required content, not its name.
+The current Megaplan precondition schema does not itself execute an ancestry
+command. The committed `proof/r1-foundation-ancestry.json` records the zero-exit
+check against the integration head, and launch preconditions require that proof
+to be tracked and successful. The launch head must descend from that integration
+head. The base branch remains `agent/agent-edit-robustness-foundation`; the
+receipt changes its required content, not its name.

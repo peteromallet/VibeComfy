@@ -25,7 +25,8 @@ match current source and environment hashes.
   identity, scanner exclusions, obsolete helpers, and misleading comments/docs.
 - Retain `migrateFingerprintScopedSessionId` only as the declared
   `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` migration until its
-  telemetry-backed retention window and reviewed version-bump age-out;
+  migration-ledger age-out: at least 30 days, two released versions, zero
+  successful v0 reads for the full interval, and a reviewed version bump;
   then delete it through that migration contract rather than treating it as an
   unexplained shim.
 - Prove the source-derived ledger has zero open S3/S4/migration-debt rows and

@@ -39,8 +39,9 @@ contracts, including refresh and workflow switching.
   inspect the current revision's legacy key; a valid v1 key wins when both
   exist; repeated migration is idempotent; never scan/copy other fingerprints
   or workflow UUIDs; malformed or empty keys refuse without clearing state.
-  Retain the v0 key read-only until telemetry proves the configured legacy
-  retention window has elapsed, then remove it under a reviewed version bump.
+  Retain the v0 key read-only for at least 30 days and two released versions.
+  Delete it only after the versioned migration ledger records zero successful
+  v0 reads for that entire interval, then require a reviewed version bump.
 - Inject crash/restart, retry, duplicate callback, stale identity, partial
   rollback, and compensation failure.
 - Delete obsolete error terminals, dead helpers/shims, and duplicate migrations.
@@ -89,6 +90,9 @@ R8 terminal audit, or broad retention-product tuning.
   the transcript.
 - Migration tests cover v1-wins, malformed/empty refusal, repeat idempotence,
   no broad key search, v0 retention, and different-UUID isolation.
+- The migration ledger is the authoritative age-out source and records release
+  versions, interval bounds, and v0 read counts; R8 deletion requires 30 days,
+  two releases, and zero successful reads across the full interval.
 - Rollback failure exposes exact bounded diff and safe next action.
 - Every `RECOVERY_REQUIRED` state is reconstructible from durable artifacts;
   the backend may not retain only `prepared` when native mutation or local

@@ -483,8 +483,10 @@ Silent reinterpretation under a newer projection is unsafe.
 fingerprint-qualified session-key to workflow-UUID-owned key migration. The v1
 key wins, migration checks only the current revision's legacy key, malformed
 keys fail closed, repeats are idempotent, and other UUIDs/fingerprints are never
-scanned or copied. The v0 key remains read-only until its telemetry-backed
-retention window and reviewed version-bump age-out.
+scanned or copied. The v0 key remains read-only for at least 30 days and two
+released versions, and can be deleted only when the versioned migration ledger
+records zero successful v0 reads for the full interval plus a reviewed version
+bump.
 
 Compatibility/session CAS digests stay at an explicit versioned compatibility
 boundary and cannot stand in for typed transaction projection witnesses.

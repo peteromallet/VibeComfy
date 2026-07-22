@@ -1,6 +1,7 @@
 {
   "r1-private-native-core": [
     ".megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-native-execution-fault-matrix.json"
   ],
