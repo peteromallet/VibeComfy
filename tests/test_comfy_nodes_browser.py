@@ -249,6 +249,20 @@ def test_browser_structural_hash_matches_python_structural_graph_hash() -> None:
                 "not-a-link",
             ],
         },
+        # ── Graph 3: frontend-only LoadImage upload carrier ─────────────
+        {
+            "nodes": [
+                {
+                    "id": 8,
+                    "type": "LoadImage",
+                    "mode": 0,
+                    "widgets_values": ["example.png", "image"],
+                    "inputs": [],
+                    "outputs": [],
+                }
+            ],
+            "links": [],
+        },
     ]
 
     script = """

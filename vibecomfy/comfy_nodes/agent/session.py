@@ -2845,17 +2845,8 @@ def finalize_turn_transaction(
         claimed_post_hash = _payload_str(
             payload, "post_apply_hash", "browser_verified_post_apply_hash", "canvas_hash"
         )
-        # A delta_replay transaction is authorized by the typed semantic
-        # postcondition and landed delta receipt above.  The browser's
-        # compatibility/session digest is advisory CAS evidence, not a second
-        # semantic witness.  Cross-runtime/native serialization differences
-        # must not veto an otherwise verified scoped mutation.  Authority
-        # modes that explicitly require whole-graph equality retain the claim
-        # check.
-        verification_kind = authority.get("verification_kind")
         if (
-            verification_kind != "delta_replay"
-            and claimed_post_hash is not None
+            claimed_post_hash is not None
             and claimed_post_hash != post_apply_structural_hash
         ):
             return _transaction_failure(

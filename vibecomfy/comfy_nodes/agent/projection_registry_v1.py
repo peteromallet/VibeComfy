@@ -267,6 +267,14 @@ def _legacy_normalize_structural_widget_value(value: Any) -> Any:
 
 def _legacy_normalize_node_widget_values(node: Mapping[str, Any]) -> Any:
     values = node.get("widgets_values", [])
+    if node.get("type") == "LoadImage" and isinstance(values, list):
+        return [
+            _legacy_normalize_structural_widget_value(entry)
+            for index, entry in enumerate(values)
+            if field_category_v1(
+                "node", f"widgets_values.{index}", "LoadImage"
+            ) != "derived_native"
+        ]
     if node.get("type") != "vibecomfy.exec":
         return _legacy_normalize_structural_widget_value(values)
     if isinstance(values, Mapping):

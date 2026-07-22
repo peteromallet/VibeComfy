@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { FIELD_CATEGORY, assertForwardProjectionV1, assertProjectionReferenceV1, classifyFieldV1, projectGraphV1, projectionReferenceV1, projectionSpecV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import { FIELD_CATEGORY, assertForwardProjectionV1, assertProjectionReferenceV1, buildStructuralGraphProjection, classifyFieldV1, projectGraphV1, projectionReferenceV1, projectionSpecV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { canonicalJsonString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 import { validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 import { normalizeDeltaV1 } from "../../vibecomfy/comfy_nodes/web/canonical_delta.js";
@@ -142,6 +142,10 @@ test("LoadImage typed projection excludes frontend-injected upload widget carrie
   assert.equal(
     projectionReferenceV1(native, "structural_v1").digest,
     projectionReferenceV1(semantic, "structural_v1").digest,
+  );
+  assert.deepEqual(
+    buildStructuralGraphProjection(native),
+    buildStructuralGraphProjection(semantic),
   );
 });
 test("strict delta, prepared authority, layout witness, legacy and undo policies", () => {

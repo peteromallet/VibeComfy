@@ -11,6 +11,7 @@ from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
     CANDIDATE_AUTHORITY_V1,
     PREPARED_AUTHORITY_V1,
     ContractError,
+    build_structural_graph_projection,
     canonical_json,
     classify_legacy_migration_v1,
     field_category_v1,
@@ -139,6 +140,7 @@ def test_load_image_projection_excludes_frontend_upload_widget_carriers() -> Non
     assert field_category_v1("node", "widgets_values.1", "LoadImage") == "derived_native"
     assert project_graph_v1(native, "structural_v1") == project_graph_v1(semantic, "structural_v1")
     assert projection_reference_v1(native, "structural_v1")["digest"] == projection_reference_v1(semantic, "structural_v1")["digest"]
+    assert build_structural_graph_projection(native) == build_structural_graph_projection(semantic)
 
 
 def _ref(projection: str) -> dict[str, str]:
