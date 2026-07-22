@@ -133,6 +133,27 @@ function forgetScopedSessionId(scopeId) {
   _ssRemove(_scopeSessionKey(scopeId));
 }
 
+// Scope identity used to append the structural fingerprint even when a
+// workflow UUID was available. Migrate the binding for the currently loaded
+// revision into the stable UUID-owned scope so upgrades retain that thread.
+function migrateFingerprintScopedSessionId(scopeId, fingerprint) {
+  if (typeof scopeId !== "string" || !scopeId
+    || typeof fingerprint !== "string" || !fingerprint) {
+    return null;
+  }
+  const current = getScopedSessionId(scopeId);
+  if (current) {
+    return current;
+  }
+  const legacyScopeId = `${scopeId}:${fingerprint}`;
+  const legacy = getScopedSessionId(legacyScopeId);
+  if (!legacy) {
+    return null;
+  }
+  setScopedSessionId(scopeId, legacy);
+  return legacy;
+}
+
 // ── Legacy localStorage migration ─────────────────────────────────────────
 // `vibecomfy_active_session_id` in localStorage was the pre-scope global
 // active session.  When a scope resolves its session for the first time and
@@ -176,5 +197,6 @@ export {
   getScopedSessionId,
   setScopedSessionId,
   forgetScopedSessionId,
+  migrateFingerprintScopedSessionId,
   resolveScopeSessionId,
 };

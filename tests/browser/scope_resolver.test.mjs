@@ -465,6 +465,26 @@ test("captureInitialScopeId treats structural edits to an identified workflow as
   assert.notEqual(after.fingerprint, before.fingerprint);
 });
 
+test("captureInitialScopeId migrates the current fingerprint-qualified session binding", async () => {
+  resetStorage();
+  const mod = await loadResolver();
+  const graph = baseGraph();
+  const workflowId = "workflow-window-upgrade";
+  const stableScopeId = mod.computeScopeId(graph, { workflowId });
+  const fingerprint = mod.computeStructuralGraphFingerprint(graph);
+  globalThis.sessionStorage.setItem(
+    `vibecomfy_scope_session:${stableScopeId}:${fingerprint}`,
+    "session-before-stable-scope",
+  );
+
+  mod.captureInitialScopeId(graph, { workflowId });
+
+  assert.equal(
+    globalThis.sessionStorage.getItem(`vibecomfy_scope_session:${stableScopeId}`),
+    "session-before-stable-scope",
+  );
+});
+
 test("captureInitialScopeId returns scope info with isNew=true on first call", async () => {
   resetStorage();
   const mod = await loadResolver();

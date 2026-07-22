@@ -12,6 +12,7 @@
 
 import {
   _tabNonce,
+  migrateFingerprintScopedSessionId,
 } from "./scoped_session_storage.js";
 import {
   buildStructuralGraphProjection,
@@ -168,6 +169,9 @@ export function captureInitialScopeId(graph, { forceRefresh = false, workflowId 
   const currentScopeId = normalizedWorkflowId
     ? `${nonce}:${encodeURIComponent(normalizedWorkflowId)}`
     : `${nonce}:${currentFingerprint}`;
+  if (normalizedWorkflowId) {
+    migrateFingerprintScopedSessionId(currentScopeId, currentFingerprint);
+  }
 
   // Check cache (unless force refresh)
   if (!forceRefresh) {
