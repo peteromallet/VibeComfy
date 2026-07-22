@@ -20,6 +20,11 @@ event wiring, and view composition.
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
 - Coordinate submit, prepare, Apply, verify, finalize, reject, rollback, Undo,
   rehydrate, activate/deactivate, cancel, and late-result rejection.
+- Bind every browser controller context to the server's exact frontend build
+  identity. Refuse Submit, Apply, and recovery continuation with an actionable
+  hard-reload-required state when a restarted/switched server disagrees with
+  the already-loaded document; a server relaunch must never be mistaken for a
+  client relaunch.
 - Fence every continuation by all declared panel/workflow/activation/operation/
   submit/apply/session/turn/candidate/transaction/lease/generation dimensions.
 - Preserve the lifecycle reducer as sole legal-transition owner.
@@ -55,6 +60,8 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 
 - Switching during every phase yields no leak, cross-tab write, or stale commit.
 - Refresh restores exact workflow/transaction context; identical tabs remain distinct.
+- A server/frontend build mismatch is detected before prepare or native mutation,
+  and a fresh document proves the matching build before authority is restored.
 - Static gates prove one controller/API/reducer and no coordination/transport/
   mutation/verification/rollback decision in roundtrip.
 - Roundtrip is measurably reduced; dead coordinator exports/imports are absent.

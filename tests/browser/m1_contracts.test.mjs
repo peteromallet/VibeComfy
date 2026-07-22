@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { assertForwardProjectionV1, assertProjectionReferenceV1, projectGraphV1, projectionReferenceV1, projectionSpecV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import { FIELD_CATEGORY, assertForwardProjectionV1, assertProjectionReferenceV1, classifyFieldV1, projectGraphV1, projectionReferenceV1, projectionSpecV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { canonicalJsonString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 import { validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 import { normalizeDeltaV1 } from "../../vibecomfy/comfy_nodes/web/canonical_delta.js";
@@ -92,6 +92,34 @@ test("M1 browser and Python consume one golden projection corpus", () => {
     if (item.canonical) assert.equal(canonicalJsonString(projected), item.canonical);
     assert.equal(projectionReferenceV1(item.graph, item.projection).digest, item.digest);
   }
+});
+test("native advanced-widget visibility is excluded from typed projections", () => {
+  const graph = structuredClone(corpus.projection_cases[0].graph);
+  graph.nodes[0].showAdvanced = true;
+  assert.equal(
+    classifyFieldV1({ entity: "node", path: "showAdvanced", nodeType: graph.nodes[0].type }),
+    FIELD_CATEGORY.DERIVED_NATIVE,
+  );
+  assert.deepEqual(
+    projectGraphV1(graph, "structural_v1"),
+    projectGraphV1(corpus.projection_cases[0].graph, "structural_v1"),
+  );
+  assert.deepEqual(
+    projectGraphV1(graph, "layout_v1"),
+    projectGraphV1(corpus.projection_cases[0].graph, "layout_v1"),
+  );
+});
+test("zero-widget nodes normalize omitted, null, object, and array encodings", () => {
+  const baseline = structuredClone(corpus.projection_cases[0].graph);
+  const digest = (widgetsValues, present = true) => {
+    const graph = structuredClone(baseline);
+    if (present) graph.nodes[0].widgets_values = widgetsValues;
+    else delete graph.nodes[0].widgets_values;
+    return projectionReferenceV1(graph, "structural_v1").digest;
+  };
+  assert.equal(digest([], true), digest({}, true));
+  assert.equal(digest(null, true), digest({}, true));
+  assert.equal(digest(undefined, false), digest({}, true));
 });
 test("strict delta, prepared authority, layout witness, legacy and undo policies", () => {
   assert.equal(normalizeDeltaV1({ delta_contract: "delta_v1", wire_version: "2.0.0", ops: corpus.delta_ops }).ops.length, 6);

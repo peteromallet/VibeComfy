@@ -52,7 +52,7 @@ AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v2"
 ROOT_SCOPE = MappingProxyType({"kind": "root", "path": ""})
 FIELD_CATEGORIES = frozenset({"execution_semantic", "layout_semantic", "native_defaulted", "derived_native", "opaque_extension", "unsupported"})
 _RULES = MappingProxyType({
-    "node.vibecomfy_uid": "derived_native", "node.id": "derived_native", "node.type": "execution_semantic", "node.mode": "native_defaulted", "node.fields": "execution_semantic", "node.widgets_values": "execution_semantic", "node.inputs": "derived_native", "node.outputs": "derived_native", "node.properties": "derived_native", "node.flags": "derived_native", "node.order": "derived_native", "node.pos": "layout_semantic", "node.size": "layout_semantic", "node.title": "layout_semantic", "node.color": "layout_semantic", "node.bgcolor": "layout_semantic", "node.boxcolor": "layout_semantic", "node.shape": "layout_semantic", "node.extensions": "opaque_extension",
+    "node.vibecomfy_uid": "derived_native", "node.id": "derived_native", "node.type": "execution_semantic", "node.mode": "native_defaulted", "node.fields": "execution_semantic", "node.widgets_values": "execution_semantic", "node.inputs": "derived_native", "node.outputs": "derived_native", "node.properties": "derived_native", "node.flags": "derived_native", "node.order": "derived_native", "node.showAdvanced": "derived_native", "node.pos": "layout_semantic", "node.size": "layout_semantic", "node.title": "layout_semantic", "node.color": "layout_semantic", "node.bgcolor": "layout_semantic", "node.boxcolor": "layout_semantic", "node.shape": "layout_semantic", "node.extensions": "opaque_extension",
     "group.vibecomfy_group_id": "derived_native", "group.id": "derived_native", "group.scope_path": "derived_native", "group.flags": "derived_native", "group.font_size": "layout_semantic", "group.title": "layout_semantic", "group.bounding": "layout_semantic", "group.color": "layout_semantic",
 })
 PROJECTIONS_V1 = MappingProxyType({"structural_v1": MappingProxyType({"allowed": True}), "layout_v1": MappingProxyType({"allowed": True}), "workflow_v1": MappingProxyType({"allowed": False, "reason": "forbidden_forward_agent_edit"})})
@@ -155,7 +155,7 @@ def assert_forward_projection_v1(name: Any) -> Mapping[str, Any]:
 
 def _widgets(node: Mapping[str, Any]) -> Any:
     raw = node.get("widgets_values", {})
-    if isinstance(raw, list): return list(raw)
+    if isinstance(raw, list): return list(raw) if raw else {}
     if raw is None: return {}
     if not isinstance(raw, Mapping): raise ContractError("widgets_values must be object or list", "malformed_graph")
     result = dict(raw)

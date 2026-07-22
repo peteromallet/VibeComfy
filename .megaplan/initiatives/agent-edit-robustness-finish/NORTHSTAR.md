@@ -30,10 +30,14 @@ Every workflow tab has an isolated complete context. An async continuation can
 commit only while its workflow, activation, operation, submit/apply epoch,
 session, turn, candidate, transaction, lease, generation, and panel authority
 remain current. Switching tabs or refreshing never transfers authority.
+The loaded frontend build is part of that authority: server restart or checkout
+switch cannot let a stale browser module graph mutate against a different build.
 
 Every durable post-prepare state has an idempotent recovery action. A generic
 terminal error without retry, reconciliation, verified rollback, or exact
 retained recovery evidence is forbidden.
+Native mutation and compensation attempts leave durable step-level receipts, so
+`RECOVERY_REQUIRED` is reconstructible even after the browser document is gone.
 
 The exact `a66422e…`, `eb45e…`, detached `Displays / Labels`, duplicate-title,
 and workflow-tab isolation incidents remain permanent gates. Real ComfyUI must

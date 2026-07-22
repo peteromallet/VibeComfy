@@ -25,6 +25,14 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Include exact `a66422e…`, `eb45e…`, detached Displays/Labels, duplicate titles,
   dynamic nodes, converted widgets, reroutes, missing custom nodes, unsupported
   nested scopes, identical tabs, and refresh during each durable state.
+- Include the recorded SD1.5 empty-canvas incident as a full submit → review →
+  prepare → 7-native-node/9-link Apply → landed-plan audit → typed postcondition
+  → finalize case. It must exercise native port-order divergence, `showAdvanced`,
+  and zero-widget serialization; adapter-only replay is insufficient evidence.
+- Restart/switch the serving VibeComfy checkout while keeping the existing
+  browser document alive. Prove stale ESM cannot Submit/Apply, the UI requires a
+  real document reload, and the reloaded content-addressed build completes the
+  same lifecycle.
 - Attribute each failure/warning to VibeComfy, ComfyUI core, or extension; narrowly
   allowlist only known compatibility-environment warnings.
 - Wire minimal correctness and the required lifecycle matrix into per-PR CI;
@@ -65,6 +73,8 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Every supported transaction family passes success, failure, refresh, switch,
   rollback, recovery, and persistence in minimal real ComfyUI.
 - Every named incident/adversarial fixture passes in full form.
+- The SD1.5 case finalizes from an empty real canvas, and injected link,
+  projection, and rollback failures leave durable step-level receipts.
 - Compatibility matrix is deterministic, representative, and precisely attributed.
 - CI blocks on minimal correctness and required lifecycle failures; scheduled
   compatibility jobs retain artifacts and clear ownership.

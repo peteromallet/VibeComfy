@@ -22,6 +22,10 @@ contracts, including refresh and workflow switching.
 - Reconcile ambiguous prepare/finalize responses from durable receipts.
 - Preserve authority across refresh, restart, and switching; show exact verifier
   diffs after rollback failure.
+- Persist browser mutation-failure and rollback-attempt receipts before volatile
+  panel state can disappear. Evidence must include frontend build identity,
+  failing plan step/op, resolved named and numeric ports, native types, landed
+  prefix, bounded structural snapshot/diff, compensation attempt, and outcome.
 - Enforce versioned legacy continuation/migration/non-resumable behavior.
 - Inject crash/restart, retry, duplicate callback, stale identity, partial
   rollback, and compensation failure.
@@ -57,6 +61,9 @@ R8 terminal audit, or broad retention-product tuning.
   switch, stale-identity, and idempotence evidence.
 - Restart cannot strand/transfer authority; Undo and legacy match M1 contracts.
 - Rollback failure exposes exact bounded diff and safe next action.
+- Every `RECOVERY_REQUIRED` state is reconstructible from durable artifacts;
+  the backend may not retain only `prepared` when native mutation or local
+  compensation has already been attempted.
 - Static audit finds no generic post-prepare terminal, duplicate migration owner,
   dead recovery export, or silent reinterpretation.
 - Focused and broad suites pass; two independent acceptances.

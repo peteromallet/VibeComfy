@@ -13,6 +13,7 @@ from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
     ContractError,
     canonical_json,
     classify_legacy_migration_v1,
+    field_category_v1,
     node_identity_v1,
     project_graph_v1,
     projection_reference_v1,
@@ -105,6 +106,21 @@ def test_shared_m1_golden_projection_corpus() -> None:
         if "canonical" in case:
             assert canonical_json(projected) == case["canonical"]
         assert projection_reference_v1(case["graph"], case["projection"])["digest"] == case["digest"]
+
+
+def test_native_projection_normalizes_host_ui_metadata_and_zero_widget_encodings() -> None:
+    graph = json.loads(json.dumps(CORPUS["projection_cases"][0]["graph"]))
+    graph["nodes"][0]["showAdvanced"] = True
+    assert field_category_v1("node", "showAdvanced", graph["nodes"][0]["type"]) == "derived_native"
+    variants = []
+    for value in (None, {}, []):
+        variant = json.loads(json.dumps(graph))
+        variant["nodes"][0]["widgets_values"] = value
+        variants.append(projection_reference_v1(variant, "structural_v1")["digest"])
+    omitted = json.loads(json.dumps(graph))
+    omitted["nodes"][0].pop("widgets_values", None)
+    variants.append(projection_reference_v1(omitted, "structural_v1")["digest"])
+    assert len(set(variants)) == 1
 
 
 def _ref(projection: str) -> dict[str, str]:

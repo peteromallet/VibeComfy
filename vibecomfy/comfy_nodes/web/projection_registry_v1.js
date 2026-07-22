@@ -38,6 +38,9 @@ const FIELD_RULES_V1 = Object.freeze({
   "node.properties": FIELD_CATEGORY.DERIVED_NATIVE,
   "node.flags": FIELD_CATEGORY.DERIVED_NATIVE,
   "node.order": FIELD_CATEGORY.DERIVED_NATIVE,
+  // ComfyUI serializes the expanded/collapsed state of advanced widgets on
+  // native nodes. It is host UI metadata, not workflow execution state.
+  "node.showAdvanced": FIELD_CATEGORY.DERIVED_NATIVE,
   "node.color": FIELD_CATEGORY.LAYOUT_SEMANTIC,
   "node.bgcolor": FIELD_CATEGORY.LAYOUT_SEMANTIC,
   "node.boxcolor": FIELD_CATEGORY.LAYOUT_SEMANTIC,
@@ -352,7 +355,11 @@ export function normalizeDerivedWidgetFieldsV1(node, normalize = normalizeProjec
 
 function cleanWidgets(node) {
   if (node?.widgets_values == null) return {};
-  return normalizeDerivedWidgetFieldsV1(node, normalizeProjectionWidgetValue);
+  const normalized = normalizeDerivedWidgetFieldsV1(node, normalizeProjectionWidgetValue);
+  // LiteGraph omits widgets_values entirely for some zero-widget nodes while
+  // generated candidates explicitly carry []. Both serialize the same node.
+  if (Array.isArray(normalized) && normalized.length === 0) return {};
+  return normalized;
 }
 
 function structuralNodeV1(node) {

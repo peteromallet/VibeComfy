@@ -21,6 +21,10 @@ and bounded mismatch evidence, and delete every inline competing decision.
   inline verdicts, dead exports/imports, and compatibility branches.
 - Inject mismatch, serialization exception, partial Apply, inverse failure, and
   compensation failure; pass all named incidents through one API.
+- Ratify cross-runtime normalization for native-only host UI fields and
+  equivalent zero-widget encodings. In particular, `showAdvanced` must be
+  classified as non-semantic, and omitted, `null`, `[]`, and `{}` zero-widget
+  representations must produce one structural projection in browser and Python.
 
 ## OUT
 
@@ -53,6 +57,8 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Static/dependency tests prove no duplicate comparison/canonicalizer or dead
   verifier-era export remains.
 - All fault exits and named fixtures pass the same public API.
+- Browser/Python goldens prove native `showAdvanced` and every zero-widget
+  encoding cannot create a false postcondition mismatch.
 - Focused verifier/ownership and broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances complete.
 
