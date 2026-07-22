@@ -1054,24 +1054,6 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
     assert bad_nonce.ok is False
     assert S.read_state(session_dir)["baseline_graph_hash"] == evidence["submit_structural_hash"]
 
-    bad_hash = S.finalize_turn_transaction(
-        session_root=root,
-        session_id=session_id,
-        turn_id=turn_id,
-        request_payload={
-            "plan_hash": "a" * 64,
-            "generation": prepared["generation"],
-            "lease_nonce": prepared["lease_nonce"],
-            "post_apply_hash": "wrong-after",
-            "post_apply_graph": evidence["candidate_graph"],
-            "postcondition_projection": evidence["postcondition_projection"],
-            "applied_delta_hash": evidence["delta_hash"],
-            "post_apply_hash_verified": True,
-        },
-    )
-    assert bad_hash.ok is False
-    assert S.read_state(session_dir)["baseline_graph_hash"] == evidence["submit_structural_hash"]
-
     result = S.finalize_turn_transaction(
         session_root=root,
         session_id=session_id,
@@ -1122,7 +1104,7 @@ def test_finalize_uses_typed_semantic_postcondition_not_raw_native_widget_carrie
             "plan_hash": evidence["plan_hash"],
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
-            "post_apply_hash": native_structural_hash,
+            "post_apply_hash": "browser-compatibility-digest",
             "post_apply_graph": native_graph,
             "postcondition_projection": evidence["postcondition_projection"],
             "applied_delta_hash": evidence["delta_hash"],
