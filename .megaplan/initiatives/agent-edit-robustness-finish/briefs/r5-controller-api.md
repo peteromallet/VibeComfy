@@ -51,6 +51,11 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - Activation atomically installs fresh or exact-restored context; deactivation
   revokes all prior async authority.
 - Durable transaction state outranks panel phase; rollback targets the originating workflow.
+- Prepared, verified, finalized, and rollback receipts plus generation/lease
+  are owned by `(session, turn, transaction)`, never by the panel as a whole.
+  Activating a later candidate atomically replaces the prior turn's active
+  receipt projection; reconcile treats absent current-turn receipts as absent
+  rather than inheriting values from the previous turn.
 - Rehydration is exhaustive: ignore stale responses; replace from valid
   success; on explicit `CHAT_REHYDRATE_MISSING_SESSION`, clear only the current
   workflow binding; on every other transport, 5xx, malformed-schema, or
@@ -78,6 +83,9 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - Structural Apply/finalize may change the graph fingerprint but preserves the
   workflow UUID, session, scope, and transcript; the next submission reuses the
   original session.
+- After turn N finalizes, a reviewable turn N+1 with an empty receipt set stays
+  `AWAITING_REVIEW`; it cannot inherit N's generation, lease, prepared/verified
+  receipts, or interrupted-Apply notice.
 - Stale, `/chat` 500, transport, malformed-schema, and projection-failure
   responses leave prior messages safe and retryable; a confirmed missing
   session clears only the current workflow.

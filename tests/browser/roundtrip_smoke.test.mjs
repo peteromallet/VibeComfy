@@ -13179,6 +13179,123 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
   }
 });
 
+test("Lifecycle E2 a second review candidate cannot inherit finalized receipts from the first turn", async () => {
+  const sessionId = "sess-rehydrate-second-candidate";
+  const chatUrl = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(sessionId)}`;
+  const candidateGraph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } }],
+    links: [],
+  };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const secondTurn = v2ApplyScenarioFixture({
+    sessionId,
+    turnId: "0002",
+    planHash: "second-turn-plan",
+    deltaOps,
+    candidateGraph,
+  });
+  const { candidateTransaction } = secondTurn;
+  const harness = await createBrowserHarness({
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+      [chatUrl]: {
+        status: 200,
+        body: {
+          ok: true,
+          exists: true,
+          session_id: sessionId,
+          latest_turn_id: "0002",
+          latest_turn_lifecycle: {
+            turn_id: "0002",
+            state: "candidate_ready",
+            disposition: "reviewable",
+            agent_edit_protocol: "v2_delta",
+            candidate_transaction: candidateTransaction,
+            transaction_receipts: [],
+          },
+          messages: [
+            { role: "user", text: "first edit", turn_id: "0001" },
+            { role: "agent", text: "First edit applied.", turn_id: "0001" },
+            { role: "user", text: "second edit", turn_id: "0002" },
+            { role: "agent", text: "Second candidate ready.", turn_id: "0002" },
+          ],
+          latest_candidate: {
+            session_id: sessionId,
+            turn_id: "0002",
+            ...secondTurn.candidateFields,
+            message: "Second candidate ready.",
+            canvas_apply_allowed: true,
+            apply_allowed: true,
+            queue_allowed: false,
+            eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit/reconcile": {
+        status: 200,
+        body: {
+          ok: true,
+          receipts_by_turn: { "0002": [] },
+          transactions_by_turn: { "0002": candidateTransaction },
+          recovery_graphs_by_turn: {},
+        },
+      },
+    },
+  });
+  globalThis.localStorage.setItem("vibecomfy_active_session_id", sessionId);
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    secondTurn.bind(extensionModule);
+    await harness.setup();
+    const panel = extensionModule.ensureAgentPanel();
+    Object.assign(panel.state, {
+      phase: "FINALIZED",
+      sessionId,
+      turnId: "0001",
+      mutationPlanHash: "first-turn-plan",
+      generation: 1,
+      leaseNonce: "first-turn-lease",
+      preparedReceipt: { turn_id: "0001", generation: 1 },
+      verifiedReceipt: { turn_id: "0001", post_apply_hash: "first-turn-post" },
+      lifecycleEvents: [{ event_type: "finalized", turn_id: "0001", timestamp: 1 }],
+    });
+
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+
+    assert.equal(panel.state.turnId, "0002");
+    assert.equal(panel.state.preparedReceipt, null);
+    assert.equal(panel.state.verifiedReceipt, null);
+    assert.equal(panel.state.generation, null);
+    assert.equal(panel.state.leaseNonce, null);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.match(harness.textDump(), /first edit/);
+    assert.match(harness.textDump(), /Second candidate ready/);
+    assert.doesNotMatch(harness.textDump(), /Finalizing transaction/);
+    assert.doesNotMatch(harness.textDump(), /Cancel this interrupted Apply/);
+  } finally {
+    await harness.dispose();
+    globalThis.localStorage.removeItem("vibecomfy_active_session_id");
+  }
+});
+
 test("Lifecycle E2 chat rehydrate ignores latest_candidate entries whose public outcome is not candidate", async () => {
   const graph = {
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } }],

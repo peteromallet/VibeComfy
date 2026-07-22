@@ -1097,6 +1097,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
   _handleSyncBaseline(panel, payload?.baseline || payload?.result || {});
   _handleInvalidateCandidate(panel, { repaint: false });
+  _resetActiveTransactionLifecycle(panel);
   panel.state.candidateGraph = candidateGraph;
   panel.state.candidateTransaction = candidateTransaction;
   panel.state.legacyMigration = legacyMigration;
@@ -1297,6 +1298,23 @@ function _handleInvalidateCandidate(panel, payload) {
   delete panel.state._previewDiffInputSignature;
 
   return { render: repaint };
+}
+
+// Transaction receipts belong to one durable turn. Candidate invalidation
+// deliberately preserves them so finalize/rollback can clear the preview
+// without erasing recovery evidence, but a *new* candidate is a different
+// ownership boundary. Carrying the previous turn's receipts across that
+// boundary can make an unprepared candidate look canvas-verified after the
+// next reconcile.
+function _resetActiveTransactionLifecycle(panel) {
+  panel.state.mutationPlanHash = null;
+  panel.state.generation = null;
+  panel.state.leaseNonce = null;
+  panel.state.preparedReceipt = null;
+  panel.state.verifiedReceipt = null;
+  panel.state.rollbackReceipt = null;
+  panel.state.rolledBack = false;
+  panel.state.lifecycleEvents = [];
 }
 
 const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
@@ -1848,6 +1866,7 @@ function _handleCandidateResponse(panel, payload) {
   });
   _handleSyncBaseline(panel, result);
   _handleInvalidateCandidate(panel, { repaint: false });
+  _resetActiveTransactionLifecycle(panel);
   panel.state.candidateGraph = candidateGraph;
   panel.state.candidateTransaction = candidateTransaction;
   panel.state.legacyMigration = legacyMigration;
@@ -3330,10 +3349,27 @@ function _handleReconcileReceipts(panel, payload) {
   const receipts = payload?.receipts || null;
   const transaction = payload?.candidateTransaction
     || _readCandidateTransactionForTransition(payload);
+  const transactionTurnId = typeof transaction?.turn_id === "string" ? transaction.turn_id : null;
+  const transactionSessionId = typeof transaction?.session_id === "string" ? transaction.session_id : null;
+  if (
+    (transactionTurnId && panel.state.turnId && transactionTurnId !== panel.state.turnId)
+    || (transactionSessionId && panel.state.sessionId && transactionSessionId !== panel.state.sessionId)
+  ) {
+    return { render: false, stale: true };
+  }
+  // Reconcile is an authoritative snapshot for the active turn, not a patch
+  // over whichever turn happened to be visible before the request. Clear all
+  // turn-owned receipts first so an empty receipt set cannot resurrect a
+  // previous turn's prepared/canvas-verified state.
+  panel.state.preparedReceipt = null;
+  panel.state.verifiedReceipt = null;
+  panel.state.rollbackReceipt = null;
+  panel.state.rolledBack = false;
   if (transaction) {
     panel.state.candidateTransaction = transaction;
     panel.state.mutationPlanHash = transaction.plan_hash;
-    panel.state.generation = transaction.generation ?? panel.state.generation;
+    panel.state.generation = transaction.generation ?? null;
+    panel.state.leaseNonce = transaction.lease_nonce || null;
     panel.state.deltaOps = clonePlainData(transaction.plan.delta_ops_envelope.ops);
   }
   let terminalReconciled = false;
@@ -3355,8 +3391,12 @@ function _handleReconcileReceipts(panel, payload) {
       panel.state.rollbackReceipt = receipts.rollbackReceipt || receipts.rollback_receipt;
     }
     if (Array.isArray(receipts.lifecycleEvents || receipts.lifecycle_events)) {
-      // Merge server lifecycle events with local ones (deduplicate by timestamp+event_type)
+      // Keep append-only evidence for the active turn only. Events from a
+      // previous turn are no more valid here than its receipts.
       const serverEvents = receipts.lifecycleEvents || receipts.lifecycle_events;
+      panel.state.lifecycleEvents = (panel.state.lifecycleEvents || []).filter(
+        (event) => !event?.turn_id || !panel.state.turnId || event.turn_id === panel.state.turnId,
+      );
       const existingKeys = new Set(
         (panel.state.lifecycleEvents || []).map(
           (e) => `${e.event_type}:${e.timestamp}`,
@@ -3389,6 +3429,8 @@ function _handleReconcileReceipts(panel, payload) {
       panel.state.phase = PANEL_STATE.APPLY_PREPARED;
     } else if (panel.state.rollbackReceipt) {
       panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
+    } else if (transaction?.state === "candidate_ready" && panel.state.candidateGraph) {
+      panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
     }
   }
   panel.state.debugPayload = payload?.debugPayload || {

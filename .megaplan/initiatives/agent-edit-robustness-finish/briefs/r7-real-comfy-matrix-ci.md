@@ -33,6 +33,11 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   structural fingerprint changes while workflow UUID, scope, session, and
   transcript remain; the follow-up reuses the original session; refresh
   restores the transcript and exact generation/lease.
+- In that consecutive-turn case, leave turn 1's finalized receipt in browser
+  persistence, return turn 2 as `candidate_ready` with zero transaction
+  receipts, and run chat restore plus reconcile. Turn 2 must remain reviewable
+  with Apply/Reject enabled, both turns visible, null generation/lease, and no
+  interrupted-Apply/finalizing projection from turn 1.
 - Exercise SD1.5 → SDXL semantic updates for `ckpt_name`, `width`, `height`,
   and `filename_prefix` against getter-only native node properties. All updates
   must land through native widgets, with unresolved fields and candidate/delta
@@ -95,6 +100,9 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   projection, and rollback failures leave durable step-level receipts.
 - No finalized composer notice appears, the finalized state does not add a chat
   message, and a follow-up preserves the prior transcript/session.
+- Consecutive-turn rehydrate proves receipt ownership isolation: empty turn-2
+  receipts cannot resurrect turn-1 `CANVAS_VERIFIED` state or hide the new
+  candidate.
 - The getter-only width case applies successfully through the widget carrier;
   fail-closed variants make zero native writes.
 - The machine matrix validates its required identity/transcript/receipt-source

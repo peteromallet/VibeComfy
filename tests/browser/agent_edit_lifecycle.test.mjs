@@ -550,6 +550,48 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
   assert.equal(panel.state.agentEditProtocol, "v2_delta");
 });
 
+test("a new candidate cannot inherit transaction receipts from the previous turn", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.FINALIZED,
+    sessionId: "sess-v2",
+    turnId: "turn-0001",
+    mutationPlanHash: "old-plan",
+    generation: 4,
+    leaseNonce: "old-lease",
+    preparedReceipt: { plan_hash: "old-plan", turn_id: "turn-0001" },
+    verifiedReceipt: { post_apply_hash: "old-post", turn_id: "turn-0001" },
+    rollbackReceipt: { turn_id: "turn-0001" },
+    rolledBack: true,
+    lifecycleEvents: [{ event_type: "finalized", turn_id: "turn-0001", timestamp: 1 }],
+  });
+  const transaction = canonicalTransaction([], {
+    session_id: "sess-v2",
+    turn_id: "turn-0002",
+    plan_hash: "new-plan",
+  });
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-v2",
+      turn_id: "turn-0002",
+      candidate_transaction: transaction,
+      message: "Second candidate ready",
+    },
+    candidateGraph: { nodes: [{ id: 2 }], links: [] },
+    candidateGraphHash: "new-candidate",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.turnId, "turn-0002");
+  assert.equal(panel.state.mutationPlanHash, transaction.plan_hash);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.verifiedReceipt, null);
+  assert.equal(panel.state.rollbackReceipt, null);
+  assert.equal(panel.state.rolledBack, false);
+  assert.deepEqual(panel.state.lifecycleEvents, []);
+});
+
 test("REQUIRES_CUSTOM_NODES_RESPONSE stores evidence and keeps apply controls disabled", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
   const result = {
@@ -8188,6 +8230,66 @@ test("RECONCILE_RECEIPTS recovers rollback_complete state when rollbackReceipt p
 
   assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
   assert.ok(panel.state.rollbackReceipt);
+});
+
+test("RECONCILE_RECEIPTS treats an empty candidate-ready snapshot as authoritative", () => {
+  const transaction = canonicalTransaction([], {
+    session_id: "sess-reconcile-new",
+    turn_id: "turn-0002",
+    plan_hash: "new-plan",
+    generation: null,
+    lease_nonce: null,
+    state: "candidate_ready",
+  });
+  const panel = makePanel({
+    phase: PANEL_STATE.CANVAS_VERIFIED,
+    sessionId: "sess-reconcile-new",
+    turnId: "turn-0002",
+    candidateGraph: { nodes: [{ id: 2 }], links: [] },
+    preparedReceipt: { plan_hash: "old-plan", turn_id: "turn-0001" },
+    verifiedReceipt: { post_apply_hash: "old-post", turn_id: "turn-0001" },
+    rollbackReceipt: { turn_id: "turn-0001" },
+    generation: 9,
+    leaseNonce: "old-lease",
+  });
+
+  transition(panel, "RECONCILE_RECEIPTS", {
+    receipts: { lifecycleEvents: [] },
+    candidateTransaction: transaction,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.verifiedReceipt, null);
+  assert.equal(panel.state.rollbackReceipt, null);
+  assert.equal(panel.state.generation, null);
+  assert.equal(panel.state.leaseNonce, null);
+});
+
+test("RECONCILE_RECEIPTS refuses transaction evidence owned by another turn", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    sessionId: "sess-current",
+    turnId: "turn-current",
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+  });
+  const foreignTransaction = canonicalTransaction([], {
+    session_id: "sess-current",
+    turn_id: "turn-foreign",
+  });
+
+  const obligations = transition(panel, "RECONCILE_RECEIPTS", {
+    receipts: {
+      preparedReceipt: { turn_id: "turn-foreign", generation: 8 },
+      lifecycleEvents: [{ event_type: "prepared", turn_id: "turn-foreign", timestamp: 1 }],
+    },
+    candidateTransaction: foreignTransaction,
+  });
+
+  assert.equal(obligations.stale, true);
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.generation, null);
 });
 
 // ── T25: V2 panel_composer button/display logic ─────────────────────────────
