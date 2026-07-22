@@ -58,6 +58,9 @@ or unrelated repository cleanup.
   identity, compatibility/session CAS hashes used as typed witnesses,
   finalized composer notices, and arbitrary logical-field writes to JavaScript
   node properties when a native widget owns the field.
+- Static ownership rejects free-floating panel receipt/generation/lease fields
+  and any reconciliation path that merges transaction evidence without an
+  exact session/turn/transaction ownership check.
 - Green tests do not prove completion unless their scope directly covers the requirement.
 - Manifest generation is terminal evidence, not a substitute for the audit.
 - Protected files are excluded from staging and manifest inputs.

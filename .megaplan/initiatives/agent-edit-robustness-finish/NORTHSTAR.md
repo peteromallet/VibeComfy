@@ -36,6 +36,10 @@ Every workflow tab has an isolated complete context. An async continuation can
 commit only while its workflow, activation, operation, submit/apply epoch,
 session, turn, candidate, transaction, lease, generation, and panel authority
 remain current. Switching tabs or refreshing never transfers authority.
+Transaction receipts, generation, and lease live inside one identity-qualified
+active transaction projection; they are not free-floating panel fields. A new
+turn replaces that projection atomically, so evidence from turn N cannot be
+combined with or projected onto turn N+1.
 The loaded frontend build is part of that authority: server restart or checkout
 switch cannot let a stale browser module graph mutate against a different build.
 

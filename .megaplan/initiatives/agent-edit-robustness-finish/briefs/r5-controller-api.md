@@ -18,6 +18,10 @@ event wiring, and view composition.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
+- Model transaction evidence as one identity-qualified active transaction
+  projection inside `WorkflowEditContext`. Do not expose panel-wide
+  `preparedReceipt`, `verifiedReceipt`, `generation`, or `leaseNonce` fields
+  that can survive independently of their owning session/turn/transaction.
 - Key that context and its conversation by the Comfy workflow UUID. The tab
   nonce only namespaces browser persistence; the structural fingerprint is
   revision/precondition evidence and must never mint a context or session.

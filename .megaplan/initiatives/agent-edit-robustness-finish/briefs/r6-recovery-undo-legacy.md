@@ -20,6 +20,10 @@ contracts, including refresh and workflow switching.
   actionable `RECOVERY_REQUIRED` retaining exact authority/evidence.
 - Implement Undo as a new authorized inverse/restoration transaction.
 - Reconcile ambiguous prepare/finalize responses from durable receipts.
+- Reconciliation replaces the active transaction projection from one coherent
+  `(session, turn, transaction)` snapshot. Absent current-turn receipts clear
+  absent stages; foreign-turn/session receipts are ignored or rejected, never
+  merged into the active projection.
 - Rehydrate finalized transactions with the exact generation and lease from
   the durable receipt/identity fence: use the direct receipt nonce when
   present, otherwise `journal_durable.identity_fence`, otherwise a validated
@@ -88,6 +92,9 @@ R8 terminal audit, or broad retention-product tuning.
   journal fence, missing identity sources, and a prepared fallback bound to the
   same generation. Incoherent or absent identity fails closed without erasing
   the transcript.
+- Consecutive-turn recovery tests prove that finalized/prepared/verified
+  evidence from turn N cannot influence the state, actions, generation, or
+  lease projected for turn N+1.
 - Migration tests cover v1-wins, malformed/empty refusal, repeat idempotence,
   no broad key search, v0 retention, and different-UUID isolation.
 - The migration ledger is the authoritative age-out source and records release
