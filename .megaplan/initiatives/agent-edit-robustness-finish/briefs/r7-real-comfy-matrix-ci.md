@@ -75,6 +75,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   browser document alive. Prove stale ESM cannot Submit/Apply, the UI requires a
   real document reload, and the reloaded content-addressed build completes the
   same lifecycle.
+- Fast-forward the runtime checkout without restarting and prove `/info` still
+  reports the loaded startup commit/code digest. Then restart and require a new
+  process-start id plus matching backend module path/digest before testing.
+  Fail on multiple VibeComfy custom-node roots or ambiguous route winners.
 - Attribute each failure/warning to VibeComfy, ComfyUI core, or extension; narrowly
   allowlist only known compatibility-environment warnings.
 - Wire minimal correctness and the required lifecycle matrix into per-PR CI;

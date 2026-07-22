@@ -23,6 +23,10 @@ match current source and environment hashes.
 - Audit and delete remaining duplicate owners, copied canonicalizers, dead
   imports/exports, fallback native mutation, stale compatibility facades, title
   identity, scanner exclusions, obsolete helpers, and misleading comments/docs.
+- Audit executable deployment provenance as well as source ownership: exactly
+  one resolved backend root, one route-registration winner, and one frontend
+  asset set may be active. Silent first-import-wins skips and dynamic Git
+  metadata that can disagree with loaded bytecode fail the terminal audit.
 - Retain `migrateFingerprintScopedSessionId` only as the declared
   `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` migration until its
   migration-ledger age-out: at least 30 days, two released versions, zero

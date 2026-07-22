@@ -32,6 +32,11 @@ event wiring, and view composition.
   hard-reload-required state when a restarted/switched server disagrees with
   the already-loaded document; a server relaunch must never be mistaken for a
   client relaunch.
+- Runtime identity is captured at process start, not recomputed from live Git
+  state. Publish the loaded backend commit, resolved module `__file__` and repo
+  root, backend code digest, frontend asset digest, process-start id, and every
+  duplicate import/route-registration attempt. A checkout fast-forward without
+  restart must remain visibly stale rather than advertise unloaded bytecode.
 - Fence every continuation by all declared panel/workflow/activation/operation/
   submit/apply/session/turn/candidate/transaction/lease/generation dimensions.
 - Preserve the lifecycle reducer as sole legal-transition owner.
@@ -97,6 +102,9 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   entry.
 - A server/frontend build mismatch is detected before prepare or native mutation,
   and a fresh document proves the matching build before authority is restored.
+- Deployment acceptance requires a changed process-start id and startup backend
+  commit/code digest equal to the requested release; frontend `?v=` is not
+  backend provenance.
 - Static gates prove one controller/API/reducer and no coordination/transport/
   mutation/verification/rollback decision in roundtrip.
 - Roundtrip is measurably reduced; dead coordinator exports/imports are absent.

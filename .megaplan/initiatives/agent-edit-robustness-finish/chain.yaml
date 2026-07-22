@@ -12,7 +12,7 @@ launch_preconditions:
     path: .megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md
     check:
       kind: contains_text
-      text: 787d4b59
+      text: 6f5b5f78
   - name: repaired foundation ancestry proof is tracked
     kind: git_tracked
     path: .megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json

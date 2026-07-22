@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "base_branch": "agent/agent-edit-robustness-foundation",
-  "required_ancestor": "787d4b59738759e3669fe2a3ef1eb361b6cca5d9",
-  "verified_integration_head": "787d4b59738759e3669fe2a3ef1eb361b6cca5d9",
-  "command": "git merge-base --is-ancestor 787d4b59 787d4b59",
+  "required_ancestor": "6f5b5f780824e4018fd87f31c46ad676a058175e",
+  "verified_integration_head": "6f5b5f780824e4018fd87f31c46ad676a058175e",
+  "command": "git merge-base --is-ancestor 6f5b5f78 6f5b5f78",
   "exit_code": 0,
   "meaning": "The documented integration head contains the complete incident-repair stack through typed native finalize and exact applied-baseline persistence. Any later launch head must descend from this integration head."
 }

@@ -25,12 +25,15 @@ Required repairs, in order:
 - `46047e0b` — typed-only `delta_replay` finalize authority and persistence of
   the exact applied native graph as the next CAS baseline;
 - `787d4b59` — removal of the remaining browser-claimed compatibility-digest
-  veto from typed `delta_replay` finalization.
+  veto from typed `delta_replay` finalization;
+- `6f5b5f78` — browser/Python compatibility-projection parity for native
+  `LoadImage` carriers, restoring the finalize wire-integrity check without a
+  false mismatch.
 
 The launch checkout must use this tracked receipt and pass:
 
 ```bash
-git merge-base --is-ancestor 787d4b59 agent/agent-edit-robustness-foundation
+git merge-base --is-ancestor 6f5b5f78 agent/agent-edit-robustness-foundation
 ```
 
 The current Megaplan precondition schema does not itself execute an ancestry
