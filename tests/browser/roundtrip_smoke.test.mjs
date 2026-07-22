@@ -17028,6 +17028,115 @@ test("VibeComfy comfy_adapter resolves semantic fields across auxiliary native w
   }
 });
 
+test("VibeComfy comfy_adapter applies the complete real KSampler img2img delta without dropping nodes", async () => {
+  const widgetInput = (name, type) => ({ name, localized_name: name, type, widget: { name }, link: null });
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "CheckpointLoaderSimple",
+        inputs: [widgetInput("ckpt_name", "COMBO")],
+        outputs: [{ name: "VAE", type: "VAE", links: [] }],
+        widgets: [{ name: "ckpt_name", value: "sd_xl_base_1.0.safetensors" }],
+        widgets_values: ["sd_xl_base_1.0.safetensors"],
+        properties: { vibecomfy_uid: "n1" },
+      },
+      {
+        id: 4,
+        type: "EmptyLatentImage",
+        inputs: [widgetInput("width", "INT"), widgetInput("height", "INT"), widgetInput("batch_size", "INT")],
+        outputs: [{ name: "LATENT", type: "LATENT", links: [6] }],
+        widgets: [{ name: "width", value: 1024 }, { name: "height", value: 1024 }, { name: "batch_size", value: 1 }],
+        widgets_values: [1024, 1024, 1],
+        properties: { vibecomfy_uid: "n4" },
+      },
+      {
+        id: 5,
+        type: "KSampler",
+        inputs: [
+          { name: "latent_image", type: "LATENT", link: 6 },
+          widgetInput("seed", "INT"),
+          widgetInput("steps", "INT"),
+          widgetInput("cfg", "FLOAT"),
+          widgetInput("sampler_name", "COMBO"),
+          widgetInput("scheduler", "COMBO"),
+          widgetInput("denoise", "FLOAT"),
+        ],
+        outputs: [{ name: "LATENT", type: "LATENT", links: [] }],
+        widgets: [
+          { name: "seed", value: 42 },
+          { name: "control_after_generate", value: "fixed" },
+          { name: "steps", value: 25 },
+          { name: "cfg", value: 7 },
+          { name: "sampler_name", value: "dpmpp_2m" },
+          { name: "scheduler", value: "karras" },
+          { name: "denoise", value: 1 },
+        ],
+        widgets_values: [42, "fixed", 25, 7, "dpmpp_2m", "karras", 1],
+        properties: { vibecomfy_uid: "n5" },
+      },
+    ],
+    links: [[6, 4, 0, 5, 0, "LATENT"]],
+  };
+  const candidateGraph = structuredClone(graph);
+  candidateGraph.nodes = candidateGraph.nodes.filter((node) => node.id !== 4);
+  const sampler = candidateGraph.nodes.find((node) => node.id === 5);
+  delete sampler.widgets;
+  sampler.widgets_values[6] = 0.7;
+  sampler.inputs[0].link = 12;
+  candidateGraph.nodes[0].outputs[0].links = [11];
+  candidateGraph.nodes.push(
+    {
+      id: 8,
+      type: "LoadImage",
+      inputs: [],
+      outputs: [{ name: "IMAGE", type: "IMAGE", links: [10] }],
+      widgets_values: ["example.png"],
+      properties: { vibecomfy_uid: "n8" },
+    },
+    {
+      id: 9,
+      type: "VAEEncode",
+      inputs: [
+        { name: "pixels", type: "IMAGE", link: 10 },
+        { name: "vae", type: "VAE", link: 11 },
+      ],
+      outputs: [{ name: "LATENT", type: "LATENT", links: [12] }],
+      widgets_values: [],
+      properties: { vibecomfy_uid: "n9" },
+    },
+  );
+  candidateGraph.links = [
+    [10, 8, 0, 9, 0, "IMAGE"],
+    [11, 1, 0, 9, 1, "VAE"],
+    [12, 9, 0, 5, 0, "LATENT"],
+  ];
+  const deltaOps = [
+    { op: "add_node", uid: "n8", node_id: "8", scope_path: "", class_type: "LoadImage", fields: { image: "example.png" }, inputs: {} },
+    { op: "add_node", uid: "n9", node_id: "9", scope_path: "", class_type: "VAEEncode", fields: {}, inputs: { pixels: ["", "n8", "IMAGE"], vae: ["", "n1", "VAE"] } },
+    { op: "upsert_link", from: ["", "n9", "LATENT"], to: ["", "n5", "latent_image"] },
+    { op: "set_node_field", target: ["", "n5", "denoise"], value: 0.7 },
+    { op: "remove_node", target: ["", "n4"] },
+  ];
+
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, { deltaOps, candidateGraph });
+
+    assert.deepEqual(harness.getLiveNodes().map((node) => node.id).sort((a, b) => a - b), [1, 5, 8, 9]);
+    assert.equal(harness.getLiveNodes().find((node) => node.id === 5).widgets[6].value, 0.7);
+    assert.deepEqual(
+      Object.values(harness.getLiveLinks()).map((link) => [link.origin_id, link.target_id]).sort(),
+      [[1, 9], [8, 9], [9, 5]],
+    );
+    assert.equal(result.plan.filter((step) => step.derivedFromAddNode === true).length, 2);
+    harness.assertNoWholeGraphOps("complete KSampler img2img delta");
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy comfy_adapter fails closed for unresolved or contradictory semantic fields", async () => {
   const graph = {
     nodes: [{
@@ -23813,6 +23922,105 @@ test("preview delta-ops parity: set_node_field op yields correct field-level ove
     assert.deepEqual(diffGraph.edited[0].changedWidgetIndices.sort(), [1, 3], "graph-diff also finds both widget indices");
 
     // The key assertion: delta-derived and graph-derived agree (parity for field highlights)
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("preview delta planner uses native auxiliary widget carriers for the full img2img node delta", async () => {
+  const widgetInput = (name, type) => ({ name, localized_name: name, type, widget: { name }, link: null });
+  const liveGraph = {
+    nodes: [
+      {
+        id: 4,
+        type: "EmptyLatentImage",
+        properties: { vibecomfy_uid: "n4" },
+        inputs: [widgetInput("width", "INT"), widgetInput("height", "INT"), widgetInput("batch_size", "INT")],
+        widgets: [
+          { name: "width", value: 1024 },
+          { name: "height", value: 1024 },
+          { name: "batch_size", value: 1 },
+        ],
+        widgets_values: [1024, 1024, 1],
+      },
+      {
+        id: 5,
+        type: "KSampler",
+        properties: { vibecomfy_uid: "n5" },
+        inputs: [
+          { name: "model", type: "MODEL", link: null },
+          { name: "positive", type: "CONDITIONING", link: null },
+          { name: "negative", type: "CONDITIONING", link: null },
+          { name: "latent_image", type: "LATENT", link: null },
+          widgetInput("seed", "INT"),
+          widgetInput("steps", "INT"),
+          widgetInput("cfg", "FLOAT"),
+          widgetInput("sampler_name", "COMBO"),
+          widgetInput("scheduler", "COMBO"),
+          widgetInput("denoise", "FLOAT"),
+        ],
+        widgets: [
+          { name: "seed", value: 42 },
+          { name: "control_after_generate", value: "fixed" },
+          { name: "steps", value: 25 },
+          { name: "cfg", value: 7 },
+          { name: "sampler_name", value: "dpmpp_2m" },
+          { name: "scheduler", value: "karras" },
+          { name: "denoise", value: 1 },
+        ],
+        widgets_values: [42, "fixed", 25, 7, "dpmpp_2m", "karras", 1],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = structuredClone(liveGraph);
+  candidateGraph.nodes = candidateGraph.nodes.filter((node) => node.id !== 4);
+  const candidateSampler = candidateGraph.nodes.find((node) => node.id === 5);
+  delete candidateSampler.widgets;
+  candidateSampler.widgets_values[6] = 0.7;
+  candidateGraph.nodes.push(
+    { id: 8, type: "LoadImage", properties: { vibecomfy_uid: "n8" }, inputs: [], outputs: [], widgets_values: ["example.png"] },
+    { id: 9, type: "VAEEncode", properties: { vibecomfy_uid: "n9" }, inputs: [], outputs: [], widgets_values: [] },
+  );
+  const deltaOps = [
+    { op: "add_node", uid: "n8", node_id: "8", scope_path: "", class_type: "LoadImage", fields: { image: "example.png" }, inputs: {} },
+    { op: "add_node", uid: "n9", node_id: "9", scope_path: "", class_type: "VAEEncode", fields: {}, inputs: {} },
+    { op: "set_node_field", target: ["", "n5", "denoise"], value: 0.7 },
+    { op: "remove_node", target: ["", "n4"] },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: { ok: true, provider_available: true, route: "arnold", requested_route: "auto", route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } } },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const nativeSerialize = harness.app.canvas.graph.serialize.bind(harness.app.canvas.graph);
+    harness.app.canvas.graph.serialize = () => {
+      const serialized = nativeSerialize();
+      for (const node of serialized.nodes) delete node.widgets;
+      return serialized;
+    };
+
+    const diff = extensionModule.computePreviewDiff(
+      candidateGraph,
+      { change: { content_edits: {} }, recovery: [] },
+      deltaOps,
+    );
+
+    assert.equal(diff._deltaOpsDerived, true, "preview must use the canonical delta planner");
+    assert.deepEqual(diff.added.map((entry) => entry.uid), ["n8", "n9"]);
+    assert.deepEqual(diff.removed.map((entry) => entry.uid), ["n4"]);
+    assert.deepEqual(diff.edited.map((entry) => entry.uid), ["n5"]);
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [4, 5], "preview must not mutate the live graph");
   } finally {
     await harness.dispose();
   }

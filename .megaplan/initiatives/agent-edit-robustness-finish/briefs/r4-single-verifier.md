@@ -39,6 +39,10 @@ and bounded mismatch evidence, and delete every inline competing decision.
 - Classify `preflight_failed` separately from partial native Apply. It requires
   zero landed operations and permits lease rollback only; any inverse/native or
   whole-graph canvas restoration is a verifier failure.
+- Verify preview/apply planner parity as an authority property: both surfaces
+  receive the same typed delta, projection versions, and native carrier map.
+  A preview-side planner error is a typed blocker, never permission to infer a
+  partial candidate through a legacy report fallback.
 
 ## OUT
 
@@ -78,7 +82,8 @@ terminal cleanup audit, UI redesign, or nested scopes.
   mutation when widget resolution is unavailable.
 - Auxiliary-widget fixtures prove descriptor/widget cardinality disagreement
   cannot shift semantic reads, and preflight fault injection proves zero canvas
-  writes, zero inverse operations, and `canvas_was_mutated=false`.
+  writes, zero inverse operations, and `canvas_was_mutated=false`. The exact
+  img2img delta also proves preview/apply plan parity and complete node evidence.
 - Focused verifier/ownership and broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances complete.
 

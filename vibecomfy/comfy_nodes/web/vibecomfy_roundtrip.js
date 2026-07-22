@@ -7149,7 +7149,24 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
           : { nodes: [], links: [] };
 
         // Run the same planning surface used by applyGraphDeltaInPlace.
-        const { plan } = preflightDeltaPlan(liveSnapshot, previewCandidateGraph, deltaOps, {});
+        // Preview and Apply must resolve semantic fields through the same
+        // native widget carrier map. Serialized ComfyUI graphs omit the live
+        // `widgets` array, and some nodes serialize auxiliary widgets that do
+        // not appear in `inputs` (KSampler's control_after_generate is the
+        // canonical example). Calling preflight without the native reference
+        // makes a valid canonical delta look ambiguous here even though Apply
+        // can resolve it, forcing the preview onto a lossy legacy fallback.
+        const { plan } = preflightDeltaPlan(liveSnapshot, previewCandidateGraph, deltaOps, {
+          widgetReferenceNodeFor(uidOrId) {
+            const key = String(uidOrId);
+            return runtimeIdentityIndex.liveByUid.get(key)
+              || liveNodes.find((node) => (
+                String(getUid(node) || "") === key
+                || String(node?.id ?? "") === key
+              ))
+              || null;
+          },
+        });
 
         // Convert plan entries to diff items.
         const planEditedMap = new Map();   // uidOrId -> Set<widgetIndex>

@@ -54,6 +54,11 @@ serialization order: ComfyUI may serialize auxiliary widgets that have no input
 descriptor. The typed delta owns the intended value; the verifier judges the
 adapter's resolved carrier and landed projection rather than reconstructing a
 physical widget index from an incomplete graph encoding.
+Preview and Apply consume the same preflight planner with the same native
+carrier resolver. Preview may not silently fall back to a weaker graph/report
+diff when canonical typed-delta planning fails; a candidate shown as reviewable
+must either have exact planner-derived added/edited/removed evidence or expose
+the planning failure as a blocker before prepare.
 Preflight is an explicit no-mutation boundary. A failure before the first native
 write rolls back only the prepared lease and must not run inverse mutation,
 whole-graph restoration, or claim that the canvas was mutated.

@@ -23,6 +23,9 @@ does not reconcile with current source.
   and authorized compensation surface defined by the certified manifest.
 - Route every enumerated preview, Apply, capture, rollback, Undo, recovery,
   replay, picker, scope, and overlay native consumer.
+- Give preview and Apply the same planner inputs, including the native semantic
+  widget-carrier resolver. Canonical-delta preview failure must fail visibly;
+  it may not downgrade to a lossy legacy graph/report diff that omits ops.
 - Delete every enumerated native mutation closure, fallback, copied stable-index/
   link helper, forward graph loading path, dead import/export, and compatibility
   facade in the same change.
@@ -82,7 +85,9 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
   arbitrary JavaScript node-property write.
 - The KSampler fixture proves `control_after_generate` can occupy a serialized
   widget position absent from `inputs`, while `denoise` lands on its named native
-  carrier and the adapter receipt records the exact physical resolution.
+  carrier and the adapter receipt records the exact physical resolution. Its
+  preview is planner-derived and shows the complete img2img additions, removal,
+  rewire, and field edit without mutating the live canvas.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 
