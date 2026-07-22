@@ -572,12 +572,12 @@ test("machine ledger schema is closed and rejects placeholder metadata", () => {
   assert.throws(() => validateLedger(ledger({ ...row, fixture_proof: { path: "unicorn test that does not exist" } })), /path does not exist/);
 });
 
-test("all 78 rows pass semantic anchors and exact invented mutations fail", async () => {
+test("all 80 rows pass semantic anchors and exact invented mutations fail", async () => {
   const authority = JSON.parse(await readFile(nativeAuthorityLedgerPath, "utf8"));
-  assert.equal(authority.rows.length, 78);
+  assert.equal(authority.rows.length, 80);
   assert.deepEqual(
     authority.rows.map((row) => row.id).sort(),
-    Array.from({ length: 78 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
+    Array.from({ length: 80 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
   );
   assert.doesNotThrow(() => validateLedger(authority));
 

@@ -16506,7 +16506,7 @@ test("VibeComfy comfy_adapter delta apply preflights all supported ops, resolves
     const adapter = await harness.loadAdapter();
     const result = adapter.applyGraphDeltaInPlace(harness.app, {
       deltaOps: [
-        { op: "set_node_field", target: ["nodes", "uid-conflict", "widgets_values", 0], value: "ignored-op-value" },
+        { op: "set_node_field", target: ["nodes", "uid-conflict", "widgets_values", 0], value: "new prompt" },
         { op: "set_mode", target: { uid: "consumer", scope_path: [] }, mode: 999 },
         {
           op: "add_node",
@@ -16665,6 +16665,141 @@ test("VibeComfy comfy_adapter delta apply set_node_field mutates only the target
     assert.deepEqual(samplerNode.pos, [400, 200], "unrelated node position should be preserved");
 
     harness.assertNoWholeGraphOps("set_node_field scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties", async () => {
+  const widgetInput = (name, type) => ({ name, localized_name: name, type, widget: { name }, link: null });
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "CheckpointLoaderSimple",
+        inputs: [widgetInput("ckpt_name", "COMBO")],
+        widgets: [{ name: "ckpt_name", value: "v1-5-pruned-emaonly.safetensors" }],
+        widgets_values: ["v1-5-pruned-emaonly.safetensors"],
+        properties: { vibecomfy_uid: "n1" },
+      },
+      {
+        id: 4,
+        type: "EmptyLatentImage",
+        inputs: [
+          widgetInput("width", "INT"),
+          widgetInput("height", "INT"),
+          widgetInput("batch_size", "INT"),
+        ],
+        widgets: [
+          { name: "width", value: 512 },
+          { name: "height", value: 512 },
+          { name: "batch_size", value: 1 },
+        ],
+        widgets_values: [512, 512, 1],
+        size: [320, 180],
+        properties: { vibecomfy_uid: "n4" },
+      },
+      {
+        id: 7,
+        type: "SaveImage",
+        inputs: [
+          { name: "images", type: "IMAGE", link: null },
+          widgetInput("filename_prefix", "STRING"),
+        ],
+        widgets: [{ name: "filename_prefix", value: "SD15" }],
+        widgets_values: ["SD15"],
+        properties: { vibecomfy_uid: "n7" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = structuredClone(graph);
+  candidateGraph.nodes[0].widgets_values[0] = "sd_xl_base_1.0.safetensors";
+  candidateGraph.nodes[0].widgets[0].value = "sd_xl_base_1.0.safetensors";
+  candidateGraph.nodes[1].widgets_values[0] = 1024;
+  candidateGraph.nodes[1].widgets_values[1] = 1024;
+  candidateGraph.nodes[1].widgets[0].value = 1024;
+  candidateGraph.nodes[1].widgets[1].value = 1024;
+  candidateGraph.nodes[2].widgets_values[0] = "SDXL";
+  candidateGraph.nodes[2].widgets[0].value = "SDXL";
+
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const latent = harness.getLiveNodes().find((node) => node.properties?.vibecomfy_uid === "n4");
+    Object.defineProperty(latent, "width", {
+      configurable: true,
+      get() { return this.size[0]; },
+    });
+
+    const adapter = await harness.loadAdapter();
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "set_node_field", target: ["", "n1", "ckpt_name"], value: "sd_xl_base_1.0.safetensors" },
+        { op: "set_node_field", target: ["", "n4", "width"], value: 1024 },
+        { op: "set_node_field", target: ["", "n4", "height"], value: 1024 },
+        { op: "set_node_field", target: ["", "n7", "filename_prefix"], value: "SDXL" },
+      ],
+      candidateGraph,
+    });
+
+    const liveNodes = harness.getLiveNodes();
+    const checkpoint = liveNodes.find((node) => node.properties?.vibecomfy_uid === "n1");
+    const save = liveNodes.find((node) => node.properties?.vibecomfy_uid === "n7");
+    assert.equal(checkpoint.widgets[0].value, "sd_xl_base_1.0.safetensors");
+    assert.deepEqual(latent.widgets_values, [1024, 1024, 1]);
+    assert.equal(latent.widgets[0].value, 1024);
+    assert.equal(latent.widgets[1].value, 1024);
+    assert.equal(latent.width, 320, "the LiteGraph width getter remains layout-owned");
+    assert.equal(save.widgets[0].value, "SDXL");
+    assert.deepEqual(save.widgets_values, ["SDXL"], "non-widget inputs do not shift widget ordinals");
+    const serialized = harness.app.canvas.graph.serialize();
+    assert.deepEqual(
+      serialized.nodes.find((node) => node.properties?.vibecomfy_uid === "n4").widgets_values,
+      [1024, 1024, 1],
+      "native serialization carries the logical width/height widget edits",
+    );
+    harness.assertNoWholeGraphOps("logical named widget apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter fails closed for unresolved or contradictory semantic fields", async () => {
+  const graph = {
+    nodes: [{
+      id: 4,
+      type: "EmptyLatentImage",
+      inputs: [{ name: "width", type: "INT", widget: { name: "width" }, link: null }],
+      widgets: [{ name: "width", value: 512 }],
+      widgets_values: [512],
+      properties: { vibecomfy_uid: "n4" },
+    }],
+    links: [],
+  };
+  const candidateGraph = structuredClone(graph);
+  candidateGraph.nodes[0].widgets[0].value = 1024;
+  candidateGraph.nodes[0].widgets_values[0] = 1024;
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [{ op: "set_node_field", target: ["", "n4", "width"], value: 768 }],
+        candidateGraph,
+      }),
+      (error) => error?.code === "candidate_delta_value_mismatch",
+    );
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [{ op: "set_node_field", target: ["", "n4", "mystery"], value: 7 }],
+        candidateGraph,
+      }),
+      (error) => error?.code === "unresolved_node_field",
+    );
+    const latent = harness.getLiveNodes()[0];
+    assert.deepEqual(latent.widgets_values, [512]);
+    assert.equal(Object.prototype.hasOwnProperty.call(latent, "mystery"), false);
+    harness.assertNoWholeGraphOps("semantic field preflight failures");
   } finally {
     await harness.dispose();
   }

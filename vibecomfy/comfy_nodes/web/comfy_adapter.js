@@ -16,6 +16,7 @@
 // ── Canonical delta constants (aligned with canonical_delta.js) ─────────────
 
 import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
+import { canonicalJsonString } from "./canonical_hash.js";
 import {
   createIntentGraphAdapter,
   HARNESS_DELTA_APPLY_FALLBACK_MARKER,
@@ -331,6 +332,63 @@ function findSlotIndex(slots, ref, fallbackKey = "name") {
   return -1;
 }
 
+function findWidgetFieldIndex(node, ref) {
+  const directIndex = findSlotIndex(node?.widgets, ref, "name");
+  if (directIndex >= 0) {
+    return directIndex;
+  }
+  // Serialized ComfyUI graphs normally omit the live `widgets` array. Their
+  // input slots retain widget descriptors, while widgets_values contains only
+  // widget-backed inputs (not linked sockets), so resolve by widget ordinal.
+  const normalized = String(ref);
+  const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
+  let widgetIndex = 0;
+  for (const input of inputs) {
+    const descriptor = input?.widget;
+    if (!descriptor) {
+      continue;
+    }
+    const names = [
+      descriptor && typeof descriptor === "object" ? descriptor.name : descriptor,
+      input?.name,
+      input?.label,
+      input?.localized_name,
+    ];
+    if (names.some((name) => name !== null && name !== undefined && String(name) === normalized)) {
+      return widgetIndex;
+    }
+    widgetIndex += 1;
+  }
+  return -1;
+}
+
+function getWidgetFieldValue(node, index) {
+  if (index < 0) {
+    return undefined;
+  }
+  if (Array.isArray(node?.widgets_values) && index < node.widgets_values.length) {
+    return node.widgets_values[index];
+  }
+  return Array.isArray(node?.widgets) ? node.widgets[index]?.value : undefined;
+}
+
+function setWidgetFieldValue(node, index, value) {
+  if (index < 0) {
+    return false;
+  }
+  const cloned = cloneJson(value);
+  let resolved = false;
+  if (Array.isArray(node?.widgets) && node.widgets[index]) {
+    node.widgets[index].value = cloned;
+    resolved = true;
+  }
+  if (Array.isArray(node?.widgets_values) && index < node.widgets_values.length) {
+    node.widgets_values[index] = cloned;
+    resolved = true;
+  }
+  return resolved;
+}
+
 function getNodeFieldValue(node, path) {
   if (!Array.isArray(path) || path.length === 0) {
     return undefined;
@@ -338,7 +396,7 @@ function getNodeFieldValue(node, path) {
   const [head, ...rest] = path;
   if (head === "widgets_values") {
     const index = Number(rest[0]);
-    return Array.isArray(node.widgets_values) ? node.widgets_values[index] : undefined;
+    return getWidgetFieldValue(node, index);
   }
   if (head === "widgets") {
     const index = findSlotIndex(node.widgets, rest[0], "name");
@@ -361,6 +419,13 @@ function getNodeFieldValue(node, path) {
     }
     return slots[index]?.[rest[1]];
   }
+  if (rest.length === 0) {
+    const widgetIndex = findWidgetFieldIndex(node, head);
+    if (widgetIndex >= 0) {
+      return getWidgetFieldValue(node, widgetIndex);
+    }
+    return undefined;
+  }
   let cursor = node;
   const segments = [head, ...rest];
   for (const segment of segments) {
@@ -379,10 +444,9 @@ function setNodeFieldValue(node, path, value) {
   const [head, ...rest] = path;
   if (head === "widgets_values") {
     const index = Number(rest[0]);
-    if (!Array.isArray(node.widgets_values) || !Number.isInteger(index) || index < 0) {
+    if (!Number.isInteger(index) || index < 0 || !setWidgetFieldValue(node, index, value)) {
       throw new Error("Cannot resolve widgets_values target on live node.");
     }
-    node.widgets_values[index] = cloneJson(value);
     return;
   }
   if (head === "widgets") {
@@ -401,6 +465,20 @@ function setNodeFieldValue(node, path, value) {
     }
     slots[index][rest[1]] = cloneJson(value);
     return;
+  }
+  if (rest.length === 0) {
+    const widgetIndex = findWidgetFieldIndex(node, head);
+    if (widgetIndex >= 0) {
+      if (!setWidgetFieldValue(node, widgetIndex, value)) {
+        throw new Error(`Cannot resolve named widget target ${String(head)} on live node.`);
+      }
+      return;
+    }
+    throw new DeltaDiagnosticError(
+      `Cannot resolve semantic field ${String(head)} to a live node widget.`,
+      "unresolved_node_field",
+      { field_path: String(head), node_type: node?.type ?? null },
+    );
   }
   let cursor = node;
   const segments = [head, ...rest];
@@ -1118,6 +1196,20 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       }
       const fieldPath = decodeNodeFieldPathV1(parsed.rest);
       const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, fieldPath);
+      if (desiredValue === undefined) {
+        throw new DeltaDiagnosticError(
+          `Could not resolve set_node_field ${fieldPath.join(".")} on the candidate node.`,
+          "unresolved_node_field",
+          { uid: parsed.uidOrId, field_path: fieldPath.join(".") },
+        );
+      }
+      if (canonicalJsonString(desiredValue) !== canonicalJsonString(op.value)) {
+        throw new DeltaDiagnosticError(
+          `Candidate value for ${fieldPath.join(".")} disagrees with canonical delta authority.`,
+          "candidate_delta_value_mismatch",
+          { uid: parsed.uidOrId, field_path: fieldPath.join(".") },
+        );
+      }
       setNodeFieldValue(node, fieldPath, desiredValue);
       plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue), ...authority });
       continue;
