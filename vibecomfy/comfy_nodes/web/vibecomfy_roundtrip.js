@@ -10515,12 +10515,13 @@ async function applyAgentCandidate(panel) {
           auditLandedMutationPlan(preparedMutationPlan.deltaOps, canvasApplyResult.plan);
         }
       } catch (error) {
+        const canvasMutationStarted = error?.canvasMutationStarted !== false;
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
+          restoreCanvas: canvasMutationStarted,
           silent: true,
           triggerStage: "canvas_apply",
           triggerFailure: error,
-          canvasWasMutated: true,
+          canvasWasMutated: canvasMutationStarted,
         });
         const failure = agentPanelFailure("CanvasApplyError", String(error), {
           retryable: true,

@@ -61,6 +61,9 @@ or unrelated repository cleanup.
 - Static ownership rejects free-floating panel receipt/generation/lease fields
   and any reconciliation path that merges transaction evidence without an
   exact session/turn/transaction ownership check.
+- Static ownership rejects semantic widget-index inference from serialized input
+  descriptor ordinals and any compensation path that treats a preflight failure
+  as a started canvas mutation.
 - Green tests do not prove completion unless their scope directly covers the requirement.
 - Manifest generation is terminal evidence, not a substitute for the audit.
 - Protected files are excluded from staging and manifest inputs.
@@ -85,6 +88,8 @@ or unrelated repository cleanup.
 - The declared fingerprint-key migration remains explainable and tested until
   age-out, including v1-wins/malformed/no-broad-search semantics; getter-only
   layout properties remain adapter-owned and unwritten.
+- No descriptor-ordinal widget mapper or unconditional preflight compensation
+  survives; auxiliary-widget and zero-mutation evidence remains green.
 - Zero open S3/S4 rows; scanner and ledger exact both directions.
 - Roundtrip passes its composition-only responsibility gate.
 - All R7 composed lifecycle and R6 recovery evidence remains green after cleanup.

@@ -19,7 +19,8 @@
   "r4-single-verifier": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-hash-authority-boundary.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-hash-authority-boundary.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-semantic-carrier-preflight-matrix.json"
   ],
   "r5-controller-api": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-acceptance.md",

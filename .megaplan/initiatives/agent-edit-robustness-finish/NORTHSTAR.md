@@ -48,6 +48,15 @@ terminal error without retry, reconciliation, verified rollback, or exact
 retained recovery evidence is forbidden.
 Native mutation and compensation attempts leave durable step-level receipts, so
 `RECOVERY_REQUIRED` is reconstructible even after the browser document is gone.
+Semantic workflow fields resolve through native widget identity and adapter
+carrier evidence. Serialized input-descriptor order is never treated as widget
+serialization order: ComfyUI may serialize auxiliary widgets that have no input
+descriptor. The typed delta owns the intended value; the verifier judges the
+adapter's resolved carrier and landed projection rather than reconstructing a
+physical widget index from an incomplete graph encoding.
+Preflight is an explicit no-mutation boundary. A failure before the first native
+write rolls back only the prepared lease and must not run inverse mutation,
+whole-graph restoration, or claim that the canvas was mutated.
 Rehydration has one exhaustive classification: a stale response is ignored; a
 valid success replaces the safe projection; an explicit
 `CHAT_REHYDRATE_MISSING_SESSION` clears only the current workflow's binding;
@@ -65,8 +74,9 @@ those fields at its top level. Identity fragments from different generations
 must never be combined.
 
 The exact `a66422e…`, `eb45e…`, detached `Displays / Labels`, duplicate-title,
-workflow-tab isolation, fingerprint-scoped chat, and getter-only native-widget
-incidents remain permanent gates. Real ComfyUI must
+workflow-tab isolation, fingerprint-scoped chat, getter-only native-widget, and
+KSampler auxiliary `control_after_generate`/`denoise` incidents remain permanent
+gates. Real ComfyUI must
 prove forward success, native serialization, verification, finalize, refresh,
 persistence, injected failure, rollback, recovery, and switching for every
 supported transaction family.

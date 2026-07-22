@@ -3554,6 +3554,98 @@ test("V2 native mutation throw compensates once, restores canvas, and retains th
   } finally { await harness.dispose(); }
 });
 
+test("V2 side-effect-free preflight failure rolls back the lease without inverse canvas mutation", async () => {
+  const initialGraph = {
+    nodes: [{
+      id: 1,
+      type: "SaveImage",
+      properties: { vibecomfy_uid: "save-1" },
+      widgets_values: ["before"],
+      inputs: [{ name: "filename_prefix", type: "STRING", widget: { name: "filename_prefix" }, link: null }],
+    }],
+    links: [],
+  };
+  const candidateGraph = structuredClone(initialGraph);
+  candidateGraph.nodes[0].widgets_values[0] = "candidate-value";
+  const scenario = v2ApplyScenarioFixture({
+    sessionId: "session-v2-preflight-no-mutation",
+    planHash: "preflight-no-mutation-plan",
+    candidateGraph,
+    deltaOps: [{
+      op: "set_node_field",
+      target: ["", "save-1", "filename_prefix"],
+      value: "contradictory-delta-value",
+    }],
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-preflight-no-mutation",
+          turn_id: "0001",
+          eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] },
+          apply_allowed: true,
+          canvas_apply_allowed: true,
+          ...scenario.candidateFields,
+        },
+      },
+      ...scenario.routes({
+        rollback: ({ body, rolledBackTransaction }) => {
+          assert.equal(body.compensation.canvas_was_mutated, false);
+          assert.equal(body.compensation.canvas_restore_attempted, false);
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              action: "rollback",
+              session_id: "session-v2-preflight-no-mutation",
+              turn_id: "0001",
+              candidate_transaction: rolledBackTransaction,
+              receipt: { plan_hash: "preflight-no-mutation-plan", generation: 1, phase: "rollback_complete" },
+            },
+          };
+        },
+      }),
+    },
+  });
+  try {
+    const extensionModule = await harness.loadExtension();
+    scenario.bind(extensionModule);
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change the filename";
+    await harness.clickButton("Submit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+
+    const graphBeforeApply = harness.getCurrentGraph();
+    await harness.clickButton("Apply");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
+
+    assert.deepEqual(harness.getCurrentGraph(), graphBeforeApply);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    harness.assertNoWholeGraphOps("side-effect-free preflight compensation");
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("V2 scoped postcheck mismatch compensates with one actionable bubble and a rollback receipt", async () => {
   const initialGraph = { nodes: [{ id: 1, type: "SaveImage", properties: { vibecomfy_uid: "save-1" }, widgets_values: ["before"], inputs: [], outputs: [] }], links: [] };
   const candidateGraph = { nodes: [{ ...initialGraph.nodes[0], widgets_values: ["after"] }], links: [] };
@@ -16876,6 +16968,61 @@ test("VibeComfy comfy_adapter resolves logical widget fields before getter-only 
       "native serialization carries the logical width/height widget edits",
     );
     harness.assertNoWholeGraphOps("logical named widget apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter resolves semantic fields across auxiliary native widgets omitted from serialized inputs", async () => {
+  const widgetInput = (name, type) => ({ name, localized_name: name, type, widget: { name }, link: null });
+  const graph = {
+    nodes: [{
+      id: 5,
+      type: "KSampler",
+      inputs: [
+        { name: "model", type: "MODEL", link: null },
+        { name: "positive", type: "CONDITIONING", link: null },
+        { name: "negative", type: "CONDITIONING", link: null },
+        { name: "latent_image", type: "LATENT", link: null },
+        widgetInput("seed", "INT"),
+        widgetInput("steps", "INT"),
+        widgetInput("cfg", "FLOAT"),
+        widgetInput("sampler_name", "COMBO"),
+        widgetInput("scheduler", "COMBO"),
+        widgetInput("denoise", "FLOAT"),
+      ],
+      widgets: [
+        { name: "seed", value: 42 },
+        { name: "control_after_generate", value: "fixed" },
+        { name: "steps", value: 25 },
+        { name: "cfg", value: 7 },
+        { name: "sampler_name", value: "dpmpp_2m" },
+        { name: "scheduler", value: "karras" },
+        { name: "denoise", value: 1 },
+      ],
+      widgets_values: [42, "fixed", 25, 7, "dpmpp_2m", "karras", 1],
+      properties: { vibecomfy_uid: "n5" },
+    }],
+    links: [],
+  };
+  const candidateGraph = structuredClone(graph);
+  delete candidateGraph.nodes[0].widgets;
+  candidateGraph.nodes[0].widgets_values[6] = 0.75;
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [{ op: "set_node_field", target: ["", "n5", "denoise"], value: 0.75 }],
+      candidateGraph,
+    });
+
+    const sampler = harness.getLiveNodes()[0];
+    assert.equal(sampler.widgets[6].value, 0.75);
+    assert.deepEqual(
+      sampler.widgets_values,
+      [42, "fixed", 25, 7, "dpmpp_2m", "karras", 0.75],
+    );
+    harness.assertNoWholeGraphOps("auxiliary-widget semantic field apply");
   } finally {
     await harness.dispose();
   }

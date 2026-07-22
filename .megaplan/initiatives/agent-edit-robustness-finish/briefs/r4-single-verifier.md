@@ -32,6 +32,13 @@ and bounded mismatch evidence, and delete every inline competing decision.
   native widget carrier, or when the candidate projection and typed delta do
   not describe the same field update. A getter-only layout property is not a
   workflow-field fallback.
+- Treat the typed delta value as intent authority and the adapter's typed
+  physical-carrier/landed receipt as execution evidence. The verifier must not
+  independently infer widget indices from serialized input-descriptor ordinals
+  or compare against a value obtained through that inference.
+- Classify `preflight_failed` separately from partial native Apply. It requires
+  zero landed operations and permits lease rollback only; any inverse/native or
+  whole-graph canvas restoration is a verifier failure.
 
 ## OUT
 
@@ -69,6 +76,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Hash-authority fixtures prove a compatibility/session CAS digest cannot
   satisfy a typed witness, and getter-only field fixtures fail closed before
   mutation when widget resolution is unavailable.
+- Auxiliary-widget fixtures prove descriptor/widget cardinality disagreement
+  cannot shift semantic reads, and preflight fault injection proves zero canvas
+  writes, zero inverse operations, and `canvas_was_mutated=false`.
 - Focused verifier/ownership and broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances complete.
 
@@ -85,7 +95,8 @@ generic framework, compatibility wrapper, or protected-file modification.
 ## Output handoff and proof artifacts
 
 - Verifier implementation/public contract and versioned bounded-diff schema.
-- Versioned hash-authority boundary and semantic-field consistency evidence.
+- Versioned hash-authority boundary, semantic-field consistency evidence, and
+  preflight/no-mutation fault evidence.
 - Complete verifier fault matrix and comparison-owner deletion audit consumed by R5/R6.
 
 ## Megaplan dial

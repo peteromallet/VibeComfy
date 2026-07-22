@@ -36,6 +36,13 @@ does not reconcile with current source.
 - Resolve semantic fields such as `width`, `height`, `ckpt_name`, and
   `filename_prefix` through native widget identity. Layout-owned getter-only
   node properties must never be treated as logical workflow fields or written.
+- Emit typed physical-carrier evidence for semantic writes: logical field,
+  native widget identity, resolved native/serialized index, before/after value,
+  and landed step. Never derive a serialized widget index from the ordinal of
+  `inputs[*].widget`; auxiliary widgets may be serialized without descriptors.
+- Make the transition from side-effect-free preflight to the first native write
+  explicit in adapter evidence. A preflight failure has an empty landed prefix
+  and cannot authorize inverse mutation or whole-graph compensation.
 
 ## OUT
 
@@ -73,6 +80,9 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
   rollback in real ComfyUI.
 - The getter-only width fixture proves semantic widget mutation without an
   arbitrary JavaScript node-property write.
+- The KSampler fixture proves `control_after_generate` can occupy a serialized
+  widget position absent from `inputs`, while `denoise` lands on its named native
+  carrier and the adapter receipt records the exact physical resolution.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 

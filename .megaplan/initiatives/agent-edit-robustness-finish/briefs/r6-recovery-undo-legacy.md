@@ -37,6 +37,10 @@ contracts, including refresh and workflow switching.
   panel state can disappear. Evidence must include frontend build identity,
   failing plan step/op, resolved named and numeric ports, native types, landed
   prefix, bounded structural snapshot/diff, compensation attempt, and outcome.
+- Persist whether the first native write began. Recovery for a prepared lease
+  with `mutation_started=false` cancels/rolls back the lease without applying an
+  inverse delta or restoring the canvas; it must not be projected as a partial
+  Apply merely because prepare succeeded.
 - Enforce versioned legacy continuation/migration/non-resumable behavior.
 - Declare `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` as the
   fingerprint-qualified session-key → workflow-UUID-owned key migration. Only
@@ -101,6 +105,8 @@ R8 terminal audit, or broad retention-product tuning.
   versions, interval bounds, and v0 read counts; R8 deletion requires 30 days,
   two releases, and zero successful reads across the full interval.
 - Rollback failure exposes exact bounded diff and safe next action.
+- Preflight-failure recovery is idempotent, records an empty landed prefix, and
+  makes zero native forward, inverse, or whole-graph writes across retry/refresh.
 - Every `RECOVERY_REQUIRED` state is reconstructible from durable artifacts;
   the backend may not retain only `prepared` when native mutation or local
   compensation has already been attempted.

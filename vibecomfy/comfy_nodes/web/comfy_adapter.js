@@ -332,16 +332,34 @@ function findSlotIndex(slots, ref, fallbackKey = "name") {
   return -1;
 }
 
-function findWidgetFieldIndex(node, ref) {
+function findWidgetFieldIndex(node, ref, referenceNode = null) {
   const directIndex = findSlotIndex(node?.widgets, ref, "name");
   if (directIndex >= 0) {
     return directIndex;
   }
+  // A live native node is the only trustworthy carrier map when ComfyUI adds
+  // auxiliary widgets that are serialized in widgets_values but do not have a
+  // corresponding input descriptor (for example KSampler's
+  // control_after_generate widget). Its widget order is the serialization
+  // order, so use it before attempting the descriptor-only fallback.
+  const referenceIndex = findSlotIndex(referenceNode?.widgets, ref, "name");
+  if (referenceIndex >= 0) {
+    return referenceIndex;
+  }
   // Serialized ComfyUI graphs normally omit the live `widgets` array. Their
   // input slots retain widget descriptors, while widgets_values contains only
-  // widget-backed inputs (not linked sockets), so resolve by widget ordinal.
+  // widget-backed inputs (not linked sockets). This ordinal is safe only when
+  // every serialized widget has a descriptor; otherwise hidden/auxiliary
+  // widgets make the mapping ambiguous and we must fail closed.
   const normalized = String(ref);
   const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
+  const describedWidgetCount = inputs.filter((input) => Boolean(input?.widget)).length;
+  if (
+    Array.isArray(node?.widgets_values)
+    && describedWidgetCount !== node.widgets_values.length
+  ) {
+    return -1;
+  }
   let widgetIndex = 0;
   for (const input of inputs) {
     const descriptor = input?.widget;
@@ -389,7 +407,7 @@ function setWidgetFieldValue(node, index, value) {
   return resolved;
 }
 
-function getNodeFieldValue(node, path) {
+function getNodeFieldValue(node, path, { referenceNode = null } = {}) {
   if (!Array.isArray(path) || path.length === 0) {
     return undefined;
   }
@@ -420,7 +438,7 @@ function getNodeFieldValue(node, path) {
     return slots[index]?.[rest[1]];
   }
   if (rest.length === 0) {
-    const widgetIndex = findWidgetFieldIndex(node, head);
+    const widgetIndex = findWidgetFieldIndex(node, head, referenceNode);
     if (widgetIndex >= 0) {
       return getWidgetFieldValue(node, widgetIndex);
     }
@@ -437,7 +455,7 @@ function getNodeFieldValue(node, path) {
   return cursor;
 }
 
-function setNodeFieldValue(node, path, value) {
+function setNodeFieldValue(node, path, value, { referenceNode = null } = {}) {
   if (!Array.isArray(path) || path.length === 0) {
     throw new Error("set_node_field target is missing a field path.");
   }
@@ -467,7 +485,7 @@ function setNodeFieldValue(node, path, value) {
     return;
   }
   if (rest.length === 0) {
-    const widgetIndex = findWidgetFieldIndex(node, head);
+    const widgetIndex = findWidgetFieldIndex(node, head, referenceNode);
     if (widgetIndex >= 0) {
       if (!setWidgetFieldValue(node, widgetIndex, value)) {
         throw new Error(`Cannot resolve named widget target ${String(head)} on live node.`);
@@ -1195,7 +1213,14 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
         throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_node_field.`);
       }
       const fieldPath = decodeNodeFieldPathV1(parsed.rest);
-      const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, fieldPath);
+      const referenceNode = typeof options.widgetReferenceNodeFor === "function"
+        ? options.widgetReferenceNodeFor(parsed.uidOrId)
+        : null;
+      const desiredValue = getNodeFieldValue(
+        resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node,
+        fieldPath,
+        { referenceNode },
+      );
       if (desiredValue === undefined) {
         throw new DeltaDiagnosticError(
           `Could not resolve set_node_field ${fieldPath.join(".")} on the candidate node.`,
@@ -1210,7 +1235,7 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
           { uid: parsed.uidOrId, field_path: fieldPath.join(".") },
         );
       }
-      setNodeFieldValue(node, fieldPath, desiredValue);
+      setNodeFieldValue(node, fieldPath, desiredValue, { referenceNode });
       plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue), ...authority });
       continue;
     }
@@ -1430,7 +1455,23 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
     throw new Error("Could not serialize the live graph for delta preflight.");
   }
 
-  const { plan, nextGraph } = preflightDeltaPlan(liveSnapshot, candidateGraph, deltaOps, options);
+  let plan;
+  let nextGraph;
+  try {
+    ({ plan, nextGraph } = preflightDeltaPlan(liveSnapshot, candidateGraph, deltaOps, {
+      ...options,
+      widgetReferenceNodeFor: options.widgetReferenceNodeFor
+        || ((uidOrId) => resolveLiveNode(graph, uidOrId)),
+    }));
+  } catch (error) {
+    // Preflight is side-effect free. Mark that boundary explicitly so the
+    // transaction controller rolls back the server lease without running an
+    // inverse mutation against a canvas that was never changed.
+    if (error && typeof error === "object") {
+      error.canvasMutationStarted = false;
+    }
+    throw error;
+  }
   if (capability.strategy === "harness-serialize-configure") {
     graph.clear();
     graph.configure(nextGraph);
