@@ -27,6 +27,10 @@ match current source and environment hashes.
   one resolved backend root, one route-registration winner, and one frontend
   asset set may be active. Silent first-import-wins skips and dynamic Git
   metadata that can disagree with loaded bytecode fail the terminal audit.
+- Delete the alias/canonical Python namespace split and prove no reachable
+  module realpath is loaded under multiple authority-bearing identities. The
+  temporary `/accept` bridge must be deleted or remain pure delegation with
+  zero comparison, lock, receipt, or baseline authority.
 - Retain `migrateFingerprintScopedSessionId` only as the declared
   `workflow_chat_scope_binding_v0_fingerprint_to_v1_uuid` migration until its
   migration-ledger age-out: at least 30 days, two released versions, zero

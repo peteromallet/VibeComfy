@@ -82,6 +82,12 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   reports the loaded startup commit/code digest. Then restart and require a new
   process-start id plus matching backend module path/digest before testing.
   Fail on multiple VibeComfy custom-node roots or ambiguous route winners.
+- Run the native browser graph through the actually registered HTTP
+  `/prepare` and `/finalize` routes—not mocked transports or direct session
+  calls—and require the JavaScript claim to match Python verification. Assert
+  the independent browser/Python parity suites are collected by required PR CI.
+- Boot through ComfyUI's real absolute-path custom-node loader and fail if alias
+  and canonical imports produce distinct module objects, globals, or locks.
 - Attribute each failure/warning to VibeComfy, ComfyUI core, or extension; narrowly
   allowlist only known compatibility-environment warnings.
 - Wire minimal correctness and the required lifecycle matrix into per-PR CI;

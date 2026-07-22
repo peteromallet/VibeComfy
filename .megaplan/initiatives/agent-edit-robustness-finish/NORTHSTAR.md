@@ -57,6 +57,10 @@ verification, Undo capture, or adapter setup can strand a prepared lease.
 A prepared lease has a bounded deadline and a deterministic projection-based
 resume/cancel action after response loss, reload, renderer death, or restart; it
 cannot remain indefinitely prepared merely because an in-memory promise vanished.
+The running backend has one Python module identity and one lock/global domain.
+ComfyUI's absolute-path custom-node import and canonical
+`vibecomfy.comfy_nodes.*` imports may not instantiate parallel copies of
+session, contracts, routes, or verifier modules over the same artifact store.
 Semantic workflow fields resolve through native widget identity and adapter
 carrier evidence. Serialized input-descriptor order is never treated as widget
 serialization order: ComfyUI may serialize auxiliary widgets that have no input

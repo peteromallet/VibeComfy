@@ -84,6 +84,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Every Apply/finalize/rollback comparison calls the single verifier.
 - Static/dependency tests prove no duplicate comparison/canonicalizer or dead
   verifier-era export remains.
+- AST/import-call-graph ownership checks cover Python, JavaScript, and MJS;
+  mutation tests inject renamed, aliased, method-based duplicate verifiers and
+  canonicalizers and prove the gate fails.
 - All fault exits and named fixtures pass the same public API.
 - Browser/Python goldens prove native `showAdvanced` and every zero-widget
   encoding cannot create a false postcondition mismatch.

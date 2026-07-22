@@ -37,6 +37,10 @@ event wiring, and view composition.
   root, backend code digest, frontend asset digest, process-start id, and every
   duplicate import/route-registration attempt. A checkout fast-forward without
   restart must remain visibly stale rather than advertise unloaded bytecode.
+- Canonicalize the ComfyUI custom-node import boundary so the absolute-path
+  loader alias and `vibecomfy.comfy_nodes.*` cannot create distinct session,
+  contracts, routes, controller, verifier, or lock module objects. All HTTP
+  handlers and executor calls must resolve through one module/lock domain.
 - Fence every continuation by all declared panel/workflow/activation/operation/
   submit/apply/session/turn/candidate/transaction/lease/generation dimensions.
 - Preserve the lifecycle reducer as sole legal-transition owner.
@@ -105,6 +109,8 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - Deployment acceptance requires a changed process-start id and startup backend
   commit/code digest equal to the requested release; frontend `?v=` is not
   backend provenance.
+- A real ComfyUI-loader test asserts alias/canonical module object identity,
+  one session lock registry, and one recorded route-handler module/file.
 - Static gates prove one controller/API/reducer and no coordination/transport/
   mutation/verification/rollback decision in roundtrip.
 - Roundtrip is measurably reduced; dead coordinator exports/imports are absent.
