@@ -20,6 +20,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-hash-authority-boundary.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-finalize-authority-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-semantic-carrier-preflight-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-native-widget-semantic-projection-matrix.json"
   ],
@@ -34,7 +35,8 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-recovery-state-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-chat-scope-migration-contract.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-chat-scope-migration-evidence.json",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-finalized-receipt-projection.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-finalized-receipt-projection.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r6-applied-baseline-recovery.json"
   ],
   "r7-real-comfy-matrix-ci": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-acceptance.md",

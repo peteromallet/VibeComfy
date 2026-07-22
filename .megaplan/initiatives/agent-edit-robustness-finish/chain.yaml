@@ -7,12 +7,12 @@ launch_preconditions:
   - name: repaired foundation receipt is tracked
     kind: git_tracked
     path: .megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md
-  - name: getter-safe incident repair is in the foundation receipt
+  - name: complete native-finalize repair stack is in the foundation receipt
     kind: artifact
     path: .megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md
     check:
       kind: contains_text
-      text: a395c243
+      text: 46047e0b
   - name: repaired foundation ancestry proof is tracked
     kind: git_tracked
     path: .megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json

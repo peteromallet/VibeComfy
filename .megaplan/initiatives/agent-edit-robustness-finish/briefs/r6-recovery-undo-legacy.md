@@ -100,6 +100,10 @@ R8 terminal audit, or broad retention-product tuning.
 - Refresh after finalization restores the transcript and exact transaction
   generation/lease. Old fingerprint-qualified keys migrate without merging
   different workflow UUIDs.
+- Finalization durably stores the exact browser-serialized applied graph and
+  its compatibility digest. Refresh/restart reconstructs the next-submit CAS
+  baseline from that applied artifact, never from the pre-materialized server
+  candidate when native UI carriers differ.
 - Stale responses are ignored; successful responses replace; explicit
   `CHAT_REHYDRATE_MISSING_SESSION` clears only the current workflow binding;
   every other transport, 5xx, schema, or projection failure preserves the safe

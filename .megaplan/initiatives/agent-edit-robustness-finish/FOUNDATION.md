@@ -15,12 +15,20 @@ Required repairs, in order:
 - `22b948ce` — chat retention across finalized structural edits;
 - `aa0f6d90` — migration from fingerprint-qualified chat scopes;
 - `a395c243` — semantic-field resolution through native widgets, including
-  getter-only LiteGraph properties.
+  getter-only LiteGraph properties;
+- `be806105` and `7dd11225` — turn-isolated durable transaction evidence;
+- `4f53cceb` and `c03a5f07` — preflight compensation plus preview/Apply planner
+  parity;
+- `0225b2c4` and `e3fc78d4` — supervised prepared transactions and durable
+  Resume Apply;
+- `c2f4e5f3` — semantic normalization of native `LoadImage` UI carriers;
+- `46047e0b` — typed-only `delta_replay` finalize authority and persistence of
+  the exact applied native graph as the next CAS baseline.
 
 The launch checkout must use this tracked receipt and pass:
 
 ```bash
-git merge-base --is-ancestor a395c243 agent/agent-edit-robustness-foundation
+git merge-base --is-ancestor 46047e0b agent/agent-edit-robustness-foundation
 ```
 
 The current Megaplan precondition schema does not itself execute an ancestry
