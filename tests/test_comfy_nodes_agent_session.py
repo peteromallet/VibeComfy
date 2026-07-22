@@ -848,7 +848,7 @@ def test_recovery_handles_transaction_dir_with_no_log_file(tmp_path):
 # ── Transactional apply server semantics (T21) ──────────────────────────────
 
 
-def _fresh_v2_apply_turn(tmp_path: Path):
+def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
     from vibecomfy.comfy_nodes.agent import session as S
     from vibecomfy.comfy_nodes.agent.authority_receipts import (
         build_authority_receipt,
@@ -872,12 +872,12 @@ def _fresh_v2_apply_turn(tmp_path: Path):
         "nodes": [
             {
                 "id": 1,
-                "type": "KSampler",
+                "type": "LoadImage" if load_image else "KSampler",
                 "mode": 0,
                 "pos": [10, 20],
                 "size": [320, 240],
                 "properties": {"vibecomfy_uid": "sampler-1"},
-                "widgets_values": [],
+                "widgets_values": ["example.png"] if load_image else [],
                 "inputs": [],
                 "outputs": [],
             }
@@ -1092,6 +1092,48 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
     state = S.read_state(session_dir)
     assert state["baseline_graph_hash"] == evidence["candidate_structural_hash"]
     assert state["baseline_turn_id"] == turn_id
+    assert state["turns"][turn_id]["state"] == "finalized"
+
+
+def test_finalize_uses_typed_semantic_postcondition_not_raw_native_widget_carriers(tmp_path):
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(
+        tmp_path, load_image=True
+    )
+    prepared = S.prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload=_prepare_payload(evidence),
+    )
+    native_graph = json.loads(json.dumps(evidence["candidate_graph"]))
+    native_graph["nodes"][0]["widgets_values"].append("image")
+    native_structural_hash = S.structural_graph_hash(native_graph)
+    assert native_structural_hash != evidence["candidate_structural_hash"]
+    assert (
+        S.projection_reference_v1(native_graph, "structural_v1")
+        == evidence["postcondition_projection"]
+    )
+
+    result = S.finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": evidence["plan_hash"],
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": native_structural_hash,
+            "post_apply_graph": native_graph,
+            "postcondition_projection": evidence["postcondition_projection"],
+            "applied_delta_hash": evidence["delta_hash"],
+            "post_apply_hash_verified": True,
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["phase"] == "finalized"
+    state = S.read_state(session_dir)
+    assert state["baseline_graph_hash"] == native_structural_hash
     assert state["turns"][turn_id]["state"] == "finalized"
 
 

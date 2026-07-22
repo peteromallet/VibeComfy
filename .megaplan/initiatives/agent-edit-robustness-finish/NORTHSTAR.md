@@ -70,6 +70,10 @@ that the backend schema and candidate never contain. The registry must exclude
 such proven derived-native carriers symmetrically in browser and Python, while
 retaining the actual semantic image value. New node factories and frontend
 versions cannot silently redefine postcondition meaning.
+For typed `delta_replay`, that semantic witness is the only finalize
+postcondition authority: an older whole-candidate compatibility hash cannot run
+as a second veto. After semantic success, the exact applied native graph is
+persisted as compatibility/CAS continuity evidence for the next submission.
 Preview and Apply consume the same preflight planner with the same native
 carrier resolver. Preview may not silently fall back to a weaker graph/report
 diff when canonical typed-delta planning fails; a candidate shown as reviewable

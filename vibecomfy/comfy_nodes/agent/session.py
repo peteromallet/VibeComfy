@@ -725,6 +725,7 @@ def _set_baseline_authoritatively(
 
 def _source_path_for_turn_baseline(session_dir: Path, turn_id: str) -> str | None:
     for relative in (
+        Path("turns") / turn_id / "applied.ui.json",
         Path("turns") / turn_id / "candidate.ui.json",
         Path("turns") / turn_id / "response.json",
     ):
@@ -762,21 +763,36 @@ def _normalize_baseline_state(session_dir: Path, state: dict[str, Any]) -> dict[
     if isinstance(baseline_turn_id, str):
         baseline_turn = state["turns"].get(baseline_turn_id)
         if isinstance(baseline_turn, dict):
-            structural_hash = baseline_turn.get("candidate_structural_graph_hash")
-            stored_version = baseline_turn.get("candidate_structural_graph_hash_version")
+            finalized = baseline_turn.get("state") == "finalized"
+            structural_hash = baseline_turn.get(
+                "finalized_structural_graph_hash"
+                if finalized
+                else "candidate_structural_graph_hash"
+            )
+            stored_version = baseline_turn.get(
+                "finalized_structural_graph_hash_version"
+                if finalized
+                else "candidate_structural_graph_hash_version"
+            )
             if (
                 not isinstance(structural_hash, str)
                 or stored_version != STRUCTURAL_PROJECTION_VERSION
             ):
-                recomputed = _candidate_structural_hash_from_turn_dir(
-                    session_dir=session_dir,
-                    turn_id=baseline_turn_id,
+                recomputed = _structural_hash_from_source_path(
+                    session_dir,
+                    _source_path_for_turn_baseline(session_dir, baseline_turn_id),
                 )
                 if isinstance(recomputed, str):
                     structural_hash = recomputed
-                    baseline_turn["candidate_structural_graph_hash"] = recomputed
                     baseline_turn[
-                        "candidate_structural_graph_hash_version"
+                        "finalized_structural_graph_hash"
+                        if finalized
+                        else "candidate_structural_graph_hash"
+                    ] = recomputed
+                    baseline_turn[
+                        "finalized_structural_graph_hash_version"
+                        if finalized
+                        else "candidate_structural_graph_hash_version"
                     ] = STRUCTURAL_PROJECTION_VERSION
             if isinstance(structural_hash, str):
                 _set_baseline_authoritatively(
@@ -2766,19 +2782,14 @@ def finalize_turn_transaction(
             )
         hashes = _payload_mapping(transaction.get("hashes"))
         expected_post_hash = hashes.get("candidate_structural_graph_hash")
-        if post_apply_structural_hash != expected_post_hash:
-            return _transaction_failure(
-                kind=FailureKind.STALE_STATE_MISMATCH,
-                stage="finalize",
-                session_id=session_id,
-                turn_id=turn_id,
-                state=state,
-                explanation="Finalize post-apply hash did not match prepared transaction evidence.",
-                evidence={
-                    "post_apply_hash": post_apply_structural_hash,
-                    "expected_post_apply_hash": expected_post_hash,
-                },
-            )
+        # The typed postcondition above is the V2 semantic authority.  Do not
+        # also require equality with the compatibility structural digest:
+        # native ComfyUI construction may add derived UI carriers (for
+        # example LoadImage's image_upload widget) that are intentionally
+        # excluded from the typed projection.  Treating the raw compatibility
+        # digest as a second postcondition makes valid native materialization
+        # impossible and duplicates authority with different semantics.  The
+        # compatibility value remains in the receipt as diagnostic evidence.
         authority = _payload_mapping(transaction.get("authority"))
         if authority.get("verification_kind") == "layout_structural_noop":
             layout_verification = authority.get("layout_verification")
@@ -2872,10 +2883,15 @@ def finalize_turn_transaction(
             post_apply_structural_hash=post_apply_structural_hash,
             applied_delta_hash=applied_delta_hash,
         )
+        _write_response_atomic(turn_dir / "applied.ui.json", dict(post_apply_graph))
         turn_record["state"] = "canvas_verified"
         next_baseline_hash = post_apply_structural_hash
         turn_record["state"] = "finalized"
         turn_record["client_graph_hash"] = post_apply_graph_hash
+        turn_record["finalized_structural_graph_hash"] = post_apply_structural_hash
+        turn_record[
+            "finalized_structural_graph_hash_version"
+        ] = STRUCTURAL_PROJECTION_VERSION
         turn_record["finalized_at"] = _now()
         turn_record["finalized_plan_hash"] = prepared_plan
         turn_record["finalized_generation"] = prepared_generation

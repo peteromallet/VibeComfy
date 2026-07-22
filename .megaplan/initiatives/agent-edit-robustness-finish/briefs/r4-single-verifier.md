@@ -34,6 +34,10 @@ and bounded mismatch evidence, and delete every inline competing decision.
 - Reject a compatibility/session CAS digest as evidence for a typed
   transaction projection witness. Keep that digest only at an explicit,
   versioned compatibility boundary until its migration or retirement.
+- For `delta_replay`, a matching typed postcondition and landed-plan receipt
+  are the sole semantic finalize authority. Finalize must not run a second
+  whole-candidate compatibility-hash equality gate; the actual native graph's
+  compatibility digest may advance session CAS only after semantic success.
 - Fail before native mutation when a semantic field cannot resolve to its
   native widget carrier, or when the candidate projection and typed delta do
   not describe the same field update. A getter-only layout property is not a
@@ -92,6 +96,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Hash-authority fixtures prove a compatibility/session CAS digest cannot
   satisfy a typed witness, and getter-only field fixtures fail closed before
   mutation when widget resolution is unavailable.
+- A native graph whose typed postcondition matches but whose compatibility
+  digest differs only by a derived UI carrier finalizes, persists that exact
+  applied graph as the next CAS baseline, and accepts a follow-up submission.
 - Auxiliary-widget fixtures prove descriptor/widget cardinality disagreement
   cannot shift semantic reads, and preflight fault injection proves zero canvas
   writes, zero inverse operations, and `canvas_was_mutated=false`. The exact

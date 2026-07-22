@@ -52,7 +52,9 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - In that same real img2img case, assert native `LoadImage` construction expands
   `image_upload` metadata to its auxiliary serialized carrier while the typed
   semantic postcondition still matches and finalizes. Also mutate the semantic
-  filename to prove normalization does not hide a real workflow change.
+  filename to prove normalization does not hide a real workflow change. The
+  successful native serialization must become the durable compatibility
+  baseline, and an immediate follow-up submit must pass CAS without rebaseline.
 - For that exact img2img transaction, inject an exception and page-context loss
   after prepare at every boundary through the first native write (snapshot,
   semantic scoped read, Undo capture, adapter entry, and immediately after
