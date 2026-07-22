@@ -49,6 +49,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   inverse delta, node disappearance, or whole-graph restore. Before Apply, the
   real preview must remain canonical-delta-derived and show both added nodes,
   the removed latent node, the rewire, and the denoise edit.
+- In that same real img2img case, assert native `LoadImage` construction expands
+  `image_upload` metadata to its auxiliary serialized carrier while the typed
+  semantic postcondition still matches and finalizes. Also mutate the semantic
+  filename to prove normalization does not hide a real workflow change.
 - For that exact img2img transaction, inject an exception and page-context loss
   after prepare at every boundary through the first native write (snapshot,
   semantic scoped read, Undo capture, adapter entry, and immediately after
@@ -127,6 +131,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   back only the lease with an empty landed prefix and unchanged canvas. Preview
   and Apply expose identical authoritative plan coverage for the full img2img
   mutation; no legacy preview fallback is accepted.
+- The real LoadImage case records both server candidate serialization and native
+  post-Apply serialization, proves only the UI-only upload carrier is excluded,
+  and completes `canvas_verified` plus finalize without a false projection
+  mismatch.
 - Post-prepare fault injection proves the transaction supervisor always emits a
   terminal compensation/recovery receipt; recovery decisions use durable
   `preflight_complete`/`mutation_started` evidence plus typed pre/post

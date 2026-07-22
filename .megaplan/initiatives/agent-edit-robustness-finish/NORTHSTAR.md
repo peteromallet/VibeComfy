@@ -63,6 +63,13 @@ serialization order: ComfyUI may serialize auxiliary widgets that have no input
 descriptor. The typed delta owns the intended value; the verifier judges the
 adapter's resolved carrier and landed projection rather than reconstructing a
 physical widget index from an incomplete graph encoding.
+Typed structural authority is semantic, not a hash of raw native widget
+ordinals. Frontend-expanded metadata such as core `LoadImage.image_upload` may
+add serialized UI-only carriers (for example the trailing `"image"` value)
+that the backend schema and candidate never contain. The registry must exclude
+such proven derived-native carriers symmetrically in browser and Python, while
+retaining the actual semantic image value. New node factories and frontend
+versions cannot silently redefine postcondition meaning.
 Preview and Apply consume the same preflight planner with the same native
 carrier resolver. Preview may not silently fall back to a weaker graph/report
 diff when canonical typed-delta planning fails; a candidate shown as reviewable
@@ -89,7 +96,8 @@ must never be combined.
 
 The exact `a66422e…`, `eb45e…`, detached `Displays / Labels`, duplicate-title,
 workflow-tab isolation, fingerprint-scoped chat, getter-only native-widget, and
-KSampler auxiliary `control_after_generate`/`denoise` incidents remain permanent
+KSampler auxiliary `control_after_generate`/`denoise`, and LoadImage
+`image_upload` materialization incidents remain permanent
 gates. Real ComfyUI must
 prove forward success, native serialization, verification, finalize, refresh,
 persistence, injected failure, rollback, recovery, and switching for every

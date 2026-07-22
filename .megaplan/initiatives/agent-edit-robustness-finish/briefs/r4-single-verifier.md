@@ -25,6 +25,12 @@ and bounded mismatch evidence, and delete every inline competing decision.
   equivalent zero-widget encodings. In particular, `showAdvanced` must be
   classified as non-semantic, and omitted, `null`, `[]`, and `{}` zero-widget
   representations must produce one structural projection in browser and Python.
+- Replace raw ordinal `widgets_values` authority with a versioned semantic
+  widget projection. Backend schema inputs remain semantic; frontend-injected
+  carriers created from metadata such as core `LoadImage.image_upload` are
+  `derived_native` and excluded in browser and Python. Do not solve this by
+  teaching candidate synthesis to counterfeit a frontend-version-specific
+  trailing `"image"` value.
 - Reject a compatibility/session CAS digest as evidence for a typed
   transaction projection witness. Keep that digest only at an explicit,
   versioned compatibility boundary until its migration or retirement.
@@ -77,6 +83,12 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - All fault exits and named fixtures pass the same public API.
 - Browser/Python goldens prove native `showAdvanced` and every zero-widget
   encoding cannot create a false postcondition mismatch.
+- Browser/Python and real-native goldens prove `LoadImage([filename])` and the
+  frontend-materialized `LoadImage([filename, "image"])` have one semantic
+  structural witness, while changing `filename` still changes that witness.
+- Every mismatch receipt persists expected and actual projection versions and
+  digests plus a deterministic bounded semantic diff; a generic browser-only
+  mismatch string is insufficient recovery evidence.
 - Hash-authority fixtures prove a compatibility/session CAS digest cannot
   satisfy a typed witness, and getter-only field fixtures fail closed before
   mutation when widget resolution is unavailable.

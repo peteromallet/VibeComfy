@@ -63,6 +63,14 @@ export function classifyFieldV1({ entity, path, nodeType = null }) {
   if (entity === "node" && nodeType === "vibecomfy.exec" && path === "widgets_values.io") {
     return FIELD_CATEGORY.DERIVED_NATIVE;
   }
+  // Core LoadImage has one execution-semantic input (`image`). ComfyUI's
+  // image_upload metadata expands into additional serialized frontend widget
+  // carriers (currently the literal `"image"`). Those values are native UI
+  // materialization, not workflow semantics, and must not become transaction
+  // authority merely because the browser factory injected them.
+  if (entity === "node" && nodeType === "LoadImage" && /^widgets_values\.[1-9]\d*$/.test(path)) {
+    return FIELD_CATEGORY.DERIVED_NATIVE;
+  }
   return FIELD_RULES_V1[`${entity}.${path}`] || FIELD_CATEGORY.UNSUPPORTED;
 }
 
@@ -335,6 +343,15 @@ function normalizeProjectionWidgetValue(value) {
 
 export function normalizeDerivedWidgetFieldsV1(node, normalize = normalizeProjectionWidgetValue) {
   const values = node?.widgets_values ?? [];
+  if (node?.type === "LoadImage" && Array.isArray(values)) {
+    return values
+      .filter((_entry, index) => classifyFieldV1({
+        entity: "node",
+        path: `widgets_values.${index}`,
+        nodeType: node.type,
+      }) !== FIELD_CATEGORY.DERIVED_NATIVE)
+      .map(normalize);
+  }
   if (node?.type !== "vibecomfy.exec") return normalize(values);
   if (Array.isArray(values)) {
     return values.filter((_entry, index) => index !== 1).map(normalize);

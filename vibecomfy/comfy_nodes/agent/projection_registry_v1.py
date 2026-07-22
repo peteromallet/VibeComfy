@@ -62,6 +62,10 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 def field_category_v1(entity: str, path: str, node_type: str | None = None) -> str:
     if entity == "node" and node_type == "vibecomfy.exec" and path == "widgets_values.io": return "derived_native"
+    # LoadImage has one backend-semantic input. ``image_upload`` metadata adds
+    # auxiliary frontend widget values during native node construction; those
+    # browser carriers are not part of typed workflow authority.
+    if entity == "node" and node_type == "LoadImage" and re.fullmatch(r"widgets_values\.[1-9]\d*", path): return "derived_native"
     return _RULES.get(f"{entity}.{path}", "unsupported")
 
 def _supported(entity: str, value: Any, node_type: str | None = None) -> Mapping[str, Any]:
@@ -155,7 +159,12 @@ def assert_forward_projection_v1(name: Any) -> Mapping[str, Any]:
 
 def _widgets(node: Mapping[str, Any]) -> Any:
     raw = node.get("widgets_values", {})
-    if isinstance(raw, list): return list(raw) if raw else {}
+    if isinstance(raw, list):
+        values = [
+            value for index, value in enumerate(raw)
+            if field_category_v1("node", f"widgets_values.{index}", node.get("type") if isinstance(node.get("type"), str) else None) != "derived_native"
+        ]
+        return values if values else {}
     if raw is None: return {}
     if not isinstance(raw, Mapping): raise ContractError("widgets_values must be object or list", "malformed_graph")
     result = dict(raw)

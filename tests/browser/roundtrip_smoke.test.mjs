@@ -17415,6 +17415,17 @@ test("VibeComfy comfy_adapter applies the complete real KSampler img2img delta w
   const harness = await createBrowserHarness({ graph, withGraphMutation: true });
   try {
     const adapter = await harness.loadAdapter();
+    const nativeCreateNode = harness.window.LiteGraph.createNode.bind(harness.window.LiteGraph);
+    harness.window.LiteGraph.createNode = (type) => {
+      const node = nativeCreateNode(type);
+      node.configure = (payload) => {
+        Object.assign(node, structuredClone(payload));
+        // Real ComfyUI expands LoadImage's image_upload metadata into this
+        // additional serialized UI carrier during native construction.
+        if (type === "LoadImage") node.widgets_values = [...(node.widgets_values || []), "image"];
+      };
+      return node;
+    };
     const result = adapter.applyGraphDeltaInPlace(harness.app, { deltaOps, candidateGraph });
 
     assert.deepEqual(harness.getLiveNodes().map((node) => node.id).sort((a, b) => a - b), [1, 5, 8, 9]);
@@ -17424,6 +17435,20 @@ test("VibeComfy comfy_adapter applies the complete real KSampler img2img delta w
       [[1, 9], [8, 9], [9, 5]],
     );
     assert.equal(result.plan.filter((step) => step.derivedFromAddNode === true).length, 2);
+    const nativePostApply = harness.app.canvas.graph.serialize();
+    for (const node of nativePostApply.nodes) delete node.widgets;
+    const canonicalCandidate = structuredClone(candidateGraph);
+    for (const node of canonicalCandidate.nodes) delete node.widgets;
+    assert.deepEqual(
+      nativePostApply.nodes.find((node) => node.id === 8).widgets_values,
+      ["example.png", "image"],
+      "the harness should reproduce native LoadImage upload-widget decoration",
+    );
+    assert.equal(
+      projectionReferenceV1(nativePostApply, "structural_v1").digest,
+      projectionReferenceV1(canonicalCandidate, "structural_v1").digest,
+      "native UI-only LoadImage widgets must not invalidate the typed postcondition",
+    );
     harness.assertNoWholeGraphOps("complete KSampler img2img delta");
   } finally {
     await harness.dispose();

@@ -123,6 +123,24 @@ def test_native_projection_normalizes_host_ui_metadata_and_zero_widget_encodings
     assert len(set(variants)) == 1
 
 
+def test_load_image_projection_excludes_frontend_upload_widget_carriers() -> None:
+    semantic = {
+        "nodes": [{
+            "id": 8,
+            "type": "LoadImage",
+            "mode": 0,
+            "properties": {"vibecomfy_uid": "n8"},
+            "widgets_values": ["example.png"],
+        }],
+        "links": [],
+    }
+    native = json.loads(json.dumps(semantic))
+    native["nodes"][0]["widgets_values"] = ["example.png", "image"]
+    assert field_category_v1("node", "widgets_values.1", "LoadImage") == "derived_native"
+    assert project_graph_v1(native, "structural_v1") == project_graph_v1(semantic, "structural_v1")
+    assert projection_reference_v1(native, "structural_v1")["digest"] == projection_reference_v1(semantic, "structural_v1")["digest"]
+
+
 def _ref(projection: str) -> dict[str, str]:
     return {"kind": "projection_ref_v1", "projection": projection, "digest": "a" * 64}
 
