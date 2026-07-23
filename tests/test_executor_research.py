@@ -780,13 +780,57 @@ class TestDefaultHivemindClient:
 
         assert result["results"]
         assert result["results"][0]["title"] == "Hotshot XL workflow"
-        decoded_url = unquote_plus(seen_urls[0])
-        assert "hivemind.nousresearch.com" not in decoded_url
-        assert "external_resources" in decoded_url
-        assert "kind=eq.workflow" in decoded_url
-        assert "title.ilike.*Hotshot*" in decoded_url
-        assert "body.ilike.*Hotshot*" in decoded_url
-        assert "title.fts." not in decoded_url
+        decoded_urls = [unquote_plus(url) for url in seen_urls]
+        assert all("hivemind.nousresearch.com" not in url for url in decoded_urls)
+        assert all("external_resources" in url for url in decoded_urls)
+        assert all("kind=eq.workflow" in url for url in decoded_urls)
+        assert any("title.ilike.*Hotshot*" in url for url in decoded_urls)
+        assert any("body.ilike.*Hotshot*" in url for url in decoded_urls)
+        assert all("title.fts." not in url for url in decoded_urls)
+
+    def test_specific_title_is_not_crowded_out_by_broad_query_limit(self) -> None:
+        seen_urls: list[str] = []
+
+        def capture_urlopen(req: Any, *args: Any, **kwargs: Any) -> Any:
+            decoded_url = unquote_plus(req.full_url)
+            seen_urls.append(decoded_url)
+            if "title.ilike.*IPAdapter Style Composition*" in decoded_url:
+                payload = (
+                    b'[{"id": 42, "kind": "workflow", '
+                    b'"title": "IPAdapter Style Composition", '
+                    b'"body": "Official Cubiq SDXL workflow"}]'
+                )
+            else:
+                # Simulate a broad PostgREST page that hit its server-side
+                # limit before the exact title could be returned.
+                payload = b"[" + b",".join(
+                    (
+                        b'{"id": %d, "kind": "workflow", '
+                        b'"title": "Unrelated Style Workflow %d", '
+                        b'"body": "Generic composition notes"}'
+                    ) % (index, index)
+                    for index in range(100, 130)
+                ) + b"]"
+            return type(
+                "MockResponse",
+                (),
+                {
+                    "read": lambda self: payload,
+                    "__enter__": lambda self: self,
+                    "__exit__": lambda self, *a: None,
+                },
+            )()
+
+        with patch("urllib.request.urlopen", side_effect=capture_urlopen):
+            result = _default_hivemind_client(
+                "IPAdapter Style Composition",
+                timeout=1.0,
+            )
+
+        assert result["results"][0]["title"] == "IPAdapter Style Composition"
+        assert len(seen_urls) == 2
+        assert "limit=10" in seen_urls[0]
+        assert "limit=30" in seen_urls[1]
 
     def test_postgrest_search_queries_workflow_kind_and_prioritizes_it(self) -> None:
         seen_urls: list[str] = []

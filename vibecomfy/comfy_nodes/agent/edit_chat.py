@@ -308,6 +308,15 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "batch_turns": _json_safe(response.get("batch_turns")) if isinstance(response.get("batch_turns"), list) else [],
             "outcome": outcome,
         }
+        # Preserve absence for historical candidate responses.  An omitted
+        # projection means "this older receipt did not carry dependency
+        # authority", whereas an explicit [] means the candidate was resolved
+        # with no runtime dependencies.  The browser uses that distinction to
+        # avoid erasing same-candidate evidence during automatic rehydrate.
+        if isinstance(response.get("runtime_dependencies"), list):
+            latest_candidate["runtime_dependencies"] = _json_safe(
+                response["runtime_dependencies"]
+            )
         return latest_candidate
     return None
 

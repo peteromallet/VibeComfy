@@ -4870,6 +4870,10 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
       payload?.latestTurnLifecycle?.candidateTransaction
         || payload?.latestTurnLifecycle?.candidate_transaction,
     );
+  const hasRuntimeDependencyProjection = Boolean(
+    Array.isArray(latest?.raw?.runtimeDependencies)
+    || Array.isArray(latest?.raw?.runtime_dependencies),
+  );
   const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
     // ── T8: Pass scope context so the lifecycle handler can enforce
     // cross-scope and cross-session boundary refusals.
@@ -4886,9 +4890,13 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
       || latestApplyCandidate?.graphHash
       || null,
     candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
-    runtimeDependencies: Array.isArray(latest.runtimeDependencies)
-      ? clonePlainData(latest.runtimeDependencies)
-      : [],
+    ...(hasRuntimeDependencyProjection
+      ? {
+          runtimeDependencies: Array.isArray(latest.runtimeDependencies)
+            ? clonePlainData(latest.runtimeDependencies)
+            : [],
+        }
+      : {}),
     serverSubmitGraphHash: latestApplyCandidate?.submitGraphHash || null,
     message: typeof latest.message === "string" ? latest.message : null,
     applyEligibility: normalizedEligibility,

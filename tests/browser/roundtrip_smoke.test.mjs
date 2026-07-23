@@ -3783,6 +3783,132 @@ test("superseded rollback diagnostic uses canonical candidate_transaction_v1 com
   assert.equal(panel.state.candidateGraph, null);
 });
 
+test("same-candidate legacy rehydrate omission preserves receipts through missing-native placeholder apply", async () => {
+  const sessionId = "session-registry-receipt-rehydrate";
+  const turnId = "0001";
+  const candidateGraph = {
+    nodes: [{
+      id: 10,
+      type: "IPAdapterModelLoader",
+      properties: { vibecomfy_uid: "ipadapter-loader" },
+      inputs: [],
+      outputs: [{ name: "IPADAPTER", type: "IPADAPTER", links: [] }],
+    }],
+    links: [],
+  };
+  const deltaOps = [{
+    op: "add_node",
+    scope_path: "",
+    uid: "ipadapter-loader",
+    node_id: "10",
+    class_type: "IPAdapterModelLoader",
+    fields: {},
+    inputs: {},
+  }];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash: "registry-receipt-rehydrate-plan",
+    deltaOps,
+    candidateGraphHash: "registry-receipt-candidate-hash",
+  });
+  const runtimeDependencies = [{
+    class_type: "IPAdapterModelLoader",
+    availability: "registry_resolvable",
+    resolver_candidates: [{
+      pack: {
+        source: "comfy-registry",
+        registry_id: "comfyui_ipadapter_plus",
+        version: "2.0.0",
+      },
+      stable_install_hash: "registry-receipt-hash",
+    }],
+  }];
+  const panel = {
+    state: {
+      ...createAgentEditState(),
+      phase: PANEL_STATE.AWAITING_REVIEW,
+      sessionId,
+      turnId,
+      candidateGraph,
+      candidateGraphHash: "registry-receipt-candidate-hash",
+      candidateTransaction,
+      runtimeDependencies,
+    },
+  };
+
+  const restored = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    sessionId,
+    turnId,
+    candidateSessionId: sessionId,
+    candidateGraph,
+    candidateGraphHash: "registry-receipt-candidate-hash",
+    candidateTransaction,
+    applyEligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready.",
+      warnings: [],
+    },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: false,
+    // Deliberately no runtimeDependencies: legacy chat projections omitted it.
+  });
+
+  assert.equal(restored.restored, true);
+  assert.deepEqual(panel.state.runtimeDependencies, runtimeDependencies);
+
+  const harness = await createBrowserHarness({
+    graph: { nodes: [], links: [] },
+    withGraphMutation: true,
+  });
+  const nativeCreate = harness.window.LiteGraph.createNode;
+  harness.window.LiteGraph.createNode = (type) => (
+    type === "IPAdapterModelLoader" ? null : nativeCreate(type)
+  );
+  try {
+    const adapter = await harness.loadAdapter();
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps,
+      candidateGraph: panel.state.candidateGraph,
+    }, {
+      runtimeDependencies: panel.state.runtimeDependencies,
+    });
+
+    const placeholder = harness.getLiveNodes().find(
+      (node) => node.properties?.vibecomfy_uid === "ipadapter-loader",
+    );
+    assert.ok(placeholder);
+    assert.equal(placeholder.type, "IPAdapterModelLoader");
+    assert.equal(placeholder.__vibecomfyRegistryPlaceholder, true);
+
+    transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+      sessionId,
+      turnId: "0002",
+      candidateSessionId: sessionId,
+      candidateGraph,
+      candidateGraphHash: "different-candidate-hash",
+      candidateTransaction: {
+        ...candidateTransaction,
+        turn_id: "0002",
+      },
+      applyEligibility: {
+        applyable: true,
+        reason: "applyable",
+        message: "Ready.",
+        warnings: [],
+      },
+      applyAllowed: true,
+      canvasApplyAllowed: true,
+      queueAllowed: false,
+    });
+    assert.deepEqual(panel.state.runtimeDependencies, []);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("superseded incomplete-restore diagnostic retains canonical recovery state", () => {
   const transaction = candidateTransactionFixture({
     sessionId: "session-canonical-recovery",

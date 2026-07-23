@@ -2279,6 +2279,21 @@ def test_public_projection_helpers_do_not_leak_raw_rehydrate_fields() -> None:
     raw_latest_candidate = {
         **raw_response,
         "graph": {"nodes": [{"id": 1}], "links": []},
+        "runtime_dependencies": [
+            {
+                "class_type": "IPAdapterModelLoader",
+                "availability": "registry_resolvable",
+                "resolver_candidates": [
+                    {
+                        "pack": {
+                            "source": "comfy-registry",
+                            "registry_id": "comfyui_ipadapter_plus",
+                        },
+                        "stable_install_hash": "registry-receipt-hash",
+                    }
+                ],
+            }
+        ],
         "candidate_transaction": {
             "contract_version": "candidate_transaction_v1",
             "state": "candidate_ready",
@@ -2371,6 +2386,10 @@ def test_public_projection_helpers_do_not_leak_raw_rehydrate_fields() -> None:
     assert (
         public_latest_candidate(raw_latest_candidate)["candidate_transaction"]
         == raw_latest_candidate["candidate_transaction"]
+    )
+    assert (
+        public_latest_candidate(raw_latest_candidate)["runtime_dependencies"]
+        == raw_latest_candidate["runtime_dependencies"]
     )
     assert (
         public_chat_rehydrate_payload(

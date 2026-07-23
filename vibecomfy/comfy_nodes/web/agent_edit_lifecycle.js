@@ -1085,6 +1085,11 @@ function _writeLatestCandidateTransition(panel, payload) {
     return null;
   }
 
+  const priorSessionId = panel.state.sessionId;
+  const priorTurnId = panel.state.turnId;
+  const priorRuntimeDependencies = Array.isArray(panel.state.runtimeDependencies)
+    ? clonePlainData(panel.state.runtimeDependencies)
+    : [];
   const stageSnapshot = _readStageSnapshotForTransition(payload);
   const identity = _writeDurableTurnIdentity(panel, {
     ...payload,
@@ -1114,9 +1119,23 @@ function _writeLatestCandidateTransition(panel, payload) {
     || candidate?.candidateGraphHash
     || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = payload?.candidateReport || payload?.result?.report || null;
-  panel.state.runtimeDependencies = Array.isArray(payload?.runtimeDependencies)
-    ? clonePlainData(payload.runtimeDependencies)
-    : [];
+  const hasRuntimeDependencyProjection = Object.prototype.hasOwnProperty.call(
+    payload || {},
+    "runtimeDependencies",
+  );
+  const restoringSameCandidate = Boolean(
+    priorSessionId
+    && priorTurnId
+    && identity?.sessionId === priorSessionId
+    && identity?.turnId === priorTurnId,
+  );
+  panel.state.runtimeDependencies = hasRuntimeDependencyProjection
+    ? (
+        Array.isArray(payload.runtimeDependencies)
+          ? clonePlainData(payload.runtimeDependencies)
+          : []
+      )
+    : (restoringSameCandidate ? priorRuntimeDependencies : []);
   panel.state.serverSubmitGraphHash =
     candidate?.submitGraphHash
     || (typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null);

@@ -452,9 +452,11 @@ def _default_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
     it also avoids the leading-wildcard ``ilike`` statement timeouts that hit
     the much larger ``unified_feed`` table.
 
-    Query handling still favors recall: it ORs the most specific query tokens
-    together, then ranks rows locally by phrase/token matches so that rows
-    matching more specific terms surface first.
+    Query handling balances precision and recall.  A bounded phrase query runs
+    first for multi-token requests, then a broader token-OR query fills out the
+    candidate pool.  This matters because PostgREST applies ``limit`` before
+    local ranking: using only the broad query can omit an exact title from the
+    returned page when a common token (for example ``Style``) has many matches.
 
     Raises :class:`HivemindError` on any HTTP-level or timeout failure so the
     caller can convert it to a warning.
@@ -466,6 +468,19 @@ def _default_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
 
     def _search(search_terms: list[str]) -> dict[str, Any]:
         rows: list[Any] = []
+        phrase_query = _hivemind_phrase_ilike_query(query)
+        if phrase_query:
+            params = {
+                "select": "*",
+                "or": phrase_query,
+                "kind": "eq.workflow",
+                "limit": str(_DEFAULT_EXTERNAL_LIMIT),
+            }
+            parsed = _hivemind_get(params, timeout=timeout)
+            if isinstance(parsed, dict):
+                return parsed
+            rows.extend(parsed if isinstance(parsed, list) else [])
+
         ilike_query = _hivemind_ilike_query(search_terms)
         if ilike_query:
             params = {
@@ -668,6 +683,26 @@ def _hivemind_ilike_query(search_terms: list[str]) -> str | None:
     if not patterns:
         return None
     return "(" + ",".join(patterns[:16]) + ")"
+
+
+def _hivemind_phrase_ilike_query(query: str) -> str | None:
+    """Build a bounded high-precision title/body phrase query.
+
+    The broad Hivemind query deliberately ORs individual tokens for recall.
+    Since PostgREST limits that result set before Python can rank it, first
+    fetching a multi-token phrase prevents a highly specific title from being
+    crowded out by rows that match only one common token.
+    """
+    tokens = [
+        token
+        for token in _query_tokens(query)
+        if token.casefold() not in _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
+        and not token.isdigit()
+    ]
+    if len(tokens) < 2:
+        return None
+    phrase = " ".join(tokens[:8])
+    return f"(title.ilike.*{phrase}*,body.ilike.*{phrase}*)"
 
 
 def _hivemind_semantic_filters(query: str) -> list[dict[str, Any]]:

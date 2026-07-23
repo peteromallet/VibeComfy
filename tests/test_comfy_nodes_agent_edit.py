@@ -15423,6 +15423,22 @@ def test_latest_candidate_in_chat_response_preserves_report_evidence(
             }
         }
     }
+    runtime_dependencies = [
+        {
+            "class_type": "IPAdapterModelLoader",
+            "availability": "registry_resolvable",
+            "resolver_candidates": [
+                {
+                    "pack": {
+                        "source": "comfy-registry",
+                        "registry_id": "comfyui_ipadapter_plus",
+                        "version": "2.0.0",
+                    },
+                    "stable_install_hash": "registry-receipt-hash",
+                }
+            ],
+        }
+    ]
     response = {
         "ok": True,
         "session_id": session_id,
@@ -15440,6 +15456,7 @@ def test_latest_candidate_in_chat_response_preserves_report_evidence(
             "warnings": ["queue_blocked"],
         },
         "report": report,
+        "runtime_dependencies": runtime_dependencies,
         "outcome": {"kind": "candidate", "changes": []},
     }
     (turn_dir / "request.json").write_text(
@@ -15467,9 +15484,11 @@ def test_latest_candidate_in_chat_response_preserves_report_evidence(
     latest = result["latest_candidate"]
     assert latest is not None
     assert latest["report"] == report
+    assert latest["runtime_dependencies"] == runtime_dependencies
 
     public = public_chat_rehydrate_payload(result)
     assert public["latest_candidate"]["report"] == report
+    assert public["latest_candidate"]["runtime_dependencies"] == runtime_dependencies
 
 
 def test_latest_candidate_excludes_noop_turns_and_still_has_outcome(
