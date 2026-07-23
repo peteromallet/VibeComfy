@@ -758,6 +758,32 @@ export function syncPreviewDomOverlay(app, ctx, diff, candidateGraph, deps = {})
     readWidgetValues,
     widgetValuePreviewText,
   } = deps;
+  const panel = currentAgentPanel();
+  const activeCandidateHash = panel?.state?.candidateGraphHash || null;
+  const incomingCandidateHash = diff?._candidateGraphHash || null;
+  if (
+    activeCandidateHash
+    && incomingCandidateHash
+    && activeCandidateHash !== incomingCandidateHash
+  ) {
+    // A draw already queued for the previous candidate must not erase or
+    // replace the current candidate's DOM projection.
+    return;
+  }
+  const latestDiff = panel?.state?._previewDiff;
+  const latestCandidateHash = latestDiff?._candidateGraphHash || null;
+  if (
+    latestDiff
+    && (!activeCandidateHash || !latestCandidateHash || latestCandidateHash === activeCandidateHash)
+    && (Array.isArray(latestDiff.edited_fields) ? latestDiff.edited_fields.length : 0)
+      > (Array.isArray(diff?.edited_fields) ? diff.edited_fields.length : 0)
+  ) {
+    // Canvas draws can be queued before the response projector commits field
+    // evidence. Once the candidate's authoritative diff exists, never let
+    // that older, less-complete draw erase its visible field projection.
+    diff = latestDiff;
+    candidateGraph = latestDiff._candidateGraph || candidateGraph;
+  }
   const doc = liveCanvasElement(app)?.ownerDocument || (typeof document !== "undefined" ? document : null);
   const runtime = getAgentPanelRuntime();
   const projectionReport = {
