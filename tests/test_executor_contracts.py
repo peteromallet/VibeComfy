@@ -58,6 +58,8 @@ class TestExecutorRequest:
         assert req.client_graph_hash is None
         assert req.client_structural_graph_hash is None
         assert req.client_live_canvas_token is None
+        assert req.expected_baseline_graph_hash is None
+        assert req.expected_baseline_graph_hash_present is False
 
     def test_full_request(self) -> None:
         graph = {"nodes": []}
@@ -71,6 +73,7 @@ class TestExecutorRequest:
             client_graph_hash="graph-hash",
             client_structural_graph_hash="structural-hash",
             client_live_canvas_token="live-token",
+            expected_baseline_graph_hash="baseline-hash",
         )
         assert req.graph == graph
         assert req.workflow_id == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
@@ -80,6 +83,8 @@ class TestExecutorRequest:
         assert req.client_graph_hash == "graph-hash"
         assert req.client_structural_graph_hash == "structural-hash"
         assert req.client_live_canvas_token == "live-token"
+        assert req.expected_baseline_graph_hash == "baseline-hash"
+        assert req.expected_baseline_graph_hash_present is True
 
     def test_to_dict_minimal(self) -> None:
         req = ExecutorRequest(query="hello")
@@ -98,6 +103,7 @@ class TestExecutorRequest:
             client_graph_hash="graph-hash",
             client_structural_graph_hash="structural-hash",
             client_live_canvas_token="live-token",
+            expected_baseline_graph_hash="baseline-hash",
         )
         d = req.to_dict()
         assert d["query"] == "set seed"
@@ -109,6 +115,7 @@ class TestExecutorRequest:
         assert d["client_graph_hash"] == "graph-hash"
         assert d["client_structural_graph_hash"] == "structural-hash"
         assert d["client_live_canvas_token"] == "live-token"
+        assert d["expected_baseline_graph_hash"] == "baseline-hash"
 
     def test_from_payload_minimal(self) -> None:
         req = ExecutorRequest.from_payload({"query": "hello"})
@@ -126,6 +133,7 @@ class TestExecutorRequest:
             "client_graph_hash": "graph-hash",
             "client_structural_graph_hash": "structural-hash",
             "client_live_canvas_token": "live-token",
+            "expected_baseline_graph_hash": "baseline-hash",
         })
         assert req.graph == graph
         assert req.workflow_id == "6b4611de-b2b2-42f2-b358-5f566d6a8933"
@@ -133,6 +141,18 @@ class TestExecutorRequest:
         assert req.client_graph_hash == "graph-hash"
         assert req.client_structural_graph_hash == "structural-hash"
         assert req.client_live_canvas_token == "live-token"
+        assert req.expected_baseline_graph_hash == "baseline-hash"
+        assert req.expected_baseline_graph_hash_present is True
+
+    def test_explicit_null_baseline_capability_survives_roundtrip(self) -> None:
+        req = ExecutorRequest.from_payload({
+            "query": "first edit",
+            "expected_baseline_graph_hash": None,
+        })
+
+        assert req.expected_baseline_graph_hash is None
+        assert req.expected_baseline_graph_hash_present is True
+        assert req.to_dict()["expected_baseline_graph_hash"] is None
 
     def test_from_payload_derives_workflow_id_from_graph_for_stale_clients(self) -> None:
         workflow_id = "6b4611de-b2b2-42f2-b358-5f566d6a8933"

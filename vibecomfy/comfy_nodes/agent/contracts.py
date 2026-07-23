@@ -1975,6 +1975,13 @@ def public_chat_rehydrate_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "exists": bool(payload.get("exists")),
         "session_id": payload.get("session_id"),
         "latest_turn_id": payload.get("latest_turn_id"),
+        "baseline_turn_id": payload.get("baseline_turn_id"),
+        "baseline_graph_hash": payload.get("baseline_graph_hash"),
+        "baseline_graph_hash_kind": payload.get("baseline_graph_hash_kind"),
+        "baseline_graph_hash_version": payload.get("baseline_graph_hash_version"),
+        "baseline_source": payload.get("baseline_source"),
+        "baseline_rebaseline_id": payload.get("baseline_rebaseline_id"),
+        "baseline_graph_source_path": payload.get("baseline_graph_source_path"),
         "messages": [],
         "latest_candidate": public_latest_candidate(payload.get("latest_candidate")),
         "latest_turn_lifecycle": public_latest_turn_lifecycle(

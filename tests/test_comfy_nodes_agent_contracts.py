@@ -2514,6 +2514,32 @@ def test_public_chat_rehydrate_projection_keeps_compact_reload_diagnostics() -> 
     _assert_public_projection_has_no_forbidden_sentinels(projected)
 
 
+def test_public_chat_rehydrate_projection_keeps_baseline_authority() -> None:
+    projected = public_chat_rehydrate_payload(
+        {
+            "ok": True,
+            "exists": True,
+            "session_id": "sess-1",
+            "baseline_turn_id": "0007",
+            "baseline_graph_hash": "structural-baseline-hash",
+            "baseline_graph_hash_kind": "structural",
+            "baseline_graph_hash_version": 3,
+            "baseline_source": "turn",
+            "baseline_rebaseline_id": None,
+            "baseline_graph_source_path": "turns/0007/applied.ui.json",
+            "messages": [],
+        }
+    )
+
+    assert projected["baseline_turn_id"] == "0007"
+    assert projected["baseline_graph_hash"] == "structural-baseline-hash"
+    assert projected["baseline_graph_hash_kind"] == "structural"
+    assert projected["baseline_graph_hash_version"] == 3
+    assert projected["baseline_source"] == "turn"
+    assert projected["baseline_rebaseline_id"] is None
+    assert projected["baseline_graph_source_path"] == "turns/0007/applied.ui.json"
+
+
 def test_diagnostic_record_round_trips_through_dict() -> None:
     record = DiagnosticRecord(
         session_id="sess-1",

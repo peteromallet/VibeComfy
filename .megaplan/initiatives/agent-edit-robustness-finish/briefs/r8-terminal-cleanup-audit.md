@@ -23,6 +23,10 @@ match current source and environment hashes.
 - Audit and delete remaining duplicate owners, copied canonicalizers, dead
   imports/exports, fallback native mutation, stale compatibility facades, title
   identity, scanner exclusions, obsolete helpers, and misleading comments/docs.
+- Audit every typed request/response adapter and reconstructed payload on the
+  mutation path against the R5 authority-field ledger. Reject silent field
+  loss, permissive extra-field dropping, parallel partial DTOs, or handwritten
+  forwarding lists that can diverge without a contract test.
 - Audit executable deployment provenance as well as source ownership: exactly
   one resolved backend root, one route-registration winner, and one frontend
   asset set may be active. Silent first-import-wins skips and dynamic Git
@@ -93,6 +97,8 @@ or unrelated repository cleanup.
 
 - Repository-wide cleanup finds no unjustified duplicate/dead owner, export/import,
   fallback path, shim, canonicalizer, identity heuristic, scanner bypass, or stale doc.
+- Static and composed gates prove no authority field can be accepted at HTTP
+  ingress and then disappear at an executor/controller/session projection.
 - The declared fingerprint-key migration remains explainable and tested until
   age-out, including v1-wins/malformed/no-broad-search semantics; getter-only
   layout properties remain adapter-owned and unwritten.

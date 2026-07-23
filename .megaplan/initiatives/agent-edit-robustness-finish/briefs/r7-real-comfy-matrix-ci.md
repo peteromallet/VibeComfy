@@ -40,6 +40,17 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   before B authority is minted, no stale/rebaseline prompt appears, and the
   baseline chain is exactly finalized-A -> submitted-manual-revision ->
   finalized-B.
+- That manual-drift case must enter through the browser's real
+  `/vibecomfy/agent-executor` request and cross the production
+  `ExecutorRequest` plus executor-to-Agent-Edit projection. Capture the request
+  and allocated-turn artifacts and assert the same non-null
+  `expected_baseline_graph_hash` survives every boundary. Direct
+  `allocate_turn()` coverage, mocked executor payloads, or separate unit tests
+  do not satisfy this composed acceptance.
+- Repeat it after a hard refresh between finalize A and the manual edit. Assert
+  `/chat` restores the complete durable baseline record into the controller and
+  the browser's next executor request carries A's exact structural baseline
+  hash rather than null, a compatibility digest, or the current canvas hash.
 - Run the same case with two documents sharing the prior baseline and prove
   submit adoption is CAS-safe: exactly one differing graph becomes authoritative
   and the stale loser creates no turn/candidate or overwritten baseline.
@@ -153,6 +164,9 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   click, preserves unrelated post-submit edits, and records each revision source
   and hash in the lifecycle evidence. Post-submit touched-region and
   post-prepare race variants obey the R4 drift matrix.
+- The real executor-route artifact proves authority-envelope losslessness:
+  browser request, typed executor request, Agent Edit request, and allocated
+  turn agree on the expected baseline and client revision hashes.
 - The getter-only width case applies successfully through the widget carrier;
   fail-closed variants make zero native writes.
 - The KSampler auxiliary-widget case applies `denoise` to the exact native

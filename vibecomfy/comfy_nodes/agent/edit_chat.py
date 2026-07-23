@@ -631,6 +631,19 @@ def read_session_chat(
     turns_dir = session_dir / "turns"
 
     session_exists = session_dir.is_dir()
+    try:
+        session_state = read_state(session_dir) if session_exists else {}
+    except Exception:
+        session_state = {}
+    baseline_payload = {
+        "baseline_turn_id": session_state.get("baseline_turn_id"),
+        "baseline_graph_hash": session_state.get("baseline_graph_hash"),
+        "baseline_graph_hash_kind": session_state.get("baseline_graph_hash_kind"),
+        "baseline_graph_hash_version": session_state.get("baseline_graph_hash_version"),
+        "baseline_source": session_state.get("baseline_source"),
+        "baseline_rebaseline_id": session_state.get("baseline_rebaseline_id"),
+        "baseline_graph_source_path": session_state.get("baseline_graph_source_path"),
+    }
     if not turns_dir.is_dir():
         return {
             "ok": True,
@@ -644,6 +657,7 @@ def read_session_chat(
             "messages": [],
             "latest_candidate": None,
             "latest_turn_lifecycle": None,
+            **baseline_payload,
         }
 
     # Sort turn directories deterministically (zero-padded integers).
@@ -783,6 +797,7 @@ def read_session_chat(
         "messages": display_messages,
         "latest_candidate": _latest_session_candidate_payload(session_dir, turn_ids),
         "latest_turn_lifecycle": _latest_turn_lifecycle_payload(session_dir, turn_ids),
+        **baseline_payload,
     }
 
 

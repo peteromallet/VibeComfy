@@ -15,6 +15,13 @@ event wiring, and view composition.
 ## IN
 
 - Create `agent_edit_api.js` as sole Agent Edit transport owner.
+- Make every typed transport projection on the mutation path lossless for the
+  complete authority envelope. HTTP ingress, `ExecutorRequest`, executor
+  implementation dispatch, Agent Edit allocation, and durable artifacts must
+  carry the same workflow/session/idempotency, client revision, live-canvas,
+  expected-baseline, candidate, and transaction fences. An adapter may validate
+  or rename a field only through one declared mapping; it must never silently
+  omit an authority field when reconstructing a downstream payload.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
@@ -85,6 +92,11 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   success; on explicit `CHAT_REHYDRATE_MISSING_SESSION`, clear only the current
   workflow binding; on every other transport, 5xx, malformed-schema, or
   projection failure, preserve the last safe transcript and expose retry.
+- Successful rehydration projects the authoritative durable baseline fence as
+  one complete record (turn/rebaseline identity, hash kind/version, source, and
+  source path). The normalized controller contract must feed that exact fence
+  into the next Submit; raw snake_case and normalized camelCase cannot select
+  different baseline-sync paths.
 - Scope activation deactivates the departed workflow before fetching the new
   scope, preventing preserved state from becoming a cross-workflow projection.
 - R5 owns workflow-affine browser binding and the safe transcript projection;
@@ -105,6 +117,9 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 
 - Switching during every phase yields no leak, cross-tab write, or stale commit.
 - Refresh restores exact workflow/transaction context; identical tabs remain distinct.
+- Refresh followed by a manual canvas edit sends the exact rehydrated durable
+  baseline hash as `expected_baseline_graph_hash`; it may not fall back to null
+  or an inferred graph fingerprint.
 - Structural Apply/finalize may change the graph fingerprint but preserves the
   workflow UUID, session, scope, and transcript; the next submission reuses the
   original session.
@@ -124,6 +139,11 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   entry.
 - A server/frontend build mismatch is detected before prepare or native mutation,
   and a fresh document proves the matching build before authority is restored.
+- A composed executor-route contract test sends a non-null
+  `expected_baseline_graph_hash` through HTTP ingress, `ExecutorRequest`,
+  executor implementation dispatch, and turn allocation. The allocated turn
+  must reference the adopted submitted baseline; omitting, defaulting, or
+  re-deriving the fence fails before model execution and creates no candidate.
 - Deployment acceptance requires a changed process-start id and startup backend
   commit/code digest equal to the requested release; frontend `?v=` is not
   backend provenance.
@@ -147,6 +167,8 @@ compatibility facade, fence weakening, or protected-file change.
 ## Output handoff and proof artifacts
 
 - Controller/API contracts and `WorkflowEditContext` schema.
+- Mutation transport field ledger and lossless projection proof covering every
+  typed adapter from browser request through durable turn allocation.
 - Full async-fence/tab-switch and workflow-chat-identity matrices, plus the
   roundtrip responsibility audit.
 - Stable durable-context interface consumed by R6.

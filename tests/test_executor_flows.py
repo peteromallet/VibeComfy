@@ -1093,6 +1093,7 @@ class TestGraphDescribeFlow:
             client_graph_hash="client-graph-hash",
             client_structural_graph_hash="client-structural-hash",
             client_live_canvas_token="client-live-token",
+            expected_baseline_graph_hash="expected-baseline-hash",
         )
 
         result = run_executor(request)
@@ -1105,6 +1106,7 @@ class TestGraphDescribeFlow:
         assert payload["client_graph_hash"] == "client-graph-hash"
         assert payload["client_structural_graph_hash"] == "client-structural-hash"
         assert payload["client_live_canvas_token"] == "client-live-token"
+        assert payload["expected_baseline_graph_hash"] == "expected-baseline-hash"
         from vibecomfy.comfy_nodes.agent.session import payload_hash
 
         assert mock_edit.call_args.kwargs["idempotency_request_hash"] == payload_hash(

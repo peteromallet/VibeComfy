@@ -21,6 +21,12 @@ and bounded mismatch evidence, and delete every inline competing decision.
   and any post-prepare race refuses forward mutation and reconciles/rolls back.
   A whole-structural precondition check may not veto an otherwise valid scoped
   operation outside this matrix.
+- For `delta_replay`, candidate and prepared authority must carry a
+  receipt-bound scoped projection of every touched target with its expected-old
+  and desired-new semantic value. The sole verifier judges those targets
+  before and after mutation. Whole-graph structural digests remain diagnostic
+  and revision/CAS evidence; they are blocking semantic witnesses only for an
+  explicitly declared whole-graph-equality operation family.
 - Emit deterministic bounded projection diffs suitable for controller and
   recovery consumption.
 - Delegate every projection field, identity, order, and hash rule to the registry.
@@ -113,6 +119,10 @@ terminal cleanup audit, UI redesign, or nested scopes.
   Apply failures, unrelated post-submit edits survive scoped Apply, touched
   post-submit edits fail without explicit overwrite authority, and a
   post-prepare race performs zero unauthorized forward writes.
+- The unrelated-drift fixture changes `n2.text` after a candidate touching
+  `n5.steps` is submitted, then proves Apply preserves `n2.text`, verifies the
+  scoped postcondition, and advances the baseline to the actual combined graph.
+  A sibling change to `n5.steps` must conflict before mutation.
 - Hash-authority fixtures prove a compatibility/session CAS digest cannot
   satisfy a typed witness, and getter-only field fixtures fail closed before
   mutation when widget resolution is unavailable.

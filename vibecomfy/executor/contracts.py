@@ -644,6 +644,14 @@ class ExecutorRequest:
     client_graph_hash: str | None = None
     client_structural_graph_hash: str | None = None
     client_live_canvas_token: str | None = None
+    expected_baseline_graph_hash: str | None = None
+    expected_baseline_graph_hash_present: bool = False
+
+    def __post_init__(self) -> None:
+        # Preserve the distinction between an explicit null from a current
+        # pristine client and omission by a legacy client.
+        if self.expected_baseline_graph_hash is not None:
+            object.__setattr__(self, "expected_baseline_graph_hash_present", True)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"query": self.query}
@@ -663,6 +671,8 @@ class ExecutorRequest:
             payload["client_structural_graph_hash"] = self.client_structural_graph_hash
         if self.client_live_canvas_token is not None:
             payload["client_live_canvas_token"] = self.client_live_canvas_token
+        if self.expected_baseline_graph_hash_present:
+            payload["expected_baseline_graph_hash"] = self.expected_baseline_graph_hash
         return payload
 
     @classmethod
@@ -724,6 +734,14 @@ class ExecutorRequest:
         client_live_canvas_token = payload.get("client_live_canvas_token")
         if client_live_canvas_token is not None and not isinstance(client_live_canvas_token, str):
             raise ValueError("ExecutorRequest `client_live_canvas_token` must be a string or null.")
+        expected_baseline_graph_hash = payload.get("expected_baseline_graph_hash")
+        expected_baseline_graph_hash_present = "expected_baseline_graph_hash" in payload
+        if expected_baseline_graph_hash is not None and not isinstance(
+            expected_baseline_graph_hash, str
+        ):
+            raise ValueError(
+                "ExecutorRequest `expected_baseline_graph_hash` must be a string or null."
+            )
         return cls(
             query=query.strip(),
             graph=graph,
@@ -734,6 +752,8 @@ class ExecutorRequest:
             client_graph_hash=client_graph_hash,
             client_structural_graph_hash=client_structural_graph_hash,
             client_live_canvas_token=client_live_canvas_token,
+            expected_baseline_graph_hash=expected_baseline_graph_hash,
+            expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
         )
 
 

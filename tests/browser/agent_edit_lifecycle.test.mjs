@@ -2499,6 +2499,28 @@ test("SYNC_BASELINE mirrors authoritative baseline fields from payload", () => {
   assert.equal(panel.state.baselineGraphSourcePath, "turns/turn-42/candidate.ui.json");
 });
 
+test("SYNC_BASELINE accepts normalized camelCase authority fields", () => {
+  const panel = makePanel();
+
+  transition(panel, "SYNC_BASELINE", {
+    baselineTurnId: "turn-43",
+    baselineGraphHash: "normalized-hash",
+    baselineGraphHashKind: "structural",
+    baselineGraphHashVersion: 3,
+    baselineSource: "rebaseline",
+    baselineRebaselineId: "0002",
+    baselineGraphSourcePath: "_rebaseline/0002/graph.ui.json",
+  });
+
+  assert.equal(panel.state.baselineTurnId, "turn-43");
+  assert.equal(panel.state.baselineGraphHash, "normalized-hash");
+  assert.equal(panel.state.baselineGraphHashKind, "structural");
+  assert.equal(panel.state.baselineGraphHashVersion, 3);
+  assert.equal(panel.state.baselineSource, "rebaseline");
+  assert.equal(panel.state.baselineRebaselineId, "0002");
+  assert.equal(panel.state.baselineGraphSourcePath, "_rebaseline/0002/graph.ui.json");
+});
+
 test("SYNC_BASELINE with omitted payload defaults to empty object and returns render:true", () => {
   const panel = makePanel();
   panel.state.baselineTurnId = "keep-me";
@@ -3283,6 +3305,33 @@ test("CHAT_REHYDRATE_SUCCESS stores safe chat payload and persists confirmed ses
   assert.equal(panel.state.chatDetailJsonPath, "out/editor_sessions/sess-123/session.json");
   assert.equal(panel.state.sessionId, "sess-123");
   assert.deepEqual(panel.state.failure, { code: "KeepFailure" });
+});
+
+test("CHAT_REHYDRATE_SUCCESS restores durable baseline authority", () => {
+  const panel = makePanel({
+    chatRehydrateEpoch: 2,
+    baselineGraphHash: null,
+  });
+
+  transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+    requestEpoch: 2,
+    messages: [],
+    sessionId: "sess-baseline",
+    baselineTurnId: "0007",
+    baselineGraphHash: "rehydrated-structural-hash",
+    baselineGraphHashKind: "structural",
+    baselineGraphHashVersion: 3,
+    baselineSource: "turn",
+    baselineRebaselineId: null,
+    baselineGraphSourcePath: "turns/0007/applied.ui.json",
+  });
+
+  assert.equal(panel.state.baselineTurnId, "0007");
+  assert.equal(panel.state.baselineGraphHash, "rehydrated-structural-hash");
+  assert.equal(panel.state.baselineGraphHashKind, "structural");
+  assert.equal(panel.state.baselineGraphHashVersion, 3);
+  assert.equal(panel.state.baselineSource, "turn");
+  assert.equal(panel.state.baselineGraphSourcePath, "turns/0007/applied.ui.json");
 });
 
 test("reconcileChatMessages derives durable keys from normalized TurnIdentity", () => {

@@ -1172,41 +1172,57 @@ function _handleSyncBaseline(panel, payload) {
     return { render: false };
   }
 
-  const hadExplicitSource = Object.prototype.hasOwnProperty.call(payload, "baseline_source");
+  const has = (snake, camel) => (
+    Object.prototype.hasOwnProperty.call(payload, snake)
+    || Object.prototype.hasOwnProperty.call(payload, camel)
+  );
+  const value = (snake, camel) => (
+    Object.prototype.hasOwnProperty.call(payload, camel)
+      ? payload[camel]
+      : payload[snake]
+  );
+  const hadExplicitSource = has("baseline_source", "baselineSource");
 
-  if ("baseline_turn_id" in payload) {
-    panel.state.baselineTurnId = typeof payload.baseline_turn_id === "string"
-      ? payload.baseline_turn_id
+  if (has("baseline_turn_id", "baselineTurnId")) {
+    const next = value("baseline_turn_id", "baselineTurnId");
+    panel.state.baselineTurnId = typeof next === "string"
+      ? next
       : null;
   }
-  if ("baseline_graph_hash" in payload) {
-    panel.state.baselineGraphHash = typeof payload.baseline_graph_hash === "string"
-      ? payload.baseline_graph_hash
+  if (has("baseline_graph_hash", "baselineGraphHash")) {
+    const next = value("baseline_graph_hash", "baselineGraphHash");
+    panel.state.baselineGraphHash = typeof next === "string"
+      ? next
       : null;
   }
-  if ("baseline_graph_hash_kind" in payload) {
-    panel.state.baselineGraphHashKind = typeof payload.baseline_graph_hash_kind === "string"
-      ? payload.baseline_graph_hash_kind
+  if (has("baseline_graph_hash_kind", "baselineGraphHashKind")) {
+    const next = value("baseline_graph_hash_kind", "baselineGraphHashKind");
+    panel.state.baselineGraphHashKind = typeof next === "string"
+      ? next
       : null;
   }
-  if ("baseline_graph_hash_version" in payload) {
-    panel.state.baselineGraphHashVersion = Number.isFinite(payload.baseline_graph_hash_version)
-      ? payload.baseline_graph_hash_version
+  if (has("baseline_graph_hash_version", "baselineGraphHashVersion")) {
+    const next = value("baseline_graph_hash_version", "baselineGraphHashVersion");
+    panel.state.baselineGraphHashVersion = Number.isFinite(next)
+      ? next
       : null;
   }
-  if ("baseline_source" in payload) {
-    panel.state.baselineSource = typeof payload.baseline_source === "string"
-      ? payload.baseline_source
+  if (has("baseline_source", "baselineSource")) {
+    const next = value("baseline_source", "baselineSource");
+    panel.state.baselineSource = typeof next === "string"
+      ? next
       : "none";
   }
-  if ("baseline_rebaseline_id" in payload) {
-    panel.state.baselineRebaselineId = typeof payload.baseline_rebaseline_id === "string"
-      ? payload.baseline_rebaseline_id
+  if (has("baseline_rebaseline_id", "baselineRebaselineId")) {
+    const next = value("baseline_rebaseline_id", "baselineRebaselineId");
+    panel.state.baselineRebaselineId = typeof next === "string"
+      ? next
       : null;
   }
-  if ("baseline_graph_source_path" in payload) {
-    panel.state.baselineGraphSourcePath = typeof payload.baseline_graph_source_path === "string"
-      ? payload.baseline_graph_source_path
+  if (has("baseline_graph_source_path", "baselineGraphSourcePath")) {
+    const next = value("baseline_graph_source_path", "baselineGraphSourcePath");
+    panel.state.baselineGraphSourcePath = typeof next === "string"
+      ? next
       : null;
   }
 
@@ -2376,6 +2392,7 @@ function _handleChatRehydrateSuccess(panel, payload) {
   panel.state.chatLoaded = true;
   panel.state.chatRehydratePending = false;
   panel.state.chatError = null;
+  _handleSyncBaseline(panel, payload);
   panel.state.chatSessionPath = typeof payload?.chatSessionPath === "string" ? payload.chatSessionPath : null;
   panel.state.chatDetailJsonPath = typeof payload?.chatDetailJsonPath === "string" ? payload.chatDetailJsonPath : null;
   panel.state.chatSessionPathResolved = typeof payload?.chatSessionPathResolved === "string" ? payload.chatSessionPathResolved : null;

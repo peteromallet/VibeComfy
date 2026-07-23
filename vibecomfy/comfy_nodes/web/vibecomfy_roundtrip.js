@@ -4668,6 +4668,13 @@ async function _rehydrateChat(panel) {
         chatDetailJsonPathResolved: payload.detailJsonPathResolved,
         sessionId: payload.sessionId,
         latestTurnId: payload.latestTurnId,
+        baselineTurnId: payload.baselineTurnId,
+        baselineGraphHash: payload.baselineGraphHash,
+        baselineGraphHashKind: payload.baselineGraphHashKind,
+        baselineGraphHashVersion: payload.baselineGraphHashVersion,
+        baselineSource: payload.baselineSource,
+        baselineRebaselineId: payload.baselineRebaselineId,
+        baselineGraphSourcePath: payload.baselineGraphSourcePath,
         latestCandidate: payload.latestCandidate,
         latestTurnLifecycle: payload.latestTurnLifecycle,
       });
@@ -5460,6 +5467,26 @@ function normalizeChatRehydratePayload(rawPayload) {
     latestTurnId: typeof rawPayload.latestTurnId === "string"
       ? rawPayload.latestTurnId
       : (typeof rawPayload.latest_turn_id === "string" ? rawPayload.latest_turn_id : null),
+    baselineTurnId: typeof rawPayload.baselineTurnId === "string"
+      ? rawPayload.baselineTurnId
+      : (typeof rawPayload.baseline_turn_id === "string" ? rawPayload.baseline_turn_id : null),
+    baselineGraphHash: typeof rawPayload.baselineGraphHash === "string"
+      ? rawPayload.baselineGraphHash
+      : (typeof rawPayload.baseline_graph_hash === "string" ? rawPayload.baseline_graph_hash : null),
+    baselineGraphHashKind: typeof rawPayload.baselineGraphHashKind === "string"
+      ? rawPayload.baselineGraphHashKind
+      : (typeof rawPayload.baseline_graph_hash_kind === "string" ? rawPayload.baseline_graph_hash_kind : null),
+    baselineGraphHashVersion:
+      rawPayload.baselineGraphHashVersion ?? rawPayload.baseline_graph_hash_version ?? null,
+    baselineSource: typeof rawPayload.baselineSource === "string"
+      ? rawPayload.baselineSource
+      : (typeof rawPayload.baseline_source === "string" ? rawPayload.baseline_source : null),
+    baselineRebaselineId: typeof rawPayload.baselineRebaselineId === "string"
+      ? rawPayload.baselineRebaselineId
+      : (typeof rawPayload.baseline_rebaseline_id === "string" ? rawPayload.baseline_rebaseline_id : null),
+    baselineGraphSourcePath: typeof rawPayload.baselineGraphSourcePath === "string"
+      ? rawPayload.baselineGraphSourcePath
+      : (typeof rawPayload.baseline_graph_source_path === "string" ? rawPayload.baseline_graph_source_path : null),
     latestTurnLifecycle: (() => {
       const lifecycle = rawPayload.latestTurnLifecycle && typeof rawPayload.latestTurnLifecycle === "object"
         ? rawPayload.latestTurnLifecycle

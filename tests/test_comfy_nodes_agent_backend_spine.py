@@ -47,6 +47,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _queue_recovery_report_for_candidate,
     _stale_rebaseline_recovery_issue,
     _workflow_class_types_from_research_context,
+    read_session_chat,
 )
 from vibecomfy.comfy_nodes.agent.gates import (
     EXPLICIT_QUEUE_BLOCKER_CODES,
@@ -1000,6 +1001,36 @@ def test_submit_baseline_adoption_cas_rejects_stale_second_document(
     final_state = read_state(root / "s1")
     assert final_state["baseline_graph_hash"] == winner_hash
     assert sorted(final_state["turns"]) == [first_id, str(winner.context.turn_id)]
+
+
+def test_chat_rehydrate_projects_authoritative_session_baseline(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    graph = _request_graph("chat-baseline")["graph"]
+    baseline = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={
+            "session_id": "s1",
+            "graph": graph,
+            "last_known_baseline_graph_hash": None,
+            "reason": "continue_from_canvas",
+            "idempotency_key": "chat-baseline",
+        },
+        idempotency_key="chat-baseline",
+    )
+    assert isinstance(baseline, dict)
+
+    chat = read_session_chat(root, "s1")
+
+    assert chat["baseline_turn_id"] is None
+    assert chat["baseline_graph_hash"] == baseline["baseline_graph_hash"]
+    assert chat["baseline_graph_hash_kind"] == "structural"
+    assert chat["baseline_graph_hash_version"] == STRUCTURAL_PROJECTION_VERSION
+    assert chat["baseline_source"] == "rebaseline"
+    assert chat["baseline_rebaseline_id"] == "0001"
+    assert chat["baseline_graph_source_path"] == "_rebaseline/0001/graph.ui.json"
 
 
 def test_rebaseline_session_updates_structural_baseline_and_persists_source_graph(

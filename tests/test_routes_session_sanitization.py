@@ -19,8 +19,15 @@ from vibecomfy.comfy_nodes.agent.routes import (
     _handle_agent_edit_reject,
     _handle_agent_executor_submit,
 )
-from vibecomfy.comfy_nodes.agent.session import normalize_path_component, normalize_session_id
-from vibecomfy.executor.contracts import ExecutorRequest
+from vibecomfy.comfy_nodes.agent.session import (
+    allocate_turn,
+    normalize_path_component,
+    normalize_session_id,
+    read_state,
+    rebaseline_session,
+    structural_graph_hash,
+)
+from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -41,6 +48,106 @@ def _mock_routes_module(monkeypatch):
 
 class TestExecutorSubmitSanitization:
     """Executor route must normalise session_id before ExecutorRequest.from_payload()."""
+
+    def test_submit_baseline_cas_survives_route_projection(self, monkeypatch):
+        """The executor transport must not drop Agent Edit's baseline authority fence."""
+        _mock_routes_module(monkeypatch)
+        import vibecomfy.executor.core as executor_core
+
+        payload = {
+            "query": "optimise the settings",
+            "graph": {"nodes": [], "links": []},
+            "expected_baseline_graph_hash": "baseline-structural-hash",
+        }
+        with patch.object(executor_core, "run_executor") as mock_run:
+            mock_run.return_value = MagicMock(to_dict=lambda: {"ok": True, "route": "respond"})
+            from vibecomfy.comfy_nodes.agent import routes as routes_mod
+            with patch.object(routes_mod, "_maybe_write_executor_only_durable_turn") as mock_write:
+                mock_write.return_value = {"ok": True, "route": "respond"}
+                _handle_agent_executor_submit(payload)
+
+        request = mock_run.call_args.args[0]
+        assert request.expected_baseline_graph_hash == "baseline-structural-hash"
+
+    def test_real_executor_projection_adopts_submitted_canvas(self, monkeypatch, tmp_path):
+        """HTTP DTO -> executor DTO -> Agent Edit payload preserves the baseline CAS."""
+        _mock_routes_module(monkeypatch)
+        root = tmp_path / "sessions"
+        session_id = "composed-submit"
+        baseline_graph = {
+            "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [25]}],
+            "links": [],
+        }
+        baseline = rebaseline_session(
+            session_root=root,
+            session_id=session_id,
+            request_payload={
+                "session_id": session_id,
+                "graph": baseline_graph,
+                "last_known_baseline_graph_hash": None,
+                "reason": "continue_from_canvas",
+                "idempotency_key": "baseline",
+            },
+            idempotency_key="baseline",
+        )
+        assert isinstance(baseline, dict)
+        submitted_graph = {
+            "nodes": [{"id": 1, "type": "KSampler", "widgets_values": [30]}],
+            "links": [],
+        }
+        allocations = []
+
+        def fake_handle_agent_edit(payload, **_kwargs):
+            allocation = allocate_turn(
+                session_root=root,
+                session_id=session_id,
+                request_payload=payload,
+                idempotency_key=payload.get("idempotency_key"),
+            )
+            allocations.append(allocation)
+            return {
+                "ok": True,
+                "graph": submitted_graph,
+                "message": "Candidate ready.",
+                "outcome": {"kind": "candidate"},
+                "apply_eligibility": {"applyable": True},
+            }
+
+        def fake_classify(*_args, **_kwargs):
+            return ClassifyDecision.edit(
+                research=False,
+                effort="low",
+                plan_summary="edit graph",
+            )
+
+        from vibecomfy.comfy_nodes.agent import routes as routes_mod
+        import vibecomfy.executor.core as executor_core
+
+        with (
+            patch.object(executor_core, "run_classify_turn", side_effect=fake_classify),
+            patch.object(executor_core, "run_reply_turn", return_value="Done."),
+            patch.object(executor_core, "handle_agent_edit", side_effect=fake_handle_agent_edit),
+            patch.object(routes_mod, "_maybe_write_executor_only_durable_turn", side_effect=lambda **kw: kw["response"]),
+        ):
+            response, status = _handle_agent_executor_submit(
+                {
+                    "query": "optimise settings",
+                    "graph": submitted_graph,
+                    "session_id": session_id,
+                    "expected_baseline_graph_hash": baseline["baseline_graph_hash"],
+                }
+            )
+
+        assert status == 200
+        assert response["ok"] is True
+        assert len(allocations) == 1
+        assert allocations[0].conflict is None
+        state = read_state(root / session_id)
+        submitted_hash = structural_graph_hash(submitted_graph)
+        assert state["baseline_graph_hash"] == submitted_hash
+        assert state["baseline_source"] == "rebaseline"
+        turn = state["turns"][str(allocations[0].context.turn_id)]
+        assert turn["submitted_baseline_graph_hash"] == submitted_hash
 
     def test_normal_session_id_passthrough(self, monkeypatch):
         """Ordinary safe session_id is normalised but structurally unchanged."""

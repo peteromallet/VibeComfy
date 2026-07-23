@@ -1196,6 +1196,8 @@ def _run_implement(
         payload["client_structural_graph_hash"] = request.client_structural_graph_hash
     if request.client_live_canvas_token:
         payload["client_live_canvas_token"] = request.client_live_canvas_token
+    if request.expected_baseline_graph_hash_present:
+        payload["expected_baseline_graph_hash"] = request.expected_baseline_graph_hash
 
     try:
         from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415
