@@ -34,8 +34,13 @@ event wiring, and view composition.
   `registry_resolvable`, or `unresolved`; preserve exact pack/install evidence
   as typed non-runnable dependency metadata across authoring and Apply. Only an
   unresolved class blocks authoring. A registry-resolvable class remains
-  authorable and reviewable, while queue/runtime execution stays unavailable
-  until the dependency is installed and observed in live `/object_info`.
+  authorable, reviewable, and Applyable as a typed serialized placeholder that
+  preserves exact class identity, sockets, widgets, graph identity, and Registry
+  receipt. Placeholder materialization is a first-class controller decision,
+  not an adapter guess or an alias for a live node. Queue/runtime execution stays
+  unavailable until the dependency is installed and observed in live
+  `/object_info`; refresh must preserve the placeholder and its owning
+  workflow/session/transaction.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
@@ -164,9 +169,13 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - A real ComfyUI-loader test asserts alias/canonical module object identity,
   one session lock registry, and one recorded route-handler module/file.
 - An exact Registry-resolvable but not-yet-installed class remains authorable
-  and reviewable with its dependency receipt intact; it is not called live or
-  runnable. Only an unresolved class stops authoring, and GitHub-only search
-  evidence cannot satisfy that Registry decision.
+  and reviewable with its dependency receipt intact, and Apply materializes it
+  as a typed non-runnable placeholder without requiring a registered LiteGraph
+  constructor. Save/refresh preserves its exact type, sockets, widgets, UID,
+  receipt, workflow context, and transaction identity. It is never called live
+  or runnable, and queue remains blocked until `/object_info` proves the real
+  class is installed. Only an unresolved class stops authoring, and GitHub-only
+  search evidence cannot satisfy that Registry decision.
 - Static gates prove one controller/API/reducer and no coordination/transport/
   mutation/verification/rollback decision in roundtrip.
 - Roundtrip is measurably reduced; dead coordinator exports/imports are absent.

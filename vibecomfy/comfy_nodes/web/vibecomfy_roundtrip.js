@@ -4886,6 +4886,9 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
       || latestApplyCandidate?.graphHash
       || null,
     candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
+    runtimeDependencies: Array.isArray(latest.runtimeDependencies)
+      ? clonePlainData(latest.runtimeDependencies)
+      : [],
     serverSubmitGraphHash: latestApplyCandidate?.submitGraphHash || null,
     message: typeof latest.message === "string" ? latest.message : null,
     applyEligibility: normalizedEligibility,
@@ -10060,6 +10063,17 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       return;
     }
     const normalizedEligibility = normalizeCandidateApplyEligibility(candidateGraph, eligibility);
+    const runtimeDependencies = Array.isArray(result.runtimeDependencies)
+      ? clonePlainData(result.runtimeDependencies)
+      : [];
+    const registryPlaceholderTypes = new Set(
+      runtimeDependencies
+        .filter((entry) => entry?.availability === "registry_resolvable")
+        .map((entry) => entry.class_type)
+        .filter((classType) => typeof classType === "string" && classType),
+    );
+    const candidateNeedsRegistryPlaceholder = Array.isArray(candidateGraph?.nodes)
+      && candidateGraph.nodes.some((node) => registryPlaceholderTypes.has(node?.type));
     const changeDetails = result.raw?.change_details && typeof result.raw.change_details === "object"
       ? clonePlainData(result.raw.change_details)
       : null;
@@ -10079,7 +10093,11 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         candidateGraph,
         candidateGraphHash,
         serverSubmitGraphHash: applyCandidate?.submitGraphHash || null,
-        queueAllowed: Boolean(result.queueAllowed),
+        // A registry-backed placeholder is reviewable and applyable, but not
+        // executable.  A reload after installing the pack rehydrates real
+        // LiteGraph classes from /object_info and removes this local block.
+        queueAllowed: Boolean(result.queueAllowed) && !candidateNeedsRegistryPlaceholder,
+        runtimeDependencies,
         auditRef: result.auditRef || null,
         clarification: outcomeHasClarificationPrompt(outcome)
           ? {
@@ -10115,7 +10133,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       candidateTransaction: panel.state.candidateTransaction,
       candidateReport: result.report || null,
       applyEligibility: normalizedEligibility,
-      queueAllowed: Boolean(result.queueAllowed),
+      queueAllowed: Boolean(result.queueAllowed) && !candidateNeedsRegistryPlaceholder,
       canvasApplyAllowed: Boolean(applyCandidate?.applyable === true || normalizedEligibility?.applyable === true),
       auditRef: result.auditRef || null,
       debugPayload: {
@@ -10674,6 +10692,7 @@ async function applyAgentCandidate(panel, { resumePrepared = false } = {}) {
             deltaOps: preparedMutationPlan.deltaOps,
             candidateGraph: panel.state.candidateGraph,
           }, {
+            runtimeDependencies: panel.state.runtimeDependencies,
             decorateCandidateNodePayload(nodePayload) {
               decorateIntentNode(nodePayload);
             },

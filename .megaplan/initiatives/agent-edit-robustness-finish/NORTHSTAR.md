@@ -61,6 +61,16 @@ The running backend has one Python module identity and one lock/global domain.
 ComfyUI's absolute-path custom-node import and canonical
 `vibecomfy.comfy_nodes.*` imports may not instantiate parallel copies of
 session, contracts, routes, or verifier modules over the same artifact store.
+Dependency authority is also single and typed. Live `/object_info`, exact Comfy
+Registry resolution, and unresolved evidence are distinct states carried
+losslessly from research through controller and native adapter. An exact
+Registry-backed class may be authored and Applied while absent from the process:
+the adapter materializes the candidate witness as a typed, serialized,
+non-runnable placeholder without registering or impersonating the real class.
+That placeholder and its receipt survive save/refresh, while queueing remains
+blocked until `/object_info` proves the installed class. A missing LiteGraph
+constructor is therefore a materialization choice already decided by dependency
+authority, not an independent browser veto.
 Semantic workflow fields resolve through native widget identity and adapter
 carrier evidence. Serialized input-descriptor order is never treated as widget
 serialization order: ComfyUI may serialize auxiliary widgets that have no input

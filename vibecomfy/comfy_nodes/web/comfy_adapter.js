@@ -825,13 +825,153 @@ function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
   }
 }
 
-function resolveFactory(app) {
-  const liteGraph = app?.LiteGraph
+function resolveLiteGraph(app) {
+  return app?.LiteGraph
     || app?.canvas?.LiteGraph
     || globalThis?.LiteGraph
     || globalThis?.window?.LiteGraph
     || null;
+}
+
+function resolveFactory(app) {
+  const liteGraph = resolveLiteGraph(app);
   return typeof liteGraph?.createNode === "function" ? liteGraph.createNode.bind(liteGraph) : null;
+}
+
+function registryDependencyForType(options, classType) {
+  const dependencies = Array.isArray(options?.runtimeDependencies)
+    ? options.runtimeDependencies
+    : [];
+  const dependency = dependencies.find(
+    (entry) => entry && entry.class_type === classType,
+  ) || null;
+  if (dependency?.availability !== "registry_resolvable") {
+    return null;
+  }
+  // "registry_resolvable" is permission only when the backend supplied
+  // concrete resolver evidence for this exact class.  A bare label must not
+  // turn arbitrary model output into a browser node.
+  const candidates = Array.isArray(dependency.resolver_candidates)
+    ? dependency.resolver_candidates
+    : [];
+  // The backend has already bound this dependency record to class_type and
+  // resolved ambiguity.  Do not reinterpret provider-specific class lists in
+  // the browser: evidence-only Comfy Registry receipts intentionally may have
+  // no expected_classes.  Require the durable resolver receipt fields instead.
+  const evidenced = candidates.some((candidate) => (
+    typeof candidate?.stable_install_hash === "string"
+    && candidate.stable_install_hash.length > 0
+    && candidate?.pack
+    && typeof candidate.pack === "object"
+    && typeof candidate.pack.source === "string"
+    && candidate.pack.source.length > 0
+  ));
+  return evidenced ? dependency : null;
+}
+
+function placeholderSerialization(node, candidatePayload) {
+  const payload = cloneJson(candidatePayload);
+  for (const key of [
+    "id",
+    "type",
+    "pos",
+    "size",
+    "flags",
+    "order",
+    "mode",
+    "properties",
+    "inputs",
+    "outputs",
+    "widgets_values",
+  ]) {
+    if (node[key] !== undefined) {
+      payload[key] = cloneJson(node[key]);
+    }
+  }
+  return payload;
+}
+
+function materializeRegistryPlaceholder(app, payload, dependency) {
+  const liteGraph = resolveLiteGraph(app);
+  const NodeBase = liteGraph?.LGraphNode
+    || globalThis?.LGraphNode
+    || globalThis?.window?.LGraphNode
+    || null;
+  if (typeof NodeBase !== "function") {
+    throw new Error(
+      `Registry-backed node ${JSON.stringify(payload?.type)} is not installed and this LiteGraph build exposes no generic LGraphNode constructor.`,
+    );
+  }
+  const node = new NodeBase(payload?.title || payload?.type || "Missing custom node");
+  if (!node || typeof node !== "object") {
+    throw new Error(`Could not materialize registry-backed placeholder for ${JSON.stringify(payload?.type)}.`);
+  }
+
+  const cleanPayload = cloneJson(payload);
+  if (typeof node.configure === "function") {
+    node.configure(cleanPayload);
+  } else {
+    Object.assign(node, cleanPayload);
+  }
+  // A generic node has no registered Comfy constructor to build its ports or
+  // widgets.  The candidate snapshot is the typed authority for review, so
+  // reproduce those carriers exactly and keep link ids clear until explicit
+  // upsert_link operations run.
+  node.id = cleanPayload.id;
+  node.type = cleanPayload.type;
+  node.pos = cloneJson(cleanPayload.pos || [0, 0]);
+  node.size = cloneJson(cleanPayload.size || [320, 180]);
+  node.flags = cloneJson(cleanPayload.flags || {});
+  node.order = cleanPayload.order;
+  node.mode = cleanPayload.mode;
+  node.properties = cloneJson(cleanPayload.properties || {});
+  node.inputs = cloneJson(cleanPayload.inputs || []);
+  node.outputs = cloneJson(cleanPayload.outputs || []);
+  node.widgets_values = cloneJson(cleanPayload.widgets_values || []);
+  if (node.__vibecomfyOriginal && typeof node.__vibecomfyOriginal === "object") {
+    node.__vibecomfyOriginal = cloneJson(cleanPayload);
+  }
+  Object.defineProperties(node, {
+    __vibecomfyRegistryPlaceholder: {
+      configurable: true,
+      enumerable: false,
+      value: true,
+    },
+    __vibecomfyRegistryDependency: {
+      configurable: true,
+      enumerable: false,
+      value: cloneJson(dependency),
+    },
+    serialize: {
+      configurable: true,
+      enumerable: false,
+      value() {
+        return placeholderSerialization(this, cleanPayload);
+      },
+    },
+  });
+  return node;
+}
+
+function prepareLiveAddNodes(app, plan, options) {
+  const factory = resolveFactory(app);
+  const prepared = new Map();
+  for (const step of plan) {
+    if (step.op !== "add_node") continue;
+    const classType = step.nodePayload?.type;
+    let node = typeof factory === "function" ? factory(classType) : null;
+    if (!node) {
+      const dependency = registryDependencyForType(options, classType);
+      if (!dependency) {
+        throw new Error(
+          `LiteGraph.createNode(${JSON.stringify(classType)}) returned no node and the class has no exact registry resolution evidence.`,
+        );
+      }
+      node = materializeRegistryPlaceholder(app, step.nodePayload, dependency);
+    }
+    prepared.set(step, node);
+  }
+  return prepared;
 }
 
 function positivePair(value) {
@@ -1332,12 +1472,11 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
   return { plan, nextGraph: workingGraph };
 }
 
-function applyPreflightPlanLive(app, capability, plan, options = {}) {
+function applyPreflightPlanLive(app, capability, plan, options = {}, preparedAddNodes = new Map()) {
   const graph = getLiveGraph(app);
   if (!graph) {
     throw new Error("No live LiteGraph instance available.");
   }
-  const factory = resolveFactory(app);
   for (const step of plan) {
     if (step.op === "set_node_field") {
       const liveNode = resolveLiveNode(graph, step.uidOrId);
@@ -1368,17 +1507,17 @@ function applyPreflightPlanLive(app, capability, plan, options = {}) {
       continue;
     }
     if (step.op === "add_node") {
-      if (typeof graph.add !== "function" || typeof factory !== "function") {
-        throw new Error("Live delta apply cannot add nodes without LiteGraph.createNode() and graph.add().");
+      if (typeof graph.add !== "function") {
+        throw new Error("Live delta apply cannot add nodes without graph.add().");
       }
-      const liveNode = factory(step.nodePayload.type);
+      const liveNode = preparedAddNodes.get(step) || null;
       if (!liveNode) {
-        throw new Error(`LiteGraph.createNode(${JSON.stringify(step.nodePayload.type)}) returned no node.`);
+        throw new Error(`Live add-node preflight did not prepare ${JSON.stringify(step.nodePayload.type)}.`);
       }
       graph.add(liveNode);
-      if (typeof liveNode.configure === "function") {
+      if (liveNode.__vibecomfyRegistryPlaceholder !== true && typeof liveNode.configure === "function") {
         liveNode.configure(step.nodePayload);
-      } else {
+      } else if (liveNode.__vibecomfyRegistryPlaceholder !== true) {
         Object.assign(liveNode, cloneJson(step.nodePayload));
       }
       decorateLiveNode(options, liveNode, { op: step, capability });
@@ -1457,12 +1596,16 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
 
   let plan;
   let nextGraph;
+  let preparedAddNodes;
   try {
     ({ plan, nextGraph } = preflightDeltaPlan(liveSnapshot, candidateGraph, deltaOps, {
       ...options,
       widgetReferenceNodeFor: options.widgetReferenceNodeFor
         || ((uidOrId) => resolveLiveNode(graph, uidOrId)),
     }));
+    preparedAddNodes = capability.strategy === "harness-serialize-configure"
+      ? new Map()
+      : prepareLiveAddNodes(app, plan, options);
   } catch (error) {
     // Preflight is side-effect free. Mark that boundary explicitly so the
     // transaction controller rolls back the server lease without running an
@@ -1486,7 +1629,7 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
       }
     }
   } else {
-    applyPreflightPlanLive(app, capability, plan, options);
+    applyPreflightPlanLive(app, capability, plan, options, preparedAddNodes);
   }
 
   if (options.repaint !== false) {

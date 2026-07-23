@@ -494,6 +494,9 @@ export function commitTerminalResponse(panel, payload = {}) {
             payload.queueAllowed !== undefined
               ? Boolean(payload.queueAllowed)
               : Boolean(result && result.queueAllowed),
+          runtimeDependencies: Array.isArray(payload.runtimeDependencies)
+            ? payload.runtimeDependencies
+            : (Array.isArray(result?.runtimeDependencies) ? result.runtimeDependencies : []),
           auditRef,
           clarification,
           applyEligibility: normalizedEligibility,

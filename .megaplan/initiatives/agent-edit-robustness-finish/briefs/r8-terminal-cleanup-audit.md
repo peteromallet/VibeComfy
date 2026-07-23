@@ -37,7 +37,11 @@ match current source and environment hashes.
   inverse collapse: registry evidence must not imply installed/runnable state,
   GitHub-only code-search matches must not satisfy Registry authority, and
   dependency/install receipts must survive candidate review, Apply preflight,
-  refresh, and recovery.
+  placeholder materialization, finalize, refresh, and recovery. Reject any
+  remaining browser path that calls `LiteGraph.createNode()` as an independent
+  authorability decision, registers a placeholder as the real class, loses
+  serialized sockets/widgets/identity, or permits a placeholder-backed graph to
+  queue before live `/object_info` confirms installation.
 - Audit executable deployment provenance as well as source ownership: exactly
   one resolved backend root, one route-registration winner, and one frontend
   asset set may be active. Silent first-import-wins skips and dynamic Git

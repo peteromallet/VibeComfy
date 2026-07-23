@@ -173,6 +173,7 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "candidateGraphHash",
   "candidateReport",
   "candidateTransaction",
+  "runtimeDependencies",
   "legacyMigration",
   "serverSubmitGraphHash",
   "customNodeResolution",
@@ -306,6 +307,7 @@ export function createAgentEditState() {
     candidateGraphHash: null,
     candidateReport: null,
     serverSubmitGraphHash: null,
+    runtimeDependencies: [],
     customNodeResolution: null,
     nodePackInstallStates: {},
 
@@ -1112,6 +1114,9 @@ function _writeLatestCandidateTransition(panel, payload) {
     || candidate?.candidateGraphHash
     || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = payload?.candidateReport || payload?.result?.report || null;
+  panel.state.runtimeDependencies = Array.isArray(payload?.runtimeDependencies)
+    ? clonePlainData(payload.runtimeDependencies)
+    : [];
   panel.state.serverSubmitGraphHash =
     candidate?.submitGraphHash
     || (typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null);
@@ -1277,6 +1282,7 @@ function _handleInvalidateCandidate(panel, payload) {
   panel.state.candidateBaselineGraph = null;
   panel.state.candidateGraphHash = null;
   panel.state.candidateReport = null;
+  panel.state.runtimeDependencies = [];
   panel.state.serverSubmitGraphHash = null;
   panel.state.applyEligibility = null;
   panel.state.applyEligibilityWarning = null;
@@ -1897,6 +1903,9 @@ function _handleCandidateResponse(panel, payload) {
     || projectedCandidate?.candidateGraphHash
     || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = result.report || null;
+  panel.state.runtimeDependencies = Array.isArray(payload?.runtimeDependencies)
+    ? clonePlainData(payload.runtimeDependencies)
+    : [];
   panel.state.serverSubmitGraphHash =
     projectedCandidate?.submitGraphHash
     || (typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null);

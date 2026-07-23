@@ -176,11 +176,23 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   available. Prove authoring still reaches candidate review without a
   discovery-only loop, every absent class carries its exact registry
   pack/version/install evidence as `registry_resolvable`, and the candidate is
-  never mislabeled live/runnable. Apply preflight must preserve the candidate
-  and unchanged canvas while returning a typed dependency-install action until
-  `/object_info` observes the installed classes. After installing the pinned
-  fixture pack and restarting, prove the same durable candidate/session can
-  complete Apply, verification, finalize, and queue validation.
+  never mislabeled live/runnable. Apply preflight must prove every added class
+  is either live or exactly Registry-resolvable before making any graph write.
+  For the latter, Apply materializes a typed serialized placeholder from the
+  candidate witness even though `LiteGraph.createNode(class_type)` returns no
+  node; it preserves exact type, sockets, widgets, links, UID, Registry receipt,
+  workflow/session identity, and transaction identity through verification,
+  finalize, save, and refresh. Queue validation remains blocked with a typed
+  dependency-install action until `/object_info` observes the installed classes.
+  After installing the pinned fixture pack and restarting, prove that saved
+  placeholder hydrates to the real class and the same durable workflow/session
+  can queue successfully without resubmitting or rebuilding the edit.
+- In the same matrix, make `LiteGraph.createNode()` return null for the exact
+  Registry-backed classes and assert Apply still lands the complete graph. Make
+  it return null for a class without an exact Registry receipt and assert
+  fail-closed preflight, zero canvas writes, an unchanged candidate, and no
+  placeholder. This is a composed server-response → lifecycle → materializer →
+  persistence → queue test; separate unit tests at each layer do not satisfy it.
 - Add a distinct negative case whose required class has neither live schema,
   workflow-schema evidence, nor an exact Registry/Manager resolution. Only that
   `unresolved` case may stop before model authoring; it must name every class,

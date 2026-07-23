@@ -277,7 +277,7 @@ const SUPPORT_STATUSES = new Set([
   "projection_only", "migration_debt", "blocking_migration",
 ]);
 const TARGET_API_CATALOG = new Set([
-  "acquire", "applyCanonicalDelta", "applyDeltaOp.remove_link",
+  "acquire", "applyCanonicalDelta", "applyDeltaOp.add_node", "applyDeltaOp.remove_link",
   "applyDeltaOp.set_node_field", "applyDeltaOp.upsert_link",
   "applyInverseDelta", "applyLayoutOperation", "applyPreflightPlan",
   "capabilities", "capabilities.delta_apply", "capabilities.graph_apply",
@@ -572,12 +572,12 @@ test("machine ledger schema is closed and rejects placeholder metadata", () => {
   assert.throws(() => validateLedger(ledger({ ...row, fixture_proof: { path: "unicorn test that does not exist" } })), /path does not exist/);
 });
 
-test("all 80 rows pass semantic anchors and exact invented mutations fail", async () => {
+test("all 81 rows pass semantic anchors and exact invented mutations fail", async () => {
   const authority = JSON.parse(await readFile(nativeAuthorityLedgerPath, "utf8"));
-  assert.equal(authority.rows.length, 80);
+  assert.equal(authority.rows.length, 81);
   assert.deepEqual(
     authority.rows.map((row) => row.id).sort(),
-    Array.from({ length: 80 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
+    Array.from({ length: 81 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
   );
   assert.doesNotThrow(() => validateLedger(authority));
 

@@ -971,6 +971,12 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? clonePlainData(raw.evidence) : null,
     outcome,
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
+    runtimeDependencies:
+      Array.isArray(raw.runtimeDependencies)
+        ? clonePlainData(raw.runtimeDependencies)
+        : Array.isArray(raw.runtime_dependencies)
+          ? clonePlainData(raw.runtime_dependencies)
+          : [],
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
     candidateTransaction: readCanonicalCandidateTransaction(raw),

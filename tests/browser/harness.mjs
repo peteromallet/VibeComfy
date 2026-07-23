@@ -1053,6 +1053,13 @@ export async function createBrowserHarness({
       return _buildLiveNode({ id: Date.now() + Math.random(), type, properties: {}, inputs: [], outputs: [], pos: [0, 0], size: [200, 100] });
     },
   } : null;
+  const HarnessLGraphNode = withGraphMutation
+    ? function HarnessLGraphNode(title) {
+        const node = LiteGraphFactory.createNode("__vibecomfy_placeholder__");
+        node.title = title;
+        return node;
+      }
+    : null;
 
   const fetchImpl = async (url, options = {}) => {
     let key = String(url);
@@ -1235,6 +1242,7 @@ export async function createBrowserHarness({
       ? {
           LGraphCanvas: LiteGraphCanvas,
           LGraphGroup: FakeGraphGroup,
+          LGraphNode: HarnessLGraphNode,
           createNode: LiteGraphFactory.createNode.bind(LiteGraphFactory),
         }
       : { LGraphCanvas: LiteGraphCanvas },

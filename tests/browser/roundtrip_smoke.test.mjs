@@ -17800,6 +17800,154 @@ test("VibeComfy comfy_adapter delta apply add_node adds the node and preserves e
   }
 });
 
+test("VibeComfy comfy_adapter applies exact registry-backed missing classes as typed non-runnable placeholders", async () => {
+  const graph = {
+    nodes: [{
+      id: 1,
+      type: "CheckpointLoaderSimple",
+      pos: [100, 200],
+      properties: { vibecomfy_uid: "checkpoint" },
+      outputs: [{ name: "MODEL", type: "MODEL", links: null }],
+    }],
+    links: [],
+  };
+  const missingNode = {
+    id: 2,
+    type: "IPAdapterAdvanced",
+    pos: [420, 200],
+    size: [320, 180],
+    flags: {},
+    order: 1,
+    mode: 0,
+    properties: {
+      "Node name for S&R": "IPAdapterAdvanced",
+      _vibecomfy_schema_provider: "workflow_json_provisional",
+      vibecomfy_uid: "ipadapter",
+    },
+    inputs: [{ name: "model", type: "MODEL", link: null }],
+    outputs: [{ name: "MODEL", type: "MODEL", links: null, slot_index: 0 }],
+    widgets_values: [1, "style and composition", "concat", 0, 1, "V only"],
+  };
+  const candidateGraph = {
+    nodes: [graph.nodes[0], missingNode],
+    links: [[1, 1, 0, 2, 0, "MODEL"]],
+  };
+  const runtimeDependencies = [{
+    class_type: "IPAdapterAdvanced",
+    availability: "registry_resolvable",
+    resolver_candidates: [{
+      pack: {
+        source: "comfy-registry",
+        slug: "comfyui_ipadapter_plus",
+        version: "2.0.0",
+      },
+      stable_install_hash: "registry-receipt-sha256",
+      validation_mode: "evidence_only",
+      expected_classes: [],
+    }],
+  }];
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  const nativeCreate = harness.window.LiteGraph.createNode;
+  harness.window.LiteGraph.createNode = (type) => (
+    type === "IPAdapterAdvanced" ? null : nativeCreate(type)
+  );
+  try {
+    const adapter = await harness.loadAdapter();
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [{
+        op: "add_node",
+        scope_path: "",
+        uid: "ipadapter",
+        node_id: "2",
+        class_type: "IPAdapterAdvanced",
+        fields: {},
+        inputs: {},
+      }],
+      candidateGraph,
+    }, { runtimeDependencies });
+
+    const liveNode = harness.getLiveNodes().find(
+      (node) => node.properties?.vibecomfy_uid === "ipadapter",
+    );
+    assert.ok(liveNode);
+    assert.equal(liveNode.type, "IPAdapterAdvanced");
+    assert.equal(liveNode.id, 2);
+    assert.equal(liveNode.__vibecomfyRegistryPlaceholder, true);
+    assert.deepEqual(liveNode.widgets_values, missingNode.widgets_values);
+    const serialized = liveNode.serialize();
+    assert.equal(serialized.type, missingNode.type);
+    assert.equal(serialized.id, missingNode.id);
+    assert.deepEqual(serialized.properties, missingNode.properties);
+    assert.deepEqual(serialized.widgets_values, missingNode.widgets_values);
+    assert.deepEqual(
+      serialized.inputs.map(({ name, type }) => ({ name, type })),
+      missingNode.inputs.map(({ name, type }) => ({ name, type })),
+    );
+    assert.deepEqual(
+      serialized.outputs.map(({ name, type }) => ({ name, type })),
+      missingNode.outputs.map(({ name, type }) => ({ name, type })),
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter rejects unevidenced missing classes before any canvas mutation", async () => {
+  const graph = {
+    nodes: [{
+      id: 1,
+      type: "LoadImage",
+      pos: [100, 200],
+      properties: { vibecomfy_uid: "loader" },
+    }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      graph.nodes[0],
+      {
+        id: 2,
+        type: "InventedMissingNode",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "missing" },
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  harness.window.LiteGraph.createNode = () => null;
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [{
+          op: "add_node",
+          scope_path: "",
+          uid: "missing",
+          node_id: "2",
+          class_type: "InventedMissingNode",
+          fields: {},
+          inputs: {},
+        }],
+        candidateGraph,
+      }, {
+        runtimeDependencies: [{
+          class_type: "InventedMissingNode",
+          availability: "unresolved",
+        }],
+      }),
+      /no exact registry resolution evidence/,
+    );
+    assert.equal(harness.graphAddCalls.length, 0);
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.getLiveNodes().length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy comfy_adapter delta apply remove_node removes the node and preserves unrelated nodes", async () => {
   const graph = {
     nodes: [
