@@ -11411,7 +11411,7 @@ test("VibeComfy edited text widget DOM preview text follows the field visual zoo
   }
 });
 
-test("VibeComfy edited text widget DOM preview does not invent a floating chip without a widget DOM rect", async () => {
+test("VibeComfy edited widget DOM preview projects live graph bounds when no widget DOM rect exists", async () => {
   const liveGraph = {
     nodes: [
       {
@@ -11456,7 +11456,7 @@ test("VibeComfy edited text widget DOM preview does not invent a floating chip w
         return { left: 10, top: 20, width: 1000, height: 800 };
       },
     };
-    harness.app.canvas.ds = { scale: 0.3, offset: [-700, -500] };
+    harness.app.canvas.ds = { scale: 0.3, offset: [300, 100] };
     const ctx = createMockCanvasContext();
     syncPreviewDomOverlay(
       harness.app,
@@ -11475,7 +11475,16 @@ test("VibeComfy edited text widget DOM preview does not invent a floating chip w
       makePanelOverlayDeps({ nodes: harness.getLiveNodes(), links: [] }),
     );
 
-    assert.equal(harness.document.getElementById("vibecomfy-preview-dom-overlay"), null);
+    const chip = harness.document
+      .getElementById("vibecomfy-preview-dom-overlay")
+      ?.querySelectorAll((node) => node.dataset?.vibecomfyPreviewChip === "1")[0];
+    assert.ok(chip, "canvas widgets need a top-layer preview even without their own DOM element");
+    assert.equal(chip.textContent, "text: new prompt");
+    assert.ok(Math.abs(Number.parseFloat(chip.style.left) - 134.5) < 0.001);
+    assert.ok(Math.abs(Number.parseFloat(chip.style.top) - 128.6) < 0.001);
+    assert.ok(Math.abs(Number.parseFloat(chip.style.width) - 87) < 0.001);
+    assert.ok(Math.abs(Number.parseFloat(chip.style.height) - 22.2) < 0.001);
+    assert.ok(Math.abs(Number.parseFloat(chip.style.fontSize) - 3.3) < 0.001);
   } finally {
     await harness.dispose();
   }

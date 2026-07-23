@@ -143,11 +143,15 @@ function graphBoundsToViewport(bounds, app) {
   const bottomRight = graphPointToCanvasPoint({ x: bounds.x + bounds.w, y: bounds.y + bounds.h }, app);
   const scaleX = rect.backingWidth ? rect.width / rect.backingWidth : 1;
   const scaleY = rect.backingHeight ? rect.height / rect.backingHeight : 1;
-  return {
+  const viewport = {
     left: rect.left + Math.min(topLeft.x, bottomRight.x) * scaleX,
     top: rect.top + Math.min(topLeft.y, bottomRight.y) * scaleY,
     width: Math.abs(bottomRight.x - topLeft.x) * scaleX,
     height: Math.abs(bottomRight.y - topLeft.y) * scaleY,
+  };
+  return {
+    ...viewport,
+    visualScale: viewportScaleForGraphBounds(bounds, viewport),
   };
 }
 
@@ -474,10 +478,13 @@ function previewDomChipStyleForViewport(viewport) {
   const layoutH = Number(element?.offsetHeight || element?.clientHeight || 0);
   const scaleX = layoutW > 0 ? viewport.width / layoutW : 1;
   const scaleY = layoutH > 0 ? viewport.height / layoutH : scaleX;
-  const visualScale = Math.max(0.05, Math.min(
-    Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
-    Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1,
-  ));
+  const projectedScale = Number(viewport?.visualScale);
+  const visualScale = Math.max(0.05, Number.isFinite(projectedScale) && projectedScale > 0
+    ? projectedScale
+    : Math.min(
+      Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
+      Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1,
+    ));
   const inlineStyle = element?.style || null;
   const baseFontSize = cssPx(inlineStyle?.fontSize, cssPx(computed?.fontSize, 11));
   const family = inlineStyle?.fontFamily || computed?.fontFamily || "Arial, sans-serif";
@@ -553,10 +560,11 @@ function appendPreviewDomChipAtViewport(root, app, viewport, valueText, labelTex
 }
 
 function appendPreviewDomChip(root, app, bounds, valueText, labelText = "", viewportOverride = null) {
-  if (!viewportOverride) {
+  const viewport = viewportOverride || graphBoundsToViewport(bounds, app);
+  if (!viewport) {
     return false;
   }
-  return appendPreviewDomChipAtViewport(root, app, viewportOverride, valueText, labelText);
+  return appendPreviewDomChipAtViewport(root, app, viewport, valueText, labelText);
 }
 
 function widgetIndexFromFieldPath(fieldPath) {
