@@ -270,14 +270,19 @@ def _response_artifacts_with_execution_plan(state: AgentEditState) -> dict[str, 
 
 
 def _execution_plan_response_fields(state: AgentEditState) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    dependencies = getattr(state, "runtime_dependencies", ()) or ()
+    if dependencies:
+        fields["runtime_dependencies"] = _json_safe(list(dependencies))
     execution_plan = getattr(state, "execution_plan", None)
     if execution_plan is None:
-        return {}
+        return fields
     plan_evaluation = getattr(state, "plan_evaluation", None)
-    return {
+    fields.update({
         "execution_plan_status": format_compact_plan_status(execution_plan, plan_evaluation),
         "execution_plan_feedback": format_compact_plan_feedback(execution_plan, plan_evaluation),
-    }
+    })
+    return fields
 
 
 def _execution_plan_debug_fields(state: AgentEditState) -> dict[str, Any]:

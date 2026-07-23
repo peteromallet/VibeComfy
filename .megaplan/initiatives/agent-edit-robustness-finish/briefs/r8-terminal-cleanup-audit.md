@@ -32,6 +32,12 @@ match current source and environment hashes.
   lexical "minimal spine" heuristics that can omit graph bridge nodes, and any
   schema overlay that collapses provisional authorability into live runtime
   availability.
+- Reject any dependency gate that treats absence from live `/object_info` as an
+  authoring failure when exact Comfy Registry evidence exists. Also reject the
+  inverse collapse: registry evidence must not imply installed/runnable state,
+  GitHub-only code-search matches must not satisfy Registry authority, and
+  dependency/install receipts must survive candidate review, Apply preflight,
+  refresh, and recovery.
 - Audit executable deployment provenance as well as source ownership: exactly
   one resolved backend root, one route-registration winner, and one frontend
   asset set may be active. Silent first-import-wins skips and dynamic Git

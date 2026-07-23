@@ -338,8 +338,111 @@ def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> di
     return compact
 
 
-def _actionable_plan_missing_runtime_classes(state: AgentEditState) -> tuple[str, ...]:
-    """Return required new classes absent from the pre-provisional provider."""
+def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
+    """Return class types from UI/API graphs in stable encounter order."""
+    if not isinstance(graph, Mapping):
+        return ()
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def add_node(node: Any) -> None:
+        if not isinstance(node, Mapping):
+            return
+        raw = node.get("class_type") or node.get("type")
+        class_type = str(raw or "").strip()
+        if class_type and class_type != "Unknown" and class_type not in seen:
+            seen.add(class_type)
+            ordered.append(class_type)
+
+    def visit(scope: Mapping[str, Any]) -> None:
+        nodes = scope.get("nodes")
+        if isinstance(nodes, list):
+            for node in nodes:
+                add_node(node)
+        elif isinstance(nodes, Mapping):
+            for node in nodes.values():
+                add_node(node)
+        else:
+            # Comfy API graphs store node records directly under numeric ids.
+            for key, node in scope.items():
+                if str(key).isdigit():
+                    add_node(node)
+
+        definitions = scope.get("definitions")
+        if isinstance(definitions, Mapping):
+            for definition in definitions.values():
+                if isinstance(definition, Mapping):
+                    visit(definition)
+
+    visit(graph)
+    return tuple(ordered)
+
+
+def _actionable_plan_required_new_classes(
+    state: AgentEditState,
+    plan: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Derive new runtime classes from every concrete typed-plan witness.
+
+    ``required_new_nodes`` is advisory and can be empty even when the typed
+    candidate graph contains copied precedent nodes.  The candidate graph is
+    therefore the primary completeness witness.  A selected slice is used
+    only when no candidate graph or explicit node list exists.
+    """
+    target_graph = state.guard_original_ui or state.graph
+    target_classes = set(_dependency_graph_class_types(target_graph))
+    required: list[str] = []
+
+    def add_class(raw: Any) -> None:
+        class_type = str(raw or "").strip()
+        if (
+            class_type
+            and class_type != "Unknown"
+            and class_type not in target_classes
+            and class_type not in required
+        ):
+            required.append(class_type)
+
+    explicit = plan.get("required_new_nodes")
+    if isinstance(explicit, (list, tuple)):
+        for record in explicit:
+            if not isinstance(record, Mapping):
+                continue
+            add_class(
+                record.get("class_type")
+                or record.get("node_type")
+                or record.get("type")
+            )
+
+    candidate_graph = plan.get("candidate_graph")
+    if isinstance(candidate_graph, Mapping):
+        for class_type in _dependency_graph_class_types(candidate_graph):
+            add_class(class_type)
+    elif not required:
+        # Legacy typed plans may carry only their selected slice.  Treat its
+        # node types as requirements only when no stronger concrete witness
+        # exists, and subtract every class already present on the target.
+        selected_slice = plan.get("selected_slice")
+        if isinstance(selected_slice, Mapping):
+            node_types = selected_slice.get("node_types")
+            if isinstance(node_types, (list, tuple)):
+                for class_type in node_types:
+                    add_class(class_type)
+
+    return tuple(required)
+
+
+def _actionable_plan_dependency_status(
+    state: AgentEditState,
+) -> tuple[dict[str, Any], ...]:
+    """Classify planned new classes as live, registry-resolvable, or unresolved.
+
+    Absence from the live ``/object_info`` provider is not itself a blocker:
+    custom nodes may be authorable from registry/workflow evidence before the
+    pack is installed.  Only a class with neither live schema nor an exact
+    registry candidate is unresolved.
+    """
     notes = state.execution_protocol_notes
     if not isinstance(notes, Mapping):
         return ()
@@ -351,29 +454,116 @@ def _actionable_plan_missing_runtime_classes(state: AgentEditState) -> tuple[str
         or not isinstance(plan, Mapping)
     ):
         return ()
-    required = plan.get("required_new_nodes")
-    if not isinstance(required, (list, tuple)):
-        return ()
-
     from vibecomfy.schema import schema_for
 
-    missing: list[str] = []
-    for record in required:
-        if not isinstance(record, Mapping):
+    dependencies: list[dict[str, Any]] = []
+    for class_type in _actionable_plan_required_new_classes(state, plan):
+        if schema_for(state.schema_provider, class_type) is not None:
+            dependencies.append(
+                {"class_type": class_type, "availability": "live_available"}
+            )
             continue
-        raw = (
-            record.get("class_type")
-            or record.get("node_type")
-            or record.get("type")
+
+        candidates = [
+            dict(candidate)
+            for candidate in _workflow_schema_candidates_from_research_context(state)
+            if _resolver_candidate_supports_class(candidate, class_type)
+        ]
+        warnings: list[str] = []
+        attempted: list[str] = []
+        try:
+            from vibecomfy.registry.pack_resolver import resolve_missing_nodes
+
+            resolution = resolve_missing_nodes(class_type, query_intent="class_name")
+            warnings.extend(
+                str(item)
+                for item in (getattr(resolution, "warnings", ()) or ())
+                if str(item).strip()
+            )
+            attempted.extend(
+                str(item)
+                for item in (getattr(resolution, "source_tiers_attempted", ()) or ())
+                if str(item).strip()
+            )
+            for raw_candidate in getattr(resolution, "candidates", ()) or ():
+                candidate = _candidate_dict(raw_candidate)
+                pack = candidate.get("pack") if isinstance(candidate, Mapping) else None
+                source = (
+                    str(pack.get("source") or "").strip().lower()
+                    if isinstance(pack, Mapping)
+                    else ""
+                )
+                if (
+                    candidate is not None
+                    and source
+                    in {
+                        "comfy-registry",
+                        "comfy_registry",
+                        "comfyui-manager",
+                        "comfy-manager",
+                    }
+                    and (
+                        _resolver_candidate_supports_class(candidate, class_type)
+                        or source in {"comfy-registry", "comfy_registry"}
+                    )
+                ):
+                    if _candidate_stable_key(candidate) not in {
+                        _candidate_stable_key(existing) for existing in candidates
+                    }:
+                        candidates.append(candidate)
+        except Exception as exc:  # noqa: BLE001 - unresolved is the safe result
+            warnings.append(f"{type(exc).__name__}: {exc}")
+
+        record: dict[str, Any] = {
+            "class_type": class_type,
+            "availability": (
+                "registry_resolvable" if candidates else "unresolved"
+            ),
+        }
+        if candidates:
+            record["resolver_candidates"] = candidates
+        if attempted:
+            record["source_tiers_attempted"] = list(dict.fromkeys(attempted))
+        if warnings:
+            record["warnings"] = list(dict.fromkeys(warnings))
+        dependencies.append(record)
+    return tuple(dependencies)
+
+
+def _hydrate_actionable_registry_dependencies(state: AgentEditState) -> None:
+    candidates: list[dict[str, Any]] = []
+    for dependency in state.runtime_dependencies:
+        if dependency.get("availability") != "registry_resolvable":
+            continue
+        raw_candidates = dependency.get("resolver_candidates")
+        if isinstance(raw_candidates, list):
+            candidates.extend(
+                dict(candidate)
+                for candidate in raw_candidates
+                if isinstance(candidate, Mapping)
+            )
+    new_candidates = [
+        candidate
+        for candidate in candidates
+        if _candidate_stable_key(candidate) not in state.provisional_registry_candidate_hashes
+    ]
+    if not new_candidates:
+        return
+    try:
+        from vibecomfy.schema import CompositeSchemaProvider, ProvisionalRegistrySchemaProvider
+
+        provisional = ProvisionalRegistrySchemaProvider(new_candidates)
+        if not provisional.schemas():
+            return
+        state.provisional_registry_candidate_hashes = frozenset(
+            {
+                *state.provisional_registry_candidate_hashes,
+                *(_candidate_stable_key(candidate) for candidate in new_candidates),
+            }
         )
-        class_type = str(raw or "").strip()
-        if (
-            class_type
-            and class_type not in missing
-            and schema_for(state.schema_provider, class_type) is None
-        ):
-            missing.append(class_type)
-    return tuple(missing)
+        state.schema_provider = CompositeSchemaProvider(provisional, state.schema_provider)
+    except Exception as exc:  # noqa: BLE001 - workflow evidence may still hydrate it
+        LOGGER.debug("planned registry dependency hydration unavailable: %s", exc)
 
 
 def _stage_agent_batch_repl(
@@ -391,24 +581,31 @@ def _stage_agent_batch_repl(
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
-    missing_runtime_classes = _actionable_plan_missing_runtime_classes(state)
-    if missing_runtime_classes:
-        missing_text = ", ".join(missing_runtime_classes)
+    state.runtime_dependencies = _actionable_plan_dependency_status(state)
+    unresolved_runtime_classes = tuple(
+        str(dependency.get("class_type"))
+        for dependency in state.runtime_dependencies
+        if dependency.get("availability") == "unresolved"
+    )
+    if unresolved_runtime_classes:
+        missing_text = ", ".join(unresolved_runtime_classes)
         message = (
-            "This edit requires ComfyUI runtime node classes that are not installed: "
-            f"{missing_text}. Install the providing custom-node pack, restart ComfyUI, "
-            "and then retry this edit?"
+            "This edit requires custom-node classes that could not be found in "
+            f"the live ComfyUI runtime or Comfy Registry: {missing_text}. "
+            "Install or identify the providing custom-node pack, restart ComfyUI, "
+            "and then retry this edit."
         )
         state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
-        state.batch_final_summary = "Stopped before authoring because runtime dependencies are missing."
+        state.batch_final_summary = "Stopped before authoring because dependencies are unresolved."
         state.user_message = message
         state.report = {
             "clarification_required": True,
             "graph_unchanged": True,
             "queue_blockers": [],
             "authoring_blocker": {
-                "reason": "missing_runtime_classes",
-                "missing_runtime_classes": list(missing_runtime_classes),
+                "reason": "unresolved_runtime_classes",
+                "missing_runtime_classes": list(unresolved_runtime_classes),
+                "runtime_dependencies": list(state.runtime_dependencies),
                 "message": message,
             },
         }
@@ -422,7 +619,7 @@ def _stage_agent_batch_repl(
             {
                 "turns": [],
                 "clarification": {
-                    "reason": "missing_runtime_classes",
+                    "reason": "unresolved_runtime_classes",
                     "message": message,
                 },
             },
@@ -431,10 +628,11 @@ def _stage_agent_batch_repl(
         state.messages_path.write_text(
             json.dumps(
                 {
-                    "authoring_blocker": "missing_runtime_classes",
+                    "authoring_blocker": "unresolved_runtime_classes",
                     "clarification_required": message,
                     "message": message,
-                    "missing_runtime_classes": list(missing_runtime_classes),
+                    "missing_runtime_classes": list(unresolved_runtime_classes),
+                    "runtime_dependencies": list(state.runtime_dependencies),
                 },
                 sort_keys=True,
             )
@@ -455,11 +653,13 @@ def _stage_agent_batch_repl(
                 _artifact(state.messages_path),
             ),
             value={
-                "mode": "missing_runtime_classes",
+                "mode": "unresolved_runtime_classes",
                 "graph_unchanged": True,
-                "missing_runtime_classes": list(missing_runtime_classes),
+                "missing_runtime_classes": list(unresolved_runtime_classes),
+                "runtime_dependencies": list(state.runtime_dependencies),
             },
         )
+    _hydrate_actionable_registry_dependencies(state)
     _hydrate_research_precedent_node_schemas(state)
     session = edit_session_module.EditSession(prepared_ui, schema_provider=state.schema_provider)
     state.batch_session = session

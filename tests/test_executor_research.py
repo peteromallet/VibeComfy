@@ -2779,6 +2779,10 @@ class TestBuildAdaptationPlan:
         assert plan.candidate_graph["1"]["inputs"]["lora"] == ["2", 0]
         added_ids = set(plan.candidate_graph.keys()) - {"1", "2", "3"}
         assert added_ids
+        assert {
+            record["node_id"] for record in plan.required_new_nodes
+        } == added_ids
+        assert all(record["class_type"] for record in plan.required_new_nodes)
         for node_id in added_ids:
             assert node_id.startswith("adapt_")
 

@@ -28,10 +28,14 @@ event wiring, and view composition.
   rewires, and edit operations across executor dispatch. A boolean
   `actionable` summary cannot substitute for the plan it summarizes.
 - Keep runtime availability distinct from provisional authorability. Workflow
-  JSON may supply a reviewable constructor schema, but it must not silently
-  claim that the live ComfyUI process can instantiate the class. Missing
-  required runtime classes produce a typed, named dependency blocker before
-  model authoring or Apply.
+  JSON or an exact Comfy Registry resolution may supply a reviewable constructor
+  schema without claiming that the live ComfyUI process can instantiate the
+  class. Classify every required new class as `live_available`,
+  `registry_resolvable`, or `unresolved`; preserve exact pack/install evidence
+  as typed non-runnable dependency metadata across authoring and Apply. Only an
+  unresolved class blocks authoring. A registry-resolvable class remains
+  authorable and reviewable, while queue/runtime execution stays unavailable
+  until the dependency is installed and observed in live `/object_info`.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.
@@ -159,6 +163,10 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   backend provenance.
 - A real ComfyUI-loader test asserts alias/canonical module object identity,
   one session lock registry, and one recorded route-handler module/file.
+- An exact Registry-resolvable but not-yet-installed class remains authorable
+  and reviewable with its dependency receipt intact; it is not called live or
+  runnable. Only an unresolved class stops authoring, and GitHub-only search
+  evidence cannot satisfy that Registry decision.
 - Static gates prove one controller/API/reducer and no coordination/transport/
   mutation/verification/rollback decision in roundtrip.
 - Roundtrip is measurably reduced; dead coordinator exports/imports are absent.

@@ -215,6 +215,10 @@ class AgentEditState:
     batch_done_summary: str = ""
     lint_noop_messages: tuple[str, ...] = ()
     provisional_registry_candidate_hashes: frozenset[str] = frozenset()
+    # Planned custom-node dependencies classified before authoring.  Registry
+    # candidates stay attached even when the class is not live yet so the
+    # browser/apply layer can present an install/recovery path deliberately.
+    runtime_dependencies: tuple[dict[str, Any], ...] = ()
     # T15: route label carried on state so response builders can apply route-aware
     # validation/reporting without changing their call signatures.
     route: str | None = None

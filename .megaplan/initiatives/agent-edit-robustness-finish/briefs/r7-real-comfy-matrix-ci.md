@@ -172,11 +172,20 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   rewires, and edit operations reach Agent Edit unchanged. The selected spine
   must retain non-lexical bridge classes such as `LoadImage` and
   `IPAdapterAdvanced`; a summary-only/actionability-only handoff fails CI.
-- Run that case once with its pack absent and prove a typed
-  `missing_runtime_classes` result names every required class, performs zero
-  model-authoring turns and zero canvas writes, and asks an actionable setup
-  question. Run it again with a fixture pack present and prove the same plan
-  reaches candidate review without a discovery-only loop.
+- Run that case first with the pack absent but exact Comfy Registry evidence
+  available. Prove authoring still reaches candidate review without a
+  discovery-only loop, every absent class carries its exact registry
+  pack/version/install evidence as `registry_resolvable`, and the candidate is
+  never mislabeled live/runnable. Apply preflight must preserve the candidate
+  and unchanged canvas while returning a typed dependency-install action until
+  `/object_info` observes the installed classes. After installing the pinned
+  fixture pack and restarting, prove the same durable candidate/session can
+  complete Apply, verification, finalize, and queue validation.
+- Add a distinct negative case whose required class has neither live schema,
+  workflow-schema evidence, nor an exact Registry/Manager resolution. Only that
+  `unresolved` case may stop before model authoring; it must name every class,
+  perform zero graph writes, and never accept GitHub code-search noise as
+  registry authority.
 - The getter-only width case applies successfully through the widget carrier;
   fail-closed variants make zero native writes.
 - The KSampler auxiliary-widget case applies `denoise` to the exact native

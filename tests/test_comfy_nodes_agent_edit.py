@@ -4211,6 +4211,10 @@ def test_actionable_precedent_stops_on_missing_runtime_classes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        lambda *_args, **_kwargs: types.SimpleNamespace(candidates=()),
+    )
     model_called = False
 
     def model_client(_messages):
@@ -4254,7 +4258,208 @@ def test_actionable_precedent_stops_on_missing_runtime_classes(
     assert result["clarification_required"] is True
     assert "IPAdapterModelLoader" in result["message"]
     assert "IPAdapterAdvanced" in result["message"]
-    assert "not installed" in result["message"]
+    assert "could not be found" in result["message"]
+
+
+def test_actionable_candidate_graph_supplies_missing_runtime_classes_when_required_list_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        lambda *_args, **_kwargs: types.SimpleNamespace(candidates=()),
+    )
+    model_called = False
+    target = _ui_graph()
+    candidate = _json_clone(target)
+    candidate["nodes"].extend(
+        [
+            {
+                "id": 81,
+                "type": "IPAdapterModelLoader",
+                "class_type": "IPAdapterModelLoader",
+                "properties": {"vibecomfy_uid": "ipadapter_loader"},
+            },
+            {
+                "id": 82,
+                "type": "IPAdapterAdvanced",
+                "class_type": "IPAdapterAdvanced",
+                "properties": {"vibecomfy_uid": "ipadapter_apply"},
+            },
+        ]
+    )
+
+    def model_client(_messages):
+        nonlocal model_called
+        model_called = True
+        raise AssertionError("candidate-only dependencies must block before authoring")
+
+    # Deliberately omit SaveImage from the live provider. It already exists on
+    # the target graph, so it must not be mistaken for a new runtime dependency.
+    provider = _Provider(
+        {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
+    )
+    result = handle_agent_edit(
+        {
+            "graph": target,
+            "task": "Use IP-Adapter to feed the SDXL reference image",
+            "route": "adapt",
+            "execution_protocol_notes": {
+                "adaptation_plan_actionability": {"actionability": "actionable"},
+                "adaptation_plan": {
+                    "selected_slice": {
+                        "node_types": [
+                            "LoadImage",
+                            "SaveImage",
+                            "IPAdapterModelLoader",
+                            "IPAdapterAdvanced",
+                        ]
+                    },
+                    "required_new_nodes": [],
+                    "required_rewires": [],
+                    "edit_ops": [],
+                    "candidate_graph": candidate,
+                    "structural_validation": "pass",
+                },
+            },
+            "session_id": "ipadapter-candidate-only-missing-runtime",
+        },
+        schema_provider=provider,
+        deepseek_client=model_client,
+        session_root=tmp_path,
+    )
+
+    assert model_called is False
+    assert result["ok"] is True
+    assert result["graph_unchanged"] is True
+    assert "IPAdapterModelLoader" in result["message"]
+    assert "IPAdapterAdvanced" in result["message"]
+    assert "SaveImage" not in result["message"]
+
+
+def test_actionable_registry_resolvable_candidate_remains_authorable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    graph = _ui_graph()
+    for node in graph["nodes"]:
+        node.setdefault("properties", {})["vibecomfy_uid"] = f"base-{node['id']}"
+    candidate = {
+        "pack": {
+            "slug": "comfyui_ipadapter_plus",
+            "source": "comfy-registry",
+            "url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+        },
+        "expected_classes": ["IPAdapterAdvanced"],
+        "provisional_schema": {
+            "version": "1.0.0",
+            "runnable": False,
+            "schema": {
+                "nodes": {
+                    "IPAdapterAdvanced": {
+                        "input": {"required": {}, "optional": {}},
+                        "output": ["MODEL"],
+                        "output_name": ["MODEL"],
+                    }
+                }
+            },
+        },
+        "stable_install_hash": "cubiq-ipadapter-advanced",
+    }
+
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        lambda query, **_kwargs: types.SimpleNamespace(
+            candidates=(candidate,) if query == "IPAdapterAdvanced" else ()
+        ),
+    )
+    model_called = False
+
+    def model_client(_messages):
+        nonlocal model_called
+        model_called = True
+        return {
+            "batch": "adapter = IPAdapterAdvanced(near=loadimage)\ndone()",
+            "message": "Added the registry-resolvable IP-Adapter node.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "Use IP-Adapter",
+            "route": "adapt",
+            "execution_protocol_notes": {
+                "adaptation_plan_actionability": {"actionability": "actionable"},
+                "adaptation_plan": {
+                    "required_new_nodes": [{"class_type": "IPAdapterAdvanced"}],
+                    "required_rewires": [],
+                    "edit_ops": [],
+                },
+            },
+            "session_id": "ipadapter-registry-resolvable",
+            "workflow_id": graph["id"],
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=model_client,
+        session_root=tmp_path,
+    )
+
+    assert model_called is True
+    assert result["ok"] is True
+    assert any(
+        dependency["class_type"] == "IPAdapterAdvanced"
+        and dependency["availability"] == "registry_resolvable"
+        and dependency["resolver_candidates"]
+        for dependency in result["runtime_dependencies"]
+    )
+
+
+def test_registry_evidence_only_candidate_is_resolvable_without_live_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _actionable_plan_dependency_status
+
+    registry_candidate = {
+        "pack": {
+            "slug": "comfyui_ipadapter_plus",
+            "source": "comfy-registry",
+            "url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+            "registry_id": "comfyui_ipadapter_plus",
+        },
+        "expected_classes": [],
+        "validation_mode": "evidence_only",
+        "provisional_schema": {},
+        "stable_install_hash": "cubiq-ipadapter-registry-evidence",
+    }
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        lambda query, **_kwargs: types.SimpleNamespace(
+            candidates=(registry_candidate,) if query == "IPAdapterAdvanced" else (),
+            warnings=("Registry schema is not published.",),
+            source_tiers_attempted=("comfy-registry",),
+        ),
+    )
+    graph = _ui_graph()
+    state = _make_state(
+        graph=graph,
+        guard_original_ui=graph,
+        schema_provider=_batch_repl_provider(),
+        execution_protocol_notes={
+            "adaptation_plan_actionability": {"actionability": "actionable"},
+            "adaptation_plan": {
+                "required_new_nodes": [{"class_type": "IPAdapterAdvanced"}],
+            },
+        },
+    )
+
+    dependencies = _actionable_plan_dependency_status(state)
+
+    assert len(dependencies) == 1
+    assert dependencies[0]["class_type"] == "IPAdapterAdvanced"
+    assert dependencies[0]["availability"] == "registry_resolvable"
+    assert dependencies[0]["resolver_candidates"] == [registry_candidate]
 
 
 def test_rejected_terminal_clarify_is_durable_budget_failure(

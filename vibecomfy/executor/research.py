@@ -3480,11 +3480,27 @@ def _build_adaptation_plan(
         "All available precedent slices are provided in all_slices for "
         "independent evaluation by the adaptation agent."
     )
+    required_new_nodes: tuple[dict[str, Any], ...] = ()
+    if candidate_graph is not None and isinstance(graph, dict):
+        target_ids = {str(node_id) for node_id in graph}
+        required_new_nodes = tuple(
+            {
+                "node_id": str(node_id),
+                "class_type": str(node.get("class_type") or node.get("type") or ""),
+                "inputs": copy.deepcopy(node.get("inputs") or {}),
+            }
+            for node_id, node in candidate_graph.items()
+            if (
+                str(node_id) not in target_ids
+                and isinstance(node, Mapping)
+                and str(node.get("class_type") or node.get("type") or "").strip()
+            )
+        )
 
     return PrecedentAdaptationPlan(
         selected_slice=selected_slice,
         anchor_bindings=anchor_bindings,
-        required_new_nodes=(),
+        required_new_nodes=required_new_nodes,
         required_rewires=(),
         edit_ops=(),
         candidate_graph=candidate_graph,
