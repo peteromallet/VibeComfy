@@ -918,7 +918,9 @@ def test_allocate_turn_captures_submitted_baseline_snapshot(tmp_path: Path) -> N
     first_request = _request_graph("first-baseline-snapshot")
     first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
     first_id = str(first.context.turn_id)
-    first_candidate = _record_candidate_response(root=root, session_id="s1", allocation=first)
+    first_candidate = _record_candidate_response(
+        root=root, session_id="s1", allocation=first
+    )
 
     state = read_state(root / "s1")
     first_record = state["turns"][first_id]
@@ -947,6 +949,57 @@ def test_allocate_turn_captures_submitted_baseline_snapshot(tmp_path: Path) -> N
     assert second_record["submitted_baseline_graph_hash_version"] == STRUCTURAL_PROJECTION_VERSION
     assert second_record["submitted_baseline_source"] == "turn"
     assert second_record["submitted_baseline_turn_id"] == first_id
+
+
+def test_submit_baseline_adoption_cas_rejects_stale_second_document(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    first_request = _request_graph("submit-adoption-base")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    first_id = str(first.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=first)
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "accept"},
+    )
+    assert isinstance(accepted, dict)
+    prior_baseline = accepted["baseline_graph_hash"]
+
+    winner_request = {
+        **_request_graph("submit-adoption-winner"),
+        "expected_baseline_graph_hash": prior_baseline,
+    }
+    winner = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=winner_request,
+    )
+    assert winner.conflict is None
+    winner_hash = structural_graph_hash(winner_request["graph"])
+    assert read_state(root / "s1")["baseline_graph_hash"] == winner_hash
+
+    stale_request = {
+        **_request_graph("submit-adoption-stale-loser"),
+        "expected_baseline_graph_hash": prior_baseline,
+    }
+    stale = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=stale_request,
+    )
+    assert stale.conflict is not None
+    assert stale.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert (
+        stale.conflict.failure.agent_failure_context["reason"]
+        == "submit_baseline_cas_mismatch"
+    )
+    final_state = read_state(root / "s1")
+    assert final_state["baseline_graph_hash"] == winner_hash
+    assert sorted(final_state["turns"]) == [first_id, str(winner.context.turn_id)]
 
 
 def test_rebaseline_session_updates_structural_baseline_and_persists_source_graph(

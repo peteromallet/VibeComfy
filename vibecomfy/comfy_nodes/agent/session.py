@@ -3600,7 +3600,13 @@ def reconcile_transaction_index_from_artifacts(
     if baseline_events:
         latest = baseline_events[-1]
         receipt = _payload_mapping(latest.get("receipt"))
-        if latest.get("phase") == "finalized":
+        if (
+            latest.get("phase") == "finalized"
+            # A valid rebaseline source represents canvas authority adopted
+            # after the latest finalized transaction. Replaying historical
+            # transaction events must not roll that newer revision backward.
+            and state.get("baseline_source") != "rebaseline"
+        ):
             recovered_hash = receipt.get("structural_hash_after")
             if isinstance(recovered_hash, str) and (
                 state.get("baseline_graph_hash") != recovered_hash
@@ -4123,6 +4129,159 @@ def allocate_turn(
                     idempotency_record_key=key,
                     conflict=IdempotencyConflict(failure=failure, record=dict(existing)),
                 )
+
+        # The serialized graph on Submit is authoritative input for the new
+        # turn. When it has semantically diverged from a prior durable
+        # baseline (for example, the user manually changed a widget after the
+        # previous turn finalized), persist that graph and advance the
+        # baseline *before* minting candidate authority. The old implementation
+        # called this "auto-rebaseline" but merely disabled the ingest gate,
+        # leaving Prepare to compare the new candidate against the obsolete
+        # finalized baseline.
+        #
+        # New browser clients bind this transition to the baseline they last
+        # observed. Keep the field optional for old clients, whose last-writer
+        # submit behavior is preserved, but never permit adoption across an
+        # active prepared lease.
+        expected_baseline_present = (
+            isinstance(request_payload, Mapping)
+            and "expected_baseline_graph_hash" in request_payload
+        )
+        expected_baseline_graph_hash = (
+            request_payload.get("expected_baseline_graph_hash")
+            if isinstance(request_payload, Mapping)
+            else None
+        )
+        if expected_baseline_present and not _rebaseline_expected_matches(
+            state, expected_baseline_graph_hash
+        ):
+            failure = failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                "ingest",
+                TurnContext(
+                    session_id=session_id,
+                    baseline_turn_id=state.get("baseline_turn_id"),
+                    idempotency_key=idempotency_key,
+                ),
+                agent_failure_context={
+                    "explanation": (
+                        "Submit-time baseline adoption no longer matches the "
+                        "workflow baseline observed by this browser."
+                    ),
+                    **_stale_state_recovery_evidence(
+                        reason="submit_baseline_cas_mismatch",
+                        expected_baseline_graph_hash=(
+                            expected_baseline_graph_hash
+                            if isinstance(expected_baseline_graph_hash, str)
+                            else None
+                        ),
+                        current_baseline_graph_hash=_current_structural_baseline_hash(state),
+                        submit_structural_graph_hash=submit_structural_graph_hash,
+                        baseline_source=(
+                            state.get("baseline_source")
+                            if isinstance(state.get("baseline_source"), str)
+                            else None
+                        ),
+                    ),
+                },
+            )
+            return TurnAllocation(
+                context=TurnContext(
+                    session_id=session_id,
+                    baseline_turn_id=state.get("baseline_turn_id"),
+                    idempotency_key=idempotency_key,
+                ),
+                session_dir=session_dir,
+                turn_dir=session_dir,
+                state=state,
+                request_hash=request_digest,
+                idempotency_record_key=key,
+                conflict=IdempotencyConflict(failure=failure, record={}),
+            )
+
+        pristine_baseline = (
+            state.get("baseline_graph_hash") is None
+            and state.get("baseline_turn_id") is None
+            and state.get("baseline_source") in {None, "none"}
+        )
+        baseline_differs_from_submit = (
+            isinstance(submit_structural_graph_hash, str)
+            and (
+                state.get("baseline_graph_hash_kind") != "structural"
+                or _current_structural_baseline_hash(state)
+                != submit_structural_graph_hash
+            )
+        )
+        if (
+            expected_baseline_present
+            and not pristine_baseline
+            and baseline_differs_from_submit
+        ):
+            active_prepared = state.get("prepared_transactions")
+            if isinstance(active_prepared, Mapping) and active_prepared:
+                failure = failure_envelope(
+                    FailureKind.EDITOR_AHEAD_CONFLICT,
+                    "ingest",
+                    TurnContext(
+                        session_id=session_id,
+                        baseline_turn_id=state.get("baseline_turn_id"),
+                        idempotency_key=idempotency_key,
+                    ),
+                    agent_failure_context={
+                        "explanation": (
+                            "Submit cannot adopt a changed canvas while a "
+                            "prepared transaction still owns the workflow baseline."
+                        ),
+                        "prepared_turn_ids": sorted(str(item) for item in active_prepared),
+                    },
+                )
+                return TurnAllocation(
+                    context=TurnContext(
+                        session_id=session_id,
+                        baseline_turn_id=state.get("baseline_turn_id"),
+                        idempotency_key=idempotency_key,
+                    ),
+                    session_dir=session_dir,
+                    turn_dir=session_dir,
+                    state=state,
+                    request_hash=request_digest,
+                    idempotency_record_key=key,
+                    conflict=IdempotencyConflict(failure=failure, record={}),
+                )
+
+            graph = (
+                request_payload.get("graph")
+                if isinstance(request_payload, Mapping)
+                else None
+            )
+            if not isinstance(graph, Mapping):
+                raise ValueError("Submit-time baseline adoption requires a graph object.")
+            rebaseline_index = int(state["next_rebaseline_index"])
+            rebaseline_id = f"{rebaseline_index:04d}"
+            state["next_rebaseline_index"] = rebaseline_index + 1
+            source_path = (
+                Path("_rebaseline") / rebaseline_id / "graph.ui.json"
+            ).as_posix()
+            graph_path = session_dir / source_path
+            graph_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_response_atomic(graph_path, dict(graph))
+            _set_baseline_authoritatively(
+                state,
+                next_hash=submit_structural_graph_hash,
+                next_kind="structural",
+                next_source="rebaseline",
+                reason="submit_live_canvas_adoption",
+                rebaseline_id=rebaseline_id,
+                source_path=source_path,
+                projection_version=STRUCTURAL_PROJECTION_VERSION,
+                metadata={
+                    "idempotency_key": idempotency_key,
+                    "submitted_client_graph_hash": submitted_client_graph_hash,
+                    "submitted_client_structural_graph_hash": (
+                        submitted_client_structural_graph_hash
+                    ),
+                },
+            )
 
         turn_index = int(state["next_turn_index"])
         turn_id = f"{turn_index:04d}"

@@ -65,7 +65,9 @@ from vibecomfy.executor.contracts import (
 )
 from vibecomfy.comfy_nodes.agent.provider import ProviderError
 from vibecomfy.comfy_nodes.agent.session import (
+    finalize_turn_transaction,
     payload_hash,
+    prepare_turn_transaction,
     read_state,
     session_dir_for,
     structural_graph_hash,
@@ -9850,8 +9852,8 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", raising=False)
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
     provider = _Provider(
         {
@@ -9860,20 +9862,62 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
         }
     )
     original_graph = _ui_graph()
+    for node in original_graph["nodes"]:
+        node.setdefault("properties", {})["vibecomfy_uid"] = f"n{node['id']}"
+
+    def _batch_edit(value: str, message: str):
+        def _client(_messages):
+            return {
+                "batch": f'saveimage.filename_prefix = "{value}"\ndone()',
+                "message": message,
+            }
+
+        return _client
+
+    def _finalize_candidate(result: dict) -> dict:
+        transaction = result["candidate_transaction"]
+        prepared = prepare_turn_transaction(
+            session_root=tmp_path,
+            session_id="stale-submit",
+            turn_id=result["turn_id"],
+            request_payload={
+                "plan_hash": transaction["plan_hash"],
+                "candidate_graph_hash": result["candidate_graph_hash"],
+                "precondition_projection": transaction["candidate_authority"]["precondition"],
+            },
+        )
+        assert isinstance(prepared, dict), prepared
+        assert prepared["ok"] is True
+        finalized = finalize_turn_transaction(
+            session_root=tmp_path,
+            session_id="stale-submit",
+            turn_id=result["turn_id"],
+            request_payload={
+                "plan_hash": transaction["plan_hash"],
+                "generation": prepared["generation"],
+                "lease_nonce": prepared["lease_nonce"],
+                "post_apply_graph": result["graph"],
+                "post_apply_hash": structural_graph_hash(result["graph"]),
+                "postcondition_projection": transaction["candidate_authority"]["postcondition"],
+                "applied_delta_hash": transaction["plan"]["delta_hash"],
+            },
+        )
+        assert isinstance(finalized, dict), finalized
+        assert finalized["ok"] is True
+        return finalized
 
     first = handle_agent_edit(
         {
             "graph": original_graph,
             "task": "change the save prefix to after",
             "session_id": "stale-submit",
+            "workflow_id": "11111111-1111-4111-8111-111111111111",
         },
         schema_provider=provider,
-        deepseek_client=_fake_deepseek_replace(
-            "before", "after", "Changed the save prefix."
-        ),
+        deepseek_client=_batch_edit("after", "Changed the save prefix."),
         session_root=tmp_path,
     )
-    assert first["ok"] is True
+    assert first["ok"] is True, first
     assert first["submit_graph_hash"] == payload_hash(original_graph)
     assert "submitted_client_graph_hash" in first
     assert first["submitted_client_graph_hash"] is None
@@ -9881,15 +9925,7 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
     assert first["candidate_structural_graph_hash"] == structural_graph_hash(first["graph"])
     assert first["baseline_graph_hash"] is None
 
-    accepted = _handle_agent_edit_accept(
-        {
-            "session_id": "stale-submit",
-            "turn_id": first["turn_id"],
-            "client_graph_hash": payload_hash(original_graph),
-            "idempotency_key": "accept-stale-submit",
-        },
-        session_root=tmp_path,
-    )
+    accepted = _finalize_candidate(first)
     assert accepted["ok"] is True
     assert accepted["baseline_graph_hash"] == structural_graph_hash(first["graph"])
     assert accepted["baseline_graph_hash_kind"] == "structural"
@@ -9903,11 +9939,11 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
             "graph": original_graph,
             "task": "change the save prefix to something else",
             "session_id": "stale-submit",
+            "workflow_id": "11111111-1111-4111-8111-111111111111",
+            "expected_baseline_graph_hash": accepted["baseline_graph_hash"],
         },
         schema_provider=provider,
-        deepseek_client=_fake_deepseek_replace(
-            "before", "other", "Changed the save prefix."
-        ),
+        deepseek_client=_batch_edit("other", "Changed the save prefix."),
         session_root=tmp_path,
     )
 
@@ -9917,6 +9953,26 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
     assert rebaselined["candidate_graph_hash"] == payload_hash(rebaselined["graph"])
     audit = json.loads(Path(rebaselined["audit_ref"]["path"]).read_text(encoding="utf-8"))
     assert audit["gates"]["state_match_ok"] is True
+
+    # The old implementation stopped here: it called the ingest gate
+    # "auto-rebaseline" without advancing durable state, so the candidate looked
+    # healthy but /prepare rejected it against the previous accepted baseline.
+    # Prove the submitted canvas is now a durable revision and that the exact V2
+    # transaction can reach prepare and finalize.
+    state_after_submit = read_state(session_dir_for(tmp_path, "stale-submit"))
+    second_turn = state_after_submit["turns"][rebaselined["turn_id"]]
+    assert state_after_submit["baseline_graph_hash"] == structural_graph_hash(original_graph)
+    assert state_after_submit["baseline_source"] == "rebaseline"
+    assert second_turn["submitted_baseline_graph_hash"] == structural_graph_hash(original_graph)
+    assert second_turn["submitted_baseline_rebaseline_id"] == state_after_submit["baseline_rebaseline_id"]
+    adopted_source = state_after_submit["baseline_graph_source_path"]
+    assert isinstance(adopted_source, str)
+    assert (session_dir_for(tmp_path, "stale-submit") / adopted_source).is_file()
+
+    finalized = _finalize_candidate(rebaselined)
+    assert finalized["ok"] is True
+    assert finalized["phase"] == "finalized"
+    assert finalized["baseline_graph_hash"] == structural_graph_hash(rebaselined["graph"])
 
 
 def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(

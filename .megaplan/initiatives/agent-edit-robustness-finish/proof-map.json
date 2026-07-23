@@ -21,6 +21,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-verifier-fault-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-hash-authority-boundary.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-finalize-authority-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-drift-authority-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-semantic-carrier-preflight-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-native-widget-semantic-projection-matrix.json"
   ],
@@ -29,6 +30,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-async-fence-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-runtime-provenance-attestation.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-python-module-identity.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-submit-baseline-adoption.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-workflow-chat-identity-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
   ],
@@ -43,6 +45,7 @@
   "r7-real-comfy-matrix-ci": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-real-comfy-lifecycle-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-manual-drift-composed.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-registered-route-composition.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-compatibility-attribution.json"
   ],

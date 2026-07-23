@@ -33,6 +33,16 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   structural fingerprint changes while workflow UUID, scope, session, and
   transcript remain; the follow-up reuses the original session; refresh
   restores the transcript and exact generation/lease.
+- Add the composed manual-drift case omitted by immediate follow-up coverage:
+  finalize A, manually change a semantic KSampler field on the real canvas,
+  submit B from that canvas, then prepare, scoped Apply, and finalize B through
+  the actually registered routes. Assert the submitted graph is durably adopted
+  before B authority is minted, no stale/rebaseline prompt appears, and the
+  baseline chain is exactly finalized-A -> submitted-manual-revision ->
+  finalized-B.
+- Run the same case with two documents sharing the prior baseline and prove
+  submit adoption is CAS-safe: exactly one differing graph becomes authoritative
+  and the stale loser creates no turn/candidate or overwritten baseline.
 - In that consecutive-turn case, leave turn 1's finalized receipt in browser
   persistence, return turn 2 as `candidate_ready` with zero transaction
   receipts, and run chat restore plus reconcile. Turn 2 must remain reviewable
@@ -139,6 +149,10 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Consecutive-turn rehydrate proves receipt ownership isolation: empty turn-2
   receipts cannot resurrect turn-1 `CANVAS_VERIFIED` state or hide the new
   candidate.
+- The real manual-drift sequence reaches Prepare and Finalize without a recovery
+  click, preserves unrelated post-submit edits, and records each revision source
+  and hash in the lifecycle evidence. Post-submit touched-region and
+  post-prepare race variants obey the R4 drift matrix.
 - The getter-only width case applies successfully through the widget carrier;
   fail-closed variants make zero native writes.
 - The KSampler auxiliary-widget case applies `denoise` to the exact native

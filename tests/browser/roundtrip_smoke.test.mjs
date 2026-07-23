@@ -1205,6 +1205,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
     assert.equal(payload.client_graph_hash, sha256HexUtf8(graph));
     assert.equal(payload.client_structural_graph_hash, projectionReferenceV1(graph, "structural_v1").digest);
     assert.equal(payload.client_live_canvas_token, "live:rev:1");
+    assert.equal(payload.expected_baseline_graph_hash, null);
     assert.equal("baseline_turn_id" in payload, false);
     assert.match(payload.idempotency_key, /^submit:new:openai-codex:gpt-5\.1:[0-9a-f]{12}:[0-9a-f-]+$/);
 

@@ -27,6 +27,13 @@ event wiring, and view composition.
   revision/precondition evidence and must never mint a context or session.
 - Coordinate submit, prepare, Apply, verify, finalize, reject, rollback, Undo,
   rehydrate, activate/deactivate, cancel, and late-result rejection.
+- Make submitted canvas adoption an actual workflow revision transition, not a
+  disabled comparison gate. Submit carries the controller's last-observed
+  baseline revision; under the workflow/session lock the server CAS-checks it,
+  durably persists a differing submitted semantic graph as the next baseline,
+  and only then mints candidate/precondition authority. Candidate records must
+  point at that adopted revision. A stale document or active prepared lease
+  cannot overwrite a newer baseline.
 - Bind every browser controller context to the server's exact frontend build
   identity. Refuse Submit, Apply, and recovery continuation with an actionable
   hard-reload-required state when a restarted/switched server disagrees with
@@ -69,6 +76,11 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   Activating a later candidate atomically replaces the prior turn's active
   receipt projection; reconcile treats absent current-turn receipts as absent
   rather than inheriting values from the previous turn.
+- Pre-submit graph adoption is distinct from transaction finalization: it
+  advances workflow revision/CAS evidence without creating chat content,
+  changing workflow/session identity, or fabricating a finalized receipt.
+  Artifact reconciliation must not replay an older finalized receipt over a
+  newer durable submitted/rebaseline revision.
 - Rehydration is exhaustive: ignore stale responses; replace from valid
   success; on explicit `CHAT_REHYDRATE_MISSING_SESSION`, clear only the current
   workflow binding; on every other transport, 5xx, malformed-schema, or
@@ -96,6 +108,12 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
 - Structural Apply/finalize may change the graph fingerprint but preserves the
   workflow UUID, session, scope, and transcript; the next submission reuses the
   original session.
+- Finalize A followed by a manual semantic canvas edit and Submit B atomically
+  adopts that submitted graph, records it as B's exact precondition baseline,
+  and permits B to prepare without a user-visible rebaseline round trip.
+- Two stale/concurrent documents cannot both adopt from the same prior
+  baseline: the loser receives bounded CAS evidence and performs no baseline,
+  turn, candidate, or conversation mutation.
 - After turn N finalizes, a reviewable turn N+1 with an empty receipt set stays
   `AWAITING_REVIEW`; it cannot inherit N's generation, lease, prepared/verified
   receipts, or interrupted-Apply notice.

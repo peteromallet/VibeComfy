@@ -14,6 +14,13 @@ and bounded mismatch evidence, and delete every inline competing decision.
 
 - Centralize precondition, landed-operation, postcondition, finalize, rollback,
   and mismatch comparison.
+- Enforce one explicit drift-authority matrix through that verifier:
+  pre-submit semantic divergence is authoritative submitted input; post-submit
+  unrelated divergence is preserved by scoped delta; post-submit touched-region
+  divergence requires an explicit receipt-bound overwrite choice or refuses;
+  and any post-prepare race refuses forward mutation and reconciles/rolls back.
+  A whole-structural precondition check may not veto an otherwise valid scoped
+  operation outside this matrix.
 - Emit deterministic bounded projection diffs suitable for controller and
   recovery consumption.
 - Delegate every projection field, identity, order, and hash rule to the registry.
@@ -66,6 +73,9 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Verifier never copies canonicalization; adapter never returns semantic success.
 - Every post-prepare verifier failure retains reconciliation/rollback authority
   and structured evidence.
+- Plain Apply does not silently destroy a post-submit touched-region edit.
+  Overwrite, if exposed, is a distinct explicit authorization bound to the same
+  candidate, revision, transaction, and bounded conflicting targets.
 
 ## Open questions for the planner
 
@@ -99,6 +109,10 @@ terminal cleanup audit, UI redesign, or nested scopes.
 - Every mismatch receipt persists expected and actual projection versions and
   digests plus a deterministic bounded semantic diff; a generic browser-only
   mismatch string is insufficient recovery evidence.
+- Drift-matrix fixtures prove pre-submit manual edits cannot become false stale
+  Apply failures, unrelated post-submit edits survive scoped Apply, touched
+  post-submit edits fail without explicit overwrite authority, and a
+  post-prepare race performs zero unauthorized forward writes.
 - Hash-authority fixtures prove a compatibility/session CAS digest cannot
   satisfy a typed witness, and getter-only field fixtures fail closed before
   mutation when widget resolution is unavailable.

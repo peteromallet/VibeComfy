@@ -3591,7 +3591,23 @@ async function buildSubmitSnapshot(panel) {
     route,
     model,
   });
-  return { graph, workflowId, graphJson, graphHash, structuralHash, layoutHash, liveCanvasToken, route, model, idempotencyKey };
+  const expectedBaselineGraphHash =
+    typeof panel?.state?.baselineGraphHash === "string"
+      ? panel.state.baselineGraphHash
+      : null;
+  return {
+    graph,
+    workflowId,
+    graphJson,
+    graphHash,
+    structuralHash,
+    layoutHash,
+    liveCanvasToken,
+    route,
+    model,
+    idempotencyKey,
+    expectedBaselineGraphHash,
+  };
 }
 
 async function buildCanvasSnapshot() {
@@ -8806,6 +8822,10 @@ function buildSubmitBody(snapshot, task, panel, options = {}) {
     client_graph_hash: snapshot.graphHash,
     client_structural_graph_hash: snapshot.structuralHash,
     client_live_canvas_token: snapshot.liveCanvasToken,
+    // Submit-time canvas adoption is a real baseline transition on the
+    // backend. Bind it to the baseline this document last observed so two
+    // concurrent/stale documents cannot silently replace one another.
+    expected_baseline_graph_hash: snapshot.expectedBaselineGraphHash ?? null,
     idempotency_key: snapshot.idempotencyKey,
   };
 }
