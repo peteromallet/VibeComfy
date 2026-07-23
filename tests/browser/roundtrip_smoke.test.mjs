@@ -10723,6 +10723,79 @@ test("VibeComfy edited canvas widget field values render on their widget rows", 
   }
 });
 
+test("VibeComfy edited widget overlays remain anchored to negative live graph coordinates", async () => {
+  const LIVE_POS = [-420, -240];
+  const CANDIDATE_POS = [900, 800];
+  const NODE_SIZE = [260, 150];
+  const liveGraph = {
+    nodes: [{
+      id: 7,
+      type: "KSampler",
+      pos: [...LIVE_POS],
+      size: [...NODE_SIZE],
+      properties: { vibecomfy_uid: "uid-negative-position" },
+      inputs: [],
+      outputs: [],
+      widgets_values: [20],
+    }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [{
+      id: 7,
+      type: "KSampler",
+      pos: [...CANDIDATE_POS],
+      size: [...NODE_SIZE],
+      properties: { vibecomfy_uid: "uid-negative-position" },
+      inputs: [],
+      outputs: [],
+      widgets_values: [24],
+    }],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    harness.getLiveNodes()[0].widgets = [
+      { name: "steps", value: 20, last_y: 48, computeSize: () => [NODE_SIZE[0], 20] },
+    ];
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.lastSubmitFieldChanges = {
+      outcomeChanges: [
+        { uid: "uid-negative-position", field_path: "steps", old: 20, new: 24 },
+      ],
+      batchTurnChanges: [],
+    };
+
+    const diff = extensionModule.computePreviewDiff(candidateGraph, {});
+    const drawOps = await harness.drawPreviewOverlay({ ...diff, _candidateGraph: candidateGraph });
+    const nodeMarker = drawOps.find((op) => (
+      op.kind === "strokeRect"
+      && op.args[0] === LIVE_POS[0] - 2
+      && op.args[1] === LIVE_POS[1] - 32
+    ));
+    assert.ok(nodeMarker, "edited marker must use the live node's negative world position");
+    assert.equal(
+      drawOps.some((op) => op.kind === "strokeRect" && op.args[0] === CANDIDATE_POS[0] - 2),
+      false,
+      "candidate coordinates must not replace a valid non-positive live coordinate",
+    );
+    assert.ok(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "steps: 24"),
+      "candidate value remains visible while anchored to the live node",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy widget value overlays derive fallback bounds and clamp long text inside the visible preview", async () => {
   const CANDIDATE_POS = [140, 240];
   const CANDIDATE_SIZE = [180, 70];

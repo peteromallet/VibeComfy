@@ -1323,8 +1323,13 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       var esize = readNodeSize(enode, NaN, NaN);
       var fallbackPos = ecandidate ? readNodePos(ecandidate, NaN, NaN) : null;
       var fallbackSize = ecandidate ? readNodeSize(ecandidate, NaN, NaN) : null;
-      var ex = Number.isFinite(epos.x) && epos.x > 0 ? epos.x : (Number.isFinite(fallbackPos?.x) ? fallbackPos.x : 0);
-      var ey = Number.isFinite(epos.y) && epos.y > 0 ? epos.y : (Number.isFinite(fallbackPos?.y) ? fallbackPos.y : 0);
+      // Graph coordinates are an unbounded world space. Negative and zero
+      // positions are ordinary in ComfyUI and must remain anchored to the
+      // live node. Falling back merely because a coordinate is non-positive
+      // paints the candidate value in a different coordinate system, often
+      // completely outside the current viewport.
+      var ex = Number.isFinite(epos.x) ? epos.x : (Number.isFinite(fallbackPos?.x) ? fallbackPos.x : 0);
+      var ey = Number.isFinite(epos.y) ? epos.y : (Number.isFinite(fallbackPos?.y) ? fallbackPos.y : 0);
       var ew = positiveFiniteNumber(esize.w, positiveFiniteNumber(fallbackSize?.w, 200));
       var collapsed = !!(enode.flags && enode.flags.collapsed);
       var eh = collapsed ? 0 : positiveFiniteNumber(esize.h, positiveFiniteNumber(fallbackSize?.h, 100));
