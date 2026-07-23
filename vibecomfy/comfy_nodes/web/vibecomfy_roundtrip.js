@@ -48,6 +48,7 @@ import {
   drawPreviewOverlay as panelOverlayDrawPreviewOverlay,
   installAgentPreviewOverlay as installAgentPreviewOverlayImpl,
   invalidateOverlayDrawModelCache,
+  syncPreviewDomOverlay,
 } from "./panel_overlay.js";
 import {
   renderComposerActions as renderComposerActionsImpl,
@@ -4387,6 +4388,7 @@ function createAgentPanelShell() {
       extractChangedNodeFeedback,
       restoreLayoutPreviewBaseline,
       clonePlainData,
+      refreshPreviewDomOverlay,
       // T12: Demo apply consults the same scope guard as the production
       // apply authority so a candidate from a different workflow tab is
       // refused locally (no POST, no graph mutation).
@@ -7724,6 +7726,35 @@ function getOrBuildPreviewDiff() {
   return computePreviewDiff(candidateGraph, candidateReport, deltaOps);
 }
 
+function refreshPreviewDomOverlay() {
+  const panel = currentAgentPanel();
+  if (
+    !panel
+    || panel.state.phase !== PANEL_STATE.AWAITING_REVIEW
+    || !panel.state.previewEnabled
+    || !panel.state.candidateGraph
+  ) {
+    clearPreviewDomOverlay(app?.canvas?.canvas?.ownerDocument);
+    return false;
+  }
+  const canvasElement = app?.canvas?.canvas || app?.canvas?.canvasEl || app?.canvas?.el || null;
+  const ctx = typeof canvasElement?.getContext === "function"
+    ? canvasElement.getContext("2d")
+    : null;
+  const diff = getOrBuildPreviewDiff();
+  if (!ctx || !diff) {
+    return false;
+  }
+  syncPreviewDomOverlay(
+    app,
+    ctx,
+    diff,
+    diff._candidateGraph || panel.state.candidateGraph,
+    previewOverlayDeps(),
+  );
+  return true;
+}
+
 function _graphNodeCount(graph) {
   return Array.isArray(graph?.nodes) ? graph.nodes.length : 0;
 }
@@ -10187,6 +10218,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
 
     if (panel.state.previewEnabled) {
       createIntentGraphAdapter(app).repaint();
+      refreshPreviewDomOverlay();
     }
   })();
 

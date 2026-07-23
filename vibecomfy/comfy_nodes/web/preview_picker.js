@@ -532,6 +532,9 @@ export function installPreviewPicker(panel, options = {}) {
         if (!result.ok) {
           console.warn("[vibecomfy] demo preview repaint unavailable:", result.diagnostic);
         }
+        if (typeof helpers.refreshPreviewDomOverlay === "function") {
+          helpers.refreshPreviewDomOverlay();
+        }
       } catch (error) {
         console.warn("[vibecomfy] demo preview repaint failed:", error);
       }
