@@ -22,6 +22,16 @@ event wiring, and view composition.
   expected-baseline, candidate, and transaction fences. An adapter may validate
   or rename a field only through one declared mapping; it must never silently
   omit an authority field when reconstructing a downstream payload.
+- Apply the same lossless rule to typed implementation evidence that determines
+  whether a candidate may be authored: an actionable precedent/adaptation plan
+  must retain its selected integration slice, required nodes, anchor bindings,
+  rewires, and edit operations across executor dispatch. A boolean
+  `actionable` summary cannot substitute for the plan it summarizes.
+- Keep runtime availability distinct from provisional authorability. Workflow
+  JSON may supply a reviewable constructor schema, but it must not silently
+  claim that the live ComfyUI process can instantiate the class. Missing
+  required runtime classes produce a typed, named dependency blocker before
+  model authoring or Apply.
 - Create `agent_edit_controller.js` with one complete `WorkflowEditContext` per
   workflow, containing all stable identity, activation, lifecycle, candidate,
   transcript/draft, queue, Undo/recovery, and in-flight authority state.

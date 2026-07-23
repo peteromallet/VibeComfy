@@ -2352,7 +2352,7 @@ def _source_freshness_status(
         # Parse ISO-8601.  Accept 'Z' suffix and fractional seconds.
         ts = retrieval_time.replace("Z", "+00:00")
         if "+" in ts or ts.endswith("Z"):
-            from datetime import datetime, timezone
+            from datetime import datetime
             parsed = datetime.fromisoformat(ts)
             epoch = parsed.timestamp()
         else:
@@ -3659,8 +3659,12 @@ def _build_precedent_packet(
 
 
 _SPINE_KEYWORDS: tuple[str, ...] = (
+    "adapter",
+    "apply",
     "loader",
+    "image",
     "context",
+    "condition",
     "encode",
     "sampler",
     "sample",

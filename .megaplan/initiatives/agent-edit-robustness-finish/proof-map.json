@@ -32,6 +32,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-python-module-identity.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-submit-baseline-adoption.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-transport-authority-losslessness.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-implementation-plan-losslessness.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-workflow-chat-identity-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
   ],
@@ -48,6 +49,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-real-comfy-lifecycle-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-manual-drift-composed.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-executor-transport-composed.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-custom-node-precedent-composed.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-registered-route-composition.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-compatibility-attribution.json"
   ],

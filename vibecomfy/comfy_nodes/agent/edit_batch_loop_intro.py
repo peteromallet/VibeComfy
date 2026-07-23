@@ -175,6 +175,32 @@ def _copy_compact_protocol_fields(
     return result
 
 
+def _compact_protocol_jsonish(value: Any, *, depth: int = 0) -> Any:
+    """Bound structured execution evidence without stringifying its records."""
+    if isinstance(value, str):
+        return _compact_protocol_string(value, limit=240)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if depth >= 4:
+        return _compact_protocol_string(value, limit=240)
+    if isinstance(value, Mapping):
+        return {
+            str(key): _compact_protocol_jsonish(item, depth=depth + 1)
+            for key, item in list(value.items())[:16]
+        }
+    if isinstance(value, (list, tuple)):
+        compacted = [
+            _compact_protocol_jsonish(item, depth=depth + 1)
+            for item in value[:_MAX_EXECUTION_PROTOCOL_LIST_ITEMS]
+        ]
+        if len(value) > _MAX_EXECUTION_PROTOCOL_LIST_ITEMS:
+            compacted.append(
+                f"... [{len(value) - _MAX_EXECUTION_PROTOCOL_LIST_ITEMS} omitted]"
+            )
+        return compacted
+    return _compact_protocol_string(value, limit=240)
+
+
 def _compact_research_source_for_prompt(source: Any) -> dict[str, Any] | None:
     if not isinstance(source, Mapping):
         return None
@@ -260,6 +286,26 @@ def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> di
             ),
         )
 
+    adaptation_plan = notes.get("adaptation_plan")
+    if isinstance(adaptation_plan, Mapping):
+        compact_plan = {
+            key: _compact_protocol_jsonish(adaptation_plan[key])
+            for key in (
+                "selected_slice",
+                "anchor_bindings",
+                "required_new_nodes",
+                "required_rewires",
+                "edit_ops",
+                "structural_validation",
+                "semantic_validation",
+                "warnings",
+                "context_note",
+            )
+            if key in adaptation_plan
+        }
+        if compact_plan:
+            compact["adaptation_plan"] = compact_plan
+
     sources = notes.get("research_sources")
     if isinstance(sources, (list, tuple)):
         compact_sources: list[dict[str, Any]] = []
@@ -280,6 +326,7 @@ def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> di
             "research_goal",
             "workflow_precedent_status",
             "research_warnings",
+            "adaptation_plan",
         }:
             continue
         if isinstance(value, str):
@@ -289,6 +336,44 @@ def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> di
         elif isinstance(value, (int, float, bool)) or value is None:
             compact[key] = value
     return compact
+
+
+def _actionable_plan_missing_runtime_classes(state: AgentEditState) -> tuple[str, ...]:
+    """Return required new classes absent from the pre-provisional provider."""
+    notes = state.execution_protocol_notes
+    if not isinstance(notes, Mapping):
+        return ()
+    actionability = notes.get("adaptation_plan_actionability")
+    plan = notes.get("adaptation_plan")
+    if (
+        not isinstance(actionability, Mapping)
+        or actionability.get("actionability") != "actionable"
+        or not isinstance(plan, Mapping)
+    ):
+        return ()
+    required = plan.get("required_new_nodes")
+    if not isinstance(required, (list, tuple)):
+        return ()
+
+    from vibecomfy.schema import schema_for
+
+    missing: list[str] = []
+    for record in required:
+        if not isinstance(record, Mapping):
+            continue
+        raw = (
+            record.get("class_type")
+            or record.get("node_type")
+            or record.get("type")
+        )
+        class_type = str(raw or "").strip()
+        if (
+            class_type
+            and class_type not in missing
+            and schema_for(state.schema_provider, class_type) is None
+        ):
+            missing.append(class_type)
+    return tuple(missing)
 
 
 def _stage_agent_batch_repl(
@@ -306,6 +391,75 @@ def _stage_agent_batch_repl(
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
+    missing_runtime_classes = _actionable_plan_missing_runtime_classes(state)
+    if missing_runtime_classes:
+        missing_text = ", ".join(missing_runtime_classes)
+        message = (
+            "This edit requires ComfyUI runtime node classes that are not installed: "
+            f"{missing_text}. Install the providing custom-node pack, restart ComfyUI, "
+            "and then retry this edit?"
+        )
+        state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
+        state.batch_final_summary = "Stopped before authoring because runtime dependencies are missing."
+        state.user_message = message
+        state.report = {
+            "clarification_required": True,
+            "graph_unchanged": True,
+            "queue_blockers": [],
+            "authoring_blocker": {
+                "reason": "missing_runtime_classes",
+                "missing_runtime_classes": list(missing_runtime_classes),
+                "message": message,
+            },
+        }
+        state.python_before = ""
+        state.python_after = ""
+        state.before_py_path.write_text("", encoding="utf-8")
+        state.after_py_path.write_text("", encoding="utf-8")
+        write_json_artifact(state.model_request_path, {"turns": []})
+        write_json_artifact(
+            state.model_response_path,
+            {
+                "turns": [],
+                "clarification": {
+                    "reason": "missing_runtime_classes",
+                    "message": message,
+                },
+            },
+        )
+        write_json_artifact(state.candidate_ui_path, prepared_ui)
+        state.messages_path.write_text(
+            json.dumps(
+                {
+                    "authoring_blocker": "missing_runtime_classes",
+                    "clarification_required": message,
+                    "message": message,
+                    "missing_runtime_classes": list(missing_runtime_classes),
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return StageResult(
+            stage="agent_batch",
+            ok=True,
+            blocking=False,
+            duration_ms=_duration_ms(start),
+            artifacts=(
+                _artifact(state.before_py_path),
+                _artifact(state.after_py_path),
+                _artifact(state.model_request_path),
+                _artifact(state.model_response_path),
+                _artifact(state.candidate_ui_path),
+                _artifact(state.messages_path),
+            ),
+            value={
+                "mode": "missing_runtime_classes",
+                "graph_unchanged": True,
+                "missing_runtime_classes": list(missing_runtime_classes),
+            },
+        )
     _hydrate_research_precedent_node_schemas(state)
     session = edit_session_module.EditSession(prepared_ui, schema_provider=state.schema_provider)
     state.batch_session = session

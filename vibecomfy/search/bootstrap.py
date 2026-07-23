@@ -6,9 +6,11 @@ from pathlib import Path
 from vibecomfy.ingest.sources import sync_sources
 
 REQUIRED_INDEXES = (
-    "node_index.json",
-    "workflow_index.json",
-    "external_workflow_index.json",
+    # This is the shipped, tracked baseline corpus. The node/source/external
+    # indexes are generated enrichments and are intentionally gitignored; a
+    # clean installed checkout must not fail search merely because those
+    # optional caches have not been generated yet.
+    "template_index.json",
 )
 
 
@@ -26,7 +28,18 @@ def _index_base_dir() -> Path:
         raw = os.environ.get(env_name)
         if raw:
             return Path(raw).expanduser()
-    return Path.cwd()
+    cwd = Path.cwd()
+    if all((cwd / name).exists() for name in REQUIRED_INDEXES):
+        return cwd
+
+    # ComfyUI loads VibeComfy as a custom-node package while keeping the
+    # process cwd at the ComfyUI checkout.  Search indexes belong to the
+    # VibeComfy checkout, so cwd-only resolution makes an installed/symlinked
+    # extension falsely report that its indexes are missing.
+    package_root = Path(__file__).resolve().parents[2]
+    if all((package_root / name).exists() for name in REQUIRED_INDEXES):
+        return package_root
+    return cwd
 
 
 def _index_path(name: str, *, base: Path | None = None) -> Path:

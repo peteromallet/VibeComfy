@@ -1093,11 +1093,18 @@ def _run_implement(
             if research_result.warnings:
                 protocol_notes["research_warnings"] = list(research_result.warnings)
             if research_result.adaptation_plan is not None:
-                protocol_notes["adaptation_plan_actionability"] = (
-                    adaptation_plan_actionability_payload(
-                        research_result.adaptation_plan
-                    )
+                actionability = adaptation_plan_actionability_payload(
+                    research_result.adaptation_plan
                 )
+                protocol_notes["adaptation_plan_actionability"] = actionability
+                if actionability.get("actionability") == "actionable":
+                    # Preserve the concrete splice across the executor ->
+                    # Agent Edit boundary.  Forwarding only the word
+                    # "actionable" discards the required nodes, rewires, and
+                    # edit operations that made the precedent actionable.
+                    protocol_notes["adaptation_plan"] = (
+                        research_result.adaptation_plan.to_dict()
+                    )
             execution_plan_note = _adapt_execution_plan_note(
                 request,
                 plan,

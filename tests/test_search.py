@@ -93,13 +93,28 @@ def test_pack_match_ranks_above_description_only_match() -> None:
 
 
 def test_ensure_indexes_raises_without_index_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_SEARCH_INDEX_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(SearchBootstrapError, match="vibecomfy sources sync"):
         ensure_indexes(auto_sync=False)
 
 
-def test_search_cli_surfaces_bootstrap_error_from_empty_cwd(tmp_path: Path) -> None:
+def test_search_resolves_packaged_indexes_from_unrelated_comfyui_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIBECOMFY_SEARCH_INDEX_ROOT", raising=False)
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    ensure_indexes(auto_sync=False)
+    corpus = build_search_corpus()
+
+    assert corpus
+
+
+def test_search_cli_uses_packaged_indexes_from_empty_cwd(tmp_path: Path) -> None:
     result = subprocess.run(
         [sys.executable, "-m", "vibecomfy.cli", "search", "wan"],
         cwd=tmp_path,
@@ -109,8 +124,8 @@ def test_search_cli_surfaces_bootstrap_error_from_empty_cwd(tmp_path: Path) -> N
         text=True,
     )
 
-    assert result.returncode == 1
-    assert "vibecomfy sources sync" in result.stdout
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "wan" in result.stdout.lower()
 
 
 def test_search_cli_smoke_returns_wan_i2v_hits_after_sources_sync() -> None:

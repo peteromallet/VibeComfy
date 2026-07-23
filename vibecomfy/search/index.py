@@ -10,7 +10,7 @@ from typing import Any, Literal
 from vibecomfy.nodes.index import index_custom_node_examples
 from vibecomfy.schema import NodeSchema, RuntimeSchemaProvider, SchemaProvider, get_schema_provider, schemas_for
 from vibecomfy.search.aliases import ADAPT_PATTERN_ALIASES, normalize_text, tokenize
-from vibecomfy.search.bootstrap import ensure_indexes
+from vibecomfy.search.bootstrap import _index_base_dir, ensure_indexes
 from vibecomfy.ingest.workflow_source import load_workflow_source
 
 SearchSource = Literal[
@@ -69,8 +69,8 @@ def build_search_corpus(
     entries.extend(_object_info_entries(schema_provider, warnings=warnings))
     entries.extend(_node_index_entries(node_index))
     entries.extend(_custom_example_entries(custom_nodes_root))
-    entries.extend(_curated_entries(Path(coverage_path)))
-    entries.extend(_ready_template_entries(Path(template_index_path)))
+    entries.extend(_curated_entries(_resolve_index_path(coverage_path)))
+    entries.extend(_ready_template_entries(_resolve_index_path(template_index_path)))
     entries.extend(_workflow_index_entries(workflow_index, source_label="source_workflow"))
     entries.extend(_workflow_index_entries(external_workflow_index, source_label="external_workflow"))
     return _dedupe(entries)
@@ -87,6 +87,9 @@ def _resolve_index_path(path: str | Path) -> Path:
         rooted = Path(raw).expanduser() / candidate
         if rooted.exists():
             return rooted
+    package_rooted = _index_base_dir() / candidate
+    if package_rooted.exists():
+        return package_rooted
     return candidate
 
 

@@ -26,10 +26,12 @@ import pytest
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
+    PrecedentAdaptationPlan,
     PrecedentOption,
     PrecedentPacket,
     ResearchResult,
     SelectedPrecedent,
+    WorkflowSlice,
 )
 from vibecomfy.executor import core as executor_core
 from vibecomfy.executor.core import run_executor
@@ -1990,6 +1992,87 @@ def test_adapt_payload_includes_enforced_execution_plan_note() -> None:
     assert "precedent_slices" not in payload
     assert "adaptation_plan" not in payload
     assert "execution_plan" not in payload
+
+
+def test_adapt_payload_preserves_actionable_precedent_splice() -> None:
+    plan = ClassifyDecision(
+        research=True,
+        implement=True,
+        reply=True,
+        route="adapt",
+        intent="edit",
+        task="research_precedent",
+    )
+    request = ExecutorRequest(
+        query="Use IP-Adapter to feed the SDXL reference image",
+        graph={"nodes": [{"id": 5, "type": "KSampler"}], "links": []},
+    )
+    adaptation_plan = PrecedentAdaptationPlan(
+        selected_slice=WorkflowSlice(
+            source_class_type="SDXL IPAdapter",
+            node_ids=("8", "9", "10", "5"),
+            node_types=(
+                "LoadImage",
+                "CLIPVisionLoader",
+                "IPAdapterModelLoader",
+                "IPAdapterAdvanced",
+                "KSampler",
+            ),
+        ),
+        required_new_nodes=(
+            {"class_type": "IPAdapterAdvanced", "role": "adapter"},
+        ),
+        required_rewires=(
+            {
+                "from_role": "adapter",
+                "output": "MODEL",
+                "to_node_id": "5",
+                "input": "model",
+            },
+        ),
+        edit_ops=(
+            {"op": "set_input", "node_id": "5", "field": "model", "from_role": "adapter"},
+        ),
+        structural_validation="pass",
+        semantic_validation="advisory",
+    )
+    research = ResearchResult(
+        summary="Found an exact SDXL IPAdapter workflow.",
+        selected_precedent=SelectedPrecedent(
+            name="SDXL IPAdapter",
+            source="external_workflow",
+            minimal_spine=(
+                "LoadImage",
+                "CLIPVisionLoader",
+                "IPAdapterModelLoader",
+                "IPAdapterAdvanced",
+                "KSampler",
+            ),
+        ),
+        adaptation_plan=adaptation_plan,
+        workflow_precedent_status="compatible_workflow_found",
+    )
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit",
+        side_effect=_fake_handle_agent_edit,
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    assert result.graph is not None
+    payload = mock_edit.call_args[0][0]
+    notes = payload["execution_protocol_notes"]
+    assert notes["adaptation_plan_actionability"]["actionability"] == "actionable"
+    assert notes["adaptation_plan"]["required_new_nodes"][0]["class_type"] == (
+        "IPAdapterAdvanced"
+    )
+    assert notes["adaptation_plan"]["required_rewires"][0]["to_node_id"] == "5"
+    assert notes["adaptation_plan"]["edit_ops"][0]["op"] == "set_input"
 
 
 def test_adapt_execution_plan_builder_failure_does_not_block_edit_payload() -> None:

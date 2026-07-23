@@ -27,6 +27,11 @@ match current source and environment hashes.
   mutation path against the R5 authority-field ledger. Reject silent field
   loss, permissive extra-field dropping, parallel partial DTOs, or handwritten
   forwarding lists that can diverge without a contract test.
+- Extend that audit through executor research/implementation DTOs: reject
+  actionability-only projections that discard a concrete adaptation plan,
+  lexical "minimal spine" heuristics that can omit graph bridge nodes, and any
+  schema overlay that collapses provisional authorability into live runtime
+  availability.
 - Audit executable deployment provenance as well as source ownership: exactly
   one resolved backend root, one route-registration winner, and one frontend
   asset set may be active. Silent first-import-wins skips and dynamic Git

@@ -291,18 +291,21 @@ def format_signature_rows(
         param_parts: list[str] = []
         literal_fields: list[str] = []
         socket_inputs: list[str] = []
-        for field in row.inputs:
-            has_default = field.default is not None
+        for input_field in row.inputs:
+            # Optional socket inputs commonly have a semantic default of None,
+            # which means callers may omit them. Rendering only non-None
+            # defaults made optional sockets look mandatory to the authoring
+            # model (for example IPAdapterAdvanced.image_negative/attn_mask).
+            has_default = input_field.default is not None or not input_field.required
             default_str = " = ..." if has_default else ""
-            type_str = f": {field.type}" if field.type else ""
-            optional_marker = "" if field.required else ""
-            name_ident = to_python_identifier(field.name)
-            if input_spec_is_literal_widget(field):
+            type_str = f": {input_field.type}" if input_field.type else ""
+            name_ident = to_python_identifier(input_field.name)
+            if input_spec_is_literal_widget(input_field):
                 literal_fields.append(name_ident)
             else:
                 socket_inputs.append(name_ident)
-            if field.choices is not None:
-                choices = field.choices
+            if input_field.choices is not None:
+                choices = input_field.choices
                 if len(choices) > _SIGNATURE_ENUM_LIMIT:
                     shown = choices[:_SIGNATURE_ENUM_LIMIT]
                     extra = len(choices) - _SIGNATURE_ENUM_LIMIT

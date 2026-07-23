@@ -428,11 +428,26 @@ def _consecutive_discovery_only_turn_count(state: AgentEditState) -> int:
 def _discovery_construction_nudge(state: AgentEditState) -> str:
     if _total_landed_edit_count(state) > 0:
         return ""
+    notes = state.execution_protocol_notes
+    has_selected_precedent = (
+        isinstance(notes, Mapping)
+        and isinstance(notes.get("selected_precedent"), Mapping)
+    )
+    threshold = 1 if has_selected_precedent else _DISCOVERY_CONSTRUCTION_NUDGE_THRESHOLD
     if (
         _consecutive_discovery_only_turn_count(state)
-        < _DISCOVERY_CONSTRUCTION_NUDGE_THRESHOLD
+        < threshold
     ):
         return ""
+    if has_selected_precedent:
+        return (
+            "Selected-precedent construction requirement: research is already complete. "
+            "Do not call research() again. Use the selected precedent, its concrete "
+            "adaptation_plan, and the available exact signatures to construct and wire "
+            "the bounded edit now. If the current runtime cannot instantiate a required "
+            "class, call clarify(\"Install the missing runtime class(es): ...?\") and "
+            "name them exactly."
+        )
     return _DISCOVERY_CONSTRUCTION_NUDGE
 
 

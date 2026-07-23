@@ -3333,6 +3333,36 @@ class TestBuildPrecedentPacket:
         assert "ADE_AnimateDiffLoaderWithContext" in spine
         assert "ADE_AnimateDiffUniformContextOptions" in spine
 
+    def test_selected_precedent_spine_keeps_ipadapter_integration_path(self) -> None:
+        source = {
+            "class_type": "SDXL IPAdapter reference workflow",
+            "source": "external_workflow",
+            "source_workflow_path": "/tmp/ipadapter_sdxl.json",
+            "node_types": [
+                "CheckpointLoaderSimple",
+                "LoadImage",
+                "CLIPVisionLoader",
+                "IPAdapterModelLoader",
+                "IPAdapterAdvanced",
+                "KSampler",
+                "VAEDecode",
+                "SaveImage",
+            ],
+        }
+
+        selected = _build_selected_precedent(
+            query="Use IP-Adapter to feed the reference image into this SDXL workflow",
+            precedent_sources=(source,),
+        )
+
+        assert selected is not None
+        spine = selected.to_dict()["minimal_spine"]
+        assert "LoadImage" in spine
+        assert "CLIPVisionLoader" in spine
+        assert "IPAdapterModelLoader" in spine
+        assert "IPAdapterAdvanced" in spine
+        assert "KSampler" in spine
+
     # ── T8: internal precedent first, stable ordering, non-failure, evidence/context ─
 
     def test_all_local_source_kinds_precede_all_external(self) -> None:

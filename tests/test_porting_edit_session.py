@@ -1449,6 +1449,30 @@ class TestAvailableNodeSignatures:
         text = format_signature_rows(rows)
         assert "def SaveImage(images: IMAGE) -> None:" in text
 
+    def test_format_signature_rows_marks_optional_socket_as_omittable(self) -> None:
+        from vibecomfy.porting.emitter import (
+            InputSignatureField,
+            NodeSignatureRow,
+            OutputSignatureField,
+            format_signature_rows,
+        )
+
+        rows = [
+            NodeSignatureRow(
+                class_type="IPAdapterAdvanced",
+                inputs=[
+                    InputSignatureField(name="model", type="MODEL", required=True),
+                    InputSignatureField(name="attn_mask", type="MASK", required=False),
+                ],
+                outputs=[OutputSignatureField(name="MODEL", type="MODEL")],
+                status="provisional_schema",
+            ),
+        ]
+
+        text = format_signature_rows(rows)
+        assert "model: MODEL" in text
+        assert "attn_mask: MASK = ..." in text
+
     def test_format_signature_rows_show_pack(self) -> None:
         from vibecomfy.porting.emitter import (
             InputSignatureField,

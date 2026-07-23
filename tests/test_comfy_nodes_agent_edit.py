@@ -4206,6 +4206,57 @@ def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
     assert "provisional_schema" in request_text
 
 
+def test_actionable_precedent_stops_on_missing_runtime_classes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    model_called = False
+
+    def model_client(_messages):
+        nonlocal model_called
+        model_called = True
+        raise AssertionError("authoring must not run before runtime dependencies exist")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "Use IP-Adapter to feed the SDXL reference image",
+            "route": "adapt",
+            "execution_protocol_notes": {
+                "adaptation_plan_actionability": {"actionability": "actionable"},
+                "adaptation_plan": {
+                    "required_new_nodes": [
+                        {"class_type": "IPAdapterModelLoader", "role": "loader"},
+                        {"class_type": "IPAdapterAdvanced", "role": "adapter"},
+                    ],
+                    "required_rewires": [
+                        {
+                            "from_role": "adapter",
+                            "output": "MODEL",
+                            "to_node_id": "1",
+                            "input": "model",
+                        }
+                    ],
+                    "edit_ops": [{"op": "set_input", "field": "model"}],
+                },
+            },
+            "session_id": "ipadapter-missing-runtime",
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=model_client,
+        session_root=tmp_path,
+    )
+
+    assert model_called is False
+    assert result["ok"] is True
+    assert result["graph_unchanged"] is True
+    assert result["clarification_required"] is True
+    assert "IPAdapterModelLoader" in result["message"]
+    assert "IPAdapterAdvanced" in result["message"]
+    assert "not installed" in result["message"]
+
+
 def test_rejected_terminal_clarify_is_durable_budget_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -16566,6 +16617,54 @@ def test_compact_execution_protocol_notes_preserves_adaptation_actionability() -
         for item in actionability["allowed_followups"]
     )
     assert "full_plan" not in actionability
+
+
+def test_compact_execution_protocol_notes_preserves_actionable_splice() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _compact_execution_protocol_notes_for_prompt
+
+    compact = _compact_execution_protocol_notes_for_prompt(
+        {
+            "adaptation_plan_actionability": {"actionability": "actionable"},
+            "adaptation_plan": {
+                "selected_slice": {
+                    "source_class_type": "SDXL IPAdapter",
+                    "node_types": [
+                        "LoadImage",
+                        "IPAdapterAdvanced",
+                        "KSampler",
+                    ],
+                },
+                "required_new_nodes": [
+                    {"class_type": "IPAdapterAdvanced", "role": "adapter"},
+                ],
+                "required_rewires": [
+                    {
+                        "from_role": "adapter",
+                        "output": "MODEL",
+                        "to_node_id": "5",
+                        "input": "model",
+                    },
+                ],
+                "edit_ops": [
+                    {
+                        "op": "set_input",
+                        "node_id": "5",
+                        "field": "model",
+                        "from_role": "adapter",
+                    },
+                ],
+                "structural_validation": "pass",
+                "semantic_validation": "advisory",
+                "all_slices": [{"source_class_type": "irrelevant-large-context"}],
+            },
+        }
+    )
+
+    splice = compact["adaptation_plan"]
+    assert splice["required_new_nodes"][0]["class_type"] == "IPAdapterAdvanced"
+    assert splice["required_rewires"][0]["to_node_id"] == "5"
+    assert splice["edit_ops"][0]["op"] == "set_input"
+    assert "all_slices" not in splice
 
 
 # ── T14: provider research tool exposure and neutral formatting tests ──────

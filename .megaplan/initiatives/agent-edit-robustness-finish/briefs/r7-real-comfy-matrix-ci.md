@@ -167,6 +167,16 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - The real executor-route artifact proves authority-envelope losslessness:
   browser request, typed executor request, Agent Edit request, and allocated
   turn agree on the expected baseline and client revision hashes.
+- A real custom-node precedent case proves executor research → implementation
+  projection losslessness: the selected integration slice's required nodes,
+  rewires, and edit operations reach Agent Edit unchanged. The selected spine
+  must retain non-lexical bridge classes such as `LoadImage` and
+  `IPAdapterAdvanced`; a summary-only/actionability-only handoff fails CI.
+- Run that case once with its pack absent and prove a typed
+  `missing_runtime_classes` result names every required class, performs zero
+  model-authoring turns and zero canvas writes, and asks an actionable setup
+  question. Run it again with a fixture pack present and prove the same plan
+  reaches candidate review without a discovery-only loop.
 - The getter-only width case applies successfully through the widget carrier;
   fail-closed variants make zero native writes.
 - The KSampler auxiliary-widget case applies `denoise` to the exact native
