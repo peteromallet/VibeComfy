@@ -349,6 +349,7 @@ export function installPreviewPicker(panel, options = {}) {
   let loadedScenario = null;
   let stageIndex = -1;
   let loadingScenario = false;
+  let demoViewportFramed = false;
   let demoRehydrateEpoch = null;
   let productionIdentityBaseline = null;
 
@@ -570,32 +571,29 @@ export function installPreviewPicker(panel, options = {}) {
   function applyOriginalGraph(payload) {
     try {
       helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.originalGraph), { repaint: true });
-      if (typeof helpers.fitCanvasViewportToGraphPayload === "function") {
-        helpers.fitCanvasViewportToGraphPayload(payload.originalGraph);
-      }
     } catch (graphError) {
       console.warn("[vibecomfy] demo original graph apply failed:", graphError);
     }
   }
 
-  function fitReviewViewport(payload) {
-    if (typeof helpers.fitCanvasViewportToGraphPayload !== "function") {
+  function frameDemoViewportOnce(payload) {
+    if (
+      demoViewportFramed
+      || typeof helpers.fitCanvasViewportToGraphPayload !== "function"
+    ) {
       return;
     }
-    // The live canvas must remain the original graph during a structural
-    // review, but fitting that graph can leave newly-added candidate nodes
-    // entirely off-screen. Focus the union of the before/after nodes touched
-    // by the preview so both removed and added positions remain visible.
+    // Choose one camera for the entire scenario. It includes the changed
+    // before/after region so review additions remain visible, but navigating
+    // between stages never pans or zooms the user's view.
     helpers.fitCanvasViewportToGraphPayload(
       previewFocusGraph(payload),
     );
+    demoViewportFramed = true;
   }
 
   function applyCandidateGraph(payload) {
     helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.candidateGraph), { repaint: true });
-    if (typeof helpers.fitCanvasViewportToGraphPayload === "function") {
-      helpers.fitCanvasViewportToGraphPayload(payload.candidateGraph);
-    }
   }
 
   function isLayoutPreviewScenario() {
@@ -624,6 +622,7 @@ export function installPreviewPicker(panel, options = {}) {
 
     if (stage === "before_send") {
       applyOriginalGraph(payload);
+      frameDemoViewportOnce(payload);
       const obligations = commitLifecycleReset(currentPanel, {
         rejected: {},
         message: null,
@@ -650,7 +649,6 @@ export function installPreviewPicker(panel, options = {}) {
         applyCandidateGraph(payload);
       } else {
         applyOriginalGraph(payload);
-        fitReviewViewport(payload);
       }
       const terminalResult = {
         ok: true,
@@ -763,6 +761,7 @@ export function installPreviewPicker(panel, options = {}) {
         candidate_graph: clonePlainData(candidateGraph),
         __candidateGraphHash: candidateGraphHash,
       };
+      demoViewportFramed = false;
       renderDemoStage(0);
       if (readyToApply) {
         renderDemoStage(1);
@@ -786,6 +785,7 @@ export function installPreviewPicker(panel, options = {}) {
     selectedScenarioId = select.value || null;
     loadedScenario = null;
     stageIndex = -1;
+    demoViewportFramed = false;
     loadBtn.disabled = !selectedScenarioId;
     updateStageButtons();
     showError("");

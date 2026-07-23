@@ -284,6 +284,49 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
     return picker?.mounted === true && picker?.select?.options?.length === count + 1;
   }, manifest.scenarios.length, { timeout: 30_000 });
 
+  const cameraScenario = manifest.scenarios.find(
+    (scenario) => scenario.id === "qwen_face_distortion_wrong_slot",
+  ) || manifest.scenarios[0];
+  const cameraSamples = [];
+  const sampleCamera = async () => page.evaluate(() => {
+    const ds = window.app?.canvas?.ds;
+    return {
+      scale: Number(ds?.scale),
+      offset: Array.isArray(ds?.offset) ? ds.offset.map(Number) : null,
+    };
+  });
+  const loadedForCamera = await page.evaluate(async (id) => {
+    const picker = window.__vibecomfyAgentPanelSingleton?.runtime?.agentPanel?.previewPicker;
+    return Boolean(await picker?.loadScenarioById(id, { readyToApply: false }));
+  }, cameraScenario.id);
+  expect(loadedForCamera).toBeTruthy();
+  await page.waitForFunction(() => window.__vibecomfyPanelDebug?.().demoStage === "before_send");
+  cameraSamples.push(await sampleCamera());
+  for (const stage of ["sent_loading", "ready_to_apply", "applied"]) {
+    await page.evaluate(() => {
+      window.__vibecomfyAgentPanelSingleton.runtime.agentPanel.previewPicker.nextButton.click();
+    });
+    await page.waitForFunction(
+      (expected) => window.__vibecomfyPanelDebug?.().demoStage === expected,
+      stage,
+    );
+    cameraSamples.push(await sampleCamera());
+  }
+  for (const stage of ["ready_to_apply", "sent_loading", "before_send"]) {
+    await page.evaluate(() => {
+      window.__vibecomfyAgentPanelSingleton.runtime.agentPanel.previewPicker.prevButton.click();
+    });
+    await page.waitForFunction(
+      (expected) => window.__vibecomfyPanelDebug?.().demoStage === expected,
+      stage,
+    );
+    cameraSamples.push(await sampleCamera());
+  }
+  expect(
+    cameraSamples,
+    "demo stage navigation must preserve one exact ComfyUI camera",
+  ).toEqual(cameraSamples.map(() => cameraSamples[0]));
+
   const records = [];
   const scenarios = SCENARIO_FILTER
     ? manifest.scenarios.filter((scenario) => scenario.id === SCENARIO_FILTER)

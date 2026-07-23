@@ -308,6 +308,12 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     );
     assert.equal(controls.prevButton.disabled, true, "cannot go back from first stage");
     assert.equal(controls.nextButton.disabled, false, "can advance from first stage");
+    assert.equal(fittedGraphs.length, 1, "scenario chooses its camera exactly once");
+    assert.deepEqual(
+      fittedGraphs[0].nodes.map((node) => node.properties.vibecomfy_uid),
+      ["uid-1", "uid-1", "uid-2"],
+      "initial camera covers the semantic before/after region",
+    );
 
     controls.nextButton.click();
     await waitFor(() => panel.state.__demoStage === "sent_loading");
@@ -351,8 +357,9 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.deepEqual(
       fittedGraphs.at(-1).nodes.map((node) => node.properties.vibecomfy_uid),
       ["uid-1", "uid-1", "uid-2"],
-      "review viewport focuses semantic before/after nodes and the off-canvas addition",
+      "review retains the initial semantic before/after framing",
     );
+    assert.equal(fittedGraphs.length, 1, "review does not move the camera");
     assert.equal(panel.state.applyAllowed, false, "demo eligibility cannot replace transaction authority");
     assert.equal(panel.state.canvasApplyAllowed, false, "demo candidate cannot authorize production canvas Apply");
     assert.equal(panel.state.queueAllowed, false, "queue stays disabled for demo");
@@ -461,12 +468,14 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       "applied stage restores the real production baseline fence",
     );
     assert.equal(panel.state.baselineGraphHash, "production-baseline-hash");
+    assert.equal(fittedGraphs.length, 1, "applied stage does not move the camera");
 
     controls.prevButton.click();
     await waitFor(() => panel.state.__demoStage === "ready_to_apply");
     assert.equal(panel.state.previewEnabled, true, "back navigation restores the actual candidate preview");
     assert.equal(panel.state.chatMessages.length, 2, "back navigation preserves the review transcript");
     assert.equal(panel.state.__demoStageIndex, 2, "review cursor survives shared lifecycle commits");
+    assert.equal(fittedGraphs.length, 1, "back navigation does not move the camera");
   } finally {
     await harness.dispose();
   }
