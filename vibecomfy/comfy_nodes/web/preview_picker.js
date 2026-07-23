@@ -144,9 +144,9 @@ function normalizeEligibility(raw) {
   };
 }
 
-function makeMessage({ role, text, sessionId, turnId }) {
+function makeMessage({ role, text, sessionId, turnId, response = null }) {
   const now = new Date().toISOString();
-  return {
+  const message = {
     role: String(role || ""),
     text: String(text || ""),
     session_id: sessionId,
@@ -156,6 +156,15 @@ function makeMessage({ role, text, sessionId, turnId }) {
     synthetic: false,
     optimistic: false,
   };
+  if (role === "agent" && response && typeof response === "object") {
+    message.outcome = clonePlainData(response.outcome);
+    message.change_details = clonePlainData(response.changeDetails);
+    message.changes = clonePlainData(response.fieldChanges);
+    message.candidateGraphHash = response.candidateGraphHash || null;
+    message.apply_eligibility = clonePlainData(response.eligibility);
+    message.report = clonePlainData(response.report);
+  }
+  return message;
 }
 
 function clonePlainData(value) {
@@ -167,6 +176,64 @@ function clonePlainData(value) {
   } catch (_e) {
     return value;
   }
+}
+
+function nodeIdentity(node) {
+  const uid = node?.properties?.vibecomfy_uid;
+  if (uid != null && String(uid)) {
+    return String(uid);
+  }
+  return node?.id == null ? null : String(node.id);
+}
+
+function previewFocusGraph(payload) {
+  const { originalGraph, candidateGraph } = payload;
+  const originalNodes = Array.isArray(originalGraph?.nodes) ? originalGraph.nodes : [];
+  const candidateNodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
+  const originalById = new Map(
+    originalNodes.map((node) => [nodeIdentity(node), node]).filter(([uid]) => uid != null),
+  );
+  const candidateById = new Map(
+    candidateNodes.map((node) => [nodeIdentity(node), node]).filter(([uid]) => uid != null),
+  );
+  const changedIds = new Set(
+    (Array.isArray(payload?.fieldChanges?.all) ? payload.fieldChanges.all : [])
+      .map((change) => change?.uid)
+      .filter((uid) => uid != null)
+      .map(String),
+  );
+  for (const uid of originalById.keys()) {
+    if (!candidateById.has(uid)) {
+      changedIds.add(uid);
+    }
+  }
+  for (const uid of candidateById.keys()) {
+    if (!originalById.has(uid)) {
+      changedIds.add(uid);
+    }
+  }
+  // Older archived fixtures may not contain semantic change evidence. Retain a
+  // deterministic graph comparison only as their viewport fallback; preview
+  // content itself remains governed by the canonical response projection.
+  if (changedIds.size === 0) {
+    for (const [uid, node] of originalById) {
+      const candidateNode = candidateById.get(uid);
+      if (!candidateNode || JSON.stringify(node) !== JSON.stringify(candidateNode)) {
+        changedIds.add(uid);
+      }
+    }
+    for (const [uid, node] of candidateById) {
+      const originalNode = originalById.get(uid);
+      if (!originalNode || JSON.stringify(node) !== JSON.stringify(originalNode)) {
+        changedIds.add(uid);
+      }
+    }
+  }
+  const nodes = [
+    ...originalNodes.filter((node) => changedIds.has(nodeIdentity(node))),
+    ...candidateNodes.filter((node) => changedIds.has(nodeIdentity(node))),
+  ];
+  return nodes.length > 0 ? { nodes, links: [] } : candidateGraph;
 }
 
 function buildErrorDisplay() {
@@ -329,8 +396,35 @@ export function installPreviewPicker(panel, options = {}) {
     const turnId = loadedScenario.turn_id;
     const query = loadedScenario.scenario?.query || loadedScenario.query || "";
     const agentReply = loadedScenario.agent_reply || "";
+    const outcome = {
+      ...(loadedScenario.outcome && typeof loadedScenario.outcome === "object"
+        ? clonePlainData(loadedScenario.outcome)
+        : {}),
+      kind: "candidate",
+    };
+    const changeDetails = loadedScenario.change_details || null;
+    const report = loadedScenario.report || {};
+    const candidateGraphHash = loadedScenario.__candidateGraphHash || null;
+    const eligibility = normalizeEligibility(loadedScenario.eligibility);
     const userMessage = makeMessage({ role: "user", text: query, sessionId, turnId });
-    const agentMessage = makeMessage({ role: "agent", text: agentReply, sessionId, turnId });
+    const responseEnvelope = {
+      outcome,
+      changeDetails,
+      candidateGraphHash,
+      eligibility,
+      report,
+    };
+    const fieldChanges = normalizeCommitFieldChangesFromSubmit({
+      outcome,
+      change_details: changeDetails,
+    });
+    const agentMessage = makeMessage({
+      role: "agent",
+      text: agentReply,
+      sessionId,
+      turnId,
+      response: { ...responseEnvelope, fieldChanges },
+    });
     return {
       originalGraph,
       candidateGraph,
@@ -340,9 +434,12 @@ export function installPreviewPicker(panel, options = {}) {
       agentReply,
       userMessage,
       agentMessage,
-      candidateGraphHash: loadedScenario.__candidateGraphHash || null,
-      eligibility: normalizeEligibility(loadedScenario.eligibility),
-      changeDetails: loadedScenario.change_details || null,
+      candidateGraphHash,
+      eligibility,
+      outcome,
+      changeDetails,
+      report,
+      fieldChanges,
     };
   }
 
@@ -471,6 +568,19 @@ export function installPreviewPicker(panel, options = {}) {
     }
   }
 
+  function fitReviewViewport(payload) {
+    if (typeof helpers.fitCanvasViewportToGraphPayload !== "function") {
+      return;
+    }
+    // The live canvas must remain the original graph during a structural
+    // review, but fitting that graph can leave newly-added candidate nodes
+    // entirely off-screen. Focus the union of the before/after nodes touched
+    // by the preview so both removed and added positions remain visible.
+    helpers.fitCanvasViewportToGraphPayload(
+      previewFocusGraph(payload),
+    );
+  }
+
   function applyCandidateGraph(payload) {
     helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.candidateGraph), { repaint: true });
     if (typeof helpers.fitCanvasViewportToGraphPayload === "function") {
@@ -530,6 +640,7 @@ export function installPreviewPicker(panel, options = {}) {
         applyCandidateGraph(payload);
       } else {
         applyOriginalGraph(payload);
+        fitReviewViewport(payload);
       }
       const terminalResult = {
         ok: true,
@@ -537,20 +648,21 @@ export function installPreviewPicker(panel, options = {}) {
         turn_id: payload.turnId,
         baseline_turn_id: null,
         message: payload.agentReply || null,
-        outcome: { kind: "candidate" },
+        outcome: payload.outcome,
         eligibility: payload.eligibility,
-        report: loadedScenario.report || {},
+        report: payload.report,
         change_details: payload.changeDetails || null,
+        candidate_graph_hash: payload.candidateGraphHash,
       };
       const obligations = commitTerminalResponse(currentPanel, {
         result: terminalResult,
-        outcome: { kind: "candidate" },
+        outcome: payload.outcome,
         candidateGraph: payload.candidateGraph,
         candidateGraphHash: payload.candidateGraphHash,
         applyEligibility: payload.eligibility,
         queueAllowed: false,
         changeDetails: payload.changeDetails,
-        lastSubmitFieldChanges: normalizeCommitFieldChangesFromSubmit(terminalResult),
+        lastSubmitFieldChanges: payload.fieldChanges,
         debugPayload: {
           source: "demo",
           stage,
@@ -623,7 +735,8 @@ export function installPreviewPicker(panel, options = {}) {
         throw new Error("Scenario response missing required graph data");
       }
 
-      const candidateGraphHash = await sha256Hex(JSON.stringify(candidateGraph));
+      const candidateGraphHash = scenario.candidate_graph_hash
+        || await sha256Hex(JSON.stringify(candidateGraph));
       // Capture only after all awaited scenario preparation, then fence in the
       // same synchronous turn. A production rehydrate that resolves while the
       // scenario/hash is loading is therefore included in the saved identity;

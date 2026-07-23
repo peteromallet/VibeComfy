@@ -45,15 +45,20 @@ function makeScenarioResponse(overrides = {}) {
       },
       candidate_graph: {
         nodes: [
-          { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-          { id: 2, type: "Output", properties: { vibecomfy_uid: "uid-2" } },
+          { id: 1, type: "Input", pos: [100, 200], properties: { vibecomfy_uid: "uid-1" } },
+          { id: 2, type: "Output", pos: [2400, 200], properties: { vibecomfy_uid: "uid-2" } },
         ],
         links: [],
       },
       agent_reply: "I added a demo node for you.",
       session_id: "demo-sess-a",
       turn_id: "demo-turn-a",
+      candidate_graph_hash: "server-canonical-candidate-hash",
       eligibility: { applyable: true, reason: "applyable" },
+      outcome: {
+        kind: "candidate",
+        changes: [{ uid: "uid-1", field_path: "seed", old: 1, new: 5 }],
+      },
       change_details: {
         summary: "Added a demo output node.",
         statements: [{ op_kind: "add_node", message: "Added Output node" }],
@@ -211,6 +216,7 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     const canvasDraws = [];
     const fulfilledObligations = [];
     const threadRenderResets = [];
+    const fittedGraphs = [];
     const panel = {
       shell,
       state: makePanelState(),
@@ -265,6 +271,10 @@ test("Load & Play stages demo replay from before-send to review", async () => {
         resetThreadRenderState: (p) => {
           threadRenderResets.push(p.state.__demoStage);
           p.threadState = { renderedKeyOrder: [] };
+        },
+        fitCanvasViewportToGraphPayload: (graph) => {
+          fittedGraphs.push(JSON.parse(JSON.stringify(graph)));
+          return true;
         },
         currentAgentPanel: () => panel,
         PANEL_STATE,
@@ -327,11 +337,21 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.turnId, "demo-turn-a", "turn id populated");
     assert.ok(panel.state.candidateGraph, "candidate graph populated");
     assert.equal(panel.state.candidateGraph.nodes.length, 2, "preview authority is the actual candidate graph");
+    assert.equal(
+      panel.state.candidateGraphHash,
+      "server-canonical-candidate-hash",
+      "demo preserves the bundled canonical candidate hash instead of inventing a browser hash",
+    );
     assert.equal(panel.state.previewEnabled, true, "review stage visibly enables the candidate diff");
     assert.equal(
       appliedGraphs.at(-1).graph.nodes.length,
       1,
       "non-layout review keeps the original canvas under the candidate overlay",
+    );
+    assert.deepEqual(
+      fittedGraphs.at(-1).nodes.map((node) => node.properties.vibecomfy_uid),
+      ["uid-1", "uid-1", "uid-2"],
+      "review viewport focuses semantic before/after nodes and the off-canvas addition",
     );
     assert.equal(panel.state.applyAllowed, false, "demo eligibility cannot replace transaction authority");
     assert.equal(panel.state.canvasApplyAllowed, false, "demo candidate cannot authorize production canvas Apply");
@@ -378,6 +398,16 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       panel.state.lastSubmitFieldChanges.batchTurnChanges[0].changes[0].uid,
       "uid-1",
       "demo change_details feeds normalized preview field changes",
+    );
+    assert.equal(
+      panel.state.lastSubmitFieldChanges.outcomeChanges[0].fieldPath,
+      "seed",
+      "demo outcome changes use the same canonical field-change projection as live submit",
+    );
+    assert.equal(
+      panel.state.responseDetails["demo-turn-a"].changes[0].field_path,
+      "seed",
+      "demo agent bubble receives the same projected semantic changes as live rehydrate",
     );
     await waitFor(
       () => canvasDraws.some((entry) => entry.method === "draw"),

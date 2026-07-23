@@ -65,15 +65,6 @@ async function waitForActualPreview(page, scenarioId) {
       && debug?.flushPending === false;
   }, scenarioId, { timeout: 30_000 });
 
-  await page.evaluate(async () => {
-    const graph = window.app?.canvas?.graph;
-    graph?.setDirtyCanvas?.(true, true);
-    window.app?.canvas?.setDirty?.(true, true);
-    window.app?.canvas?.draw?.(true, true);
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    window.app?.canvas?.draw?.(true, true);
-  });
-
   await page.waitForFunction(() => {
     const debug = window.__vibecomfyPanelDebug?.();
     const cache = window.__vibecomfyAgentPanelSingleton?.runtime?._overlayDrawModelCache;
@@ -113,6 +104,8 @@ async function readDiagnostics(page) {
     const runtime = window.__vibecomfyAgentPanelSingleton?.runtime;
     const panel = runtime?.agentPanel;
     const graph = window.app?.canvas?.graph;
+    const canvas = window.app?.canvas;
+    const canvasElement = canvas?.canvas || canvas?.canvasEl || canvas?.el;
     const chips = Array.from(document.querySelectorAll("[data-vibecomfy-preview-chip]"))
       .map((element) => {
         const rect = element.getBoundingClientRect();
@@ -167,6 +160,46 @@ async function readDiagnostics(page) {
         });
       }
     }
+    const affectedIds = new Set([
+      ...(debug?.previewDiff?.added || []),
+      ...(debug?.previewDiff?.removed || []),
+      ...(debug?.previewDiff?.edited || []).map((entry) => entry?.uid),
+    ].filter((uid) => uid != null).map(String));
+    const liveByUid = new Map((Array.isArray(graph?._nodes) ? graph._nodes : []).map((node) => [
+      String(node?.properties?.vibecomfy_uid ?? node?.id ?? ""),
+      node,
+    ]));
+    const candidateByUid = new Map((
+      Array.isArray(panel?.state?.candidateGraph?.nodes) ? panel.state.candidateGraph.nodes : []
+    ).map((node) => [
+      String(node?.properties?.vibecomfy_uid ?? node?.id ?? ""),
+      node,
+    ]));
+    const canvasRect = canvasElement?.getBoundingClientRect?.() || {
+      left: 0,
+      top: 0,
+      right: canvasElement?.width || 0,
+      bottom: canvasElement?.height || 0,
+    };
+    const scale = Number(canvas?.ds?.scale || 1);
+    const offset = Array.isArray(canvas?.ds?.offset) ? canvas.ds.offset : [0, 0];
+    const affectedViewport = Array.from(affectedIds).map((uid) => {
+      const node = candidateByUid.get(uid) || liveByUid.get(uid);
+      const pos = Array.isArray(node?.pos) ? node.pos : [node?.pos?.[0], node?.pos?.[1]];
+      const size = Array.isArray(node?.size) ? node.size : [node?.size?.[0], node?.size?.[1]];
+      const left = canvasRect.left + (Number(pos?.[0] || 0) + Number(offset[0] || 0)) * scale;
+      const top = canvasRect.top + (Number(pos?.[1] || 0) + Number(offset[1] || 0)) * scale;
+      const right = left + Number(size?.[0] || 200) * scale;
+      const bottom = top + Number(size?.[1] || 100) * scale;
+      return {
+        uid,
+        rect: { left, top, right, bottom },
+        intersectsViewport: right > canvasRect.left
+          && left < canvasRect.right
+          && bottom > canvasRect.top
+          && top < canvasRect.bottom,
+      };
+    });
     return {
       ...debug,
       liveGraph: {
@@ -179,49 +212,9 @@ async function readDiagnostics(page) {
       overlayModelKey: runtime?._overlayDrawModelCache?.key || null,
       previewChips: chips,
       editedWidgets,
+      affectedViewport,
     };
   });
-}
-
-async function fitProductionPreviewViewport(page) {
-  await page.evaluate(async () => {
-    const panel = window.__vibecomfyAgentPanelSingleton?.runtime?.agentPanel;
-    const candidate = panel?.state?.candidateGraph;
-    const fit = window.__vibecomfyRoundtripDebug?.fitCanvasViewportToGraphPayload;
-    if (!candidate || typeof fit !== "function") {
-      throw new Error("Production preview viewport-fit helper is unavailable");
-    }
-    fit(candidate);
-    window.app?.canvas?.graph?.setDirtyCanvas?.(true, true);
-    window.app?.canvas?.setDirty?.(true, true);
-    window.app?.canvas?.draw?.(true, true);
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    window.app?.canvas?.draw?.(true, true);
-  });
-}
-
-async function focusPreviewNode(page, uid, scale = 1) {
-  await page.evaluate(async ({ targetUid, targetScale }) => {
-    const canvas = window.app?.canvas;
-    const node = canvas?.graph?._nodes?.find((candidate) => String(
-      candidate?.properties?.vibecomfy_uid ?? candidate?.id ?? "",
-    ) === String(targetUid));
-    if (!node?.pos || !canvas?.ds) throw new Error(`Preview node ${targetUid} is unavailable`);
-    const canvasElement = canvas.canvas || canvas.canvasEl || canvas.el;
-    const viewportWidth = canvasElement?.clientWidth || canvasElement?.width || 1000;
-    const viewportHeight = canvasElement?.clientHeight || canvasElement?.height || 800;
-    const size = Array.from(node.size || [320, 200]);
-    canvas.ds.scale = targetScale;
-    canvas.ds.offset = [
-      viewportWidth / (2 * targetScale) - (node.pos[0] + Number(size[0] || 0) / 2),
-      viewportHeight / (2 * targetScale) - (node.pos[1] + Number(size[1] || 0) / 2),
-    ];
-    canvas.graph?.setDirtyCanvas?.(true, true);
-    canvas.setDirty?.(true, true);
-    canvas.draw?.(true, true);
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    canvas.draw?.(true, true);
-  }, { targetUid: uid, targetScale: scale });
 }
 
 test("@demo-preview capture every actual demo review state", async ({ page, request }) => {
@@ -290,17 +283,6 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
       await waitForActualPreview(page, scenario.id);
       record.diagnostics = await readDiagnostics(page);
       await page.screenshot({ path: path.join(OUTPUT_ROOT, rawScreenshot), fullPage: false });
-      await fitProductionPreviewViewport(page);
-      if (scenario.id === "llm_caption_override") {
-        record.focusedScreenshots = [];
-        for (const scale of [0.8, 1.2]) {
-          await focusPreviewNode(page, "182", scale);
-          const focused = `${scenario.id}.focus-${scale}.png`;
-          await page.screenshot({ path: path.join(OUTPUT_ROOT, focused), fullPage: false });
-          record.focusedScreenshots.push(focused);
-        }
-        await fitProductionPreviewViewport(page);
-      }
     } catch (error) {
       record.error = String(error?.stack || error);
       record.diagnostics = await readDiagnostics(page).catch(() => null);
@@ -323,7 +305,11 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
 
   const failures = records.filter((record) => {
     const issueText = JSON.stringify(record.browserIssues || {});
-    return record.error || /RangeError|Maximum call stack size exceeded/i.test(issueText);
+    const hiddenAffected = record.diagnostics?.affectedViewport
+      ?.filter((entry) => !entry.intersectsViewport) || [];
+    return record.error
+      || hiddenAffected.length > 0
+      || /RangeError|Maximum call stack size exceeded/i.test(issueText);
   });
   expect(failures, `Visual capture failures; inspect ${path.join(OUTPUT_ROOT, "index.html")}`).toEqual([]);
 });

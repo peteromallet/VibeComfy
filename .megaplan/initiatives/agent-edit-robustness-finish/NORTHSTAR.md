@@ -93,6 +93,13 @@ carrier resolver. Preview may not silently fall back to a weaker graph/report
 diff when canonical typed-delta planning fails; a candidate shown as reviewable
 must either have exact planner-derived added/edited/removed evidence or expose
 the planning failure as a blocker before prepare.
+Live transport, durable rehydration, replay, and curated demo fixtures all feed
+one candidate-arrival projector. Fixture packaging preserves a versioned
+canonical preview envelope rather than a handwritten field allowlist, so the
+same response produces the same semantic field/link diff, layout baseline,
+overlay model, and changed-region viewport in every mode. Synthetic playback
+may suppress external side effects, but it may not invent a second projection
+or stage owner.
 Preflight is an explicit no-mutation boundary. A failure before the first native
 write rolls back only the prepared lease and must not run inverse mutation,
 whole-graph restoration, or claim that the canvas was mutated.

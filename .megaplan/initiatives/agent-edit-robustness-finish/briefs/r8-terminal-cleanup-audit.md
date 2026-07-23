@@ -28,6 +28,11 @@ match current source and environment hashes.
   non-production adapter must have an explicit obligation boundary proving
   synthetic identities cannot reach persistence, rehydration, queue, or
   production transport.
+- Reject any second candidate-arrival projector or fixture-specific partial
+  response DTO. Live, rehydrate, replay, and demo must share one versioned
+  preview projection contract and changed-region viewport policy; static and
+  composed parity gates must fail on silently dropped outcome, field-change,
+  layout, hash, or typed-delta evidence.
 - Audit every typed request/response adapter and reconstructed payload on the
   mutation path against the R5 authority-field ledger. Reject silent field
   loss, permissive extra-field dropping, parallel partial DTOs, or handwritten

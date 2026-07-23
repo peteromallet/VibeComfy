@@ -29,6 +29,16 @@ does not reconcile with current source.
   or transport obligations. Wholesale staged transcript replacement must use
   the same renderer-cache invalidation boundary as durable rehydration, and one
   stage advance may commit each lifecycle terminal at most once.
+- Route live terminal responses, durable rehydration, replay, and curated demo
+  fixtures through one source-agnostic candidate-arrival projector. The
+  non-production policy may suppress transport, persistence, rehydration, and
+  queue side effects only; it may not reconstruct a partial response, hardcode
+  an outcome, or independently choose graph/layout/preview state.
+- Version packaged fixtures against the canonical preview projection envelope,
+  including outcome changes, semantic field changes, report/layout evidence,
+  candidate identity/hash, and typed delta/transaction evidence when present.
+  Handwritten response-field allowlists that can silently discard preview
+  authority are forbidden.
 - Give preview and Apply the same planner inputs, including the native semantic
   widget-carrier resolver. Canonical-delta preview failure must fail visibly;
   it may not downgrade to a lossy legacy graph/report diff that omits ops.
@@ -101,6 +111,9 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
   rewire, and field edit without mutating the live canvas.
 - Picker/replay ownership proof shows no second stage reducer remains and no
   synthetic fixture session can become production submit/queue authority.
+- Candidate-arrival parity proof feeds the same archived response through live
+  and fixture policies and obtains identical normalized field/link delta,
+  candidate identity, layout baseline, and overlay draw model.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 

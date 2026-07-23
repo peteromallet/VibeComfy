@@ -111,6 +111,13 @@ class TestDemoManifest:
         assert status == 200
         assert "Wrong output slot" in result["agent_reply"]
         assert "denoised_output" in result["agent_reply"]
+        assert result["outcome"]["kind"] == "candidate"
+        assert any(
+            change.get("field_path") == "samples"
+            for change in result["outcome"]["changes"]
+        )
+        assert result["change_details"]["batch_turns"][0]["field_changes"]
+        assert result["candidate_graph_hash"]
 
     def test_curated_assets_match_their_manifest_provenance_and_semantics(self):
         expected_evidence = {

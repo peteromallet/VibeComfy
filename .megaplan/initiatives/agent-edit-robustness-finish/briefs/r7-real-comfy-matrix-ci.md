@@ -167,6 +167,15 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Curated stage playback remains deterministic under forward/back navigation,
   preserves transcript/render identity, and has zero production persistence or
   rehydrate side effects; the packaged semantic/uniqueness audit is green.
+  For every curated candidate, the untouched first `ready_to_apply` frame uses
+  the same canonical preview projection as live arrival: identical semantic
+  edited fields, added/removed nodes and links, layout arrows, candidate/hash
+  identity, and bubble detail. The stage is not considered ready until its
+  draw-model cache is current and the affected before/after bounds intersect
+  the viewport. Tests may not force an extra draw, fit the candidate graph, or
+  otherwise repair the viewport before asserting and capturing the raw frame.
+  Include an added node beyond the original bounds, a semantic widget edit,
+  a rewire/removal, and a layout-only case.
 - The SD1.5 case finalizes from an empty real canvas, and injected link,
   projection, and rollback failures leave durable step-level receipts.
 - No finalized composer notice appears, the finalized state does not add a chat

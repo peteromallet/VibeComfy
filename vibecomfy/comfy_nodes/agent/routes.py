@@ -393,8 +393,11 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
             "candidate_graph": candidate_graph,
             "agent_reply": response.get("reply") or response.get("message") or "",
             "eligibility": response.get("apply_eligibility") or response.get("eligibility") or {},
+            "outcome": response.get("outcome") or {"kind": "candidate"},
             "change_details": response.get("change_details") or {},
             "report": response.get("report") or {},
+            "candidate_graph_hash": response.get("candidate_graph_hash"),
+            "candidate_structural_graph_hash": response.get("candidate_structural_graph_hash"),
             "session_id": response.get("session_id") or f"demo-{scenario_id}",
             "turn_id": response.get("turn_id") or f"demo-{scenario_id}-turn",
         }, 200
@@ -433,15 +436,21 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
     if isinstance(response_json, dict):
         agent_reply = response_json.get("reply") or response_json.get("message") or ""
         eligibility = response_json.get("apply_eligibility") or response_json.get("eligibility") or {}
+        outcome = response_json.get("outcome") or {"kind": "candidate"}
         change_details = response_json.get("change_details") or response_json.get("change") or {}
         report = response_json.get("report") or {}
+        candidate_graph_hash = response_json.get("candidate_graph_hash")
+        candidate_structural_graph_hash = response_json.get("candidate_structural_graph_hash")
         session_id = response_json.get("session_id") or f"demo-{scenario_id}"
         turn_id = response_json.get("turn_id") or f"demo-{scenario_id}-turn"
     else:
         agent_reply = ""
         eligibility = {}
+        outcome = {"kind": "candidate"}
         change_details = {}
         report = {}
+        candidate_graph_hash = None
+        candidate_structural_graph_hash = None
         session_id = f"demo-{scenario_id}"
         turn_id = f"demo-{scenario_id}-turn"
 
@@ -453,8 +462,11 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
         "candidate_graph": candidate_graph,
         "agent_reply": agent_reply,
         "eligibility": eligibility,
+        "outcome": outcome,
         "change_details": change_details,
         "report": report,
+        "candidate_graph_hash": candidate_graph_hash,
+        "candidate_structural_graph_hash": candidate_structural_graph_hash,
         "session_id": session_id,
         "turn_id": turn_id,
     }, 200

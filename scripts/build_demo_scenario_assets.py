@@ -15,7 +15,97 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "demo_scenarios.json"
 DEFAULT_OUTPUT = ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "demo_scenario_assets.json.gz"
-RESPONSE_FIELDS = ("reply", "apply_eligibility", "session_id", "turn_id")
+RESPONSE_FIELDS = (
+    "reply",
+    "apply_eligibility",
+    "session_id",
+    "turn_id",
+    "outcome",
+    "candidate_graph_hash",
+    "candidate_structural_graph_hash",
+)
+
+
+def _project_change_details(value: Any) -> dict[str, Any]:
+    """Keep the renderer-facing change contract without bundling debug internals."""
+    if not isinstance(value, Mapping):
+        return {}
+
+    projected = {
+        key: value[key]
+        for key in (
+            "done_summary",
+            "final_summary",
+            "gate_a",
+            "gate_b",
+            "landed_operation_count",
+        )
+        if key in value
+    }
+    operations = value.get("operations")
+    if isinstance(operations, list):
+        projected["operations"] = [
+            {
+                key: operation[key]
+                for key in ("uid", "field_path", "old", "new", "summary")
+                if key in operation
+            }
+            for operation in operations
+            if isinstance(operation, Mapping)
+        ]
+
+    batch_turns = value.get("batch_turns")
+    if isinstance(batch_turns, list):
+        projected["batch_turns"] = []
+        for turn in batch_turns:
+            if not isinstance(turn, Mapping):
+                continue
+            projected_turn = {
+                key: turn[key]
+                for key in (
+                    "turn_number",
+                    "message",
+                    "route",
+                    "model",
+                    "batch_ok",
+                    "landed_op_count",
+                    "statement_count",
+                )
+                if key in turn
+            }
+            field_changes = turn.get("field_changes")
+            if isinstance(field_changes, list):
+                projected_turn["field_changes"] = [
+                    {
+                        key: change[key]
+                        for key in ("uid", "field_path", "old", "new")
+                        if key in change
+                    }
+                    for change in field_changes
+                    if isinstance(change, Mapping)
+                ]
+            projected["batch_turns"].append(projected_turn)
+    return projected
+
+
+def _project_report(value: Any) -> dict[str, Any]:
+    """Keep only report fields consumed by normal preview/render surfaces."""
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: value[key]
+        for key in (
+            "kind",
+            "route",
+            "reorganise",
+            "change",
+            "revision_evidence",
+            "queue_blockers",
+            "diagnostics",
+            "gates",
+        )
+        if key in value
+    }
 
 
 def _load_json(path: Path) -> Any:
@@ -77,15 +167,20 @@ def build_bundle(*, root: Path, manifest_path: Path) -> dict[str, Any]:
         if not isinstance(response_source, Mapping):
             raise ValueError(f"{scenario_id}: response is not a JSON object")
 
+        response = {
+            field: response_source[field]
+            for field in RESPONSE_FIELDS
+            if field in response_source
+        }
+        response["change_details"] = _project_change_details(
+            response_source.get("change_details")
+        )
+        response["report"] = _project_report(response_source.get("report"))
         payload = {
             "source_run_dir": run_dir_name,
             "original_graph": original_graph,
             "candidate_graph": candidate_graph,
-            "response": {
-                field: response_source[field]
-                for field in RESPONSE_FIELDS
-                if field in response_source
-            },
+            "response": response,
         }
         fingerprint = _payload_fingerprint(payload)
         duplicate = fingerprints.get(fingerprint)

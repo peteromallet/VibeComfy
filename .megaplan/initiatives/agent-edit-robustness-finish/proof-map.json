@@ -15,7 +15,8 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-native-authority-ledger.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-real-comfy-incidents.json",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-nonproduction-playback-ownership.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-nonproduction-playback-ownership.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-candidate-arrival-projection-parity.json"
   ],
   "r4-single-verifier": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
@@ -53,6 +54,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-custom-node-precedent-composed.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-playback-isolation.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-asset-semantic-audit.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-live-visual-parity.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-registered-route-composition.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-compatibility-attribution.json"
   ],
