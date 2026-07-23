@@ -23,6 +23,7 @@ import { currentAgentPanel } from "./panel_runtime.js";
 import { PANEL_STATE, RENDER_SECTIONS } from "./agent_edit_lifecycle.js";
 import {
   commitApplyResolved,
+  commitLifecycleBaselineRestore,
   commitLifecycleReset,
   normalizeCommitFieldChangesFromSubmit,
   commitOptimisticSubmit,
@@ -34,6 +35,17 @@ const LS_DEMO_PICKER_ENABLED = "vibecomfy_demo_picker_enabled";
 const SCENARIOS_ENDPOINT = "/vibecomfy/demo/scenarios";
 const SCENARIO_ENDPOINT = "/vibecomfy/demo/scenario";
 const DEMO_STAGES = Object.freeze(["before_send", "sent_loading", "ready_to_apply", "applied"]);
+const DEMO_PRODUCTION_IDENTITY_FIELDS = Object.freeze([
+  "sessionId",
+  "turnId",
+  "baselineTurnId",
+  "baselineGraphHash",
+  "baselineGraphHashKind",
+  "baselineGraphHashVersion",
+  "baselineSource",
+  "baselineRebaselineId",
+  "baselineGraphSourcePath",
+]);
 
 function makeHelpers(overrides = {}) {
   // T8: Pass through ALL provided helpers so callers can inject roundtrip
@@ -270,6 +282,8 @@ export function installPreviewPicker(panel, options = {}) {
   let loadedScenario = null;
   let stageIndex = -1;
   let loadingScenario = false;
+  let demoRehydrateEpoch = null;
+  let productionIdentityBaseline = null;
 
   function showError(message) {
     errorDisplay.textContent = String(message || "");
@@ -362,8 +376,56 @@ export function installPreviewPicker(panel, options = {}) {
       return;
     }
     if (typeof helpers.fulfillLifecycleTransitionObligations === "function") {
-      helpers.fulfillLifecycleTransitionObligations(currentPanel, obligations);
+      // Demo stages deliberately share the production reducer so their panel
+      // projection stays realistic, but their synthetic session identity must
+      // never escape into production persistence or transport. In particular,
+      // terminal candidate/apply commits normally ask the orchestrator to bind
+      // the session and rehydrate durable chat. Doing that for a demo races the
+      // staged transcript with a real `/chat` response and makes messages
+      // disappear as the user navigates.
+      const demoSafeObligations = { ...obligations };
+      for (const productionSideEffect of [
+        "persistSession",
+        "rehydrateChat",
+        "persistScope",
+        "forgetSession",
+        "forgetScope",
+        "setQueueGuardContext",
+        "refreshQueueGuard",
+        "queueGuardClear",
+        "queueGuardClearScope",
+      ]) {
+        delete demoSafeObligations[productionSideEffect];
+      }
+      helpers.fulfillLifecycleTransitionObligations(currentPanel, demoSafeObligations);
     }
+  }
+
+  function captureProductionIdentity(currentPanel) {
+    const baseline = {};
+    for (const field of DEMO_PRODUCTION_IDENTITY_FIELDS) {
+      baseline[field] = clonePlainData(currentPanel?.state?.[field] ?? null);
+    }
+    productionIdentityBaseline = baseline;
+  }
+
+  function restoreProductionIdentity(currentPanel) {
+    if (!currentPanel?.state) {
+      return;
+    }
+    if (!productionIdentityBaseline) {
+      productionIdentityBaseline = Object.fromEntries(
+        DEMO_PRODUCTION_IDENTITY_FIELDS.map((field) => [field, null]),
+      );
+    }
+    // Keep the staged demo transcript visible, but return production routing
+    // and baseline authority to exactly what it was before playback. This lets
+    // a later real submit continue the user's real conversation rather than
+    // addressing the packaged demo session or unnecessarily forking.
+    commitLifecycleBaselineRestore(currentPanel, {
+      baseline: productionIdentityBaseline,
+      debugPayload: currentPanel.state.debugPayload,
+    });
   }
 
   function requestPreviewOverlayRepaint() {
@@ -387,11 +449,15 @@ export function installPreviewPicker(panel, options = {}) {
 
   function commitDemoTranscript(currentPanel, payload, messages, latestCandidate = null) {
     commitTranscriptRehydrate(currentPanel, {
+      requestEpoch: demoRehydrateEpoch,
       messages,
       sessionId: payload.sessionId,
       latestTurnId: payload.turnId,
       latestCandidate,
     });
+    if (typeof helpers.resetThreadRenderState === "function") {
+      helpers.resetThreadRenderState(currentPanel);
+    }
   }
 
   function applyOriginalGraph(payload) {
@@ -507,8 +573,23 @@ export function installPreviewPicker(panel, options = {}) {
       commitDemoTranscript(currentPanel, payload, [payload.userMessage, payload.agentMessage], null);
       fulfillLifecycleObligations(currentPanel, obligations);
       currentPanel.state.__demoMode = false;
+      restoreProductionIdentity(currentPanel);
     }
 
+    if (stage === "before_send" || stage === "sent_loading") {
+      restoreProductionIdentity(currentPanel);
+    }
+    // Non-layout demos keep the original graph live during review and rely on
+    // the overlay to show exactly what the candidate would change. Make that
+    // preview explicit for the review stage, and never let it leak into the
+    // before/send/applied stages.
+    currentPanel.state.previewEnabled = stage === "ready_to_apply";
+    // Lifecycle commits intentionally know nothing about demo navigation.
+    // Reassert the local playback cursor after every shared reducer commit so
+    // backward/forward navigation cannot render a correct transcript under a
+    // stale stage label.
+    currentPanel.state.__demoStage = stage;
+    currentPanel.state.__demoStageIndex = stageIndex;
     updateStageButtons();
     showError("");
     schedulePanelRender(currentPanel);
@@ -542,11 +623,22 @@ export function installPreviewPicker(panel, options = {}) {
         throw new Error("Scenario response missing required graph data");
       }
 
+      const candidateGraphHash = await sha256Hex(JSON.stringify(candidateGraph));
+      // Capture only after all awaited scenario preparation, then fence in the
+      // same synchronous turn. A production rehydrate that resolves while the
+      // scenario/hash is loading is therefore included in the saved identity;
+      // anything older that resolves afterward is rejected by the new epoch.
+      if (currentPanel.state.__demoMode !== true) {
+        captureProductionIdentity(currentPanel);
+      }
+      demoRehydrateEpoch = typeof helpers.fenceChatRehydrateForDemo === "function"
+        ? helpers.fenceChatRehydrateForDemo(currentPanel)
+        : null;
       loadedScenario = {
         ...scenario,
         original_graph: clonePlainData(originalGraph),
         candidate_graph: clonePlainData(candidateGraph),
-        __candidateGraphHash: await sha256Hex(JSON.stringify(candidateGraph)),
+        __candidateGraphHash: candidateGraphHash,
       };
       renderDemoStage(0);
       if (readyToApply) {
@@ -717,28 +809,10 @@ export function installPreviewPicker(panel, options = {}) {
         currentPanel.state.turnId ? `turn ${currentPanel.state.turnId}` : "candidate");
     }
 
-    // Lifecycle reflection through commit helper.
-    const successObligations = commitApplyResolved(currentPanel, {
-      accepted: { demo: true },
-      lastAppliedChanges,
-      toast: "Demo candidate applied",
-      debugPayload: {
-        demo: true,
-        undo_stack_depth: currentPanel.state.undoStack?.length ?? 0,
-      },
-    });
-
-    // Fulfill + render (delegated from roundtrip via helpers).
-    if (typeof helpers.fulfillLifecycleTransitionObligations === "function") {
-      helpers.fulfillLifecycleTransitionObligations(currentPanel, successObligations);
-    }
-
-    // Move to the "applied" stage (which also handles transcript, candidate
-    // state cleanup, and clearing __demoMode).
+    // Move to the "applied" stage. That stage owns the one and only
+    // commitApplyResolved call, transcript replacement, candidate cleanup,
+    // obligation filtering, and render.
     renderDemoStage(3, { alreadyApplied: true, lastAppliedChanges });
-
-    // Schedule render.
-    schedulePanelRender(currentPanel);
   }
 
   function handleDemoReject(currentPanel) {
@@ -775,6 +849,8 @@ export function installPreviewPicker(panel, options = {}) {
 
     // Clear demo mode.
     delete currentPanel.state.__demoMode;
+    currentPanel.state.previewEnabled = false;
+    restoreProductionIdentity(currentPanel);
 
     // Schedule render.
     schedulePanelRender(currentPanel);

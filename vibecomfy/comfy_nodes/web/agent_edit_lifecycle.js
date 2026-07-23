@@ -561,6 +561,12 @@ export function transition(panel, event, payload = {}) {
     case "SCOPE_SWITCH":
       return _handleScopeSwitch(panel, payload);
 
+    // A structural edit inside the same UUID-owned workflow changes revision
+    // evidence, not conversation identity. Keep every lifecycle/transcript
+    // field intact and advance only the observed canvas fingerprint.
+    case "SCOPE_REVISION":
+      return _handleScopeRevision(panel, payload);
+
     // ── Chat rehydrate ────────────────────────────────────────────────
     case "CHAT_REHYDRATE_START":
       return _handleChatRehydrateStart(panel);
@@ -2214,6 +2220,27 @@ function _handleScopeSwitch(panel, payload) {
     abortSubmitController: oldSubmitAbortController || null,
     restored,
   });
+}
+
+function _handleScopeRevision(panel, payload) {
+  const scopeId = typeof payload?.scopeId === "string" && payload.scopeId
+    ? payload.scopeId
+    : null;
+  const fingerprint = typeof payload?.fingerprint === "string" && payload.fingerprint
+    ? payload.fingerprint
+    : null;
+
+  // Revision evidence can only update the currently active workflow. A stale
+  // graph-load callback from a departed tab must not mutate the new scope.
+  if (!scopeId || panel.state.chatScopeId !== scopeId) {
+    return { render: false, stale: true };
+  }
+
+  panel.state.chatScopeFingerprint = fingerprint;
+  return {
+    render: false,
+    scopeRevisionUpdated: true,
+  };
 }
 
 function _handleChatRehydrateStart(panel) {

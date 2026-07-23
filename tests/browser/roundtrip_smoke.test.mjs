@@ -15184,6 +15184,84 @@ test("VibeComfy scoped workflow chats switch when Comfy configures a graph direc
   }
 });
 
+test("same UUID graph load advances revision without clearing conversation or review state", async () => {
+  const workflowId = "123e4567-e89b-12d3-a456-426614174009";
+  const graphBefore = {
+    id: workflowId,
+    nodes: [
+      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "same-workflow-load" } },
+    ],
+    links: [],
+  };
+  const graphAfter = {
+    id: workflowId,
+    nodes: [
+      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "same-workflow-load" } },
+      { id: 2, type: "PreviewImage", properties: { vibecomfy_uid: "same-workflow-preview" } },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+  };
+  const activeWorkflow = {
+    id: workflowId,
+    content: JSON.stringify(graphBefore),
+    filename: "Same workflow",
+  };
+  const harness = await createBrowserHarness({ graph: graphBefore });
+  const originalGlobalApp = globalThis.app;
+  try {
+    globalThis.app = harness.app;
+    harness.app.extensionManager.workflow = {
+      activeWorkflow,
+      openWorkflows: [activeWorkflow],
+    };
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    const panel = extensionModule.ensureAgentPanel();
+    const scopeBefore = extensionModule.resolveActiveCanvasScope();
+    assert.ok(scopeBefore?.scopeId);
+    panel.state.chatScopeId = scopeBefore.scopeId;
+    panel.state.chatScopeFingerprint = scopeBefore.fingerprint;
+    panel.state.scopeActivationEpoch = 4;
+    panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
+    panel.state.sessionId = "same-workflow-session";
+    panel.state.turnId = "0002";
+    panel.state.chatMessages = [
+      { role: "user", text: "Add preview", turn_id: "0002" },
+      { role: "agent", text: "Preview ready", turn_id: "0002" },
+    ];
+    panel.state.transcriptMessages = panel.state.chatMessages.slice();
+    panel.state.candidateGraph = graphAfter;
+    panel.state.candidateGraphHash = "same-workflow-candidate";
+    panel.state.previewEnabled = true;
+
+    harness.app.loadGraphData(graphAfter);
+    const expectedFingerprint = extensionModule.computeStructuralGraphFingerprint(graphAfter);
+    await waitFor(() => panel.state.chatScopeFingerprint === expectedFingerprint);
+
+    assert.equal(panel.state.chatScopeId, scopeBefore.scopeId, "workflow UUID keeps the same scope");
+    assert.equal(panel.state.scopeActivationEpoch, 4, "revision does not activate a new scope");
+    assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+    assert.equal(panel.state.sessionId, "same-workflow-session");
+    assert.equal(panel.state.turnId, "0002");
+    assert.deepEqual(
+      panel.state.chatMessages.map((message) => message.text),
+      ["Add preview", "Preview ready"],
+    );
+    assert.deepEqual(panel.state.transcriptMessages, panel.state.chatMessages);
+    assert.equal(panel.state.candidateGraph, graphAfter);
+    assert.equal(panel.state.candidateGraphHash, "same-workflow-candidate");
+    assert.equal(panel.state.previewEnabled, true);
+  } finally {
+    if (originalGlobalApp === undefined) {
+      delete globalThis.app;
+    } else {
+      globalThis.app = originalGlobalApp;
+    }
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with workflow ids", async () => {
   const workflowIdA = "123e4567-e89b-12d3-a456-426614174010";
   const workflowIdB = "123e4567-e89b-12d3-a456-426614174011";

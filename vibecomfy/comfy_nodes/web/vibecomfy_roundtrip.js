@@ -2373,8 +2373,24 @@ function syncPanelScopeAfterGraphLoad() {
   const canvasScope = resolveActiveCanvasScope();
   const scopeId = canvasScope?.scopeId || null;
   const fingerprint = canvasScope?.fingerprint || null;
-  if ((panel.state.chatScopeId || null) === scopeId
-      && (panel.state.chatScopeFingerprint || null) === fingerprint) {
+  const currentScopeId = panel.state.chatScopeId || null;
+  const currentFingerprint = panel.state.chatScopeFingerprint || null;
+  if (currentScopeId === scopeId && currentFingerprint === fingerprint) {
+    return;
+  }
+  if (scopeId && currentScopeId === scopeId) {
+    // The Comfy workflow UUID owns conversation identity. Loading a changed
+    // graph into that same workflow advances revision/precondition evidence;
+    // it must not run the destructive workflow-switch transition.
+    transition(panel, "SCOPE_REVISION", {
+      scopeId,
+      fingerprint,
+      debugPayload: {
+        reason: "load_graph_data_scope_revision",
+        previousFingerprint: currentFingerprint,
+        newFingerprint: fingerprint,
+      },
+    });
     return;
   }
   const obligations = transition(panel, "SCOPE_SWITCH", {
@@ -4357,6 +4373,15 @@ function createAgentPanelShell() {
       // preview baselines without importing from vibecomfy_roundtrip
       // (which would create a circular dependency).
       fulfillLifecycleTransitionObligations,
+      // Demo playback replaces the complete transcript locally. Fence any
+      // production rehydrate already in flight with the reducer's existing
+      // epoch protocol, then reset the keyed bubble renderer after each staged
+      // replacement.
+      fenceChatRehydrateForDemo(currentPanel) {
+        const obligations = transition(currentPanel, "CHAT_REHYDRATE_START");
+        return obligations.requestEpoch;
+      },
+      resetThreadRenderState,
       pushHistory,
       announceChangedNodes,
       extractChangedNodeFeedback,

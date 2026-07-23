@@ -23,6 +23,11 @@ match current source and environment hashes.
 - Audit and delete remaining duplicate owners, copied canonicalizers, dead
   imports/exports, fallback native mutation, stale compatibility facades, title
   identity, scanner exclusions, obsolete helpers, and misleading comments/docs.
+- Reject separate picker and replay stage machines that can independently
+  mutate panel lifecycle/transcript/canvas state. The surviving
+  non-production adapter must have an explicit obligation boundary proving
+  synthetic identities cannot reach persistence, rehydration, queue, or
+  production transport.
 - Audit every typed request/response adapter and reconstructed payload on the
   mutation path against the R5 authority-field ledger. Reject silent field
   loss, permissive extra-field dropping, parallel partial DTOs, or handwritten

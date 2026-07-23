@@ -25,7 +25,7 @@ DEMO_ALIAS_SCENARIOS: Mapping[str, str] = {
     "tts_emotion_injection": "audio-tts-narration-using-indextts-2",
     "qwen_face_distortion_wrong_slot": "image-image-editing-with-qwen-image",
     "vace_identity_padded_reference": "multi-wan-vace-video-retargeting-driven",
-    "triporefine_stage_add": "3d-generates-a-3d-mesh-from",
+    "triporefine_stage_add": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
     "av_fps_desync": "multi-image-to-video-generation-with-2",
     "sdxl_plastic_fabric": "image-sdxl-txt2img-cat-in-spacesuit",
 }

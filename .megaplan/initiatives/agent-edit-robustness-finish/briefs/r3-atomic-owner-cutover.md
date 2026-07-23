@@ -23,6 +23,12 @@ does not reconcile with current source.
   and authorized compensation surface defined by the certified manifest.
 - Route every enumerated preview, Apply, capture, rollback, Undo, recovery,
   replay, picker, scope, and overlay native consumer.
+- Collapse picker and agentic replay onto one non-production playback owner.
+  A staged fixture may project canonical lifecycle state, but it must never
+  execute production session/scope persistence, chat rehydration, queue-guard,
+  or transport obligations. Wholesale staged transcript replacement must use
+  the same renderer-cache invalidation boundary as durable rehydration, and one
+  stage advance may commit each lifecycle terminal at most once.
 - Give preview and Apply the same planner inputs, including the native semantic
   widget-carrier resolver. Canonical-delta preview failure must fail visibly;
   it may not downgrade to a lossy legacy graph/report diff that omits ops.
@@ -93,6 +99,8 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
   carrier and the adapter receipt records the exact physical resolution. Its
   preview is planner-derived and shows the complete img2img additions, removal,
   rewire, and field edit without mutating the live canvas.
+- Picker/replay ownership proof shows no second stage reducer remains and no
+  synthetic fixture session can become production submit/queue authority.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 

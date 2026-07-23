@@ -93,6 +93,17 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   retry path. Then prove a confirmed missing session clears only that workflow,
   legacy fingerprint-qualified keys migrate, and equal graphs under different
   workflow UUIDs remain isolated.
+- Exercise curated picker/replay stages forward and backward across
+  before-send, sent/loading, review, and applied. At review the visible overlay
+  must be derived from the exact candidate that Apply would use; at applied the
+  accepted graph and transcript remain visible. A late production `/chat`
+  response cannot replace staged messages, synthetic fixture identity never
+  changes production session/scope/queue bindings, and structural graph loads
+  under the same workflow UUID update only fingerprint revision evidence.
+- Validate every bundled curated scenario against semantic evidence from its
+  declared source run and reject duplicate original/candidate/reply payloads.
+  The TripoRefine case must add a real `TripoRefineNode`; title/query metadata
+  alone is not proof that the picker is showing the intended candidate.
 - Add stale-response, malformed/schema/projection failure, v1-key-wins,
   malformed legacy-key, and no-broad-key-search variants.
 - Restart/switch the serving VibeComfy checkout while keeping the existing
@@ -153,6 +164,9 @@ so the fully composed runtime is proven before terminal cleanup/audit.
 - Every supported transaction family passes success, failure, refresh, switch,
   rollback, recovery, and persistence in minimal real ComfyUI.
 - Every named incident/adversarial fixture passes in full form.
+- Curated stage playback remains deterministic under forward/back navigation,
+  preserves transcript/render identity, and has zero production persistence or
+  rehydrate side effects; the packaged semantic/uniqueness audit is green.
 - The SD1.5 case finalizes from an empty real canvas, and injected link,
   projection, and rollback failures leave durable step-level receipts.
 - No finalized composer notice appears, the finalized state does not add a chat

@@ -35,9 +35,9 @@
     },
     {
       "id": "vace_identity_padded_reference",
-      "title": "VACE identity / padded reference",
-      "query": "Keep the character's face consistent in the VACE video generation; pad the reference image so it fits the model's expected aspect ratio.",
-      "description": "Preserves character identity in a VACE-driven video generation workflow by padding the reference image to the expected resolution.",
+      "title": "VACE identity / centered reference",
+      "query": "Keep the character's face consistent in VACE by using the centered reference image instead of the padded image with the black bar.",
+      "description": "Preserves character identity by feeding VACE the existing center-cropped reference where the face is larger and unobstructed.",
       "category": "video / identity",
       "required_node_packs": ["ComfyUI-VACE"],
       "asset": "vace_identity_padded_reference.json",
@@ -57,7 +57,7 @@
       "required_node_packs": ["ComfyUI-Tripo"],
       "asset": "triporefine_stage_add.json",
       "run_location": {
-        "run_dir": "triporefine_stage_add",
+        "run_dir": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
         "original_ui": "original.ui.json",
         "response_json": "response.json",
         "candidate_ui": "candidate.ui.json"

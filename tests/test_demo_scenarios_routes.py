@@ -7,6 +7,7 @@ locked candidate-graph resolution order without requiring the real ComfyUI tree.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -110,6 +111,81 @@ class TestDemoManifest:
         assert status == 200
         assert "Wrong output slot" in result["agent_reply"]
         assert "denoised_output" in result["agent_reply"]
+
+    def test_curated_assets_match_their_manifest_provenance_and_semantics(self):
+        expected_evidence = {
+            "tts_emotion_injection": ("QwenEmotionNode", "QwenEmotionNode"),
+            "qwen_face_distortion_wrong_slot": ("Wrong output slot", "SamplerCustom"),
+            "vace_identity_padded_reference": ("center-cropped 512×512", "ImageResizeKJv2"),
+            "triporefine_stage_add": ("TripoRefineNode", "TripoRefineNode"),
+            "av_fps_desync": ("frame rate mismatch", "MMAudioSampler"),
+            "sdxl_plastic_fabric": ("CLIPTextEncodeSDXL", "CLIPTextEncodeSDXL"),
+            "wan22_latent_scaling_fix": ("ModelSamplingSD3", "ModelSamplingSD3"),
+            "llm_caption_override": ("hardcoded caption", "Florence2Run"),
+            "animatediff_lineart_enable": ("LineArt", "LineArtPreprocessor"),
+            "mesh_noise_cleanup": ("Hunyuan3D", "VoxelToMeshBasic"),
+            "grid_cells_512": ("512×512", "ImageGridComposite2x2"),
+            "seed_grid_to_row": ("ImageConcatMulti", "ImageConcatMulti"),
+            "hunyuan_i2v_latent_source": ("HyVideoSampler", "HyVideoSampler"),
+        }
+        manifest = _load_demo_manifest()
+        for record in manifest["scenarios"]:
+            scenario_id = record["id"]
+            result, status = _resolve_demo_scenario(scenario_id)
+            assert status == 200, scenario_id
+            reply_term, candidate_type = expected_evidence[scenario_id]
+            candidate_types = {
+                node.get("type")
+                for node in result["candidate_graph"]["nodes"]
+                if isinstance(node, dict)
+            }
+            assert reply_term in result["agent_reply"], scenario_id
+            assert candidate_type in candidate_types, scenario_id
+            assert result["scenario"]["run_location"]["run_dir"]
+
+    def test_curated_assets_do_not_duplicate_another_scenario_payload(self):
+        fingerprints: dict[str, str] = {}
+        manifest = _load_demo_manifest()
+        for record in manifest["scenarios"]:
+            scenario_id = record["id"]
+            result, status = _resolve_demo_scenario(scenario_id)
+            assert status == 200, scenario_id
+            preview_payload = {
+                "original_graph": result["original_graph"],
+                "candidate_graph": result["candidate_graph"],
+            }
+            digest = hashlib.sha256(
+                json.dumps(
+                    preview_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            assert digest not in fingerprints, (
+                f"{scenario_id} duplicates {fingerprints.get(digest)}"
+            )
+            fingerprints[digest] = scenario_id
+
+    def test_triporefine_demo_adds_a_real_refinement_stage(self):
+        result, status = _resolve_demo_scenario("triporefine_stage_add")
+        assert status == 200
+        assert (
+            result["scenario"]["run_location"]["run_dir"]
+            == "3d-3d-model-generation-and-rigging-workflow-90a1d5"
+        )
+        original_refine_count = sum(
+            node.get("type") == "TripoRefineNode"
+            for node in result["original_graph"]["nodes"]
+            if isinstance(node, dict)
+        )
+        candidate_refine_count = sum(
+            node.get("type") == "TripoRefineNode"
+            for node in result["candidate_graph"]["nodes"]
+            if isinstance(node, dict)
+        )
+        assert candidate_refine_count == original_refine_count + 1
+        assert "fine wrinkles, folds" in result["agent_reply"]
 
 
 # ── Scenario resolution with mocked filesystem roots ───────────────────────────

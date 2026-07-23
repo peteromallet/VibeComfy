@@ -5,6 +5,7 @@ import { createBrowserHarness } from "./harness.mjs";
 import {
   PANEL_STATE,
   RENDER_SECTIONS,
+  transition,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 
 const LS_DEMO_PICKER_ENABLED = "vibecomfy_demo_picker_enabled";
@@ -209,10 +210,20 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     const scheduledRenders = [];
     const canvasDraws = [];
     const fulfilledObligations = [];
+    const threadRenderResets = [];
     const panel = {
       shell,
       state: makePanelState(),
     };
+    Object.assign(panel.state, {
+      sessionId: "production-session-before-demo",
+      turnId: "production-turn-before-demo",
+      baselineTurnId: "production-baseline-turn",
+      baselineGraphHash: "production-baseline-hash",
+      baselineGraphHashKind: "canonical_graph_v1",
+      baselineGraphHashVersion: 1,
+      baselineSource: "server",
+    });
     const repaintGraph = {
       ...(harness.app.graph || {}),
       setDirtyCanvas: (...args) => canvasDraws.push({ method: "setDirtyCanvas", args }),
@@ -247,6 +258,14 @@ test("Load & Play stages demo replay from before-send to review", async () => {
         fulfillLifecycleTransitionObligations: (p, obligations) => {
           fulfilledObligations.push({ panel: p, obligations: { ...obligations } });
         },
+        fenceChatRehydrateForDemo: (p) => {
+          const obligations = transition(p, "CHAT_REHYDRATE_START");
+          return obligations.requestEpoch;
+        },
+        resetThreadRenderState: (p) => {
+          threadRenderResets.push(p.state.__demoStage);
+          p.threadState = { renderedKeyOrder: [] };
+        },
         currentAgentPanel: () => panel,
         PANEL_STATE,
         RENDER_SECTIONS,
@@ -267,6 +286,12 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.phase, PANEL_STATE.IDLE, "before_send is idle");
     assert.equal(panel.state.chatMessages.length, 0, "before_send has no transcript yet");
     assert.equal(panel.state.candidateGraph, null, "before_send has no candidate");
+    assert.equal(
+      panel.state.sessionId,
+      "production-session-before-demo",
+      "before-send never exposes synthetic identity to production submit state",
+    );
+    assert.deepEqual(threadRenderResets, ["before_send"], "full transcript replacement resets bubble cache");
     assert.ok(
       fulfilledObligations.some((entry) => entry.obligations.clearCandidatePreview === true),
       "before_send lifecycle reset fulfills preview-clear obligations",
@@ -282,6 +307,11 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.chatMessages[0].role, "user", "sent_loading message is from user");
     assert.equal(panel.state.chatMessages[0].text, "Add a demo node", "user message text is query");
     assert.equal(panel.state.candidateGraph, null, "sent_loading has no candidate yet");
+    assert.deepEqual(
+      threadRenderResets,
+      ["before_send", "sent_loading"],
+      "each staged transcript replacement resets bubble cache",
+    );
     assert.ok(
       fulfilledObligations.some((entry) => entry.obligations.invalidateCandidate === true),
       "sent_loading submit transition fulfills candidate invalidation obligations",
@@ -296,6 +326,13 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.sessionId, "demo-sess-a", "session id populated");
     assert.equal(panel.state.turnId, "demo-turn-a", "turn id populated");
     assert.ok(panel.state.candidateGraph, "candidate graph populated");
+    assert.equal(panel.state.candidateGraph.nodes.length, 2, "preview authority is the actual candidate graph");
+    assert.equal(panel.state.previewEnabled, true, "review stage visibly enables the candidate diff");
+    assert.equal(
+      appliedGraphs.at(-1).graph.nodes.length,
+      1,
+      "non-layout review keeps the original canvas under the candidate overlay",
+    );
     assert.equal(panel.state.applyAllowed, false, "demo eligibility cannot replace transaction authority");
     assert.equal(panel.state.canvasApplyAllowed, false, "demo candidate cannot authorize production canvas Apply");
     assert.equal(panel.state.queueAllowed, false, "queue stays disabled for demo");
@@ -303,6 +340,22 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.ok(
       fulfilledObligations.at(-1)?.obligations.invalidateCandidate === true,
       "ready_to_apply candidate transition fulfills overlay invalidation obligations",
+    );
+    assert.ok(
+      fulfilledObligations.every((entry) => !Object.hasOwn(entry.obligations, "persistSession")),
+      "demo lifecycle never persists synthetic session identity",
+    );
+    assert.ok(
+      fulfilledObligations.every((entry) => !Object.hasOwn(entry.obligations, "rehydrateChat")),
+      "demo lifecycle never starts production chat rehydrate",
+    );
+    assert.ok(
+      fulfilledObligations.every((entry) => !Object.hasOwn(entry.obligations, "setQueueGuardContext")),
+      "demo lifecycle never installs synthetic queue authority",
+    );
+    assert.ok(
+      fulfilledObligations.every((entry) => !Object.hasOwn(entry.obligations, "refreshQueueGuard")),
+      "demo lifecycle never refreshes production queue authority",
     );
     assert.equal(
       panel.state.expandedBubbleTurnKeys["turn:demo-turn-a"],
@@ -335,6 +388,55 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.ok(scheduledRenders.at(-1).sections.includes(RENDER_SECTIONS.THREAD));
     assert.ok(scheduledRenders.at(-1).sections.includes(RENDER_SECTIONS.COMPOSER));
     assert.ok(scheduledRenders.at(-1).sections.includes(RENDER_SECTIONS.NOTICE));
+
+    const staleProductionResult = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+      requestEpoch: panel.state.chatRehydrateEpoch - 1,
+      messages: [{ role: "agent", text: "late production transcript" }],
+      sessionId: "production-session",
+    });
+    assert.equal(staleProductionResult.stale, true, "late production rehydrate is fenced");
+    assert.equal(panel.state.__demoStage, "ready_to_apply", "late rehydrate cannot move demo cursor");
+    assert.equal(panel.state.chatMessages[1].text, "I added a demo node for you.");
+
+    const applyResolutionCountBefore = fulfilledObligations.filter(
+      (entry) => entry.obligations.clearCandidatePreview === true,
+    ).length;
+    controls.nextButton.click();
+    await waitFor(() => panel.state.__demoStage === "applied");
+    const applyResolutionCountAfter = fulfilledObligations.filter(
+      (entry) => entry.obligations.clearCandidatePreview === true,
+    ).length;
+    assert.equal(
+      applyResolutionCountAfter,
+      applyResolutionCountBefore + 1,
+      "applied stage resolves the candidate exactly once",
+    );
+    assert.equal(panel.state.previewEnabled, false, "applied stage clears the candidate preview");
+    assert.equal(panel.state.chatMessages.length, 2, "applied stage preserves the staged transcript");
+    assert.equal(panel.state.chatMessages[1].text, "I added a demo node for you.");
+    assert.equal(panel.state.__demoStageIndex, 3, "applied stage cursor remains authoritative");
+    assert.equal(
+      panel.state.sessionId,
+      "production-session-before-demo",
+      "applied stage restores the real production session",
+    );
+    assert.equal(
+      panel.state.turnId,
+      "production-turn-before-demo",
+      "applied demo turn cannot become production authority",
+    );
+    assert.equal(
+      panel.state.baselineTurnId,
+      "production-baseline-turn",
+      "applied stage restores the real production baseline fence",
+    );
+    assert.equal(panel.state.baselineGraphHash, "production-baseline-hash");
+
+    controls.prevButton.click();
+    await waitFor(() => panel.state.__demoStage === "ready_to_apply");
+    assert.equal(panel.state.previewEnabled, true, "back navigation restores the actual candidate preview");
+    assert.equal(panel.state.chatMessages.length, 2, "back navigation preserves the review transcript");
+    assert.equal(panel.state.__demoStageIndex, 2, "review cursor survives shared lifecycle commits");
   } finally {
     await harness.dispose();
   }
@@ -479,6 +581,10 @@ test("demo Apply and Reject do not POST to the backend accept/reject routes", as
 
     assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW, "panel is in review state");
     assert.equal(panel.state.__demoMode, true, "panel is in demo mode");
+    assert.ok(
+      !harness.requests.some((r) => r.url.includes("/vibecomfy/agent-edit/chat?session_id=demo-sess-a")),
+      "demo terminal commit must not rehydrate its synthetic session",
+    );
 
     // The button click handler does not consult the disabled attribute; ensure the
     // button itself is enabled to confirm the UI considers the action available.
@@ -499,6 +605,11 @@ test("demo Apply and Reject do not POST to the backend accept/reject routes", as
     assert.equal(panel.state.__demoMode, false, "__demoMode is disabled after demo Apply");
 
     // Restore demo state to exercise Reject on the same panel.
+    Object.assign(panel.state, {
+      sessionId: "production-session-before-reject",
+      turnId: "production-turn-before-reject",
+      baselineTurnId: "production-baseline-before-reject",
+    });
     panel.previewPicker.loadButton.click();
     await waitFor(() => panel.state.__demoStage === "before_send", { label: "integrated second load reset" });
     panel.previewPicker.nextButton.click();
@@ -518,6 +629,13 @@ test("demo Apply and Reject do not POST to the backend accept/reject routes", as
     );
     assert.equal(panel.state.phase, PANEL_STATE.IDLE, "demo Reject transitions to IDLE");
     assert.equal(panel.state.__demoMode, undefined, "__demoMode is cleared after demo Reject");
+    assert.equal(
+      panel.state.sessionId,
+      "production-session-before-reject",
+      "demo Reject restores the pre-demo production session",
+    );
+    assert.equal(panel.state.turnId, "production-turn-before-reject");
+    assert.equal(panel.state.baselineTurnId, "production-baseline-before-reject");
   } finally {
     await harness.dispose();
   }

@@ -264,9 +264,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 68 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 69 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 68);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 69);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -327,12 +327,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 68 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 68);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 69);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 68 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 69 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -345,7 +345,7 @@ test("createAgentEditState initializes all 68 lifecycle fields to defaults", () 
 
   // No extra own keys beyond the lifecycle fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 68);
+  assert.equal(ownKeys.length, 69);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -6064,6 +6064,63 @@ test("SCOPE_SWITCH gives a never-seen workflow fresh state and invalidates depar
   assert.equal(obligations.abortSubmitController, abortController);
   assert.equal(obligations.rehydrateChat, true);
   assert.equal(obligations.restored, false);
+});
+
+test("SCOPE_REVISION updates fingerprint without resetting same-workflow conversation state", () => {
+  const candidateGraph = { nodes: [{ id: 2, type: "Output" }], links: [] };
+  const messages = [
+    { role: "user", text: "Add an output", turn_id: "0002" },
+    { role: "agent", text: "Added Output", turn_id: "0002" },
+  ];
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    chatScopeId: "tab:workflow-uuid",
+    chatScopeFingerprint: "revision-before",
+    scopeActivationEpoch: 9,
+    sessionId: "session-kept",
+    turnId: "0002",
+    candidateGraph,
+    candidateGraphHash: "candidate-kept",
+    chatMessages: messages,
+    transcriptMessages: messages.slice(),
+    previewEnabled: true,
+  });
+
+  const obligations = transition(panel, "SCOPE_REVISION", {
+    scopeId: "tab:workflow-uuid",
+    fingerprint: "revision-after",
+  });
+
+  assert.equal(panel.state.chatScopeFingerprint, "revision-after");
+  assert.equal(panel.state.scopeActivationEpoch, 9);
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.sessionId, "session-kept");
+  assert.equal(panel.state.turnId, "0002");
+  assert.equal(panel.state.candidateGraph, candidateGraph);
+  assert.deepEqual(panel.state.chatMessages, messages);
+  assert.deepEqual(panel.state.transcriptMessages, messages);
+  assert.equal(panel.state.previewEnabled, true);
+  assert.deepEqual(obligations, {
+    render: false,
+    scopeRevisionUpdated: true,
+  });
+});
+
+test("SCOPE_REVISION refuses a stale callback from another workflow", () => {
+  const panel = makePanel({
+    chatScopeId: "tab:active-workflow",
+    chatScopeFingerprint: "active-revision",
+    sessionId: "active-session",
+  });
+
+  const obligations = transition(panel, "SCOPE_REVISION", {
+    scopeId: "tab:departed-workflow",
+    fingerprint: "stale-revision",
+  });
+
+  assert.equal(panel.state.chatScopeFingerprint, "active-revision");
+  assert.equal(panel.state.sessionId, "active-session");
+  assert.deepEqual(obligations, { render: false, stale: true });
 });
 
 test("T9: NEW_CONVERSATION queueGuardClearScope is null when no scope is active", () => {
