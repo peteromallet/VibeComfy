@@ -6885,6 +6885,7 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel(), runtime = get
       ? { ...panel.__renderFailureCounts }
       : {},
     previewDiff: previewDiffSummary,
+    previewDomProjection: runtime?._previewDomProjectionReport || null,
     debugError,
     mountMode: panel?.state?.mountMode || null,
     flushPending: hasPendingAgentPanelFlush(panel),

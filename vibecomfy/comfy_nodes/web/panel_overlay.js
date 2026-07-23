@@ -759,7 +759,15 @@ export function syncPreviewDomOverlay(app, ctx, diff, candidateGraph, deps = {})
     widgetValuePreviewText,
   } = deps;
   const doc = liveCanvasElement(app)?.ownerDocument || (typeof document !== "undefined" ? document : null);
+  const runtime = getAgentPanelRuntime();
+  const projectionReport = {
+    attemptedFields: 0,
+    projectedFields: 0,
+    skippedFields: [],
+  };
+  runtime._previewDomProjectionReport = projectionReport;
   if (!doc?.body || !ctx || !diff) {
+    projectionReport.unavailable = !doc?.body ? "document" : !ctx ? "context" : "diff";
     clearPreviewDomOverlay(doc);
     return;
   }
@@ -821,20 +829,51 @@ export function syncPreviewDomOverlay(app, ctx, diff, candidateGraph, deps = {})
     };
     const drawn = new Set();
     for (const field of fields) {
+      projectionReport.attemptedFields += 1;
       const index = resolveWidgetFieldIndex(field, node);
       if (index == null || !Number.isFinite(index) || index < 0 || drawn.has(index)) {
+        projectionReport.skippedFields.push({
+          uid,
+          fieldPath: field?.field_path || null,
+          reason: drawn.has(index) ? "duplicate-widget" : "widget-index",
+        });
         continue;
       }
       drawn.add(index);
       const valueText = fieldNewValueLabel(field);
       if (!valueText) {
+        projectionReport.skippedFields.push({
+          uid,
+          fieldPath: field?.field_path || null,
+          index,
+          reason: "candidate-value",
+          newValuePresent: Object.prototype.hasOwnProperty.call(field || {}, "new_value"),
+        });
         continue;
       }
       const widget = widgets[index];
       const labelText = widget && typeof widget.name === "string" ? widget.name : "";
       const widgetBounds = rowBoundsForWidgetIndex(index, valueText);
-      if (appendPreviewDomChip(root, app, widgetBounds, valueText, labelText, widgetDomViewport(widget))) {
+      const viewportOverride = widgetDomViewport(widget);
+      if (appendPreviewDomChip(root, app, widgetBounds, valueText, labelText, viewportOverride)) {
         chipCount += 1;
+        projectionReport.projectedFields += 1;
+      } else {
+        projectionReport.skippedFields.push({
+          uid,
+          fieldPath: field?.field_path || null,
+          index,
+          reason: "viewport",
+          widgetBounds,
+          viewportOverride: viewportOverride ? {
+            left: viewportOverride.left,
+            top: viewportOverride.top,
+            width: viewportOverride.width,
+            height: viewportOverride.height,
+          } : null,
+          graphViewport: graphBoundsToViewport(widgetBounds, app),
+          canvas: canvasRect(app),
+        });
       }
     }
   }
