@@ -480,6 +480,10 @@ def _actionable_plan_dependency_status(
                 for item in (getattr(resolution, "warnings", ()) or ())
                 if str(item).strip()
             )
+            registry_resolution_is_ambiguous = any(
+                "ambiguous" in warning.casefold()
+                for warning in warnings
+            )
             attempted.extend(
                 str(item)
                 for item in (getattr(resolution, "source_tiers_attempted", ()) or ())
@@ -504,7 +508,10 @@ def _actionable_plan_dependency_status(
                     }
                     and (
                         _resolver_candidate_supports_class(candidate, class_type)
-                        or source in {"comfy-registry", "comfy_registry"}
+                        or (
+                            source in {"comfy-registry", "comfy_registry"}
+                            and not registry_resolution_is_ambiguous
+                        )
                     )
                 ):
                     if _candidate_stable_key(candidate) not in {

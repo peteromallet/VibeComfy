@@ -1978,6 +1978,7 @@ _DURABLE_ENVELOPE_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "graph_unchanged",
     "no_candidate_reason",
     "change_details",
+    "runtime_dependencies",
     "audit_ref",
     "artifacts",
     "gates",

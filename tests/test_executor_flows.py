@@ -6166,6 +6166,13 @@ def _fake_handle_agent_edit_durable_revise(payload: dict, **kwargs: Any) -> dict
             "removed_nodes": [],
             "summary": "Added 1 node.",
         },
+        "runtime_dependencies": [
+            {
+                "class_type": "RegistryOnlyNode",
+                "availability": "registry_resolvable",
+                "resolver_candidates": [{"pack": {"slug": "registry-only"}}],
+            }
+        ],
         "audit_ref": {
             "path": "sessions/sess-durable-revise/turns/turn-1/audit/audit.json",
             "format": "json",
@@ -6362,6 +6369,13 @@ class TestDurableEditEnvelopePreservation:
         assert isinstance(serialized.get("change_details"), dict), (
             "ExecutorResult missing durable change_details"
         )
+        assert serialized.get("runtime_dependencies") == [
+            {
+                "class_type": "RegistryOnlyNode",
+                "availability": "registry_resolvable",
+                "resolver_candidates": [{"pack": {"slug": "registry-only"}}],
+            }
+        ]
 
         # report.executor metadata must be present (not flattened)
         report = serialized.get("report")

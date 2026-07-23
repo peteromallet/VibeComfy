@@ -4462,6 +4462,53 @@ def test_registry_evidence_only_candidate_is_resolvable_without_live_schema(
     assert dependencies[0]["resolver_candidates"] == [registry_candidate]
 
 
+def test_ambiguous_registry_evidence_only_candidates_are_not_exact_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _actionable_plan_dependency_status
+
+    def candidate(slug: str) -> dict[str, object]:
+        return {
+            "pack": {
+                "slug": slug,
+                "source": "comfy-registry",
+                "registry_id": slug,
+            },
+            "expected_classes": [],
+            "validation_mode": "evidence_only",
+            "provisional_schema": {},
+            "stable_install_hash": slug,
+        }
+
+    monkeypatch.setattr(
+        "vibecomfy.registry.pack_resolver.resolve_missing_nodes",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            candidates=(candidate("unrelated-a"), candidate("unrelated-b")),
+            warnings=("Comfy Registry returned ambiguous candidates for 'Note'.",),
+            source_tiers_attempted=("comfy-registry",),
+        ),
+    )
+    graph = _ui_graph()
+    state = _make_state(
+        graph=graph,
+        guard_original_ui=graph,
+        schema_provider=_batch_repl_provider(),
+        execution_protocol_notes={
+            "adaptation_plan_actionability": {"actionability": "actionable"},
+            "adaptation_plan": {
+                "required_new_nodes": [{"class_type": "Note"}],
+            },
+        },
+    )
+
+    dependencies = _actionable_plan_dependency_status(state)
+
+    assert len(dependencies) == 1
+    assert dependencies[0]["class_type"] == "Note"
+    assert dependencies[0]["availability"] == "unresolved"
+    assert "resolver_candidates" not in dependencies[0]
+
+
 def test_rejected_terminal_clarify_is_durable_budget_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
