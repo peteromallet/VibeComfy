@@ -11419,7 +11419,6 @@ test("VibeComfy edited widget DOM preview projects live graph bounds when no wid
         type: "CLIPTextEncode",
         pos: [100, 220],
         size: [320, 170],
-        properties: { vibecomfy_uid: "uid-no-dom-rect-widget" },
         inputs: [],
         outputs: [{ name: "CONDITIONING" }],
         widgets_values: ["old prompt"],
@@ -11462,8 +11461,8 @@ test("VibeComfy edited widget DOM preview projects live graph bounds when no wid
       harness.app,
       ctx,
       {
-        edited: [{ uid: "uid-no-dom-rect-widget", class_type: "CLIPTextEncode", changedWidgetIndices: [0] }],
-        edited_fields: [{ uid: "uid-no-dom-rect-widget", field_path: "widgets_values.0", new_value: "new prompt" }],
+        edited: [{ uid: "9", class_type: "CLIPTextEncode", changedWidgetIndices: [0] }],
+        edited_fields: [{ uid: "9", field_path: "widgets_values.0", new_value: "new prompt" }],
         added: [],
         removed: [],
         removed_named: [],

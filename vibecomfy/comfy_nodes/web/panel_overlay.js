@@ -692,7 +692,13 @@ function buildOverlayDrawModel(ctx, diff, candidateGraph, deps = {}) {
     try {
       return nodeIdentityV1(node);
     } catch (_error) {
-      return null;
+      // External/native Comfy workflows commonly predate vibecomfy_uid.
+      // Preview diff identity already falls back to the native node id for
+      // those graphs; the renderer must consume that same resolved identity
+      // instead of imposing a stricter, contradictory lookup policy.
+      const resolvedUid = typeof getUid === "function" ? getUid(node) : null;
+      const fallback = resolvedUid ?? node?.id;
+      return fallback == null ? null : String(fallback);
     }
   };
   const liveByUid = new Map();
