@@ -171,11 +171,20 @@ so the fully composed runtime is proven before terminal cleanup/audit.
   the same canonical preview projection as live arrival: identical semantic
   edited fields, added/removed nodes and links, layout arrows, candidate/hash
   identity, and bubble detail. The stage is not considered ready until its
-  draw-model cache is current and the affected before/after bounds intersect
-  the viewport. Tests may not force an extra draw, fit the candidate graph, or
-  otherwise repair the viewport before asserting and capturing the raw frame.
+  candidate-qualified projection receipt accounts for every change and the
+  affected before/after bounds intersect the viewport. A repaint request or
+  current draw-model cache alone is insufficient. Tests may not force an extra
+  draw, fit the candidate graph, or otherwise repair the viewport before
+  asserting and capturing the raw frame.
   Include an added node beyond the original bounds, a semantic widget edit,
   a rewire/removal, and a layout-only case.
+- Run preview parity under both legacy canvas rendering and Nodes 2.0. Include
+  negative and zero live graph coordinates, candidate positions in a different
+  coordinate frame, and an external workflow whose nodes have native IDs but no
+  `vibecomfy_uid`. Pixel assertions must see the exact candidate widget values
+  and changed links; `draw()` calls, diff presence, and cache presence do not
+  satisfy acceptance. Stale queued draws may not erase a newer candidate's
+  projection.
 - The SD1.5 case finalizes from an empty real canvas, and injected link,
   projection, and rollback failures leave durable step-level receipts.
 - No finalized composer notice appears, the finalized state does not add a chat

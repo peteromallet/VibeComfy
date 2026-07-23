@@ -42,6 +42,14 @@ does not reconcile with current source.
 - Give preview and Apply the same planner inputs, including the native semantic
   widget-carrier resolver. Canonical-delta preview failure must fail visibly;
   it may not downgrade to a lossy legacy graph/report diff that omits ops.
+- Give diff generation, overlay lookup, DOM/canvas projection, and Apply one
+  resolved node-identity contract. External/native workflows without
+  `vibecomfy_uid` may use the declared native-ID fallback, but no consumer may
+  independently require a stricter identity and silently drop the node.
+- Make candidate arrival visibly ordered: complete field/delta commit, geometry
+  resolution, top-layer projection, then a receipt with attempted, projected,
+  and typed-skipped changes. Review readiness cannot be inferred from a repaint
+  request or draw-model cache created before the terminal commit.
 - Delete every enumerated native mutation closure, fallback, copied stable-index/
   link helper, forward graph loading path, dead import/export, and compatibility
   facade in the same change.
@@ -114,6 +122,9 @@ compatibility/lifecycle matrix, terminal repository audit, and nested scopes.
 - Candidate-arrival parity proof feeds the same archived response through live
   and fixture policies and obtains identical normalized field/link delta,
   candidate identity, layout baseline, and overlay draw model.
+- Identity/projection proof includes an unmodified external workflow with no
+  `vibecomfy_uid`: native-ID fallback resolves identically from diff through
+  rendered overlay, and the ready receipt accounts for every semantic change.
 - Focused adapter/ownership and all broad browser, roundtrip, Python, and parity
   gates pass; two independent acceptances find no partial owner or mock proof.
 

@@ -2,6 +2,7 @@
   "r1-private-native-core": [
     ".megaplan/initiatives/agent-edit-robustness-finish/FOUNDATION.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-foundation-ancestry.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-node-identity-resolution-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-acceptance.md",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r1-native-execution-fault-matrix.json"
   ],
@@ -16,7 +17,8 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-native-authority-ledger.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-real-comfy-incidents.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-nonproduction-playback-ownership.json",
-    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-candidate-arrival-projection-parity.json"
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-candidate-arrival-projection-parity.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r3-preview-projection-receipt-parity.json"
   ],
   "r4-single-verifier": [
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r4-acceptance.md",
@@ -36,6 +38,7 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-transport-authority-losslessness.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-implementation-plan-losslessness.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-workflow-chat-identity-matrix.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-review-readiness-draw-fence-matrix.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r5-roundtrip-ownership-audit.md"
   ],
   "r6-recovery-undo-legacy": [
@@ -55,6 +58,8 @@
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-playback-isolation.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-asset-semantic-audit.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-demo-live-visual-parity.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-preview-projection-receipts.json",
+    ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-preview-pixel-dom-evidence.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-registered-route-composition.json",
     ".megaplan/initiatives/agent-edit-robustness-finish/proof/r7-compatibility-attribution.json"
   ],

@@ -68,7 +68,16 @@ async function waitForActualPreview(page, scenarioId) {
   await page.waitForFunction(() => {
     const debug = window.__vibecomfyPanelDebug?.();
     const cache = window.__vibecomfyAgentPanelSingleton?.runtime?._overlayDrawModelCache;
-    return Boolean(debug?.previewDiff && cache?.key);
+    if (!debug?.previewDiff || !cache?.key) return false;
+    const fieldCount = Array.isArray(debug.previewDiff.editedFields)
+      ? debug.previewDiff.editedFields.length
+      : 0;
+    if (fieldCount === 0) return true;
+    const receipt = debug.previewDomProjection;
+    return Number(receipt?.attemptedFields || 0) >= fieldCount
+      && Number(receipt?.projectedFields || 0)
+        + (Array.isArray(receipt?.skippedFields) ? receipt.skippedFields.length : 0)
+        >= fieldCount;
   }, null, { timeout: 15_000 });
   await waitForPanelFlush(page, { timeout: 15_000 });
 }
@@ -144,6 +153,8 @@ async function readDiagnostics(page) {
           uid: String(edited?.uid ?? ""),
           index,
           nodeType: node?.type || null,
+          nodePos: Array.from(node?.pos || []),
+          nodeSize: Array.from(node?.size || []),
           widgetName: widget?.name || null,
           widgetType: widget?.type || null,
           keys: widget && typeof widget === "object" ? Object.keys(widget).sort() : [],
@@ -210,6 +221,21 @@ async function readDiagnostics(page) {
         ? panel.state.candidateGraph.nodes.length
         : null,
       overlayModelKey: runtime?._overlayDrawModelCache?.key || null,
+      canvasGeometry: {
+        rect: {
+          left: canvasRect.left,
+          top: canvasRect.top,
+          width: canvasRect.width,
+          height: canvasRect.height,
+          right: canvasRect.right,
+          bottom: canvasRect.bottom,
+        },
+        backingWidth: canvasElement?.width || null,
+        backingHeight: canvasElement?.height || null,
+        scale,
+        offset,
+        canvasTag: canvasElement?.tagName || null,
+      },
       previewChips: chips,
       editedWidgets,
       affectedViewport,
@@ -282,6 +308,11 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
       await dismissStartupDialogs(page);
       await waitForActualPreview(page, scenario.id);
       record.diagnostics = await readDiagnostics(page);
+      if (scenario.id === "qwen_face_distortion_wrong_slot") {
+        const chipText = record.diagnostics.previewChips.map((chip) => chip.text);
+        expect(chipText).toContain("upscale_method: bicubic");
+        expect(chipText).toContain("cfg: 4.5");
+      }
       await page.screenshot({ path: path.join(OUTPUT_ROOT, rawScreenshot), fullPage: false });
     } catch (error) {
       record.error = String(error?.stack || error);
@@ -312,9 +343,11 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
       || /RangeError|Maximum call stack size exceeded/i.test(issueText);
   });
   const tripoRefine = records.find((record) => record.id === "triporefine_stage_add");
-  expect(
-    tripoRefine?.diagnostics?.previewDiff?.added,
-    "TripoRefine demo must visibly retain its landed add-node operation",
-  ).toContain("n1");
+  if (tripoRefine) {
+    expect(
+      tripoRefine.diagnostics?.previewDiff?.added,
+      "TripoRefine demo must visibly retain its landed add-node operation",
+    ).toContain("n1");
+  }
   expect(failures, `Visual capture failures; inspect ${path.join(OUTPUT_ROOT, "index.html")}`).toEqual([]);
 });

@@ -33,6 +33,12 @@ match current source and environment hashes.
   preview projection contract and changed-region viewport policy; static and
   composed parity gates must fail on silently dropped outcome, field-change,
   layout, hash, or typed-delta evidence.
+- Reject any second node-identity interpretation between diff, overlay, DOM/
+  canvas projection, and Apply, including a strict-UID renderer layered over a
+  native-ID-capable diff. Reject positive-coordinate validity heuristics,
+  candidate-coordinate fallback for valid live geometry, legacy-foreground-only
+  Nodes 2.0 synchronization, and review readiness without a candidate-qualified
+  visible-projection receipt.
 - Audit every typed request/response adapter and reconstructed payload on the
   mutation path against the R5 authority-field ledger. Reject silent field
   loss, permissive extra-field dropping, parallel partial DTOs, or handwritten
@@ -122,6 +128,9 @@ or unrelated repository cleanup.
 
 - Repository-wide cleanup finds no unjustified duplicate/dead owner, export/import,
   fallback path, shim, canonicalizer, identity heuristic, scanner bypass, or stale doc.
+- Static and composed gates prove one resolved node identity reaches diff,
+  overlay, visible projection, and Apply; stale/partial draws cannot erase the
+  current candidate and every ready review has an accountable projection receipt.
 - Static and composed gates prove no authority field can be accepted at HTTP
   ingress and then disappear at an executor/controller/session projection.
 - The declared fingerprint-key migration remains explainable and tested until

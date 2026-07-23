@@ -76,6 +76,12 @@ event wiring, and view composition.
   handlers and executor calls must resolve through one module/lock domain.
 - Fence every continuation by all declared panel/workflow/activation/operation/
   submit/apply/session/turn/candidate/transaction/lease/generation dimensions.
+- Own review readiness as an ordered controller obligation: candidate commit,
+  fenced projection, then a candidate-qualified visible-projection receipt.
+  Apply/Reject and staged-demo advancement cannot become ready from phase or
+  cache presence alone. Queued canvas, RAF, and DOM callbacks recheck workflow,
+  activation, candidate/hash, live revision, projection generation, and
+  viewport epoch immediately before publishing pixels or a ready token.
 - Preserve the lifecycle reducer as sole legal-transition owner.
 - Prove fresh activation versus exact restoration, switching during every phase,
   late callbacks, refresh, empty workflows, and structurally identical tabs.
@@ -118,6 +124,9 @@ recovery behavior, R7 environment/matrix, or R8 terminal audit.
   different baseline-sync paths.
 - Scope activation deactivates the departed workflow before fetching the new
   scope, preventing preserved state from becoming a cross-workflow projection.
+- Candidate replacement/navigation between queued draw and paint produces zero
+  old pixels or DOM chips; only the newest matching projection receipt can
+  expose review controls.
 - R5 owns workflow-affine browser binding and the safe transcript projection;
   R6 owns durable receipt and restart reconstruction.
 

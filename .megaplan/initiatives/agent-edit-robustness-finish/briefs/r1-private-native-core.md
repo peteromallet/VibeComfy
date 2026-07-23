@@ -27,6 +27,12 @@ faults but unreachable from production consumers.
 - Resolve supported real ComfyUI node, group, link, registry, measurement, and
   serialization capabilities by stable identity; preserve native stores or
   issue a typed refusal.
+- Build one versioned node-identity resolver for every later planner, adapter,
+  and renderer consumer. Prefer an issued stable UID. For an imported external
+  workflow that lacks one, permit its preserved serialized native node ID only
+  inside the same workflow UUID and baseline/candidate revision pair; record
+  the identity source and fence in the receipt, and refuse duplicate,
+  renumbered, missing, or cross-revision ambiguity.
 - Implement privately the supported structural/layout canonical operations,
   reverse-causal inverse over the exact landed prefix, and receipt-bound
   compensation.
@@ -51,8 +57,9 @@ faults but unreachable from production consumers.
 - The exact external fence is never synthesized or weakened.
 - Restoration accepts only closure-private, receipt-bound compensation.
 - Native execution is synchronous within the fenced sequence.
-- Stable UID is mandatory; native IDs, titles, positions, and order are not
-  substitutes.
+- Issued stable UID is authoritative. The only substitute is the declared,
+  receipt-recorded preserved-native-ID migration boundary for an imported
+  UID-less workflow; titles, positions, and order never identify nodes.
 - One implementation owns each serializer, clone/freeze helper, identity rule,
   and envelope shape.
 
@@ -81,6 +88,8 @@ unless the evidence is genuinely absent.
 - Every supported operation and partial-prefix failure has externally
   instrumented proof; no self-attested write counter is accepted.
 - Unsupported native shapes refuse before mutation with bounded diagnostics.
+- Identity fixtures cover issued UID, UID-less preserved native ID, duplicate
+  native ID, candidate renumbering, and cross-workflow/revision ambiguity.
 - Receipt, execution, layout, materialization, prepared-plan, dependency-closure,
   ownership, browser-contract, and relevant broad suites are green.
 - No production consumer can reach the private executor; no ledger row moves.

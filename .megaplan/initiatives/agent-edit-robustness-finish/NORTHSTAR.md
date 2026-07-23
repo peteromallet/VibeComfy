@@ -100,6 +100,16 @@ same response produces the same semantic field/link diff, layout baseline,
 overlay model, and changed-region viewport in every mode. Synthetic playback
 may suppress external side effects, but it may not invent a second projection
 or stage owner.
+That projector also owns preview identity and visible completion. Diff,
+overlay-model, DOM/canvas rendering, and Apply planning consume one resolved
+node identity; an external workflow without `vibecomfy_uid` uses the same typed
+native-ID fallback at every layer rather than disappearing at a stricter
+renderer boundary. Candidate arrival is ordered: commit the complete semantic
+field/delta state, resolve live geometry, project the visible review, then emit
+a projection receipt before declaring review ready. A stale repaint or
+draw-model cache is not visible-completion evidence. Signed graph coordinates
+are valid, and Nodes 2.0 cannot depend solely on a legacy
+`onDrawForeground` callback.
 Preflight is an explicit no-mutation boundary. A failure before the first native
 write rolls back only the prepared lease and must not run inverse mutation,
 whole-graph restoration, or claim that the canvas was mutated.
