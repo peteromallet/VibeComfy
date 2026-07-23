@@ -95,6 +95,22 @@ class TestDemoManifest:
         assert len(result["scenarios"]) == 13
         assert result["source_run_tree"] == "out/agentic/agentic-100-20260630-021138"
 
+    def test_every_curated_scenario_resolves_from_packaged_assets(self):
+        manifest = _load_demo_manifest()
+        for record in manifest["scenarios"]:
+            assert record.get("asset"), record["id"]
+            result, status = _resolve_demo_scenario(record["id"])
+            assert status == 200, (record["id"], result)
+            assert result["ok"] is True
+            assert isinstance(result["original_graph"].get("nodes"), list)
+            assert isinstance(result["candidate_graph"].get("nodes"), list)
+
+    def test_qwen_demo_is_bound_to_the_wrong_slot_fix(self):
+        result, status = _resolve_demo_scenario("qwen_face_distortion_wrong_slot")
+        assert status == 200
+        assert "Wrong output slot" in result["agent_reply"]
+        assert "denoised_output" in result["agent_reply"]
+
 
 # ── Scenario resolution with mocked filesystem roots ───────────────────────────
 
@@ -125,8 +141,21 @@ class TestDemoScenarioResolution:
             assert status == 400, f"Expected 400 for {bad_id!r}, got {status}"
             assert result["ok"] is False
 
-    def test_missing_run_dir_returns_404(self, demo_fs):
-        # Valid ID, but the per-scenario run directory has not been created.
+    def test_missing_run_dir_returns_404(self, demo_fs, monkeypatch):
+        # Synthetic legacy records without a bundled asset still fail closed
+        # when their test run directory is absent.
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.routes._load_demo_manifest",
+            lambda: {
+                "source_run_tree": "test",
+                "scenarios": [
+                    {
+                        "id": "tts_emotion_injection",
+                        "run_location": {"run_dir": "tts_emotion_injection"},
+                    }
+                ],
+            },
+        )
         result, status = _resolve_demo_scenario("tts_emotion_injection")
         assert status == 404
         assert result["ok"] is False

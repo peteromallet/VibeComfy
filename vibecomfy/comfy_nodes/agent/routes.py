@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import dataclasses
+import gzip
 import hashlib
 import json
 import logging
@@ -172,8 +173,18 @@ def _demo_repo_root() -> Path:
 
 
 def _demo_run_root() -> Path:
-    """Fixed run tree for the curated demo scenarios."""
+    """Legacy test seam for pre-bundle demo fixtures."""
     return _demo_repo_root() / "out" / "agentic" / "agentic-100-20260630-021138"
+
+
+def _load_demo_asset_bundle() -> dict[str, Any]:
+    """Load immutable scenario payloads shipped with the VibeComfy package."""
+    path = Path(__file__).resolve().parent / "demo_scenario_assets.json.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict) or not isinstance(payload.get("scenarios"), dict):
+        raise ValueError("Bundled demo scenario asset is invalid")
+    return payload
 
 
 def _load_demo_manifest() -> dict[str, Any]:
@@ -353,6 +364,43 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
     if record is None:
         return {"ok": False, "error": "Scenario not found"}, 404
 
+    asset_name = record.get("asset")
+    if isinstance(asset_name, str) and asset_name:
+        try:
+            bundle = _load_demo_asset_bundle()
+        except FileNotFoundError:
+            return {"ok": False, "error": "Scenario asset not found"}, 404
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to load scenario asset: {exc}"}, 500
+        payload = bundle["scenarios"].get(scenario_id)
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "Scenario asset not found"}, 404
+        original_graph = payload.get("original_graph")
+        candidate_graph = payload.get("candidate_graph")
+        if not _is_litegraph_ui_graph(original_graph):
+            return {"ok": False, "error": "Bundled original graph is invalid"}, 500
+        if not _is_litegraph_ui_graph(candidate_graph):
+            return {"ok": False, "error": "Bundled candidate graph is invalid"}, 500
+        candidate_graph = _inherit_demo_layout(candidate_graph, original_graph)
+        response = payload.get("response")
+        if not isinstance(response, dict):
+            response = {}
+        return {
+            "ok": True,
+            "scenario": record,
+            "source_run_tree": manifest.get("source_run_tree"),
+            "original_graph": original_graph,
+            "candidate_graph": candidate_graph,
+            "agent_reply": response.get("reply") or response.get("message") or "",
+            "eligibility": response.get("apply_eligibility") or response.get("eligibility") or {},
+            "change_details": response.get("change_details") or {},
+            "report": response.get("report") or {},
+            "session_id": response.get("session_id") or f"demo-{scenario_id}",
+            "turn_id": response.get("turn_id") or f"demo-{scenario_id}-turn",
+        }, 200
+
+    # Kept only as a test seam for synthetic manifests. Curated production
+    # records always name an immutable package asset above.
     run_location = record.get("run_location", {})
     run_dir_name = run_location.get("run_dir")
     if not isinstance(run_dir_name, str) or not run_dir_name:

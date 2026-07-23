@@ -1,6 +1,6 @@
 {
   "$schema": "../agent_demo_scenarios_schema.json",
-  "description": "Curated, deterministic demo scenarios for the VibeComfy preview-query picker. Each record points to a saved agentic run under out/agentic/agentic-100-20260630-021138/ but is intentionally usable even when that directory is not present (routes read artifacts at runtime only).",
+  "description": "Curated, deterministic demo scenarios for the VibeComfy preview-query picker. Each record names an immutable scenario asset shipped with the package and retains its source run location as provenance.",
   "source_run_tree": "out/agentic/agentic-100-20260630-021138",
   "scenarios": [
     {
@@ -10,6 +10,7 @@
       "description": "Adds emotion and emphasis parameters to a text-to-speech workflow without changing the script text.",
       "category": "audio / TTS",
       "required_node_packs": ["ComfyUI-Qwen3-TTS", "ComfyUI-QwenTTS"],
+      "asset": "tts_emotion_injection.json",
       "run_location": {
         "run_dir": "tts_emotion_injection",
         "original_ui": "original.ui.json",
@@ -24,8 +25,9 @@
       "description": "Corrects a wiring/output-slot mistake in a Qwen image-editing graph that was causing facial distortion.",
       "category": "image / edit",
       "required_node_packs": ["ComfyUI-Qwen-Image"],
+      "asset": "qwen_face_distortion_wrong_slot.json",
       "run_location": {
-        "run_dir": "qwen_face_distortion_wrong_slot",
+        "run_dir": "image-two-stage-qwen-image-generation",
         "original_ui": "original.ui.json",
         "response_json": "response.json",
         "candidate_ui": "candidate.ui.json"
@@ -38,6 +40,7 @@
       "description": "Preserves character identity in a VACE-driven video generation workflow by padding the reference image to the expected resolution.",
       "category": "video / identity",
       "required_node_packs": ["ComfyUI-VACE"],
+      "asset": "vace_identity_padded_reference.json",
       "run_location": {
         "run_dir": "vace_identity_padded_reference",
         "original_ui": "original.ui.json",
@@ -52,6 +55,7 @@
       "description": "Inserts a TripoRefine refinement stage into a 3D-generation workflow to improve output mesh quality.",
       "category": "3D / mesh",
       "required_node_packs": ["ComfyUI-Tripo"],
+      "asset": "triporefine_stage_add.json",
       "run_location": {
         "run_dir": "triporefine_stage_add",
         "original_ui": "original.ui.json",
@@ -66,6 +70,7 @@
       "description": "Aligns frame-rate and audio-sample-rate settings in a video workflow to eliminate lipsync drift.",
       "category": "video / timing",
       "required_node_packs": [],
+      "asset": "av_fps_desync.json",
       "run_location": {
         "run_dir": "av_fps_desync",
         "original_ui": "original.ui.json",
@@ -80,6 +85,7 @@
       "description": "Updates prompts and conditioning in an SDXL image-generation workflow to render a woven fabric material instead of plastic.",
       "category": "image / material",
       "required_node_packs": ["ComfyUI-SDXL"],
+      "asset": "sdxl_plastic_fabric.json",
       "run_location": {
         "run_dir": "sdxl_plastic_fabric",
         "original_ui": "original.ui.json",
@@ -94,6 +100,7 @@
       "description": "Adds ModelSamplingSD3 scaling into both Wan2.2 UNet chains and separates the high-noise LoRA strength.",
       "category": "video / diffusion",
       "required_node_packs": ["ComfyUI-WanVideoWrapper"],
+      "asset": "wan22_latent_scaling_fix.json",
       "run_location": {
         "run_dir": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
         "original_ui": "original.ui.json",
@@ -108,6 +115,7 @@
       "description": "Finds and removes a hardcoded caption that was overriding Florence2 image understanding before the LLM prompt stage.",
       "category": "multi / image-to-video",
       "required_node_packs": ["ComfyUI-Florence2", "ComfyUI-PYSSSS"],
+      "asset": "llm_caption_override.json",
       "run_location": {
         "run_dir": "multi-image-to-video-with-llm",
         "original_ui": "original.ui.json",
@@ -122,6 +130,7 @@
       "description": "Discovers the LineArt preprocessor was disabled, enables the ControlNet conditioning path, and improves resolution.",
       "category": "image/video / control",
       "required_node_packs": ["ComfyUI-AnimateDiff-Evolved", "ComfyUI-ControlNet-Aux"],
+      "asset": "animatediff_lineart_enable.json",
       "run_location": {
         "run_dir": "image-animatediff-video-from-images-with",
         "original_ui": "original.ui.json",
@@ -136,6 +145,7 @@
       "description": "Uses research-backed 3D parameter changes to reduce floating mesh artifacts while preserving detail.",
       "category": "3D / mesh",
       "required_node_packs": ["ComfyUI-Hunyuan3DWrapper"],
+      "asset": "mesh_noise_cleanup.json",
       "run_location": {
         "run_dir": "3d-generates-a-3d-mesh-from",
         "original_ui": "original.ui.json",
@@ -150,6 +160,7 @@
       "description": "Applies a multi-target batch edit that resizes all four preview-grid image resize nodes in one turn.",
       "category": "image / batch edit",
       "required_node_packs": ["ComfyUI-KJNodes"],
+      "asset": "grid_cells_512.json",
       "run_location": {
         "run_dir": "image-background-removal-and-grid-composition-54a681",
         "original_ui": "original.ui.json",
@@ -164,6 +175,7 @@
       "description": "Replaces a 2x2 grid-composite node with ImageConcatMulti and rewires the split images into a row layout.",
       "category": "image / layout",
       "required_node_packs": ["ComfyUI-KJNodes"],
+      "asset": "seed_grid_to_row.json",
       "run_location": {
         "run_dir": "image-generates-a-2x2-seed-variation",
         "original_ui": "original.ui.json",
@@ -178,6 +190,7 @@
       "description": "Diagnoses a sampler initialized from the wrong reference-frame latent and disconnects that edge so image conditioning can drive the result.",
       "category": "video / image-to-video",
       "required_node_packs": ["ComfyUI-HunyuanVideoWrapper"],
+      "asset": "hunyuan_i2v_latent_source.json",
       "run_location": {
         "run_dir": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
         "original_ui": "original.ui.json",
