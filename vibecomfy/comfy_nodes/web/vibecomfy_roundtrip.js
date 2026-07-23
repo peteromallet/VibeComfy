@@ -7767,8 +7767,13 @@ function refreshPreviewDomOverlay() {
     diff._candidateGraph || panel.state.candidateGraph,
     previewOverlayDeps(),
   );
-  refreshReport.result = "projected";
-  return true;
+  refreshReport.projection = runtime?._previewDomProjectionReport
+    ? clonePlainData(runtime._previewDomProjectionReport)
+    : null;
+  refreshReport.result = refreshReport.projection?.projectedFields > 0
+    ? "projected"
+    : "projection-empty";
+  return refreshReport.result === "projected";
 }
 
 function _graphNodeCount(graph) {
