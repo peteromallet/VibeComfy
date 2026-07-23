@@ -234,11 +234,13 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       ...(harness.app.graph || {}),
       setDirtyCanvas: (...args) => canvasDraws.push({ method: "setDirtyCanvas", args }),
     };
+    const demoDs = { scale: 0.8, offset: [10, -20] };
     const appWithCanvasRepaintProbe = {
       ...harness.app,
       graph: repaintGraph,
       canvas: {
         ...(harness.app.canvas || {}),
+        ds: demoDs,
         graph: repaintGraph,
         setDirty: (...args) => canvasDraws.push({ method: "setDirty", args }),
         draw: (...args) => canvasDraws.push({ method: "draw", args }),
@@ -257,6 +259,22 @@ test("Load & Play stages demo replay from before-send to review", async () => {
           if (Array.isArray(graph?.nodes?.[0]?.pos)) {
             graph.nodes[0].pos = [10, 10];
           }
+          // Configure hooks are allowed to be hostile to viewport state; the
+          // picker must restore the camera around every graph replacement.
+          demoDs.scale = 9;
+          demoDs.offset[0] = 999;
+          demoDs.offset[1] = 999;
+        },
+        captureCanvasViewportSnapshot: () => ({
+          path: "canvas.ds",
+          scale: demoDs.scale,
+          offset: [...demoDs.offset],
+        }),
+        restoreCanvasViewportSnapshot: (snapshot) => {
+          demoDs.scale = snapshot.scale;
+          demoDs.offset[0] = snapshot.offset[0];
+          demoDs.offset[1] = snapshot.offset[1];
+          return true;
         },
         scheduleRenderAgentPanel: (reason, p, sections) => {
           scheduledRenders.push({ reason, panel: p, sections });
@@ -274,6 +292,9 @@ test("Load & Play stages demo replay from before-send to review", async () => {
         },
         fitCanvasViewportToGraphPayload: (graph) => {
           fittedGraphs.push(JSON.parse(JSON.stringify(graph)));
+          demoDs.scale = 0.5;
+          demoDs.offset[0] = 120;
+          demoDs.offset[1] = -75;
           return true;
         },
         currentAgentPanel: () => panel,
@@ -314,6 +335,7 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       ["uid-1", "uid-1", "uid-2"],
       "initial camera covers the semantic before/after region",
     );
+    assert.deepEqual(demoDs, { scale: 0.5, offset: [120, -75] });
 
     controls.nextButton.click();
     await waitFor(() => panel.state.__demoStage === "sent_loading");
@@ -360,6 +382,7 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       "review retains the initial semantic before/after framing",
     );
     assert.equal(fittedGraphs.length, 1, "review does not move the camera");
+    assert.deepEqual(demoDs, { scale: 0.5, offset: [120, -75] });
     assert.equal(panel.state.applyAllowed, false, "demo eligibility cannot replace transaction authority");
     assert.equal(panel.state.canvasApplyAllowed, false, "demo candidate cannot authorize production canvas Apply");
     assert.equal(panel.state.queueAllowed, false, "queue stays disabled for demo");
@@ -438,6 +461,9 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     const applyResolutionCountBefore = fulfilledObligations.filter(
       (entry) => entry.obligations.clearCandidatePreview === true,
     ).length;
+    demoDs.scale = 0.72;
+    demoDs.offset[0] = -44;
+    demoDs.offset[1] = 91;
     controls.nextButton.click();
     await waitFor(() => panel.state.__demoStage === "applied");
     const applyResolutionCountAfter = fulfilledObligations.filter(
@@ -469,6 +495,11 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     );
     assert.equal(panel.state.baselineGraphHash, "production-baseline-hash");
     assert.equal(fittedGraphs.length, 1, "applied stage does not move the camera");
+    assert.deepEqual(
+      demoDs,
+      { scale: 0.72, offset: [-44, 91] },
+      "applied preserves the user's latest manual pan and zoom",
+    );
 
     controls.prevButton.click();
     await waitFor(() => panel.state.__demoStage === "ready_to_apply");
@@ -476,6 +507,7 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.chatMessages.length, 2, "back navigation preserves the review transcript");
     assert.equal(panel.state.__demoStageIndex, 2, "review cursor survives shared lifecycle commits");
     assert.equal(fittedGraphs.length, 1, "back navigation does not move the camera");
+    assert.deepEqual(demoDs, { scale: 0.72, offset: [-44, 91] });
   } finally {
     await harness.dispose();
   }

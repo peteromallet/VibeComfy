@@ -568,12 +568,34 @@ export function installPreviewPicker(panel, options = {}) {
     }
   }
 
-  function applyOriginalGraph(payload) {
+  function replaceDemoGraphPreservingViewport(graph) {
+    const viewport = typeof helpers.captureCanvasViewportSnapshot === "function"
+      ? helpers.captureCanvasViewportSnapshot()
+      : null;
     try {
-      helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.originalGraph), { repaint: true });
+      helpers.applyGraphCandidateInPlace(
+        helpers.app,
+        clonePlainData(graph),
+        { repaint: viewport == null },
+      );
     } catch (graphError) {
-      console.warn("[vibecomfy] demo original graph apply failed:", graphError);
+      console.warn("[vibecomfy] demo graph apply failed:", graphError);
+    } finally {
+      if (viewport && typeof helpers.restoreCanvasViewportSnapshot === "function") {
+        helpers.restoreCanvasViewportSnapshot(viewport);
+      }
     }
+    if (viewport) {
+      try {
+        createIntentGraphAdapter(helpers.app).repaint();
+      } catch (error) {
+        console.warn("[vibecomfy] demo viewport-preserving repaint failed:", error);
+      }
+    }
+  }
+
+  function applyOriginalGraph(payload) {
+    replaceDemoGraphPreservingViewport(payload.originalGraph);
   }
 
   function frameDemoViewportOnce(payload) {
@@ -593,7 +615,7 @@ export function installPreviewPicker(panel, options = {}) {
   }
 
   function applyCandidateGraph(payload) {
-    helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.candidateGraph), { repaint: true });
+    replaceDemoGraphPreservingViewport(payload.candidateGraph);
   }
 
   function isLayoutPreviewScenario() {

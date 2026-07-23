@@ -4363,7 +4363,9 @@ function createAgentPanelShell() {
     helpers: {
       app,
       applyGraphCandidateInPlace,
+      captureCanvasViewportSnapshot,
       fitCanvasViewportToGraphPayload,
+      restoreCanvasViewportSnapshot,
       scheduleRenderAgentPanel,
       currentAgentPanel,
       PANEL_STATE,
