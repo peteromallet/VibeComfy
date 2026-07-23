@@ -885,7 +885,9 @@ function placeholderSerialization(node, candidatePayload) {
     "widgets_values",
   ]) {
     if (node[key] !== undefined) {
-      payload[key] = cloneJson(node[key]);
+      payload[key] = (key === "pos" || key === "size") && node[key]?.length >= 2
+        ? [Number(node[key][0]), Number(node[key][1])]
+        : cloneJson(node[key]);
     }
   }
   return payload;

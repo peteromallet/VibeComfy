@@ -17877,6 +17877,8 @@ test("VibeComfy comfy_adapter applies exact registry-backed missing classes as t
     const serialized = liveNode.serialize();
     assert.equal(serialized.type, missingNode.type);
     assert.equal(serialized.id, missingNode.id);
+    assert.deepEqual(serialized.pos, missingNode.pos);
+    assert.deepEqual(serialized.size, missingNode.size);
     assert.deepEqual(serialized.properties, missingNode.properties);
     assert.deepEqual(serialized.widgets_values, missingNode.widgets_values);
     assert.deepEqual(
