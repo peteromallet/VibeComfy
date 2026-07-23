@@ -526,6 +526,13 @@ export function installPreviewPicker(panel, options = {}) {
   }
 
   function requestPreviewOverlayRepaint() {
+    // Candidate arrival is not visually complete until its semantic fields
+    // have been projected. Do this synchronously after the lifecycle commit;
+    // a requestAnimationFrame callback may run after observers/screenshots
+    // have already mistaken an older draw-model cache for readiness.
+    if (typeof helpers.refreshPreviewDomOverlay === "function") {
+      helpers.refreshPreviewDomOverlay();
+    }
     const repaint = () => {
       try {
         const result = createIntentGraphAdapter(helpers.app).repaint();
