@@ -10787,9 +10787,14 @@ test("VibeComfy edited widget overlays remain anchored to negative live graph co
       false,
       "candidate coordinates must not replace a valid non-positive live coordinate",
     );
-    assert.ok(
-      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "steps: 24"),
-      "candidate value remains visible while anchored to the live node",
+    const candidateValue = drawOps.find((op) => (
+      op.kind === "fillText" && op.args[0] === "steps: 24"
+    ));
+    assert.ok(candidateValue, "candidate value remains visible while anchored to the live node");
+    assert.equal(
+      candidateValue.args[2],
+      LIVE_POS[1] + 48 + 10,
+      "candidate value text must use the negative live node's widget row",
     );
   } finally {
     await harness.dispose();

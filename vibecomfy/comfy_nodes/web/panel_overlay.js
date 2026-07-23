@@ -406,21 +406,22 @@ function resolveWidgetOverlayBounds({
 
   const primaryBounds = buildBounds(primaryNodePos, primaryNodeSize);
   const fallbackBounds = buildBounds(fallbackNodePos, fallbackNodeSize);
+  const primaryPositionValid = Number.isFinite(primaryNodePos?.x)
+    && Number.isFinite(primaryNodePos?.y);
+  const primarySizeValid = Number.isFinite(primaryNodeSize?.w)
+    && primaryNodeSize.w > 0
+    && Number.isFinite(primaryNodeSize?.h)
+    && primaryNodeSize.h > 0;
   const primaryLooksBroken = (
     !primaryBounds
+    || !primaryPositionValid
+    || !primarySizeValid
     || !Number.isFinite(primaryBounds.x)
     || !Number.isFinite(primaryBounds.y)
     || !Number.isFinite(primaryBounds.w)
     || !Number.isFinite(primaryBounds.h)
     || primaryBounds.w <= 0
     || primaryBounds.h <= 0
-    || (
-      primaryBounds.x <= 1
-      && primaryBounds.y <= 1
-      && fallbackBounds
-      && fallbackBounds.x > 1
-      && fallbackBounds.y > 1
-    )
   );
   return primaryLooksBroken ? (fallbackBounds || primaryBounds) : primaryBounds;
 }
