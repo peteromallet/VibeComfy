@@ -84,6 +84,17 @@ def _project_change_details(value: Any) -> dict[str, Any]:
                     for change in field_changes
                     if isinstance(change, Mapping)
                 ]
+            statements = turn.get("statements")
+            if isinstance(statements, list):
+                projected_turn["statements"] = [
+                    {
+                        key: statement[key]
+                        for key in ("op_kind", "landed", "touched_uids")
+                        if key in statement
+                    }
+                    for statement in statements
+                    if isinstance(statement, Mapping)
+                ]
             projected["batch_turns"].append(projected_turn)
     return projected
 

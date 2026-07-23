@@ -63,7 +63,14 @@ def test_build_bundle_preserves_minimal_preview_response_contract(tmp_path: Path
                                 {"uid": "1", "field_path": "seed", "old": 1, "new": 2}
                             ],
                             "report": {"executor": {"private": "must not ship"}},
-                            "statements": [{"detail": {"private": "must not ship"}}],
+                            "statements": [
+                                {
+                                    "op_kind": "node_call",
+                                    "landed": True,
+                                    "touched_uids": ["n2"],
+                                    "detail": {"private": "must not ship"},
+                                }
+                            ],
                         }
                     ],
                 },
@@ -104,4 +111,6 @@ def test_build_bundle_preserves_minimal_preview_response_contract(tmp_path: Path
     }
     assert "debug" not in response
     assert "report" not in response["change_details"]["batch_turns"][0]
-    assert "statements" not in response["change_details"]["batch_turns"][0]
+    assert response["change_details"]["batch_turns"][0]["statements"] == [
+        {"op_kind": "node_call", "landed": True, "touched_uids": ["n2"]}
+    ]

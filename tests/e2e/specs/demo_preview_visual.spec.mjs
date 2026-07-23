@@ -311,5 +311,10 @@ test("@demo-preview capture every actual demo review state", async ({ page, requ
       || hiddenAffected.length > 0
       || /RangeError|Maximum call stack size exceeded/i.test(issueText);
   });
+  const tripoRefine = records.find((record) => record.id === "triporefine_stage_add");
+  expect(
+    tripoRefine?.diagnostics?.previewDiff?.added?.map((entry) => entry.uid),
+    "TripoRefine demo must visibly retain its landed add-node operation",
+  ).toContain("n1");
   expect(failures, `Visual capture failures; inspect ${path.join(OUTPUT_ROOT, "index.html")}`).toEqual([]);
 });
