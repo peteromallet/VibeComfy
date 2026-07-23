@@ -6888,6 +6888,7 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel(), runtime = get
       : {},
     previewDiff: previewDiffSummary,
     previewDomProjection: runtime?._previewDomProjectionReport || null,
+    previewRefresh: runtime?._previewRefreshReport || null,
     debugError,
     mountMode: panel?.state?.mountMode || null,
     flushPending: hasPendingAgentPanelFlush(panel),
@@ -7728,12 +7729,22 @@ function getOrBuildPreviewDiff() {
 
 function refreshPreviewDomOverlay() {
   const panel = currentAgentPanel();
+  const runtime = getAgentPanelRuntime();
+  const refreshReport = {
+    calls: Number(runtime?._previewRefreshReport?.calls || 0) + 1,
+    phase: panel?.state?.phase || null,
+    previewEnabled: Boolean(panel?.state?.previewEnabled),
+    candidateGraphHash: panel?.state?.candidateGraphHash || null,
+    result: "started",
+  };
+  runtime._previewRefreshReport = refreshReport;
   if (
     !panel
     || panel.state.phase !== PANEL_STATE.AWAITING_REVIEW
     || !panel.state.previewEnabled
     || !panel.state.candidateGraph
   ) {
+    refreshReport.result = "inactive";
     clearPreviewDomOverlay(app?.canvas?.canvas?.ownerDocument);
     return false;
   }
@@ -7742,7 +7753,11 @@ function refreshPreviewDomOverlay() {
     ? canvasElement.getContext("2d")
     : null;
   const diff = getOrBuildPreviewDiff();
+  refreshReport.editedFieldCount = Array.isArray(diff?.edited_fields)
+    ? diff.edited_fields.length
+    : null;
   if (!ctx || !diff) {
+    refreshReport.result = !ctx ? "context-unavailable" : "diff-unavailable";
     return false;
   }
   syncPreviewDomOverlay(
@@ -7752,6 +7767,7 @@ function refreshPreviewDomOverlay() {
     diff._candidateGraph || panel.state.candidateGraph,
     previewOverlayDeps(),
   );
+  refreshReport.result = "projected";
   return true;
 }
 
