@@ -597,6 +597,17 @@ class AuthoringSchemaProvider:
             providers.extend(ObjectInfoSchemaProvider(path) for path in object_info_cache_candidates(self.object_info_cache_dir))
         providers.append(SourceSchemaProvider(source_roots))
         providers.append(LocalSchemaProvider(self.node_index_path))
+        # Last-resort, opt-in: manufacture a schema for an uninstalled registry node by
+        # cloning its pack and statically parsing INPUT_TYPES (no execution). Gated because
+        # a miss triggers network + git against public third-party repos.
+        import os
+        if os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS") == "1":
+            try:
+                from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
+
+                providers.append(OnDemandInstallSchemaProvider())
+            except Exception:
+                pass
         return tuple(providers)
 
 

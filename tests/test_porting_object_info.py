@@ -642,6 +642,33 @@ def test_typed_arity_helpers_preserve_unknown_class_defaults(
     assert require_class_output_count("TotallyFakeClass", ui_output_count=3) == 0
 
 
+def test_class_is_known_routes_through_shared_schema_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """class_is_known resolves through the shared authoring schema provider chain.
+
+    Guards the unification in plan task #20: the previously-duplicate class
+    existence check now delegates to ``get_authoring_schema_provider().get_schema``
+    so uninstalled/custom-node classes the chain can resolve are also "known",
+    while a bogus class stays falsy. A known comfy-core class resolves even when
+    the local object_info snapshot is patched empty, proving the provider (not
+    the local cache) is the source of truth.
+    """
+    # Point the local snapshot at an empty temp cache so the only way
+    # ``class_is_known`` can resolve a corpus class is via the provider chain.
+    _patch_consume_paths(monkeypatch, tmp_path / "empty_cache")
+    (tmp_path / "empty_cache").mkdir()
+
+    from vibecomfy.porting.object_info.consume import class_is_known
+
+    # Known comfy-core class: resolves through the provider's object_info index.
+    assert class_is_known("KSampler") is True
+    # Curated/builtin primitive class: resolves through the provider builtins.
+    assert class_is_known("Boolean") is True
+    # Bogus class: no provider in the chain has it -> falsy.
+    assert class_is_known("DefinitelyNotARealComfyClass_xyz") is False
+
+
 def test_typed_arity_helpers_warn_when_cache_has_fewer_outputs_than_ui(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

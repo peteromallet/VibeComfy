@@ -626,11 +626,29 @@ def class_output_count(class_type: str) -> int:
 def class_is_known(class_type: str) -> bool:
     """Return True when *class_type* has a usable output schema.
 
-    A class is "known" when it resolves in the object_info snapshot OR has a
-    curated ``_CURATED_OUTPUTS`` fallback. Unknown classes are exactly the ones
-    for which :func:`output_names` / :func:`class_output_count` fail open with an
-    empty list / zero.
+    A class is "known" when it resolves through the shared authoring schema
+    provider chain (shipped object_info corpus + source parser + on-demand
+    resolver), OR has a curated ``_CURATED_OUTPUTS`` fallback. Unknown classes
+    are exactly the ones for which :func:`output_names` /
+    :func:`class_output_count` fail open with an empty list / zero.
+
+    Routing through the provider unifies the previously-duplicate class-existence
+    check with the schema-resolution chokepoint, so uninstalled custom-node
+    classes the source parser can resolve are now also "known". The local
+    snapshot/curated fallbacks are kept as a defensive backstop (and remain the
+    source of truth under tests that patch ``CACHE_DIR`` in isolation).
     """
+    # Lazy import: ``schema.provider`` imports from this module at call time
+    # (see ``AuthoringSchemaProvider``), so a module-level import would cycle.
+    try:
+        from vibecomfy.schema.provider import get_authoring_schema_provider  # noqa: PLC0415
+        provider = get_authoring_schema_provider()
+        if provider.get_schema(class_type) is not None:
+            return True
+    except Exception:
+        # Fall through to the local snapshot/curated fallback below on any
+        # provider error so ``class_is_known`` stays total and never raises.
+        pass
     if _resolve_class_type(class_type) is not None:
         return True
     return class_type in _CURATED_OUTPUTS

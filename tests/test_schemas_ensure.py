@@ -801,7 +801,7 @@ class TestCloneAndExtractPacks:
 
     def test_safe_eval_constants(self) -> None:
         """SafeEval should handle basic constants."""
-        from tools.clone_and_extract_packs import SafeEval
+        from vibecomfy.schema.extract import SafeEval
 
         evaluator = SafeEval({})
         tree = ast.parse("42")
@@ -818,7 +818,7 @@ class TestCloneAndExtractPacks:
 
     def test_safe_eval_list_and_dict(self) -> None:
         """SafeEval should handle lists and dicts."""
-        from tools.clone_and_extract_packs import SafeEval
+        from vibecomfy.schema.extract import SafeEval
 
         evaluator = SafeEval({})
         tree = ast.parse("[1, 2, 3]")
@@ -831,7 +831,7 @@ class TestCloneAndExtractPacks:
 
     def test_static_env_build(self) -> None:
         """static_env should build an environment from top-level assignments."""
-        from tools.clone_and_extract_packs import static_env
+        from vibecomfy.schema.extract import static_env
 
         source = textwrap.dedent("""\
         FOO = 42
@@ -846,7 +846,7 @@ class TestCloneAndExtractPacks:
 
     def test_dotted_name_parsing(self) -> None:
         """dotted_name should resolve attribute chains."""
-        from tools.clone_and_extract_packs import dotted_name
+        from vibecomfy.schema.extract import dotted_name
 
         tree = ast.parse("a.b.c")
         name = dotted_name(tree.body[0].value)  # type: ignore[attr-defined]

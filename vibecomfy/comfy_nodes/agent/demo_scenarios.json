@@ -1,201 +1,194 @@
 {
   "$schema": "../agent_demo_scenarios_schema.json",
-  "description": "Curated, deterministic demo scenarios for the VibeComfy preview-query picker. Each record names an immutable scenario asset shipped with the package and retains its source run location as provenance.",
-  "source_run_tree": "out/agentic/agentic-100-20260630-021138",
+  "description": "Creative-repair demo scenarios from demo-candidate-factory 20260723-001. Curated for quality: nefarious topology-level defects on complex workflows, excluding trivial upscale widget tweaks.",
+  "source_run_tree": "out/demo-candidate-factory/20260723-001",
   "scenarios": [
     {
-      "id": "tts_emotion_injection",
-      "title": "TTS emotion injection",
-      "query": "Make the TTS narrator sound excited and emotional instead of flat.",
-      "description": "Adds emotion and emphasis parameters to a text-to-speech workflow without changing the script text.",
+      "id": "08b9bbe26fb7",
+      "title": "The second video output looks much worse than the first",
+      "query": "The second video output looks much worse than the first – details are blurry and it lacks the sharp style I applied in the first branch.",
+      "description": "Repairs a missing LoRA second branch fault in an LTX video workflow. The second refinement pass fails to activate its intended LoRA, producing degraded output.",
+      "category": "video / LTX",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use",
+        "ComfyUI-LTXVideoWrapper"
+      ],
+      "asset": "08b9bbe26fb7.json",
+      "run_location": {
+        "run_dir": "cases/08b9bbe26fb7/attempts/003",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "661c0914fd3a",
+      "title": "The image looks like it's deliberately avoiding the description",
+      "query": "The image looks like it's deliberately avoiding the description. For example, I wrote 'a beautiful sunset' but the result is a dark indoor scene with no trace of sunset.",
+      "description": "Repairs a positive prompt wired to the negative conditioning slot in a Flux2 workflow. The model inverts the intent, producing the opposite of what was described.",
+      "category": "image / prompt",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "661c0914fd3a.json",
+      "run_location": {
+        "run_dir": "cases/661c0914fd3a/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "4d9f4cc4e0cc",
+      "title": "No matter how many times I queue, the first output image is always exactly the same",
+      "query": "No matter how many times I queue, the first output image is always exactly the same, even though I expected variation.",
+      "description": "Repairs a noise randomize turned off fault in a Flux2 workflow. The seed widget is set to a fixed value instead of randomize, so every run produces identical output.",
+      "category": "image / creative",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "4d9f4cc4e0cc.json",
+      "run_location": {
+        "run_dir": "cases/4d9f4cc4e0cc/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "50c4fc22e3eb",
+      "title": "The cloned voice sounds unnatural, with strange pauses and emphasis",
+      "query": "The cloned voice sounds unnatural, with strange pauses and emphasis. It delivers the correct text but the speaker's prosody is all over the place.",
+      "description": "Repairs a reference text mismatch fault in a Qwen3 TTS voice clone workflow. The reference text does not match the target text, causing unnatural prosody.",
       "category": "audio / TTS",
-      "required_node_packs": ["ComfyUI-Qwen3-TTS", "ComfyUI-QwenTTS"],
-      "asset": "tts_emotion_injection.json",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "50c4fc22e3eb.json",
       "run_location": {
-        "run_dir": "tts_emotion_injection",
+        "run_dir": "cases/50c4fc22e3eb/attempts/002",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "qwen_face_distortion_wrong_slot",
-      "title": "Qwen face distortion / wrong output slot",
-      "query": "Fix the Qwen image-edit node so the face doesn't distort and it uses the correct output slot.",
-      "description": "Corrects a wiring/output-slot mistake in a Qwen image-editing graph that was causing facial distortion.",
-      "category": "image / edit",
-      "required_node_packs": ["ComfyUI-Qwen-Image"],
-      "asset": "qwen_face_distortion_wrong_slot.json",
+      "id": "2ee5df9838f9",
+      "title": "Something's off with the generation — the result comes out wrong, like the prompt guidance is flipped",
+      "query": "Something's off with the generation — the result comes out wrong, like the prompt guidance is flipped — the negative prompt seems to be driving the image instead of the positive Can you look at the workflow and fix it so the result comes out right?",
+      "description": "Repairs a conditioning polarity swap fault. The positive and negative conditioning inputs are reversed, causing the model to generate the inverse of the intended style.",
+      "category": "image / conditioning",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "2ee5df9838f9.json",
       "run_location": {
-        "run_dir": "image-two-stage-qwen-image-generation",
+        "run_dir": "cases/2ee5df9838f9/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "vace_identity_padded_reference",
-      "title": "VACE identity / centered reference",
-      "query": "Keep the character's face consistent in VACE by using the centered reference image instead of the padded image with the black bar.",
-      "description": "Preserves character identity by feeding VACE the existing center-cropped reference where the face is larger and unobstructed.",
-      "category": "video / identity",
-      "required_node_packs": ["ComfyUI-VACE"],
-      "asset": "vace_identity_padded_reference.json",
+      "id": "ed9a5be99385",
+      "title": "Every image comes out horizontally squished",
+      "query": "All my images are squished horizontally — people look short and fat, objects are distorted, even though I’m using a square-ish prompt. It’s like the aspect ratio is being collapsed.",
+      "description": "Repairs a latent width/height mismatch fault in an AuraFlow/SD3 text-to-image workflow. The empty latent was created with width and height swapped, so the model samples a distorted canvas that decodes into a squished image.",
+      "category": "image / latent",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "ed9a5be99385.json",
       "run_location": {
-        "run_dir": "vace_identity_padded_reference",
+        "run_dir": "cases/ed9a5be99385/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "triporefine_stage_add",
-      "title": "3D TripoRefine stage add",
-      "query": "Add a refinement stage to the 3D Tripo workflow so the mesh comes out cleaner.",
-      "description": "Inserts a TripoRefine refinement stage into a 3D-generation workflow to improve output mesh quality.",
-      "category": "3D / mesh",
-      "required_node_packs": ["ComfyUI-Tripo"],
-      "asset": "triporefine_stage_add.json",
+      "id": "fa48d41b426e",
+      "title": "The generated audio is completely silent",
+      "query": "The generated audio is completely silent – no speech at all, just a blank audio file. The workflow runs without errors but nothing comes out.",
+      "description": "Repairs an empty TTS prompt fault in a Qwen3 voice-clone workflow. The target text widget was left blank, so the synthesizer has nothing to speak and emits silence.",
+      "category": "audio / TTS",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "fa48d41b426e.json",
       "run_location": {
-        "run_dir": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
+        "run_dir": "cases/fa48d41b426e/attempts/002",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "av_fps_desync",
-      "title": "Audio/video fps desync",
-      "query": "Fix the audio/video fps mismatch so the generated clip stays in sync.",
-      "description": "Aligns frame-rate and audio-sample-rate settings in a video workflow to eliminate lipsync drift.",
-      "category": "video / timing",
-      "required_node_packs": [],
-      "asset": "av_fps_desync.json",
+      "id": "525d2dd119c0",
+      "title": "The result looks like the prompt guidance is flipped",
+      "query": "Something’s off with the generation — the result comes out wrong, like the prompt guidance is flipped — the negative prompt seems to be driving the image instead of the positive. Can you fix it so the result matches what I described?",
+      "description": "Repairs a conditioning polarity swap fault in a Flux2 workflow. The positive and negative conditioning inputs to the sampler were reversed, so the model is guided away from the intended prompt and toward the negative prompt.",
+      "category": "image / conditioning",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "525d2dd119c0.json",
       "run_location": {
-        "run_dir": "av_fps_desync",
+        "run_dir": "cases/525d2dd119c0/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "sdxl_plastic_fabric",
-      "title": "SDXL plastic → fabric",
-      "query": "Change the SDXL material from shiny plastic to woven fabric.",
-      "description": "Updates prompts and conditioning in an SDXL image-generation workflow to render a woven fabric material instead of plastic.",
-      "category": "image / material",
-      "required_node_packs": ["ComfyUI-SDXL"],
-      "asset": "sdxl_plastic_fabric.json",
+      "id": "3270acf50658",
+      "title": "The LoRA style never shows up, and the prompt feels inverted",
+      "query": "I loaded a style LoRA but the result doesn’t reflect it at all, and the whole image feels like it’s being pushed away from my prompt rather than toward it. The conditioning seems to be fighting the LoRA.",
+      "description": "Repairs a conditioning polarity swap fault on a LoRA-loaded AuraFlow workflow. Positive and negative conditioning were wired to the wrong sampler inputs, so the LoRA’s style contribution is suppressed and the model inverts the prompt intent.",
+      "category": "image / conditioning",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "3270acf50658.json",
       "run_location": {
-        "run_dir": "sdxl_plastic_fabric",
+        "run_dir": "cases/3270acf50658/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "wan22_latent_scaling_fix",
-      "title": "Wan2.2 latent scaling fix",
-      "query": "The high-noise LoRA variant produces outputs identical to the low-noise variant.",
-      "description": "Adds ModelSamplingSD3 scaling into both Wan2.2 UNet chains and separates the high-noise LoRA strength.",
-      "category": "video / diffusion",
-      "required_node_packs": ["ComfyUI-WanVideoWrapper"],
-      "asset": "wan22_latent_scaling_fix.json",
+      "id": "c2ac36fce632",
+      "title": "The voice reads my English text with a heavy foreign accent",
+      "query": "The audio file is created, but the voice pronounces the English text with a heavy Chinese accent and completely mangled phonetics. The words are almost unrecognisable. It should be speaking English.",
+      "description": "Repairs a TTS language mismatch fault in a Qwen3 voice-design workflow. The language widget was set to Chinese while the target text is English, so the synthesizer maps English phonemes through Chinese pronunciation and produces an incomprehensible accent.",
+      "category": "audio / TTS",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "c2ac36fce632.json",
       "run_location": {
-        "run_dir": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+        "run_dir": "cases/c2ac36fce632/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     },
     {
-      "id": "llm_caption_override",
-      "title": "LLM caption override",
-      "query": "The prompt it generates doesn't capture what's in the image.",
-      "description": "Finds and removes a hardcoded caption that was overriding Florence2 image understanding before the LLM prompt stage.",
-      "category": "multi / image-to-video",
-      "required_node_packs": ["ComfyUI-Florence2", "ComfyUI-PYSSSS"],
-      "asset": "llm_caption_override.json",
+      "id": "4446f9745c7c",
+      "title": "The upscale step vanished — my images lost their detail",
+      "query": "I had an upscale/resize step in this image workflow and it’s gone — the final image comes out lower resolution than it should, it lost the extra detail the upscale pass used to add. Can you add that step back where it belongs so the output is restored?",
+      "description": "Additive restore: the upscaler node was removed from a basic image-upscale workflow, leaving a resolution gap. The fixer re-adds the ImageScale node and rewires it so the output regains the intended resolution (verdict: alternative_repair).",
+      "category": "image / upscale",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "4446f9745c7c.json",
       "run_location": {
-        "run_dir": "multi-image-to-video-with-llm",
+        "run_dir": "cases/4446f9745c7c/attempts/001",
         "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
-      }
-    },
-    {
-      "id": "animatediff_lineart_enable",
-      "title": "AnimateDiff LineArt enable",
-      "query": "The animation barely follows my input images.",
-      "description": "Discovers the LineArt preprocessor was disabled, enables the ControlNet conditioning path, and improves resolution.",
-      "category": "image/video / control",
-      "required_node_packs": ["ComfyUI-AnimateDiff-Evolved", "ComfyUI-ControlNet-Aux"],
-      "asset": "animatediff_lineart_enable.json",
-      "run_location": {
-        "run_dir": "image-animatediff-video-from-images-with",
-        "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
-      }
-    },
-    {
-      "id": "mesh_noise_cleanup",
-      "title": "3D mesh noise cleanup",
-      "query": "The generated 3D mesh is full of floating bits and noise.",
-      "description": "Uses research-backed 3D parameter changes to reduce floating mesh artifacts while preserving detail.",
-      "category": "3D / mesh",
-      "required_node_packs": ["ComfyUI-Hunyuan3DWrapper"],
-      "asset": "mesh_noise_cleanup.json",
-      "run_location": {
-        "run_dir": "3d-generates-a-3d-mesh-from",
-        "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
-      }
-    },
-    {
-      "id": "grid_cells_512",
-      "title": "Grid cells to 512px",
-      "query": "The preview grid looks too small and blurry — make each cell 512×512.",
-      "description": "Applies a multi-target batch edit that resizes all four preview-grid image resize nodes in one turn.",
-      "category": "image / batch edit",
-      "required_node_packs": ["ComfyUI-KJNodes"],
-      "asset": "grid_cells_512.json",
-      "run_location": {
-        "run_dir": "image-background-removal-and-grid-composition-54a681",
-        "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
-      }
-    },
-    {
-      "id": "seed_grid_to_row",
-      "title": "Seed grid → horizontal row",
-      "query": "Arrange the four variations in a single horizontal row instead of a 2x2 grid.",
-      "description": "Replaces a 2x2 grid-composite node with ImageConcatMulti and rewires the split images into a row layout.",
-      "category": "image / layout",
-      "required_node_packs": ["ComfyUI-KJNodes"],
-      "asset": "seed_grid_to_row.json",
-      "run_location": {
-        "run_dir": "image-generates-a-2x2-seed-variation",
-        "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
-      }
-    },
-    {
-      "id": "hunyuan_i2v_latent_source",
-      "title": "Hunyuan i2v latent source",
-      "query": "The video doesn't resemble my input image at all — the first frame is completely different.",
-      "description": "Diagnoses a sampler initialized from the wrong reference-frame latent and disconnects that edge so image conditioning can drive the result.",
-      "category": "video / image-to-video",
-      "required_node_packs": ["ComfyUI-HunyuanVideoWrapper"],
-      "asset": "hunyuan_i2v_latent_source.json",
-      "run_location": {
-        "run_dir": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
-        "original_ui": "original.ui.json",
-        "response_json": "response.json",
-        "candidate_ui": "candidate.ui.json"
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
       }
     }
   ]
