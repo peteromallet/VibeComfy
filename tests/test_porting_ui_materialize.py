@@ -168,3 +168,37 @@ def test_materialize_exec_uses_stringified_io_instead_of_generic_schema_pool() -
     assert len(node["inputs"]) == 1
     assert len(node["outputs"]) == 1
     assert node["properties"]["vibecomfy"]["io"] == io_spec
+
+
+def test_materialize_preserves_intervening_defaults_for_later_explicit_widget() -> None:
+    schema = NodeSchema(
+        class_type="WanLikeLoraSelect",
+        pack=None,
+        inputs={
+            "lora": InputSpec("STRING", required=True),
+            "strength": InputSpec("FLOAT", default=1.0),
+            "low_mem_load": InputSpec("BOOLEAN", default=False),
+            "merge_loras": InputSpec("BOOLEAN", default=True),
+        },
+        outputs=[],
+        source_provider="object_info_index",
+    )
+
+    node = materialize_litegraph_node(
+        schema.class_type,
+        {
+            "lora": "model.safetensors",
+            "merge_loras": False,
+        },
+        schema,
+        22,
+        "uid-later-widget",
+        [0.0, 0.0],
+    )
+
+    assert node["widgets_values"] == [
+        "model.safetensors",
+        1.0,
+        False,
+        False,
+    ]

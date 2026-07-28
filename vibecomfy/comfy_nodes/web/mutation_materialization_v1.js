@@ -131,7 +131,10 @@ function _normalizeEntries(rawEntries) {
 function _accompanyingOpsDigest(accompanyingOps) {
   let normalizedOps;
   try {
-    normalizedOps = canonicalizeContractNumeric(accompanyingOps, { finiteErrorCode: "non_finite_materialization" });
+    normalizedOps = canonicalizeContractNumeric(accompanyingOps, {
+      finiteErrorCode: "non_finite_materialization",
+      allowBool: true,
+    });
   } catch (error) {
     throw _fail(error.message || "Non-finite numeric value", error.code || "non_finite_materialization");
   }

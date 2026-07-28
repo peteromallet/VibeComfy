@@ -127,6 +127,7 @@ def run_headless_scenario(
     request = HeadlessAgentRequest(
         query=query,
         graph=graph,
+        workflow_id=scenario.get("workflow_id") or (graph.get("workflow_id") if isinstance(graph, dict) else None),
         session_id=scenario.get("session_id"),
         profile=scenario.get("profile"),
         output_dir=output_dir,
@@ -134,6 +135,7 @@ def run_headless_scenario(
         apply=bool(scenario.get("apply", False)),
         network=bool(scenario.get("network", True)),
         timeout=scenario.get("timeout"),
+        additive=bool(scenario.get("additive", False)),
     )
 
     result = run_headless(request, entrypoint="live_agentic_harness")

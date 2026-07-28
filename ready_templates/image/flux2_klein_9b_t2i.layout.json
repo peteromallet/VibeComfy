@@ -1,0 +1,279 @@
+{
+  "store_version": 2,
+  "vibecomfy_version": "0",
+  "schema_hash": "4e171992d8e27611",
+  "entries": {
+    "n1": {
+      "pos": [
+        0,
+        342
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "KSamplerSelect_0",
+        "Node name for S&R": "KSamplerSelect",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n1"
+      }
+    },
+    "n2": {
+      "pos": [
+        0,
+        228
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "Flux2Scheduler_1",
+        "Node name for S&R": "Flux2Scheduler",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n2"
+      }
+    },
+    "n3": {
+      "pos": [
+        0,
+        114
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "EmptyFlux2LatentImage_2",
+        "Node name for S&R": "EmptyFlux2LatentImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n3"
+      }
+    },
+    "n4": {
+      "pos": [
+        0,
+        570
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "UNETLoader_3",
+        "Node name for S&R": "UNETLoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n4"
+      }
+    },
+    "n5": {
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "CLIPLoader_4",
+        "Node name for S&R": "CLIPLoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n5"
+      }
+    },
+    "n6": {
+      "pos": [
+        0,
+        684
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VAELoader_5",
+        "Node name for S&R": "VAELoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n6"
+      }
+    },
+    "n7": {
+      "pos": [
+        0,
+        456
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "RandomNoise_6",
+        "Node name for S&R": "RandomNoise",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n7"
+      }
+    },
+    "n8": {
+      "pos": [
+        520,
+        0
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "CLIPTextEncode_7",
+        "Node name for S&R": "CLIPTextEncode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n8"
+      }
+    },
+    "n13": {
+      "pos": [
+        2600,
+        0
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "SaveImage_8",
+        "Node name for S&R": "SaveImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n13"
+      }
+    },
+    "n10": {
+      "pos": [
+        1040,
+        0
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "CFGGuider_9",
+        "Node name for S&R": "CFGGuider",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n10"
+      }
+    },
+    "n11": {
+      "pos": [
+        1560,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "SamplerCustomAdvanced_10",
+        "Node name for S&R": "SamplerCustomAdvanced",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n11"
+      }
+    },
+    "n12": {
+      "pos": [
+        2080,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VAEDecode_11",
+        "Node name for S&R": "VAEDecode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n12"
+      }
+    },
+    "n9": {
+      "pos": [
+        520,
+        92
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "CLIPTextEncode_12",
+        "Node name for S&R": "CLIPTextEncode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n9"
+      }
+    }
+  },
+  "groups": [],
+  "extra": {
+    "vibecomfy": {
+      "layout_version": "m4",
+      "source_template": "image/flux2_klein_9b_t2i",
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/image/flux2_klein_9b_t2i.py"
+    }
+  },
+  "lastRerouteId": null,
+  "definitions": {},
+  "virtual_wires": {},
+  "unkeyed": []
+}

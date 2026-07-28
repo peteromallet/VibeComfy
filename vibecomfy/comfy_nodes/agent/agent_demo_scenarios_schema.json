@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent_demo_scenarios_schema.json",
+  "title": "VibeComfy Demo Scenarios Catalog",
+  "description": "Schema for the demo scenarios catalog used by the VibeComfy in-app demo picker",
+  "type": "object",
+  "required": ["$schema", "description", "source_run_tree", "scenarios"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this schema file"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the catalog"
+    },
+    "source_run_tree": {
+      "type": "string",
+      "description": "Path to the source run tree that produced these scenarios"
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "List of demo scenario entries",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "query", "description", "category", "required_node_packs", "asset", "run_location"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the scenario"
+          },
+          "title": {
+            "type": "string",
+            "description": "Short human-readable title for the scenario"
+          },
+          "query": {
+            "type": "string",
+            "description": "The user's inquiry that triggered this scenario"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of what the scenario demonstrates"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category/classification of the scenario (e.g., 'image / upscale', 'video / timing')"
+          },
+          "required_node_packs": {
+            "type": "array",
+            "description": "List of ComfyUI custom node packs required by this scenario",
+            "items": {
+              "type": "string"
+            }
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset bundle filename for this scenario"
+          },
+          "run_location": {
+            "type": "object",
+            "description": "Location information for the scenario files",
+            "required": ["run_dir", "original_ui", "candidate_ui", "response_json"],
+            "properties": {
+              "run_dir": {
+                "type": "string",
+                "description": "Directory name containing the scenario files"
+              },
+              "original_ui": {
+                "type": "string",
+                "description": "Filename of the original (broken) UI JSON"
+              },
+              "candidate_ui": {
+                "type": "string",
+                "description": "Filename of the candidate (repaired) UI JSON"
+              },
+              "response_json": {
+                "type": "string",
+                "description": "Filename of the fixer's response JSON"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

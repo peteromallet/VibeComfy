@@ -1,0 +1,699 @@
+{
+  "store_version": 2,
+  "vibecomfy_version": "0",
+  "schema_hash": "4e171992d8e27611",
+  "entries": {
+    "n1": {
+      "pos": [
+        0,
+        1422
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoTorchCompileSettings_0",
+        "Node name for S&R": "WanVideoTorchCompileSettings",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n1"
+      }
+    },
+    "n2": {
+      "pos": [
+        0,
+        1580
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoVAELoader_1",
+        "Node name for S&R": "WanVideoVAELoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n2"
+      }
+    },
+    "n3": {
+      "pos": [
+        0,
+        948
+      ],
+      "size": [
+        320,
+        96
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoBlockSwap_2",
+        "Node name for S&R": "WanVideoBlockSwap",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n3"
+      }
+    },
+    "n4": {
+      "pos": [
+        0,
+        1738
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "LoadImage_3",
+        "Node name for S&R": "LoadImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n4"
+      }
+    },
+    "n5": {
+      "pos": [
+        0,
+        1264
+      ],
+      "size": [
+        320,
+        118
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoTextEncodeCached_4",
+        "Node name for S&R": "WanVideoTextEncodeCached",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n5"
+      }
+    },
+    "n6": {
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "CLIPVisionLoader_5",
+        "Node name for S&R": "CLIPVisionLoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n6"
+      }
+    },
+    "n7": {
+      "pos": [
+        0,
+        158
+      ],
+      "size": [
+        320,
+        96
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "DownloadAndLoadSAM2Model_6",
+        "Node name for S&R": "DownloadAndLoadSAM2Model",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n7"
+      }
+    },
+    "n8": {
+      "pos": [
+        0,
+        316
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "INTConstant_7",
+        "Node name for S&R": "INTConstant",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n8"
+      }
+    },
+    "n9": {
+      "pos": [
+        0,
+        474
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "INTConstant_8",
+        "Node name for S&R": "INTConstant",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n9"
+      }
+    },
+    "n10": {
+      "pos": [
+        0,
+        1106
+      ],
+      "size": [
+        320,
+        118
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoLoraSelectMulti_9",
+        "Node name for S&R": "WanVideoLoraSelectMulti",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n10"
+      }
+    },
+    "n11": {
+      "pos": [
+        0,
+        790
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "OnnxDetectionModelLoader_10",
+        "Node name for S&R": "OnnxDetectionModelLoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n11"
+      }
+    },
+    "n12": {
+      "pos": [
+        520,
+        360
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoModelLoader_11",
+        "Node name for S&R": "WanVideoModelLoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n12"
+      }
+    },
+    "n13": {
+      "pos": [
+        520,
+        0
+      ],
+      "size": [
+        320,
+        118
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VHS_LoadVideo_12",
+        "Node name for S&R": "VHS_LoadVideo",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n13"
+      }
+    },
+    "n14": {
+      "pos": [
+        520,
+        180
+      ],
+      "size": [
+        320,
+        140
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "ImageResizeKJv2_13",
+        "Node name for S&R": "ImageResizeKJv2",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n14"
+      }
+    },
+    "n15": {
+      "pos": [
+        1040,
+        140
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoSetLoRAs_14",
+        "Node name for S&R": "WanVideoSetLoRAs",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n15"
+      }
+    },
+    "n16": {
+      "pos": [
+        1040,
+        70
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoClipVisionEncode_15",
+        "Node name for S&R": "WanVideoClipVisionEncode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n16"
+      }
+    },
+    "n17": {
+      "pos": [
+        1040,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "GetImageSizeAndCount_16",
+        "Node name for S&R": "GetImageSizeAndCount",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n17"
+      }
+    },
+    "n18": {
+      "pos": [
+        1560,
+        70
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoSetBlockSwap_17",
+        "Node name for S&R": "WanVideoSetBlockSwap",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n18"
+      }
+    },
+    "n19": {
+      "pos": [
+        1560,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "PoseAndFaceDetection_18",
+        "Node name for S&R": "PoseAndFaceDetection",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n19"
+      }
+    },
+    "n20": {
+      "pos": [
+        2080,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "Sam2Segmentation_19",
+        "Node name for S&R": "Sam2Segmentation",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n20"
+      }
+    },
+    "n21": {
+      "pos": [
+        2080,
+        268
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "DrawViTPose_20",
+        "Node name for S&R": "DrawViTPose",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n21"
+      }
+    },
+    "n22": {
+      "pos": [
+        2080,
+        536
+      ],
+      "size": [
+        320,
+        228
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VHS_VideoCombine_21",
+        "Node name for S&R": "VHS_VideoCombine",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n22"
+      }
+    },
+    "n23": {
+      "pos": [
+        2600,
+        268
+      ],
+      "size": [
+        320,
+        118
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "ImageConcatMulti_22",
+        "Node name for S&R": "ImageConcatMulti",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n23"
+      }
+    },
+    "n24": {
+      "pos": [
+        2600,
+        536
+      ],
+      "size": [
+        320,
+        228
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VHS_VideoCombine_23",
+        "Node name for S&R": "VHS_VideoCombine",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n24"
+      }
+    },
+    "n25": {
+      "pos": [
+        2600,
+        0
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "GrowMaskWithBlur_24",
+        "Node name for S&R": "GrowMaskWithBlur",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n25"
+      }
+    },
+    "n26": {
+      "pos": [
+        3120,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "BlockifyMask_25",
+        "Node name for S&R": "BlockifyMask",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n26"
+      }
+    },
+    "n27": {
+      "pos": [
+        3640,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "DrawMaskOnImage_26",
+        "Node name for S&R": "DrawMaskOnImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n27"
+      }
+    },
+    "n28": {
+      "pos": [
+        4160,
+        0
+      ],
+      "size": [
+        320,
+        74
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoAnimateEmbeds_27",
+        "Node name for S&R": "WanVideoAnimateEmbeds",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n28"
+      }
+    },
+    "n29": {
+      "pos": [
+        4160,
+        268
+      ],
+      "size": [
+        320,
+        228
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VHS_VideoCombine_28",
+        "Node name for S&R": "VHS_VideoCombine",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n29"
+      }
+    },
+    "n30": {
+      "pos": [
+        4680,
+        0
+      ],
+      "size": [
+        320,
+        140
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoSampler_29",
+        "Node name for S&R": "WanVideoSampler",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n30"
+      }
+    },
+    "n31": {
+      "pos": [
+        5200,
+        0
+      ],
+      "size": [
+        320,
+        52
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "WanVideoDecode_30",
+        "Node name for S&R": "WanVideoDecode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n31"
+      }
+    },
+    "n32": {
+      "pos": [
+        5720,
+        0
+      ],
+      "size": [
+        320,
+        30
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "GetImageSizeAndCount_31",
+        "Node name for S&R": "GetImageSizeAndCount",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n32"
+      }
+    },
+    "n33": {
+      "pos": [
+        6240,
+        0
+      ],
+      "size": [
+        320,
+        96
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "ImageConcatMulti_32",
+        "Node name for S&R": "ImageConcatMulti",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n33"
+      }
+    },
+    "n34": {
+      "pos": [
+        6760,
+        0
+      ],
+      "size": [
+        320,
+        206
+      ],
+      "flags": {},
+      "color": null,
+      "bgcolor": null,
+      "mode": 0,
+      "properties": {
+        "vibecomfy_id": "VHS_VideoCombine_33",
+        "Node name for S&R": "VHS_VideoCombine",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_uid": "n34"
+      }
+    }
+  },
+  "groups": [],
+  "extra": {
+    "vibecomfy": {
+      "layout_version": "m4",
+      "source_template": "video/wanvideo_wrapper_22_wan_animate_preprocess_kijai",
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/video/wanvideo_wrapper_22_wan_animate_preprocess_kijai.py"
+    }
+  },
+  "lastRerouteId": null,
+  "definitions": {},
+  "virtual_wires": {},
+  "unkeyed": []
+}

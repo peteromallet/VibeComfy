@@ -16,7 +16,17 @@ from vibecomfy.porting.edit.apply_field_aliases import (
 from vibecomfy.porting.edit.apply_place import _group_index_by_title
 from vibecomfy.porting.edit.apply_resolve_base import _resolve_node, _resolve_scope, _resolve_source_endpoint
 from vibecomfy.porting.edit.apply_slots import _linked_widget_names, _reorder_names
-from vibecomfy.porting.edit.apply_types import ResolvedAddNodeSpec, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, _issue
+from vibecomfy.porting.edit.apply_types import (
+    ResolvedAddNodeSpec,
+    ResolvedLinkEndpoint,
+    ResolvedNodeRef,
+    ResolvedOp,
+    ValueDefaultContext,
+    ValueDefaultReceipt,
+    ValueDefaultBinding,
+    VALUE_DEFAULT_FIELDS_MARKER,
+    _issue,
+)
 from vibecomfy.porting.edit.apply_values import _validate_literal_value
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import _normalize_type
@@ -31,6 +41,7 @@ def _resolve_add_node(
     op: AddNodeOp,
     *,
     schema_provider: Any,
+    value_default_context: ValueDefaultContext | None = None,
 ) -> tuple[ResolvedOp | None, list[PortIssue]]:
     scope, issues = _resolve_scope(ledger, op.scope_path)
     if issues:
@@ -49,10 +60,28 @@ def _resolve_add_node(
 
     schema_inputs = getattr(schema, "inputs", {}) or {}
     fields: dict[str, Any] = {}
+    persisted_value_default_fields: tuple[str, ...] = ()
+    raw_fields = dict(op.fields)
+    raw_marker = raw_fields.pop(VALUE_DEFAULT_FIELDS_MARKER, None)
+    if raw_marker is not None:
+        if (
+            op.uid is None
+            or op.node_id is None
+            or not isinstance(raw_marker, (list, tuple))
+            or not all(isinstance(field, str) and field for field in raw_marker)
+        ):
+            return None, [
+                _issue(
+                    "invalid_value_default_replay_marker",
+                    "Value-default protection metadata is valid only on a canonical landed add-node op.",
+                    detail={"scope_path": op.scope_path, "class_type": op.class_type},
+                )
+            ]
+        persisted_value_default_fields = tuple(dict.fromkeys(raw_marker))
     known_field_names: set[str] = set()
     alias_issues: list[PortIssue] = []
     original_by_resolved: dict[str, str] = {}
-    for raw_field_name, value in op.fields.items():
+    for raw_field_name, value in raw_fields.items():
         requested_field = str(raw_field_name)
         canonical = _canonical_input_name_for_class(schema_inputs, op.class_type, requested_field)
         resolved = resolve_add_node_field_alias(
@@ -96,6 +125,19 @@ def _resolve_add_node(
             node_id=op.node_id,
         )
     issues = list(alias_issues)
+    value_default_receipts: tuple[ValueDefaultReceipt, ...] = ()
+    if value_default_context is not None and value_default_context.active:
+        op, value_default_receipts, binding_issues = _bind_value_defaults(
+            op,
+            schema_inputs=schema_inputs,
+            value_default_context=value_default_context,
+        )
+        issues.extend(binding_issues)
+    value_default_fields = (
+        tuple(receipt.canonical_field for receipt in value_default_receipts)
+        if value_default_receipts
+        else persisted_value_default_fields
+    )
     for input_name, spec in schema_inputs.items():
         required = bool(getattr(spec, "required", False))
         default = getattr(spec, "default", None)
@@ -260,12 +302,165 @@ def _resolve_add_node(
             schema_inputs=schema_inputs,
             resolved_inputs=resolved_inputs,
             resolved_input_specs=resolved_input_specs,
+            value_default_receipts=value_default_receipts,
+            value_default_fields=value_default_fields,
             anchor_near=anchor_near,
             anchor_between=anchor_between,
             anchor_group_index=anchor_group_index,
             anchor_group_title=anchor_group_title,
         ),
         list(issues),
+    )
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    try:
+        return bool(left == right)
+    except Exception:
+        return repr(left) == repr(right)
+
+
+def _unique_schema_valid_prior(
+    *,
+    class_type: str,
+    input_name: str,
+    spec: InputSpec,
+    context: ValueDefaultContext,
+) -> tuple[ValueDefaultBinding | None, str]:
+    valid: list[ValueDefaultBinding] = []
+    refused_invalid = False
+    for binding in context.selected_bindings(class_type, input_name):
+        validation_issues = _validate_literal_value(
+            value=binding.thawed_value(),
+            spec=spec,
+            class_type=class_type,
+            input_name=input_name,
+            context="value_default_prior",
+        )
+        if validation_issues:
+            refused_invalid = True
+            continue
+        valid.append(binding)
+    if not valid:
+        return None, "invalid_source_prior" if refused_invalid else "no_eligible_source_prior"
+    first_value = valid[0].thawed_value()
+    if any(not _values_equal(first_value, binding.thawed_value()) for binding in valid[1:]):
+        return None, "conflicting_source_priors"
+    return valid[0], "unique_schema_valid_source_prior"
+
+
+def _bind_value_defaults(
+    op: AddNodeOp,
+    *,
+    schema_inputs: Mapping[str, InputSpec],
+    value_default_context: ValueDefaultContext,
+) -> tuple[AddNodeOp, tuple[ValueDefaultReceipt, ...], list[PortIssue]]:
+    """Add qualified defaults without making their absence a construction gate."""
+    proposed = dict(op.fields)
+    effective = dict(op.fields)
+    receipts: list[ValueDefaultReceipt] = []
+    issues: list[PortIssue] = []
+
+    for input_name, spec in schema_inputs.items():
+        if input_spec_is_socket_only(spec):
+            continue
+
+        user_override = (
+            value_default_context.explicit_override(op.class_type, input_name)
+            or value_default_context.explicit_request_override(
+                op.class_type,
+                input_name,
+                spec,
+            )
+        )
+        prior, prior_reason = _unique_schema_valid_prior(
+            class_type=op.class_type,
+            input_name=input_name,
+            spec=spec,
+            context=value_default_context,
+        )
+        chosen = False
+        chosen_value: Any = None
+        basis = ""
+        provenance = ""
+        source_instance_id = ""
+        role_label = ""
+        reason = ""
+        if user_override is not None:
+            chosen = True
+            chosen_value = user_override.thawed_value()
+            basis = "explicit_user_value"
+            provenance = "user"
+            source_instance_id = user_override.source_instance_id
+            role_label = user_override.role_label
+            reason = "exact structured user override"
+        elif prior is not None:
+            chosen = True
+            chosen_value = prior.thawed_value()
+            basis = "source_prior"
+            provenance = prior.provenance
+            source_instance_id = prior.source_instance_id
+            role_label = prior.role_label
+            reason = prior_reason
+
+        if input_name in proposed:
+            proposed_value = proposed[input_name]
+            if not chosen:
+                # No qualified binding applies to this field. Preserve the
+                # model-authored literal exactly as the pre-feature constructor
+                # did; schema validation below remains authoritative.
+                continue
+            if not _values_equal(proposed_value, chosen_value):
+                issues.append(
+                    _issue(
+                        "value_default_literal_normalized",
+                        (
+                            f"{op.class_type}.{input_name} proposed {proposed_value!r}; "
+                            f"the qualified {basis} value {chosen_value!r} was applied."
+                        ),
+                        severity="warning",
+                        detail={
+                            "scope_path": op.scope_path,
+                            "class_type": op.class_type,
+                            "field": input_name,
+                            "proposed_value": proposed_value,
+                            "effective_value": chosen_value if chosen else None,
+                            "effective_basis": basis or "unresolved",
+                        },
+                    )
+                )
+                reason = f"{reason}; conflicting constructor literal normalized"
+            else:
+                reason = f"{reason}; redundant constructor literal normalized"
+
+        if chosen:
+            effective[input_name] = chosen_value
+            receipts.append(ValueDefaultReceipt(
+                class_type=op.class_type,
+                canonical_field=input_name,
+                old_value=None,
+                new_value=chosen_value,
+                basis=basis,
+                provenance=provenance,
+                validation_result="passed",
+                source_instance_id=source_instance_id,
+                role_label=role_label,
+                reason=reason,
+            ))
+
+    return (
+        AddNodeOp(
+            op=op.op,
+            scope_path=op.scope_path,
+            class_type=op.class_type,
+            fields=effective,
+            inputs=dict(op.inputs),
+            anchor=op.anchor,
+            uid=op.uid,
+            node_id=op.node_id,
+        ),
+        tuple(receipts),
+        issues,
     )
 
 

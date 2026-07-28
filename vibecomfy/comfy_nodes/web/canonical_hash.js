@@ -381,10 +381,9 @@ const _NON_CANONICAL_NUMBER = "non_canonical_number";
  *   - ``NaN`` / ``Infinity`` / ``-Infinity`` -> throws the caller-supplied
  *     ``finiteErrorCode`` (e.g. ``"non_finite_geometry"`` or
  *     ``"non_finite_materialization"``).
- *   - ``boolean`` -> rejected with ``non_canonical_number`` (a boolean in a
- *     numeric position has no JS-compatible numeric spelling; mirrors Python's
- *     ``bool`` rejection even though JS does not subclass ``Boolean`` from
- *     ``Number``).
+ *   - ``boolean`` -> returned unchanged when ``allowBool`` is true; otherwise
+ *     rejected with ``non_canonical_number`` (mirrors Python's ``allow_bool``
+ *     handling even though JS does not subclass ``Boolean`` from ``Number``).
  *   - finite ``number`` that is integer-valued but outside the JS safe integer
  *     range (``abs(n) > 2**53 - 1``) -> rejected with ``non_canonical_number``
  *     (the shortest round-trippable spelling differs from the exact decimal
@@ -397,30 +396,32 @@ const _NON_CANONICAL_NUMBER = "non_canonical_number";
  * (``1e2``) collapse to the same canonical spelling.
  *
  * @param {*} value
- * @param {{ finiteErrorCode?: string }} [options]
+ * @param {{ finiteErrorCode?: string, allowBool?: boolean }} [options]
  * @returns {*}
  */
 export function canonicalizeContractNumeric(value, options = {}) {
   const finiteErrorCode = options.finiteErrorCode || "non_finite_number";
-  return _normalizeNumericJs(value, finiteErrorCode);
+  const allowBool = options.allowBool === true;
+  return _normalizeNumericJs(value, finiteErrorCode, allowBool);
 }
 
-function _normalizeNumericJs(value, finiteErrorCode) {
+function _normalizeNumericJs(value, finiteErrorCode, allowBool) {
   if (Array.isArray(value)) {
-    return value.map((entry) => _normalizeNumericJs(entry, finiteErrorCode));
+    return value.map((entry) => _normalizeNumericJs(entry, finiteErrorCode, allowBool));
   }
   if (_isPlainObject(value)) {
     const result = /** @type {object} */ ({});
     for (const [key, entry] of Object.entries(value)) {
-      result[key] = _normalizeNumericJs(entry, finiteErrorCode);
+      result[key] = _normalizeNumericJs(entry, finiteErrorCode, allowBool);
     }
     return result;
   }
   if (typeof value === "boolean") {
-    // JS does not subclass Boolean from Number, but a boolean in a numeric
-    // position has no canonical spelling that both languages agree on (Python
-    // would serialise ``True`` as ``1`` via its ``int`` subclass; JS emits
-    // ``true``).  Reject it so the shared diagnostic is symmetric.
+    if (allowBool) {
+      return value;
+    }
+    // JS does not subclass Boolean from Number; reject explicitly so the
+    // default diagnostic remains symmetric with Python's ``allow_bool=False``.
     const error = new Error("Boolean is not a canonical numeric value");
     error.code = _NON_CANONICAL_NUMBER;
     throw error;

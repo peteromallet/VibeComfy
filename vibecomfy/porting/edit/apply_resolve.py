@@ -6,7 +6,7 @@ from .ledger import EditLedger
 from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
 from vibecomfy.porting.edit.apply_resolve_add import _resolve_add_node, _resolve_reorder
 from vibecomfy.porting.edit.apply_resolve_base import _resolve_node_only, _resolve_remove_link, _resolve_remove_node, _resolve_set_node_field, _resolve_upsert_link
-from vibecomfy.porting.edit.apply_types import ResolvedOp, _issue
+from vibecomfy.porting.edit.apply_types import ResolvedOp, ValueDefaultContext, _issue
 from vibecomfy.porting.report import PortIssue
 
 
@@ -15,9 +15,15 @@ def _resolve_op(
     op: EditOp,
     *,
     schema_provider: Any,
+    value_default_context: ValueDefaultContext | None = None,
 ) -> tuple[ResolvedOp | None, list[PortIssue]]:
     if isinstance(op, SetNodeFieldOp):
-        return _resolve_set_node_field(ledger, op, schema_provider=schema_provider)
+        return _resolve_set_node_field(
+            ledger,
+            op,
+            schema_provider=schema_provider,
+            value_default_context=value_default_context,
+        )
     if isinstance(op, SetModeOp):
         return _resolve_node_only(ledger, op.target)
     if isinstance(op, RemoveNodeOp):
@@ -27,7 +33,12 @@ def _resolve_op(
     if isinstance(op, RemoveLinkOp):
         return _resolve_remove_link(ledger, op)
     if isinstance(op, AddNodeOp):
-        return _resolve_add_node(ledger, op, schema_provider=schema_provider)
+        return _resolve_add_node(
+            ledger,
+            op,
+            schema_provider=schema_provider,
+            value_default_context=value_default_context,
+        )
     if isinstance(op, ReorderOp):
         return _resolve_reorder(ledger, op)
     return None, [_issue("unsupported_edit_op", f"Unsupported edit op {type(op).__name__}.")]

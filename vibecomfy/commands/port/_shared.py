@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -260,6 +261,13 @@ def _build_conversion_provider(args: argparse.Namespace) -> ConversionSchemaProv
 
 def _build_authoring_provider(args: argparse.Namespace):
     object_info_cache = getattr(args, "object_info_cache", None)
+    # Opt-in on-demand schema resolution: when the CLI flag is set, mirror the
+    # VIBECOMFY_ON_DEMAND_SCHEMAS=1 env var so AuthoringSchemaProvider._build_providers
+    # appends the on-demand escalation ladder (corpus cache + static AST parse; runtime
+    # boot stays separately gated on VIBECOMFY_ON_DEMAND_BOOT=1). This lets `port check`
+    # and `port convert` resolve non-installed custom-node classes offline.
+    if getattr(args, "resolve_on_demand", False):
+        os.environ["VIBECOMFY_ON_DEMAND_SCHEMAS"] = "1"
     return get_authoring_schema_provider(
         object_info_cache_path=object_info_cache,
         object_info_index_root=Path(__file__).resolve().parents[2] / "porting" / "cache" / "object_info",

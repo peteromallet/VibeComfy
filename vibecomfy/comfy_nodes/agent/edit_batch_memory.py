@@ -529,6 +529,12 @@ _PARAMETER_TWEAK_TARGET_TERMS = (
 
 
 def _task_looks_like_parameter_tweak(state: Any) -> bool:
+    # Additive / restore intent (add/re-add/restore/insert a node, "missing",
+    # "gone", "no longer") must NEVER be classified as a parameter tweak: the
+    # tweak path injects "Stop searching, do not add or replace nodes" before
+    # turn 1, which poisons additive edits.  Bail out first.
+    if _task_looks_like_additive(state):
+        return False
     text = (
         f"{getattr(state, 'task', '')} "
         f"{getattr(state, 'request_payload', {}).get('query', '')} "
@@ -537,6 +543,80 @@ def _task_looks_like_parameter_tweak(state: Any) -> bool:
     return any(term in text for term in _PARAMETER_TWEAK_ACTION_TERMS) and any(
         term in text for term in _PARAMETER_TWEAK_TARGET_TERMS
     )
+
+
+# Structural verbs that signal ADDITIVE / restore intent (re-add a removed
+# feature, insert a node, attach/rewire something missing).  When present, the
+# task is NOT a parameter tweak and must NOT receive "edit an existing node /
+# do not add nodes" hardening.  Prefer multi-word phrases to avoid false
+# positives ("add" as a bare substring would match "address"/"added").
+_ADDITIVE_INTENT_PHRASES = (
+    "re-add",
+    "re-add",
+    "readd",
+    "re-introduce",
+    "re-introduce",
+    "re-instate",
+    "reinstate",
+    "bring back",
+    "put back",
+    "add back",
+    "no longer",
+    "add an",
+    "add a ",
+    "add the",
+    "add new",
+    "missing",
+    "removed",
+    "gone",
+    "disappeared",
+    "restore",
+    "insert",
+    "attach",
+    "rewire",
+    "connect",
+)
+_ADDITIVE_INTENT_STANDALONE = (
+    "restore",
+    "reinstate",
+    "insert",
+    "attach",
+    "rewire",
+    "missing",
+    "removed",
+    "gone",
+    "disappeared",
+)
+
+
+def _task_looks_like_additive(state: Any) -> bool:
+    """Return True when the task text signals ADDITIVE / restore intent.
+
+    Composes ``state.task``, ``request_payload['query']``, and the executor
+    classification text (intent/route/task), casefolded.  Matches explicit
+    multi-word structural phrases (``"add back"``, ``"bring back"``, ``"missing"``,
+    ``"restore"``, …) plus the conservative ``"add a/an/the/new"`` lead-ins.
+
+    Conservative by design: bare ``"add"`` is NOT matched on its own (it would
+    false-fire on ``"address"``/``"added"``/``"add-on"``); only the multi-word
+    phrases and standalone structural verbs are.
+    """
+    text = (
+        f"{getattr(state, 'task', '')} "
+        f"{getattr(state, 'request_payload', {}).get('query', '')} "
+        f"{_executor_classification_text(state)}"
+    ).casefold()
+    if any(phrase in text for phrase in _ADDITIVE_INTENT_PHRASES):
+        return True
+    # Word-boundary match for standalone structural verbs so "restore"/"insert"
+    # fire even when they appear without a multi-word phrase, but never as a
+    # substring of a larger word.
+    tokens = set()
+    for chunk in text.split():
+        # strip lightweight punctuation so "restore." / "insert," match.
+        tokens.add(chunk.strip(".,;:!?\"'()[]{}"))
+    return any(token in tokens for token in _ADDITIVE_INTENT_STANDALONE)
+
 
 
 def _existing_parameter_tweak_targets(state: Any, *, max_targets: int = 4) -> list[str]:
@@ -726,6 +806,13 @@ def _direct_existing_parameter_tweak_feedback(
     state: Any,
     clarify_message: str | None = None,
 ) -> str:
+    # Additive / restore intent must not receive "edit an existing node / do not
+    # add or replace nodes" guidance — that poisons additive edits across the
+    # intro/apply/finish call sites.  (Also covered by
+    # _task_looks_like_parameter_tweak, but the explicit guard keeps the
+    # contract obvious and survives refactors.)
+    if _task_looks_like_additive(state):
+        return ""
     if not _task_looks_like_parameter_tweak(state):
         return ""
     if clarify_message is not None:
@@ -784,6 +871,10 @@ def _edit_noop_requires_graph_evidence_feedback(state: Any) -> str:
 
 def _targeted_edit_hardening_feedback(state: Any) -> str:
     """Return narrow deterministic guidance for known ambiguous edit intents."""
+    # Additive / restore intent: same-type siblings must NOT trigger "edit an
+    # existing node" hardening for an explicit add/restore request.
+    if _task_looks_like_additive(state):
+        return ""
     text = (
         f"{getattr(state, 'task', '')} "
         f"{getattr(state, 'request_payload', {}).get('query', '')} "

@@ -4132,10 +4132,14 @@ def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    graph = _ui_graph()
+    for node in graph["nodes"]:
+        node.setdefault("properties", {})["vibecomfy_uid"] = f"fixture-{node['id']}"
 
     result = handle_agent_edit(
         {
-            "graph": _ui_graph(),
+            "graph": graph,
+            "workflow_id": graph["id"],
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -18652,3 +18656,30 @@ def test_executor_revise_idempotency_conflict_through_edit(
         or conflict.get("kind") == "StaleStateMismatch"
         or conflict.get("failure_kind") == "StaleStateMismatch"
     ), f"Expected conflict, got: {json.dumps(conflict, default=str)[:500]}"
+
+
+def test_additive_flag_does_not_bypass_pre_edit_readonly_gate(tmp_path) -> None:
+    """The revise pre-edit readonly gate must NOT read the ``additive`` flag.
+
+    Safety contract (revert): a prior commit added ``not _state_additive_request``
+    to the readonly gate so an ``additive=True`` hint could bypass the
+    dangling-endpoint check. That bypass was (a) flag-driven rather than
+    registry-grounded and (b) proven non-functional (0 additive passes). It was
+    reverted. This test pins the revert: the helper must be gone from the agent
+    package, and the gate predicate must not mention ``additive`` /
+    ``_state_additive_request`` at all. Additive relaxations, if any, must come
+    through the registry-grounded ``_can_attempt_local_additive_revise`` path.
+    """
+    import inspect
+
+    from vibecomfy.comfy_nodes.agent import edit_orchestration, edit_research
+
+    assert not hasattr(edit_research, "_state_additive_request"), (
+        "_state_additive_request was re-added -- the additive flag-bypass must stay reverted"
+    )
+    src = inspect.getsource(edit_orchestration)
+    assert "_state_additive_request" not in src, (
+        "edit_orchestration references _state_additive_request -- the additive "
+        "flag-bypass was re-added to the readonly gate"
+    )
+    assert "_can_attempt_local_additive_revise" in src

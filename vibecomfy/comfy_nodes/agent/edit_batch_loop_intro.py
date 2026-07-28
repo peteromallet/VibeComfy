@@ -351,7 +351,12 @@ def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
             return
         raw = node.get("class_type") or node.get("type")
         class_type = str(raw or "").strip()
-        if class_type and class_type != "Unknown" and class_type not in seen:
+        if (
+            class_type
+            and class_type != "Unknown"
+            and not _is_ui_only_annotation_class_type(class_type)
+            and class_type not in seen
+        ):
             seen.add(class_type)
             ordered.append(class_type)
 
@@ -379,6 +384,51 @@ def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def _is_ui_only_annotation_class_type(class_type: Any) -> bool:
+    """Use the shared conservative annotation classifier."""
+    from vibecomfy.executor.contracts import is_ui_only_annotation_class_type
+
+    return is_ui_only_annotation_class_type(class_type)
+
+
+def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return annotation classes ignored by dependency preflight."""
+    ignored: list[str] = []
+
+    def consider(raw: Any) -> None:
+        class_type = str(raw or "").strip()
+        if (
+            class_type
+            and _is_ui_only_annotation_class_type(class_type)
+            and class_type not in ignored
+        ):
+            ignored.append(class_type)
+
+    explicit = plan.get("required_new_nodes")
+    if isinstance(explicit, (list, tuple)):
+        for record in explicit:
+            if isinstance(record, Mapping):
+                consider(
+                    record.get("class_type")
+                    or record.get("node_type")
+                    or record.get("type")
+                )
+    candidate_graph = plan.get("candidate_graph")
+    if isinstance(candidate_graph, Mapping):
+        nodes = candidate_graph.get("nodes")
+        records = (
+            nodes
+            if isinstance(nodes, list)
+            else nodes.values()
+            if isinstance(nodes, Mapping)
+            else candidate_graph.values()
+        )
+        for record in records:
+            if isinstance(record, Mapping):
+                consider(record.get("class_type") or record.get("type"))
+    return tuple(ignored)
+
+
 def _actionable_plan_required_new_classes(
     state: AgentEditState,
     plan: Mapping[str, Any],
@@ -399,6 +449,7 @@ def _actionable_plan_required_new_classes(
         if (
             class_type
             and class_type != "Unknown"
+            and not _is_ui_only_annotation_class_type(class_type)
             and class_type not in target_classes
             and class_type not in required
         ):
@@ -537,6 +588,35 @@ def _actionable_plan_dependency_status(
     return tuple(dependencies)
 
 
+def _retry_after_dependency_preflight_failure(
+    state: AgentEditState,
+    unresolved_runtime_classes: tuple[str, ...],
+) -> None:
+    """Reject one poisoned synthesis while preserving evidence for a retry.
+
+    The batch author still receives the inquiry, current graph, and retrieved
+    precedent slices, but the unresolved candidate graph is removed so it
+    cannot abort or prescribe the next attempt.
+    """
+    notes = (
+        dict(state.execution_protocol_notes)
+        if isinstance(state.execution_protocol_notes, Mapping)
+        else {}
+    )
+    notes.pop("adaptation_plan", None)
+    notes["adaptation_plan_actionability"] = {
+        "actionability": "non_actionable",
+        "non_actionable_reason": "dependency_preflight_failed_retry_synthesis",
+    }
+    notes["synthesis_retry"] = {
+        "trigger": "dependency_preflight_failed",
+        "rejected_class_types": list(unresolved_runtime_classes),
+        "strategy": "choose another retrieved precedent or bounded direct edit",
+    }
+    state.execution_protocol_notes = notes
+    state.executor_adaptation_plan = None
+
+
 def _hydrate_actionable_registry_dependencies(state: AgentEditState) -> None:
     candidates: list[dict[str, Any]] = []
     for dependency in state.runtime_dependencies:
@@ -585,90 +665,58 @@ def _stage_agent_batch_repl(
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> StageResult:
     from vibecomfy.porting.edit import session as edit_session_module
+    from vibecomfy.porting.edit.apply_types import ValueDefaultContext
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
+    plan = (
+        state.execution_protocol_notes.get("adaptation_plan")
+        if isinstance(state.execution_protocol_notes, Mapping)
+        else None
+    )
+    ignored_ui_annotations = (
+        _actionable_plan_ui_only_classes(plan)
+        if isinstance(plan, Mapping)
+        else ()
+    )
     state.runtime_dependencies = _actionable_plan_dependency_status(state)
     unresolved_runtime_classes = tuple(
         str(dependency.get("class_type"))
         for dependency in state.runtime_dependencies
         if dependency.get("availability") == "unresolved"
     )
-    if unresolved_runtime_classes:
-        missing_text = ", ".join(unresolved_runtime_classes)
-        message = (
-            "This edit requires custom-node classes that could not be found in "
-            f"the live ComfyUI runtime or Comfy Registry: {missing_text}. "
-            "Install or identify the providing custom-node pack, restart ComfyUI, "
-            "and then retry this edit."
-        )
-        state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
-        state.batch_final_summary = "Stopped before authoring because dependencies are unresolved."
-        state.user_message = message
-        state.report = {
-            "clarification_required": True,
-            "graph_unchanged": True,
-            "queue_blockers": [],
-            "authoring_blocker": {
-                "reason": "unresolved_runtime_classes",
-                "missing_runtime_classes": list(unresolved_runtime_classes),
-                "runtime_dependencies": list(state.runtime_dependencies),
-                "message": message,
-            },
-        }
-        state.python_before = ""
-        state.python_after = ""
-        state.before_py_path.write_text("", encoding="utf-8")
-        state.after_py_path.write_text("", encoding="utf-8")
-        write_json_artifact(state.model_request_path, {"turns": []})
-        write_json_artifact(
-            state.model_response_path,
-            {
-                "turns": [],
-                "clarification": {
-                    "reason": "unresolved_runtime_classes",
-                    "message": message,
-                },
-            },
-        )
-        write_json_artifact(state.candidate_ui_path, prepared_ui)
-        state.messages_path.write_text(
-            json.dumps(
-                {
-                    "authoring_blocker": "unresolved_runtime_classes",
-                    "clarification_required": message,
-                    "message": message,
-                    "missing_runtime_classes": list(unresolved_runtime_classes),
-                    "runtime_dependencies": list(state.runtime_dependencies),
-                },
-                sort_keys=True,
+    if ignored_ui_annotations or unresolved_runtime_classes:
+        retrying = bool(unresolved_runtime_classes)
+        if retrying:
+            _retry_after_dependency_preflight_failure(
+                state,
+                unresolved_runtime_classes,
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        return StageResult(
-            stage="agent_batch",
-            ok=True,
-            blocking=False,
-            duration_ms=_duration_ms(start),
-            artifacts=(
-                _artifact(state.before_py_path),
-                _artifact(state.after_py_path),
-                _artifact(state.model_request_path),
-                _artifact(state.model_response_path),
-                _artifact(state.candidate_ui_path),
-                _artifact(state.messages_path),
-            ),
-            value={
-                "mode": "unresolved_runtime_classes",
-                "graph_unchanged": True,
-                "missing_runtime_classes": list(unresolved_runtime_classes),
+        write_json_artifact(
+            state.turn_dir / "dependency_preflight.json",
+            {
+                "ignored_ui_annotation_classes": list(ignored_ui_annotations),
+                "unresolved_runtime_classes": list(unresolved_runtime_classes),
                 "runtime_dependencies": list(state.runtime_dependencies),
+                "retrying_synthesis": retrying,
             },
         )
     _hydrate_actionable_registry_dependencies(state)
     _hydrate_research_precedent_node_schemas(state)
-    session = edit_session_module.EditSession(prepared_ui, schema_provider=state.schema_provider)
+    value_default_context = ValueDefaultContext.from_precedent_slices(
+        state.executor_precedent_slices,
+        adaptation_plan=state.executor_adaptation_plan,
+        user_overrides=state.request_payload.get("value_default_overrides"),
+        user_request=f"{state.task}\n{state.request_payload.get('query') or ''}",
+    )
+    # Keep the user request available for exact-value extraction even when no
+    # precedent bindings exist. The resolver treats absent or ineligible
+    # bindings as a no-op, so an empty/partial context cannot gate construction.
+    session = edit_session_module.EditSession(
+        prepared_ui,
+        schema_provider=state.schema_provider,
+        value_default_context=value_default_context,
+    )
     state.batch_session = session
     initial_render = session.render()
     present_types = _present_class_types(session)
@@ -731,17 +779,21 @@ def _stage_agent_batch_repl(
         state.graph_inspection
         or (_build_graph_report(state.graph) if prefetch_explain else "")
     )
-    # Build compact adaptation plan prompt for adapt route.
+    # Build compact precedent-prior prompt for routes that received structured
+    # evidence. Provenance slices remain evidence even on a risk-triggered
+    # revise route.
     precedent_adaptation_prompt = ""
     adapt_scoped_research_context = ""
     canonical_route = _canonical_agent_edit_route(state.route or route)
     research_only_route = canonical_route == "research"
+    if canonical_route in {"adapt", "revise"} and (
+        state.executor_adaptation_plan or state.executor_precedent_slices
+    ):
+        precedent_adaptation_prompt = _build_precedent_adaptation_prompt(
+            state.executor_adaptation_plan,
+            state.executor_precedent_slices,
+        )
     if canonical_route == "adapt":
-        if state.executor_adaptation_plan:
-            precedent_adaptation_prompt = _build_precedent_adaptation_prompt(
-                state.executor_adaptation_plan,
-                state.executor_precedent_slices,
-            )
         # SD3: scoped adapt prefetch from execution_protocol_notes and
         # research_context_packet — discardable, evidence-only context.
         if (
@@ -848,6 +900,13 @@ def _stage_agent_batch_repl(
     last_successful_edit_turn_after_failure = -1
     request_log: list[dict[str, Any]] = []
     response_log: list[dict[str, Any]] = []
+    # Duplicate-query cycle guard (Part C): track the prior turn's search
+    # signature + whether it landed anything.  When the current turn repeats an
+    # IDENTICAL search() signature AND the prior landed nothing, inject
+    # deterministic feedback to break the cycle.  Never fires on a first search
+    # or on a search that previously succeeded.
+    prior_search_signatures: tuple[str, ...] | None = None
+    prior_search_landed: bool = False
 
     for turn_number in range(max_batches):
         budget_remaining = max_batches - turn_number

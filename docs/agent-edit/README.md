@@ -15,5 +15,6 @@ plans.
 ## Design Notes
 
 - [Concrete tree](concrete-tree.md)
+- [Demo scenario factory runbook](demo-scenario-factory-runbook.md)
 - [Phase 1 plan](phase1-plan.md)
 - [Solution spec](solution-spec.md)

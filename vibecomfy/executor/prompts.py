@@ -21,6 +21,7 @@ from .contracts import (
     adaptation_plan_actionability_payload,
     format_route_options_for_prompt,
     format_task_options_for_prompt,
+    parse_target_node_type,
 )
 
 # ── classify prompt ──────────────────────────────────────────────────────────
@@ -47,6 +48,8 @@ _CLASSIFY_SYSTEM = (
     "retrieval mistakes only; omit it by default.\n"
     '  "known_graph_context": string (optional) — compact graph facts relevant '
     "to the research direction; leave blank if unknown.\n"
+    '  "target_node_type": string (optional) — the exact class_type token being '
+    "added, changed, or restored; leave blank when unclear.\n"
     '  "intent": "edit" | "research" | "explain_graph" | "respond" — the primary '
     "user intent.\n"
     f"{format_route_options_for_prompt()}"
@@ -748,6 +751,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     model_families = parsed.get("model_families")
     pattern_category = parsed.get("pattern_category")
     change_goal = parsed.get("change_goal")
+    target_node_type = parsed.get("target_node_type")
     clarification_question = parsed.get("clarification_question")
     clarification_options = parsed.get("clarification_options")
 
@@ -818,6 +822,9 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     if not isinstance(change_goal, str):
         change_goal = ""
     change_goal = change_goal.strip()
+    if not isinstance(target_node_type, str):
+        target_node_type = ""
+    target_node_type = target_node_type.strip() or parse_target_node_type(change_goal)
     if not isinstance(clarification_question, str):
         clarification_question = ""
     clarification_question = clarification_question.strip()
@@ -842,6 +849,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
         model_families=model_families,
         pattern_category=pattern_category,
         change_goal=change_goal,
+        target_node_type=target_node_type,
         clarification_question=clarification_question,
         clarification_options=clarification_options,
     )

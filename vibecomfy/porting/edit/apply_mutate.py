@@ -7,7 +7,7 @@ from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, 
 from vibecomfy.porting.edit.apply_links import _ensure_input_slot, _ensure_output_link_reference, _link_endpoints, _link_ids_targeting_input, _new_link_for_scope, _remove_link_from_scope, _remove_node_from_scope, _rewire_link_origin, _set_input_link_reference
 from vibecomfy.porting.edit.apply_place import _next_node_order, _node_size, _place_add_node
 from vibecomfy.porting.edit.apply_slots import _reorder_names, _widget_name_for_input
-from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, ResolvedAddNodeSpec, ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, _issue
+from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, ResolvedAddNodeSpec, ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, VALUE_DEFAULT_FIELDS_MARKER, _issue
 from vibecomfy.porting.emit.ui import materialize_litegraph_node
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import _find_named_slot, _normalize_type
@@ -241,6 +241,13 @@ def _apply_add_node(
         uid,
         pos,
     )
+    protected_fields = spec.value_default_fields
+    if protected_fields:
+        properties = node.setdefault("properties", {})
+        if isinstance(properties, dict):
+            properties["vibecomfy_value_default_fields"] = list(
+                dict.fromkeys(protected_fields)
+            )
     node["order"] = _next_node_order(spec.scope.graph)
     nodes = spec.scope.graph.get("nodes")
     if not isinstance(nodes, list):
@@ -300,6 +307,9 @@ def _apply_add_node(
                 "pos": list(node.get("pos") or []),
                 "group_index": group_index,
                 "link_ids": link_ids,
+                "value_default_receipts": [
+                    receipt.to_dict() for receipt in spec.value_default_receipts
+                ],
             },
         )
     )
@@ -313,15 +323,30 @@ def _apply_add_node(
             )
         )
 
+    landed_fields = dict(spec.op.fields)
+    if protected_fields:
+        landed_fields[VALUE_DEFAULT_FIELDS_MARKER] = list(protected_fields)
+    landed_op = AddNodeOp(
+        op=spec.op.op,
+        scope_path=spec.op.scope_path,
+        class_type=spec.op.class_type,
+        fields=landed_fields,
+        inputs=dict(spec.op.inputs),
+        anchor=spec.op.anchor,
+        uid=uid,
+        node_id=str(node_id),
+    )
     return (
         AppliedAddNodeSpec(
-            op=spec.op,
+            op=landed_op,
             scope_path=scope_path,
             uid=uid,
             node_id=node_id,
             link_ids=tuple(link_ids),
             source_uids=tuple(source.ref.uid for source in spec.resolved_inputs.values()),
             group_index=group_index if grew_group else None,
+            value_default_receipts=spec.value_default_receipts,
+            value_default_fields=protected_fields,
         ),
         diagnostics,
     )
@@ -399,6 +424,15 @@ def _apply_set_node_field(
         )
         _clear_linked_input_surface(node, field_ref)
     _write_widget_value(node, field_ref, value)
+    if field_ref.value_default_receipt is not None:
+        diagnostics.append(
+            _issue(
+                "value_default_edit_receipt",
+                "Protected widget edit applied with an authority receipt.",
+                severity="info",
+                detail=field_ref.value_default_receipt.to_dict(),
+            )
+        )
     return diagnostics
 
 

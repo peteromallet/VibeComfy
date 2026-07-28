@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -295,7 +295,85 @@ def _should_research(plan: ClassifyDecision) -> bool:
     return _route_behavior(plan).needs_research
 
 
-def _should_prefetch_research(plan: ClassifyDecision) -> bool:
+def _graph_has_provenance_breadcrumb(graph: Mapping[str, Any] | None) -> bool:
+    if not isinstance(graph, Mapping):
+        return False
+    extra = graph.get("extra")
+    breadcrumb = extra.get("vibecomfy") if isinstance(extra, Mapping) else None
+    if not isinstance(breadcrumb, Mapping):
+        return False
+    return any(
+        isinstance(breadcrumb.get(key), str) and breadcrumb.get(key).strip()
+        for key in ("source_template", "prior_path")
+    )
+
+
+def _graph_has_duplicate_node_types(graph: Mapping[str, Any] | None) -> bool:
+    counts: dict[str, int] = {}
+    for _node_id, node in _iter_graph_nodes(graph):
+        class_type = str(node.get("class_type") or node.get("type") or "").strip()
+        if class_type:
+            counts[class_type] = counts.get(class_type, 0) + 1
+    return any(count > 1 for count in counts.values())
+
+
+def _graph_has_parallel_branches(graph: Mapping[str, Any] | None) -> bool:
+    links = graph.get("links") if isinstance(graph, Mapping) else None
+    outgoing: dict[str, set[str]] = {}
+    if isinstance(links, (list, tuple)):
+        for link in links:
+            if isinstance(link, Mapping):
+                origin = link.get("origin_id")
+                target = link.get("target_id")
+            elif isinstance(link, (list, tuple)) and len(link) >= 4:
+                origin, target = link[1], link[3]
+            else:
+                continue
+            if origin is not None and target is not None:
+                outgoing.setdefault(str(origin), set()).add(str(target))
+    return any(len(targets) > 1 for targets in outgoing.values())
+
+
+_ROLE_PLACEMENT_VALUE_TERMS = frozenset({
+    "first", "second", "stage", "pass", "branch", "parallel", "role",
+    "per-node", "per node", "refine", "refinement", "override", "schedule",
+    "sigma", "denoise", "specific setting", "specific value",
+})
+
+
+def _revise_research_uncertainty_triggers(
+    plan: ClassifyDecision,
+    request: ExecutorRequest,
+) -> tuple[str, ...]:
+    """Return iterable uncertainty reasons that permit provenance research."""
+    if not _graph_has_provenance_breadcrumb(request.graph):
+        return ()
+    signals: list[str] = []
+    if not plan.target_node_type:
+        signals.append("target_node_type_uncertain")
+    if _graph_has_duplicate_node_types(request.graph):
+        signals.append("duplicate_node_types")
+    if _graph_has_parallel_branches(request.graph):
+        signals.append("parallel_branches")
+    query_text = " ".join(
+        str(value)
+        for value in (
+            request.query,
+            plan.change_goal,
+            plan.research_goal,
+            plan.known_graph_context,
+        )
+    ).casefold()
+    if any(term in query_text for term in _ROLE_PLACEMENT_VALUE_TERMS):
+        signals.append("role_or_value_specific_request")
+    return tuple(signals)
+
+
+def _should_prefetch_research(
+    plan: ClassifyDecision,
+    *,
+    request: ExecutorRequest | None = None,
+) -> bool:
     """Return True for routes that should prefetch research.
 
     Research route: runs through the agentic batch REPL, where the model can
@@ -303,11 +381,14 @@ def _should_prefetch_research(plan: ClassifyDecision) -> bool:
     Adapt route: prefetches scoped research from classifier fields,
     nested under execution_protocol_notes — does NOT inject raw query
     results into the implementation prompt.
-    Revise route: never prefetches research.
+    Revise route: prefetches only when provenance exists and the named
+    uncertainty triggers indicate role, placement, or value ambiguity.
     """
     route = _canonical_route_for_plan(plan)
     if route == "adapt":
         return _route_behavior(plan).needs_research
+    if route == "revise" and request is not None:
+        return bool(_revise_research_uncertainty_triggers(plan, request))
     return False
 
 
@@ -714,6 +795,39 @@ def _delegated_clarification_plan(
     )
 
 
+def _headless_clarify_research_plan(
+    request: ExecutorRequest,
+    plan: ClassifyDecision,
+    *,
+    additive: bool,
+) -> ClassifyDecision | None:
+    """Turn an unanswerable headless additive clarify into research/adapt.
+
+    ``additive`` is the existing headless-only restore hint used by the
+    campaign.  Interactive requests keep the ordinary clarification contract.
+    """
+    if (
+        not additive
+        or request.graph is None
+        or plan.effective_route != "clarify"
+    ):
+        return None
+    return replace(
+        plan,
+        research=True,
+        implement=True,
+        intent="edit",
+        route="adapt",
+        task="research_precedent",
+        research_goal=plan.research_goal or request.query,
+        change_goal=plan.change_goal or request.query,
+        plan_summary=(
+            "Headless additive repair cannot answer a clarification; research "
+            "the inquiry and current graph before attempting the repair."
+        ),
+    )
+
+
 def _clarify_markdown_reply(plan: ClassifyDecision, fallback: str) -> str:
     """Return a concrete Markdown clarification question with options."""
     question = (
@@ -902,6 +1016,7 @@ def _run_research(
         result = run_research_phase(
             query,
             graph=request.graph,
+            target_node_type=plan.target_node_type if plan is not None else "",
             hivemind_client=_default_hivemind_client,
         )
         inspection = _graph_inspection(request.graph)
@@ -994,6 +1109,7 @@ def _run_implement(
     plan: ClassifyDecision,
     research_result: ResearchResult | None = None,
     client_id: str | None = None,
+    additive: bool = False,
 ) -> ImplementationResult:
     """Run the implement phase via ``handle_agent_edit``.
 
@@ -1056,6 +1172,7 @@ def _run_implement(
         "model": spec.model,
         "effort": spec.effort,
         "executor_classification": classification,
+        "additive": bool(additive),
     }
     graph_inspection = _graph_inspection(request.graph)
     if isinstance(graph_inspection, str) and graph_inspection.strip():
@@ -1105,6 +1222,16 @@ def _run_implement(
                     protocol_notes["adaptation_plan"] = (
                         research_result.adaptation_plan.to_dict()
                     )
+            provenance_slices = [
+                s.to_dict()
+                for s in research_result.precedent_slices
+                if s.source_template or s.widget_values or s.incident_edges
+            ]
+            if provenance_slices:
+                # Evidence priors remain visible even when the broader
+                # adaptation plan is non-actionable.
+                protocol_notes["precedent_slices"] = provenance_slices
+                payload["precedent_slices"] = provenance_slices
             execution_plan_note = _adapt_execution_plan_note(
                 request,
                 plan,
@@ -1648,6 +1775,7 @@ def run_executor(
     *,
     client_id: str | None = None,
     classify_only: bool = False,
+    additive: bool = False,
 ) -> ExecutorResult:
     """Execute the full classify → research → implement → reply pipeline.
 
@@ -1660,6 +1788,12 @@ def run_executor(
         without invoking research, implement, or reply model calls.  This is
         the honest dry-run seam: ``live=false`` is a product flag, but
         ``classify_only`` guarantees no subsequent phases run.
+    additive:
+        Headless-only caller hint that this is an additive restore (the caller
+        removed a feature and now asks to re-add it).  Forwarded into the
+        implement payload so the revise pipeline can relax ONLY the pre-edit
+        "input graph has dangling/absent endpoints -> refuse to compound"
+        precondition.  All post-edit validation and gates remain enforced.
 
     Returns
     -------
@@ -1789,19 +1923,30 @@ def run_executor(
                 plan.effective_task,
             )
         elif plan.effective_route == "clarify":
-            intended_route = "adapt" if plan.research else None
-            if plan.intent == "edit":
-                intended_route = intended_route or "revise"
-            _save_clarification_context(
+            headless_plan = _headless_clarify_research_plan(
                 request,
                 plan,
-                blocked_route=intended_route,
-                blocked_task=(
-                    "edit_graph"
-                    if intended_route in {"revise", "adapt"}
-                    else None
-                ),
+                additive=additive,
             )
+            if headless_plan is not None:
+                plan = headless_plan
+                LOGGER.info(
+                    "executor: clarify_route_blocked_research → headless adapt"
+                )
+            else:
+                intended_route = "adapt" if plan.research else None
+                if plan.intent == "edit":
+                    intended_route = intended_route or "revise"
+                _save_clarification_context(
+                    request,
+                    plan,
+                    blocked_route=intended_route,
+                    blocked_task=(
+                        "edit_graph"
+                        if intended_route in {"revise", "adapt"}
+                        else None
+                    ),
+                )
     except _ExecutorPhaseError as exc:
         report = _build_report(plan=ClassifyDecision.respond_only())
         return _finish(ExecutorResult.failure(
@@ -1859,7 +2004,7 @@ def run_executor(
         ))
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
-    if _should_prefetch_research(plan):
+    if _should_prefetch_research(plan, request=request):
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception:
@@ -1957,6 +2102,7 @@ def run_executor(
                     plan=plan,
                     research_result=research_result,
                     client_id=client_id,
+                    additive=additive,
                 )
                 span.update(
                     graph_returned=implementation_result.graph is not None,

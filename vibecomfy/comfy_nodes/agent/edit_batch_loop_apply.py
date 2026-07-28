@@ -278,6 +278,12 @@ SOURCE = r'''
         landed_count = effective_landed
         total_landed += effective_landed
         last_landed_count = effective_landed
+        # Compute this turn's search() signatures once; used for the duplicate-
+        # cycle feedback (against the PRIOR turn's state) and to advance the
+        # prior-search state for the NEXT turn.  "Landed" means ANY landed edit
+        # this turn — a search followed by a successful edit is not a dead-end
+        # and must not trigger the cycle guard on repeat.
+        current_search_signatures = _extract_search_signatures(batch_result)
         if batch_result.landed_ops:
             from vibecomfy.porting.edit.ops import (
                 DELTA_SCHEMA_VERSION,
@@ -321,8 +327,31 @@ SOURCE = r'''
             else ""
         )
         hardening_feedback = _targeted_edit_hardening_feedback(state) if turn_is_read_only else ""
+        # Duplicate-query cycle guard (Part C): detect when the agent re-emits
+        # an identical search() on consecutive turns after the prior search
+        # landed nothing.  Reads the PRIOR turn's search record
+        # (prior_search_signatures / prior_search_landed, init in the intro
+        # loop); the advance for THIS turn happens just below so the next turn
+        # sees this turn as its prior.
+        duplicate_search_feedback = _duplicate_search_cycle_feedback(
+            current_search_signatures,
+            prior_search_signatures,
+            prior_search_landed,
+        )
+        # Advance the prior-search state for the NEXT turn now that the feedback
+        # (which reads the old prior state) has been computed.  A turn with no
+        # search calls resets the tracker: the guard only fires on CONSECUTIVE
+        # identical searches, so an intervening non-search turn breaks the chain.
+        if current_search_signatures:
+            prior_search_signatures = current_search_signatures
+            prior_search_landed = effective_landed > 0
+        else:
+            prior_search_signatures = None
+            prior_search_landed = False
         extra_feedback = "\n\n".join(
-            note for note in (direct_tweak_feedback, hardening_feedback) if note
+            note
+            for note in (direct_tweak_feedback, hardening_feedback, duplicate_search_feedback)
+            if note
         )
         if extra_feedback:
             report_text = f"{report_text}\n{extra_feedback}"

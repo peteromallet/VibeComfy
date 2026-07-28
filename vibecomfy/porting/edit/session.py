@@ -62,6 +62,7 @@ from vibecomfy.porting.edit._session_types import (
     _diag,
     _extract_uid_name_pairs,
 )
+from vibecomfy.porting.edit.apply_types import ValueDefaultContext
 
 from vibecomfy.porting.edit._parse import (
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
@@ -126,6 +127,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         max_statements: int = 100,
         max_expanded_statements: int = 500,
         max_for_iterations: int = 100,
+        value_default_context: ValueDefaultContext | None = None,
     ) -> None:
         self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
@@ -141,6 +143,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.max_statements = max_statements
         self.max_expanded_statements = max_expanded_statements
         self.max_for_iterations = max_for_iterations
+        self.value_default_context = (
+            value_default_context.with_graph_protections(self.original_ui)
+            if value_default_context is not None
+            else None
+        )
         self.name_by_uid: dict[str, str] = {}
         self.uid_by_name: dict[str, str] = {}
         self.unbound_names: set[str] = set()

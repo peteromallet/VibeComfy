@@ -92,12 +92,34 @@ def _build_precedent_adaptation_prompt(
     recommendation, or required implementation.  The adaptation agent
     evaluates all available slices independently.
     """
-    if not adaptation_plan:
+    if not adaptation_plan and not precedent_slices:
         return ""
-    if not is_actionable_adaptation_plan(adaptation_plan):
+    adaptation_plan = adaptation_plan or {}
+    if not is_actionable_adaptation_plan(adaptation_plan) and not precedent_slices:
         return ""
 
-    parts: list[str] = []
+    parts: list[str] = [
+        (
+            "Value-default policy for new nodes is additive: construct and wire "
+            "the node normally, including schema-valid literal widget arguments "
+            "when they are needed. When a qualified source-history prior exists, "
+            "the constructor applies that value as the default and records its "
+            "provenance. When no qualified prior exists (including absent, "
+            "ambiguous, low-confidence, or schema-invalid evidence), continue with "
+            "ordinary authoring behavior: supply a schema-valid literal yourself "
+            "or rely on the authoritative schema default. Missing value-default "
+            "evidence is never a reason to clarify, defer, or leave the graph "
+            "unchanged. Do not copy binding JSON back into the batch; the "
+            "structured binding context is already attached to the edit session."
+        )
+    ]
+
+    if not is_actionable_adaptation_plan(adaptation_plan):
+        parts.append(
+            "The adaptation material below is evidence only. Treat every role "
+            "and value as a prior with its provenance and confidence; it is not "
+            "a prescription."
+        )
 
     # ── context note (neutrality disclaimer) ──
     context_note = adaptation_plan.get("context_note")
@@ -147,6 +169,33 @@ def _build_precedent_adaptation_prompt(
             if len(all_slices) > 12:
                 slice_summaries.append(f"(+{len(all_slices) - 12} more slices)")
             parts.append("All available precedent slices (neutral context): " + "; ".join(slice_summaries))
+
+    # Provenance slices preserve every same-type source instance. Keep the
+    # named values and incident edges together with their tags so the fixer can
+    # bind by neighborhood and role instead of copying a first match.
+    if precedent_slices:
+        prior_lines: list[str] = []
+        for index, slice_data in enumerate(precedent_slices, start=1):
+            if not isinstance(slice_data, Mapping):
+                continue
+            evidence = {
+                "instance": index,
+                "source_class_type": slice_data.get("source_class_type", ""),
+                "node_ids": slice_data.get("node_ids", []),
+                "source_template": slice_data.get("source_template", ""),
+                "role_label": slice_data.get("role_label", ""),
+                "role_confidence": slice_data.get("role_confidence", "low"),
+                "widget_values": slice_data.get("widget_values", []),
+                "incident_edges": slice_data.get("incident_edges", []),
+            }
+            prior_lines.append(json.dumps(evidence, sort_keys=True, default=str))
+        if prior_lines:
+            parts.append(
+                "Role-preserving provenance priors (one line per source instance; "
+                "values outside the validated restoration bindings are evidence, "
+                "not required settings):\n"
+                + "\n".join(prior_lines)
+            )
 
     # ── anchor bindings ──
     anchor_bindings = adaptation_plan.get("anchor_bindings")
@@ -773,7 +822,7 @@ def _hydrate_current_graph_unknown_node_schemas(state: AgentEditState) -> tuple[
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    state.schema_provider = CompositeSchemaProvider(provisional, state.schema_provider)
+    state.schema_provider = CompositeSchemaProvider(state.schema_provider, provisional)
     return tuple(new_candidates)
 
 
@@ -796,13 +845,26 @@ def _executor_classification_text(state: AgentEditState) -> str:
 
 
 def _effective_implementation_task(state: AgentEditState) -> str:
-    classification_text = _executor_classification_text(state).strip()
-    if not classification_text:
+    # Carry intent/route/task into the editor's task, but NOT plan_summary: the
+    # classifier's one-sentence plan commits to a semantic solution/placement,
+    # and on ambiguous requests it commits wrongly (e.g. "add ImageScale after
+    # VAEDecode"). Let the editor decide placement from the raw graph + request.
+    # The guard in _runtime_code_additive_request still reads the full
+    # classification text via _executor_classification_text, so this only
+    # changes what the editor SEES, not the safety predicates.
+    classification = state.request_payload.get("executor_classification")
+    context = ""
+    if isinstance(classification, Mapping):
+        context = " ".join(
+            str(classification.get(key) or "")
+            for key in ("intent", "route", "task")
+        ).strip()
+    if not context:
         return state.task
     return (
         f"{state.task}\n\n"
-        "Resolved executor plan/context:\n"
-        f"{classification_text}"
+        "Resolved executor context:\n"
+        f"{context}"
     )
 
 
@@ -839,6 +901,7 @@ def _executor_requested_implementation(state: AgentEditState) -> bool:
 def _state_runtime_execution_requested(state: AgentEditState) -> bool:
     runtime = state.request_payload.get("runtime")
     return isinstance(runtime, Mapping) and bool(runtime.get("execution_requested"))
+
 
 
 def _empty_graph_authoring_request(state: AgentEditState) -> bool:

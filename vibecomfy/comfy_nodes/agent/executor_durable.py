@@ -74,6 +74,14 @@ def maybe_write_executor_only_durable_turn(
         }
         if hasattr(request, "graph") and request.graph is not None:
             request_artifact_payload["graph"] = dict(request.graph) if isinstance(request.graph, dict) else request.graph
+        # Include workflow_id from request field or extract from graph
+        workflow_id = None
+        if hasattr(request, "workflow_id") and request.workflow_id is not None:
+            workflow_id = request.workflow_id
+        elif hasattr(request, "graph") and isinstance(request.graph, dict):
+            workflow_id = request.graph.get("workflow_id") or request.graph.get("id")
+        if isinstance(workflow_id, str) and workflow_id.strip():
+            request_artifact_payload["workflow_id"] = workflow_id
 
         allocation = allocate_turn_func(
             session_root=root,

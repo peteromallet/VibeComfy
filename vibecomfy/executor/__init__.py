@@ -22,6 +22,7 @@ _EXPORT_MODULES = {
     "detect_named_external_technologies": ".execution_plan_builder",
     "needs_precedent_plan": ".execution_plan_builder",
     "parse_classify_response": ".prompts",
+    "parse_target_node_type": ".contracts",
     "parse_reply_response": ".prompts",
     "PrecedentOption": ".contracts",
     "PrecedentPacket": ".contracts",

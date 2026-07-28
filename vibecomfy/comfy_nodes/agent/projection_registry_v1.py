@@ -712,7 +712,7 @@ def forward_operation_digest(forward_ops: Any) -> str:
         "delta_contract": DELTA_V1,
         "wire_version": DELTA_WIRE_VERSION,
         "ops": normalized_ops,
-    }, finite_error_code="non_finite_materialization"))
+    }, finite_error_code="non_finite_materialization", allow_bool=True))
 
 
 def _root_endpoint(value: Any) -> bool:
@@ -773,7 +773,7 @@ def _restoration(value: Any, *, family: str | None = None, forward_ops: list | N
     payload = value.get("payload")
     if not isinstance(payload, Mapping):
         raise ContractError("Restoration payload must be an object", "malformed_restoration_payload")
-    normalized_payload = canonicalize_contract_numeric(payload, finite_error_code="non_finite_materialization")
+    normalized_payload = canonicalize_contract_numeric(payload, finite_error_code="non_finite_materialization", allow_bool=True)
     expected = _hash({"contract_version": tag, "payload": normalized_payload})
     if value["digest"] != expected:
         raise ContractError("Restoration digest mismatch", "restoration_digest_mismatch")
@@ -921,7 +921,7 @@ def _restoration_compensation(value: Any, *, authority: Mapping[str, Any]) -> Ma
         if fence.get(key) != expected:
             raise ContractError("compensation fence is not bound to this authority", "compensation_fence_unbound")
     # Digest (separate from restoration_strategy.digest).
-    normalized_fence = canonicalize_contract_numeric(fence, finite_error_code="non_finite_materialization")
+    normalized_fence = canonicalize_contract_numeric(fence, finite_error_code="non_finite_materialization", allow_bool=True)
     expected_digest = _hash({
         "contract_version": RESTORATION_COMPENSATION_CONTRACT_V1,
         "wire_version": RESTORATION_COMPENSATION_WIRE_VERSION,

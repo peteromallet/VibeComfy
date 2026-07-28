@@ -870,3 +870,49 @@ class TestGraphFactsAdaptPromptCompleteness:
         assert isinstance(d["readiness_blockers"], list)
         assert isinstance(d["socket_type_mismatches"], list)
         assert isinstance(d["missing_required_inputs"], list)
+
+
+def test_topology_evidence_tolerates_int_node_id_with_str_link_endpoint() -> None:
+    """ComfyUI LiteGraph mixes int node ids with str endpoint refs in links.
+
+    A valid graph where ``nodes[*].id`` is the int ``1`` but the link stores
+    the endpoint as the string ``"1"`` must NOT be misreported as having an
+    absent endpoint node.  Prior to the fix this false positive blocked every
+    demo_factory additive (remove_feature) case at the revise pre-edit gate.
+    """
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [3]}],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 3}],
+                "outputs": [],
+            },
+        ],
+        "links": [[3, "1", 0, "3", 0, "IMAGE"]],
+    }
+    findings = collect_topology_evidence(graph, schema_available=False)
+    assert findings.absent_endpoint_nodes == ()
+    assert findings.dangling_links == ()
+    assert findings.has_blockers is False
+
+
+def test_topology_evidence_still_detects_genuinely_absent_endpoint() -> None:
+    """Type-tolerance must not mask a real dangling endpoint reference."""
+    graph = {
+        "nodes": [
+            {"id": 1, "type": "LoadImage", "inputs": [], "outputs": []},
+            {"id": 2, "type": "SaveImage", "inputs": [], "outputs": []},
+        ],
+        # Link references node id 99 which is not in nodes — genuinely absent.
+        "links": [[5, 1, 0, 99, 0, "IMAGE"]],
+    }
+    findings = collect_topology_evidence(graph, schema_available=False)
+    assert "99" in findings.absent_endpoint_nodes
+    assert findings.has_blockers is True

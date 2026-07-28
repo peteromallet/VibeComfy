@@ -18,7 +18,19 @@ from vibecomfy.porting.edit.apply_field_aliases import (
 )
 from vibecomfy.porting.edit.apply_links import _build_rewires, _build_rewires_for_setnode_gets, _collect_links_for_origin, _collect_links_for_target, _link_id, _link_ids, _resolve_getnode_source, _resolve_passthrough_source, _schema_output_type
 from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field, _find_named_slot_index, _widget_index_for_field, _widget_index_from_input_stubs, _widget_name_for_input
-from vibecomfy.porting.edit.apply_types import ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, _ctx, _endpoint_port_issues, _issue
+from vibecomfy.porting.edit.apply_types import (
+    ResolvedFieldRef,
+    ResolvedLinkEndpoint,
+    ResolvedNodeRef,
+    ResolvedOp,
+    ResolvedRemoveLinkRef,
+    ResolvedRemoveNodePlan,
+    ValueDefaultContext,
+    ValueDefaultReceipt,
+    _ctx,
+    _endpoint_port_issues,
+    _issue,
+)
 from vibecomfy.porting.edit.apply_values import _validate_literal_value
 from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
 from vibecomfy.porting.report import PortIssue
@@ -174,6 +186,7 @@ def _resolve_set_node_field(
     op: SetNodeFieldOp,
     *,
     schema_provider: Any,
+    value_default_context: ValueDefaultContext | None = None,
 ) -> tuple[ResolvedOp | None, list[PortIssue]]:
     resolved_node, issues = _resolve_node(ledger, NodeTarget(op.target.scope_path, op.target.uid))
     if issues:
@@ -329,6 +342,98 @@ def _resolve_set_node_field(
     if value_issues:
         return None, value_issues
 
+    value_default_receipt = None
+    node_properties = node.get("properties")
+    protected_uid = (
+        str(node_properties.get("vibecomfy_uid"))
+        if isinstance(node_properties, Mapping)
+        and isinstance(node_properties.get("vibecomfy_uid"), str)
+        else target.uid
+    )
+    if (
+        value_default_context is not None
+        and value_default_context.active
+        and value_default_context.protects(
+            target.scope_path,
+            protected_uid,
+            class_type,
+            field_path,
+        )
+    ):
+        old_value = None
+        if widget_key is not None and isinstance(widgets_values, Mapping):
+            old_value = widgets_values.get(widget_key)
+        elif (
+            widget_index is not None
+            and isinstance(widgets_values, list)
+            and widget_index < len(widgets_values)
+        ):
+            old_value = widgets_values[widget_index]
+        user_override = (
+            value_default_context.explicit_override(class_type, field_path)
+            or value_default_context.explicit_request_override(
+                class_type,
+                field_path,
+                schema_input,
+            )
+        )
+        basis = ""
+        provenance_label = ""
+        receipt_reason = ""
+        if old_value == op.value:
+            basis = "redundant_existing_value"
+            provenance_label = "existing_bound_value"
+            receipt_reason = "assignment equals the protected value"
+        elif user_override is not None and user_override.thawed_value() == op.value:
+            basis = "explicit_user_value"
+            provenance_label = "user"
+            receipt_reason = "exact structured user edit authority"
+        else:
+            schema_default = getattr(schema_input, "default", None)
+            old_value_issues = _validate_literal_value(
+                value=old_value,
+                spec=schema_input,
+                class_type=class_type,
+                input_name=field_path,
+                context="protected_value",
+            )
+            if schema_default is not None and old_value_issues and schema_default == op.value:
+                basis = "schema_correction"
+                provenance_label = "schema_default"
+                receipt_reason = (
+                    "protected value invalid under current schema; "
+                    "unique declared-default correction"
+                )
+        if not basis:
+            return None, [
+                _issue(
+                    "unauthorized_set_node_field_override",
+                    (
+                        f"{class_type}.{field_path} is protected by value-default "
+                        "binding; a different value requires an exact user or "
+                        "schema-correction receipt."
+                    ),
+                    detail={
+                        "scope_path": target.scope_path,
+                        "uid": protected_uid,
+                        "class_type": class_type,
+                        "field": field_path,
+                        "old_value": old_value,
+                        "proposed_value": op.value,
+                    },
+                )
+            ]
+        value_default_receipt = ValueDefaultReceipt(
+            class_type=class_type,
+            canonical_field=field_path,
+            old_value=old_value,
+            new_value=op.value,
+            basis=basis,
+            provenance=provenance_label,
+            validation_result="passed",
+            reason=receipt_reason,
+        )
+
     issues = []
     if used_schema_less_widget_recovery:
         issues.append(
@@ -375,6 +480,7 @@ def _resolve_set_node_field(
             widget_key=widget_key,
             schema_input=schema_input,
             automatic_link_removal=automatic_link_removal,
+            value_default_receipt=value_default_receipt,
         ),
         issues,
     )

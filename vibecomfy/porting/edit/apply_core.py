@@ -9,7 +9,14 @@ from vibecomfy.porting.edit.apply_gate import guard_full_ui
 from vibecomfy.porting.edit.apply_links import _sync_scope_counters
 from vibecomfy.porting.edit.apply_mutate import _apply_resolved_op
 from vibecomfy.porting.edit.apply_resolve import _resolve_op
-from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, ApplyResult, ResolveResult, ResolvedOp
+from vibecomfy.porting.edit.apply_types import (
+    AppliedAddNodeSpec,
+    ApplyResult,
+    ResolveResult,
+    ResolvedOp,
+    ValueDefaultContext,
+)
+from vibecomfy.porting.report import PortIssue
 
 
 def resolve_delta(
@@ -17,13 +24,20 @@ def resolve_delta(
     delta: tuple[EditOp, ...],
     *,
     schema_provider: Any = None,
+    value_default_context: ValueDefaultContext | None = None,
 ) -> ResolveResult:
     ledger = EditLedger.ingest(original_ui)
     diagnostics: list[PortIssue] = list(ledger.diagnostics)
     resolved_ops: list[tuple[EditOp, ResolvedOp]] = []
+    current_value_default_context = value_default_context
 
     for op in delta:
-        resolved, issues = _resolve_op(ledger, op, schema_provider=schema_provider)
+        resolved, issues = _resolve_op(
+            ledger,
+            op,
+            schema_provider=schema_provider,
+            value_default_context=current_value_default_context,
+        )
         diagnostics.extend(issues)
         if any(issue.severity == "error" for issue in issues):
             return ResolveResult(
@@ -37,6 +51,25 @@ def resolve_delta(
             applied_resolved, apply_diagnostics = _apply_resolved_op(ledger, op, resolved)
             diagnostics.extend(apply_diagnostics)
             resolved_ops.append((op, applied_resolved))
+            if (
+                current_value_default_context is not None
+                and isinstance(applied_resolved, AppliedAddNodeSpec)
+                and applied_resolved.value_default_receipts
+            ):
+                current_value_default_context = current_value_default_context.protect_node(
+                    scope_path=applied_resolved.scope_path,
+                    uid=applied_resolved.uid,
+                    class_type=applied_resolved.op.class_type,
+                    fields=tuple(
+                        receipt.canonical_field
+                        for receipt in applied_resolved.value_default_receipts
+                    ),
+                    source_instance_ids=tuple(
+                        receipt.source_instance_id
+                        for receipt in applied_resolved.value_default_receipts
+                        if receipt.source_instance_id
+                    ),
+                )
             continue
         resolved_ops.append((op, resolved))
 
@@ -56,9 +89,15 @@ def apply_delta(
     delta: tuple[EditOp, ...],
     *,
     schema_provider: Any = None,
+    value_default_context: ValueDefaultContext | None = None,
 ) -> ApplyResult:
     stamped_before = EditLedger.ingest(original_ui).stamped_copy() if delta else None
-    resolved = resolve_delta(original_ui, delta, schema_provider=schema_provider)
+    resolved = resolve_delta(
+        original_ui,
+        delta,
+        schema_provider=schema_provider,
+        value_default_context=value_default_context,
+    )
     if not resolved.ok:
         return ApplyResult(
             ok=False,

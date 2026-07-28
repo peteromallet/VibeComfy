@@ -194,6 +194,7 @@ def run_headless(
     result = run_executor(
         executor_request,
         classify_only=request.dry_run,
+        additive=request.additive,
     )
     response = serialize_executor_result(result)
     if not result.ok and not response.get("error"):

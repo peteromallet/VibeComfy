@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -38,6 +39,8 @@ from .projection_registry_v1 import (
 )
 from .mutation_materialization_v1 import build_mutation_materialization_v1
 from vibecomfy.porting.edit.ops import parse_edit_delta
+
+_LOGGER = logging.getLogger(__name__)
 
 STATE_FILE_NAME = "session_state.json"
 LOCK_FILE_NAME = ".session_state.lock"
@@ -3809,7 +3812,21 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         return "v2_delta"
 
     if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
-        raise ValueError("New candidate authority requires explicit v2_delta evidence.")
+        if isinstance(flat_delta_ops, list):
+            # Legacy flat-delta_ops candidate without a v2_delta envelope is
+            # still rejected: the strict path requires a canonical envelope.
+            raise ValueError("New candidate authority requires explicit v2_delta evidence.")
+        # Non-delta contracts (e.g. the default ``batch_repl``/canvas contract)
+        # produce a legitimate applyable candidate but carry no delta evidence.
+        # Stabilization: demote the strict raise to a warning so the candidate
+        # is still recorded as a readable v1 audit artifact instead of throwing
+        # and failing the whole turn. The strict v2_delta evidence requirements
+        # above (explicit protocol / envelope / plan-hash) are preserved.
+        _LOGGER.warning(
+            "Candidate authority without explicit v2_delta evidence recorded "
+            "as v1 audit artifact; delta_ops_envelope absent on this response."
+        )
+        return "v1"
     if canonical_ops is not None or isinstance(flat_delta_ops, list):
         return "v2_delta"
     # Answer-only/no-candidate records remain readable audit artifacts.

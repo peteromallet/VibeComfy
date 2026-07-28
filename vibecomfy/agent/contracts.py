@@ -74,10 +74,18 @@ class HeadlessAgentRequest:
       the executor produces a candidate.  It does not bypass eligibility gates.
     * ``network=True`` permits research phases to call external services.
     * ``timeout`` overrides the default per-turn timeout when supported.
+    * ``additive=True`` marks the request as an additive restore (the caller
+      intentionally removed a feature and now asks to re-add it).  This is an
+      explicit signal to the revise pipeline: the only guard it relaxes is the
+      pre-edit "input graph has dangling/absent endpoints -> refuse to compound"
+      precondition, and only when the dangling/absent endpoints are exactly the
+      gap the requested node would fill.  All post-edit IR-compile validation,
+      the collateral fence, and every gate in ``gates.py`` remain enforced.
     """
 
     query: str
     graph: dict[str, Any] | None = None
+    workflow_id: str | None = None
     session_id: str | None = None
     profile: str | None = None
     idempotency_key: str | None = None
@@ -87,6 +95,7 @@ class HeadlessAgentRequest:
     apply: bool = False
     network: bool = True
     timeout: float | None = None
+    additive: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -106,6 +115,7 @@ class HeadlessAgentRequest:
                 raise ValueError("HeadlessAgentRequest `timeout` must be greater than zero.")
             object.__setattr__(self, "timeout", timeout)
         object.__setattr__(self, "query", self.query.strip())
+        object.__setattr__(self, "workflow_id", _require_optional_str(self.workflow_id, field_name="workflow_id"))
         object.__setattr__(self, "session_id", _require_optional_str(self.session_id, field_name="session_id"))
         object.__setattr__(self, "profile", _require_optional_str(self.profile, field_name="profile"))
         object.__setattr__(
@@ -121,6 +131,8 @@ class HeadlessAgentRequest:
             raise ValueError("HeadlessAgentRequest `apply` must be a boolean.")
         if not isinstance(self.network, bool):
             raise ValueError("HeadlessAgentRequest `network` must be a boolean.")
+        if not isinstance(self.additive, bool):
+            raise ValueError("HeadlessAgentRequest `additive` must be a boolean.")
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
     @property
@@ -141,6 +153,7 @@ class HeadlessAgentRequest:
         return ExecutorRequest(
             query=self.query,
             graph=self.graph,
+            workflow_id=self.workflow_id,
             session_id=session_id,
             profile=self.profile,
             idempotency_key=self.idempotency_key,
@@ -164,9 +177,12 @@ class HeadlessAgentRequest:
             "dry_run": self.dry_run,
             "apply": self.apply,
             "network": self.network,
+            "additive": self.additive,
         }
         if self.graph is not None:
             payload["graph"] = self.graph
+        if self.workflow_id is not None:
+            payload["workflow_id"] = self.workflow_id
         if self.session_id is not None:
             payload["session_id"] = self.session_id
         if self.profile is not None:
@@ -212,6 +228,7 @@ class HeadlessAgentRequest:
         return cls(
             query=query.strip(),
             graph=graph,
+            workflow_id=_require_optional_str(payload.get("workflow_id"), field_name="workflow_id"),
             session_id=_require_optional_str(payload.get("session_id"), field_name="session_id"),
             profile=_require_optional_str(payload.get("profile"), field_name="profile"),
             idempotency_key=_require_optional_str(
@@ -224,6 +241,7 @@ class HeadlessAgentRequest:
             apply=_parse_bool(payload.get("apply"), field_name="apply", default=False),
             network=_parse_bool(payload.get("network"), field_name="network", default=True),
             timeout=timeout,
+            additive=_parse_bool(payload.get("additive"), field_name="additive", default=False),
             extra=_parse_extra(payload.get("extra")),
         )
 

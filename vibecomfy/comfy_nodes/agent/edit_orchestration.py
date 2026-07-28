@@ -375,14 +375,38 @@ def _default_runtime_schema_provider() -> Any:
             return ObjectInfoSchemaProvider(_RUNTIME_OBJECT_INFO_PATH[0])
     except Exception:
         pass
-    fallback = get_authoring_schema_provider()
-    try:
-        schemas = getattr(fallback, "schemas", None)
-        if callable(schemas) and schemas():
-            return fallback
-    except Exception:
-        pass
-    return get_schema_provider("local")
+    # Headless fallback (no comfy imported in-process): resolve every INSTALLED
+    # node by querying a separately-running ComfyUI's live /object_info, then the
+    # shipped corpus, then the offline authoring chain. RuntimeSchemaProvider with
+    # an explicit server_url only does a GET (no spawn); a cheap socket probe guards
+    # an absent server so the edit turn never hangs. The in-process path above
+    # already covers the live-product case, where an HTTP self-request would deadlock.
+    import socket
+    from urllib.parse import urlparse
+    from vibecomfy.schema.provider import (
+        CompositeSchemaProvider,
+        RuntimeSchemaProvider,
+    )
+
+    server_url = os.environ.get("VIBECOMFY_COMFYUI_URL")
+    reachable = False
+    if server_url:
+        try:
+            parsed = urlparse(server_url)
+            with socket.create_connection(
+                (parsed.hostname or "127.0.0.1", parsed.port or 80), timeout=0.5
+            ):
+                reachable = True
+        except OSError:
+            reachable = False
+    providers: list[Any] = []
+    if reachable:
+        providers.append(RuntimeSchemaProvider(server_url=server_url))
+    # AuthoringSchemaProvider already consults the shipped corpus (ObjectInfoIndex),
+    # source parser, and local index, and (when VIBECOMFY_ON_DEMAND_SCHEMAS=1) the
+    # on-demand resolver — so it stands in for the entire offline + on-demand tail.
+    providers.append(get_authoring_schema_provider())
+    return CompositeSchemaProvider(*providers)
 
 
 '''

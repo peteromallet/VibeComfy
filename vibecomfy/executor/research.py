@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 import zipfile
 from html import unescape
@@ -49,8 +50,10 @@ from .contracts import (
     ResearchResult,
     SelectedPrecedent,
     WorkflowSlice,
+    is_ui_only_annotation_class_type,
     warning_detail_from_exception,
 )
+from . import provenance
 
 LOGGER = logging.getLogger(__name__)
 
@@ -2544,6 +2547,178 @@ def _build_inspection_summary(graph: dict | None) -> InspectionSummary | None:
     )
 
 
+_ROLE_SIGNAL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("control", ("controlnet", "control_net", "control", "preprocessor")),
+    ("guidance", ("guide", "guidance", "reference", "adapter")),
+    ("frame", ("frame", "start_image", "end_image", "last_image")),
+    ("audio", ("audio", "sound", "voice", "music")),
+    ("refinement", ("refin", "second", "later", "pass", "stage")),
+    ("sampling", ("sampl", "sigma", "schedule", "denoise")),
+    ("conditioning", ("condition", "positive", "negative", "prompt")),
+    ("model", ("model", "loader", "checkpoint", "unet")),
+    ("latent", ("latent", "sample")),
+    ("decode", ("decode", "image")),
+    ("output", ("save", "preview", "combine", "output")),
+    ("input", ("load", "encode", "source", "input")),
+    ("transform", ("upscale", "resize", "scale", "transform")),
+)
+
+
+def _tag_source_widget_values(values: Any) -> tuple[dict[str, Any], ...]:
+    """Normalize source values as explicitly tagged priors."""
+    if not isinstance(values, (list, tuple)):
+        return ()
+    tagged: list[dict[str, Any]] = []
+    source_shape = len(values)
+    for source_index, value in enumerate(values):
+        if not isinstance(value, Mapping):
+            continue
+        name = str(value.get("name") or "").strip()
+        if not name:
+            continue
+        tagged.append({
+            "name": name,
+            "value": copy.deepcopy(value.get("value")),
+            "provenance": "source_template",
+            "confidence": "high",
+            "source_index": source_index,
+            "source_shape": source_shape,
+        })
+    return tuple(tagged)
+
+
+def _binding_envelope_for_instance(
+    *,
+    class_type: str,
+    source_template: str,
+    instance: Mapping[str, Any],
+    role_label: str,
+    role_confidence: str,
+    instance_count: int,
+    conflict_fields: frozenset[str],
+) -> dict[str, Any]:
+    """Return lossless, deterministic source-history binding evidence.
+
+    Research does not own an authoritative live schema, so schema validation
+    remains explicitly pending here and is repeated at the shared add-node
+    resolver.  Provisional positional names remain visible but non-bindable.
+    """
+    source_instance_id = str(instance.get("node_id") or "")
+    tagged = _tag_source_widget_values(instance.get("widget_values"))
+    fields: list[dict[str, Any]] = []
+    for prior in tagged:
+        canonical_field = str(prior.get("name") or "")
+        provisional = bool(re.fullmatch(r"widget_\d+", canonical_field))
+        conflict = canonical_field in conflict_fields
+        if provisional:
+            eligibility_status = "refused"
+            reason = "provisional_widget_name"
+        elif instance_count != 1:
+            eligibility_status = "pending_source_selection"
+            reason = "same_class_instance_selection_required"
+        else:
+            eligibility_status = "pending_schema_validation"
+            reason = "authoritative_schema_validation_required"
+        fields.append({
+            "canonical_field": canonical_field,
+            "source_field": canonical_field,
+            "source_index": prior["source_index"],
+            "source_shape": prior["source_shape"],
+            "value": copy.deepcopy(prior.get("value")),
+            "provenance": prior["provenance"],
+            "confidence": prior["confidence"],
+            "name_resolution_status": "provisional" if provisional else "canonical",
+            "schema_validation_status": "not_evaluated",
+            "conflict_status": "conflicting" if conflict else "unique_value",
+            "eligibility_status": eligibility_status,
+            "eligible": False,
+            "reason": reason,
+        })
+    return {
+        "version": 1,
+        "class_type": class_type,
+        "selector": {
+            "source_template": source_template,
+            "source_instance_id": source_instance_id,
+            "role_label": role_label,
+            "role_confidence": role_confidence,
+            "instance_count": instance_count,
+            "selection_status": "unique" if instance_count == 1 else "ambiguous",
+        },
+        "fields": fields,
+        "source_shape": {"widgets_values_length": len(instance.get("widget_values") or ())},
+    }
+
+
+def _heuristic_instance_role(
+    class_type: str,
+    instance: Mapping[str, Any],
+    *,
+    ordinal: int,
+    total: int,
+) -> tuple[str, str]:
+    """Infer a neutral role label from local neighborhood signals.
+
+    This deliberately never claims a role with high confidence.  A later
+    same-type instance connected to a sampling peer is labelled as a
+    refinement prior because ordinal position is the only available pipeline
+    signal; weak or custom neighborhoods remain ``unresolved``/low.
+    """
+    edges = instance.get("incident_edges")
+    edge_records = tuple(edge for edge in edges if isinstance(edge, Mapping)) if isinstance(edges, (list, tuple)) else ()
+    signal_text = " ".join(
+        str(part)
+        for edge in edge_records
+        for part in (edge.get("peer_class", ""), edge.get("socket", ""), edge.get("direction", ""))
+    ).casefold().replace("-", "_")
+    signal_text = f"{class_type.casefold()} {signal_text}"
+
+    if total > 1 and ordinal > 0 and "sampl" in signal_text:
+        return "refinement", "medium"
+    for role, terms in _ROLE_SIGNAL_RULES:
+        if any(term in signal_text for term in terms):
+            return role, "medium"
+    return "unresolved", "low"
+
+
+def _provenance_precedent_sources(
+    graph: dict[str, Any] | None,
+    target_node_type: str,
+) -> tuple[dict[str, Any], ...]:
+    """Read the graph breadcrumb and return a source descriptor, if usable."""
+    if not isinstance(graph, dict) or not target_node_type.strip():
+        return ()
+    extra = graph.get("extra")
+    breadcrumb = extra.get("vibecomfy") if isinstance(extra, Mapping) else None
+    if not isinstance(breadcrumb, Mapping):
+        return ()
+    if not any(isinstance(breadcrumb.get(key), str) and breadcrumb.get(key).strip() for key in ("source_template", "prior_path")):
+        return ()
+
+    try:
+        source_workflow = provenance.load_source_workflow(graph)
+        instances = provenance.collect_type_instances(source_workflow, target_node_type)
+    except Exception:
+        return ()
+    if not instances:
+        return ()
+
+    source_template = str(breadcrumb.get("source_template") or "").strip()
+    prior_path = str(breadcrumb.get("prior_path") or "").strip()
+    return ({
+        "source": "source_workflow",
+        "class_type": target_node_type,
+        "source_template": source_template,
+        "source_workflow_path": prior_path or None,
+        "provenance_instances": tuple(instances),
+        "node_types": (target_node_type,),
+        "source_workflow_available": True,
+        "source_workflow_parseable": True,
+        "provenance_lookup": True,
+        "reasons": ("graph provenance breadcrumb",),
+    },)
+
+
 def _build_precedent_slices(
     sources: tuple[dict, ...],
 ) -> tuple[WorkflowSlice, ...]:
@@ -2564,6 +2739,7 @@ def _build_precedent_slices(
         path = source.get("path")
         source_workflow_path = source.get("source_workflow_path")
         class_type = str(source.get("class_type", ""))
+        source_template = str(source.get("source_template") or "")
 
         is_workflow = source_kind in workflow_source_kinds
         has_py_path = isinstance(path, str) and path.endswith(".py")
@@ -2571,7 +2747,74 @@ def _build_precedent_slices(
         has_source_workflow = isinstance(source_workflow_path, str)
         if not is_workflow and not has_py_path and not has_json_path and not has_source_workflow:
             continue
-        if not class_type or class_type in seen:
+        if not class_type:
+            continue
+
+        # Provenance lookup supplies one record per source instance.  Keep one
+        # slice per instance so duplicate class types retain distinct values,
+        # neighborhoods, and role priors instead of collapsing to first match.
+        provenance_instances = source.get("provenance_instances")
+        if isinstance(provenance_instances, (list, tuple)) and provenance_instances:
+            valid_instances = tuple(
+                instance for instance in provenance_instances
+                if isinstance(instance, Mapping)
+            )
+            values_by_field: dict[str, list[Any]] = {}
+            for instance in valid_instances:
+                for prior in _tag_source_widget_values(instance.get("widget_values")):
+                    values_by_field.setdefault(str(prior["name"]), []).append(prior.get("value"))
+            conflict_fields = frozenset(
+                field_name
+                for field_name, values in values_by_field.items()
+                if any(value != values[0] for value in values[1:])
+            )
+            for ordinal, instance in enumerate(valid_instances):
+                node_id = str(instance.get("node_id") or "").strip()
+                if not node_id:
+                    continue
+                role_label, role_confidence = _heuristic_instance_role(
+                    class_type,
+                    instance,
+                    ordinal=ordinal,
+                    total=len(valid_instances),
+                )
+                slices.append(
+                    WorkflowSlice(
+                        source_class_type=class_type,
+                        node_ids=(node_id,),
+                        node_types=(class_type,),
+                        entry_anchor=node_id,
+                        exit_anchor=node_id,
+                        source_workflow_path=(
+                            str(source_workflow_path)
+                            if isinstance(source_workflow_path, str) and source_workflow_path
+                            else None
+                        ),
+                        python_path=path if isinstance(path, str) else None,
+                        source_template=source_template,
+                        role_label=role_label,
+                        role_confidence=role_confidence,
+                        widget_values=_tag_source_widget_values(instance.get("widget_values")),
+                        binding_envelope=_binding_envelope_for_instance(
+                            class_type=class_type,
+                            source_template=source_template,
+                            instance=instance,
+                            role_label=role_label,
+                            role_confidence=role_confidence,
+                            instance_count=len(valid_instances),
+                            conflict_fields=conflict_fields,
+                        ),
+                        incident_edges=tuple(
+                            edge for edge in instance.get("incident_edges", ())
+                            if isinstance(edge, Mapping)
+                        ),
+                        warnings=(),
+                    )
+                )
+            seen.add(class_type)
+            continue
+
+        if class_type in seen:
             continue
 
         load_result: WorkflowLoadResult | None = None
@@ -3081,6 +3324,188 @@ def _build_anchor_bindings(
 
 
 _SOURCE_ID_PREFIX = "adapt_"
+_SEMANTIC_RETRY_LIMIT = 3
+_SEMANTIC_INTENT_GENERIC_TERMS = frozenset({
+    "add",
+    "back",
+    "feature",
+    "function",
+    "graph",
+    "missing",
+    "node",
+    "nodes",
+    "readd",
+    "removed",
+    "restore",
+    "workflow",
+})
+_SEMANTIC_MEDIA_TERMS = frozenset({
+    "audio",
+    "frame",
+    "frames",
+    "image",
+    "images",
+    "video",
+})
+
+
+def _runtime_object_info_resolves_class(class_type: str) -> bool:
+    """Resolve a class against the active registry or its object_info cache.
+
+    This is intentionally runtime-inventory evidence, not workflow-fixture or
+    golden-graph evidence.  In-process ComfyUI exposes NODE_CLASS_MAPPINGS; the
+    headless path uses the cache keyed by VIBECOMFY_COMFYUI_URL, falling back
+    to the newest captured runtime cache when no active URL is configured.
+    """
+    if is_ui_only_annotation_class_type(class_type):
+        return True
+
+    comfy_nodes = sys.modules.get("nodes")
+    mappings = getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", None)
+    if isinstance(mappings, Mapping) and class_type in mappings:
+        return True
+
+    try:
+        from vibecomfy.schema.cache import (
+            latest_object_info_cache_path,
+            load_object_info_cache,
+            object_info_cache_path,
+        )
+
+        server_url = os.environ.get("VIBECOMFY_COMFYUI_URL")
+        cache_path = (
+            object_info_cache_path(server_url=server_url)
+            if server_url
+            else latest_object_info_cache_path()
+        )
+        if cache_path is not None and Path(cache_path).is_file():
+            object_info = load_object_info_cache(cache_path)
+            if isinstance(object_info, Mapping) and class_type in object_info:
+                return True
+        # The checked-in object_info index is the deterministic headless
+        # inventory used by porting and campaign preflight.
+        from vibecomfy.porting.object_info.consume import get_class
+
+        return isinstance(get_class(class_type), Mapping)
+    except Exception:
+        return False
+
+
+def _semantic_roles(text: str) -> set[str]:
+    haystack = text.casefold().replace("-", "_")
+    return {
+        role
+        for role, signals in _ROLE_SIGNAL_RULES
+        if any(signal in haystack for signal in signals)
+    }
+
+
+def _semantic_intent_terms(query: str) -> tuple[str, ...]:
+    """Return feature-bearing query terms without prescribing node identities."""
+    requested_families = _requested_model_families(query)
+    ignored = {
+        *_SEMANTIC_INTENT_GENERIC_TERMS,
+        *_SEMANTIC_MEDIA_TERMS,
+        *requested_families,
+    }
+    return tuple(
+        term
+        for term in _source_relevance_anchor_terms(query)
+        if term not in ignored and len(term) >= 4
+    )
+
+
+def _validate_candidate_semantics(
+    *,
+    query: str,
+    selected_slice: WorkflowSlice,
+    source_records: tuple[WorkflowNodeRecord, ...],
+    target_records: tuple[WorkflowNodeRecord, ...],
+    anchor_bindings: tuple[dict[str, str], ...],
+    class_resolver: Callable[[str], bool] | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Validate runtime resolvability and intent/anchor role coverage.
+
+    Inputs are limited to the inquiry, the current broken graph's normalized
+    records, and the selected retrieved precedent slice.  No case fixture or
+    golden graph is accepted by this function.
+    """
+    source_anchor_ids = {
+        str(binding.get("source_anchor") or "")
+        for binding in anchor_bindings
+        if isinstance(binding, Mapping)
+    }
+    primary_records = tuple(
+        record
+        for record in source_records
+        if (
+            record.node_id not in source_anchor_ids
+            and not is_ui_only_annotation_class_type(record.class_type)
+        )
+    )
+    if not primary_records:
+        return False, "candidate adds no primary dataflow nodes", {
+            "reason_code": "synthesis_semantic_miss",
+        }
+
+    resolver = class_resolver or _runtime_object_info_resolves_class
+    unresolved = sorted({
+        record.class_type
+        for record in primary_records
+        if not resolver(record.class_type)
+    })
+    if unresolved:
+        return False, "candidate contains class types absent from runtime object_info", {
+            "reason_code": "synthesis_unresolvable_class",
+            "unresolved_class_types": unresolved,
+        }
+
+    target_ids = {record.node_id for record in target_records}
+    bound_target_ids = {
+        str(binding.get("target_anchor") or "")
+        for binding in anchor_bindings
+        if isinstance(binding, Mapping)
+    }
+    if not bound_target_ids or not bound_target_ids <= target_ids:
+        return False, "candidate does not bind to current broken-graph anchors", {
+            "reason_code": "synthesis_semantic_miss",
+            "bound_target_ids": sorted(bound_target_ids),
+        }
+
+    candidate_text = " ".join(
+        [
+            selected_slice.source_class_type,
+            selected_slice.source_workflow_path or "",
+            selected_slice.python_path or "",
+            selected_slice.role_label,
+            *(_node_record_search_text(record) for record in primary_records),
+        ]
+    ).casefold().replace("-", "").replace("_", "")
+    intent_terms = _semantic_intent_terms(query)
+    matched_terms = tuple(term for term in intent_terms if term in candidate_text)
+    intent_roles = _semantic_roles(query)
+    candidate_roles = _semantic_roles(candidate_text)
+    matched_roles = sorted(intent_roles & candidate_roles)
+
+    if intent_terms or intent_roles:
+        if not matched_terms and not matched_roles:
+            return False, "candidate does not cover the inquiry's primary feature/role", {
+                "reason_code": "synthesis_semantic_miss",
+                "intent_terms": list(intent_terms),
+                "intent_roles": sorted(intent_roles),
+                "candidate_roles": sorted(candidate_roles),
+            }
+
+    return True, "runtime classes resolve and intent/anchor coverage is plausible", {
+        "reason_code": "semantic_pass",
+        "matched_intent_terms": list(matched_terms),
+        "matched_roles": matched_roles,
+        "bound_anchor_roles": sorted({
+            str(binding.get("anchor_role") or "")
+            for binding in anchor_bindings
+            if isinstance(binding, Mapping) and binding.get("anchor_role")
+        }),
+    }
 
 
 def _build_candidate_graph(
@@ -3132,7 +3557,10 @@ def _build_candidate_graph(
     new_id_for_source: dict[str, str] = {
         record.node_id: _allocate_id(record.node_id)
         for record in source_records
-        if record.node_id not in source_anchors
+        if (
+            record.node_id not in source_anchors
+            and not is_ui_only_annotation_class_type(record.class_type)
+        )
     }
 
     id_map = {**source_to_target, **new_id_for_source}
@@ -3145,7 +3573,10 @@ def _build_candidate_graph(
         return value
 
     for record in source_records:
-        if record.node_id in source_anchors:
+        if (
+            record.node_id in source_anchors
+            or is_ui_only_annotation_class_type(record.class_type)
+        ):
             continue
         new_id = new_id_for_source.get(record.node_id)
         if new_id is None:
@@ -3395,11 +3826,9 @@ def _build_adaptation_plan(
 ) -> PrecedentAdaptationPlan | None:
     """Build a conservative :class:`PrecedentAdaptationPlan` or ``None``.
 
-    When no precedent slices were found, returns ``None`` — the caller
-    should produce an explicit none-found warning.  When slices exist,
-    returns a minimal plan that selects the first slice with empty
-    bindings/rewires/edit-ops.  Full adaptation construction is deferred
-    to a later sprint (SD3).
+    When no precedent slices were found, returns ``None``.  Otherwise it tries
+    up to three ranked slices, rejects structurally or semantically invalid
+    candidates with explicit reasons, and returns the first validated splice.
     """
     if not slices:
         return None
@@ -3423,18 +3852,58 @@ def _build_adaptation_plan(
     selected_slice = slices[0]
     anchor_bindings: tuple[dict[str, str], ...] = ()
     structural_validation = "not_evaluated"
+    semantic_validation = "not_evaluated"
     candidate_graph: dict[str, Any] | None = None
     bound = False  # True iff a gate-passing slice yielded a candidate graph
-    selected_slice_unparseable = any(
-        isinstance(warning, Mapping)
-        and warning.get("code") == "source_workflow_unparseable"
-        for warning in selected_slice.warnings
-    )
+    any_structural_candidate = False
+    synthesis_warnings: list[dict[str, Any]] = []
+
+    def reject_slice(
+        candidate_slice: WorkflowSlice,
+        *,
+        rank: int,
+        code: str,
+        reason: str,
+        detail: Mapping[str, Any] | None = None,
+    ) -> None:
+        warning: dict[str, Any] = {
+            "code": code,
+            "severity": "warning",
+            "slice_rank": rank,
+            "source_class_type": candidate_slice.source_class_type,
+            "source_workflow_path": candidate_slice.source_workflow_path,
+            "reason": reason,
+        }
+        if detail:
+            warning.update({
+                str(key): copy.deepcopy(value)
+                for key, value in detail.items()
+            })
+        synthesis_warnings.append(warning)
 
     if target_load is not None:
         structural_validation = "fail"
-        if target_load.ok and not selected_slice_unparseable:
-            for candidate_slice in slices:
+        semantic_validation = "fail"
+        if target_load.ok:
+            target_families = _detect_record_families(target_load.nodes)
+            for rank, candidate_slice in enumerate(
+                slices[:_SEMANTIC_RETRY_LIMIT],
+                start=1,
+            ):
+                selected_slice_unparseable = any(
+                    isinstance(warning, Mapping)
+                    and warning.get("code") == "source_workflow_unparseable"
+                    for warning in candidate_slice.warnings
+                )
+                if selected_slice_unparseable:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code="candidate_graph_dropped",
+                        reason="source workflow is unparseable",
+                        detail={"reason_code": "source_workflow_unparseable"},
+                    )
+                    continue
                 # Media-domain gate: skip ANY slice whose domain is DEFINED
                 # and differs from the graph's.  No adapter pass-through — the
                 # pure domain gate.  Be permissive on undecided domains (slice
@@ -3444,9 +3913,23 @@ def _build_adaptation_plan(
                         candidate_slice,
                         graph_domain=graph_domain,
                     ):
+                        reject_slice(
+                            candidate_slice,
+                            rank=rank,
+                            code="candidate_graph_dropped",
+                            reason="precedent media domain does not match current graph",
+                            detail={"reason_code": "media_domain_mismatch"},
+                        )
                         continue
                 source_records = _selected_source_records(candidate_slice)
                 if not source_records:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code="candidate_graph_dropped",
+                        reason="precedent slice has no loadable source records",
+                        detail={"reason_code": "source_records_missing"},
+                    )
                     continue
                 source_families = _detect_record_families(
                     source_records,
@@ -3454,8 +3937,18 @@ def _build_adaptation_plan(
                     candidate_slice.source_workflow_path,
                     candidate_slice.python_path,
                 )
-                target_families = _detect_record_families(target_load.nodes)
                 if source_families and target_families and not source_families & target_families:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code="synthesis_semantic_miss",
+                        reason="precedent model family does not match current graph anchors",
+                        detail={
+                            "reason_code": "model_family_mismatch",
+                            "source_families": sorted(source_families),
+                            "target_families": sorted(target_families),
+                        },
+                    )
                     continue
                 candidate_anchor_bindings = _build_anchor_bindings(
                     selected_slice=candidate_slice,
@@ -3463,6 +3956,13 @@ def _build_adaptation_plan(
                     target_records=target_load.nodes,
                 )
                 if not candidate_anchor_bindings:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code="candidate_graph_dropped",
+                        reason="precedent could not bind to current broken-graph anchors",
+                        detail={"reason_code": "anchor_binding_missing"},
+                    )
                     continue
                 built_candidate_graph = _build_candidate_graph(
                     target_graph=graph,
@@ -3470,13 +3970,45 @@ def _build_adaptation_plan(
                     anchor_bindings=candidate_anchor_bindings,
                 )
                 if built_candidate_graph is None:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code="candidate_graph_dropped",
+                        reason="candidate graph construction returned a malformed graph",
+                        detail={"reason_code": "candidate_graph_malformed"},
+                    )
+                    continue
+                any_structural_candidate = True
+                semantic_ok, semantic_reason, semantic_detail = (
+                    _validate_candidate_semantics(
+                        query=query,
+                        selected_slice=candidate_slice,
+                        source_records=source_records,
+                        target_records=target_load.nodes,
+                        anchor_bindings=candidate_anchor_bindings,
+                    )
+                )
+                if not semantic_ok:
+                    reject_slice(
+                        candidate_slice,
+                        rank=rank,
+                        code=str(
+                            semantic_detail.get("reason_code")
+                            or "synthesis_semantic_miss"
+                        ),
+                        reason=semantic_reason,
+                        detail=semantic_detail,
+                    )
                     continue
                 selected_slice = candidate_slice
                 anchor_bindings = candidate_anchor_bindings
                 candidate_graph = built_candidate_graph
                 structural_validation = "pass"
+                semantic_validation = "pass"
                 bound = True
                 break
+            if not bound and any_structural_candidate:
+                structural_validation = "pass"
 
     # ── None-fallback ────────────────────────────────────────────────────────
     # If the gate was active AND no slice bound AND the default ``slices[0]``
@@ -3515,6 +4047,25 @@ def _build_adaptation_plan(
         "All available precedent slices are provided in all_slices for "
         "independent evaluation by the adaptation agent."
     )
+    prior_notes: list[str] = []
+    for slice_obj in slices:
+        for widget in slice_obj.widget_values:
+            if not isinstance(widget, Mapping):
+                continue
+            prior_notes.append(
+                "The source template used "
+                f"{widget.get('name', 'an unnamed widget')}={widget.get('value')!r} "
+                "here (provenance: "
+                f"{widget.get('provenance', 'none')}, confidence: "
+                f"{widget.get('confidence', 'low')}); treat this as a prior, not a prescription."
+            )
+        if slice_obj.role_label:
+            prior_notes.append(
+                f"Heuristic role prior: {slice_obj.role_label} "
+                f"(confidence: {slice_obj.role_confidence}); use as evidence, not a guess."
+            )
+    if prior_notes:
+        context_note += " " + " ".join(prior_notes)
     required_new_nodes: tuple[dict[str, Any], ...] = ()
     if candidate_graph is not None and isinstance(graph, dict):
         target_ids = {str(node_id) for node_id in graph}
@@ -3540,7 +4091,8 @@ def _build_adaptation_plan(
         edit_ops=(),
         candidate_graph=candidate_graph,
         structural_validation=structural_validation,
-        semantic_validation="not_evaluated",
+        semantic_validation=semantic_validation,
+        warnings=tuple(synthesis_warnings),
         all_slices=slices,
         context_note=context_note,
     )
@@ -4047,6 +4599,7 @@ def research(
     *,
     task: str | None = None,
     graph: dict[str, Any] | None = None,
+    target_node_type: str = "",
     hivemind_client: HivemindClient | None | object = _USE_DEFAULT,
     hivemind_timeout: float = _DEFAULT_HIVEMIND_TIMEOUT,
     registry_resolver: RegistryResolver | None | object = _USE_DEFAULT,
@@ -4099,19 +4652,20 @@ def research(
     # The external tiers below are intentionally independent of the local
     # index. A missing or stale search corpus should degrade local precedent
     # recall, not prevent Hivemind/web lookup entirely.
+    provenance_sources = _provenance_precedent_sources(graph, target_node_type)
     if local_limit <= 0:
-        sources = []
+        sources = list(provenance_sources)
         warnings = []
         warning_details = []
     else:
         try:
             local = run_local_research(query, task=task, limit=local_limit)
         except Exception as exc:  # noqa: BLE001 - research is best-effort
-            sources = []
+            sources = list(provenance_sources)
             warnings = [f"local corpus: {type(exc).__name__}: {exc}"]
             warning_details = [warning_detail_from_exception(exc)]
         else:
-            sources = list(local.sources)
+            sources = list(provenance_sources) + list(local.sources)
             warnings = list(local.warnings)
             warning_details = [
                 dict(detail) for detail in local.warning_details
@@ -4233,6 +4787,7 @@ def research(
         source["strong_relevance_match"] = strong_match
     sources.sort(
         key=lambda s: (
+            0 if s.get("provenance_lookup") is True else 1,
             0 if s.get("strong_relevance_match") is True else 1,
             -int(s.get("relevance_score") or 0)
             if s.get("strong_relevance_match") is True

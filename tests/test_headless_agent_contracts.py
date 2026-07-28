@@ -29,9 +29,15 @@ def test_headless_request_to_executor_request() -> None:
     assert {field.name for field in fields(executor_request)} == {
         "query",
         "graph",
+        "workflow_id",
         "session_id",
         "profile",
         "idempotency_key",
+        "client_graph_hash",
+        "client_structural_graph_hash",
+        "client_live_canvas_token",
+        "expected_baseline_graph_hash",
+        "expected_baseline_graph_hash_present",
     }
 
 
@@ -152,6 +158,9 @@ def test_headless_request_from_payload_round_trip() -> None:
     assert headless.network is False
     assert headless.timeout == 120.0
     assert headless.extra == {"key": "value"}
+    assert headless.additive is False
+    assert "additive" in headless.to_dict()
+    assert headless.to_dict()["additive"] is False
 
 
 def test_headless_request_defaults() -> None:
@@ -163,6 +172,32 @@ def test_headless_request_defaults() -> None:
     assert headless.timeout is None
     assert headless.output_dir_path is None
     assert headless.graph is None
+    assert headless.additive is False
+
+
+def test_headless_request_additive_flag_round_trips() -> None:
+    """The additive hint must survive to_dict/from_payload serialization.
+
+    This is the contract the demo_factory remove_feature path relies on to
+    tell the revise pipeline that the input graph's topology gap is the
+    intended fault, not pre-existing damage.
+    """
+    headless = HeadlessAgentRequest(query="add the upscale back", additive=True)
+    assert headless.additive is True
+    payload = headless.to_dict()
+    assert payload["additive"] is True
+    restored = HeadlessAgentRequest.from_payload(payload)
+    assert restored.additive is True
+    # String "true" is accepted via the shared bool parser.
+    restored_str = HeadlessAgentRequest.from_payload(
+        {"query": "add it back", "additive": "true"}
+    )
+    assert restored_str.additive is True
+
+
+def test_headless_request_rejects_non_bool_additive() -> None:
+    with pytest.raises(ValueError, match="additive"):
+        HeadlessAgentRequest(query="x", additive="yes please")  # type: ignore[arg-type]
 
 
 def test_headless_request_requires_query() -> None:

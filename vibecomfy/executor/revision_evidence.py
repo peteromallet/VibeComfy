@@ -87,6 +87,25 @@ def collect_topology_evidence(
         if isinstance(raw_outputs, list):
             node_outputs[nid] = raw_outputs
 
+    # Stringified view of node ids for type-tolerant endpoint membership.
+    # ComfyUI LiteGraph serializations mix int node ids (in ``nodes[*].id``)
+    # with str endpoint refs inside ``links`` (e.g. ``[3, "1", 0, "3", 0]``).
+    # A type-strict ``in`` check would falsely flag node 1 as absent when a
+    # link references it as the string ``"1"``.  Compare by canonical str form
+    # so a valid graph is never misreported as corrupted.
+    node_id_strs: set[str] = {str(nid) for nid in node_ids}
+    # Str-keyed lookup mirrors so edge endpoint refs (which may be str or int)
+    # resolve class/output/input data regardless of the original key type.
+    node_class_types_by_str: dict[str, str] = {
+        str(nid): ct for nid, ct in node_class_types.items()
+    }
+    node_inputs_by_str: dict[str, list[dict]] = {
+        str(nid): data for nid, data in node_inputs.items()
+    }
+    node_outputs_by_str: dict[str, list[dict]] = {
+        str(nid): data for nid, data in node_outputs.items()
+    }
+
     # ── dangling / missing links ────────────────────────────────────────
     links_raw = graph.get("links")
     edges: tuple[EdgeEvidence, ...] = ()
@@ -118,8 +137,8 @@ def collect_topology_evidence(
         edge_endpoint_ids.add(edge.target_node)
 
     for edge in edges:
-        src_in_graph = edge.origin_node in node_ids
-        tgt_in_graph = edge.target_node in node_ids
+        src_in_graph = str(edge.origin_node) in node_id_strs
+        tgt_in_graph = str(edge.target_node) in node_id_strs
 
         if not src_in_graph or not tgt_in_graph:
             missing_src = "source" if not src_in_graph else ""
@@ -156,14 +175,14 @@ def collect_topology_evidence(
     socket_type_mismatches: list[dict[str, Any]] = []
     if schema_available:
         for edge in edges:
-            if edge.origin_node not in node_ids or edge.target_node not in node_ids:
+            if str(edge.origin_node) not in node_id_strs or str(edge.target_node) not in node_id_strs:
                 continue
             output_type = _ui_output_slot_type(
-                node_outputs.get(edge.origin_node, []),
+                node_outputs_by_str.get(str(edge.origin_node), []),
                 edge.origin_slot,
             )
             input_name, input_type = _ui_input_slot_name_and_type(
-                node_inputs.get(edge.target_node, []),
+                node_inputs_by_str.get(str(edge.target_node), []),
                 edge.target_slot,
             )
             if output_type and input_type and not socket_types_compatible(output_type, input_type):
@@ -171,11 +190,11 @@ def collect_topology_evidence(
                     {
                         "link_id": edge.link_id,
                         "origin_node": edge.origin_node,
-                        "origin_class_type": node_class_types.get(edge.origin_node),
+                        "origin_class_type": node_class_types_by_str.get(str(edge.origin_node)),
                         "origin_slot": edge.origin_slot,
                         "origin_type": output_type,
                         "target_node": edge.target_node,
-                        "target_class_type": node_class_types.get(edge.target_node),
+                        "target_class_type": node_class_types_by_str.get(str(edge.target_node)),
                         "target_slot": edge.target_slot,
                         "target_input": input_name,
                         "target_type": input_type,

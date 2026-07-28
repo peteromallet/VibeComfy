@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import math
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from .ledger import EditLedger, ScopeState
@@ -97,6 +98,20 @@ def render_edit_projection(
         )
         estimate = estimate_tokens(text)
 
+    # Per-class schema for nodes the task names (e.g. additive "re-add
+    # ``WanVideoLoraSelect``"). The catalog above only lists names; without the
+    # input specs the model guesses widget types and apply rejects them.
+    schema_block = _referenced_class_schemas(task, schema_provider)
+    if schema_block:
+        text = (
+            f"{text}\n\n## Schema for node classes named in the task\n"
+            "When you add_node one of these classes, emit widgets matching the input "
+            "types/defaults below — a wrong type (e.g. a Boolean for a numeric input, "
+            "or a string for a list) is rejected by apply.\n"
+            f"{schema_block}\n"
+        )
+        estimate = estimate_tokens(text)
+
     return ProjectionResult(
         text=text,
         token_estimate=estimate,
@@ -124,6 +139,63 @@ def _available_class_names(schema_provider: Any) -> list[str]:
             except Exception:
                 pass
     return []
+
+
+# Matches node class_type names referenced in a task — backticked
+# (`` `WanVideoLoraSelect` ``) or bare CamelCase identifiers. Additive inquiries
+# explicitly name the class to re-add this way.
+_REFERENCED_CLASS_RE = re.compile(r"`([A-Z][A-Za-z0-9_]{2,})`|([A-Z][A-Za-z0-9_]{2,})")
+
+
+def _referenced_class_schemas(
+    task: str | None, schema_provider: Any, *, limit: int = 12
+) -> str:
+    """Compact input/output schema for node classes named in the task.
+
+    The flat class catalog only lists NAMES. Without input specs the model
+    guesses widget types for ``add_node`` (e.g. a Boolean for a numeric field)
+    and apply rejects it as a validation error. For classes the task names
+    (additive repairs say "re-add ``WanVideoLoraSelect``"), emit the real
+    inputs/outputs/defaults so the model emits correctly-typed widgets.
+    """
+    if not task or schema_provider is None:
+        return ""
+    get = getattr(schema_provider, "get_schema", None)
+    if not callable(get):
+        return ""
+    names: list[str] = []
+    seen: set[str] = set()
+    for g1, g2 in _REFERENCED_CLASS_RE.findall(task):
+        name = g1 or g2
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    lines: list[str] = []
+    for name in names:
+        if len(lines) >= limit:
+            break
+        try:
+            schema = get(name)
+        except Exception:
+            schema = None
+        if schema is None:
+            continue
+        parts: list[str] = []
+        for iname, spec in (getattr(schema, "inputs", {}) or {}).items():
+            spec_str = f"{iname}: {getattr(spec, 'type', None) or 'any'}"
+            default = getattr(spec, "default", None)
+            if default is not None:
+                spec_str += f" = {default!r}"
+            choices = getattr(spec, "choices", None)
+            if choices:
+                spec_str += f" one_of={list(choices)[:6]}"
+            parts.append(spec_str)
+        outs = [
+            f"{getattr(o, 'name', None) or getattr(o, 'type', None)}:{getattr(o, 'type', None)}"
+            for o in (getattr(schema, "outputs", []) or [])
+        ]
+        lines.append(f"- {name}: inputs[{'; '.join(parts)}] outputs[{', '.join(outs)}]")
+    return "\n".join(lines)
 
 
 def estimate_tokens(text: str) -> int:

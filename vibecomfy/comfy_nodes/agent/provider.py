@@ -357,6 +357,16 @@ def build_batch_messages(
         "`search(...)` is factual current authoring-schema lookup, not workflow/web research, and never justifies substituting a merely similar node for the user's named target. "
         "A local miss is not a product-level failure: use workflow precedent and visible graph evidence to choose the smallest defensible edit, then let the edit/apply path validate whether it is authorable. "
         "Do not tell the user to install nodes.\n\n"
+        # TODO(additive): the output-side heuristic below biases NEW output-node
+        # discovery toward terminal-output-type compatibility searches.  For an
+        # additive/RESTORATION request (restore a removed feature, "add back X",
+        # "missing"/"gone") this can push placement toward the output side even
+        # when the user wants to restore an interior node.  Qualifying this
+        # prompt text for additive intent is risky: the 10 passing bug-fixing
+        # demos depend on the exact guidance here, and a runtime gate upstream
+        # would need access to _task_looks_like_additive(state) which lives in
+        # the exec'd edit_batch_memory namespace (not importable here).  Left
+        # as-is for now; revisit when wiring additive-aware placement.
         "For generic save/export/view/output requests, start from the graph's actual terminal output type. "
         "If the graph ends in `IMAGE`, search local consumers with `search(compatible_output_type=\"IMAGE\")`; "
         "if you need an mp4-style video sink, search both the image-to-video step and video sink, e.g. "
@@ -400,11 +410,12 @@ def build_batch_messages(
         "Use it only when no defensible edit is possible after graph context, precedent research, and authoring-signature checks. "
         "Prefer one valid default over asking. No extra fenced blocks before the required ```batch fence.\n\n"
         f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n\n"
-        "Worked example (PLACEHOLDER names):\n"
-        "Add 2x upscale after decode, feed save:\n"
+        "Worked example (PLACEHOLDER names) — illustrates batch SYNTAX only; do NOT treat the\n"
+        "operation or its placement as a prescription for where a node belongs (placement must be\n"
+        "decided from the request + this graph, not copied from this example):\n"
+        "Tap a leaf preview off an existing output (a sink; does not reroute the main path):\n"
         "```batch\n"
-        "up = ImageScaleBy(image=decode.IMAGE, scale_by=2.0)\n"
-        "save.images = up.IMAGE\n"
+        "prev = PreviewImage(images=decode.IMAGE)\n"
         "done()\n"
         "```"
     )

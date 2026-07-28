@@ -189,7 +189,9 @@ def _normalize_entries(raw_entries: Any) -> list[dict[str, Any]]:
 def _accompanying_ops_digest(accompanying_ops: Any) -> str:
     try:
         normalized_ops = canonicalize_contract_numeric(
-            accompanying_ops, finite_error_code="non_finite_materialization"
+            accompanying_ops,
+            finite_error_code="non_finite_materialization",
+            allow_bool=True,
         )
     except ContractError as exc:
         raise _fail(str(exc), exc.code) from exc

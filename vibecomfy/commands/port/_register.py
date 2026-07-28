@@ -57,6 +57,16 @@ def register(subparsers) -> None:
         "--server-url",
         help="ComfyUI server URL for live /object_info (requires --runtime-object-info).",
     )
+    check.add_argument(
+        "--resolve-on-demand",
+        action="store_true",
+        help=(
+            "Resolve schemas for classes absent from the static cache via the on-demand "
+            "escalation ladder (corpus cache + static AST parse of the pack's cloned source). "
+            "Equivalent to setting VIBECOMFY_ON_DEMAND_SCHEMAS=1; runtime boot stays gated on "
+            "VIBECOMFY_ON_DEMAND_BOOT=1."
+        ),
+    )
     check.set_defaults(func=_cmd_port_check)
 
     convert = port_subparsers.add_parser(
@@ -95,6 +105,16 @@ def register(subparsers) -> None:
     convert.add_argument(
         "--server-url",
         help="ComfyUI server URL for live /object_info (requires --runtime-object-info).",
+    )
+    convert.add_argument(
+        "--resolve-on-demand",
+        action="store_true",
+        help=(
+            "Resolve schemas for classes absent from the static cache via the on-demand "
+            "escalation ladder (corpus cache + static AST parse of the pack's cloned source). "
+            "Equivalent to setting VIBECOMFY_ON_DEMAND_SCHEMAS=1; runtime boot stays gated on "
+            "VIBECOMFY_ON_DEMAND_BOOT=1."
+        ),
     )
     convert.add_argument(
         "--keep-virtual-wires",

@@ -2,6 +2,8 @@
 # Contents: Batch reports, terminal clarify parsing, and budget classification.
 
 SOURCE = r'''
+import re as _re
+
 _DIAGNOSTIC_DETAIL_KEYS = (
     "choices",
     "valid_fields",
@@ -12,6 +14,92 @@ _DIAGNOSTIC_DETAIL_KEYS = (
 )
 _DETAIL_LIST_CAP = 8
 _DETAIL_ALIAS_CAP = 8
+
+# ── Duplicate-query cycle detection (Part C) ─────────────────────────────────
+# Match top-level ``search(...)`` calls in a batch statement source and capture
+# the ``focus_types`` / ``compatible_output_type`` / ``compatible_input_type``
+# keyword arguments so two identical searches across consecutive turns can be
+# detected.  Operates on raw statement source text (the parsed StatementResult
+# detail only carries the rendered query_output, not the raw args), so this is
+# the most conservative provably-correct mechanism.
+_SEARCH_CALL_RE = _re.compile(r"\bsearch\s*\(", _re.IGNORECASE)
+_SEARCH_KW_RE = _re.compile(
+    r"\b(focus_types|compatible_output_type|compatible_input_type)\s*=\s*"
+    r"(\[[^\]]*\]|\"[^\"]*\"|'[^']*')",
+)
+
+
+def _extract_search_signatures(batch_result: Any) -> tuple[str, ...]:
+    """Return a normalized signature per ``search(...)`` call in this turn.
+
+    Each signature is ``focus_types=<sorted list literal>|compatible_output_type=<v>
+    |compatible_input_type=<v>`` for the keyword args that actually appear; a
+    search with no recognized kwargs yields ``"search()"``.  Returns an empty
+    tuple when the turn issued no search calls (so research()/python()/edits
+    are ignored).
+    """
+    statements = getattr(batch_result, "statements", None) or ()
+    signatures: list[str] = []
+    for statement in statements:
+        source = getattr(statement, "source", "") or ""
+        if not isinstance(source, str) or not _SEARCH_CALL_RE.search(source):
+            continue
+        kwargs: list[str] = []
+        for key, raw in _SEARCH_KW_RE.findall(source):
+            if key == "focus_types":
+                # Normalize the list literal so order/spacing differences don't
+                # defeat the cycle check (e.g. ["A","B"] vs ["B", "A"]).
+                inner = raw.strip("[]")
+                parts = sorted(
+                    p.strip().strip("\"' ")
+                    for p in inner.split(",")
+                    if p.strip().strip("\"' ")
+                )
+                kwargs.append(f"focus_types=[{','.join(parts)}]")
+            else:
+                _stripped = raw.strip("\"' ")
+                kwargs.append(f"{key}={_stripped}")
+        signatures.append("|".join(kwargs) if kwargs else "search()")
+    return tuple(signatures)
+
+
+def _duplicate_search_cycle_feedback(
+    current_signatures: tuple[str, ...],
+    prior_signatures: tuple[str, ...] | None,
+    prior_search_landed: bool,
+) -> str:
+    """Deterministic feedback when the agent repeats an identical empty search.
+
+    Fires only when: (a) there IS a prior turn's search record, (b) the prior
+    turn's searches landed NOTHING, and (c) the current turn repeats at least
+    one of those identical search signatures.  Never fires on a first search
+    or on a search that previously succeeded.  Returns "" otherwise.
+    """
+    if not current_signatures:
+        return ""
+    if not prior_signatures:
+        return ""
+    if prior_search_landed:
+        return ""
+    repeated = [sig for sig in current_signatures if sig in prior_signatures]
+    if not repeated:
+        return ""
+    # Describe the repeated search type for the feedback string.
+    sample = repeated[0]
+    _quote_strip = "\"' "
+    if sample.startswith("focus_types="):
+        type_desc = sample.split("=", 1)[1]
+    elif sample.startswith("compatible_output_type=") or sample.startswith("compatible_input_type="):
+        type_desc = sample.split("=", 1)[1].strip(_quote_strip)
+    else:
+        type_desc = "a node type"
+    return (
+        f"You already searched for {type_desc} and it produced no landed edit. "
+        "Do not repeat the identical search — either rewire to an existing "
+        "compatible node, search an adjacent type, or use a local "
+        "vibecomfy.exec shim."
+    )
+
 
 
 def _format_diagnostic_detail_text(detail: dict[str, Any]) -> str:

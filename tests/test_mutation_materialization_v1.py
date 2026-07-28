@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -160,6 +162,52 @@ def test_materialization_numeric_edge_cases_fail_closed():
     _expect(geo(2 ** 53), "non_canonical_number")
     _expect(geo(-(2 ** 53)), "non_canonical_number")
     _expect(geo(2 ** 60), "non_canonical_number")
+
+
+def test_materialization_boolean_operation_envelope_is_accepted():
+    accompanying_ops = [
+        {"op": "set", "path": "low_mem_load", "value": True},
+    ]
+
+    digest = compute_mutation_materialization_digest([], accompanying_ops)
+
+    assert (
+        digest
+        == "678244b552efb754a16279dab223149cf93f6a8dfa2faf632e9c264765462cfa"
+    )
+
+
+def test_materialization_boolean_operation_envelope_cross_language_parity():
+    accompanying_ops = [
+        {"op": "set", "path": "low_mem_load", "value": True},
+    ]
+    python_digest = compute_mutation_materialization_digest([], accompanying_ops)
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for the Python/JS digest parity gate"
+    script = """
+import {
+  computeMutationMaterializationDigest,
+} from "./vibecomfy/comfy_nodes/web/mutation_materialization_v1.js";
+const accompanyingOps = JSON.parse(process.argv[1]);
+process.stdout.write(computeMutationMaterializationDigest([], accompanyingOps));
+"""
+
+    completed = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "-e",
+            script,
+            json.dumps(accompanying_ops, separators=(",", ":")),
+        ],
+        cwd=Path(__file__).parent.parent,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.stdout == python_digest
 
 
 def test_materialization_safe_integer_boundary_remains_canonical():

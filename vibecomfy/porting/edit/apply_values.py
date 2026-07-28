@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from vibecomfy.porting.edit.apply_types import _issue
@@ -21,18 +22,29 @@ def _validate_literal_value(
     issues: list[PortIssue] = []
     choices = getattr(spec, "choices", None) or []
     if choices and value not in choices and _coerce_choice_value(value, choices) is _NO_MATCH:
-        issues.append(
-            _issue(
-                "value_not_in_enum",
-                f"{context} rejected {class_type}.{input_name}: value {value!r} is not in the declared enum.",
-                detail={
-                    "class_type": class_type,
-                    "input": input_name,
-                    "value": value,
-                    "choices": list(choices),
-                },
+        detail = {
+            "class_type": class_type,
+            "input": input_name,
+            "value": value,
+            "choices": list(choices),
+        }
+        if _is_asset_enum(value=value, spec=spec, input_name=input_name, choices=choices):
+            issues.append(
+                _issue(
+                    "asset_not_installed",
+                    f"{context} accepted {class_type}.{input_name}: asset {value!r} is not in the declared local choices.",
+                    severity="warning",
+                    detail=detail,
+                )
             )
-        )
+        else:
+            issues.append(
+                _issue(
+                    "value_not_in_enum",
+                    f"{context} rejected {class_type}.{input_name}: value {value!r} is not in the declared enum.",
+                    detail=detail,
+                )
+            )
     min_value = getattr(spec, "min", None)
     max_value = getattr(spec, "max", None)
     if min_value is not None or max_value is not None:
@@ -105,6 +117,63 @@ def _as_number(value: Any) -> float | None:
 
 
 _NO_MATCH = object()
+
+_ASSET_FIELD_WORDS = frozenset(
+    {
+        "checkpoint",
+        "ckpt",
+        "clip",
+        "embedding",
+        "gguf",
+        "lora",
+        "model",
+        "unet",
+        "vae",
+    }
+)
+_ASSET_EXTENSIONS = (
+    ".bin",
+    ".ckpt",
+    ".gguf",
+    ".pt",
+    ".safetensors",
+    ".sft",
+)
+_CONSTRAINED_FIELD_SUFFIXES = frozenset({"format", "method", "mode", "option", "preset", "type"})
+
+
+def _is_asset_enum(*, value: Any, spec: InputSpec, input_name: str, choices: list[Any]) -> bool:
+    if not isinstance(value, str):
+        return False
+
+    # ComfyUI exposes installed asset files as enums. Treat an enum as an asset
+    # selector when its field/type names identify an asset, its installed choices
+    # look path-shaped, or (conservatively for unknown schemas) the proposed string
+    # itself is unmistakably a file/path reference.
+    field_identifier = _normalized_identifier(input_name)
+    field_name_signals_asset = any(word in field_identifier for word in _ASSET_FIELD_WORDS) and not any(
+        field_identifier.endswith(suffix) for suffix in _CONSTRAINED_FIELD_SUFFIXES
+    )
+    type_identifier = _normalized_identifier(str(getattr(spec, "type", "") or ""))
+    if field_name_signals_asset or any(word in type_identifier for word in _ASSET_FIELD_WORDS):
+        return True
+    if any(isinstance(choice, str) and _looks_like_asset_reference(choice) for choice in choices):
+        return True
+    return _looks_like_asset_reference(value)
+
+
+def _normalized_identifier(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _looks_like_asset_reference(value: str) -> bool:
+    normalized = value.strip().replace("\\", "/").lower()
+    path_without_query = normalized.split("?", 1)[0].split("#", 1)[0]
+    return (
+        "/" in normalized
+        or normalized.startswith(("http://", "https://"))
+        or path_without_query.endswith(_ASSET_EXTENSIONS)
+    )
 
 
 def _coerce_choice_value(value: Any, choices: list[Any]) -> Any:

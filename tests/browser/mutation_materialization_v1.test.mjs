@@ -150,6 +150,17 @@ test("mutation_materialization boolean and unsafe-integer geometry fail with non
   );
 });
 
+test("mutation_materialization boolean operation envelope is accepted", () => {
+  const accompanyingOps = [
+    { op: "set", path: "low_mem_load", value: true },
+  ];
+
+  assert.equal(
+    computeMutationMaterializationDigest([], accompanyingOps),
+    "678244b552efb754a16279dab223149cf93f6a8dfa2faf632e9c264765462cfa",
+  );
+});
+
 test("mutation_materialization safe-integer boundary (2^53-1) remains canonical (cross-language)", () => {
   const byId = Object.fromEntries(GOLDEN.parity_cases.map((c) => [c.id, c]));
   const boundary = byId.numeric_normalize_safe_integer_boundary;

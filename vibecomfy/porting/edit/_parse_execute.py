@@ -143,6 +143,7 @@ class _ParseExecuteMixin:
             "uid_by_name": dict(self.uid_by_name),
             "name_by_uid": dict(self.name_by_uid),
             "unbound_names": set(self.unbound_names),
+            "value_default_context": self.value_default_context,
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
@@ -154,6 +155,7 @@ class _ParseExecuteMixin:
         self.uid_by_name = snapshot["uid_by_name"]
         self.name_by_uid = snapshot["name_by_uid"]
         self.unbound_names = snapshot["unbound_names"]
+        self.value_default_context = snapshot["value_default_context"]
 
     @staticmethod
     def _is_edit_statement(statement: StatementResult) -> bool:
@@ -226,6 +228,7 @@ class _ParseExecuteMixin:
                 self.working_ui,
                 (op,),
                 schema_provider=self.schema_provider,
+                value_default_context=self.value_default_context,
             )
             if not applied.ok or applied.candidate is None:
                 if isinstance(op, AddNodeOp):
@@ -259,16 +262,30 @@ class _ParseExecuteMixin:
                 minted_uid = getattr(resolved, "uid", None)
                 minted_node_id = getattr(resolved, "node_id", None)
                 if isinstance(minted_uid, str) and minted_node_id is not None:
+                    effective_op = getattr(resolved, "op", op)
                     landed_op = AddNodeOp(
-                        op=op.op,
-                        scope_path=op.scope_path,
-                        class_type=op.class_type,
-                        fields=dict(op.fields),
-                        inputs=dict(op.inputs),
-                        anchor=op.anchor,
+                        op=effective_op.op,
+                        scope_path=effective_op.scope_path,
+                        class_type=effective_op.class_type,
+                        fields=dict(effective_op.fields),
+                        inputs=dict(effective_op.inputs),
+                        anchor=effective_op.anchor,
                         uid=minted_uid,
                         node_id=str(minted_node_id),
                     )
+                    receipts = tuple(getattr(resolved, "value_default_receipts", ()) or ())
+                    if self.value_default_context is not None and receipts:
+                        self.value_default_context = self.value_default_context.protect_node(
+                            scope_path=effective_op.scope_path,
+                            uid=minted_uid,
+                            class_type=effective_op.class_type,
+                            fields=tuple(receipt.canonical_field for receipt in receipts),
+                            source_instance_ids=tuple(
+                                receipt.source_instance_id
+                                for receipt in receipts
+                                if receipt.source_instance_id
+                            ),
+                        )
 
             self.landed_ops.append(landed_op)
             landed_ops.append(landed_op)

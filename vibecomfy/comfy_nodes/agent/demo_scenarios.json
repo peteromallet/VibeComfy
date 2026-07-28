@@ -175,6 +175,24 @@
       }
     },
     {
+      "id": "760468474fe5",
+      "title": "My LTX video lost its refinement pass — the output is rougher than before",
+      "query": "I removed the refinement pass from my two-stage LTX video workflow and now the output is rougher and less polished — it lost the second quality pass the two-stage pipeline used to apply. Can you add the refinement pass back where it belongs so the polished output is restored?",
+      "description": "Re-adds the second-stage refinement sampler in a two-stage LTX-2.3 video pipeline (base generation followed by a refinement pass at higher latent resolution). Removing the refinement stage degrades output to single-stage quality; the agent reconstructs the refinement pass (a second SamplerCustomAdvanced with its ManualSigmas schedule, wired into the latent-upscale and decode chain) using provenance evidence from the original workflow.",
+      "category": "video / LTX",
+      "required_node_packs": [
+        "ComfyUI-LTXVideoWrapper",
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "760468474fe5.json",
+      "run_location": {
+        "run_dir": "cases/760468474fe5/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
       "id": "4446f9745c7c",
       "title": "The upscale step vanished — my images lost their detail",
       "query": "I had an upscale/resize step in this image workflow and it’s gone — the final image comes out lower resolution than it should, it lost the extra detail the upscale pass used to add. Can you add that step back where it belongs so the output is restored?",
@@ -186,6 +204,40 @@
       "asset": "4446f9745c7c.json",
       "run_location": {
         "run_dir": "cases/4446f9745c7c/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "affe78ad8709",
+      "title": "The fast Lightning generation path vanished — it's slow again",
+      "query": "The fast Lightning path has disappeared. This Qwen workflow now behaves like the slow base model instead of the quick four-step setup I was using. Please restore the accelerated generation path without changing my prompt or output size.",
+      "description": "Additive restore: the Lightning acceleration slice (LoRA loader + model-sampling + step-routing switch) was removed from a Qwen image workflow, so it fell back to slow base-model sampling. The fixer re-adds the accelerated multi-node path so generation is fast again. Verdict: accepted.",
+      "category": "image",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "affe78ad8709.json",
+      "run_location": {
+        "run_dir": "cases/affe78ad8709/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "a84d5ed98c9f",
+      "title": "Text-to-song generation produces no audio output",
+      "query": "The ACE-Step models still load, but the actual song-generation path is gone and nothing reaches the audio output. Please restore text-to-song generation so the prompt produces a finished, saveable track again.",
+      "description": "Additive restore: the song-generation head (empty audio latent → text encode → conditioning → sampler → audio VAE decode) was removed from an ACE-Step workflow, so nothing reaches the audio output. The fixer re-adds the generation path so the prompt produces a finished, saveable track. Verdict: accepted.",
+      "category": "audio",
+      "required_node_packs": [
+        "ComfyUI-ACE-Step"
+      ],
+      "asset": "a84d5ed98c9f.json",
+      "run_location": {
+        "run_dir": "cases/a84d5ed98c9f/attempts/001",
         "original_ui": "original.ui.json",
         "candidate_ui": "candidate.ui.json",
         "response_json": "response.json"

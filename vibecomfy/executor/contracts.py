@@ -34,6 +34,74 @@ _SENSITIVE_QUERY_KEYS = frozenset({
 })
 
 
+_NODE_TYPE_MARKER_RE = re.compile(
+    r"(?:class(?:_type|\s+type)?|node(?:\s+of)?(?:\s+type)?|of\s+type)\s*[:=]?\s*"
+    r"([A-Za-z_][A-Za-z0-9_.:-]*)",
+    re.IGNORECASE,
+)
+_NODE_TYPE_VERB_RE = re.compile(
+    r"\b(?:add|insert|create|restore|replace|remove|change|edit)\s+"
+    r"(?:(?:an?|the|new|another|some|one)\s+)*"
+    r"([A-Za-z_][A-Za-z0-9_.:-]*)\b",
+    re.IGNORECASE,
+)
+_NON_NODE_TYPE_TOKENS = frozenset({
+    "a", "an", "the", "node", "nodes", "class", "type", "of", "to",
+    "with", "for", "from", "into", "on", "in", "and", "or", "value",
+    "setting", "settings", "field", "fields", "widget", "widgets", "new",
+})
+_UI_ONLY_ANNOTATION_CLASS_TYPES = frozenset({
+    "annotation",
+    "annotationnode",
+    "comment",
+    "commentnode",
+    "markdown",
+    "markdownnote",
+    "markdownnotenode",
+    "note",
+    "notenode",
+    "workflowcomment",
+    "workflowmarkdown",
+    "workflownote",
+})
+
+
+def is_ui_only_annotation_class_type(class_type: Any) -> bool:
+    """Return whether a class name denotes a known no-dataflow UI annotation.
+
+    Keep this deliberately conservative: reroutes, primitives, groups, and
+    other frontend components can participate in dataflow or component
+    expansion and therefore are not skipped merely because they are UI nodes.
+    """
+    normalized = re.sub(r"[^a-z0-9]", "", str(class_type or "").casefold())
+    return normalized in _UI_ONLY_ANNOTATION_CLASS_TYPES
+
+
+def parse_target_node_type(change_goal: str) -> str:
+    """Extract a likely ComfyUI class-type token from a change goal.
+
+    Classifier metadata is intentionally best-effort.  The parser only uses
+    explicit node/type markers or an edit verb followed by a token, and returns
+    an empty string when the sentence is too ambiguous to bind safely.
+    """
+    if not isinstance(change_goal, str) or not change_goal.strip():
+        return ""
+
+    candidates: list[str] = []
+    marker = _NODE_TYPE_MARKER_RE.search(change_goal)
+    if marker:
+        candidates.append(marker.group(1))
+    verb = _NODE_TYPE_VERB_RE.search(change_goal)
+    if verb:
+        candidates.append(verb.group(1))
+
+    for candidate in candidates:
+        token = candidate.strip(".,;()[]{}\"'")
+        if token and token.casefold() not in _NON_NODE_TYPE_TOKENS:
+            return token
+    return ""
+
+
 def _freeze_jsonish(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType({str(k): _freeze_jsonish(v) for k, v in value.items()})
@@ -411,6 +479,7 @@ class ClassifyDecision:
     model_families: tuple[str, ...] = ()
     pattern_category: str = ""
     change_goal: str = ""
+    target_node_type: str = ""
     clarification_question: str = ""
     clarification_options: tuple[str, ...] = ()
 
@@ -460,6 +529,10 @@ class ClassifyDecision:
         object.__setattr__(self, "avoid", tuple(self.avoid))
         object.__setattr__(self, "model_families", tuple(self.model_families))
         object.__setattr__(self, "clarification_options", tuple(self.clarification_options))
+        target_node_type = str(self.target_node_type).strip()
+        if not target_node_type:
+            target_node_type = parse_target_node_type(self.change_goal)
+        object.__setattr__(self, "target_node_type", target_node_type)
 
     # ── derived helpers ──────────────────────────────────────────────────
 
@@ -521,6 +594,8 @@ class ClassifyDecision:
             result["pattern_category"] = self.pattern_category
         if self.change_goal:
             result["change_goal"] = self.change_goal
+        if self.target_node_type:
+            result["target_node_type"] = self.target_node_type
         if self.clarification_question:
             result["clarification_question"] = self.clarification_question
         if self.clarification_options:
@@ -815,11 +890,36 @@ class WorkflowSlice:
     exit_anchor: str | None = None
     source_workflow_path: str | None = None
     python_path: str | None = None
+    source_template: str = ""
+    role_label: str = ""
+    role_confidence: str = "low"
+    widget_values: tuple[dict[str, Any], ...] = ()
+    binding_envelope: Mapping[str, Any] = field(default_factory=dict)
+    incident_edges: tuple[dict[str, Any], ...] = ()
     warnings: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "node_ids", tuple(self.node_ids))
         object.__setattr__(self, "node_types", tuple(self.node_types))
+        if self.role_confidence not in {"low", "medium", "high"}:
+            object.__setattr__(self, "role_confidence", "low")
+        object.__setattr__(self, "widget_values", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in value.items()})
+            if isinstance(value, Mapping) else value
+            for value in self.widget_values
+        ))
+        object.__setattr__(
+            self,
+            "binding_envelope",
+            _freeze_jsonish(self.binding_envelope)
+            if isinstance(self.binding_envelope, Mapping)
+            else MappingProxyType({}),
+        )
+        object.__setattr__(self, "incident_edges", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in edge.items()})
+            if isinstance(edge, Mapping) else edge
+            for edge in self.incident_edges
+        ))
         object.__setattr__(self, "warnings", tuple(
             MappingProxyType({str(k): _freeze_jsonish(v) for k, v in warning.items()})
             if isinstance(warning, Mapping) else warning
@@ -831,6 +931,17 @@ class WorkflowSlice:
             "source_class_type": self.source_class_type,
             "node_ids": list(self.node_ids),
         }
+        if self.source_template:
+            payload["source_template"] = self.source_template
+        if self.role_label:
+            payload["role_label"] = self.role_label
+            payload["role_confidence"] = self.role_confidence
+        if self.widget_values:
+            payload["widget_values"] = _thaw_jsonish(self.widget_values)
+        if self.binding_envelope:
+            payload["binding_envelope"] = _thaw_jsonish(self.binding_envelope)
+        if self.incident_edges:
+            payload["incident_edges"] = _thaw_jsonish(self.incident_edges)
         if self.node_types:
             payload["node_types"] = list(self.node_types)
         if self.entry_anchor is not None:
@@ -905,7 +1016,13 @@ class PrecedentAdaptationPlan:
             object.__setattr__(self, "structural_validation", "not_evaluated")
         if self.semantic_validation not in ("not_evaluated", "pass", "fail", "advisory"):
             object.__setattr__(self, "semantic_validation", "not_evaluated")
-        if self.structural_validation != "pass" and self.candidate_graph is not None:
+        if (
+            self.candidate_graph is not None
+            and (
+                self.structural_validation != "pass"
+                or self.semantic_validation == "fail"
+            )
+        ):
             object.__setattr__(self, "candidate_graph", None)
 
     def to_dict(self) -> dict[str, Any]:
@@ -924,7 +1041,11 @@ class PrecedentAdaptationPlan:
         payload.update(adaptation_plan_actionability_payload(self))
         if self.warnings:
             payload["warnings"] = _thaw_jsonish(self.warnings)
-        if self.structural_validation == "pass" and self.candidate_graph is not None:
+        if (
+            self.structural_validation == "pass"
+            and self.semantic_validation != "fail"
+            and self.candidate_graph is not None
+        ):
             payload["candidate_graph"] = self.candidate_graph
         if self.all_slices:
             payload["all_slices"] = [s.to_dict() for s in self.all_slices]
