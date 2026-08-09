@@ -858,12 +858,12 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
     monkeypatch.setitem(sys.modules, "server", server_module)
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
 
-    # Force a fresh, hermetic import of the routes module against the mocked
-    # server/aiohttp so prior tests importing the real routes module cannot
-    # poison registration (route registration is an import-time side effect).
-    monkeypatch.delitem(sys.modules, "vibecomfy.comfy_nodes.agent.routes", raising=False)
+    # import_prompt_server caches the real PromptServer from an earlier
+    # import; evict it so the reload below re-resolves against the mocked
+    # server module and registers on the mock. reload() mutates the routes
+    # module in place, preserving the object other tests patch.
     monkeypatch.delitem(sys.modules, "vibecomfy.comfy_nodes._server_compat", raising=False)
-    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+    routes = importlib.reload(routes)
 
     captured: list[tuple[dict, str | None]] = []
     to_thread_calls: list[str] = []
