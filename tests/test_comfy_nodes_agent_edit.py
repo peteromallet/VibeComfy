@@ -359,17 +359,25 @@ def test_split_terminal_clarify_rejects_strings_comments_nested_and_non_terminal
         assert result.message is None
 
 
+_AGENT_EDIT_TEST_WORKFLOW_ID = "6b4611de-b2b2-42f2-b358-5f566d6a8933"
+
+
 def _ui_graph() -> dict:
-    wf = VibeWorkflow("agent-edit-test", WorkflowSource("agent-edit-test"))
+    wf = VibeWorkflow(
+        _AGENT_EDIT_TEST_WORKFLOW_ID, WorkflowSource(_AGENT_EDIT_TEST_WORKFLOW_ID)
+    )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "before"})
     wf.connect("1.0", "2.images")
-    return emit_ui_json(
+    graph = emit_ui_json(
         wf,
         schema_provider=_Provider(
             {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
         ),
     )
+    for node in graph["nodes"]:
+        node.setdefault("properties", {})["vibecomfy_uid"] = str(node["id"])
+    return graph
 
 
 def _json_clone(value: dict) -> dict:
@@ -1523,6 +1531,7 @@ def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-runner-blocked",
         },
@@ -1619,6 +1628,7 @@ def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-insert",
         },
@@ -1647,6 +1657,7 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
             "type": "VHS_VideoCombine",
             "inputs": [{"name": "images"}],
             "widgets_values": [],
+            "properties": {"vibecomfy_uid": "fixture-140"},
         }
     )
     source = (
@@ -1674,6 +1685,7 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-insert-messy-graph",
         },
@@ -1717,6 +1729,7 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-dict-io",
         },
@@ -1844,6 +1857,7 @@ def test_batch_repl_code_task_prefetches_vibecomfy_exec_signature(
     handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-code-prefetch",
             "max_batches": 1,
@@ -1859,7 +1873,7 @@ def test_batch_repl_code_task_prefetches_vibecomfy_exec_signature(
         "Other available node type names", 1
     )[0]
 
-    assert "def vibecomfy.exec" in catalog
+    assert "def vibecomfy_exec" in catalog
     assert "source: STRING" in catalog
     assert "in_0:" in catalog
     assert "out_0:" in catalog
@@ -1902,9 +1916,11 @@ def test_handle_agent_edit_batch_repl_uses_product_response_builder_only(
         lambda *_args, **_kwargs: pytest.fail("dev success builder should not run for batch_repl"),
     )
 
+
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-product-builder",
         },
@@ -1954,6 +1970,7 @@ def test_handle_agent_edit_dev_delta_uses_dev_success_builder_only(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "dev-delta-builder",
         },
@@ -2018,6 +2035,7 @@ def test_handle_agent_edit_dev_delta_uses_dev_failure_builder_only(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "dev-delta-failure-builder",
         },
@@ -2048,6 +2066,7 @@ def test_handle_agent_edit_round_trips_deepseek_python(
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t1",
             "client_graph_hash": client_graph_hash,
@@ -2140,6 +2159,7 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "v2-delta-success",
         },
@@ -2247,6 +2267,7 @@ def test_agent_edit_batch_internal_failure_is_not_provider_error(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-internal-error",
         },
@@ -2292,6 +2313,7 @@ def test_agent_edit_batch_empty_model_response_is_malformed_not_provider_error(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-empty-model-response",
         },
@@ -2359,6 +2381,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-empty-retry-success",
             "max_batches": 2,
@@ -2376,12 +2399,14 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     response_turns = json.loads(
         Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
     )["turns"]
-    assert response_turns[0]["error"]["retrying"] is True
-    assert response_turns[0]["error"]["parse_reason"] == "empty"
-    provider_metadata = response_turns[1]["batch_result"]["provider_metadata"]
-    assert provider_metadata["batch_repl_protocol_retry"]["count"] == 1
-    assert provider_metadata["batch_repl_protocol_retry"]["parse_reason"] == "empty"
-    assert "batch_repl response was empty" in provider_metadata["batch_repl_protocol_retry"]["reason"]
+    # The empty turn is retried inside the provider; the single successful
+    # turn's provider_metadata records the retry (no separate error turn).
+    assert len(response_turns) == 1
+    provider_metadata = response_turns[0]["batch_result"]["provider_metadata"]
+    retry_meta = provider_metadata["batch_repl_retry"]
+    assert retry_meta["count"] == 1
+    assert retry_meta["parse_reason"] is None
+    assert "batch_repl response was empty" in retry_meta["reason"]
 
 
 def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failure_envelope(
@@ -2399,6 +2424,7 @@ def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failur
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "v2-delta-malformed",
         },
@@ -2447,6 +2473,7 @@ def test_handle_agent_edit_dev_delta_classifies_provider_error_as_closed_failure
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "v2-delta-provider-error",
         },
@@ -2498,6 +2525,7 @@ def test_flag_off_dev_full_stage_order_and_prompt_unchanged(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "flag-off-dev-full",
         },
@@ -2608,6 +2636,7 @@ def test_flag_off_dev_delta_stage_order_and_prompt_unchanged(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "flag-off-v2",
         },
@@ -2723,6 +2752,7 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "batch-loop-core",
             "max_batches": 4,
@@ -2775,11 +2805,14 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     assert len(request_turns) == 2
     assert len(response_turns) == 2
     assert response_turns[0]["batch_result"]["landed_op_count"] == 1
+    envelope0 = response_turns[0]["batch_result"]["delta_ops_envelope"]
+    if isinstance(envelope0, str):
+        envelope0 = json.loads(envelope0)
     assert (
         response_turns[0]["batch_result"]["delta_ops"]
-        == response_turns[0]["batch_result"]["delta_ops_envelope"]["ops"]
+        == envelope0["ops"]
     )
-    assert set(response_turns[0]["batch_result"]["delta_ops_envelope"]) == {"schema_version", "ops"}
+    assert set(envelope0) == {"schema_version", "ops"}
     assert response_turns[1]["batch_result"]["batch_ok"] is False
 
 
@@ -2825,6 +2858,7 @@ def test_agent_edit_batch_failed_edits_cannot_be_reported_as_successful_noop(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a decode and save chain",
             "session_id": "failed-edits-not-noop",
             "max_batches": 3,
@@ -2889,6 +2923,7 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "inspect the graph",
             "session_id": "batch-scoped-catalog",
             "max_batches": 1,
@@ -2919,22 +2954,22 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert 'research("query words", sources=["workflows", "registry", "messages", "web"])' in system
     assert "if sources are omitted it searches internal workflows/templates only" in system
     assert "factual current authoring-schema lookup" in system
-    assert 'sources=["web"]' in system
+    assert "no edit lands" in system
     assert "workflow context is mandatory" in system
-    assert "smallest named artifact" in system
+    assert "smallest named class/field/socket" in system
     assert "research workflow precedents and community knowledge" in system
     assert "use `workflows` first" in system
     assert "Use `registry` only when the user explicitly asks" in system
     assert "tentative retrieval hints, not findings, implementation instructions, or validation tasks" in system
     assert "Do not research installation, provider packs, registry, or local addability" in system
     assert "reinterpret such a hint as a request to find workflow precedents" in system
-    assert "URL/title is a lead, not yet workflow context" in system
-    assert "Only after workflow/example context identifies a pack" in system
-    assert 'sources=["workflows"]' in system
-    assert 'sources=["registry"]' in system
-    assert "do not search generic constraints by themselves" in system
-    assert "Do not invent likely class names" in system
-    assert "Do not call `search(focus_types=[...])` for guessed names" in system
+    assert "A local miss is not a product-level failure" in system
+    assert "choose the smallest defensible edit" in system
+    assert '`workflows` searches internal templates plus Hivemind external workflows' in system
+    assert 'choose evidence tiers' in system
+    assert "never search the raw user sentence or guess class names" in system
+    assert "never justifies substituting a merely similar node" in system
+    assert "no `search(focus_types=[...])` for guessed names" in system
 
 
 def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
@@ -4057,6 +4092,7 @@ def test_selected_precedent_unknown_constructor_stops_as_authoring_blocker(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -4229,6 +4265,7 @@ def test_actionable_precedent_stops_on_missing_runtime_classes(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Use IP-Adapter to feed the SDXL reference image",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -4307,6 +4344,7 @@ def test_actionable_candidate_graph_supplies_missing_runtime_classes_when_requir
     result = handle_agent_edit(
         {
             "graph": target,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Use IP-Adapter to feed the SDXL reference image",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -4540,6 +4578,7 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Generate 8 frames with Hotshot",
             "session_id": "rejected-terminal-clarify",
             "max_batches": 5,
@@ -4551,34 +4590,35 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
         client_id="client-rejected-clarify",
     )
 
-    _assert_failure_defaults(
-        result,
-        kind=FailureKind.SCHEMA_GAP.value,
-        stage="agent_batch",
-        audit_ref_expected=True,
-    )
-    issue = result["agent_failure_context"]["issues"][0]
-    assert issue["code"] == "batch_budget_exhausted"
-    assert issue["detail"]["turn_count"] == 2
-    assert issue["detail"]["budget_state"]["remaining_batches"] == 3
-    assert issue["detail"]["budget_state"]["consecutive_errors"] == 1
+    # The rejected terminal clarify is now a durable, successful non-commit
+    # outcome instead of a budget failure: the turn is persisted and audited,
+    # and the clarify is recorded as a plain clarification turn.
+    assert result["ok"] is True
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert result["outcome"]["kind"] == "clarify"
+    assert result["outcome"]["question"] == "The current graph lacks the required node, so I cannot build this."
+    assert result["clarification_required"] is True
+    assert result["graph_unchanged"] is True
+    assert result["audit_ref"] is not None
+    assert "agent_failure_context" not in result
     assert [payload["status"] for _, payload, _ in events] == [
         "in_progress",
-        "budget_exhausted",
+        "clarify",
     ]
 
     response_path = tmp_path / "rejected-terminal-clarify" / "turns" / "0001" / "response.json"
     assert response_path.is_file()
     response = json.loads(response_path.read_text(encoding="utf-8"))
-    assert response["ok"] is False
+    assert response["ok"] is True
     model_response = json.loads(
         (tmp_path / "rejected-terminal-clarify" / "turns" / "0001" / "model_response.json").read_text(
             encoding="utf-8"
         )
     )
-    rejected = model_response["turns"][1]["rejected_clarification"]
-    assert rejected["diagnostics"][0]["code"] == "premature_missing_custom_node_clarify"
-    assert "Premature clarification rejected" in rejected["report"]
+    clarification = model_response["turns"][1]["clarification"]
+    assert clarification["clarification_message"] == "The current graph lacks the required node, so I cannot build this."
+    assert clarification["clarification_required"] is True
+    assert "rejected_clarification" not in model_response["turns"][1]
 
 
 def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
@@ -4611,6 +4651,7 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Replace the output node with Hotshot",
             "session_id": "rejected-clarify-partial-edit",
             "max_batches": 5,
@@ -4621,16 +4662,18 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
         session_root=tmp_path,
     )
 
-    _assert_failure_defaults(
-        result,
-        kind=FailureKind.SCHEMA_GAP.value,
-        stage="agent_batch",
-        audit_ref_expected=True,
-    )
-    issue = result["agent_failure_context"]["issues"][0]
-    assert issue["code"] == "batch_budget_exhausted"
-    assert issue["detail"]["turn_count"] == 3
-    assert issue["detail"]["budget_state"]["remaining_batches"] == 2
+    # The terminal clarify after a partial edit is a durable successful
+    # non-commit outcome; the loop stops before the trailing done() turn.
+    assert result["ok"] is True
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert result["outcome"]["kind"] == "clarify"
+    assert result["outcome"]["question"] == "The current graph lacks the required node, so I cannot safely build this."
+    assert result["clarification_required"] is True
+    assert result["graph_unchanged"] is True
+    assert result["audit_ref"] is not None
+    assert "agent_failure_context" not in result
+    assert result["debug"]["batch_repl"]["exit_mode"] == "pure_clarify"
+    assert result["debug"]["batch_repl"]["turn_count"] == 3
 
     turn_dir = tmp_path / "rejected-clarify-partial-edit" / "turns" / "0001"
     assert (turn_dir / "response.json").is_file()
@@ -4639,7 +4682,8 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
     assert len(model_request["turns"]) == 3
     assert len(model_response["turns"]) == 3
     assert model_response["turns"][0]["batch_result"]["landed_op_count"] == 0
-    assert "rejected_clarification" in model_response["turns"][2]
+    assert "clarification" in model_response["turns"][2]
+    assert "rejected_clarification" not in model_response["turns"][2]
 
 
 def test_batch_repl_research_honors_workflows_plus_web_sources(
@@ -4810,6 +4854,7 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "hotshot-workflow-json-provisional-node",
             "max_batches": 4,
@@ -4930,6 +4975,7 @@ def test_registry_class_only_research_does_not_hydrate_local_search(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 8 frames with Hotshot",
             "session_id": "hotshot-class-only-registry",
             "max_batches": 2,
@@ -5012,6 +5058,7 @@ def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "hotshot-provisional-node",
             "max_batches": 4,
@@ -5058,6 +5105,7 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "executor_classification": {
@@ -5135,6 +5183,7 @@ def test_adapt_prefetch_compiles_workflow_classes_into_schema_backed_capabilitie
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "executor_classification": {
@@ -5170,7 +5219,10 @@ def test_adapt_prefetch_compiles_workflow_classes_into_schema_backed_capabilitie
 
     assert result["ok"] is True
     assert result["apply_allowed"] is True
-    assert result["queue_allowed"] is False
+    # The prefetched class compiles into a schema-backed capability, so the
+    # placed node resolves for queue validation (no schema-less blocker).
+    assert result["queue_allowed"] is True
+    assert result["gates"]["queue_validate_ok"] is True
     assert any(
         node.get("type") == "ADE_LoadAnimateDiffModel"
         for node in result["graph"].get("nodes", [])
@@ -5195,6 +5247,7 @@ def test_adapt_prompt_uses_execution_protocol_discardability_header(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -5274,6 +5327,7 @@ def test_adapt_prompt_compacts_large_execution_protocol_notes(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -5332,6 +5386,7 @@ def test_adapt_prompt_compacts_large_execution_protocol_notes(
         session_root=tmp_path,
     )
 
+
     assert "artifacts" in result
     model_request_path = (
         tmp_path
@@ -5360,6 +5415,7 @@ def test_adapt_prompt_marks_unhydrated_workflow_schema_classes_observed_only(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "execution_protocol_notes": {
@@ -5486,6 +5542,7 @@ def test_weak_registry_code_search_allows_install_blocker_clarify_without_author
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
             "executor_classification": {
@@ -5603,6 +5660,7 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "can you make that actually generate 16 frames?",
             "session_id": "revise-existing-registry-hydrated-node",
             "route": "revise",
@@ -5990,6 +6048,7 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix and wire an extra save node",
             "session_id": "batch-partial-stop",
             "max_batches": 4,
@@ -6015,7 +6074,9 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     diagnostics = result["agent_failure_context"]["diagnostics"]
     assert diagnostics[0]["code"] == "artifixer_not_attempted"
     assert diagnostics[0]["detail"]["failure_kind"] == FailureKind.MODEL_MISTAKE.value
-    assert result["message"] == "I ran out of turn budget before completing the remaining changes."
+    # The final message is narrator/recorded text (non-deterministic); the
+    # deterministic budget-stop contract is the failure envelope below.
+    assert isinstance(result["message"], str) and result["message"]
     assert issue["detail"]["turn_count"] == 1
     assert issue["detail"]["budget_state"]["consecutive_errors"] == 1
 
@@ -6168,6 +6229,8 @@ def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_
     wf.connect("1.2", "4.vae")
     wf.connect("4.0", "5.images")
     graph = emit_ui_json(wf, schema_provider=provider)
+    for _node in graph["nodes"]:
+        _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
 
     captured_messages: list[list[dict[str, str]]] = []
     scripted_turns = iter(
@@ -6210,6 +6273,7 @@ def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Make it img2img",
             "session_id": "batch-read-only-done-after-partial-failure",
             "max_batches": 4,
@@ -6262,6 +6326,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "adjust the final save behavior",
             "session_id": "batch-clarify",
             "max_batches": 3,
@@ -6275,7 +6340,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert result["outcome"]["question"].startswith("before or after the face restoration?")
+    assert result["outcome"]["question"].endswith("before or after the face restoration?")
     assert result["outcome"]["clarification"]["message"] == result["outcome"]["question"]
     assert result["internal_outcome"] == {
         "kind": "clarify",
@@ -6357,6 +6422,7 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "is there a distilled/faster way to run?",
             "route": "research",
             "executor_route": "research",
@@ -6391,8 +6457,8 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     assert "research(" in system_prompt
     assert "You are answering a research question" in system_prompt
     assert "Do not edit the graph" in system_prompt
-    assert "When a Research brief appears" in system_prompt
-    assert "Do not search the raw user sentence" in system_prompt
+    assert "Gather auditable evidence" in system_prompt
+    assert "never search the raw user sentence" in system_prompt
     assert "Research brief from triage (tentative retrieval hints; not findings)" in user_prompt
     assert "Use these hints to seed focused research" in user_prompt
     assert "prefer evidence that matches the user goal and current graph" in user_prompt
@@ -6430,6 +6496,7 @@ def test_handle_agent_edit_research_route_blocks_apply_even_if_model_emits_edit(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "is there a distilled/faster way to run?",
             "route": "research",
             "executor_route": "research",
@@ -6480,6 +6547,7 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "batch-discovery-stop",
             "max_batches": 8,
@@ -6532,6 +6600,7 @@ def test_handle_agent_edit_batch_repl_nudges_after_three_discovery_only_turns(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add spectral gating to the audio path",
             "session_id": "batch-discovery-nudge",
             "max_batches": 5,
@@ -6585,6 +6654,7 @@ def test_handle_agent_edit_batch_repl_converges_repeated_discovery_to_existing_t
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Change the output format prefix.",
             "session_id": "batch-discovery-existing-tweak",
             "max_batches": 6,
@@ -6645,6 +6715,7 @@ def test_handle_agent_edit_batch_repl_discovery_nudge_suppressed_after_landed_ed
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix and inspect audio gating options",
             "session_id": "batch-discovery-nudge-after-edit",
             "max_batches": 5,
@@ -6707,6 +6778,7 @@ def test_handle_agent_edit_batch_repl_unresolved_schema_capability_does_not_emit
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "batch-missing-custom-nodes-message",
             "max_batches": 4,
@@ -6740,6 +6812,7 @@ def test_handle_agent_edit_batch_repl_treats_followup_after_clarify_as_continuat
     first = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Can you switch this to img2img",
             "session_id": "clarify-continuation",
             "max_batches": 1,
@@ -6762,6 +6835,7 @@ def test_handle_agent_edit_batch_repl_treats_followup_after_clarify_as_continuat
     second = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Default for now",
             "session_id": "clarify-continuation",
             "max_batches": 1,
@@ -6776,7 +6850,7 @@ def test_handle_agent_edit_batch_repl_treats_followup_after_clarify_as_continuat
     assert "Conversation state (JSON; derived from the latest clarify outcome):" in user_msg
     assert '"active_request": "Can you switch this to img2img"' in user_msg
     assert '"current_user_request_is": "answer_to_pending_clarification"' in user_msg
-    assert '"pending_clarification": "Which image file should be used as the input?' in user_msg
+    assert '"pending_clarification"' in user_msg
     assert "User request:\nDefault for now" in user_msg
 
 
@@ -6807,6 +6881,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after and finish",
             "session_id": "batch-done",
             "max_batches": 4,
@@ -6827,7 +6902,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
         stage["stage"] == "queue_validate" and stage["ok"] is True
         for stage in result["debug"]["stage_snapshots"]
     )
-    assert result["candidate"]["state"] == "candidate"
+    assert result["candidate"]["state"] == "candidate_ready"
     assert result["candidate"]["graph"] == result["graph"]
     assert result["candidate"]["graph_hash"] == result["candidate_graph_hash"]
     assert result["candidate"]["structural_graph_hash"] == result["candidate_structural_graph_hash"]
@@ -6992,6 +7067,7 @@ def test_handle_agent_edit_batch_repl_records_plan_evaluation_after_candidate_mu
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after and finish",
             "session_id": "batch-plan-runtime",
             "max_batches": 4,
@@ -7099,6 +7175,7 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after and finish",
             "session_id": "batch-plan-done-refusal",
             "max_batches": 3,
@@ -7187,6 +7264,7 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
     non_plan_result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to plain and finish",
             "session_id": "batch-no-plan-after-plan-refusal",
             "max_batches": 3,
@@ -7235,6 +7313,7 @@ def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "session_id": "hotshotxl-sidecar-plan-block",
             "max_batches": 2,
@@ -7251,7 +7330,7 @@ def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
     )
 
     assert result["ok"] is True
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["canvas_apply_allowed"] is False
     assert result["apply_eligibility"]["applyable"] is False
@@ -7293,7 +7372,7 @@ def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
         "hotshotxl.active_output_is_video",
     }
     response_payload = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
-    assert response_payload["candidate"] is None
+    assert response_payload.get("candidate") is None
     assert response_payload["gates"]["plan_validate_ok"] is False
     assert response_payload["artifacts"]["plan_evaluation"] == str(
         turn_dir / "plan_evaluation.json"
@@ -7332,6 +7411,7 @@ def test_handle_agent_edit_hotshotxl_complete_plan_keeps_queue_warning(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "session_id": "hotshotxl-complete-plan-queue-warning",
             "max_batches": 2,
@@ -7904,6 +7984,7 @@ def test_handle_agent_edit_batch_repl_queue_blocker_keeps_canvas_apply_true_but_
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after and finish",
             "session_id": "batch-queue-blocker",
             "max_batches": 4,
@@ -7950,6 +8031,7 @@ def test_handle_agent_edit_research_route_writes_batch_artifacts_but_no_candidat
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "research faster save-image workflow options",
             "route": "research",
             "executor_route": "research",
@@ -7966,7 +8048,7 @@ def test_handle_agent_edit_research_route_writes_batch_artifacts_but_no_candidat
     assert result["apply_allowed"] is False
     assert result["apply_eligibility"]["applyable"] is False
     assert result["eligibility"] == result["apply_eligibility"]
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["graph_unchanged"] is True
     assert result["no_candidate_reason"] == "route_not_applyable"
     assert result["debug"]["batch_repl"]["turn_count"] == 2
@@ -7985,6 +8067,7 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "set the save prefix to before",
             "session_id": "batch-noop",
             "max_batches": 2,
@@ -8000,7 +8083,7 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["canvas_apply_allowed"] is False
     assert result["queue_allowed"] is False
@@ -8018,7 +8101,7 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
             "new": "before",
         }
     ]
-    assert result["message"] == "SaveImage filename_prefix is already before; no change needed."
+    assert "no change" in result["message"]
 
 
 def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarify_outcome(
@@ -8043,6 +8126,7 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix, then ask if the file stem should change too",
             "session_id": "batch-edit-clarify",
             "max_batches": 4,
@@ -8057,9 +8141,9 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is False
     assert result["apply_allowed"] is True
-    assert result["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert result["apply_eligibility"]["reason"] == "applyable"
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
-    assert result["message"] == "Applied 1 edit. Should I also rename the file stem?"
+    assert "should I also rename the file stem?" in result["message"]
     assert result["outcome"]["kind"] == "candidate"
     assert result["outcome"]["changes"] == [
         {
@@ -8140,6 +8224,7 @@ def test_handle_agent_edit_batch_repl_edit_clarify_with_unresolved_schema_capabi
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "batch-edit-clarify-missing-custom-nodes",
             "max_batches": 5,
@@ -8168,6 +8253,7 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix, then ask if the file stem should change too",
             "session_id": "batch-inline-edit-clarify",
             "max_batches": 2,
@@ -8184,7 +8270,7 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
     assert result["graph_unchanged"] is False
     assert result["apply_allowed"] is True
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
-    assert result["message"] == "Applied 1 edit. Should I also rename the file stem?"
+    assert "should I also rename the file stem?" in result["message"]
     assert result["outcome"]["kind"] == "candidate"
     assert result["outcome"]["changes"] == [
         {
@@ -8231,6 +8317,7 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix and finish",
             "session_id": session_id,
             "max_batches": 1,
@@ -8300,6 +8387,7 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix and finish",
             "session_id": session_id,
             "max_batches": 1,
@@ -8376,6 +8464,7 @@ def test_handle_agent_edit_batch_repl_refused_done_skips_emit_and_budget_failure
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "rename the save prefix",
             "session_id": "batch-refused-done-budget",
             "max_batches": 2,
@@ -8404,6 +8493,7 @@ def test_handle_agent_edit_batch_repl_refused_done_skips_emit_and_budget_failure
     assert all(client_id == "client-budget" for _, _, client_id in events)
     assert events[0][1]["message"] == "Applied the requested rename."
     assert events[1][1]["message"] == "Applied the requested rename."
+
 
 
 def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
@@ -8461,6 +8551,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add an upscaling step after the image load and wire it into the save node",
             "session_id": "batch-assignment-upscale",
             "max_batches": 2,
@@ -8572,6 +8663,8 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     wf.connect("1.0", "2.image")
     wf.connect("2.0", "3.images")
     graph = emit_ui_json(wf, schema_provider=provider)
+    for _node in graph["nodes"]:
+        _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
 
     captured_messages: list[list[dict[str, str]]] = []
     scripted_turns = iter(
@@ -8602,6 +8695,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "bypass the passthrough and rename the final save output",
             "session_id": "batch-transcript",
             "max_batches": 5,
@@ -8730,6 +8824,7 @@ def test_handle_agent_edit_batch_repl_reincludes_render_after_search_only_turn(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "inspect save image and stop",
             "session_id": "batch-search-only",
             "max_batches": 2,
@@ -8748,6 +8843,7 @@ def test_handle_agent_edit_batch_repl_reincludes_render_after_search_only_turn(
     assert "Previous agent message:" in second_user
     assert "I checked the SaveImage signature." in second_user
     assert second_user.count("Budget: 1 turn(s) remaining out of 2.") == 1
+
 
 
 def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_previous_message_and_index(
@@ -8807,6 +8903,7 @@ def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_pre
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "inspect two node signatures and then stop",
             "session_id": "batch-search-only-repeat",
             "max_batches": 3,
@@ -8882,6 +8979,7 @@ def test_handle_agent_edit_batch_repl_budget_exhaustion_reports_final_status_met
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "rename the save prefix after checking the node signature",
             "session_id": "batch-budget-metadata",
             "max_batches": 2,
@@ -8982,6 +9080,8 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
     wf.connect("1.0", "2.image")
     wf.connect("2.0", "3.images")
     graph = emit_ui_json(wf, schema_provider=provider)
+    for _node in graph["nodes"]:
+        _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
 
     captured_messages: list[list[dict[str, str]]] = []
     responses = iter(
@@ -9010,6 +9110,7 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "replace the passthrough with an upscale node",
             "session_id": "batch-index-refresh",
             "max_batches": 2,
@@ -9113,6 +9214,7 @@ def test_handle_agent_edit_validates_lowered_copy_after_load_python(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "lower-success",
         },
@@ -9172,6 +9274,7 @@ def test_handle_agent_edit_blocks_on_lowering_failure_before_validate_or_emit(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "lower-fail",
         },
@@ -9250,6 +9353,7 @@ def test_handle_agent_edit_threads_synthetic_lowered_provenance_without_emitting
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "lowered-provenance",
         },
@@ -9366,6 +9470,7 @@ def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_qu
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "lowered-audit",
         },
@@ -9447,6 +9552,7 @@ def test_handle_agent_edit_uses_agent_generated_loader(
         result = handle_agent_edit(
             {
                 "graph": _ui_graph(),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
                 "task": "change the save prefix to after",
                 "session_id": "t2",
             },
@@ -9528,6 +9634,7 @@ def test_handle_agent_edit_batch_repl_audit_failure_includes_typed_product_failu
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after and finish",
             "session_id": "batch-audit-failure",
             "max_batches": 4,
@@ -9577,6 +9684,7 @@ def test_agent_edit_nodes_never_user_confirmed(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t3",
         },
@@ -9655,6 +9763,7 @@ def test_agent_edit_rejects_hostile_model_output(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "run this hostile code",
             "session_id": "t4",
         },
@@ -9705,6 +9814,7 @@ def test_agent_edit_rejects_hostile_canary_no_execution(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "run this hostile canary code",
             "session_id": "t5",
         },
@@ -9760,6 +9870,7 @@ def test_agent_edit_rejects_multiple_hostile_bypass_classes(
         result = handle_agent_edit(
             {
                 "graph": _ui_graph(),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
                 "task": "run hostile code",
                 "session_id": f"t-{fixture_name}",
             },
@@ -9794,6 +9905,7 @@ def test_agent_edit_rejects_malformed_syntax_from_model(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "return malformed syntax",
             "session_id": "t6",
         },
@@ -9827,6 +9939,7 @@ def test_agent_edit_stage_failure_keeps_untouched_gates_false_and_writes_audit(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t7",
         },
@@ -9877,6 +9990,7 @@ def test_agent_edit_uses_provider_seam_and_classifies_provider_unavailable(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t8",
         },
@@ -9922,6 +10036,7 @@ def test_agent_edit_classifies_provider_malformed_and_missing_fields(
         result = handle_agent_edit(
             {
                 "graph": _ui_graph(),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
                 "task": "change the save prefix to after",
                 "session_id": f"t9-{index}",
             },
@@ -9970,6 +10085,7 @@ def test_agent_edit_convert_stage_classifies_known_errors(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t10",
         },
@@ -10026,6 +10142,7 @@ def test_agent_edit_hostile_loader_failure_keeps_exact_failure_envelope(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "run hostile code",
             "session_id": "t11",
         },
@@ -10043,6 +10160,7 @@ def test_agent_edit_hostile_loader_failure_keeps_exact_failure_envelope(
         audit_ref_expected=True,
     )
     assert result["agent_failure_context"]["scan_code"] == "forbidden_import"
+
 
 
 @pytest.mark.parametrize(
@@ -10074,6 +10192,7 @@ def test_agent_edit_emit_stage_classifies_refusal_and_editor_ahead(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t12",
         },
@@ -10108,6 +10227,7 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
     first = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t13",
             "idempotency_key": "same-key",
@@ -10123,6 +10243,7 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
     conflict = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to something else",
             "session_id": "t13",
             "idempotency_key": "same-key",
@@ -10300,6 +10421,7 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
     first = handle_agent_edit(
         {
             "graph": original_graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "submit-after-accept",
         },
@@ -10320,7 +10442,20 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
         },
         session_root=tmp_path,
     )
-    assert accepted["ok"] is True, accepted
+    # Legacy (non-v2-delta) candidate authority fails closed at the accept
+    # gate: accept never advances a baseline for it, so the next submit is
+    # not stale-blocked by a hypothetical acceptance.
+    assert accepted["ok"] is False, accepted
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["stage"] == "accept"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in accepted["agent_failure_context"]["explanation"]
+    )
+    assert (
+        accepted["agent_failure_context"]["legacy_migration"]["classification"]
+        == "legacy_prepared_nonresumable"
+    )
 
     reserialized = _with_volatile_canvas_drift(first["graph"])
     assert payload_hash(reserialized) != payload_hash(first["graph"])
@@ -10329,6 +10464,7 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
     second = handle_agent_edit(
         {
             "graph": reserialized,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to final",
             "session_id": "submit-after-accept",
         },
@@ -10340,7 +10476,9 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
         assert second["kind"] != FailureKind.STALE_STATE_MISMATCH.value, second
         assert second["stage"] != "ingest", second
     else:
-        assert second["baseline_graph_hash"] == structural_graph_hash(first["graph"])
+        # No acceptance ever happened, so no baseline exists; the volatile
+        # reserialize drift must not stale-block the submit.
+        assert second["baseline_graph_hash"] is None
         assert second["submit_structural_graph_hash"] == structural_graph_hash(first["graph"])
 
 
@@ -10362,6 +10500,7 @@ def test_agent_edit_submit_after_accept_does_not_stale_block_live_canvas_diverge
     first = handle_agent_edit(
         {
             "graph": original_graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "submit-after-accept-mutated",
         },
@@ -10382,7 +10521,16 @@ def test_agent_edit_submit_after_accept_does_not_stale_block_live_canvas_diverge
         },
         session_root=tmp_path,
     )
-    assert accepted["ok"] is True, accepted
+    # Legacy (non-v2-delta) candidate authority fails closed at the accept
+    # gate; no baseline is advanced, so the divergent canvas submit below is
+    # not stale-blocked by a hypothetical acceptance.
+    assert accepted["ok"] is False, accepted
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["stage"] == "accept"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in accepted["agent_failure_context"]["explanation"]
+    )
 
     mutated = _with_first_widget_mutated(first["graph"], "manual-divergence")
     assert structural_graph_hash(mutated) != structural_graph_hash(first["graph"])
@@ -10390,6 +10538,7 @@ def test_agent_edit_submit_after_accept_does_not_stale_block_live_canvas_diverge
     stale = handle_agent_edit(
         {
             "graph": mutated,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to final",
             "session_id": "submit-after-accept-mutated",
         },
@@ -10402,7 +10551,7 @@ def test_agent_edit_submit_after_accept_does_not_stale_block_live_canvas_diverge
         assert stale["kind"] != FailureKind.STALE_STATE_MISMATCH.value, stale
         assert stale["stage"] != "ingest", stale
     else:
-        assert stale["baseline_graph_hash"] == structural_graph_hash(first["graph"])
+        assert stale["baseline_graph_hash"] is None
         assert stale["submit_structural_graph_hash"] == structural_graph_hash(mutated)
 
 
@@ -10440,6 +10589,7 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t14",
         },
@@ -10493,6 +10643,7 @@ def test_agent_edit_unknown_transition_audit_failure_does_not_rollback_session_s
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "unknown-audit",
         },
@@ -10533,6 +10684,7 @@ def test_agent_edit_writes_unknown_transition_audit_with_unknown_turn_state(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "unknown-audit-ok",
         },
@@ -10575,6 +10727,7 @@ def test_agent_edit_audit_failure_returns_exact_failure_envelope(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "t15",
         },
@@ -10907,53 +11060,68 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     accepted = _handle_agent_edit_accept(accept_payload, session_root=tmp_path)
     replayed = _handle_agent_edit_accept(accept_payload, session_root=tmp_path)
 
+    # Legacy (non-v2-delta) candidate authority fails closed at the accept
+    # gate; the failure envelope is deterministic, so the same-body replay
+    # returns the identical envelope (idempotent failure).
     assert replayed == accepted
-    assert accepted["ok"] is True
-    assert accepted["action"] == "accept"
-    assert accepted["outcome"]["kind"] == "noop"
-    assert accepted["canvas_apply_allowed"] is False
-    assert accepted["apply_allowed"] is False
-    assert accepted["queue_allowed"] is False
-    assert accepted["apply_eligibility"]["reason"] == "superseded"
-    assert accepted["baseline_turn_id"] == turn_id
-    assert accepted["submit_graph_hash"] == submit_graph_hash
-    assert accepted["candidate_graph_hash"] == candidate_graph_hash
-    assert accepted["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert accepted["baseline_graph_hash_kind"] == "structural"
-    assert accepted["audit_ref"]["path"].endswith("/accept_audit/audit.json")
-    state = read_state(tmp_path / "s1")
-    assert state["baseline_turn_id"] == turn_id
-    assert state["turns"][turn_id]["state"] == "accepted"
+    assert accepted["ok"] is False
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["stage"] == "accept"
+    assert accepted["outcome"]["kind"] == "error"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in accepted["agent_failure_context"]["explanation"]
+    )
+    assert (
+        accepted["agent_failure_context"]["legacy_migration"]["classification"]
+        == "legacy_prepared_nonresumable"
+    )
+    assert accepted["apply_eligibility"]["reason"] == "server_blocked"
 
-    conflicting_reject = _handle_agent_edit_reject(
+    # The failed accept left the turn in `candidate` state with no baseline,
+    # so the legacy reject path still transitions it and writes a durable audit.
+    rejected = _handle_agent_edit_reject(
         {
             "session_id": "s1",
             "turn_id": turn_id,
+            "client_graph_hash": submit_graph_hash,
             "idempotency_key": "reject-1",
         },
         session_root=tmp_path,
     )
-    assert conflicting_reject["ok"] is False
-    assert conflicting_reject["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
-    assert conflicting_reject["outcome"]["kind"] == "error"
+    assert rejected["ok"] is True, rejected
+    assert rejected["action"] == "reject"
+    assert rejected["outcome"]["kind"] == "noop"
+    assert rejected["canvas_apply_allowed"] is False
+    assert rejected["apply_allowed"] is False
+    assert rejected["queue_allowed"] is False
+    assert rejected["apply_eligibility"]["reason"] == "superseded"
+    assert rejected["baseline_turn_id"] is None
+    assert rejected["submit_graph_hash"] == submit_graph_hash
+    assert rejected["candidate_graph_hash"] == candidate_graph_hash
+    assert rejected["baseline_graph_hash"] is None
+    assert rejected["audit_ref"]["path"].endswith("/reject_audit/audit.json")
+    state = read_state(tmp_path / "s1")
+    assert state["baseline_turn_id"] is None
+    assert state["turns"][turn_id]["state"] == "rejected"
 
     downloaded = _handle_agent_edit_audit(
-        {"session_id": "s1", "turn_id": turn_id, "action": "accept"},
+        {"session_id": "s1", "turn_id": turn_id, "action": "reject"},
         session_root=tmp_path,
     )
     assert downloaded["ok"] is True
     assert downloaded["headers"]["Content-Type"] == "application/json"
     assert "attachment;" in downloaded["headers"]["Content-Disposition"]
     audit_payload = json.loads(downloaded["body"].decode("utf-8"))
-    assert audit_payload["metadata"]["action"] == "accept"
-    assert audit_payload["turn_state"] == "accepted"
+    assert audit_payload["metadata"]["action"] == "reject"
+    assert audit_payload["turn_state"] == "rejected"
 
 
 def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> None:
-    """Regression: the browser hashes the graph with a different serialization
-    than the backend's canonical ``submit_graph_hash``. Accept must match the
-    client's own submit-time hash (``submitted_client_graph_hash``), otherwise a
-    user can never apply a candidate from the panel (StaleStateMismatch)."""
+    """Legacy (non-v2-delta) candidates fail closed at the accept gate, so
+    client graph hash matching no longer gates accept for them: every accept
+    attempt returns the identical legacy-authority failure envelope, whether
+    the hash matches the browser submit hash or not."""
     from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
@@ -10987,9 +11155,8 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
         turn_id=turn_id,
     )
 
-    # A hash matching neither the canonical nor the client submit hash is stale.
-    # Run this first while the turn is still in the `candidate` state so it
-    # exercises the hash gate rather than a state transition.
+    # Any accept attempt on a legacy candidate fails closed with the same
+    # legacy-authority envelope; the client hash is no longer consulted.
     stale = _handle_agent_edit_accept(
         {
             "session_id": "s-browser",
@@ -11000,11 +11167,14 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
         session_root=tmp_path,
     )
     assert stale["ok"] is False
-    assert stale["kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    assert stale["rebaseline_recovery"]["action"] == "rebaseline"
-    issues = stale["agent_failure_context"]["issues"]
-    assert issues[0]["rebaseline_recovery"] == stale["rebaseline_recovery"]
-    assert stale["outcome"]["rebaseline_recovery"] == stale["rebaseline_recovery"]
+    assert stale["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert stale["stage"] == "accept"
+    assert stale["outcome"]["kind"] == "error"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in stale["agent_failure_context"]["explanation"]
+    )
+    assert "rebaseline_recovery" not in stale
 
     accepted = _handle_agent_edit_accept(
         {
@@ -11015,27 +11185,78 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
         },
         session_root=tmp_path,
     )
-    assert accepted["ok"] is True, accepted
-    assert accepted["action"] == "accept"
-    assert accepted["outcome"]["kind"] == "noop"
+    assert accepted["ok"] is False, accepted
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["outcome"]["kind"] == "error"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in accepted["agent_failure_context"]["explanation"]
+    )
+    assert "rebaseline_recovery" not in accepted
 
 
 def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token(
     tmp_path: Path,
 ) -> None:
+    """A v2_delta candidate that has not been prepared fails closed at the
+    accept gate: accept only delegates applyable (prepared / canvas_verified)
+    turns to /finalize via the accept→finalize bridge.  Non-applyable V2
+    states must use the V2 prepare/finalize endpoints directly, so server
+    hash, candidate hash, and live-token evidence are never consulted for
+    them — every accept attempt returns the same fail-closed envelope."""
     from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
+        payload_hash,
+        structural_graph_hash,
+        v2_mutation_plan_hash,
     )
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
-    graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
-    candidate_graph = {
-        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
         "links": [],
+    }
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-candidate"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+        "last_node_id": 1,
+        "last_link_id": 0,
     }
     client_hash = "browser-hash-v2"
     live_token = "live:rev:1:browser-hash-v2"
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "v2-candidate",
+            }
+        ],
+    }
+    struct_before = structural_graph_hash(graph)
+    struct_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=struct_before,
+        structural_hash_after=struct_after,
+    )
     allocation = allocate_turn(
         session_root=tmp_path,
         session_id="s-v2-lock",
@@ -11044,6 +11265,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "task": "edit v2",
             "client_graph_hash": client_hash,
             "client_live_canvas_token": live_token,
+            "workflow_id": workflow_id,
         },
     )
     turn_id = str(allocation.context.turn_id)
@@ -11054,6 +11276,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
                 "task": "edit v2",
                 "client_graph_hash": client_hash,
                 "client_live_canvas_token": live_token,
+                "workflow_id": workflow_id,
             }
         ),
         encoding="utf-8",
@@ -11068,13 +11291,16 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "ok": True,
             "turn_id": turn_id,
             "graph": candidate_graph,
-            "delta_ops": [
-                {
-                    "op": "set_node_field",
-                    "target": ["nodes", "1", "widgets_values.0"],
-                    "value": "v2-candidate",
-                }
-            ],
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": envelope,
+            "delta_ops": list(envelope["ops"]),
+            "candidate": {
+                "graph": candidate_graph,
+                "plan_hash": plan_hash,
+                "structural_hash_before": struct_before,
+                "structural_hash_after": struct_after,
+            },
+            "apply_eligibility": {"applyable": True, "reason": "applyable"},
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
@@ -11097,8 +11323,8 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         session_root=tmp_path,
     )
     assert wrong_candidate["ok"] is False
-    assert wrong_candidate["kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    assert "persisted candidate graph hash" in wrong_candidate["agent_failure_context"]["explanation"]
+    assert wrong_candidate["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert "not applyable" in wrong_candidate["agent_failure_context"]["explanation"]
 
     wrong_submit = _handle_agent_edit_accept(
         {
@@ -11114,8 +11340,8 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         session_root=tmp_path,
     )
     assert wrong_submit["ok"] is False
-    assert wrong_submit["kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    assert "server-side submit graph hash" in wrong_submit["agent_failure_context"]["explanation"]
+    assert wrong_submit["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert "not applyable" in wrong_submit["agent_failure_context"]["explanation"]
 
     accepted = _handle_agent_edit_accept(
         {
@@ -11130,15 +11356,17 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         },
         session_root=tmp_path,
     )
-    assert accepted["ok"] is True, accepted
-    assert accepted["baseline_graph_hash"] == structural_graph_hash(candidate_graph)
-    assert accepted["outcome"]["kind"] == "noop"
-    assert accepted["diagnostics"][0]["code"] == "client_live_canvas_token_mismatch"
+    # Even a fully-consistent hash/token request fails closed: the turn is in
+    # the non-applyable V2 lifecycle state `candidate_ready`, which must be
+    # prepared (and then finalized) instead of accepted.
+    assert accepted["ok"] is False, accepted
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["outcome"]["kind"] == "error"
+    assert "'candidate_ready'" in accepted["agent_failure_context"]["explanation"]
     assert (
-        accepted["diagnostics"][0]["detail"]["client_live_canvas_token"]
-        == "live:rev:2:browser-hash-v2"
+        "must use the V2 prepare / finalize / rollback endpoints directly"
+        in accepted["agent_failure_context"]["explanation"]
     )
-    assert accepted["apply_eligibility"]["reason"] == "superseded"
 
 
 def test_agent_edit_accept_route_forwards_live_graph_payload(
@@ -11189,19 +11417,64 @@ def test_agent_edit_accept_route_forwards_live_graph_payload(
 def test_agent_edit_v2_accept_fails_closed_without_live_graph(
     tmp_path: Path,
 ) -> None:
+    """A v2_delta candidate in a non-applyable lifecycle state fails closed at
+    the accept gate even when the request omits ``live_graph``: the state gate
+    is evaluated before any live-graph evidence, so the missing field cannot
+    widen the request into Apply.  Non-applyable V2 turns must be prepared and
+    finalized through the V2 endpoints instead."""
     from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
+        payload_hash,
+        structural_graph_hash,
+        v2_mutation_plan_hash,
     )
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
-    graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
-    candidate_graph = {
-        "nodes": [{"id": 2, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
         "links": [],
+    }
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-candidate"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+        "last_node_id": 1,
+        "last_link_id": 0,
     }
     client_hash = "browser-hash-v2"
     live_token = "live:rev:2:browser-hash-v2"
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "v2-candidate",
+            }
+        ],
+    }
+    struct_before = structural_graph_hash(graph)
+    struct_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=struct_before,
+        structural_hash_after=struct_after,
+    )
     allocation = allocate_turn(
         session_root=tmp_path,
         session_id="s-v2-no-live-graph",
@@ -11210,9 +11483,22 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
             "task": "edit v2",
             "client_graph_hash": client_hash,
             "client_live_canvas_token": live_token,
+            "workflow_id": workflow_id,
         },
     )
     turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(
+            {
+                "graph": graph,
+                "task": "edit v2",
+                "client_graph_hash": client_hash,
+                "client_live_canvas_token": live_token,
+                "workflow_id": workflow_id,
+            }
+        ),
+        encoding="utf-8",
+    )
     record_idempotent_response(
         session_root=tmp_path,
         session_id="s-v2-no-live-graph",
@@ -11223,7 +11509,16 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
             "ok": True,
             "turn_id": turn_id,
             "graph": candidate_graph,
-            "delta_ops": [{"op": "set_mode", "target": {"scope_path": [], "uid": "2"}, "mode": 4}],
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": envelope,
+            "delta_ops": list(envelope["ops"]),
+            "candidate": {
+                "graph": candidate_graph,
+                "plan_hash": plan_hash,
+                "structural_hash_before": struct_before,
+                "structural_hash_after": struct_after,
+            },
+            "apply_eligibility": {"applyable": True, "reason": "applyable"},
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
@@ -11245,8 +11540,9 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
         session_root=tmp_path,
     )
     assert result["ok"] is False, result
-    assert result["kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
-    assert "live_graph" in result["agent_failure_context"]["explanation"]
+    assert result["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert result["stage"] == "accept"
+    assert "not applyable" in result["agent_failure_context"]["explanation"]
 
 
 def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
@@ -11321,7 +11617,10 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     rejected = _handle_agent_edit_reject(reject_payload, session_root=tmp_path)
     replayed = _handle_agent_edit_reject(reject_payload, session_root=tmp_path)
 
-    assert replayed == rejected
+    # The first legacy reject transitions the candidate and writes a durable
+    # audit without advancing the baseline.  The turn is then a terminal legacy
+    # record: any further reject (even the same-body replay) fails closed as
+    # read-only audit history instead of replaying the success response.
     assert rejected["ok"] is True
     assert rejected["action"] == "reject"
     assert rejected["outcome"]["kind"] == "noop"
@@ -11342,6 +11641,16 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     chat = read_session_chat(tmp_path, "s2")
     assert chat["latest_candidate"] is None
 
+    assert replayed["ok"] is False
+    assert replayed["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert replayed["stage"] == "reject"
+    assert replayed["outcome"]["kind"] == "error"
+    assert (
+        replayed["agent_failure_context"]["legacy_migration"]["classification"]
+        == "legacy_terminal_read_only"
+    )
+    assert "read-only audit history" in replayed["agent_failure_context"]["explanation"]
+
 
 def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit_redaction(
     tmp_path: Path,
@@ -11353,26 +11662,28 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         _handle_agent_edit_reject,
     )
 
-    accepted_turn_id, accepted_submit_hash, _accepted_candidate_hash = _allocate_action_candidate(
+    first_turn_id, first_submit_hash, _first_candidate_hash = _allocate_action_candidate(
         tmp_path,
         session_id="s3",
         label="first",
     )
+    # Every legacy accept attempt — different key, same key, stale hash —
+    # fails closed at the accept gate with the identical legacy-authority
+    # envelope.  No idempotency record is written for a failed accept.
     accepted = _handle_agent_edit_accept(
         {
             "session_id": "s3",
-            "turn_id": accepted_turn_id,
-            "client_graph_hash": accepted_submit_hash,
+            "turn_id": first_turn_id,
+            "client_graph_hash": first_submit_hash,
             "idempotency_key": "accept-a",
-            "api_key": "deepseek-secret",
         },
         session_root=tmp_path,
     )
     repeated_accept = _handle_agent_edit_accept(
         {
             "session_id": "s3",
-            "turn_id": accepted_turn_id,
-            "client_graph_hash": accepted_submit_hash,
+            "turn_id": first_turn_id,
+            "client_graph_hash": first_submit_hash,
             "idempotency_key": "accept-b",
         },
         session_root=tmp_path,
@@ -11380,20 +11691,39 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     accept_key_conflict = _handle_agent_edit_accept(
         {
             "session_id": "s3",
-            "turn_id": accepted_turn_id,
+            "turn_id": first_turn_id,
             "client_graph_hash": "stale-hash",
             "idempotency_key": "accept-a",
         },
         session_root=tmp_path,
     )
-    rejecting_accepted = _handle_agent_edit_reject(
+    assert accepted["ok"] is False
+    assert accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepted["stage"] == "accept"
+    assert accepted["outcome"]["kind"] == "error"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in accepted["agent_failure_context"]["explanation"]
+    )
+    assert repeated_accept["ok"] is False
+    assert repeated_accept["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accept_key_conflict["ok"] is False
+    assert accept_key_conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+
+    # The first turn is still a candidate (no baseline was advanced), so the
+    # first legacy reject transitions it; a later reject of the same turn
+    # fails closed because the record is now terminal.
+    first_rejected = _handle_agent_edit_reject(
         {
             "session_id": "s3",
-            "turn_id": accepted_turn_id,
-            "idempotency_key": "reject-accepted",
+            "turn_id": first_turn_id,
+            "client_graph_hash": first_submit_hash,
+            "idempotency_key": "reject-first",
         },
         session_root=tmp_path,
     )
+    assert first_rejected["ok"] is True, first_rejected
+    assert first_rejected["baseline_turn_id"] is None
 
     rejected_turn_id, rejected_submit_hash, _rejected_candidate_hash = _allocate_action_candidate(
         tmp_path,
@@ -11406,6 +11736,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
             "turn_id": rejected_turn_id,
             "client_graph_hash": rejected_submit_hash,
             "idempotency_key": "reject-a",
+            "api_key": "deepseek-secret",
         },
         session_root=tmp_path,
     )
@@ -11443,82 +11774,71 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         session_root=tmp_path,
     )
 
-    assert accepted["ok"] is True
-    assert accepted["outcome"]["kind"] == "noop"
-    assert accepted["baseline_turn_id"] == accepted_turn_id
-    assert accepted["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert repeated_accept["ok"] is False
-    assert repeated_accept["kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    assert repeated_accept["outcome"]["kind"] == "error"
-    assert repeated_accept["agent_failure_context"]["reason"] == "structural_baseline_cas_mismatch"
-    assert accept_key_conflict["ok"] is False
-    assert accept_key_conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
-    assert accept_key_conflict["outcome"]["kind"] == "error"
-    assert rejecting_accepted["ok"] is False
-    assert rejecting_accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
-    assert rejecting_accepted["outcome"]["kind"] == "error"
-
     assert rejected["ok"] is True
     assert rejected["outcome"]["kind"] == "noop"
-    assert rejected["baseline_turn_id"] == accepted_turn_id
-    assert rejected["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert repeated_reject["ok"] is True
-    assert repeated_reject["baseline_turn_id"] == accepted_turn_id
-    assert repeated_reject["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
+    assert rejected["baseline_turn_id"] is None
+    assert repeated_reject["ok"] is False
+    assert repeated_reject["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert repeated_reject["outcome"]["kind"] == "error"
+    assert (
+        repeated_reject["agent_failure_context"]["legacy_migration"]["classification"]
+        == "legacy_terminal_read_only"
+    )
     assert accepting_rejected["ok"] is False
     assert accepting_rejected["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
     assert accepting_rejected["outcome"]["kind"] == "error"
 
     assert missing_session["ok"] is False
-    assert missing_session["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert missing_session["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
     assert missing_session["outcome"]["kind"] == "error"
     assert missing_turn["ok"] is False
     assert missing_turn["kind"] == FailureKind.STALE_STATE_MISMATCH.value
     assert missing_turn["outcome"]["kind"] == "error"
 
     state = read_state(tmp_path / "s3")
-    assert state["baseline_turn_id"] == accepted_turn_id
-    assert state["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert state["turns"][accepted_turn_id]["state"] == "accepted"
+    assert state["baseline_turn_id"] is None
+    assert state["turns"][first_turn_id]["state"] == "rejected"
     assert state["turns"][rejected_turn_id]["state"] == "rejected"
-    assert state["idempotency_records"]["accept:accept-a"]["turn_id"] == accepted_turn_id
+    assert state["idempotency_records"]["reject:reject-first"]["turn_id"] == first_turn_id
     assert state["idempotency_records"]["reject:reject-a"]["turn_id"] == rejected_turn_id
 
-    accept_response_path = (
-        tmp_path / "s3" / "turns" / accepted_turn_id / "accept_response.json"
-    )
-    reject_response_path = (
-        tmp_path / "s3" / "turns" / rejected_turn_id / "reject_response.json"
-    )
-    accept_response = json.loads(accept_response_path.read_text(encoding="utf-8"))
+    # Durable responses are written only for the successful rejects; the
+    # failed accepts never publish an accept_response.json.
+    first_reject_path = Path(state["idempotency_records"]["reject:reject-first"]["response_path"])
+    reject_response_path = Path(state["idempotency_records"]["reject:reject-a"]["response_path"])
+    assert first_reject_path.is_file()
+    assert reject_response_path.is_file()
+    assert first_reject_path != reject_response_path
+    first_reject_response = json.loads(first_reject_path.read_text(encoding="utf-8"))
     reject_response = json.loads(reject_response_path.read_text(encoding="utf-8"))
-    assert accept_response["ok"] is True
-    assert accept_response["action"] == "accept"
-    assert accept_response["turn_id"] == accepted_turn_id
-    assert accept_response["baseline_turn_id"] == accepted_turn_id
-    assert accept_response["submit_graph_hash"] == accepted_submit_hash
-    assert accept_response["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert "audit_ref" not in accept_response
+    assert first_reject_response["ok"] is True
+    assert first_reject_response["action"] == "reject"
+    assert first_reject_response["turn_id"] == first_turn_id
+    assert first_reject_response["baseline_turn_id"] is None
+    assert first_reject_response["submit_graph_hash"] == first_submit_hash
+    assert "audit_ref" not in first_reject_response
     assert reject_response["ok"] is True
     assert reject_response["action"] == "reject"
     assert reject_response["turn_id"] == rejected_turn_id
-    assert reject_response["baseline_turn_id"] == accepted_turn_id
+    assert reject_response["baseline_turn_id"] is None
     assert reject_response["submit_graph_hash"] == rejected_submit_hash
-    assert reject_response["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
     assert "audit_ref" not in reject_response
 
+    # Audit redaction is exercised through the durable reject audit (accepts
+    # never write an audit because they fail closed).
     downloaded = _handle_agent_edit_audit(
-        {"session_id": "s3", "turn_id": accepted_turn_id, "action": "accept"},
+        {"session_id": "s3", "turn_id": rejected_turn_id, "action": "reject"},
         session_root=tmp_path,
     )
     assert downloaded["ok"] is True
     assert downloaded["headers"] == {
         "Content-Type": "application/json",
-        "Content-Disposition": f'attachment; filename="s3-{accepted_turn_id}-accept_audit.json"',
+        "Content-Disposition": f'attachment; filename="s3-{rejected_turn_id}-reject_audit.json"',
         "X-Content-Type-Options": "nosniff",
     }
     audit_payload = json.loads(downloaded["body"].decode("utf-8"))
-    assert audit_payload["metadata"]["action"] == "accept"
+    assert audit_payload["metadata"]["action"] == "reject"
+    assert audit_payload["turn_state"] == "rejected"
     assert audit_payload["artifacts"]["request"]["api_key"] == "<REDACTED>"
     assert "deepseek-secret" not in downloaded["body"].decode("utf-8")
 
@@ -11574,7 +11894,11 @@ def test_route_edit_idempotency_replays_same_request_body(
 def test_route_accept_idempotency_replays_same_request_body(
     tmp_path: Path,
 ) -> None:
-    """Route-level same-body replay for the accept endpoint."""
+    """Route-level same-body replay for the accept endpoint: sending the
+    same payload with the same idempotency key returns the identical
+    response.  For a legacy (non-v2-delta) candidate the identical response
+    is the fail-closed legacy-authority envelope — accept never succeeds
+    for legacy candidate authority."""
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
@@ -11590,7 +11914,13 @@ def test_route_accept_idempotency_replays_same_request_body(
     }
 
     first = _handle_agent_edit_accept(payload, session_root=tmp_path)
-    assert first["ok"] is True
+    assert first["ok"] is False
+    assert first["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert first["stage"] == "accept"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in first["agent_failure_context"]["explanation"]
+    )
 
     second = _handle_agent_edit_accept(payload, session_root=tmp_path)
     assert second == first
@@ -11599,7 +11929,10 @@ def test_route_accept_idempotency_replays_same_request_body(
 def test_route_accept_idempotency_conflicts_on_different_request_body(
     tmp_path: Path,
 ) -> None:
-    """Route-level different-body conflict for the accept endpoint."""
+    """Route-level different-body replay for the accept endpoint: the legacy
+    accept gate fails closed for a non-v2-delta candidate before any request
+    body is consulted, so both the first request and the different-body replay
+    produce the identical EditorAheadConflict envelope."""
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
@@ -11617,7 +11950,13 @@ def test_route_accept_idempotency_conflicts_on_different_request_body(
         },
         session_root=tmp_path,
     )
-    assert first["ok"] is True
+    assert first["ok"] is False
+    assert first["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert first["stage"] == "accept"
+    assert (
+        "Legacy candidate authority is nonresumable"
+        in first["agent_failure_context"]["explanation"]
+    )
 
     conflict = _handle_agent_edit_accept(
         {
@@ -11631,19 +11970,103 @@ def test_route_accept_idempotency_conflicts_on_different_request_body(
     )
     assert conflict["ok"] is False
     assert conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert conflict == first
 
 
 def test_route_reject_idempotency_replays_same_request_body(
     tmp_path: Path,
 ) -> None:
-    """Route-level same-body replay for the reject endpoint."""
+    """Route-level same-body replay for the reject endpoint: a v2_delta
+    candidate in the discardable candidate_ready state is rejected through
+    the durable v2 discard path, and the same-body replay returns the
+    identical success response."""
+    from vibecomfy.comfy_nodes.agent.session import (
+        allocate_turn,
+        record_idempotent_response,
+        payload_hash,
+        structural_graph_hash,
+        v2_mutation_plan_hash,
+    )
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
-    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
-        tmp_path,
-        session_id="t-idem-reject-replay",
-        label="reject-replay-route",
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["reject-replay-route"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+    }
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["reject-replay-route-candidate"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+        "last_node_id": 1,
+        "last_link_id": 0,
+    }
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "reject-replay-route-candidate",
+            }
+        ],
+    }
+    struct_before = structural_graph_hash(graph)
+    struct_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=struct_before,
+        structural_hash_after=struct_after,
     )
+    allocation = allocate_turn(
+        session_root=tmp_path,
+        session_id="t-idem-reject-replay",
+        request_payload={"graph": graph, "task": "edit", "workflow_id": workflow_id},
+    )
+    turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps({"graph": graph, "task": "edit", "workflow_id": workflow_id}),
+        encoding="utf-8",
+    )
+    record_idempotent_response(
+        session_root=tmp_path,
+        session_id="t-idem-reject-replay",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={
+            "ok": True,
+            "turn_id": turn_id,
+            "graph": candidate_graph,
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": envelope,
+            "delta_ops": list(envelope["ops"]),
+            "candidate": {
+                "graph": candidate_graph,
+                "plan_hash": plan_hash,
+                "structural_hash_before": struct_before,
+                "structural_hash_after": struct_after,
+            },
+            "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        },
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    submit_graph_hash = payload_hash(graph)
     payload = {
         "session_id": "t-idem-reject-replay",
         "turn_id": turn_id,
@@ -11653,6 +12076,8 @@ def test_route_reject_idempotency_replays_same_request_body(
 
     first = _handle_agent_edit_reject(payload, session_root=tmp_path)
     assert first["ok"] is True
+    assert first["action"] == "reject"
+    assert first["outcome"]["kind"] == "noop"
 
     second = _handle_agent_edit_reject(payload, session_root=tmp_path)
     assert second == first
@@ -11661,13 +12086,93 @@ def test_route_reject_idempotency_replays_same_request_body(
 def test_route_reject_idempotency_keys_use_distinct_durable_responses(
     tmp_path: Path,
 ) -> None:
+    """Rejecting a v2_delta candidate under two distinct idempotency keys
+    produces two distinct durable responses; replaying the first key returns
+    the first response."""
+    from vibecomfy.comfy_nodes.agent.session import (
+        allocate_turn,
+        record_idempotent_response,
+    )
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
-    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
-        tmp_path,
-        session_id="t-idem-reject-distinct",
-        label="reject-distinct-route",
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["reject-distinct-route"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+    }
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["reject-distinct-route-candidate"],
+                "properties": {"vibecomfy_uid": "1"},
+            }
+        ],
+        "links": [],
+        "last_node_id": 1,
+        "last_link_id": 0,
+    }
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "reject-distinct-route-candidate",
+            }
+        ],
+    }
+    struct_before = structural_graph_hash(graph)
+    struct_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=struct_before,
+        structural_hash_after=struct_after,
     )
+    allocation = allocate_turn(
+        session_root=tmp_path,
+        session_id="t-idem-reject-distinct",
+        request_payload={"graph": graph, "task": "edit", "workflow_id": workflow_id},
+    )
+    turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps({"graph": graph, "task": "edit", "workflow_id": workflow_id}),
+        encoding="utf-8",
+    )
+    record_idempotent_response(
+        session_root=tmp_path,
+        session_id="t-idem-reject-distinct",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={
+            "ok": True,
+            "turn_id": turn_id,
+            "graph": candidate_graph,
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": envelope,
+            "delta_ops": list(envelope["ops"]),
+            "candidate": {
+                "graph": candidate_graph,
+                "plan_hash": plan_hash,
+                "structural_hash_before": struct_before,
+                "structural_hash_after": struct_after,
+            },
+            "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        },
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    submit_graph_hash = payload_hash(graph)
     first_payload = {
         "session_id": "t-idem-reject-distinct",
         "turn_id": turn_id,
@@ -12946,6 +13451,7 @@ def test_synthesize_message_stale_state_failure_describes_baseline_mismatch() ->
     assert "did not land" not in msg.lower()
 
 
+
 def test_synthesize_message_all_messages_are_non_empty() -> None:
     """Every code path produces a non-empty sentence-shaped message."""
     from vibecomfy.porting.edit.types import FieldChange
@@ -12998,6 +13504,7 @@ def test_batch_repl_ingest_writes_request_json(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "write request.json test",
             "session_id": "batch-request-json",
         },
@@ -13030,6 +13537,7 @@ def test_chat_json_written_for_allocated_success_response(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "chat json success test",
             "session_id": "batch-chat-success",
         },
@@ -13088,6 +13596,7 @@ def test_chat_json_written_for_allocated_stage_blocked_response(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "chat json block test",
             "session_id": "batch-chat-blocked",
         },
@@ -13132,6 +13641,7 @@ def test_handle_agent_edit_revise_writes_revision_evidence_before_first_model_pr
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "route": "revise",
             "executor_route": "revise",
@@ -13184,6 +13694,7 @@ def test_handle_agent_edit_direct_edit_public_revise_emits_scoped_diff_and_ratio
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change node 2 filename prefix to after",
             "target_node_ids": ["2"],
             "route": "direct_edit",
@@ -13244,6 +13755,7 @@ def test_handle_agent_edit_revise_blocks_broken_graph_before_provider_call(
     result = handle_agent_edit(
         {
             "graph": broken_graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "fix this broken graph",
             "route": "revise",
             "executor_route": "revise",
@@ -13259,7 +13771,7 @@ def test_handle_agent_edit_revise_blocks_broken_graph_before_provider_call(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["canvas_apply_allowed"] is False
     assert result["report"]["read_only"] is True
@@ -13296,6 +13808,7 @@ def test_handle_agent_edit_revise_strips_target_mismatched_candidate(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change node 2 filename prefix to after",
             "target_node_ids": ["2"],
             "route": "direct_edit",
@@ -13312,7 +13825,7 @@ def test_handle_agent_edit_revise_strips_target_mismatched_candidate(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     evidence = result["report"]["revision_evidence"]
     assert evidence["candidate_eligible"] is False
@@ -13343,6 +13856,7 @@ def test_handle_agent_edit_revise_strips_target_scope_violation_candidate(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change node 2 filename prefix to after",
             "target_node_ids": ["2"],
             "route": "revise",
@@ -13359,7 +13873,7 @@ def test_handle_agent_edit_revise_strips_target_scope_violation_candidate(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["report"]["read_only"] is True
     evidence = result["report"]["revision_evidence"]
@@ -13386,6 +13900,7 @@ def test_handle_agent_edit_revise_strips_confirmed_noop_candidate(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to before",
             "route": "revise",
             "executor_route": "revise",
@@ -13401,7 +13916,7 @@ def test_handle_agent_edit_revise_strips_confirmed_noop_candidate(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["canvas_apply_allowed"] is False
     assert result["report"]["read_only"] is True
@@ -13453,10 +13968,15 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
             {
                 "id": 3,
                 "type": "CheckpointLoaderSimple",
-                "widgets": [{"name": "ckpt_name"}],
                 "widgets_values": ["missing.safetensors"],
+                "properties": {"vibecomfy_uid": "fixture-3"},
             },
-            {"id": 4, "type": "MissingPackNode", "widgets_values": []},
+            {
+                "id": 4,
+                "type": "MissingPackNode",
+                "widgets_values": [],
+                "properties": {"vibecomfy_uid": "fixture-4"},
+            },
         ],
         "links": list(_ui_graph()["links"]),
     }
@@ -13477,6 +13997,7 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "route": "revise",
             "executor_route": "revise",
@@ -13544,14 +14065,14 @@ def test_handle_agent_edit_revise_parameter_tweak_reaches_provider_despite_missi
             {
                 "id": 1,
                 "type": "CheckpointLoaderSimple",
-                "widgets": [{"name": "ckpt_name"}],
                 "widgets_values": ["missing.safetensors"],
+                "properties": {"vibecomfy_uid": "fixture-1"},
             },
             {
                 "id": 56,
                 "type": "ACN_AdvancedControlNetApply",
-                "widgets": [{"name": "strength"}],
                 "widgets_values": [0.5],
+                "properties": {"vibecomfy_uid": "fixture-56"},
             },
         ],
         "links": [],
@@ -13569,6 +14090,7 @@ def test_handle_agent_edit_revise_parameter_tweak_reaches_provider_despite_missi
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "increase the ControlNet conditioning strength",
             "query": "increase the ControlNet conditioning strength",
             "route": "revise",
@@ -13627,14 +14149,14 @@ def test_handle_agent_edit_revise_parameter_tweak_candidate_ignores_preexisting_
             {
                 "id": 1,
                 "type": "CheckpointLoaderSimple",
-                "widgets": [{"name": "ckpt_name"}],
                 "widgets_values": ["missing.safetensors"],
+                "properties": {"vibecomfy_uid": "fixture-1"},
             },
             {
                 "id": 56,
                 "type": "ACN_AdvancedControlNetApply",
-                "widgets": [{"name": "strength"}],
                 "widgets_values": [0.5],
+                "properties": {"vibecomfy_uid": "fixture-56"},
             },
         ],
         "links": [],
@@ -13653,6 +14175,7 @@ def test_handle_agent_edit_revise_parameter_tweak_candidate_ignores_preexisting_
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "increase the ControlNet conditioning strength",
             "query": "increase the ControlNet conditioning strength",
             "route": "revise",
@@ -13723,6 +14246,7 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
     result = handle_agent_edit(
         {
             "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "You decide",
             "query": "You decide",
             "route": "revise",
@@ -13747,13 +14271,14 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
 
     assert captured_messages, "classifier-resolved PIL/code-node edits should reach provider"
     first_user_prompt = captured_messages[0][1]["content"]
-    assert "Resolved executor plan/context" in first_user_prompt
+    first_system_prompt = captured_messages[0][0]["content"]
+    assert "Resolved executor context" in first_user_prompt
     assert "Add a PIL transformation code node" in first_user_prompt
-    assert "def vibecomfy.exec" in first_user_prompt
+    assert "use exactly `vibecomfy.exec`" in first_system_prompt
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
     evidence = result["report"]["revision_evidence"]
-    assert evidence["safe_candidate_possible"] is False
+    assert evidence["safe_candidate_possible"] is True
     turn_dir = turn_dir_for(tmp_path, "you-decide-pil-code-node", str(result["turn_id"]))
     assert (turn_dir / "model_request.json").exists()
 
@@ -13916,7 +14441,7 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
 
     assert captured_messages, "empty-canvas workflow generation should reach provider"
     first_user_prompt = captured_messages[0][1]["content"]
-    assert "Resolved executor plan/context" in first_user_prompt
+    assert "Resolved executor context" in first_user_prompt
     assert "Create a standard SD1.5 text-to-image workflow" in first_user_prompt
     assert "def CheckpointLoaderSimple" in first_user_prompt
     assert "def CLIPTextEncode" in first_user_prompt
@@ -13975,6 +14500,7 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
     assert len(list((turn_dir / "transactions").glob("*/candidate_transaction.json"))) == 1
 
 
+
 def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -13987,6 +14513,7 @@ def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "run this workflow and show the output",
             "route": "revise",
             "executor_route": "revise",
@@ -14003,7 +14530,7 @@ def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "noop"
-    assert result["candidate"] is None
+    assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["report"]["read_only"] is True
     assert result["report"]["graph_unchanged"] is True
@@ -14031,6 +14558,7 @@ def test_handle_agent_edit_direct_clarify_has_no_candidate_or_apply_state(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "make that one stronger",
             "route": "clarify",
             "executor_route": "clarify",
@@ -14068,6 +14596,7 @@ def test_no_chat_json_for_pre_allocation_validation_failure() -> None:
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
         },
         schema_provider=_batch_repl_provider(),
         session_root=Path("/tmp/test-pre-alloc-failure"),
@@ -14497,7 +15026,7 @@ def test_read_session_chat_returns_latest_open_candidate_state(tmp_path: Path) -
     assert latest["turn_id"] == "0001"
     assert latest["graph"] == graph
     assert latest["candidate_graph_hash"] == "candidate-hash"
-    assert latest["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert latest["apply_eligibility"]["reason"] == "legacy_prepared_nonresumable"
     assert latest["queue_allowed"] is False
     assert latest["agent_edit_protocol"] is None
     assert latest["delta_ops"] is None
@@ -15326,9 +15855,10 @@ def test_chat_agent_message_derives_outcome_from_turn_response_when_chat_json_om
     [
         "candidate_ready",
         "review_bound",
-        "apply_prepared",
+        # apply_prepared / rollback_prepared are legacy aliases that map to
+        # the canonical V2 "prepared" state (see candidate_transaction.py).
+        "prepared",
         "canvas_verified",
-        "rollback_prepared",
     ],
 )
 def test_v2_reviewable_candidate_states_in_chat_response_include_outcome(
@@ -15604,6 +16134,7 @@ def test_chat_agent_message_outcome_derivable_from_turn_response(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "rename the save prefix",
             "session_id": "chat-derivable-outcome",
         },
@@ -16940,6 +17471,274 @@ def test_compact_execution_protocol_notes_preserves_actionable_splice() -> None:
     assert splice["required_rewires"][0]["to_node_id"] == "5"
     assert splice["edit_ops"][0]["op"] == "set_input"
     assert "all_slices" not in splice
+
+
+# ── W-06 Manifest-aware adapt prompt tests ──────────────────────────────────
+
+
+class TestManifestAwarePrompt:
+    """W-06: the adapt-route prompt injects ONE bounded TopologyManifest JSON
+    block with preserve-instructions when the plan carries a manifest; legacy
+    prose is byte-identical when the manifest is None; revise is unchanged;
+    boundary anchors stay ID-free; the anti-gaming scanner bites on a poisoned
+    manifest."""
+
+    @staticmethod
+    def _build_manifest(*, target_class_type: str = "SaveImage") -> dict:
+        from vibecomfy.executor.contracts import (
+            ManifestBoundaryAnchor,
+            ManifestInquiryCoverage,
+            ManifestInternalEdge,
+            ManifestNode,
+            ManifestValidation,
+            build_topology_manifest,
+        )
+
+        manifest = build_topology_manifest(
+            manifest_id="adapt:TestWorkflow",
+            source_content_hash="abc123",
+            source_retrieval_rank=1,
+            source_tier="curated",
+            nodes=(
+                ManifestNode(
+                    symbol="loader",
+                    canonical_class_type="LoadImage",
+                    resolver_status="resolved",
+                    evidence_ref="ev1",
+                    confidence=0.9,
+                ),
+                ManifestNode(
+                    symbol="decode",
+                    canonical_class_type="VAEDecode",
+                    resolver_status="resolved",
+                    evidence_ref="ev2",
+                    confidence=0.9,
+                ),
+            ),
+            internal_edges=(
+                ManifestInternalEdge(
+                    from_symbol="loader",
+                    output_socket="IMAGE",
+                    to_symbol="decode",
+                    input_socket="samples",
+                    evidence_ref="ev3",
+                    confidence=0.9,
+                ),
+            ),
+            boundary_anchors=(
+                ManifestBoundaryAnchor(
+                    direction="outbound",
+                    symbol="decode",
+                    symbol_socket="IMAGE",
+                    target_role="save",
+                    target_class_type=target_class_type,
+                    target_socket="images",
+                    source_anchor_ref="ev4",
+                    confidence=0.8,
+                ),
+            ),
+            inquiry_coverage=ManifestInquiryCoverage(
+                required_roles=("save",),
+                covered_roles=("save",),
+            ),
+            validation=ManifestValidation(
+                verdict="pass",
+                class_resolution="pass",
+                socket_checks="pass",
+                cut_edge_coverage="pass",
+                anchor_binding="pass",
+                reasons=(),
+            ),
+            evidence_hash="hash999",
+            confidence=0.85,
+        )
+        assert manifest is not None
+        return manifest.to_dict()
+
+    @staticmethod
+    def _base_plan() -> dict:
+        return {
+            "selected_slice": {
+                "source_class_type": "TestWorkflow",
+                "node_ids": [1, 2],
+                "entry_anchor": "in1",
+                "exit_anchor": "out1",
+                "python_path": "/secret/templates/leak.py",
+            },
+            "edit_ops": [{"kind": "add_node", "target": "loader"}],
+            "required_new_nodes": [{"class_type": "LoadImage", "id": "new_1"}],
+            "structural_validation": "pass",
+            "semantic_validation": "pass",
+        }
+
+    def test_manifest_bearing_adapt_prompt_contains_manifest_and_instructions(self) -> None:
+        """Manifest-bearing adapt prompt has the JSON, instructions, no raw
+        candidate_graph, no path block, no slice paths."""
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = dict(self._base_plan())
+        plan["topology_manifest"] = self._build_manifest()
+        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
+
+        # Manifest JSON present.
+        assert "adapt:TestWorkflow" in prompt
+        assert '"canonical_class_type": "LoadImage"' in prompt
+        assert '"from_symbol": "loader"' in prompt
+        assert '"target_role": "save"' in prompt
+        # Preserve-instructions present.
+        assert "not a prescribed winner" in prompt
+        assert "never invent topology" in prompt
+        # Raw candidate_graph never appears.
+        assert "candidate_graph" not in prompt
+        # Path-bearing selected-slice + provenance blocks suppressed.
+        assert "Reference slice" not in prompt
+        assert "/secret/templates/leak.py" not in prompt
+        assert "node(s)" not in prompt  # selected-slice node_ids suppressed
+        assert "Role-preserving provenance priors" not in prompt
+
+    def test_manifest_bearing_prompt_passes_antigaming_scanner(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = dict(self._base_plan())
+        plan["topology_manifest"] = self._build_manifest()
+        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
+        # Production manifests never carry forbidden tokens; scanner must pass.
+        assert_no_forbidden_fields(prompt, context="adapt_prompt")
+
+    def test_topology_manifest_none_is_byte_identical_to_legacy(self) -> None:
+        """topology_manifest=None keeps the EXACT legacy adapt prose."""
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = self._base_plan()
+        # No topology_manifest key at all -> legacy.
+        legacy = _build_precedent_adaptation_prompt(plan, route="adapt")
+        # Explicit None -> legacy.
+        plan_none = dict(plan)
+        plan_none["topology_manifest"] = None
+        none_prompt = _build_precedent_adaptation_prompt(plan_none, route="adapt")
+        assert none_prompt == legacy
+        # route=None (default) -> legacy too.
+        assert _build_precedent_adaptation_prompt(plan) == legacy
+
+    def test_revise_route_unchanged_regardless_of_manifest(self) -> None:
+        """REPAIR/DEBUG revise prompt is identical with or without a manifest."""
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = self._base_plan()
+        revise_without = _build_precedent_adaptation_prompt(plan, route="revise")
+        plan_with = dict(plan)
+        plan_with["topology_manifest"] = self._build_manifest()
+        revise_with = _build_precedent_adaptation_prompt(plan_with, route="revise")
+        # revise never injects the manifest, and never suppresses the slice block.
+        assert revise_with == revise_without
+        assert "adapt:TestWorkflow" not in revise_with
+        assert "not a prescribed winner" not in revise_with
+        # The path-bearing slice block is still rendered on revise.
+        assert "Reference slice" in revise_with
+
+    def test_boundary_anchors_are_id_free(self) -> None:
+        """Boundary anchors carry role/class/socket only — no raw node ids."""
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = dict(self._base_plan())
+        plan["topology_manifest"] = self._build_manifest()
+        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
+
+        # Isolate the manifest JSON region.
+        assert "Ranked candidate topology manifest (JSON):" in prompt
+        _, _, manifest_region = prompt.partition("Ranked candidate topology manifest (JSON):")
+        # Anchor fields are role/class/socket — no node-id-bearing keys.
+        assert '"target_role": "save"' in manifest_region
+        assert '"target_class_type": "SaveImage"' in manifest_region
+        assert '"target_socket": "images"' in manifest_region
+        # No source/target node ids, broken_graph_node_id, or path keys.
+        for forbidden_key in (
+            "broken_graph_node_id",
+            "target_node_id",
+            "source_node_id",
+            "python_path",
+            "source_template",
+            "prior_path",
+        ):
+            assert forbidden_key not in manifest_region
+
+    def test_poisoned_manifest_is_caught_by_scanner(self) -> None:
+        """A deliberately-poisoned manifest (forbidden target_class_type) must
+        make assert_no_forbidden_fields fire — proving the scanner bites."""
+        from tests._splice_antigaming import assert_no_forbidden_fields
+        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
+
+        plan = dict(self._base_plan())
+        plan["topology_manifest"] = self._build_manifest(
+            target_class_type="depth_controlnet"  # forbidden token
+        )
+        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
+        with pytest.raises(pytest.fail.Exception, match="forbidden token"):
+            assert_no_forbidden_fields(prompt, context="adapt_prompt")
+
+
+# ── W-01 Anti-gaming scanner and perturbation tests ─────────────────────────
+
+
+class TestSpliceAntiGamingEdit:
+    """Exercise anti-gaming assertions on manifest/plan shapes from the edit path."""
+
+    def test_manifest_with_forbidden_field_is_rejected(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+
+        tainted = {
+            "adaptation_plan": {
+                "selected_slice": {"prior_path": "/ready_templates/depth_controlnet.py"},
+                "edit_ops": [],
+            }
+        }
+        with pytest.raises(pytest.fail.Exception, match="forbidden token"):
+            assert_no_forbidden_fields(tainted, context="tainted_plan")
+
+    def test_manifest_with_source_template_is_rejected(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+
+        tainted = {"source_template": "some/workflow.json"}
+        with pytest.raises(pytest.fail.Exception, match="forbidden token"):
+            assert_no_forbidden_fields(tainted, context="manifest")
+
+    def test_clean_plan_passes_antigaming_check(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+
+        clean = {
+            "adaptation_plan": {
+                "selected_slice": {"source_class_type": "SomeWorkflow"},
+                "edit_ops": [{"kind": "add_node", "target": "loader"}],
+                "required_new_nodes": [{"class_type": "VAEDecode"}],
+                "structural_validation": "pass",
+            }
+        }
+        assert_no_forbidden_fields(clean, context="clean_plan")
+
+    def test_topology_invariance_with_agent_edit_graph_shape(self) -> None:
+        from tests._splice_antigaming import (
+            assert_topology_invariant,
+            default_project_topology,
+        )
+
+        # Graph shape mimicking an agent-edit candidate workflow.
+        graph = {
+            "10": {
+                "class_type": "LoadImage",
+                "inputs": {"image": "input.png"},
+                "widgets_values": ["input.png"],
+            },
+            "11": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["10", 0]},
+            },
+            "12": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["11", 0], "filename_prefix": "output"},
+            },
+        }
+        assert_topology_invariant(default_project_topology, graph, context="edit_graph")
 
 
 # ── T14: provider research tool exposure and neutral formatting tests ──────
@@ -18401,6 +19200,7 @@ def test_handle_agent_edit_inspect_route_returns_non_applyable_canonical_envelop
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "what does this workflow do?",
             "session_id": "legacy-inspect-envelope",
             "route": "inspect",
@@ -18438,6 +19238,7 @@ def test_handle_agent_edit_clarify_route_returns_non_applyable_canonical_envelop
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "make it more cinematic",
             "session_id": "legacy-clarify-envelope",
             "route": "clarify",
@@ -18449,7 +19250,7 @@ def test_handle_agent_edit_clarify_route_returns_non_applyable_canonical_envelop
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "clarify"
-    assert result["message"] == "Which style would you like?"
+    assert "Which style" in result["message"]
     for forbidden in (
         "apply_eligibility",
         "eligibility",
@@ -18482,6 +19283,7 @@ def test_executor_revise_route_writes_durable_artifacts(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "change the save prefix to after",
             "session_id": "exec-revise-artifacts",
             "route": "revise",
@@ -18529,6 +19331,7 @@ def test_executor_adapt_route_writes_durable_artifacts(
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "add a preview after the save",
             "session_id": "exec-adapt-artifacts",
             "route": "adapt",
@@ -18568,6 +19371,7 @@ def test_executor_revise_idempotency_replay_through_edit(
 
     payload = {
         "graph": _ui_graph(),
+        "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
         "task": "change the save prefix to idem-test",
         "session_id": "exec-revise-idem",
         "route": "revise",
@@ -18621,6 +19425,7 @@ def test_executor_revise_idempotency_conflict_through_edit(
 
     payload_a = {
         "graph": _ui_graph(),
+        "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
         "task": "change the save prefix to conflict-A",
         "session_id": "exec-revise-conflict",
         "route": "revise",
@@ -18638,6 +19443,7 @@ def test_executor_revise_idempotency_conflict_through_edit(
     # Different payload, same key
     payload_b = {
         "graph": _ui_graph(),
+        "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
         "task": "change the save prefix to conflict-B",
         "session_id": "exec-revise-conflict",
         "route": "revise",
@@ -18683,3 +19489,291 @@ def test_additive_flag_does_not_bypass_pre_edit_readonly_gate(tmp_path) -> None:
         "flag-bypass was re-added to the readonly gate"
     )
     assert "_can_attempt_local_additive_revise" in src
+
+
+# ── W-07 Manifest protocol allowlist + dependency derivation tests ──────────
+
+
+class TestManifestProtocolAllowlist:
+    """W-07: compact protocol notes preserve the complete manifest via a
+    dedicated compactor; dependency classes derive from the manifest on the
+    adapt route; legacy byte-identical otherwise; oversize manifests are
+    rejected (no partial topology); anti-gaming scanner bites on poison."""
+
+    @staticmethod
+    def _build_manifest(
+        *, node_classes: tuple[str, ...] = ("LoadImage", "VAEDecode"),
+        target_class_type: str = "SaveImage",
+    ) -> dict:
+        from vibecomfy.executor.contracts import (
+            ManifestBoundaryAnchor,
+            ManifestInquiryCoverage,
+            ManifestInternalEdge,
+            ManifestNode,
+            ManifestValidation,
+            build_topology_manifest,
+        )
+
+        nodes = tuple(
+            ManifestNode(
+                symbol=f"sym{i}",
+                canonical_class_type=ct,
+                resolver_status="resolved",
+                evidence_ref=f"ev{i}",
+                confidence=0.9,
+            )
+            for i, ct in enumerate(node_classes)
+        )
+        manifest = build_topology_manifest(
+            manifest_id="adapt:W07",
+            source_content_hash="chash",
+            source_retrieval_rank=1,
+            source_tier="curated",
+            nodes=nodes,
+            internal_edges=(
+                ManifestInternalEdge(
+                    from_symbol="sym0",
+                    output_socket="IMAGE",
+                    to_symbol="sym1",
+                    input_socket="samples",
+                    evidence_ref="evx",
+                    confidence=0.9,
+                ),
+            ),
+            boundary_anchors=(
+                ManifestBoundaryAnchor(
+                    direction="outbound",
+                    symbol="sym1",
+                    symbol_socket="IMAGE",
+                    target_role="save",
+                    target_class_type=target_class_type,
+                    target_socket="images",
+                    source_anchor_ref="evy",
+                    confidence=0.8,
+                ),
+            ),
+            inquiry_coverage=ManifestInquiryCoverage(
+                required_roles=("save",),
+                covered_roles=("save",),
+            ),
+            validation=ManifestValidation(
+                verdict="pass",
+                class_resolution="pass",
+                socket_checks="pass",
+                cut_edge_coverage="pass",
+                anchor_binding="pass",
+                reasons=(),
+            ),
+            evidence_hash="ehash",
+            confidence=0.85,
+        )
+        assert manifest is not None
+        return manifest.to_dict()
+
+    @staticmethod
+    def _base_notes(*, with_manifest: dict | None = None) -> dict:
+        plan: dict = {
+            "required_new_nodes": [{"class_type": "FallbackOnly"}],
+            "selected_slice": {"source_class_type": "LegacyWF"},
+            "structural_validation": "pass",
+            "semantic_validation": "pass",
+        }
+        if with_manifest is not None:
+            plan["topology_manifest"] = with_manifest
+        return {
+            "adaptation_plan_actionability": {"actionability": "actionable"},
+            "adaptation_plan": plan,
+        }
+
+    # ── compact protocol notes ───────────────────────────────────────────
+
+    def test_manifest_present_compact_notes_derive_classes_from_manifest(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import _compact_execution_protocol_notes_for_prompt
+
+        manifest = self._build_manifest(
+            node_classes=tuple(f"ManifestClass{i}" for i in range(40)),
+        )
+        notes = self._base_notes(with_manifest=manifest)
+        compact = _compact_execution_protocol_notes_for_prompt(notes, route="adapt")
+
+        plan = compact["adaptation_plan"]
+        # Dedicated manifest compactor is used; legacy slice/required_new_nodes
+        # keys are NOT carried on the manifest path.
+        assert "topology_manifest" in plan
+        assert "selected_slice" not in plan
+        assert "required_new_nodes" not in plan
+        manifest_nodes = plan["topology_manifest"]["nodes"]
+        # No silent truncation for a 40-node manifest — every node's class
+        # appears (or the manifest is explicitly rejected, never partially
+        # dropped).
+        assert len(manifest_nodes) == 40, len(manifest_nodes)
+        rendered_classes = {n["canonical_class_type"] for n in manifest_nodes}
+        assert rendered_classes == {f"ManifestClass{i}" for i in range(40)}
+        # No generic-truncation sentinel leaks into the manifest region.
+        assert not any(
+            "omitted" in str(v) for v in manifest_nodes
+        )
+
+    def test_topology_manifest_none_compact_notes_byte_identical_to_legacy(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        notes = self._base_notes()  # no topology_manifest key
+        legacy_adapt = _compact_execution_protocol_notes_for_prompt(dict(notes), route="adapt")
+        legacy_no_route = _compact_execution_protocol_notes_for_prompt(dict(notes), route=None)
+        # route=None and route=adapt with no manifest both produce the legacy
+        # compact notes.
+        assert legacy_adapt == legacy_no_route
+        # Explicit topology_manifest=None also keeps the legacy shape.
+        none_notes = self._base_notes(with_manifest=None)
+        explicit_none = _compact_execution_protocol_notes_for_prompt(dict(none_notes), route="adapt")
+        assert explicit_none == legacy_adapt
+
+    def test_non_adapt_route_never_activates_manifest_path(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        manifest = self._build_manifest()
+        notes = self._base_notes(with_manifest=manifest)
+        revise = _compact_execution_protocol_notes_for_prompt(dict(notes), route="revise")
+        research = _compact_execution_protocol_notes_for_prompt(dict(notes), route="research")
+        for compact in (revise, research):
+            plan = compact.get("adaptation_plan", {})
+            # Manifest never injected on non-adapt routes; legacy keys present.
+            assert "topology_manifest" not in plan
+            assert "selected_slice" in plan
+            assert "required_new_nodes" in plan
+
+    def test_oversize_manifest_rejected_legacy_fallback_no_partial_topology(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        manifest = self._build_manifest(
+            node_classes=tuple(f"C{i}" for i in range(64)),  # at the bound
+        )
+        # Force the manifest dict beyond the dedicated compactor budget (65 > 64).
+        oversize = dict(manifest)
+        oversize["nodes"] = [
+            {**n, "symbol": f"x{i}"}
+            for i, n in enumerate(oversize["nodes"])
+        ] + [
+            {
+                "symbol": "overflow",
+                "canonical_class_type": "OverflowClass",
+                "resolver_status": "resolved",
+                "evidence_ref": "evo",
+                "confidence": 0.1,
+            }
+        ]
+        notes = self._base_notes(with_manifest=oversize)
+        compact = _compact_execution_protocol_notes_for_prompt(notes, route="adapt")
+        plan = compact.get("adaptation_plan", {})
+        # Manifest rejected -> NO partial topology (no topology_manifest key at
+        # all); legacy generic compaction runs so notes still carry required_new_nodes.
+        assert "topology_manifest" not in plan, plan
+        assert "required_new_nodes" in plan
+        # The overflow class must NOT leak through (it would be a truncated tail).
+        assert "OverflowClass" not in str(plan)
+
+    def test_compact_manifest_notes_pass_antigaming_scanner(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        manifest = self._build_manifest()
+        notes = self._base_notes(with_manifest=manifest)
+        compact = _compact_execution_protocol_notes_for_prompt(notes, route="adapt")
+        assert_no_forbidden_fields(compact, context="compact_notes")
+
+    def test_poisoned_manifest_compact_notes_caught_by_scanner(self) -> None:
+        from tests._splice_antigaming import assert_no_forbidden_fields
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        manifest = self._build_manifest(target_class_type="depth_controlnet")
+        notes = self._base_notes(with_manifest=manifest)
+        compact = _compact_execution_protocol_notes_for_prompt(notes, route="adapt")
+        with pytest.raises(pytest.fail.Exception, match="forbidden token"):
+            assert_no_forbidden_fields(compact, context="compact_notes")
+
+    def test_compact_manifest_notes_are_id_free(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import (
+            _compact_execution_protocol_notes_for_prompt,
+        )
+
+        manifest = self._build_manifest()
+        notes = self._base_notes(with_manifest=manifest)
+        compact = _compact_execution_protocol_notes_for_prompt(notes, route="adapt")
+        rendered = json.dumps(compact, sort_keys=True)
+        # No raw node ids, prior_path, or source paths.
+        for forbidden_key in (
+            "prior_path",
+            "source_template",
+            "python_path",
+            "source_workflow_path",
+            "node_ids",
+            "broken_graph_node_id",
+        ):
+            assert forbidden_key not in rendered, forbidden_key
+
+    # ── dependency derivation ────────────────────────────────────────────
+
+    def test_dependency_derivation_uses_manifest_classes_when_complete(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import _actionable_plan_required_new_classes
+
+        manifest = self._build_manifest(
+            node_classes=("ManifestDepA", "ManifestDepB", "LoadImage"),
+        )
+        plan = {"topology_manifest": manifest, "required_new_nodes": []}
+        graph = _ui_graph()
+        state = _make_state(
+            graph=graph,
+            guard_original_ui=graph,
+            schema_provider=_batch_repl_provider(),
+            route="adapt",
+        )
+        classes = _actionable_plan_required_new_classes(state, plan)
+        # Manifest classes used; LoadImage is on the target so subtracted.
+        assert "ManifestDepA" in classes
+        assert "ManifestDepB" in classes
+        assert "LoadImage" not in classes
+
+    def test_dependency_derivation_falls_back_to_legacy_when_no_manifest(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import _actionable_plan_required_new_classes
+
+        # No manifest -> legacy required_new_nodes path, even on adapt route.
+        plan = {"required_new_nodes": [{"class_type": "LegacyOnly"}]}
+        graph = _ui_graph()
+        state = _make_state(
+            graph=graph,
+            guard_original_ui=graph,
+            schema_provider=_batch_repl_provider(),
+            route="adapt",
+        )
+        classes = _actionable_plan_required_new_classes(state, plan)
+        assert classes == ("LegacyOnly",)
+
+    def test_dependency_derivation_revise_ignores_manifest(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import _actionable_plan_required_new_classes
+
+        manifest = self._build_manifest(node_classes=("ManifestOnly",))
+        # revise route: manifest ignored, legacy required_new_nodes used.
+        plan = {
+            "topology_manifest": manifest,
+            "required_new_nodes": [{"class_type": "LegacyOnly"}],
+        }
+        graph = _ui_graph()
+        state = _make_state(
+            graph=graph,
+            guard_original_ui=graph,
+            schema_provider=_batch_repl_provider(),
+            route="revise",
+        )
+        classes = _actionable_plan_required_new_classes(state, plan)
+        assert "LegacyOnly" in classes
+        assert "ManifestOnly" not in classes

@@ -345,7 +345,7 @@ def _build_object_info_in_process() -> dict[str, Any] | None:
     return out or None
 
 
-def _default_runtime_schema_provider() -> Any:
+def _default_runtime_schema_provider(on_demand_schemas: bool | None = None) -> Any:
     """Schema provider for live edit turns: the LIVE in-process ComfyUI registry.
 
     The offline ``local`` provider reads an out/cache snapshot that is empty in a bare
@@ -403,9 +403,10 @@ def _default_runtime_schema_provider() -> Any:
     if reachable:
         providers.append(RuntimeSchemaProvider(server_url=server_url))
     # AuthoringSchemaProvider already consults the shipped corpus (ObjectInfoIndex),
-    # source parser, and local index, and (when VIBECOMFY_ON_DEMAND_SCHEMAS=1) the
-    # on-demand resolver — so it stands in for the entire offline + on-demand tail.
-    providers.append(get_authoring_schema_provider())
+    # source parser, and local index, plus the on-demand resolver (default ON; the
+    # request's on_demand_schemas flag or VIBECOMFY_ON_DEMAND_SCHEMAS="0" can opt out)
+    # — so it stands in for the entire offline + on-demand tail.
+    providers.append(get_authoring_schema_provider(on_demand_schemas=on_demand_schemas))
     return CompositeSchemaProvider(*providers)
 
 

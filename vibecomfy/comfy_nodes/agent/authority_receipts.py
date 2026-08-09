@@ -279,6 +279,21 @@ def recompute_apply(
     """Recompute ``apply(submit_graph, cumulative_delta)`` server-side.
 
     Returns ``(ok, candidate, error, op_count)``.
+
+    Ops are applied **one at a time, in declared order**, feeding each result
+    forward. This deliberately mirrors the batch-REPL executor, which builds the
+    candidate it returns to the user by applying statements (and their ops)
+    sequentially against a live working graph. A single all-at-once
+    ``apply_delta(submit, all_ops)`` resolves every ``add_node`` against the
+    pre-mutation graph (before any removes land); on multi-add edits that changes
+    the collision-avoidance landscape, so node placement diverges from the
+    executor's strict program order. That divergence is purely in non-semantic
+    ``pos`` coordinates, but it is enough to trip the authority byte-hash and
+    reject a candidate that passed every other gate. Applying the delta the same
+    way the executor did makes the authority verify the graph the user actually
+    receives. Determinism and fail-closed semantics are unchanged: the replay is
+    still a pure function of ``(submit_graph, ops)`` and still rejects any
+    candidate that does not equal its declared delta.
     """
     from vibecomfy.porting.edit.apply_core import apply_delta
 
@@ -296,14 +311,16 @@ def recompute_apply(
         return False, None, f"invalid_delta_envelope: {exc}", declared_op_count
 
     try:
-        result = apply_delta(submit_graph, ops, schema_provider=schema_provider)
+        working: Any = dict(submit_graph)
+        for op in ops:
+            step = apply_delta(working, (op,), schema_provider=schema_provider)
+            if not step.ok or step.candidate is None:
+                return False, None, "apply_delta_failed", len(ops)
+            working = step.candidate
     except Exception as exc:
         return False, None, f"apply_delta_error: {exc}", len(ops)
 
-    if not result.ok or result.candidate is None:
-        return False, None, "apply_delta_failed", len(ops)
-
-    return True, result.candidate, None, len(ops)
+    return True, working, None, len(ops)
 
 
 def verify_replay(

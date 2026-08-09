@@ -721,6 +721,10 @@ class ExecutorRequest:
     client_live_canvas_token: str | None = None
     expected_baseline_graph_hash: str | None = None
     expected_baseline_graph_hash_present: bool = False
+    # Frontend "Author Uninstalled Node Packs" setting (default ON at the provider).
+    # None = unset → provider applies its env/default. Threaded through so the
+    # user-facing toggle actually controls on-demand schema resolution.
+    on_demand_schemas: bool | None = None
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -748,6 +752,8 @@ class ExecutorRequest:
             payload["client_live_canvas_token"] = self.client_live_canvas_token
         if self.expected_baseline_graph_hash_present:
             payload["expected_baseline_graph_hash"] = self.expected_baseline_graph_hash
+        if self.on_demand_schemas is not None:
+            payload["on_demand_schemas"] = self.on_demand_schemas
         return payload
 
     @classmethod
@@ -811,6 +817,9 @@ class ExecutorRequest:
             raise ValueError("ExecutorRequest `client_live_canvas_token` must be a string or null.")
         expected_baseline_graph_hash = payload.get("expected_baseline_graph_hash")
         expected_baseline_graph_hash_present = "expected_baseline_graph_hash" in payload
+        on_demand_schemas = payload.get("on_demand_schemas")
+        if not isinstance(on_demand_schemas, bool):
+            on_demand_schemas = None
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
         ):
@@ -829,6 +838,7 @@ class ExecutorRequest:
             client_live_canvas_token=client_live_canvas_token,
             expected_baseline_graph_hash=expected_baseline_graph_hash,
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
+            on_demand_schemas=on_demand_schemas,
         )
 
 
@@ -984,6 +994,8 @@ class PrecedentAdaptationPlan:
     # a winner, recommendation, or required implementation.
     all_slices: tuple[WorkflowSlice, ...] = ()
     context_note: str = ""
+    # W-02: singular focused-manifest contract — at most ONE, default None
+    topology_manifest: TopologyManifest | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "anchor_bindings", tuple(
@@ -1051,7 +1063,245 @@ class PrecedentAdaptationPlan:
             payload["all_slices"] = [s.to_dict() for s in self.all_slices]
         if self.context_note:
             payload["context_note"] = self.context_note
+        if self.topology_manifest is not None:
+            payload["topology_manifest"] = self.topology_manifest.to_dict()
         return payload
+
+
+# ── topology manifest (W-02) ──────────────────────────────────────────────────
+
+class ManifestOversized(ValueError):
+    """Raised when a manifest exceeds its size bounds (never silently truncate)."""
+
+
+@dataclass(frozen=True)
+class ManifestNode:
+    """A single node in the topology manifest, derived from retrieved evidence.
+
+    Carries only structural topology — no fixture ancestry, golden node
+    IDs/values, filenames, sigma strings, or raw ``candidate_graph``.
+    """
+
+    symbol: str
+    canonical_class_type: str
+    resolver_status: str  # "resolved" | "unresolved" | "inferred"
+    evidence_ref: str      # opaque hash pointer into retrieved evidence (no path)
+    confidence: float
+
+    def __post_init__(self) -> None:
+        if self.resolver_status not in ("resolved", "unresolved", "inferred"):
+            object.__setattr__(self, "resolver_status", "unresolved")
+
+
+@dataclass(frozen=True)
+class ManifestInternalEdge:
+    """An edge between two manifest-local symbols (no source/target IDs)."""
+
+    from_symbol: str
+    output_socket: str    # socket NAME or "<idx:2>" (no ids)
+    to_symbol: str
+    input_socket: str
+    evidence_ref: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class ManifestBoundaryAnchor:
+    """ID-free boundary anchor binding a manifest symbol to the target graph.
+
+    Selectors use role/class/socket ONLY — no ``broken_graph_node_id``,
+    source ids, paths, or widget literals.
+    """
+
+    direction: str        # "inbound" | "outbound"
+    symbol: str
+    symbol_socket: str
+    target_role: str       # e.g. "sampler", "model_provider"
+    target_class_type: str # e.g. "WanVideoSampler"
+    target_socket: str     # e.g. "image_embeds"
+    source_anchor_ref: str # opaque evidence ref (no path)
+    confidence: float
+
+    def __post_init__(self) -> None:
+        if self.direction not in ("inbound", "outbound"):
+            object.__setattr__(self, "direction", "inbound")
+
+
+@dataclass(frozen=True)
+class ManifestInquiryCoverage:
+    required_roles: tuple[str, ...]
+    covered_roles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ManifestValidation:
+    verdict: str          # "pass" | "fail"
+    class_resolution: str
+    socket_checks: str
+    cut_edge_coverage: str
+    anchor_binding: str
+    reasons: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.verdict not in ("pass", "fail"):
+            object.__setattr__(self, "verdict", "fail")
+
+
+@dataclass(frozen=True)
+class TopologyManifest:
+    """Singular focused-manifest contract — complete-or-reject, size-bounded.
+
+    Carries ONLY structural topology derived from generic retrieval evidence.
+    Never fixture ancestry, golden node IDs/values, filenames, sigma strings,
+    or raw ``candidate_graph``.
+    """
+
+    manifest_id: str
+    # source provenance — content hash + retrieval rank + tier ONLY (no path/filename)
+    source_content_hash: str
+    source_retrieval_rank: int
+    source_tier: str
+    nodes: tuple[ManifestNode, ...]
+    internal_edges: tuple[ManifestInternalEdge, ...]
+    boundary_anchors: tuple[ManifestBoundaryAnchor, ...]
+    inquiry_coverage: ManifestInquiryCoverage
+    validation: ManifestValidation
+    evidence_hash: str    # opaque hash of the retrieved evidence (no path)
+    confidence: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "nodes", tuple(self.nodes))
+        object.__setattr__(self, "internal_edges", tuple(self.internal_edges))
+        object.__setattr__(self, "boundary_anchors", tuple(self.boundary_anchors))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-friendly dict (ID-free, no paths)."""
+        return {
+            "manifest_id": self.manifest_id,
+            "source_content_hash": self.source_content_hash,
+            "source_retrieval_rank": self.source_retrieval_rank,
+            "source_tier": self.source_tier,
+            "nodes": [
+                {
+                    "symbol": n.symbol,
+                    "canonical_class_type": n.canonical_class_type,
+                    "resolver_status": n.resolver_status,
+                    "evidence_ref": n.evidence_ref,
+                    "confidence": n.confidence,
+                }
+                for n in self.nodes
+            ],
+            "internal_edges": [
+                {
+                    "from_symbol": e.from_symbol,
+                    "output_socket": e.output_socket,
+                    "to_symbol": e.to_symbol,
+                    "input_socket": e.input_socket,
+                    "evidence_ref": e.evidence_ref,
+                    "confidence": e.confidence,
+                }
+                for e in self.internal_edges
+            ],
+            "boundary_anchors": [
+                {
+                    "direction": a.direction,
+                    "symbol": a.symbol,
+                    "symbol_socket": a.symbol_socket,
+                    "target_role": a.target_role,
+                    "target_class_type": a.target_class_type,
+                    "target_socket": a.target_socket,
+                    "source_anchor_ref": a.source_anchor_ref,
+                    "confidence": a.confidence,
+                }
+                for a in self.boundary_anchors
+            ],
+            "inquiry_coverage": {
+                "required_roles": list(self.inquiry_coverage.required_roles),
+                "covered_roles": list(self.inquiry_coverage.covered_roles),
+            },
+            "validation": {
+                "verdict": self.validation.verdict,
+                "class_resolution": self.validation.class_resolution,
+                "socket_checks": self.validation.socket_checks,
+                "cut_edge_coverage": self.validation.cut_edge_coverage,
+                "anchor_binding": self.validation.anchor_binding,
+                "reasons": list(self.validation.reasons),
+            },
+            "evidence_hash": self.evidence_hash,
+            "confidence": self.confidence,
+        }
+
+
+# ── Manifest size bounds ─────────────────────────────────────────────────────
+
+_MAX_MANIFEST_NODES = 64
+_MAX_MANIFEST_EDGES = 128
+_MAX_MANIFEST_ANCHORS = 16
+
+
+def build_topology_manifest(
+    manifest_id: str,
+    source_content_hash: str,
+    source_retrieval_rank: int,
+    source_tier: str,
+    nodes: tuple[ManifestNode, ...],
+    internal_edges: tuple[ManifestInternalEdge, ...],
+    boundary_anchors: tuple[ManifestBoundaryAnchor, ...],
+    inquiry_coverage: ManifestInquiryCoverage,
+    validation: ManifestValidation,
+    evidence_hash: str,
+    confidence: float,
+) -> TopologyManifest | None:
+    """Build a :class:`TopologyManifest` with complete-or-reject invariants.
+
+    Returns ``None`` if any required field is missing/empty.  Raises
+    :class:`ManifestOversized` if size bounds are exceeded.  Never silently
+    truncates.
+    """
+    # ── complete-or-reject: required string fields ──────────────────────
+    if not manifest_id or not isinstance(manifest_id, str):
+        return None
+    if not source_content_hash or not isinstance(source_content_hash, str):
+        return None
+    if not source_tier or not isinstance(source_tier, str):
+        return None
+    if not evidence_hash or not isinstance(evidence_hash, str):
+        return None
+
+    # ── size bounds: reject, never truncate ─────────────────────────────
+    if len(nodes) > _MAX_MANIFEST_NODES:
+        raise ManifestOversized(
+            f"nodes count {len(nodes)} exceeds limit {_MAX_MANIFEST_NODES}"
+        )
+    if len(internal_edges) > _MAX_MANIFEST_EDGES:
+        raise ManifestOversized(
+            f"internal_edges count {len(internal_edges)} exceeds limit {_MAX_MANIFEST_EDGES}"
+        )
+    if len(boundary_anchors) > _MAX_MANIFEST_ANCHORS:
+        raise ManifestOversized(
+            f"boundary_anchors count {len(boundary_anchors)} exceeds limit {_MAX_MANIFEST_ANCHORS}"
+        )
+
+    # ── complete-or-reject: sub-objects must be present ────────────────
+    if inquiry_coverage is None:
+        return None
+    if validation is None:
+        return None
+
+    return TopologyManifest(
+        manifest_id=manifest_id,
+        source_content_hash=source_content_hash,
+        source_retrieval_rank=source_retrieval_rank,
+        source_tier=source_tier,
+        nodes=nodes,
+        internal_edges=internal_edges,
+        boundary_anchors=boundary_anchors,
+        inquiry_coverage=inquiry_coverage,
+        validation=validation,
+        evidence_hash=evidence_hash,
+        confidence=confidence,
+    )
+
 
 # ── neutral precedent packet (SD1 successor) ──────────────────────────────────
 
@@ -2210,10 +2460,18 @@ __all__ = [
     "RevisionEvidence",
     "ScopedDiff",
     "SelectedPrecedent",
+    "ManifestBoundaryAnchor",
+    "ManifestInquiryCoverage",
+    "ManifestInternalEdge",
+    "ManifestNode",
+    "ManifestOversized",
+    "ManifestValidation",
     "TopologyFindings",
+    "TopologyManifest",
     "WorkflowSlice",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
+    "build_topology_manifest",
     "is_actionable_adaptation_plan",
     "warning_detail_from_exception",
 ]

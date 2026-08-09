@@ -42,7 +42,13 @@ def handle_agent_edit(
         return _validated_agent_edit_response(_product_failure_response(failure), stage="ingest")
 
     if schema_provider is None:
-        schema_provider = _default_runtime_schema_provider()
+        # Frontend "Author Uninstalled Node Packs" setting (default ON). None when
+        # absent/invalid so the provider falls back to its env/default rather than
+        # forcing the choice here.
+        _on_demand_schemas = payload.get("on_demand_schemas")
+        if not isinstance(_on_demand_schemas, bool):
+            _on_demand_schemas = None
+        schema_provider = _default_runtime_schema_provider(on_demand_schemas=_on_demand_schemas)
     root = session_root or _SESSION_ROOT
     session_id = _safe_session_id(payload.get("session_id"))
     allocation = allocate_turn(

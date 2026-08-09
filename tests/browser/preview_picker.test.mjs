@@ -840,3 +840,69 @@ test("demo Apply is blocked when the candidate scope mismatches the active chat 
     await harness.dispose();
   }
 });
+
+// ── Demo picker must be inert by default and never mask a real edit ────────
+// A staged demo leaves panel.state.__demoMode set, which routes Apply/Reject
+// to the demo handlers. clearActiveDemo() tears that down so a real edit
+// (submitAgentEdit calls it first) is never intercepted by lingering demo
+// state. It must also be a safe no-op when no demo is staged.
+
+test("clearActiveDemo tears down a staged demo and restores production identity", async () => {
+  const harness = await createBrowserHarness({
+    withGraphMutation: true,
+    responses: {
+      "/vibecomfy/ping": { status: 200, body: "pong" },
+      "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/demo/scenarios": makeScenarioList(),
+      "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
+    },
+  });
+  try {
+    globalThis.localStorage.setItem(LS_DEMO_PICKER_ENABLED, "1");
+    await harness.loadExtension();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    const runtime = await harness.loadPanelRuntime();
+    const panel = runtime.currentAgentPanel();
+    assert.ok(panel?.previewPicker, "preview picker is installed");
+
+    // Establish production identity BEFORE the demo so teardown can restore it.
+    Object.assign(panel.state, {
+      sessionId: "prod-session",
+      turnId: "prod-turn",
+      baselineTurnId: "prod-baseline",
+    });
+
+    // Stage a demo to ready_to_apply — this is the bug condition (__demoMode
+    // lingering and masking a later real edit).
+    await waitFor(() => panel.previewPicker.select.children.length > 1, { label: "scenario options" });
+    panel.previewPicker.select.value = "demo_a";
+    panel.previewPicker.select.dispatchEvent({ type: "change", target: panel.previewPicker.select });
+    panel.previewPicker.loadButton.click();
+    await waitFor(() => panel.state.__demoStage === "before_send", { label: "before_send" });
+    panel.previewPicker.nextButton.click();
+    await waitFor(() => panel.state.__demoStage === "sent_loading", { label: "sent_loading" });
+    panel.previewPicker.nextButton.click();
+    await waitFor(() => panel.state.__demoStage === "ready_to_apply", { label: "ready_to_apply" });
+    assert.equal(panel.state.__demoMode, true, "demo is staged in demo mode");
+    assert.equal(panel.state.previewEnabled, true, "demo review leaves the preview overlay on");
+
+    // Tear it down the way submitAgentEdit does.
+    const toreDown = panel.previewPicker.clearActiveDemo(panel);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(toreDown, true, "clearActiveDemo reports it tore down an active demo");
+    assert.equal(panel.state.__demoMode, undefined, "__demoMode is cleared so Apply/Reject no longer route to the demo");
+    assert.equal(panel.state.previewEnabled, false, "preview overlay is disabled");
+    assert.equal(panel.previewPicker.select.value, "", "picker returns to its default 'no demo' selection");
+    assert.equal(panel.state.sessionId, "prod-session", "production session id is restored");
+    assert.equal(panel.state.turnId, "prod-turn", "production turn id is restored");
+    assert.equal(panel.state.baselineTurnId, "prod-baseline", "production baseline is restored");
+
+    // A second call is a safe no-op: nothing to tear down, no identity mutation.
+    const idleCall = panel.previewPicker.clearActiveDemo(panel);
+    assert.equal(idleCall, false, "clearActiveDemo is a no-op when no demo is staged");
+    assert.equal(panel.state.sessionId, "prod-session", "no-op call does not touch production identity");
+  } finally {
+    await harness.dispose();
+  }
+});

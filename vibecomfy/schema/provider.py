@@ -557,12 +557,14 @@ class AuthoringSchemaProvider:
         object_info_cache_dir: str | Path = "out/cache",
         source_roots: list[str | Path] | None = None,
         node_index_path: str | Path = "node_index.json",
+        on_demand_schemas: bool | None = None,
     ) -> None:
         self.object_info_index_root = Path(object_info_index_root) if object_info_index_root is not None else _default_object_info_index_root()
         self.object_info_cache_path = Path(object_info_cache_path) if object_info_cache_path is not None else None
         self.object_info_cache_dir = Path(object_info_cache_dir)
         self.node_index_path = Path(node_index_path)
-        self._providers: tuple[SchemaProvider, ...] = self._build_providers(source_roots=source_roots)
+        self.on_demand_schemas = on_demand_schemas
+        self._providers: tuple[SchemaProvider, ...] = self._build_providers(source_roots=source_roots, on_demand_schemas=on_demand_schemas)
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self.get_schema(class_type)
@@ -588,7 +590,7 @@ class AuthoringSchemaProvider:
                 merged.update({str(key): value for key, value in schemas.items() if isinstance(value, NodeSchema)})
         return merged
 
-    def _build_providers(self, *, source_roots: list[str | Path] | None) -> tuple[SchemaProvider, ...]:
+    def _build_providers(self, *, source_roots: list[str | Path] | None, on_demand_schemas: bool | None = None) -> tuple[SchemaProvider, ...]:
         providers: list[SchemaProvider] = []
         if self.object_info_cache_path is not None:
             providers.append(ObjectInfoSchemaProvider(self.object_info_cache_path))
@@ -596,12 +598,16 @@ class AuthoringSchemaProvider:
         if self.object_info_cache_path is None:
             providers.extend(ObjectInfoSchemaProvider(path) for path in object_info_cache_candidates(self.object_info_cache_dir))
         providers.append(SourceSchemaProvider(source_roots))
-        providers.append(LocalSchemaProvider(self.node_index_path))
-        # Last-resort, opt-in: manufacture a schema for an uninstalled registry node by
-        # cloning its pack and statically parsing INPUT_TYPES (no execution). Gated because
-        # a miss triggers network + git against public third-party repos.
+        # Last-resort: manufacture a schema for an uninstalled registry node by cloning
+        # its pack and statically parsing INPUT_TYPES (no execution). A miss triggers
+        # network + git against public third-party repos, so the sandbox is bounded (LRU,
+        # see OnDemandInstallSchemaProvider) and the toggle is controllable: an explicit
+        # flag wins; otherwise VIBECOMFY_ON_DEMAND_SCHEMAS applies, defaulting ON so the
+        # agent can author any public node pack out of the box (set ="0" to opt out).
         import os
-        if os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS") == "1":
+        if on_demand_schemas is None:
+            on_demand_schemas = os.environ.get("VIBECOMFY_ON_DEMAND_SCHEMAS", "1") != "0"
+        if on_demand_schemas:
             try:
                 from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
 
@@ -1047,11 +1053,13 @@ def get_authoring_schema_provider(
     object_info_cache_path: str | Path | None = None,
     object_info_index_root: str | Path | None = None,
     node_index_path: str | Path = "node_index.json",
+    on_demand_schemas: bool | None = None,
 ) -> AuthoringSchemaProvider:
     return AuthoringSchemaProvider(
         object_info_cache_path=object_info_cache_path,
         object_info_index_root=object_info_index_root,
         node_index_path=node_index_path,
+        on_demand_schemas=on_demand_schemas,
     )
 
 

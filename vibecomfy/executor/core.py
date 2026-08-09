@@ -1332,6 +1332,8 @@ def _run_implement(
         payload["client_live_canvas_token"] = request.client_live_canvas_token
     if request.expected_baseline_graph_hash_present:
         payload["expected_baseline_graph_hash"] = request.expected_baseline_graph_hash
+    if request.on_demand_schemas is not None:
+        payload["on_demand_schemas"] = request.on_demand_schemas
 
     try:
         from vibecomfy.comfy_nodes.agent.session import payload_hash  # noqa: PLC0415

@@ -4,6 +4,8 @@ import copy
 import re
 from typing import Any
 
+from vibecomfy.metadata import MODEL_FILE_EXTENSIONS
+from vibecomfy.model_assets import _subdir_for_model_reference
 from vibecomfy.schema.provider import SchemaProvider, schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -152,7 +154,11 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                     ValidationIssue(
                         "missing_required_input",
                         f"Node {node_id} ({class_type}) is missing required input {name}.",
-                        detail={"node_id": str(node_id), "class_type": class_type, "input": name},
+                        detail={
+                            "node_id": str(node_id),
+                            "class_type": class_type,
+                            "input": name,
+                        },
                     )
                 )
 
@@ -200,6 +206,11 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                             "input": name,
                             "value": _truncate(value),
                             "choices": choices,
+                            "choice_scope": _choice_scope(
+                                class_type,
+                                name,
+                                value,
+                            ),
                         },
                     )
                 )
@@ -315,6 +326,36 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                 )
 
     return issues
+
+
+def _choice_scope(class_type: str, input_name: str, value: Any) -> str:
+    """Distinguish environment inventory selectors from semantic choices."""
+    lowered = input_name.lower()
+    if lowered in {
+        "sampler",
+        "sampler_name",
+        "scheduler",
+        "scheduler_name",
+        "crop",
+        "crop_mode",
+        "crop_policy",
+        "behavior",
+        "mode",
+        "policy",
+    }:
+        return "semantic"
+    if _subdir_for_model_reference(class_type, input_name) is not None:
+        return "environment_asset"
+    if isinstance(value, str) and value.lower().endswith(MODEL_FILE_EXTENSIONS):
+        return "environment_asset"
+    if (
+        lowered.startswith("clip_name")
+        or lowered == "vae_name"
+        or lowered == "lora_name"
+        or re.fullmatch(r"lora_\d+", lowered)
+    ):
+        return "environment_asset"
+    return "semantic"
 
 
 def sanitize_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvider | None) -> dict[str, Any]:

@@ -76,10 +76,65 @@ def _prefetch_research_summary(_task: str) -> str:
     return ""
 
 
+# W-06 — manifest-aware adapt prompt.
+#
+# Injects ONE bounded JSON manifest (``TopologyManifest.to_dict()`` from W-02)
+# plus preserve-nodes/edges/selectors instructions when the plan carries a
+# ``topology_manifest`` and the route is the canonical ``adapt`` route.
+# Returns ``(False, "")`` otherwise so the legacy prose stays byte-identical.
+#
+# The manifest is the ONLY topology carrier on this route: its ID-free
+# boundary selectors and hash-only provenance replace the path-bearing
+# selected-slice and provenance blocks, and raw ``candidate_graph`` is never
+# rendered.  Widget values are sourced only from the user request, schema
+# defaults, or separately qualified priors (stated in the instructions).
+_MANIFEST_PRESERVE_INSTRUCTIONS = (
+    "Below is ONE ranked candidate topology (a focused manifest), not a "
+    "prescribed winner. Preserve its nodes (by symbol), internal edges, and "
+    "boundary selectors exactly. Supply widget values ONLY from the user "
+    "request, authoritative schema defaults, or separately qualified existing "
+    "priors — never invent topology. Attach each boundary anchor to the "
+    "current-graph node matching its target role/class/socket."
+)
+
+
+def _build_topology_manifest_prompt_block(
+    adaptation_plan: Mapping[str, Any] | None,
+    *,
+    route: str | None,
+) -> tuple[bool, str]:
+    """Return ``(manifest_active, prompt_block)`` for the adapt-route prompt.
+
+    ``manifest_active`` is True only when the canonical route is ``adapt`` AND
+    the plan carries a non-empty ``topology_manifest`` mapping.  In that case
+    ``prompt_block`` is the preserve-instructions followed by ONE compact JSON
+    dump of the manifest.  Otherwise both are empty/false so the caller's
+    legacy prose is byte-identical.
+    """
+    if _canonical_agent_edit_route(route) != "adapt":
+        return (False, "")
+    if not isinstance(adaptation_plan, Mapping):
+        return (False, "")
+    manifest = adaptation_plan.get("topology_manifest")
+    if not isinstance(manifest, Mapping) or not manifest:
+        return (False, "")
+    # Serialize the manifest as a single bounded JSON block.  The manifest is
+    # already ID-free and hash-only by construction (W-02); we do not splice in
+    # candidate_graph, provenance paths, or slice paths here.
+    manifest_json = json.dumps(manifest, sort_keys=True, default=str)
+    block = (
+        _MANIFEST_PRESERVE_INSTRUCTIONS
+        + "\nRanked candidate topology manifest (JSON):\n"
+        + manifest_json
+    )
+    return (True, block)
+
 
 def _build_precedent_adaptation_prompt(
     adaptation_plan: dict[str, Any] | None,
     precedent_slices: tuple[dict[str, Any], ...] = (),
+    *,
+    route: str | None = None,
 ) -> str:
     """Build a compact precedent adaptation prompt for batch REPL injection.
 
@@ -91,12 +146,28 @@ def _build_precedent_adaptation_prompt(
     All precedent material is neutral context — it is NOT a winner,
     recommendation, or required implementation.  The adaptation agent
     evaluates all available slices independently.
+
+    W-06 — manifest-aware adapt prompt: when *route* is the canonical
+    ``adapt`` route and the plan carries a bounded ``topology_manifest``
+    (W-02 ``TopologyManifest.to_dict()``), ONE ID-free manifest JSON block
+    plus preserve-nodes/edges/selectors instructions replace the implicit
+    topology exclusion.  ``revise`` and manifest-less plans keep the EXACT
+    legacy prose (byte-identical).  The manifest's ID-free selectors and
+    hash-only provenance substitute for the path-bearing provenance and
+    selected-slice blocks on this route; raw ``candidate_graph`` is never
+    rendered.
     """
     if not adaptation_plan and not precedent_slices:
         return ""
     adaptation_plan = adaptation_plan or {}
     if not is_actionable_adaptation_plan(adaptation_plan) and not precedent_slices:
         return ""
+
+    # W-06: manifest injection is gated to the canonical adapt route.  Revise
+    # (REPAIR/DEBUG) and manifest-less plans keep the legacy prose unchanged.
+    manifest_active, manifest_block = _build_topology_manifest_prompt_block(
+        adaptation_plan, route=route
+    )
 
     parts: list[str] = [
         (
@@ -114,6 +185,13 @@ def _build_precedent_adaptation_prompt(
         )
     ]
 
+    # W-06: inject the bounded manifest block + preserve-instructions as the
+    # primary topology signal on the adapt route.  When absent (None route,
+    # revise, or no manifest), parts is untouched so the legacy prose remains
+    # byte-identical.
+    if manifest_block:
+        parts.append(manifest_block)
+
     if not is_actionable_adaptation_plan(adaptation_plan):
         parts.append(
             "The adaptation material below is evidence only. Treat every role "
@@ -127,8 +205,11 @@ def _build_precedent_adaptation_prompt(
         parts.append(f"IMPORTANT: {context_note.strip()}")
 
     # ── selected slice (presentation context only — not a winner) ──
+    # W-06: when the manifest is active on the adapt route, this path-bearing
+    # block (node_ids / python_path) is suppressed — the manifest's ID-free
+    # selectors + hash-only provenance replace it.  byte-identical otherwise.
     selected_slice = adaptation_plan.get("selected_slice")
-    if isinstance(selected_slice, dict):
+    if isinstance(selected_slice, dict) and not manifest_active:
         source_class = selected_slice.get("source_class_type", "")
         node_ids = selected_slice.get("node_ids") or []
         entry = selected_slice.get("entry_anchor")
@@ -173,7 +254,9 @@ def _build_precedent_adaptation_prompt(
     # Provenance slices preserve every same-type source instance. Keep the
     # named values and incident edges together with their tags so the fixer can
     # bind by neighborhood and role instead of copying a first match.
-    if precedent_slices:
+    # W-06: suppress this path/value-bearing block when the manifest is active
+    # on the adapt route (it can leak source_template / node_ids).  byte-identical otherwise.
+    if precedent_slices and not manifest_active:
         prior_lines: list[str] = []
         for index, slice_data in enumerate(precedent_slices, start=1):
             if not isinstance(slice_data, Mapping):

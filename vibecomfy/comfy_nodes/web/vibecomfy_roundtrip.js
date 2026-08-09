@@ -599,6 +599,37 @@ function getDefaultExecutionMode() {
   return DEFAULT_EXECUTION_MODE_FALLBACK;
 }
 
+// ── On-demand schemas (author uninstalled node packs) ─────────────────────
+// Backend-visible setting: forwarded as `on_demand_schemas` on the agent-edit
+// submit body so the schema provider knows whether to author schemas for node
+// packs that aren't currently installed. Default ON.
+function readOnDemandSchemasSetting() {
+  return app?.ui?.settings?.getSettingValue
+    ? app.ui.settings.getSettingValue("VibeComfy.OnDemandSchemas", true)
+    : true;
+}
+
+function registerOnDemandSchemasSetting() {
+  if (typeof app?.ui?.settings?.addSetting === "function") {
+    try {
+      app.ui.settings.addSetting({
+        id: "VibeComfy.OnDemandSchemas",
+        name: "VibeComfy — Author Uninstalled Node Packs",
+        type: "boolean",
+        defaultValue: true,
+        tooltip:
+          "When ON, the agent-edit backend may author schemas for node packs that are not currently installed (on-demand schema resolution). The current value is forwarded on every submit.",
+        onChange: (/* value */) => {
+          // The backend reads this at submit time via readOnDemandSchemasSetting();
+          // nothing to persist here, so intentionally a no-op.
+        },
+      });
+    } catch (_e) {
+      // Settings registration failed; submit will fall back to default (true).
+    }
+  }
+}
+
 function registerDefaultExecutionModeSetting() {
   if (typeof app?.ui?.settings?.addSetting === "function") {
     try {
@@ -8945,6 +8976,7 @@ function buildSubmitBody(snapshot, task, panel, options = {}) {
     // concurrent/stale documents cannot silently replace one another.
     expected_baseline_graph_hash: snapshot.expectedBaselineGraphHash ?? null,
     idempotency_key: snapshot.idempotencyKey,
+    on_demand_schemas: readOnDemandSchemasSetting(),
   };
 }
 
@@ -9458,6 +9490,11 @@ function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
 }
 
 async function submitAgentEdit(panel, { taskOverride } = {}) {
+  // A staged demo leaves panel.state.__demoMode set, which routes Apply/Reject
+  // to the demo handlers and would mask this real edit with the demo's result.
+  // Tear down any active demo first so the picker can never interfere with a
+  // real generation. No-op (and safe) when no demo is active.
+  panel?.previewPicker?.clearActiveDemo?.(panel);
   if (panel?.state?.rebaselinePending || panel?.state?.inFlightRebaseline) {
     renderAgentPanel(panel);
     return panel.state.inFlightRebaseline || undefined;
@@ -13033,6 +13070,7 @@ app.registerExtension({
     });
     await checkFrontendVersion();
     registerDefaultExecutionModeSetting();
+    registerOnDemandSchemasSetting();
     installGraphConfigureIntentFallback();
     installIntentNodeFallback();
     installAgentPreviewOverlay();

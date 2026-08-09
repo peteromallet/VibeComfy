@@ -308,9 +308,11 @@ export function installPreviewPicker(panel, options = {}) {
     fontSize: "11px",
     fontFamily: "monospace",
   });
-  const placeholder = el("option", "Select a demo scenario...");
+  const placeholder = el("option", "No demo (use my current edit)");
   placeholder.value = "";
-  placeholder.disabled = true;
+  // Keep the placeholder selectable (not disabled) so the user can explicitly
+  // clear an active demo and return the picker to its default inert state — it
+  // must never interfere with a real generation by default.
   placeholder.selected = true;
   select.appendChild(placeholder);
 
@@ -803,8 +805,61 @@ export function installPreviewPicker(panel, options = {}) {
     return loadScenarioById(selectedScenarioId);
   }
 
+  // Tear down any active demo playback and return the picker to its default
+  // inert state. Safe to call at any time: it is a no-op when no demo is
+  // staged, so the real submit path can call it unconditionally to guarantee a
+  // real edit is never masked by lingering demo state (__demoMode would
+  // otherwise route Apply/Reject to the demo handlers).
+  function clearActiveDemo(currentPanel) {
+    const target = currentPanel || panel || helpers.currentAgentPanel();
+    const demoActive = target?.state?.__demoMode === true || loadedScenario != null;
+    if (!demoActive) {
+      return false;
+    }
+    loadedScenario = null;
+    selectedScenarioId = null;
+    stageIndex = -1;
+    demoViewportFramed = false;
+    select.value = "";
+    if (target?.state) {
+      // Drive the panel out of the demo's AWAITING_REVIEW the same way a demo
+      // reject does. The composer re-derives previewEnabled from the review
+      // state on every render, so merely toggling the flag is overwritten;
+      // clearing the candidate through the lifecycle is what actually drops
+      // the demo overlay and frees Apply/Reject to route to the real path.
+      const obligations = commitLifecycleReset(target, {
+        rejected: { demo: true, cleared: true },
+        message: null,
+        debugPayload: { source: "demo", cleared: true },
+      });
+      fulfillLifecycleObligations(target, obligations);
+      delete target.state.__demoMode;
+      delete target.state.__demoStage;
+      delete target.state.__demoStageIndex;
+      delete target.state.__demoScenarioId;
+      target.state.previewEnabled = false;
+      if (productionIdentityBaseline) {
+        restoreProductionIdentity(target);
+      }
+    }
+    productionIdentityBaseline = null;
+    updateStageButtons();
+    showError("");
+    if (target) {
+      schedulePanelRender(target);
+    }
+    return true;
+  }
+
   select.addEventListener("change", () => {
-    selectedScenarioId = select.value || null;
+    const value = select.value || "";
+    if (!value) {
+      // Explicit "No demo": tear down any active demo so it cannot interfere
+      // with the user's real generation or edit.
+      clearActiveDemo(panel || helpers.currentAgentPanel());
+      return;
+    }
+    selectedScenarioId = value;
     loadedScenario = null;
     stageIndex = -1;
     demoViewportFramed = false;
@@ -1009,6 +1064,7 @@ export function installPreviewPicker(panel, options = {}) {
     nextButton: nextBtn,
     loadButton: loadBtn,
     loadScenarioById,
+    clearActiveDemo,
     get mounted() {
       return mounted;
     },

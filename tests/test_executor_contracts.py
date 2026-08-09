@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from tests._splice_antigaming import assert_no_forbidden_fields
 from vibecomfy.executor.contracts import (
     AgentEvidence,
     AgentTurnResult,
@@ -20,6 +21,12 @@ from vibecomfy.executor.contracts import (
     GraphFacts,
     ImplementationResult,
     InspectionSummary,
+    ManifestBoundaryAnchor,
+    ManifestInquiryCoverage,
+    ManifestInternalEdge,
+    ManifestNode,
+    ManifestOversized,
+    ManifestValidation,
     PrecedentAdaptationPlan,
     PrecedentOption,
     PrecedentPacket,
@@ -27,11 +34,13 @@ from vibecomfy.executor.contracts import (
     Report,
     ResearchResult,
     TopologyFindings,
+    TopologyManifest,
     WorkflowSlice,
     _ALLOWED_ROUTES,
     _ALLOWED_TASKS,
     adaptation_plan_actionability,
     adaptation_plan_actionability_payload,
+    build_topology_manifest,
     format_route_options_for_prompt,
     warning_detail_from_exception,
 )
@@ -85,6 +94,20 @@ class TestExecutorRequest:
         assert req.client_live_canvas_token == "live-token"
         assert req.expected_baseline_graph_hash == "baseline-hash"
         assert req.expected_baseline_graph_hash_present is True
+
+    def test_on_demand_schemas_threads_through_payload(self) -> None:
+        """The frontend 'Author Uninstalled Node Packs' toggle rides on the request so the
+        backend schema provider honors it (the provider defaults ON when the field is absent)."""
+        req = ExecutorRequest.from_payload({"query": "x", "on_demand_schemas": True})
+        assert req.on_demand_schemas is True
+        assert req.to_dict()["on_demand_schemas"] is True
+        # Absent -> None (provider applies its default); omitted from to_dict.
+        absent = ExecutorRequest.from_payload({"query": "x"})
+        assert absent.on_demand_schemas is None
+        assert "on_demand_schemas" not in absent.to_dict()
+        # Non-bool junk -> None, never raises.
+        junk = ExecutorRequest.from_payload({"query": "x", "on_demand_schemas": "yes"})
+        assert junk.on_demand_schemas is None
 
     def test_to_dict_minimal(self) -> None:
         req = ExecutorRequest(query="hello")
@@ -2491,6 +2514,364 @@ class TestResearchResultPrecedentFields:
         rr = ResearchResult(summary="test")
         with pytest.raises(Exception):
             rr.summary = "modified"  # type: ignore[misc]
+
+
+# ── TopologyManifest contract tests (W-02) ────────────────────────────────────
+
+
+class TestTopologyManifest:
+    """Complete-or-reject, size bounds, anti-gaming, and legacy compatibility."""
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _valid_node(symbol: str = "n1") -> ManifestNode:
+        return ManifestNode(
+            symbol=symbol,
+            canonical_class_type="LoraLoaderModelOnly",
+            resolver_status="resolved",
+            evidence_ref="abc123",
+            confidence=0.95,
+        )
+
+    @staticmethod
+    def _valid_edge(from_sym: str = "n1", to_sym: str = "n2") -> ManifestInternalEdge:
+        return ManifestInternalEdge(
+            from_symbol=from_sym,
+            output_socket="model",
+            to_symbol=to_sym,
+            input_socket="model",
+            evidence_ref="def456",
+            confidence=0.9,
+        )
+
+    @staticmethod
+    def _valid_anchor(symbol: str = "n1") -> ManifestBoundaryAnchor:
+        return ManifestBoundaryAnchor(
+            direction="inbound",
+            symbol=symbol,
+            symbol_socket="model",
+            target_role="model_provider",
+            target_class_type="WanVideoSampler",
+            target_socket="image_embeds",
+            source_anchor_ref="ghi789",
+            confidence=0.87,
+        )
+
+    @staticmethod
+    def _valid_coverage() -> ManifestInquiryCoverage:
+        return ManifestInquiryCoverage(
+            required_roles=("sampler", "model_provider"),
+            covered_roles=("model_provider",),
+        )
+
+    @staticmethod
+    def _valid_validation() -> ManifestValidation:
+        return ManifestValidation(
+            verdict="pass",
+            class_resolution="all_classes_recognized",
+            socket_checks="all_sockets_match",
+            cut_edge_coverage="full",
+            anchor_binding="bound",
+            reasons=(),
+        )
+
+    def _valid_manifest(self) -> TopologyManifest:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:deadbeef",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(self._valid_node("n1"), self._valid_node("n2")),
+            internal_edges=(self._valid_edge("n1", "n2"),),
+            boundary_anchors=(self._valid_anchor("n1"),),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:cafebabe",
+            confidence=0.92,
+        )
+        assert result is not None
+        return result
+
+    # ── basic round-trip and anti-gaming ──────────────────────────────────
+
+    def test_valid_manifest_serializes_and_round_trips(self) -> None:
+        m = self._valid_manifest()
+        d = m.to_dict()
+        assert d["manifest_id"] == "m-001"
+        assert d["source_content_hash"] == "sha256:deadbeef"
+        assert len(d["nodes"]) == 2
+        assert len(d["internal_edges"]) == 1
+        assert len(d["boundary_anchors"]) == 1
+        assert d["inquiry_coverage"]["required_roles"] == ["sampler", "model_provider"]
+        assert d["validation"]["verdict"] == "pass"
+
+    def test_valid_manifest_passes_anti_gaming(self) -> None:
+        m = self._valid_manifest()
+        assert_no_forbidden_fields(m, context="TopologyManifest")
+        d = m.to_dict()
+        assert_no_forbidden_fields(d, context="TopologyManifest.to_dict")
+
+    # ── complete-or-reject: missing required fields ──────────────────────
+
+    def test_missing_manifest_id_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is None
+
+    def test_missing_source_content_hash_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is None
+
+    def test_missing_evidence_hash_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="",
+            confidence=1.0,
+        )
+        assert result is None
+
+    def test_missing_source_tier_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is None
+
+    def test_none_inquiry_coverage_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=None,  # type: ignore[arg-type]
+            validation=self._valid_validation(),
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is None
+
+    def test_none_validation_returns_none(self) -> None:
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=None,  # type: ignore[arg-type]
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is None
+
+    # ── size bounds: reject oversized, never truncate ────────────────────
+
+    def test_oversized_nodes_raises(self) -> None:
+        nodes = tuple(self._valid_node(f"n{i}") for i in range(65))
+        with pytest.raises(ManifestOversized, match="nodes count"):
+            build_topology_manifest(
+                manifest_id="m-001",
+                source_content_hash="sha256:abc",
+                source_retrieval_rank=0,
+                source_tier="local",
+                nodes=nodes,
+                internal_edges=(),
+                boundary_anchors=(),
+                inquiry_coverage=self._valid_coverage(),
+                validation=self._valid_validation(),
+                evidence_hash="sha256:abc",
+                confidence=1.0,
+            )
+
+    def test_oversized_edges_raises(self) -> None:
+        edges = tuple(
+            self._valid_edge(f"n{i}", f"n{i+1}") for i in range(129)
+        )
+        with pytest.raises(ManifestOversized, match="internal_edges count"):
+            build_topology_manifest(
+                manifest_id="m-001",
+                source_content_hash="sha256:abc",
+                source_retrieval_rank=0,
+                source_tier="local",
+                nodes=(),
+                internal_edges=edges,
+                boundary_anchors=(),
+                inquiry_coverage=self._valid_coverage(),
+                validation=self._valid_validation(),
+                evidence_hash="sha256:abc",
+                confidence=1.0,
+            )
+
+    def test_oversized_anchors_raises(self) -> None:
+        anchors = tuple(self._valid_anchor(f"n{i}") for i in range(17))
+        with pytest.raises(ManifestOversized, match="boundary_anchors count"):
+            build_topology_manifest(
+                manifest_id="m-001",
+                source_content_hash="sha256:abc",
+                source_retrieval_rank=0,
+                source_tier="local",
+                nodes=(),
+                internal_edges=(),
+                boundary_anchors=anchors,
+                inquiry_coverage=self._valid_coverage(),
+                validation=self._valid_validation(),
+                evidence_hash="sha256:abc",
+                confidence=1.0,
+            )
+
+    def test_at_bounds_succeeds(self) -> None:
+        """64 nodes, 128 edges, 16 anchors — exactly at bounds should succeed."""
+        nodes = tuple(self._valid_node(f"n{i}") for i in range(64))
+        edges = tuple(
+            self._valid_edge(f"n{i}", f"n{(i+1) % 64}") for i in range(128)
+        )
+        anchors = tuple(self._valid_anchor(f"n{i}") for i in range(16))
+        result = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:abc",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=nodes,
+            internal_edges=edges,
+            boundary_anchors=anchors,
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:abc",
+            confidence=1.0,
+        )
+        assert result is not None
+        assert len(result.nodes) == 64
+        assert len(result.internal_edges) == 128
+        assert len(result.boundary_anchors) == 16
+
+    # ── anti-gaming: forbidden tokens FAIL the scanner ───────────────────
+
+    def test_forbidden_token_in_hash_fails_scan(self) -> None:
+        """source_content_hash containing 'prior_path' must fail anti-gaming."""
+        m = build_topology_manifest(
+            manifest_id="m-001",
+            source_content_hash="sha256:prior_path_deadbeef",
+            source_retrieval_rank=0,
+            source_tier="local",
+            nodes=(self._valid_node("n1"),),
+            internal_edges=(),
+            boundary_anchors=(),
+            inquiry_coverage=self._valid_coverage(),
+            validation=self._valid_validation(),
+            evidence_hash="sha256:cafebabe",
+            confidence=1.0,
+        )
+        assert m is not None
+        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
+            assert_no_forbidden_fields(m, context="gaming-attempt")
+        # Also verify the dict form fails
+        d = m.to_dict()
+        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
+            assert_no_forbidden_fields(d, context="gaming-attempt-dict")
+
+    def test_forbidden_class_type_in_anchor_fails_scan(self) -> None:
+        """target_class_type 'depth_controlnet' must fail anti-gaming."""
+        anchor = ManifestBoundaryAnchor(
+            direction="inbound",
+            symbol="n1",
+            symbol_socket="model",
+            target_role="model_provider",
+            target_class_type="depth_controlnet",
+            target_socket="image_embeds",
+            source_anchor_ref="ghi789",
+            confidence=0.87,
+        )
+        with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
+            assert_no_forbidden_fields(anchor, context="forbidden-class-anchor")
+
+    # ── legacy backward compatibility ────────────────────────────────────
+
+    def test_legacy_plan_without_manifest_serializes_identically(self) -> None:
+        """Adaptation plan with topology_manifest=None matches legacy output."""
+        ws = WorkflowSlice(
+            source_class_type="KSampler",
+            node_ids=("1", "2"),
+        )
+        # Build without the field (Python default)
+        pap_legacy = PrecedentAdaptationPlan(
+            selected_slice=ws,
+            structural_validation="pass",
+            semantic_validation="pass",
+        )
+        # Build with explicit topology_manifest=None
+        pap_explicit = PrecedentAdaptationPlan(
+            selected_slice=ws,
+            structural_validation="pass",
+            semantic_validation="pass",
+            topology_manifest=None,
+        )
+        assert pap_legacy.to_dict() == pap_explicit.to_dict()
+        # Verify topology_manifest key is NOT in output
+        assert "topology_manifest" not in pap_legacy.to_dict()
+
+    def test_plan_with_manifest_includes_it(self) -> None:
+        """When topology_manifest is set, it appears in serialized output."""
+        m = self._valid_manifest()
+        pap = PrecedentAdaptationPlan(
+            structural_validation="pass",
+            semantic_validation="pass",
+            topology_manifest=m,
+        )
+        d = pap.to_dict()
+        assert "topology_manifest" in d
+        assert d["topology_manifest"]["manifest_id"] == "m-001"
+
+    def test_topology_manifest_is_frozen(self) -> None:
+        """TopologyManifest is immutable."""
+        m = self._valid_manifest()
+        with pytest.raises(Exception):
+            m.manifest_id = "changed"  # type: ignore[misc]
 
 
 # ── Canonical route vocabulary ───────────────────────────────────────────────

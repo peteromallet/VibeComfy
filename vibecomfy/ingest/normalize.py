@@ -125,6 +125,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
     api: dict[str, Any] = {}
     for node_id, node in nodes.items():
         inputs: dict[str, Any] = {}
+        input_provenance: dict[str, str] = {}
         class_type = str(node.get("type", "Unknown"))
         ui_widget_names: list[str] = []
         for input_item in node.get("inputs", []) or []:
@@ -141,6 +142,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                     # names — use a stable generated key to preserve the edge.
                     name = f"_un{link_id}"
                 inputs[name] = [link_map[link_id][0], link_map[link_id][1]]
+                input_provenance[str(name)] = "edge"
         widgets_present = "widgets_values" in node
         widgets = node.get("widgets_values", [])
         if isinstance(widgets, dict):
@@ -148,6 +150,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 if name in inputs:
                     continue
                 inputs[str(name)] = value
+                input_provenance[str(name)] = "widget"
         elif isinstance(widgets, list):
             widget_names = _schema_input_names(schema_provider, class_type)
             for idx, value in enumerate(widgets):
@@ -160,7 +163,13 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 if name in inputs:
                     continue
                 inputs[name] = value
-        api_node = {"class_type": class_type, "inputs": inputs, "_ui": node}
+                input_provenance[str(name)] = "widget"
+        api_node = {
+            "class_type": class_type,
+            "inputs": inputs,
+            "_ui": node,
+            "_input_provenance": input_provenance,
+        }
         if widgets_present:
             api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
         api[node_id] = api_node
@@ -383,11 +392,14 @@ def _convert_to_vibe_format_impl(
         if not isinstance(node, dict):
             continue
         raw_inputs = dict(node.get("inputs", {}))
+        input_provenance = node.get("_input_provenance")
+        if not isinstance(input_provenance, dict):
+            input_provenance = {}
         inputs: dict[str, Any] = {}
         widgets: dict[str, Any] = {}
         class_type = str(node.get("class_type", "Unknown"))
         for key, value in raw_inputs.items():
-            if is_api_link(
+            if input_provenance.get(key) != "widget" and is_api_link(
                 value,
                 allow_tuple=False,
                 require_string_node_id=False,
@@ -411,7 +423,14 @@ def _convert_to_vibe_format_impl(
         metadata = {
             key: value
             for key, value in node.items()
-            if key not in {"class_type", "inputs", "_raw_widgets", "raw_widgets"}
+            if key
+            not in {
+                "class_type",
+                "inputs",
+                "_raw_widgets",
+                "raw_widgets",
+                "_input_provenance",
+            }
         }
         # ── retain control_after_generate (UI-only) into metadata ──
         # Captured here, before the compile-time `_is_ui_only_prompt_input` filter
@@ -467,8 +486,11 @@ def _convert_to_vibe_format_impl(
     for node_id, node in api_workflow.items():
         if not isinstance(node, dict):
             continue
+        input_provenance = node.get("_input_provenance")
+        if not isinstance(input_provenance, dict):
+            input_provenance = {}
         for name, value in dict(node.get("inputs", {})).items():
-            if is_api_link(
+            if input_provenance.get(name) != "widget" and is_api_link(
                 value,
                 allow_tuple=False,
                 require_string_node_id=False,

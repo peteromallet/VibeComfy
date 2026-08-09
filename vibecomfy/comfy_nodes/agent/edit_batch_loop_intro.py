@@ -121,6 +121,144 @@ _MAX_EXECUTION_PROTOCOL_SOURCES = 3
 _MAX_EXECUTION_PROTOCOL_LIST_ITEMS = 16
 _MAX_EXECUTION_PROTOCOL_STRING = 900
 
+# W-07 — dedicated manifest-compactor budget.  The manifest contract (W-02)
+# bounds a manifest to <=64 nodes / <=128 edges / <=16 anchors.  The dedicated
+# compactor must be able to render a complete manifest of that size WITHOUT
+# silently dropping nodes (a partial topology is worse than no topology).  The
+# generic per-note list/depth limits above (16/4) would truncate a 40-node
+# delta; the dedicated compactor is sized so it never truncates a valid
+# manifest.  If a manifest would exceed even this dedicated budget, the
+# manifest path is rejected and the legacy compact-notes path is used instead
+# (no partial topology is ever emitted).
+_MANIFEST_COMPACTOR_MAX_NODES = 64
+_MANIFEST_COMPACTOR_MAX_EDGES = 128
+_MANIFEST_COMPACTOR_MAX_ANCHORS = 16
+
+
+def _manifest_compact_payload(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Render a complete manifest under the dedicated W-07 compactor budget.
+
+    Returns the compact manifest dict when the manifest fits entirely within
+    the dedicated budget (every node / edge / anchor preserved, no truncation).
+    Returns ``None`` when the manifest is structurally empty or would exceed
+    even the dedicated budget — callers MUST treat ``None`` as "reject the
+    manifest path" (fall back to legacy) rather than emit a partial topology.
+
+    Only ID-free selectors and hash-only provenance fields are carried.  No
+    raw node ids, paths, goldens, fixture labels, or ``prior_path`` values.
+    """
+    if not isinstance(manifest, Mapping):
+        return None
+
+    nodes_raw = manifest.get("nodes")
+    edges_raw = manifest.get("internal_edges")
+    anchors_raw = manifest.get("boundary_anchors")
+    if not isinstance(nodes_raw, (list, tuple)) or not nodes_raw:
+        return None
+
+    # ── reject (never silently truncate) when the manifest exceeds budget ──
+    if len(nodes_raw) > _MANIFEST_COMPACTOR_MAX_NODES:
+        return None
+    if isinstance(edges_raw, (list, tuple)) and len(edges_raw) > _MANIFEST_COMPACTOR_MAX_EDGES:
+        return None
+    if isinstance(anchors_raw, (list, tuple)) and len(anchors_raw) > _MANIFEST_COMPACTOR_MAX_ANCHORS:
+        return None
+
+    def _compact_node(node: Any) -> dict[str, Any] | None:
+        if not isinstance(node, Mapping):
+            return None
+        return {
+            "symbol": str(node.get("symbol") or ""),
+            "canonical_class_type": str(node.get("canonical_class_type") or ""),
+            "resolver_status": str(node.get("resolver_status") or "unresolved"),
+            "confidence": node.get("confidence"),
+        }
+
+    def _compact_edge(edge: Any) -> dict[str, Any] | None:
+        if not isinstance(edge, Mapping):
+            return None
+        return {
+            "from_symbol": str(edge.get("from_symbol") or ""),
+            "output_socket": str(edge.get("output_socket") or ""),
+            "to_symbol": str(edge.get("to_symbol") or ""),
+            "input_socket": str(edge.get("input_socket") or ""),
+            "confidence": edge.get("confidence"),
+        }
+
+    def _compact_anchor(anchor: Any) -> dict[str, Any] | None:
+        if not isinstance(anchor, Mapping):
+            return None
+        return {
+            "direction": str(anchor.get("direction") or "inbound"),
+            "symbol": str(anchor.get("symbol") or ""),
+            "symbol_socket": str(anchor.get("symbol_socket") or ""),
+            "target_role": str(anchor.get("target_role") or ""),
+            "target_class_type": str(anchor.get("target_class_type") or ""),
+            "target_socket": str(anchor.get("target_socket") or ""),
+            "confidence": anchor.get("confidence"),
+        }
+
+    compact_nodes = [_compact_node(n) for n in nodes_raw]
+    if any(cn is None for cn in compact_nodes):
+        # A malformed node entry means we cannot guarantee completeness.
+        return None
+
+    payload: dict[str, Any] = {
+        "manifest_id": str(manifest.get("manifest_id") or ""),
+        "nodes": compact_nodes,
+    }
+    if isinstance(edges_raw, (list, tuple)):
+        compact_edges = [_compact_edge(e) for e in edges_raw]
+        if any(ce is None for ce in compact_edges):
+            return None
+        payload["internal_edges"] = compact_edges
+    if isinstance(anchors_raw, (list, tuple)):
+        compact_anchors = [_compact_anchor(a) for a in anchors_raw]
+        if any(ca is None for ca in compact_anchors):
+            return None
+        payload["boundary_anchors"] = compact_anchors
+    validation = manifest.get("validation")
+    if isinstance(validation, Mapping):
+        payload["validation"] = {
+            "verdict": str(validation.get("verdict") or "fail"),
+            "class_resolution": str(validation.get("class_resolution") or ""),
+        }
+    payload["evidence_hash"] = str(manifest.get("evidence_hash") or "")
+    payload["confidence"] = manifest.get("confidence")
+    return payload
+
+
+def _manifest_is_complete(manifest: Any) -> bool:
+    """Return True when *manifest* is a non-empty manifest mapping.
+
+    Used to gate the manifest-preferred compact-notes path.  A None, missing,
+    or empty manifest keeps the legacy compact-notes behavior byte-for-byte.
+    """
+    return isinstance(manifest, Mapping) and bool(manifest)
+
+
+def _active_manifest_from_plan(
+    adaptation_plan: Any,
+    *,
+    route: str | None,
+) -> tuple[bool, Mapping[str, Any] | None]:
+    """Return ``(manifest_active, manifest)`` for the W-07 compact-notes path.
+
+    The manifest path is active ONLY when the canonical route is ``adapt`` AND
+    the plan carries a complete ``topology_manifest`` mapping.  REPAIR/DEBUG
+    (``revise``) and any non-adapt route keep today's legacy behavior.  Returns
+    ``(False, None)`` in those cases so the caller's compact notes are
+    byte-identical to the legacy path.
+    """
+    if _canonical_agent_edit_route(route) != "adapt":
+        return (False, None)
+    if not isinstance(adaptation_plan, Mapping):
+        return (False, None)
+    manifest = adaptation_plan.get("topology_manifest")
+    if not _manifest_is_complete(manifest):
+        return (False, None)
+    return (True, manifest)
+
 
 def _compact_protocol_string(value: Any, *, limit: int = _MAX_EXECUTION_PROTOCOL_STRING) -> str:
     text = str(value or "").strip()
@@ -241,8 +379,24 @@ def _compact_research_source_for_prompt(source: Any) -> dict[str, Any] | None:
     return compact or None
 
 
-def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> dict[str, Any]:
+def _compact_execution_protocol_notes_for_prompt(
+    notes: Mapping[str, Any],
+    *,
+    route: str | None = None,
+) -> dict[str, Any]:
     compact: dict[str, Any] = {}
+
+    # W-07 — manifest-preferred compact protocol notes.  When the ADAPT-path
+    # plan carries a COMPLETE topology_manifest, the manifest's authoritative
+    # class set (nodes[].canonical_class_type) is rendered under the dedicated
+    # manifest compactor so the generic per-note list/depth limits cannot
+    # silently truncate a large delta.  If the manifest exceeds even the
+    # dedicated budget, the manifest path is rejected and the legacy generic
+    # compaction runs unchanged (no partial topology is emitted).
+    adaptation_plan_raw = notes.get("adaptation_plan")
+    manifest_active, manifest = _active_manifest_from_plan(
+        adaptation_plan_raw, route=route
+    )
     for key in (
         "research_goal",
         "workflow_precedent_status",
@@ -287,6 +441,31 @@ def _compact_execution_protocol_notes_for_prompt(notes: Mapping[str, Any]) -> di
         )
 
     adaptation_plan = notes.get("adaptation_plan")
+    if manifest_active:
+        # W-07 — manifest-preferred compaction.  Render the complete manifest
+        # under the dedicated manifest compactor (no generic truncation), and
+        # carry the validation/status fields that the agent reads alongside
+        # it.  If the manifest exceeds even the dedicated budget, fall back to
+        # the legacy generic compaction below (no partial topology).
+        compact_manifest = _manifest_compact_payload(manifest) if manifest is not None else None
+        if compact_manifest is not None:
+            compact_plan: dict[str, Any] = {
+                "topology_manifest": compact_manifest,
+            }
+            if isinstance(adaptation_plan_raw, Mapping):
+                for key in (
+                    "structural_validation",
+                    "semantic_validation",
+                    "context_note",
+                ):
+                    if key in adaptation_plan_raw:
+                        compact_plan[key] = _compact_protocol_jsonish(
+                            adaptation_plan_raw[key]
+                        )
+            compact["adaptation_plan"] = compact_plan
+            adaptation_plan = None  # legacy block skipped below
+        # else: manifest rejected (oversize) -> fall through to legacy generic
+        # compaction so notes are still emitted, without the manifest.
     if isinstance(adaptation_plan, Mapping):
         compact_plan = {
             key: _compact_protocol_jsonish(adaptation_plan[key])
@@ -429,16 +608,51 @@ def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]
     return tuple(ignored)
 
 
+def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    """Derive runtime dependency classes from a complete manifest's nodes.
+
+    Reads ONLY ``nodes[].canonical_class_type`` (the authoritative class set).
+    Never introduces classes from goldens, filenames, fixture labels, or
+    ``prior_path``.  UI-only annotation classes are filtered out via the shared
+    conservative classifier.
+    """
+    if not isinstance(manifest, Mapping):
+        return ()
+    nodes_raw = manifest.get("nodes")
+    if not isinstance(nodes_raw, (list, tuple)):
+        return ()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for node in nodes_raw:
+        if not isinstance(node, Mapping):
+            continue
+        raw = node.get("canonical_class_type")
+        class_type = str(raw or "").strip()
+        if (
+            class_type
+            and class_type != "Unknown"
+            and not _is_ui_only_annotation_class_type(class_type)
+            and class_type not in seen
+        ):
+            seen.add(class_type)
+            ordered.append(class_type)
+    return tuple(ordered)
+
+
 def _actionable_plan_required_new_classes(
     state: AgentEditState,
     plan: Mapping[str, Any],
 ) -> tuple[str, ...]:
     """Derive new runtime classes from every concrete typed-plan witness.
 
+    W-07 — when the plan carries a COMPLETE ``topology_manifest`` on the
+    canonical ``adapt`` route, runtime dependency classes are derived from the
+    manifest's ``nodes[].canonical_class_type`` (the authoritative class set),
+    and the legacy candidate/slice class discovery is fallback-only.
     ``required_new_nodes`` is advisory and can be empty even when the typed
     candidate graph contains copied precedent nodes.  The candidate graph is
-    therefore the primary completeness witness.  A selected slice is used
-    only when no candidate graph or explicit node list exists.
+    therefore the primary completeness witness on the legacy path.  A selected
+    slice is used only when no candidate graph or explicit node list exists.
     """
     target_graph = state.guard_original_ui or state.graph
     target_classes = set(_dependency_graph_class_types(target_graph))
@@ -449,11 +663,26 @@ def _actionable_plan_required_new_classes(
         if (
             class_type
             and class_type != "Unknown"
-            and not _is_ui_only_annotation_class_type(class_type)
             and class_type not in target_classes
             and class_type not in required
         ):
             required.append(class_type)
+
+    # W-07 — manifest-preferred dependency derivation.  When a complete
+    # manifest is present on the adapt route, its canonical_class_type set is
+    # the authoritative class set; legacy candidate/slice discovery runs as a
+    # fallback ONLY when no complete manifest exists.
+    manifest_active, manifest = _active_manifest_from_plan(
+        plan, route=state.route
+    )
+    if manifest_active and manifest is not None:
+        manifest_classes = _manifest_required_new_classes(manifest)
+        if manifest_classes:
+            for class_type in manifest_classes:
+                add_class(class_type)
+            return tuple(required)
+        # Empty manifest class set (all classes already on target or filtered)
+        # — fall through to legacy discovery so we don't silently lose deps.
 
     explicit = plan.get("required_new_nodes")
     if isinstance(explicit, (list, tuple)):
@@ -669,36 +898,106 @@ def _stage_agent_batch_repl(
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
-    plan = (
-        state.execution_protocol_notes.get("adaptation_plan")
-        if isinstance(state.execution_protocol_notes, Mapping)
-        else None
-    )
-    ignored_ui_annotations = (
-        _actionable_plan_ui_only_classes(plan)
-        if isinstance(plan, Mapping)
-        else ()
-    )
     state.runtime_dependencies = _actionable_plan_dependency_status(state)
     unresolved_runtime_classes = tuple(
         str(dependency.get("class_type"))
         for dependency in state.runtime_dependencies
         if dependency.get("availability") == "unresolved"
     )
-    if ignored_ui_annotations or unresolved_runtime_classes:
-        retrying = bool(unresolved_runtime_classes)
-        if retrying:
-            _retry_after_dependency_preflight_failure(
-                state,
-                unresolved_runtime_classes,
-            )
+    if unresolved_runtime_classes:
+        # Hard-block: planned runtime classes with neither a live schema nor an
+        # exact registry candidate cannot be authored against.  Stop BEFORE the
+        # model is called and surface a clarification (HEAD contract).  Do NOT
+        # fall through to authoring and do NOT retry by discarding the plan —
+        # there is nothing to retry with.  (W-07's dependency_preflight.json
+        # diagnostic is preserved as a write-only artifact alongside the
+        # clarification artifacts.)
+        missing_text = ", ".join(unresolved_runtime_classes)
+        message = (
+            "This edit requires custom-node classes that could not be found in "
+            f"the live ComfyUI runtime or Comfy Registry: {missing_text}. "
+            "Install or identify the providing custom-node pack, restart ComfyUI, "
+            "and then retry this edit."
+        )
         write_json_artifact(
             state.turn_dir / "dependency_preflight.json",
             {
-                "ignored_ui_annotation_classes": list(ignored_ui_annotations),
+                "ignored_ui_annotation_classes": list(
+                    _actionable_plan_ui_only_classes(
+                        state.execution_protocol_notes.get("adaptation_plan")
+                        if isinstance(state.execution_protocol_notes, Mapping)
+                        else None
+                    )
+                    if isinstance(state.execution_protocol_notes, Mapping)
+                    else ()
+                ),
                 "unresolved_runtime_classes": list(unresolved_runtime_classes),
                 "runtime_dependencies": list(state.runtime_dependencies),
-                "retrying_synthesis": retrying,
+                "retrying_synthesis": False,
+            },
+        )
+        state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
+        state.batch_final_summary = "Stopped before authoring because dependencies are unresolved."
+        state.user_message = message
+        state.report = {
+            "clarification_required": True,
+            "graph_unchanged": True,
+            "queue_blockers": [],
+            "authoring_blocker": {
+                "reason": "unresolved_runtime_classes",
+                "missing_runtime_classes": list(unresolved_runtime_classes),
+                "runtime_dependencies": list(state.runtime_dependencies),
+                "message": message,
+            },
+        }
+        state.python_before = ""
+        state.python_after = ""
+        state.before_py_path.write_text("", encoding="utf-8")
+        state.after_py_path.write_text("", encoding="utf-8")
+        write_json_artifact(state.model_request_path, {"turns": []})
+        write_json_artifact(
+            state.model_response_path,
+            {
+                "turns": [],
+                "clarification": {
+                    "reason": "unresolved_runtime_classes",
+                    "message": message,
+                },
+            },
+        )
+        write_json_artifact(state.candidate_ui_path, prepared_ui)
+        state.messages_path.write_text(
+            json.dumps(
+                {
+                    "authoring_blocker": "unresolved_runtime_classes",
+                    "clarification_required": message,
+                    "message": message,
+                    "missing_runtime_classes": list(unresolved_runtime_classes),
+                    "runtime_dependencies": list(state.runtime_dependencies),
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return StageResult(
+            stage="agent_batch",
+            ok=True,
+            blocking=False,
+            duration_ms=_duration_ms(start),
+            artifacts=(
+                _artifact(state.before_py_path),
+                _artifact(state.after_py_path),
+                _artifact(state.model_request_path),
+                _artifact(state.model_response_path),
+                _artifact(state.candidate_ui_path),
+                _artifact(state.messages_path),
+            ),
+            value={
+                "mode": "unresolved_runtime_classes",
+                "graph_unchanged": True,
+                "missing_runtime_classes": list(unresolved_runtime_classes),
+                "runtime_dependencies": list(state.runtime_dependencies),
             },
         )
     _hydrate_actionable_registry_dependencies(state)
@@ -792,6 +1091,7 @@ def _stage_agent_batch_repl(
         precedent_adaptation_prompt = _build_precedent_adaptation_prompt(
             state.executor_adaptation_plan,
             state.executor_precedent_slices,
+            route=canonical_route,
         )
     if canonical_route == "adapt":
         # SD3: scoped adapt prefetch from execution_protocol_notes and
@@ -807,7 +1107,9 @@ def _stage_agent_batch_repl(
             if state.execution_protocol_notes:
                 notes = dict(state.execution_protocol_notes)
                 discard_note = notes.pop("_discardability", None)
-                notes = _compact_execution_protocol_notes_for_prompt(notes)
+                notes = _compact_execution_protocol_notes_for_prompt(
+                    notes, route=canonical_route
+                )
                 notes_str = json.dumps(notes, indent=2, sort_keys=True)
                 authority_line = (
                     str(discard_note).strip()

@@ -207,3 +207,96 @@ def test_l4_additive_edit_lands_valid(tmp_path: Path) -> None:
     assert result["verdict"] in {"accepted", "alternative_repair"}, (
         f"additive edit should land a sound repair, got verdict={result.get('verdict')}"
     )
+
+
+# ── Default-on + bounded sandbox (regression for the HotshotXL "install it" bounce) ──
+
+
+def _has_on_demand_provider(provider: object) -> bool:
+    return any(isinstance(p, OnDemandInstallSchemaProvider) for p in provider._providers)
+
+
+def test_on_demand_is_default_on_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On-demand resolution is ON by default — the agent can author uninstalled node
+    packs out of the box. This is the regression for the HotshotXL case where a pack the
+    user hadn't installed produced 'Install the missing runtime class' instead of building it."""
+    from vibecomfy.schema.provider import get_authoring_schema_provider
+
+    monkeypatch.delenv("VIBECOMFY_ON_DEMAND_SCHEMAS", raising=False)
+    assert _has_on_demand_provider(get_authoring_schema_provider())
+
+
+def test_on_demand_env_zero_opts_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """VIBECOMFY_ON_DEMAND_SCHEMAS=0 explicitly disables on-demand (escape hatch)."""
+    from vibecomfy.schema.provider import get_authoring_schema_provider
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    assert not _has_on_demand_provider(get_authoring_schema_provider())
+
+
+def test_on_demand_explicit_flag_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit on_demand_schemas flag wins over the env var (the settings-box toggle
+    is authoritative for the request that carries it)."""
+    from vibecomfy.schema.provider import AuthoringSchemaProvider, get_authoring_schema_provider
+
+    monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
+    assert _has_on_demand_provider(get_authoring_schema_provider(on_demand_schemas=True))
+    assert not _has_on_demand_provider(AuthoringSchemaProvider(on_demand_schemas=False))
+
+
+def test_sandbox_cap_evicts_oldest_packs_first(tmp_path: Path) -> None:
+    """The clone sandbox is bounded: exceeding max_packs evicts the oldest clone (LRU by
+    mtime), so on-demand resolution can't grow the cache without limit."""
+    import os
+
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    for i, name in enumerate(["a", "b", "c"]):
+        pack = root / name
+        pack.mkdir()
+        (pack / "f").write_text("x" * (10 * (i + 1)))
+        os.utime(pack, (i, i))  # a oldest, c newest
+    provider = OnDemandInstallSchemaProvider(sandbox_root=root, max_packs=1, max_bytes=10 * 1024 * 1024)
+    provider._enforce_cap()
+    assert sorted(p.name for p in root.iterdir()) == ["c"]  # only the newest survives
+
+
+def test_sandbox_cap_respects_byte_budget(tmp_path: Path) -> None:
+    """The byte budget evicts oldest clones until total size fits."""
+    import os
+
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    for i, name in enumerate(["old", "mid", "new"]):
+        pack = root / name
+        pack.mkdir()
+        (pack / "big").write_text("y" * (1024 * 1024))
+        os.utime(pack, (i, i))
+    provider = OnDemandInstallSchemaProvider(
+        sandbox_root=root, max_packs=999, max_bytes=int(1.5 * 1024 * 1024)
+    )
+    provider._enforce_cap()
+    remaining = sorted(p.name for p in root.iterdir())
+    assert "old" not in remaining  # oldest evicted first
+
+
+def test_sandbox_clone_reuse_bumps_lru_mtime(tmp_path: Path) -> None:
+    """Re-resolving an already-cloned pack touches its mtime so it reads as recently used
+    for eviction (a hot pack isn't wrongly evicted over a cold one)."""
+    import os
+    import time
+
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    cold = root / "cold"
+    cold.mkdir()
+    os.utime(cold, (1_000_000, 1_000_000))  # old
+    provider = OnDemandInstallSchemaProvider(sandbox_root=root)
+    from types import SimpleNamespace
+
+    ref = SimpleNamespace(slug="cold", url="https://example.invalid/cold")
+    before = cold.stat().st_mtime
+    time.sleep(1.05)
+    assert provider._ensure_clone(ref) == cold
+    assert cold.stat().st_mtime > before  # touched -> recently used
+

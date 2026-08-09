@@ -4,46 +4,11 @@
   "source_run_tree": "out/demo-candidate-factory/20260723-001",
   "scenarios": [
     {
-      "id": "08b9bbe26fb7",
-      "title": "The second video output looks much worse than the first",
-      "query": "The second video output looks much worse than the first – details are blurry and it lacks the sharp style I applied in the first branch.",
-      "description": "Repairs a missing LoRA second branch fault in an LTX video workflow. The second refinement pass fails to activate its intended LoRA, producing degraded output.",
-      "category": "video / LTX",
-      "required_node_packs": [
-        "ComfyUI-Easy-Use",
-        "ComfyUI-LTXVideoWrapper"
-      ],
-      "asset": "08b9bbe26fb7.json",
-      "run_location": {
-        "run_dir": "cases/08b9bbe26fb7/attempts/003",
-        "original_ui": "original.ui.json",
-        "candidate_ui": "candidate.ui.json",
-        "response_json": "response.json"
-      }
-    },
-    {
-      "id": "661c0914fd3a",
-      "title": "The image looks like it's deliberately avoiding the description",
-      "query": "The image looks like it's deliberately avoiding the description. For example, I wrote 'a beautiful sunset' but the result is a dark indoor scene with no trace of sunset.",
-      "description": "Repairs a positive prompt wired to the negative conditioning slot in a Flux2 workflow. The model inverts the intent, producing the opposite of what was described.",
-      "category": "image / prompt",
-      "required_node_packs": [
-        "ComfyUI-Easy-Use"
-      ],
-      "asset": "661c0914fd3a.json",
-      "run_location": {
-        "run_dir": "cases/661c0914fd3a/attempts/001",
-        "original_ui": "original.ui.json",
-        "candidate_ui": "candidate.ui.json",
-        "response_json": "response.json"
-      }
-    },
-    {
       "id": "4d9f4cc4e0cc",
-      "title": "No matter how many times I queue, the first output image is always exactly the same",
-      "query": "No matter how many times I queue, the first output image is always exactly the same, even though I expected variation.",
-      "description": "Repairs a noise randomize turned off fault in a Flux2 workflow. The seed widget is set to a fixed value instead of randomize, so every run produces identical output.",
-      "category": "image / creative",
+      "title": "Every queue gives me the exact same image",
+      "query": "No matter how many times I queue the workflow, I get the exact same image. I'm not trying to lock the seed, but there's no variation between runs at all.",
+      "description": "A Flux2 workflow's noise seed was locked to 'fixed', so every run reproduced the identical image. The fixer sets the noise control to randomize so each queue rolls a fresh seed.",
+      "category": "image / seed",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
       ],
@@ -56,44 +21,10 @@
       }
     },
     {
-      "id": "50c4fc22e3eb",
-      "title": "The cloned voice sounds unnatural, with strange pauses and emphasis",
-      "query": "The cloned voice sounds unnatural, with strange pauses and emphasis. It delivers the correct text but the speaker's prosody is all over the place.",
-      "description": "Repairs a reference text mismatch fault in a Qwen3 TTS voice clone workflow. The reference text does not match the target text, causing unnatural prosody.",
-      "category": "audio / TTS",
-      "required_node_packs": [
-        "ComfyUI-Easy-Use"
-      ],
-      "asset": "50c4fc22e3eb.json",
-      "run_location": {
-        "run_dir": "cases/50c4fc22e3eb/attempts/002",
-        "original_ui": "original.ui.json",
-        "candidate_ui": "candidate.ui.json",
-        "response_json": "response.json"
-      }
-    },
-    {
-      "id": "2ee5df9838f9",
-      "title": "Something's off with the generation — the result comes out wrong, like the prompt guidance is flipped",
-      "query": "Something's off with the generation — the result comes out wrong, like the prompt guidance is flipped — the negative prompt seems to be driving the image instead of the positive Can you look at the workflow and fix it so the result comes out right?",
-      "description": "Repairs a conditioning polarity swap fault. The positive and negative conditioning inputs are reversed, causing the model to generate the inverse of the intended style.",
-      "category": "image / conditioning",
-      "required_node_packs": [
-        "ComfyUI-Easy-Use"
-      ],
-      "asset": "2ee5df9838f9.json",
-      "run_location": {
-        "run_dir": "cases/2ee5df9838f9/attempts/001",
-        "original_ui": "original.ui.json",
-        "candidate_ui": "candidate.ui.json",
-        "response_json": "response.json"
-      }
-    },
-    {
       "id": "ed9a5be99385",
       "title": "Every image comes out horizontally squished",
-      "query": "All my images are squished horizontally — people look short and fat, objects are distorted, even though I’m using a square-ish prompt. It’s like the aspect ratio is being collapsed.",
-      "description": "Repairs a latent width/height mismatch fault in an AuraFlow/SD3 text-to-image workflow. The empty latent was created with width and height swapped, so the model samples a distorted canvas that decodes into a squished image.",
+      "query": "All my images come out squished horizontally — people look short and wide and objects are distorted — even though my prompt doesn't ask for anything unusual. It's like the aspect ratio is collapsed.",
+      "description": "An SD3 text-to-image workflow created its latent canvas with width and height swapped, so the model sampled a distorted frame. The fixer sets the width to match the height.",
       "category": "image / latent",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
@@ -109,8 +40,8 @@
     {
       "id": "fa48d41b426e",
       "title": "The generated audio is completely silent",
-      "query": "The generated audio is completely silent – no speech at all, just a blank audio file. The workflow runs without errors but nothing comes out.",
-      "description": "Repairs an empty TTS prompt fault in a Qwen3 voice-clone workflow. The target text widget was left blank, so the synthesizer has nothing to speak and emits silence.",
+      "query": "The workflow runs without errors and produces an audio file, but it's completely silent — no speech at all, just a blank file.",
+      "description": "A Qwen3 voice-clone workflow had an empty target-text field, so the synthesizer had nothing to speak and emitted silence. The fixer fills in the text to be spoken.",
       "category": "audio / TTS",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
@@ -125,9 +56,9 @@
     },
     {
       "id": "525d2dd119c0",
-      "title": "The result looks like the prompt guidance is flipped",
-      "query": "Something’s off with the generation — the result comes out wrong, like the prompt guidance is flipped — the negative prompt seems to be driving the image instead of the positive. Can you fix it so the result matches what I described?",
-      "description": "Repairs a conditioning polarity swap fault in a Flux2 workflow. The positive and negative conditioning inputs to the sampler were reversed, so the model is guided away from the intended prompt and toward the negative prompt.",
+      "title": "The image looks like it's avoiding my prompt",
+      "query": "Something's off with the generation — the result comes out like the opposite of what I described, as if the negative prompt is driving the image instead of the positive one.",
+      "description": "Positive and negative conditioning were wired to the wrong sampler inputs, so the model was guided away from the intended prompt. The fixer swaps the two conditioning feeds back.",
       "category": "image / conditioning",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
@@ -141,27 +72,10 @@
       }
     },
     {
-      "id": "3270acf50658",
-      "title": "The LoRA style never shows up, and the prompt feels inverted",
-      "query": "I loaded a style LoRA but the result doesn’t reflect it at all, and the whole image feels like it’s being pushed away from my prompt rather than toward it. The conditioning seems to be fighting the LoRA.",
-      "description": "Repairs a conditioning polarity swap fault on a LoRA-loaded AuraFlow workflow. Positive and negative conditioning were wired to the wrong sampler inputs, so the LoRA’s style contribution is suppressed and the model inverts the prompt intent.",
-      "category": "image / conditioning",
-      "required_node_packs": [
-        "ComfyUI-Easy-Use"
-      ],
-      "asset": "3270acf50658.json",
-      "run_location": {
-        "run_dir": "cases/3270acf50658/attempts/001",
-        "original_ui": "original.ui.json",
-        "candidate_ui": "candidate.ui.json",
-        "response_json": "response.json"
-      }
-    },
-    {
       "id": "c2ac36fce632",
-      "title": "The voice reads my English text with a heavy foreign accent",
-      "query": "The audio file is created, but the voice pronounces the English text with a heavy Chinese accent and completely mangled phonetics. The words are almost unrecognisable. It should be speaking English.",
-      "description": "Repairs a TTS language mismatch fault in a Qwen3 voice-design workflow. The language widget was set to Chinese while the target text is English, so the synthesizer maps English phonemes through Chinese pronunciation and produces an incomprehensible accent.",
+      "title": "The cloned voice reads my English text with a heavy accent",
+      "query": "The audio file is generated fine, but the voice pronounces my English text with a heavy, unnatural accent — like it's reading English through Chinese phonetics.",
+      "description": "A Qwen3 voice-design workflow had its language widget set to Chinese, so English text was mis-pronounced. The fixer sets the language to English.",
       "category": "audio / TTS",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
@@ -176,9 +90,9 @@
     },
     {
       "id": "760468474fe5",
-      "title": "My LTX video lost its refinement pass — the output is rougher than before",
-      "query": "I removed the refinement pass from my two-stage LTX video workflow and now the output is rougher and less polished — it lost the second quality pass the two-stage pipeline used to apply. Can you add the refinement pass back where it belongs so the polished output is restored?",
-      "description": "Re-adds the second-stage refinement sampler in a two-stage LTX-2.3 video pipeline (base generation followed by a refinement pass at higher latent resolution). Removing the refinement stage degrades output to single-stage quality; the agent reconstructs the refinement pass (a second SamplerCustomAdvanced with its ManualSigmas schedule, wired into the latent-upscale and decode chain) using provenance evidence from the original workflow.",
+      "title": "Add a refinement pass to smooth my LTX video",
+      "query": "My two-stage LTX video workflow only runs the coarse pass right now, so the output looks rough. Can you add the second refinement pass to clean it up?",
+      "description": "Additive: an LTXV workflow missing its second-stage refinement. The fixer adds a ManualSigmas schedule and wires it into the second sampler for a smoothing pass.",
       "category": "video / LTX",
       "required_node_packs": [
         "ComfyUI-LTXVideoWrapper",
@@ -194,9 +108,9 @@
     },
     {
       "id": "4446f9745c7c",
-      "title": "The upscale step vanished — my images lost their detail",
-      "query": "I had an upscale/resize step in this image workflow and it’s gone — the final image comes out lower resolution than it should, it lost the extra detail the upscale pass used to add. Can you add that step back where it belongs so the output is restored?",
-      "description": "Additive restore: the upscaler node was removed from a basic image-upscale workflow, leaving a resolution gap. The fixer re-adds the ImageScale node and rewires it so the output regains the intended resolution (verdict: alternative_repair).",
+      "title": "Add an upscale step so my output isn't low resolution",
+      "query": "My final image comes out lower resolution than I'd like — there's no upscale step in the workflow. Can you add a 2× upscale before saving so the output keeps its detail?",
+      "description": "Additive: an image workflow with no upscale stage. The fixer adds a 2× ImageScale (Lanczos) between the source and the save node so the output doubles in resolution.",
       "category": "image / upscale",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
@@ -210,34 +124,107 @@
       }
     },
     {
-      "id": "affe78ad8709",
-      "title": "The fast Lightning generation path vanished — it's slow again",
-      "query": "The fast Lightning path has disappeared. This Qwen workflow now behaves like the slow base model instead of the quick four-step setup I was using. Please restore the accelerated generation path without changing my prompt or output size.",
-      "description": "Additive restore: the Lightning acceleration slice (LoRA loader + model-sampling + step-routing switch) was removed from a Qwen image workflow, so it fell back to slow base-model sampling. The fixer re-adds the accelerated multi-node path so generation is fast again. Verdict: accepted.",
-      "category": "image",
+      "id": "226cfa590390",
+      "title": "Add text-to-song generation to this audio workflow",
+      "query": "I've got the ACE-Step models loaded here, but nothing actually generates audio right now — there's no generation path wired up. Can you add text-to-song generation so a prompt produces a finished, saveable track?",
+      "description": "Additive: a workflow with the ACE-Step models loaded but no generation path connected to the audio output. The fixer adds the text-to-song chain (text encode, audio latent, sampler, VAE decode) and wires the audio output.",
+      "category": "audio / generation",
       "required_node_packs": [
         "ComfyUI-Easy-Use"
       ],
-      "asset": "affe78ad8709.json",
+      "asset": "226cfa590390.json",
       "run_location": {
-        "run_dir": "cases/affe78ad8709/attempts/001",
+        "run_dir": "cases/226cfa590390/attempts/003",
         "original_ui": "original.ui.json",
         "candidate_ui": "candidate.ui.json",
         "response_json": "response.json"
       }
     },
     {
-      "id": "a84d5ed98c9f",
-      "title": "Text-to-song generation produces no audio output",
-      "query": "The ACE-Step models still load, but the actual song-generation path is gone and nothing reaches the audio output. Please restore text-to-song generation so the prompt produces a finished, saveable track again.",
-      "description": "Additive restore: the song-generation head (empty audio latent → text encode → conditioning → sampler → audio VAE decode) was removed from an ACE-Step workflow, so nothing reaches the audio output. The fixer re-adds the generation path so the prompt produces a finished, saveable track. Verdict: accepted.",
-      "category": "audio",
+      "id": "6face6f028bb",
+      "title": "Add a fast 4-step Lightning path to this Qwen workflow",
+      "query": "This Qwen image workflow works but it's slow — it runs the full base sampler. Can you add the accelerated four-step Lightning path so it generates much faster, without changing my prompt or output size?",
+      "description": "Additive: a Qwen workflow running the slow base sampler. The fixer adds the Lightning LoRA plus a four-step ModelSampling configuration and rewires the model feed, leaving prompt and output size unchanged.",
+      "category": "image / acceleration",
       "required_node_packs": [
-        "ComfyUI-ACE-Step"
+        "ComfyUI-Easy-Use"
       ],
-      "asset": "a84d5ed98c9f.json",
+      "asset": "6face6f028bb.json",
       "run_location": {
-        "run_dir": "cases/a84d5ed98c9f/attempts/001",
+        "run_dir": "cases/6face6f028bb/attempts/002",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "6efa4e39d7e2",
+      "title": "Add a quick low-quality preview render for fast iteration",
+      "query": "My main render looks great but it's too slow for prompt iteration. Can you add a fast, low-quality preview render alongside it — same prompt and canvas — so I can tweak quickly before committing to the full render?",
+      "description": "Additive: a Flux2 workflow with only the full-quality render. The fixer adds a second, fast distilled-preview sampler branch that shares the prompt and canvas and writes its own preview output.",
+      "category": "image / preview",
+      "required_node_packs": [
+        "ComfyUI-Easy-Use"
+      ],
+      "asset": "6efa4e39d7e2.json",
+      "run_location": {
+        "run_dir": "cases/6efa4e39d7e2/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "f04edaa629c9",
+      "title": "Generate four upscaled versions so I can compare them",
+      "query": "I want to compare a few different upscalers on the same image. Can you set it up so the workflow produces four upscaled versions — each with a different model — and saves them separately, so I can pick the one that preserves the source best?",
+      "description": "Additive: an image workflow with a single upscale. The fixer adds three more upscale branches (distinct models: UltraSharp, RealESRGAN, etc.), each saved separately for side-by-side comparison.",
+      "category": "image / upscale",
+      "required_node_packs": [
+        "ImageUpscaleWithModel",
+        "UpscaleModelLoader"
+      ],
+      "asset": "f04edaa629c9.json",
+      "run_location": {
+        "run_dir": "cases/f04edaa629c9/attempts/001",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "3f8bb372bd18",
+      "title": "My exported video plays in slow motion and the audio drifts",
+      "query": "The video I save plays back in slow motion, and the audio slowly drifts out of sync with it. The generated frames themselves look fine — it's only the saved file that plays wrong.",
+      "description": "A Wan2.2 sound-to-video workflow exported at 4 fps instead of 24, so the container's timebase made playback crawl and desync from the audio. The fixer sets the VideoCombine frame rate to match the sampler output.",
+      "category": "video / playback",
+      "required_node_packs": [
+        "ComfyUI-WanVideoWrapper",
+        "ComfyUI-VideoHelperSuite",
+        "ComfyUI-KJNodes"
+      ],
+      "asset": "3f8bb372bd18.json",
+      "run_location": {
+        "run_dir": "cases/3f8bb372bd18/attempts/003",
+        "original_ui": "original.ui.json",
+        "candidate_ui": "candidate.ui.json",
+        "response_json": "response.json"
+      }
+    },
+    {
+      "id": "cf9df39da7e1",
+      "title": "Add face-performance guidance from a reference video",
+      "query": "My speech-to-video clip reacts to the audio and portrait, but the character's motion is generic — it doesn't follow the performance in my guide video. Can you add pose guidance from the guide video so the character moves with it?",
+      "description": "Additive: a Wan sound-to-video workflow with no pose-guidance input wired in. The fixer adds a WanVideoEncode for the guide video and feeds it into the open pose-latent input.",
+      "category": "video / pose-guidance",
+      "required_node_packs": [
+        "ComfyUI-WanVideoWrapper",
+        "ComfyUI-VideoHelperSuite",
+        "ComfyUI-KJNodes"
+      ],
+      "asset": "cf9df39da7e1.json",
+      "run_location": {
+        "run_dir": "cases/cf9df39da7e1/attempts/001",
         "original_ui": "original.ui.json",
         "candidate_ui": "candidate.ui.json",
         "response_json": "response.json"

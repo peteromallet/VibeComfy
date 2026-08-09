@@ -4,6 +4,7 @@ pytest_plugins = ("pytester",)
 
 
 import importlib.util
+import os
 import pathlib
 import sys
 import warnings
@@ -175,6 +176,21 @@ def _load_known_failures() -> frozenset[str]:
 def _isolate_external_network_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent accidental real network calls from developer environment tokens."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _default_on_demand_schemas_off_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the test suite deterministic.
+
+    On-demand schema resolution does network/git clones of public repos, so it is OFF
+    by default in tests even though production defaults ON (the agent should author any
+    node pack out of the box). A test opts in by setting ``VIBECOMFY_ON_DEMAND_SCHEMAS=1``
+    via ``monkeypatch.setenv``, or by running the suite with that var in the real env
+    (e.g. the live on-demand tests). Only applies when the var is otherwise unset, so an
+    explicit opt-in — including a ``delenv`` to assert the default-ON path — still wins.
+    """
+    if "VIBECOMFY_ON_DEMAND_SCHEMAS" not in os.environ:
+        monkeypatch.setenv("VIBECOMFY_ON_DEMAND_SCHEMAS", "0")
 
 
 @pytest.fixture(autouse=True)

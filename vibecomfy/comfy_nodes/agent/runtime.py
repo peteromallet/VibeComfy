@@ -37,6 +37,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import logging
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -56,6 +57,33 @@ from vibecomfy.executor.profiler import (
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "180"))
 _WORKER_PATH = str(Path(__file__).with_name("worker.py"))
+
+# A single model turn can stall on a transient provider/transport hiccup — a
+# connection that opens but never returns a byte. When that happens the whole
+# worker subprocess runs into the hard ``_TURN_TIMEOUT_SECONDS`` kill. Before
+# this retry layer existed, that one flaky network moment became a hard turn
+# failure (``TimeoutError``) the user had to re-submit by hand — exactly the
+# "make it img2img" symptom: one turn timed out at 180s, the identical retry
+# succeeded on a fresh connection. So: on a transient stall, spawn a fresh
+# worker (fresh connection) a bounded number of times before surfacing failure.
+# Worst case is ``_WORKER_TRANSIENT_MAX_ATTEMPTS`` * ``_TURN_TIMEOUT_SECONDS``.
+_WORKER_TRANSIENT_MAX_ATTEMPTS = max(1, int(os.getenv("VIBECOMFY_AGENT_TURN_RETRIES", "3")))
+_WORKER_TRANSIENT_BACKOFF_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_RETRY_BACKOFF", "2.0"))
+
+# Worker-reported ``error_type`` values that are NOT transient infra failures
+# and so must not consume a retry slot. Auth and setup/import faults will not
+# recover by retrying; ``JSONDecodeError``/``ValueError`` are content problems
+# that the response-contract retry layer (``run_model_turn``) handles by
+# re-prompting with a JSON nudge, so they are excluded here to avoid double
+# handling. Everything else a worker reports (connection reset, read timeout,
+# 429, 5xx, ...) is treated as transient.
+_WORKER_NON_TRANSIENT_ERROR_TYPES = {
+    "AuthError",
+    "AuthenticationError",
+    "PermissionError",
+    "JSONDecodeError",
+    "ValueError",
+}
 LOGGER = logging.getLogger(__name__)
 _DEEPSEEK_USAGE_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "vibecomfy_deepseek_usage_capture",
@@ -429,6 +457,22 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
     return dict(**common)
 
 
+def _is_transient_worker_result(result: Mapping[str, Any]) -> bool:
+    """True when a worker result is a transient failure worth retrying.
+
+    A worker reports failure by returning ``{"error": ..., "error_type": ...}``.
+    That is transient (and so retryable) unless it is a setup/auth fault that
+    will not recover (``runtime_unavailable``) or one of the content errors the
+    contract retry layer owns (see ``_WORKER_NON_TRANSIENT_ERROR_TYPES``).
+    """
+    if not isinstance(result, Mapping) or "error" not in result:
+        return False
+    if _is_runtime_unavailable(result):
+        return False
+    error_type = str(result.get("error_type") or "").strip()
+    return error_type not in _WORKER_NON_TRANSIENT_ERROR_TYPES
+
+
 def _run_worker(
     agent_kwargs: dict[str, Any],
     system_msg: str | None,
@@ -441,6 +485,79 @@ def _run_worker(
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
+
+    Wraps :func:`_run_worker_once` with a bounded retry for transient stalls.
+    A single model turn can hang on a flaky provider connection until the hard
+    ``_TURN_TIMEOUT_SECONDS`` kill, or come back as a transient transport error
+    (connection reset, read timeout, 429, 5xx). Both used to surface immediately
+    as an unrecoverable turn failure. Retrying spawns a fresh subprocess — and
+    thus a fresh connection — which is what makes a manual re-submit recover. We
+    do that automatically here, with backoff, before giving up.
+
+    Non-transient results (success, auth faults, setup faults, content errors)
+    are returned immediately without consuming retry slots.
+    """
+    last_result: dict[str, Any] | None = None
+    for attempt in range(_WORKER_TRANSIENT_MAX_ATTEMPTS):
+        attempt_profile = dict(profiling_context or {})
+        if attempt:
+            attempt_profile["transient_retry_count"] = attempt
+        try:
+            result = _run_worker_once(
+                agent_kwargs,
+                system_msg,
+                user_msg,
+                response_contract=response_contract,
+                agent_id=agent_id,
+                model=model,
+                effort=effort,
+                profiling_context=attempt_profile,
+            )
+        except TimeoutError:
+            if attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS:
+                LOGGER.warning(
+                    "agent worker timed out after %ss (attempt %d/%d); retrying",
+                    _TURN_TIMEOUT_SECONDS,
+                    attempt + 1,
+                    _WORKER_TRANSIENT_MAX_ATTEMPTS,
+                )
+                time.sleep(_WORKER_TRANSIENT_BACKOFF_SECONDS * attempt)
+                continue
+            raise
+        # Worker returned a result dict. Hand non-transient results straight back.
+        if "error" not in result or not _is_transient_worker_result(result):
+            return result
+        last_result = result
+        if attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS:
+            LOGGER.warning(
+                "agent worker returned transient %s (attempt %d/%d); retrying: %s",
+                result.get("error_type") or "error",
+                attempt + 1,
+                _WORKER_TRANSIENT_MAX_ATTEMPTS,
+                str(result.get("error"))[:200],
+            )
+            time.sleep(_WORKER_TRANSIENT_BACKOFF_SECONDS * attempt)
+            continue
+        return result
+    # Exhausted every retry on a returned transient error.
+    assert last_result is not None
+    return last_result
+
+
+def _run_worker_once(
+    agent_kwargs: dict[str, Any],
+    system_msg: str | None,
+    user_msg: str,
+    *,
+    response_contract: str = "python",
+    agent_id: str = "hermes",
+    model: str | None = None,
+    effort: str | None = None,
+    profiling_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run one AIAgent turn in an isolated subprocess; return its result dict.
+
+    Single attempt — no retry. See :func:`_run_worker` for the retry wrapper.
 
     Isolation avoids the top-level module-name collision between megaplan's
     agent (bare ``import utils`` / ``model_tools``) and ComfyUI's own ``utils``

@@ -15,7 +15,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.demo_factory.baseline import port_check_graph, run_baseline, write_baseline_proof
+from vibecomfy.demo_factory.baseline import (
+    run_baseline,
+    structural_check_graph,
+    write_baseline_proof,
+)
 from vibecomfy.demo_factory.deltas import (
     FaultInjection,
     derive_repair_delta,
@@ -453,7 +457,29 @@ def _fixer_gate(case: Case, fixer_result: Any) -> bool:
 def _evaluate(case: Case, candidate: dict[str, Any]) -> Case:
     case.advance_stage(CaseStage.EVALUATING)
 
-    cand_ok, cand_err, _ = port_check_graph(candidate)
+    pre_existing_types = {
+        str(node.get("type"))
+        for graph in (case.golden, case.broken)
+        if isinstance(graph, dict)
+        for node in graph.get("nodes", [])
+        if isinstance(node, dict) and str(node.get("type") or "").strip()
+    }
+    structural = structural_check_graph(
+        candidate,
+        pre_existing_types=pre_existing_types,
+    )
+    cand_ok = bool(structural["structural_safe"])
+    cand_output_reachable = bool(structural["output_reachable"])
+    hard_blockers = structural["hard_blockers"]
+    cand_err = (
+        "; ".join(
+            f"{item.get('code', 'structural_blocker')}: "
+            f"{json.dumps(item.get('detail') or {}, sort_keys=True, default=str)}"
+            for item in hard_blockers[:3]
+        )
+        if hard_blockers
+        else None
+    )
 
     oracle = Oracle(
         fault_predicate=case.injection.fault_predicate,
@@ -465,7 +491,7 @@ def _evaluate(case: Case, candidate: dict[str, Any]) -> Case:
         candidate=candidate,
         execution_safe=cand_ok,
         compile_error=cand_err,
-        output_reachable=cand_ok,
+        output_reachable=cand_output_reachable,
     )
 
     case.oracle_result = oracle_result
@@ -477,7 +503,14 @@ def _evaluate(case: Case, candidate: dict[str, Any]) -> Case:
             "gates_passed": sum(1 for g in oracle_result.gates if g.passed),
             "gates_total": len(oracle_result.gates),
             "candidate_execution_safe": cand_ok,
+            "candidate_output_reachable": cand_output_reachable,
             "candidate_compile_error": cand_err,
+            "candidate_schema_unavailable_classes": structural[
+                "schema_unavailable_classes"
+            ],
+            "candidate_fixer_introduced_schema_unavailable_classes": structural[
+                "fixer_introduced_schema_unavailable_classes"
+            ],
         },
     )
     case.write_status()

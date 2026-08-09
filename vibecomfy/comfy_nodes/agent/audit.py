@@ -53,8 +53,18 @@ def _now() -> str:
 def _category_for_key(key: str) -> str | None:
     normalized = key.lower().replace("-", "_")
     for category, names in _CATEGORY_KEYS.items():
-        if normalized in names or any(name in normalized for name in names):
+        if normalized in names:
             return category
+        for name in names:
+            # Short names (e.g. ``env``) are too likely as accidental substrings
+            # (``delta_ops_envelope``) to substring-match blindly; require a
+            # word-ish boundary: ``env`` / ``env_*`` but not ``envelope``.
+            if len(name) < 5:
+                if normalized.startswith(f"{name}_"):
+                    return category
+                continue
+            if name in normalized:
+                return category
     return None
 
 

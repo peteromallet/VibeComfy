@@ -20,12 +20,14 @@ import re
 import sys
 import time
 import zipfile
+from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import urllib.error
 import urllib.request
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from vibecomfy.search.index import build_search_corpus
@@ -44,12 +46,20 @@ from vibecomfy.registry.pack_resolver import (
 
 from .contracts import (
     InspectionSummary,
+    ManifestBoundaryAnchor,
+    ManifestInquiryCoverage,
+    ManifestInternalEdge,
+    ManifestNode,
+    ManifestOversized,
+    ManifestValidation,
     PrecedentAdaptationPlan,
     PrecedentOption,
     PrecedentPacket,
     ResearchResult,
     SelectedPrecedent,
+    TopologyManifest,
     WorkflowSlice,
+    build_topology_manifest,
     is_ui_only_annotation_class_type,
     warning_detail_from_exception,
 )
@@ -3323,6 +3333,1325 @@ def _build_anchor_bindings(
     return tuple(bindings)
 
 
+# ---------------------------------------------------------------------------
+# W-08 — Deterministic cut-edge enumeration
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CutEdge:
+    """A single cut edge with exactly one endpoint inside a source segment S.
+
+    A cut edge is any directed link in a ComfyUI-style source graph where
+    precisely one endpoint (the producer or the consumer) belongs to the
+    segment *S*.
+    """
+
+    direction: str  # "inbound" | "outbound"
+    inside_node_id: str  # the endpoint that IS in S
+    outside_node_id: str  # the endpoint NOT in S
+    inside_class_type: str
+    outside_class_type: str
+    input_name: str  # input socket name on the *consumer* side
+    output_slot: int | str  # output slot on the *producer* side
+    socket_type: str | None  # authoritative socket type if known, else None
+    role_evidence: tuple[str, ...]  # generic role hints from class/socket/neighbourhood
+    confidence: float
+
+
+def _generic_role_evidence(
+    class_type: str, input_name: str, *, is_producer_inside: bool
+) -> tuple[str, ...]:
+    """Derive generic role hints from class-type and input-name heuristics.
+
+    This is intentionally **not** case-specific — no class table, no golden
+    literals such as ``depth_controlnet`` or ``ReCamMaster``.  The hints are
+    meant to help later stages (e.g. anchor binding) make reasonable guesses
+    without leaking fixture identity.
+    """
+    ct = class_type.lower()
+    inp = input_name.lower()
+    roles: list[str] = []
+
+    # --- class-type heuristics -----------------------------------------------
+    if any(
+        t in ct
+        for t in (
+            "sampler",
+            "sample",
+            "scheduler",
+            "sigmas",
+            "guider",
+            "dispatcher",
+        )
+    ):
+        roles.append("sampler")
+    if any(
+        t in ct
+        for t in (
+            "loader",
+            "load",
+            "model",
+            "checkpoint",
+            "unet",
+            "lora",
+            "upscale",
+        )
+    ):
+        roles.append("model_provider")
+    if any(t in ct for t in ("vae", "latent", "encode", "decode")):
+        roles.append("latent")
+    if any(t in ct for t in ("clip", "text_encoder", "t5", "llm", "bert")):
+        roles.append("text_encoder")
+    if any(t in ct for t in ("conditioning", "cond", "prompt", "text")):
+        roles.append("conditioning")
+    if any(t in ct for t in ("image", "preview", "save", "output")):
+        roles.append("image")
+
+    # --- socket-name heuristics ----------------------------------------------
+    if any(
+        t in inp
+        for t in ("model", "unet", "checkpoint", "lora", "base_model", "refiner")
+    ):
+        roles.append("model_provider")
+    if any(t in inp for t in ("latent", "samples", "latent_image")):
+        roles.append("latent")
+    if any(t in inp for t in ("clip", "text_encoder", "clip_name")):
+        roles.append("text_encoder")
+    if any(t in inp for t in ("conditioning", "cond", "positive", "negative")):
+        roles.append("conditioning")
+    if any(t in inp for t in ("vae",)):
+        roles.append("latent")
+    if any(t in inp for t in ("image", "images", "mask", "preview")):
+        roles.append("image")
+
+    # Deduplicate while preserving order.
+    return tuple(dict.fromkeys(roles))
+
+
+def enumerate_cut_edges(
+    source_graph: dict[str, dict[str, Any]],
+    segment_node_ids: set[str] | frozenset[str] | tuple[str, ...] | list[str],
+    *,
+    schema_lookup: Callable[[str, str], str | None] | None = None,
+) -> tuple[CutEdge, ...]:
+    """Return every cut edge of *segment_node_ids*, each exactly once.
+
+    A **cut edge** is any directed link with exactly ONE endpoint inside the
+    segment *S* (= *segment_node_ids*):
+
+    * **inbound**  — producer outside *S*, consumer inside *S*.
+    * **outbound** — producer inside *S*, consumer outside *S*.
+
+    Edges with both endpoints inside *S* (internal) or both outside
+    (external) are silently excluded.
+
+    Parameters
+    ----------
+    source_graph : dict
+        ComfyUI-style graph: ``{node_id: {"class_type": ..., "inputs": {...}}}``.
+    segment_node_ids : iterable of str
+        Node ids that define the segment *S*.
+    schema_lookup : callable or None
+        Optional ``(class_type, socket_name) -> str | None`` that returns an
+        authoritative socket type string.  When omitted, ``socket_type`` is
+        always ``None``.
+
+    Returns
+    -------
+    tuple[CutEdge, ...]
+        Deterministically ordered cut edges (by
+        ``(direction, inside_node_id, input_name)``).
+    """
+    s_set: frozenset[str] = frozenset(segment_node_ids)
+    edges: list[CutEdge] = []
+
+    for consumer_id, node in source_graph.items():
+        consumer_class = node.get("class_type", "?")
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+
+        for input_name, value in inputs.items():
+            # Only process link-style values: [producer_id, output_slot]
+            if not (isinstance(value, list) and len(value) >= 1 and isinstance(value[0], str)):
+                continue
+            producer_id: str = value[0]
+            output_slot: int | str = value[1] if len(value) >= 2 else 0
+
+            consumer_inside = consumer_id in s_set
+            producer_inside = producer_id in s_set
+
+            # Both inside → internal; both outside → external.
+            if consumer_inside == producer_inside:
+                continue
+
+            direction: str
+            inside_id: str
+            outside_id: str
+            inside_class: str
+            outside_class: str
+
+            if consumer_inside:
+                # Producer outside → consumer inside = inbound.
+                direction = "inbound"
+                inside_id = consumer_id
+                outside_id = producer_id
+                inside_class = consumer_class
+                outside_class = source_graph.get(producer_id, {}).get("class_type", "?")
+            else:
+                # Producer inside → consumer outside = outbound.
+                direction = "outbound"
+                inside_id = producer_id
+                outside_id = consumer_id
+                inside_class = source_graph.get(producer_id, {}).get("class_type", "?")
+                outside_class = consumer_class
+
+            socket_type: str | None = None
+            if schema_lookup is not None:
+                # Schema lookup is keyed by (consumer_class_type, input_name).
+                socket_type = schema_lookup(consumer_class, input_name)
+
+            role_evidence = _generic_role_evidence(
+                inside_class if producer_inside else consumer_class,
+                input_name,
+                is_producer_inside=producer_inside,
+            )
+
+            edges.append(
+                CutEdge(
+                    direction=direction,
+                    inside_node_id=inside_id,
+                    outside_node_id=outside_id,
+                    inside_class_type=inside_class,
+                    outside_class_type=outside_class,
+                    input_name=input_name,
+                    output_slot=output_slot,
+                    socket_type=socket_type,
+                    role_evidence=role_evidence,
+                    confidence=1.0,
+                )
+            )
+
+    # Deterministic order: sort by (direction, inside_node_id, input_name).
+    edges.sort(key=lambda e: (e.direction, e.inside_node_id, e.input_name))
+    return tuple(edges)
+
+
+# ---------------------------------------------------------------------------
+# W-09 — Lean inquiry-role and socket matcher
+# ---------------------------------------------------------------------------
+
+
+# Socket-type tokens that are intentionally rejected (fail closed).  These are
+# the permissive escape hatches ComfyUI schemas use; the lean matcher refuses
+# to bind on them rather than guessing compatibility.
+_UNKNOWN_SOCKET_TOKENS: frozenset[str] = frozenset(
+    {"", "*", "ANY", "UNKNOWN", "WILDCARD", "DYNAMIC", "*"}
+)
+
+
+def _strict_socket_type(raw: Any) -> str | None:
+    """Normalise a raw socket type to an UPPER token, or ``None`` if unknown.
+
+    Returns ``None`` for ``None``, blank, wildcard, dynamic, or untypable
+    values so that callers can fail closed on the ``None`` branch.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip().upper()
+    if text in _UNKNOWN_SOCKET_TOKENS:
+        return None
+    return text
+
+
+def _strict_socket_compatible(source_type: Any, target_type: Any) -> bool:
+    """Strict socket compatibility — both sides MUST be known and equal.
+
+    Unlike :func:`vibecomfy.schema.validate.socket_types_compatible`, this never
+    falls back to permissive acceptance: any unknown/wildcard/dynamic side, or
+    any type mismatch, returns ``False``.
+    """
+    src = _strict_socket_type(source_type)
+    dst = _strict_socket_type(target_type)
+    if src is None or dst is None:
+        return False
+    return src == dst
+
+
+@dataclass(frozen=True)
+class CutEdgeBinding:
+    """A single accepted binding between a source-segment cut edge and a
+    target-graph node/input socket.
+    """
+
+    cut_edge: CutEdge
+    target_node_id: str
+    target_class_type: str
+    target_input_name: str
+    direction: str  # "inbound" | "outbound" (echoes the cut edge)
+    socket_type_match: bool
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MatcherResult:
+    """Outcome of :func:`match_cut_edges`."""
+
+    bindings: tuple[CutEdgeBinding, ...]
+    rejections: tuple[str, ...]
+    complete: bool
+
+
+def _role_from_socket_type(socket_type: Any, input_name: str) -> str:
+    """Map an authoritative socket TYPE to a generic flow role.
+
+    The role is the vocabulary of *what flows* through the socket, not what
+    the surrounding node *is*.  This keeps the matcher honest: a MODEL input
+    on a KSampler and a MODEL input on any other node share the role
+    ``model_provider``.  Generic only — no class tables, no golden literals.
+    """
+    norm = _strict_socket_type(socket_type)
+    if norm is None:
+        # Fall back to the shared socket-name inferrer (also generic).
+        return _infer_generic_role("", input_name)
+    low = norm.lower()
+    socket_type_to_role: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("model",), "model_provider"),
+        (("latent",), "latent"),
+        (("conditioning", "cond"), "conditioning"),
+        (("image", "img"), "image"),
+        (("clip",), "text_encoder"),
+        (("vae",), "latent"),
+        (("mask",), "mask"),
+        (("control", "controlnet"), "control"),
+        (("audio",), "audio"),
+    )
+    for needles, role in socket_type_to_role:
+        if any(n in low for n in needles):
+            return role
+    return _infer_generic_role("", input_name)
+
+
+def match_cut_edges(
+    cut_edges: tuple[CutEdge, ...],
+    target_graph: dict[str, dict[str, Any]],
+    *,
+    schema_lookup: Callable[[str], dict[str, Any] | None],
+    inquiry_terms: tuple[str, ...],
+) -> MatcherResult:
+    """Bind each source-segment cut edge to a unique target-graph endpoint.
+
+    The matcher is a pure, hard-gate accept/reject: no calibrated weights, no
+    global optimisation.  A binding is accepted ONLY when direction, role,
+    concrete socket type, endpoint existence, and target-input uniqueness all
+    agree.  Unknown, wildcard, dynamic, or tied matches fail closed.
+
+    Parameters
+    ----------
+    cut_edges : tuple[CutEdge, ...]
+        Cut edges produced by :func:`enumerate_cut_edges` for the source
+        segment *S*.
+    target_graph : dict
+        The current/broken graph: ``{node_id: {"class_type": ..., "inputs": {...}}}``.
+    schema_lookup : callable
+        ``class_type -> dict | None`` returning the authoritative node schema,
+        which must expose ``"inputs"`` (name -> type) and optionally
+        ``"outputs"`` (slot -> type).  ``WorkflowNodeRecord`` typed outputs are
+        NOT trusted — this lookup is the single source of truth.
+    inquiry_terms : tuple[str, ...]
+        Generic inquiry keywords (e.g. ``("model", "latent")``).  NO case ids,
+        filenames, golden types, or ancestry breadcrumbs — anti-gaming invariant.
+
+    Returns
+    -------
+    MatcherResult
+        ``complete=True`` only when every mandatory cut edge resolved to
+        exactly one accepted binding.
+    """
+    accepted: list[CutEdgeBinding] = []
+    rejections: list[str] = []
+
+    # (target_node_id, target_input_name) -> the cut edge that already owns it.
+    occupied: dict[tuple[str, str], CutEdge] = {}
+
+    # Deterministic iteration order: cut edges are already sorted by
+    # enumerate_cut_edges; we additionally sort candidate target nodes for
+    # tie-break determinism.
+    sorted_target_ids = sorted(target_graph.keys())
+
+    for edge in cut_edges:
+        # Resolve the side of the cut edge that carries the link contract:
+        # the consumer side.  For inbound edges the consumer is the inside
+        # node (the segment consumes); for outbound edges the consumer is the
+        # outside node.  In both cases the contract input name is edge.input_name
+        # and the producer/output socket is edge.output_slot.
+        if edge.direction == "inbound":
+            consumer_class = edge.inside_class_type
+        else:  # outbound
+            consumer_class = edge.outside_class_type
+
+        # The required socket type on the *consumer* side (the input socket).
+        consumer_schema = schema_lookup(consumer_class)
+        required_socket = _socket_type_from_schema(
+            consumer_schema, edge.input_name, is_output=False
+        )
+
+        # Role of the value flowing across this cut edge, derived from the
+        # authoritative socket TYPE on the consumer side (the contract
+        # surface).  Both sides of the binding thus speak the same vocabulary:
+        # a MODEL input on the segment matches a MODEL input on the target,
+        # regardless of whether the surrounding node is a KSampler or a
+        # CLIPTextEncode.  Generic only — no class tables.
+        flow_role = _role_from_socket_type(required_socket, edge.input_name)
+
+        candidates: list[CutEdgeBinding] = []
+        candidate_reasons: list[str] = []
+
+        for target_id in sorted_target_ids:
+            node = target_graph.get(target_id, {})
+            if not isinstance(node, dict):
+                continue
+            target_class = str(node.get("class_type", "?"))
+            target_schema = schema_lookup(target_class)
+            target_inputs_spec = _inputs_spec(target_schema, node)
+
+            for t_input_name in sorted(_input_socket_names(target_inputs_spec, node)):
+                # Gate 1: direction.
+                #   inbound  -> target node CONSUMES a compatible input
+                #              (the segment needs the same upstream value).
+                #   outbound -> target node CONSUMES the segment's output
+                #              ("be consumed-by").
+                # Both physically land on a target input socket; the
+                # distinction is enforced via role compatibility below.
+                if edge.direction not in ("inbound", "outbound"):
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: bad direction {edge.direction!r}"
+                    )
+                    continue
+
+                # Gate 4: endpoint existence.
+                if t_input_name not in _input_socket_names(target_inputs_spec, node):
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: input socket missing"
+                    )
+                    continue
+
+                target_socket = _socket_type_from_schema(
+                    target_schema, t_input_name, is_output=False
+                )
+
+                # Gate 3: concrete socket type known + compatible (strict).
+                if _strict_socket_type(target_socket) is None:
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: unknown type"
+                    )
+                    continue
+                if _strict_socket_type(required_socket) is None:
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: unknown type"
+                    )
+                    continue
+                if not _strict_socket_compatible(required_socket, target_socket):
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: socket mismatch "
+                        f"{required_socket!r} vs {target_socket!r}"
+                    )
+                    continue
+
+                # Gate 2: role compatible (generic roles only).  Role is
+                # derived from the authoritative socket TYPE — same vocabulary
+                # as flow_role — so a MODEL input binds a MODEL input.
+                target_role = _role_from_socket_type(target_socket, t_input_name)
+                if not _roles_compatible(flow_role, target_role):
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: role mismatch "
+                        f"{flow_role!r} vs {target_role!r}"
+                    )
+                    continue
+
+                # Gate 5 (preliminary): target-input uniqueness vs occupied map.
+                key = (target_id, t_input_name)
+                owner = occupied.get(key)
+                if owner is not None and owner is not edge:
+                    candidate_reasons.append(
+                        f"{target_id}.{t_input_name}: occupied"
+                    )
+                    continue
+
+                candidates.append(
+                    CutEdgeBinding(
+                        cut_edge=edge,
+                        target_node_id=target_id,
+                        target_class_type=target_class,
+                        target_input_name=t_input_name,
+                        direction=edge.direction,
+                        socket_type_match=True,
+                        reasons=(
+                            f"flow_role={flow_role}",
+                            f"target_role={target_role}",
+                            f"socket={_strict_socket_type(target_socket)}",
+                        ),
+                    )
+                )
+
+        # Resolve uniqueness across all candidates for THIS cut edge.
+        if len(candidates) == 0:
+            diag = "; ".join(candidate_reasons) if candidate_reasons else "no candidate"
+            rejections.append(
+                f"cut_edge({edge.direction},{edge.inside_node_id},"
+                f"{edge.input_name}): rejected — {diag}"
+            )
+            continue
+
+        if len(candidates) > 1:
+            # Tie -> reject (fail closed).  Deterministic description.
+            ties = ", ".join(
+                f"{c.target_node_id}.{c.target_input_name}" for c in candidates
+            )
+            rejections.append(
+                f"cut_edge({edge.direction},{edge.inside_node_id},"
+                f"{edge.input_name}): ambiguous — ties=[{ties}]"
+            )
+            continue
+
+        chosen = candidates[0]
+        key = (chosen.target_node_id, chosen.target_input_name)
+        # Guard against a prior accepted edge already holding this socket.
+        if key in occupied and occupied[key] is not edge:
+            rejections.append(
+                f"cut_edge({edge.direction},{edge.inside_node_id},"
+                f"{edge.input_name}): ambiguous — {key} occupied"
+            )
+            continue
+        occupied[key] = edge
+        accepted.append(chosen)
+
+    complete = len(rejections) == 0 and len(accepted) == len(cut_edges)
+    return MatcherResult(
+        bindings=tuple(accepted),
+        rejections=tuple(rejections),
+        complete=complete,
+    )
+
+
+def _inputs_spec(
+    schema: dict[str, Any] | None, node: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the authoritative inputs spec, falling back to the node's inputs
+    keys (names only, no types) when no schema is present.
+    """
+    if schema and isinstance(schema.get("inputs"), dict):
+        return schema["inputs"]
+    inputs = node.get("inputs")
+    if isinstance(inputs, dict):
+        return {name: None for name in inputs}
+    return {}
+
+
+def _input_socket_names(
+    inputs_spec: dict[str, Any], node: dict[str, Any]
+) -> frozenset[str]:
+    """Return the set of input socket names declared by schema or node inputs."""
+    names: set[str] = set(inputs_spec.keys())
+    inputs = node.get("inputs")
+    if isinstance(inputs, dict):
+        names.update(str(k) for k in inputs.keys())
+    return frozenset(names)
+
+
+def _socket_type_from_schema(
+    schema: dict[str, Any] | None, socket_name: str, *, is_output: bool
+) -> Any:
+    """Fetch a socket type from an authoritative schema.
+
+    For ``is_output=False`` reads ``schema["inputs"][socket_name]["type"]`` or
+    the bare string form.  For ``is_output=True`` reads ``schema["outputs"]``
+    keyed by slot name.  Returns ``None`` when absent or schema-less.
+    """
+    if not schema:
+        return None
+    section_key = "outputs" if is_output else "inputs"
+    section = schema.get(section_key)
+    if not isinstance(section, dict):
+        return None
+    entry = section.get(socket_name)
+    if entry is None:
+        return None
+    if isinstance(entry, dict):
+        return entry.get("type")
+    return entry
+
+
+def _roles_compatible(a: str, b: str) -> bool:
+    """Generic-role compatibility.  Equal roles match; ``unresolved`` never
+    matches (fail closed).  A small set of role aliases are treated as
+    compatible so the matcher can bridge synonyms without case-specific
+    knowledge.
+    """
+    if a == "unresolved" or b == "unresolved":
+        return False
+    if a == b:
+        return True
+    # Synonym groups (generic only).
+    synonym_groups: tuple[frozenset[str], ...] = (
+        frozenset({"model_provider", "model"}),
+        frozenset({"latent", "decoder"}),
+        frozenset({"image", "output_sink"}),
+    )
+    for group in synonym_groups:
+        if a in group and b in group:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# W-10 — Mandatory boundary-coverage gate
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CoverageDiagnostic:
+    """Per-cut-edge diagnostic emitted by :func:`validate_boundary_coverage`.
+
+    The ``cut_edge_key`` is an **ID-free** signature identifying the cut edge
+    (it never contains source/target node ids), so the verdict is invariant
+    under source-ID renumbering.
+    """
+
+    cut_edge_key: tuple  # (direction, inside_class_type, outside_class_type,
+    #                        input_name, output_slot)
+    category: str  # "uncovered" | "ambiguous" | "direction_mismatch" |
+    #                "unknown_type" | "occupied_input" | "ok"
+    detail: str  # human-readable explanation
+
+
+@dataclass(frozen=True)
+class CoverageVerdict:
+    """Outcome of :func:`validate_boundary_coverage`.
+
+    ``complete`` is ``True`` ONLY when every mandatory cut edge in ``cut_edges``
+    resolved to exactly one accepted binding.  The caller (W-05/W-11) is
+    responsible for refusing synthesis / manifest emission when ``complete`` is
+    ``False``; this validator never emits or synthesises anything itself.
+    """
+
+    complete: bool
+    covered: tuple  # tuple of ID-free cut-edge keys that are uniquely bound
+    diagnostics: tuple[CoverageDiagnostic, ...]  # one per cut edge
+
+
+def _coverage_cut_edge_key(edge: CutEdge) -> tuple:
+    """Project a :class:`CutEdge` to an ID-free signature.
+
+    Only structural / role vocabulary is retained — direction, inside and
+    outside class types, the consumer input name, and the producer output slot.
+    Source-node ids are deliberately dropped so the verdict is invariant under
+    bijective id renumbering (anti-gaming invariant).
+    """
+    return (
+        edge.direction,
+        edge.inside_class_type,
+        edge.outside_class_type,
+        edge.input_name,
+        edge.output_slot,
+    )
+
+
+def _classify_unbound_cut_edge(
+    edge: CutEdge, matcher_result: MatcherResult
+) -> tuple[str, str]:
+    """Derive ``(category, detail)`` for a cut edge that has zero accepted
+    bindings, by parsing the matcher's ID-free rejection diagnostics.
+
+    The matcher's rejection text is built from class types / socket names /
+    directions only (no source ids), so this scan never leaks fixture
+    identity.
+    """
+    # Find the matcher's rejection line for this cut edge.  The matcher emits
+    # lines of the form:
+    #   cut_edge(<direction>,<inside_node_id>,<input_name>): <status> — <diag>
+    needle_input = edge.input_name
+    needle_direction = edge.direction
+    matched: list[str] = []
+    for line in matcher_result.rejections:
+        if needle_input in line and f"cut_edge({needle_direction}," in line:
+            matched.append(line)
+    diag_text = " | ".join(matched) if matched else ""
+
+    low = diag_text.lower()
+    if "ambiguous" in low:
+        return "ambiguous", diag_text or "ambiguous binding"
+    if "unknown type" in low:
+        return "unknown_type", diag_text or "socket type unknown on both sides"
+    if "bad direction" in low:
+        return "direction_mismatch", diag_text or "direction mismatch"
+    if "occupied" in low:
+        return "occupied_input", diag_text or "target input already occupied"
+    if "socket mismatch" in low or "role mismatch" in low:
+        # Direction/role-level incompatibilities with a known concrete type.
+        # These are not "unknown_type"; surface as direction_mismatch so the
+        # caller sees a concrete incompatibility diagnostic.
+        return "direction_mismatch", diag_text or "incompatible socket/role"
+    return "uncovered", diag_text or "no accepted binding"
+
+
+def validate_boundary_coverage(
+    cut_edges: tuple[CutEdge, ...],
+    matcher_result: MatcherResult,
+) -> CoverageVerdict:
+    """Return a strict coverage verdict for a proposed cut-edge binding set.
+
+    For each mandatory cut edge in ``cut_edges`` the validator checks the
+    bindings recorded in ``matcher_result.bindings`` and classifies the edge as
+    one of: ``ok`` (exactly one accepted binding), ``uncovered`` (none),
+    ``ambiguous`` (more than one accepted binding, or the matcher flagged a
+    tie/occupied conflict), ``unknown_type`` / ``direction_mismatch`` /
+    ``occupied_input`` (derived from the matcher's rejection diagnostics).
+
+    ``complete`` is ``True`` iff EVERY cut edge is ``ok``.
+
+    The verdict is computed **purely** from ``cut_edges`` + ``matcher_result``
+    — never from golden repair edges, golden node counts, or fixture shape —
+    so it cannot be gamed by over- or under-producing repair structure.
+
+    Parameters
+    ----------
+    cut_edges : tuple[CutEdge, ...]
+        The mandatory boundary to cover (W-08).
+    matcher_result : MatcherResult
+        The proposed bindings (W-09).
+
+    Returns
+    -------
+    CoverageVerdict
+    """
+    # Index accepted bindings by the ID-free cut-edge key.  A well-formed
+    # MatcherResult has at most one binding per cut edge, but this validator
+    # must independently detect ties (anti-gaming: trust nothing the matcher
+    # asserts, re-derive from the bindings themselves).
+    bound_counts: dict[tuple, int] = {}
+    for binding in matcher_result.bindings:
+        key = _coverage_cut_edge_key(binding.cut_edge)
+        bound_counts[key] = bound_counts.get(key, 0) + 1
+
+    diagnostics: list[CoverageDiagnostic] = []
+    covered: list[tuple] = []
+
+    for edge in cut_edges:
+        key = _coverage_cut_edge_key(edge)
+        count = bound_counts.get(key, 0)
+
+        if count == 1:
+            diagnostics.append(
+                CoverageDiagnostic(
+                    cut_edge_key=key,
+                    category="ok",
+                    detail="exactly one accepted binding",
+                )
+            )
+            covered.append(key)
+            continue
+
+        if count > 1:
+            diagnostics.append(
+                CoverageDiagnostic(
+                    cut_edge_key=key,
+                    category="ambiguous",
+                    detail=f"{count} accepted bindings for one cut edge (tie)",
+                )
+            )
+            continue
+
+        # count == 0: derive the specific failure category from the matcher's
+        # rejection diagnostics for this edge.
+        category, detail = _classify_unbound_cut_edge(edge, matcher_result)
+        diagnostics.append(
+            CoverageDiagnostic(
+                cut_edge_key=key,
+                category=category,
+                detail=detail,
+            )
+        )
+
+    complete = bool(cut_edges) and all(d.category == "ok" for d in diagnostics)
+
+    return CoverageVerdict(
+        complete=complete,
+        covered=tuple(covered),
+        diagnostics=tuple(diagnostics),
+    )
+
+
+# ---------------------------------------------------------------------------
+# W-11 — Cut-edge-gated synthesis on the manifest-capable additive path
+# ---------------------------------------------------------------------------
+#
+# On the manifest-capable additive research path (the path where W-05 would
+# emit a ``topology_manifest``), synthesis no longer treats the first/last
+# sorted source nodes as anchors.  Instead it runs W-08 → W-09 → W-10 and
+# synthesizes ONLY when ``validate_boundary_coverage`` reports complete unique
+# coverage.  Incomplete / ambiguous coverage fails closed — the slice is
+# rejected, never broadened, never force-tied.
+#
+# The gate activates ONLY when (a) the caller supplied retrieved-evidence
+# provenance (``manifest_provenance``) for the candidate slice and (b) the
+# source segment is a PROPER SUBSET of its source workflow — i.e. there is a
+# real boundary with at least one cut edge.  Whole-workflow slices (segment ==
+# full source graph) have no boundary to bind and keep the legacy role-based
+# anchor-binding behaviour byte-for-byte; the breadcrumb/provenance branch
+# (``prior_path``) is never consulted for topology on either path.
+
+
+def _normalise_object_info_spec(spec: Any) -> dict[str, Any] | str | None:
+    """Reduce a ComfyUI object_info input/output spec to a ``{"type": ...}``
+    dict (or bare type string).
+
+    object_info expresses a socket as either a bare type string (``"MODEL"``),
+    a 2-tuple/list ``[TYPE, opts]``, or a dict already carrying ``"type"``.
+    Widget enums appear as ``[ [opt, ...], opts ]`` — their first element is a
+    list, not a scalar type, so they reduce to ``None`` (the matcher treats
+    widget enums as non-link sockets and never binds them).
+    """
+    if isinstance(spec, Mapping):
+        if "type" in spec:
+            return {"type": spec.get("type")}
+        return None
+    if isinstance(spec, str):
+        return spec
+    if isinstance(spec, (list, tuple)) and len(spec) >= 1:
+        first = spec[0]
+        if isinstance(first, str):
+            return {"type": first}
+        return None
+    return None
+
+
+def _object_info_schema_for_class(class_type: str) -> dict[str, Any] | None:
+    """Return a matcher-shaped schema ``{inputs, outputs}`` for *class_type*.
+
+    Draws from the deterministic checked-in object_info consume index
+    (``vibecomfy.porting.object_info.consume.get_class``), normalising the
+    native nested shape (``inputs: {required, optional}`` with ``[TYPE, opts]``
+    specs, ``outputs: [{name, type}]``) into the flat
+    ``{inputs: {name: {"type": ...}}, outputs: {name: {"type": ...}}}`` shape
+    the W-09 matcher reads.  Returns ``None`` for any class the index cannot
+    resolve so the matcher fails closed on unknown types — no guessing, no
+    permissive fallback.
+    """
+    try:
+        from vibecomfy.porting.object_info.consume import get_class
+    except Exception:
+        return None
+    try:
+        entry = get_class(class_type)
+    except Exception:
+        return None
+    if not isinstance(entry, Mapping):
+        return None
+
+    inputs_section: dict[str, Any] = {}
+    raw_inputs = entry.get("inputs")
+    if isinstance(raw_inputs, Mapping):
+        # Two-level native shape: {required: {name: spec}, optional: {...}}.
+        for group_spec in raw_inputs.values():
+            if isinstance(group_spec, Mapping):
+                for name, spec in group_spec.items():
+                    normalised = _normalise_object_info_spec(spec)
+                    if normalised is not None:
+                        inputs_section.setdefault(str(name), normalised)
+            else:
+                # Already flat: name -> spec.
+                normalised = _normalise_object_info_spec(group_spec)
+                if normalised is not None:
+                    inputs_section.setdefault(str(raw_inputs), normalised)
+    else:
+        # Fallback: legacy ``input.required`` / ``input.optional`` shape.
+        raw_input = entry.get("input") if isinstance(entry.get("input"), Mapping) else {}
+        for group_key in ("required", "optional"):
+            group = raw_input.get(group_key) if isinstance(raw_input, Mapping) else None
+            if isinstance(group, Mapping):
+                for name, spec in group.items():
+                    normalised = _normalise_object_info_spec(spec)
+                    if normalised is not None:
+                        inputs_section.setdefault(str(name), normalised)
+
+    outputs_section: dict[str, Any] = {}
+    raw_outputs = entry.get("outputs")
+    if isinstance(raw_outputs, list):
+        for out_row in raw_outputs:
+            if isinstance(out_row, Mapping):
+                name = str(out_row.get("name") or out_row.get("label") or "").strip()
+                if not name:
+                    continue
+                outputs_section[name] = {"type": out_row.get("type")}
+    elif isinstance(raw_outputs, Mapping):
+        for name, spec in raw_outputs.items():
+            normalised = _normalise_object_info_spec(spec)
+            if normalised is not None:
+                outputs_section[str(name)] = normalised
+
+    if not inputs_section and not outputs_section:
+        return None
+    return {"inputs": inputs_section, "outputs": outputs_section}
+
+
+def _cut_edge_schema_lookup(
+    class_types: frozenset[str],
+) -> tuple[Callable[[str], dict[str, Any] | None], frozenset[str]]:
+    """Build a ``class_type -> schema`` callable for the W-09 matcher.
+
+    Pre-resolves every class in *class_types* once (deterministic, no
+    per-call network/runtime access) and returns ``(lookup, resolved)`` where
+    ``resolved`` is the subset of classes that yielded a real schema.  Classes
+    absent from the object_info index map to ``None`` so the matcher rejects
+    them (fail closed).
+    """
+    cache: dict[str, dict[str, Any] | None] = {}
+    resolved: set[str] = set()
+    for class_type in class_types:
+        schema = _object_info_schema_for_class(class_type)
+        cache[class_type] = schema
+        if schema is not None:
+            resolved.add(class_type)
+
+    def lookup(class_type: str) -> dict[str, Any] | None:
+        if class_type in cache:
+            return cache[class_type]
+        # Lazy-resolve any class the caller did not pre-register (defensive).
+        if class_type not in cache:
+            schema = _object_info_schema_for_class(class_type)
+            cache[class_type] = schema
+            if schema is not None:
+                resolved.add(class_type)
+        return cache.get(class_type)
+
+    return lookup, frozenset(resolved)
+
+
+@dataclass(frozen=True)
+class CutEdgeSynthesisOutcome:
+    """Result of :func:`_synthesize_via_cut_edges`.
+
+    ``engaged`` is True iff the cut-edge pipeline actually ran (the segment had
+    a non-empty boundary).  When ``engaged`` is True the caller MUST honour
+    ``coverage``: synthesize only on ``coverage.complete``, else fail closed.
+    When ``engaged`` is False there was no boundary (whole-workflow slice) and
+    the caller falls back to legacy role-based binding.
+    """
+
+    engaged: bool
+    anchor_bindings: tuple[dict[str, str], ...]
+    coverage: CoverageVerdict | None
+    cut_edge_count: int
+
+
+def _load_full_source_graph(
+    selected_slice: WorkflowSlice,
+) -> tuple[dict[str, dict[str, Any]], tuple[WorkflowNodeRecord, ...]] | None:
+    """Load the FULL source workflow graph for *selected_slice*.
+
+    Returns ``(source_graph, all_records)`` where ``source_graph`` is the
+    ComfyUI-style ``{node_id: {class_type, inputs}}`` dict for every node in
+    the source workflow (not just the segment), or ``None`` when the source
+    cannot be loaded.  The full graph is required so cut edges can see the
+    outside-of-segment endpoints.
+    """
+    if not selected_slice.source_workflow_path:
+        return None
+    load_result = load_workflow_source(selected_slice.source_workflow_path)
+    if not load_result.ok or not load_result.nodes:
+        return None
+    source_graph: dict[str, dict[str, Any]] = {}
+    for record in load_result.nodes:
+        source_graph[str(record.node_id)] = {
+            "class_type": record.class_type,
+            "inputs": copy.deepcopy(record.inputs or {}),
+        }
+    return source_graph, load_result.nodes
+
+
+def _bindings_from_cut_edge_matches(
+    matcher_result: MatcherResult,
+    source_records_by_id: Mapping[str, WorkflowNodeRecord],
+) -> tuple[dict[str, str], ...]:
+    """Translate accepted :class:`CutEdgeBinding` records into anchor-binding dicts.
+
+    The dict shape mirrors what :func:`_build_candidate_graph` and
+    :func:`_validate_candidate_semantics` consume
+    (``source_anchor`` / ``target_anchor`` / ``anchor_role`` / class types /
+    socket names).  Topology is driven entirely by the typed cut edges — never
+    by sorted first/last source node ids.
+    """
+    bindings: list[dict[str, str]] = []
+    for accepted in matcher_result.bindings:
+        edge = accepted.cut_edge
+        # The segment-side endpoint of the cut edge is the source anchor.  For
+        # inbound edges the inside node consumes; for outbound it produces.
+        source_anchor_id = edge.inside_node_id
+        source_record = source_records_by_id.get(source_anchor_id)
+        source_class = (
+            source_record.class_type if source_record is not None else edge.inside_class_type
+        )
+        # Derive a generic anchor role from the binding's reasons vocabulary
+        # (the matcher emits ``flow_role=...``); fall back to the socket type.
+        role = "model_provider"
+        for reason in accepted.reasons:
+            if isinstance(reason, str) and reason.startswith("flow_role="):
+                role = reason.split("=", 1)[1].strip()
+                break
+        socket_name = accepted.target_input_name
+        bindings.append({
+            "source_anchor": source_anchor_id,
+            "target_anchor": accepted.target_node_id,
+            "anchor_role": role,
+            "source_class_type": source_class,
+            "target_class_type": accepted.target_class_type,
+            "source_socket": socket_name,
+            "target_socket": socket_name,
+        })
+    return tuple(bindings)
+
+
+def _synthesize_via_cut_edges(
+    selected_slice: WorkflowSlice,
+    source_records: tuple[WorkflowNodeRecord, ...],
+    target_graph: dict[str, Any],
+    target_records: tuple[WorkflowNodeRecord, ...],
+    *,
+    inquiry_terms: tuple[str, ...],
+) -> CutEdgeSynthesisOutcome:
+    """Run the W-08 → W-09 → W-10 pipeline for a manifest-capable slice.
+
+    Returns an outcome describing whether the cut-edge pipeline engaged and, if
+    so, the coverage verdict plus the bindings projected from accepted cut
+    edges.  The caller is responsible for refusing synthesis when
+    ``coverage.complete`` is False (fail closed).
+
+    The pipeline engages ONLY when the source segment has a genuine boundary
+    — i.e. ``enumerate_cut_edges`` yields at least one cut edge.  A
+    whole-workflow slice (segment == full source graph) has no boundary and
+    returns ``engaged=False`` so the caller preserves legacy behaviour.
+    """
+    full = _load_full_source_graph(selected_slice)
+    if full is None:
+        return CutEdgeSynthesisOutcome(
+            engaged=False, anchor_bindings=(), coverage=None, cut_edge_count=0,
+        )
+    source_graph, _all_records = full
+
+    segment_ids = frozenset(str(node_id) for node_id in selected_slice.node_ids)
+    if not segment_ids:
+        return CutEdgeSynthesisOutcome(
+            engaged=False, anchor_bindings=(), coverage=None, cut_edge_count=0,
+        )
+
+    # Build the target graph dict the matcher iterates (class_type + inputs).
+    target_graph_dict: dict[str, dict[str, Any]] = {}
+    for record in target_records:
+        target_graph_dict[str(record.node_id)] = {
+            "class_type": record.class_type,
+            "inputs": copy.deepcopy(record.inputs or {}),
+        }
+
+    # Schema lookup over every class that appears on either side of the
+    # boundary.  Classes absent from the object_info index map to None → the
+    # matcher fails closed on them (no permissive wildcard binding).
+    boundary_classes: set[str] = set()
+    for node in source_graph.values():
+        ct = str(node.get("class_type") or "").strip()
+        if ct:
+            boundary_classes.add(ct)
+    for node in target_graph_dict.values():
+        ct = str(node.get("class_type") or "").strip()
+        if ct:
+            boundary_classes.add(ct)
+    schema_lookup, _resolved = _cut_edge_schema_lookup(frozenset(boundary_classes))
+
+    cut_edges = enumerate_cut_edges(
+        source_graph, segment_ids, schema_lookup=None,
+    )
+    if not cut_edges:
+        # No boundary: whole-workflow / self-contained slice.  The cut-edge
+        # pipeline does not engage; the caller preserves legacy behaviour.
+        return CutEdgeSynthesisOutcome(
+            engaged=False, anchor_bindings=(), coverage=None, cut_edge_count=0,
+        )
+
+    matcher_result = match_cut_edges(
+        cut_edges,
+        target_graph_dict,
+        schema_lookup=schema_lookup,
+        inquiry_terms=inquiry_terms,
+    )
+    coverage = validate_boundary_coverage(cut_edges, matcher_result)
+
+    if not coverage.complete:
+        # Fail closed: do NOT broaden, do NOT force a tie, do NOT fall back to
+        # first/last-node anchors.  Empty bindings signal rejection upstream.
+        return CutEdgeSynthesisOutcome(
+            engaged=True, anchor_bindings=(), coverage=coverage,
+            cut_edge_count=len(cut_edges),
+        )
+
+    source_records_by_id = {str(r.node_id): r for r in source_records}
+    anchor_bindings = _bindings_from_cut_edge_matches(
+        matcher_result, source_records_by_id,
+    )
+    return CutEdgeSynthesisOutcome(
+        engaged=True,
+        anchor_bindings=anchor_bindings,
+        coverage=coverage,
+        cut_edge_count=len(cut_edges),
+    )
+
+
+def _cut_edge_inquiry_terms(query: str) -> tuple[str, ...]:
+    """Generic inquiry keywords for the W-09 matcher, drawn from the query.
+
+    Anti-gaming: only generic role/media terms — no class ids, filenames,
+    fixture-specific types, or ancestry breadcrumbs.  Mirrors the W-09
+    contract.
+    """
+    return _semantic_intent_terms(query)
+
+
+# ── W-04: pure validated-candidate projector ──────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ProjectedManifestParts:
+    """ID-free projection of a validated candidate graph.
+
+    Extracts only added-node topology — no node ids, paths, widget literals,
+    filenames, prompts, seeds, models, sigma strings, or golden facts.
+    """
+
+    nodes: tuple[tuple[str, str], ...]
+    # (symbol, canonical_class_type)
+
+    internal_edges: tuple[tuple[str, int, str, str], ...]
+    # (from_symbol, output_slot, to_symbol, input_socket)
+
+    boundary_anchors: tuple[tuple[str, str, str, str, str, str], ...]
+    # (direction, symbol, symbol_socket, target_role, target_class_type, target_socket)
+
+    evidence_hash: str
+
+
+# ── Generic role heuristic for boundary anchors ───────────────────────────────
+
+_GENERIC_ROLE_CLASS_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("sampler", "sample", "scheduler", "sigmas", "guider", "dispatcher"), "sampler"),
+    (("loader", "checkpoint", "unet", "model"), "model_provider"),
+    (("latent", "vae", "empty_latent"), "latent"),
+    (("clip", "encode", "text_encode", "prompt"), "conditioning"),
+    (("decode", "vae_decode", "image"), "decoder"),
+    (("save", "preview", "output"), "output_sink"),
+    (("load", "input", "source"), "input_source"),
+    (("control", "controlnet", "preprocessor"), "control"),
+    (("upscale", "resize", "transform"), "transform"),
+    (("lora", "adapter"), "lora"),
+)
+
+_GENERIC_ROLE_SOCKET_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("model", "unet", "checkpoint"), "model_provider"),
+    (("latent", "samples", "latent_image"), "latent"),
+    (("clip", "text", "prompt", "conditioning", "positive", "negative"), "conditioning"),
+    (("vae",), "latent"),
+    (("image", "images", "output"), "decoder"),
+    (("lora",), "lora"),
+    (("control", "controlnet", "hint"), "control"),
+    (("audio", "sound"), "audio"),
+    (("mask",), "mask"),
+    (("seed",), "seed"),
+)
+
+
+def _infer_generic_role(class_type: str, socket_name: str) -> str:
+    """Infer a generic role from class-type and socket-name heuristics.
+
+    This is intentionally NOT case-specific — no class tables, no golden
+    literals. Returns a role token like ``"sampler"``, ``"model_provider"``,
+    ``"latent"``, etc.
+    """
+    ct = class_type.lower()
+    sn = socket_name.lower()
+
+    # Class-type heuristics have priority.
+    for hints, role in _GENERIC_ROLE_CLASS_HINTS:
+        if any(h in ct for h in hints):
+            return role
+
+    # Fall back to socket-name heuristics.
+    for hints, role in _GENERIC_ROLE_SOCKET_HINTS:
+        if any(h in sn for h in hints):
+            return role
+
+    return "unresolved"
+
+
+# ── Helper: is this input value a ComfyUI link reference? ─────────────────────
+
+
+def _is_link_ref(value: Any) -> bool:
+    """Return True if *value* is a ComfyUI-style [node_id, slot] link."""
+    return (
+        isinstance(value, list)
+        and len(value) >= 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+    )
+
+
+# ── Pure projector ────────────────────────────────────────────────────────────
+
+
+def _gnode_class(node: Any) -> str:
+    """Class type of a graph node that may be a dict OR a bare class string.
+
+    The live adaptation graph represents existing (target) nodes as bare
+    class-type strings (``{id: "ClassType"}``) while synthetically-added
+    nodes are full dicts (``{id: {"class_type": ..., "inputs": ...}}``).
+    Both shapes must be tolerated — never assume ``.get`` exists.
+    """
+    if isinstance(node, Mapping):
+        return str(node.get("class_type") or node.get("type") or "?")
+    if isinstance(node, str):
+        return node.strip() or "?"
+    return "?"
+
+
+def _gnode_inputs(node: Any) -> dict[str, Any]:
+    """Inputs mapping of a graph node; ``{}`` when unavailable.
+
+    Bare class-string nodes carry no inputs, so their topology cannot be
+    projected from inputs — callers handle the empty mapping gracefully.
+    """
+    if isinstance(node, Mapping):
+        inputs = node.get("inputs")
+        return inputs if isinstance(inputs, dict) else {}
+    return {}
+
+
+def project_validated_candidate(
+    candidate_graph: dict[str, Any],
+    target_graph: dict[str, Any],
+    *,
+    evidence_hash: str,
+) -> ProjectedManifestParts | None:
+    """Diff candidate vs target and emit an ID-free topology projection.
+
+    Added nodes = ids present in *candidate_graph* but absent from
+    *target_graph*.  Assigns fresh local symbols ``n1``, ``n2``, … in
+    deterministic (sorted) order.
+
+    Internal edges: only ``[node_id, output_slot]`` links where BOTH
+    endpoints are added nodes.
+
+    Boundary anchors: ``[node_id, output_slot]`` links where one endpoint is
+    added and the other is an EXISTING target node → ID-free selectors using
+    the existing node's ``class_type`` + socket name/slot + a generic role.
+
+    Every scalar/list-literal input (widgets, filenames, prompts, seeds,
+    models, sigma, etc.) is unconditionally dropped.
+
+    Returns ``None`` when there are no added nodes (nothing to project).
+    """
+    target_ids: frozenset[str] = frozenset(target_graph.keys())
+    all_candidate_ids: frozenset[str] = frozenset(candidate_graph.keys())
+    added_ids: frozenset[str] = all_candidate_ids - target_ids
+
+    if not added_ids:
+        return None
+
+    # Deterministic symbol assignment: sort added ids, assign n1, n2, ...
+    sorted_added = sorted(added_ids)
+    symbol_map: dict[str, str] = {
+        nid: f"n{i + 1}" for i, nid in enumerate(sorted_added)
+    }
+
+    # ── nodes ────────────────────────────────────────────────────────────
+    nodes: list[tuple[str, str]] = []
+    for nid in sorted_added:
+        class_type = _gnode_class(candidate_graph.get(nid))
+        nodes.append((symbol_map[nid], class_type))
+
+    # ── edges and anchors ────────────────────────────────────────────────
+    internal_edges: list[tuple[str, int, str, str]] = []
+    boundary_anchors: list[tuple[str, str, str, str, str, str]] = []
+
+    for nid in sorted_added:
+        inputs = _gnode_inputs(candidate_graph.get(nid))
+        if not inputs:
+            continue
+        sym = symbol_map[nid]
+
+        for input_name, input_val in inputs.items():
+            if not _is_link_ref(input_val):
+                # scalar / list literal → drop
+                continue
+
+            src_id: str = input_val[0]
+            output_slot: int = input_val[1]
+
+            src_in_target = src_id in target_ids
+            src_in_candidate = src_id in all_candidate_ids
+
+            if src_in_candidate and not src_in_target:
+                # Both endpoints are added → internal edge.
+                src_sym = symbol_map[src_id]
+                internal_edges.append(
+                    (src_sym, output_slot, sym, str(input_name))
+                )
+            elif src_in_target:
+                # Source is existing target node → inbound boundary anchor.
+                target_class = _gnode_class(target_graph.get(src_id))
+                role = _infer_generic_role(target_class, str(input_name))
+                boundary_anchors.append(
+                    ("inbound", sym, str(input_name), role, target_class, str(output_slot))
+                )
+            # else: src_id is not in candidate_graph at all → skip (shouldn't happen)
+
+    # Check for outbound boundary anchors: added node produces output
+    # consumed by an existing target node.
+    for nid in sorted(target_ids):
+        node = candidate_graph.get(nid)
+        # The existing node should exist in candidate_graph too
+        if node is None:
+            continue
+        inputs = _gnode_inputs(node)
+        if not inputs:
+            continue
+        for input_name, input_val in inputs.items():
+            if not _is_link_ref(input_val):
+                continue
+            src_id: str = input_val[0]
+            output_slot: int = input_val[1]
+
+            if src_id in added_ids:
+                # Producer is added, consumer is existing → outbound anchor.
+                src_sym = symbol_map[src_id]
+                target_class = _gnode_class(node)
+                role = _infer_generic_role(target_class, str(input_name))
+                boundary_anchors.append(
+                    ("outbound", src_sym, str(output_slot), role, target_class, str(input_name))
+                )
+
+    # ── deterministic sort ───────────────────────────────────────────────
+    internal_edges.sort(key=lambda e: (e[0], e[1], e[2], e[3]))
+    boundary_anchors.sort(
+        key=lambda a: (a[0], a[1], a[2], a[3], a[4], a[5])
+    )
+
+    return ProjectedManifestParts(
+        nodes=tuple(nodes),
+        internal_edges=tuple(internal_edges),
+        boundary_anchors=tuple(boundary_anchors),
+        evidence_hash=evidence_hash,
+    )
+
+
 _SOURCE_ID_PREFIX = "adapt_"
 _SEMANTIC_RETRY_LIMIT = 3
 _SEMANTIC_INTENT_GENERIC_TERMS = frozenset({
@@ -3818,17 +5147,200 @@ def _slice_is_cross_media_adapter(
     return False
 
 
+# ── W-05: gated manifest emission helper ─────────────────────────────────────
+
+
+def _candidate_structural_signature(
+    candidate_graph: Mapping[str, Any],
+    target_graph: Mapping[str, Any],
+) -> str:
+    """Return a path-free SHA-256 hex digest over a candidate's added topology.
+
+    Hashes ONLY the structural identity of the added nodes and their
+    class-typed links — no node ids, widget literals, filenames, prompts,
+    seeds, sigma strings, or paths.  Two candidates that add the same
+    topology (modulo id renumbering) hash identically.
+    """
+    target_ids = frozenset(str(nid) for nid in target_graph)
+    added_ids = sorted(
+        str(nid) for nid in candidate_graph
+        if str(nid) not in target_ids
+    )
+    id_to_class: dict[str, str] = {
+        str(nid): _gnode_class(candidate_graph.get(nid)) for nid in added_ids
+    }
+    # Stable node block: (class_type,) tuples in id-sorted order.
+    node_block = tuple((id_to_class[nid],) for nid in added_ids)
+    edge_block: list[tuple[str, str, str]] = []
+    for nid in added_ids:
+        node = candidate_graph.get(nid, {}) or {}
+        inputs = node.get("inputs", {}) if isinstance(node, Mapping) else {}
+        if not isinstance(inputs, Mapping):
+            continue
+        for iname, ival in inputs.items():
+            if not _is_link_ref(ival):
+                continue
+            src_id = str(ival[0])
+            src_class = id_to_class.get(src_id) or _gnode_class(
+                target_graph.get(src_id)
+            )
+            edge_block.append((src_class, str(iname), id_to_class[nid]))
+    edge_block.sort()
+    canonical = json.dumps(
+        {"nodes": node_block, "edges": tuple(edge_block)},
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _build_emission_manifest(
+    candidate_graph: Mapping[str, Any],
+    target_graph: Mapping[str, Any],
+    selected_slice: WorkflowSlice,
+    provenance: Mapping[str, Any],
+    *,
+    manifest_id: str,
+) -> TopologyManifest | None:
+    """Project a validated candidate into one complete manifest, or ``None``.
+
+    Pass-gated + complete-or-reject: returns ``None`` (legacy path) when
+    provenance is incomplete, the projector rejects (no added nodes), or
+    :func:`build_topology_manifest` rejects.  Raises nothing except the
+    already-caught :class:`ManifestOversized` boundary, which is swallowed
+    into ``None``.
+
+    Anti-gaming: only the already-validated candidate graph, the existing
+    target graph, the slice's structural class type, and a path-free hash +
+    tier + rank from retrieved-evidence provenance are consumed.  No
+    ``golden.ui.json``, ``prior_path``, or fixture ancestry is read.
+    """
+    # ── provenance: content_hash + tier + rank ONLY (no path/filename) ────
+    content_hash = str(provenance.get("content_hash") or "").strip()
+    tier = str(provenance.get("tier") or "").strip()
+    rank_raw = provenance.get("rank")
+    try:
+        rank = int(rank_raw)
+    except (TypeError, ValueError):
+        rank = -1
+    if not content_hash or not tier or rank < 0:
+        return None
+
+    # ── evidence_hash: opaque, path-free.  Prefer an explicit hash on the ─
+    # provenance; otherwise hash the candidate's structural signature.
+    evidence_hash = str(provenance.get("evidence_hash") or "").strip()
+    if not evidence_hash:
+        evidence_hash = _candidate_structural_signature(
+            candidate_graph, target_graph
+        )
+    if not evidence_hash:
+        return None
+
+    parts = project_validated_candidate(
+        candidate_graph=dict(candidate_graph),
+        target_graph=dict(target_graph),
+        evidence_hash=evidence_hash,
+    )
+    if parts is None:
+        return None
+
+    # ── map projected parts → manifest sub-objects ───────────────────────
+    nodes = tuple(
+        ManifestNode(
+            symbol=sym,
+            canonical_class_type=cls,
+            resolver_status="inferred",
+            evidence_ref=evidence_hash,
+            confidence=0.7,
+        )
+        for sym, cls in parts.nodes
+    )
+    internal_edges = tuple(
+        ManifestInternalEdge(
+            from_symbol=fe,
+            output_socket=f"<idx:{slot}>",
+            to_symbol=te,
+            input_socket=sock,
+            evidence_ref=evidence_hash,
+            confidence=0.7,
+        )
+        for fe, slot, te, sock in parts.internal_edges
+    )
+    boundary_anchors = tuple(
+        ManifestBoundaryAnchor(
+            direction=direction,
+            symbol=sym,
+            symbol_socket=sym_sock,
+            target_role=role,
+            target_class_type=tcls,
+            target_socket=tsock,
+            source_anchor_ref=evidence_hash,
+            confidence=0.7,
+        )
+        for direction, sym, sym_sock, role, tcls, tsock in parts.boundary_anchors
+    )
+
+    # ── inquiry_coverage: required roles inferred from boundary anchors ───
+    # vs covered roles actually present on the projection.
+    covered_roles = tuple(sorted({a[3] for a in parts.boundary_anchors if a[3]}))
+    required_roles = tuple(sorted(set(covered_roles)))
+    inquiry_coverage = ManifestInquiryCoverage(
+        required_roles=required_roles,
+        covered_roles=covered_roles,
+    )
+    validation = ManifestValidation(
+        verdict="pass",
+        class_resolution="inferred",
+        socket_checks="passed",
+        cut_edge_coverage="covered",
+        anchor_binding="projected",
+        reasons=(
+            "structural_validation=pass",
+            "semantic_validation=pass",
+        ),
+    )
+
+    try:
+        return build_topology_manifest(
+            manifest_id=manifest_id,
+            source_content_hash=content_hash,
+            source_retrieval_rank=rank,
+            source_tier=tier,
+            nodes=nodes,
+            internal_edges=internal_edges,
+            boundary_anchors=boundary_anchors,
+            inquiry_coverage=inquiry_coverage,
+            validation=validation,
+            evidence_hash=evidence_hash,
+            confidence=0.7,
+        )
+    except ManifestOversized:
+        # Size bounds exceeded → reject, never truncate.  Legacy path.
+        return None
+
+
 def _build_adaptation_plan(
     query: str,
     graph: dict | None,
     inspection: InspectionSummary | None,
     slices: tuple[WorkflowSlice, ...],
+    *,
+    manifest_provenance: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> PrecedentAdaptationPlan | None:
     """Build a conservative :class:`PrecedentAdaptationPlan` or ``None``.
 
     When no precedent slices were found, returns ``None``.  Otherwise it tries
     up to three ranked slices, rejects structurally or semantically invalid
     candidates with explicit reasons, and returns the first validated splice.
+
+    *manifest_provenance* (W-05) optionally maps a slice's
+    ``source_class_type`` to a retrieved-evidence provenance dict carrying a
+    path-free ``content_hash`` + ``tier`` + ``rank``.  When present AND a
+    candidate passes both validations with a nonempty ``candidate_graph``,
+    exactly one :class:`TopologyManifest` is projected and attached.  In every
+    other case the manifest is omitted and the plan is byte-identical to the
+    legacy output (no changed warnings / retrieval / three-slice behaviour).
     """
     if not slices:
         return None
@@ -3950,11 +5462,85 @@ def _build_adaptation_plan(
                         },
                     )
                     continue
-                candidate_anchor_bindings = _build_anchor_bindings(
-                    selected_slice=candidate_slice,
-                    source_records=source_records,
-                    target_records=target_load.nodes,
+                # ── W-11: cut-edge-gated synthesis on the manifest-capable path ──
+                # When retrieved-evidence provenance is available for THIS
+                # slice (the W-05 manifest-capable condition), replace the
+                # first/last-node anchor logic with the W-08 → W-09 → W-10
+                # cut-edge pipeline.  Synthesize ONLY on complete unique
+                # coverage; otherwise fail closed (reject, never broaden).
+                # The pipeline engages only when the segment has a real
+                # boundary (≥1 cut edge); whole-workflow slices keep the legacy
+                # role-based binding below byte-for-byte.  The breadcrumb /
+                # ``prior_path`` branch is never consulted for topology here.
+                manifest_capable_for_slice = (
+                    manifest_provenance is not None
+                    and isinstance(
+                        manifest_provenance.get(candidate_slice.source_class_type),
+                        Mapping,
+                    )
                 )
+                if manifest_capable_for_slice:
+                    cut_edge_outcome = _synthesize_via_cut_edges(
+                        candidate_slice,
+                        source_records,
+                        graph if isinstance(graph, dict) else {},
+                        target_load.nodes,
+                        inquiry_terms=_cut_edge_inquiry_terms(query),
+                    )
+                    if cut_edge_outcome.engaged:
+                        if not cut_edge_outcome.coverage or not cut_edge_outcome.coverage.complete:
+                            # Fail closed: incomplete / ambiguous boundary
+                            # coverage.  Record diagnostics and reject — never
+                            # broaden, never force a tie, never fall back to
+                            # first/last-node anchors on this path.
+                            diag_detail: dict[str, Any] = {
+                                "reason_code": "cut_edge_coverage_incomplete",
+                                "cut_edge_count": cut_edge_outcome.cut_edge_count,
+                            }
+                            if cut_edge_outcome.coverage is not None:
+                                diag_detail["coverage_diagnostics"] = tuple(
+                                    {
+                                        "category": d.category,
+                                        "detail": d.detail,
+                                    }
+                                    for d in cut_edge_outcome.coverage.diagnostics
+                                )
+                            reject_slice(
+                                candidate_slice,
+                                rank=rank,
+                                code="cut_edge_coverage_incomplete",
+                                reason=(
+                                    "manifest-capable precedent failed cut-edge "
+                                    "boundary coverage; synthesis refused"
+                                ),
+                                detail=diag_detail,
+                            )
+                            continue
+                        candidate_anchor_bindings = cut_edge_outcome.anchor_bindings
+                        if not candidate_anchor_bindings:
+                            reject_slice(
+                                candidate_slice,
+                                rank=rank,
+                                code="candidate_graph_dropped",
+                                reason=(
+                                    "cut-edge coverage complete but produced no "
+                                    "anchor bindings"
+                                ),
+                                detail={"reason_code": "anchor_binding_missing"},
+                            )
+                            continue
+                    else:
+                        # No boundary (whole-workflow slice): fall through to
+                        # legacy role-based binding below.
+                        candidate_anchor_bindings = ()
+                else:
+                    candidate_anchor_bindings = ()
+                if not candidate_anchor_bindings:
+                    candidate_anchor_bindings = _build_anchor_bindings(
+                        selected_slice=candidate_slice,
+                        source_records=source_records,
+                        target_records=target_load.nodes,
+                    )
                 if not candidate_anchor_bindings:
                     reject_slice(
                         candidate_slice,
@@ -4083,6 +5669,32 @@ def _build_adaptation_plan(
             )
         )
 
+    # ── W-05: gated manifest emission ─────────────────────────────────────
+    # Emit exactly one manifest ONLY when both validations passed, the
+    # candidate graph is nonempty, a real target graph exists, and a
+    # retrieved-evidence provenance (path-free hash + tier + rank) is
+    # available for the selected slice.  Every other case leaves
+    # ``topology_manifest=None`` and the plan byte-identical to today.
+    topology_manifest: TopologyManifest | None = None
+    if (
+        structural_validation == "pass"
+        and semantic_validation == "pass"
+        and candidate_graph is not None
+        and len(candidate_graph) > 0
+        and isinstance(graph, dict)
+        and len(graph) > 0
+        and manifest_provenance
+    ):
+        provenance = manifest_provenance.get(selected_slice.source_class_type)
+        if isinstance(provenance, Mapping):
+            topology_manifest = _build_emission_manifest(
+                candidate_graph=candidate_graph,
+                target_graph=graph,
+                selected_slice=selected_slice,
+                provenance=provenance,
+                manifest_id=f"adapt:{selected_slice.source_class_type}",
+            )
+
     return PrecedentAdaptationPlan(
         selected_slice=selected_slice,
         anchor_bindings=anchor_bindings,
@@ -4095,6 +5707,7 @@ def _build_adaptation_plan(
         warnings=tuple(synthesis_warnings),
         all_slices=slices,
         context_note=context_note,
+        topology_manifest=topology_manifest,
     )
 
 
@@ -4862,11 +6475,32 @@ def research(
             or str(source.get("source_workflow_path") or source.get("path") or "") in slice_paths
         )
     )
+    # ── W-05: path-free retrieved-evidence provenance for manifest emission ──
+    # Map each slice's source_class_type to a content_hash + tier + rank drawn
+    # from the already-retrieved source dicts.  Carries NO path/filename; when
+    # a source lacks a hash/tier the slice simply gets no manifest.
+    manifest_provenance: dict[str, Mapping[str, Any]] = {}
+    for rank, source in enumerate(precedent_sources, start=1):
+        if not isinstance(source, Mapping):
+            continue
+        class_type = str(source.get("class_type") or "").strip()
+        if not class_type or class_type in manifest_provenance:
+            continue
+        content_hash = str(source.get("_content_hash") or "").strip()
+        tier = _source_tier_for_source(source).strip()
+        if not content_hash or not tier:
+            continue
+        manifest_provenance[class_type] = MappingProxyType({
+            "content_hash": content_hash,
+            "tier": tier,
+            "rank": rank,
+        })
     adaptation_plan = _build_adaptation_plan(
         query=query,
         graph=graph,
         inspection=None,
         slices=precedent_slices,
+        manifest_provenance=manifest_provenance or None,
     )
     # ── Build neutral precedent packet (SD1) ──────────────────────────────
     # The packet carries every discovered option without ranking or winner

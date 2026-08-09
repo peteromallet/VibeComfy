@@ -13,7 +13,9 @@ The escalation ladder (see docs/plans/all-installable-nodes.md):
 
 Future rungs (transitive deps, version retry, LLM inference) escalate from here.
 Every success is memoized in-process; the clone persists on disk so re-parse never
-re-clones.
+re-clones. The sandbox is **bounded** (LRU eviction by ``max_packs`` / ``max_bytes``;
+env-tunable via ``VIBECOMFY_SCHEMA_SANDBOX_MAX_PACKS`` /
+``VIBECOMFY_SCHEMA_SANDBOX_MAX_BYTES``) so it can't grow without limit.
 
 Opt-in: only active when ``VIBECOMFY_ON_DEMAND_SCHEMAS=1`` (or constructed directly),
 because a miss triggers network + git operations against public third-party repos.
@@ -21,6 +23,7 @@ because a miss triggers network + git operations against public third-party repo
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -29,6 +32,37 @@ from typing import Any
 _DEFAULT_SANDBOX = Path(
     os.environ.get("VIBECOMFY_SCHEMA_SANDBOX", "~/.cache/vibecomfy/schema-sandbox")
 ).expanduser()
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+# Bounded sandbox: cloned packs accumulate forever without a cap (this grew to
+# 12 GiB on one machine). Eviction is LRU by directory mtime; tuned via env so a
+# tight disk can shrink it and a generous one can grow it.
+_DEFAULT_MAX_PACKS = _env_int("VIBECOMFY_SCHEMA_SANDBOX_MAX_PACKS", 64)
+_DEFAULT_MAX_BYTES = _env_int("VIBECOMFY_SCHEMA_SANDBOX_MAX_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GiB
+
+
+def _dir_size(path: Path) -> int:
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
 
 
 def _slug_from_url(url: str) -> str:
@@ -49,9 +83,13 @@ class OnDemandInstallSchemaProvider:
         sandbox_root: str | Path | None = None,
         *,
         clone_timeout: int = 120,
+        max_packs: int | None = None,
+        max_bytes: int | None = None,
     ) -> None:
         self.sandbox_root = Path(sandbox_root) if sandbox_root is not None else _DEFAULT_SANDBOX
         self.clone_timeout = clone_timeout
+        self.max_packs = _DEFAULT_MAX_PACKS if max_packs is None else max_packs
+        self.max_bytes = _DEFAULT_MAX_BYTES if max_bytes is None else max_bytes
         self._cache: dict[str, Any] = {}  # class_type -> NodeSchema | None
 
     def get(self, class_type: str) -> Any:
@@ -174,7 +212,13 @@ class OnDemandInstallSchemaProvider:
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or _slug_from_url(ref.url)
         target = self.sandbox_root / slug
         if target.is_dir():
+            # LRU: bump mtime so this clone reads as recently used for eviction.
+            try:
+                os.utime(target, None)
+            except OSError:
+                pass
             return target
+        self._enforce_cap()  # make room before adding a new clone
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(
@@ -186,3 +230,35 @@ class OnDemandInstallSchemaProvider:
             return target
         except Exception:
             return None
+
+    def _enforce_cap(self) -> None:
+        """Evict oldest clones (LRU by mtime) to stay under max_packs / max_bytes.
+
+        Best-effort: never raises. A failed eviction must not block a clone — the
+        whole point is that on-demand resolution degrades gracefully.
+        """
+        try:
+            if not self.sandbox_root.is_dir():
+                return
+            entries = []
+            for child in self.sandbox_root.iterdir():
+                if not child.is_dir():
+                    continue
+                try:
+                    stat = child.stat()
+                except OSError:
+                    continue
+                entries.append((child, stat.st_mtime, _dir_size(child)))
+            if not entries:
+                return
+            entries.sort(key=lambda e: e[1])  # oldest mtime first
+            total_bytes = sum(size for _, _, size in entries)
+            total_packs = len(entries)
+            for path, _mtime, size in entries:
+                if total_packs <= self.max_packs and total_bytes <= self.max_bytes:
+                    break
+                shutil.rmtree(path, ignore_errors=True)
+                total_packs -= 1
+                total_bytes -= size
+        except Exception:
+            return
