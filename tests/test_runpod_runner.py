@@ -199,6 +199,8 @@ def test_artifact_manifest_counts_result_failures(tmp_path: Path) -> None:
 async def test_run_pod_cancellation_returns_130_and_terminates(monkeypatch: pytest.MonkeyPatch) -> None:
     terminated: list[bool] = []
 
+    monkeypatch.setenv("RUNPOD_API_KEY", "test-key")
+
     class FakeGuard:
         pod = None
 
