@@ -24,9 +24,11 @@ function asString(value) {
 
 export const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "candidate",
+  "candidate_transaction",
   "noop",
   "clarify",
-  "error"
+  "error",
+  "requires_custom_nodes"
 ]);
 
 export const INTERNAL_OUTCOME_KIND_MAP = Object.freeze({

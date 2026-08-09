@@ -13,9 +13,10 @@ def _node(node_id: int, class_type: str, uid: str) -> dict:
     return {
         "id": node_id,
         "type": class_type,
-        "class_type": class_type,
         "pos": [node_id * 10, node_id * 20],
         "size": [200, 80],
+        "inputs": [{"name": f"input_{i}"} for i in range(4)],
+        "outputs": [{"name": f"{class_type}_out_{i}"} for i in range(4)],
         "properties": {"vibecomfy_uid": uid, "kept": uid},
     }
 
@@ -35,7 +36,13 @@ def _ui() -> dict:
             [3, 3, 0, 4, 0, "LATENT"],
             [4, 4, 0, 5, 0, "IMAGE"],
         ],
-        "groups": [{"title": "Existing", "bounding": [0, 0, 100, 100], "nodes": [1]}],
+        "groups": [
+            {
+                "vibecomfy_group_id": "g-1",
+                "title": "Existing",
+                "bounding": [0, 0, 100, 100],
+            }
+        ],
         "extra": {"ds": {"scale": 1.0, "offset": [0, 0]}},
     }
 
@@ -70,6 +77,7 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
         {
             "task": "/reorganise_comfy_workflow",
             "graph": graph,
+            "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
             "session_id": "reorganise-session",
             "idempotency_key": "reorganise-once",
         },
@@ -134,6 +142,7 @@ def test_reorganise_accepts_litegraph_indexed_geometry(tmp_path) -> None:
             "route": "reorganise",
             "executor_route": "reorganise",
             "graph": graph,
+            "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
             "session_id": "reorganise-indexed-geometry",
             "idempotency_key": "reorganise-indexed-geometry-once",
         },
@@ -215,6 +224,15 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
         state.batch_done_summary = "Added the branch."
         for gate_name in list(context.gate_results):
             context.set_gate(gate_name, True)
+        # The real ingest stage persists request.json; mirror it so V2
+        # candidate publication can load the submit graph + workflow identity.
+        # For the auto-reorganise candidate the layout transaction's submit is
+        # the post-edit (functional) graph, not the pre-edit request graph.
+        state.request_payload = {**state.request_payload, "graph": functional}
+        state.request_path.write_text(
+            json.dumps(state.request_payload),
+            encoding="utf-8",
+        )
         return state
 
     monkeypatch.setattr(
@@ -248,6 +266,7 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
     payload = {
         "task": "add a preview branch",
         "graph": before,
+        "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
         "session_id": "auto-reorganise-session",
         "idempotency_key": "auto-reorganise-once",
     }

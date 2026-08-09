@@ -1442,6 +1442,7 @@ const CURATED_PROJECTION_FIELDS = [
   "debug",
   "failureKind",
   "retryable",
+  "runtimeDependencies",
   "nextAction",
   "clarificationRequired",
   "clarificationMessage",

@@ -1431,6 +1431,7 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
         graph=graph,
         profile="default",
         session_id=session_id,
+        workflow_id="6b4611de-b2b2-42f2-b358-5f566d6a8933",
     )
 
     def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
@@ -1553,6 +1554,23 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
                 "message": "Resolved the workflow's missing custom node classes through the registry.",
             },
             {
+                "batch": (
+                    "hotshot_loader = ADE_AnimateDiffLoaderWithContext(\n"
+                    "    model=checkpointloadersimple.model, near=ksampler\n"
+                    ")\n"
+                    "hotshot_sampler = ADE_UseEvolvedSampling(\n"
+                    "    model=hotshot_loader.model, near=ksampler\n"
+                    ")\n"
+                    "ksampler.model = hotshot_sampler.model\n"
+                    "done()"
+                ),
+                "message": "Added and wired Hotshot/AnimateDiff custom nodes into the sampler path.",
+            },
+            {
+                # The current add_node lint flags required ADE inputs that the
+                # minimal structural batch does not supply; the batch loop
+                # refuses the first done() and asks for a retry, so replay the
+                # same edit to land the candidate.
                 "batch": (
                     "hotshot_loader = ADE_AnimateDiffLoaderWithContext(\n"
                     "    model=checkpointloadersimple.model, near=ksampler\n"

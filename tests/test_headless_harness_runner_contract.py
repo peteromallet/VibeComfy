@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,37 @@ def _write_scenario(scenarios_dir: Path, scenario: dict[str, Any]) -> Path:
     path = scenarios_dir / f"{scenario['id']}.json"
     path.write_text(json.dumps(scenario), encoding="utf-8")
     return path
+
+
+def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run harness scenarios in-process instead of in per-scenario subprocesses.
+
+    The harness runner fans out to isolated ``--single`` subprocesses by
+    default, which would shield the executor from the deterministic fakes
+    these tests install.  The fake subprocess delegates to the runner's own
+    in-process ``run_single`` entry point — the exact code path a subprocess
+    would execute — so the real headless pipeline still runs, with the
+    monkeypatched readiness/executor seams applied.
+    """
+
+    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        from tests.live_agentic_harness.runner import run_single
+
+        scenario_path = cmd[cmd.index("--single") + 1]
+        tag = cmd[cmd.index("--tag") + 1]
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        output_base = (
+            Path(cmd[cmd.index("--output-base") + 1])
+            if "--output-base" in cmd
+            else None
+        )
+        run_single(scenario_path, tag, output_base, out_file)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner.subprocess.run",
+        fake_subprocess_run,
+    )
 
 
 def _fresh_executor_core() -> Any:
@@ -205,6 +237,7 @@ def test_headless_harness_runner_summarizes_blocked_prerequisite_without_executo
     tmp_path: Path,
 ) -> None:
     _patch_not_ready(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
     sys.modules.pop("vibecomfy.executor.core", None)
 
     from tests.live_agentic_harness.runner import run_tag
@@ -234,14 +267,15 @@ def test_headless_harness_runner_summarizes_blocked_prerequisite_without_executo
     assert scenario_summary["ok"] is False
     assert scenario_summary["readiness"]["ready"] is False
     assert scenario_summary["error"] == "missing live credentials"
-    assert scenario_summary["guard"] == {
-        "output_dir": scenario_summary["output_dir"],
-        "flow_kind": "live_agentic_headless",
-        "status": "blocked_prerequisite",
-        "dispatcher": "real",
-        "model_behavior": "agentic",
-        "live_agentic_success": False,
-    }
+    # The guard verdict now carries richer fields (metadata_success,
+    # assessment, score_class); assert the contract-relevant subset.
+    guard = scenario_summary["guard"]
+    assert guard["output_dir"] == scenario_summary["output_dir"]
+    assert guard["flow_kind"] == "live_agentic_headless"
+    assert guard["status"] == "blocked_prerequisite"
+    assert guard["dispatcher"] == "real"
+    assert guard["model_behavior"] == "agentic"
+    assert guard["live_agentic_success"] is False
 
     output_dir = Path(scenario_summary["output_dir"])
     assert (output_dir / "flow_metadata.json").is_file()
@@ -257,6 +291,7 @@ def test_headless_harness_runner_json_mode_reports_blocked_prerequisite(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _patch_not_ready(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
 
     from tests.live_agentic_harness import runner
 
@@ -293,6 +328,7 @@ def test_speed_distillation_scenario_blocks_cleanly_without_readiness(
     tmp_path: Path,
 ) -> None:
     _patch_not_ready(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
 
     from tests.live_agentic_harness.runner import run_tag
 
@@ -321,6 +357,13 @@ def test_speed_distillation_scenario_records_live_research_evidence(
     tmp_path: Path,
 ) -> None:
     _patch_ready_speed_research(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
+
+    # Keep durable session artifacts inside the test tmp dir.
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.executor_durable.DEFAULT_SESSION_ROOT",
+        tmp_path / "sessions",
+    )
 
     from tests.live_agentic_harness.runner import run_tag
 
@@ -365,6 +408,7 @@ def test_live_graph_explanation_scenario_uses_headless_inspect_respond_path(
     tmp_path: Path,
 ) -> None:
     _patch_ready_graph_explanation(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
     for module_name in (
         "aiohttp",
         "server",
@@ -373,6 +417,12 @@ def test_live_graph_explanation_scenario_uses_headless_inspect_respond_path(
         "vibecomfy.comfy_nodes.web",
     ):
         sys.modules.pop(module_name, None)
+
+    # Keep durable session artifacts inside the test tmp dir.
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.executor_durable.DEFAULT_SESSION_ROOT",
+        tmp_path / "sessions",
+    )
 
     from tests.live_agentic_harness.runner import run_tag
 

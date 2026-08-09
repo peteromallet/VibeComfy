@@ -522,7 +522,7 @@ def test_port_check_returns_nonzero_for_hard_port_errors(
     assert "unresolved_runtime_class" in captured.out
 
 
-def test_port_widgets_json_suggests_widget_only_schema_entries(
+def test_port_widgets_json_reports_unresolved_widget_aliases_with_unavailable_schema(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -551,8 +551,14 @@ def test_port_widgets_json_suggests_widget_only_schema_entries(
 
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
+    # AuthoringSchemaProvider now prefers the committed object_info index over the
+    # local node_index.json, so a synthetic class resolves no schema → every
+    # positional widget alias stays unresolved and the suggestions block reports
+    # the schema as unavailable (no suggested entry, no python render).
     assert payload["unresolved_widget_aliases"] == [
-        {"node_id": "1", "class_type": "PromptNode", "input": "widget_2", "source": "unresolved"}
+        {"node_id": "1", "class_type": "PromptNode", "input": "widget_0", "source": "unresolved"},
+        {"node_id": "1", "class_type": "PromptNode", "input": "widget_1", "source": "unresolved"},
+        {"node_id": "1", "class_type": "PromptNode", "input": "widget_2", "source": "unresolved"},
     ]
     assert payload["suggestions"] == [
         {
@@ -560,14 +566,13 @@ def test_port_widgets_json_suggests_widget_only_schema_entries(
             "nodes": [
                 {
                     "node_id": "1",
-                    "unresolved_inputs": ["widget_2"],
+                    "unresolved_inputs": ["widget_0", "widget_1", "widget_2"],
                     "widgets_values": ["hello", "fast", {"collapsed": True}],
                 }
             ],
             "observed_widget_count": 3,
-            "schema_source": "schema_provider",
-            "suggested_schema_entry": ["text", "mode", None],
-            "python": "'PromptNode': ['text', 'mode', None]",
+            "schema_source": "unavailable",
+            "suggested_schema_entry": None,
         }
     ]
 

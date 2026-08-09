@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vendor" / "ComfyUI
 pytest.importorskip("comfy.cli_args", reason="requires HiddenSwitch ComfyUI runtime")
 
 from comfy.cli_args import default_configuration
+from comfy.cmd.extra_model_paths import load_extra_path_config
 from comfy.cmd.folder_paths import init_default_paths
 from comfy.component_model.folder_path_types import FolderNames
 
@@ -49,7 +50,13 @@ def test_custom_nodes_key_in_extra_model_paths_yaml_is_honored(
     tmp_path: Path,
 ) -> None:
     """Prove that a ``custom_nodes:`` key inside extra_model_paths.yaml causes
-    the folder to be registered as a ``custom_nodes`` search path."""
+    the folder to be registered as a ``custom_nodes`` search path.
+
+    Current ComfyUI contract: ``init_default_paths`` seeds the default model
+    folders; each ``extra_model_paths_config`` entry is then loaded explicitly
+    via ``load_extra_path_config`` (see ``comfy/cmd/main.py``), which registers
+    the YAML sections as extra search paths.
+    """
     custom_nodes_dir = tmp_path / "my_custom_nodes"
     custom_nodes_dir.mkdir(parents=True)
 
@@ -60,10 +67,10 @@ def test_custom_nodes_key_in_extra_model_paths_yaml_is_honored(
     )
 
     config = default_configuration()
-    config.extra_model_paths_config = [str(yaml_path)]
     folders = FolderNames(is_root=True)
 
     init_default_paths(folders, config, replace_existing=True)
+    load_extra_path_config(str(yaml_path), folder_names=folders)
 
     assert str(custom_nodes_dir) in list(folders["custom_nodes"].paths), (
         "Expected custom_nodes dir %s to be registered after loading "

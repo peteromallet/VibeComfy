@@ -97,7 +97,12 @@ def test_hotshot_16_frames_agent_edit_evidence_adds_registry_backed_missing_node
 
     evidence = build_hotshot_16_frames_agent_edit_evidence(report_dir)
 
-    result = json.loads((report_dir / "agent_edit_result.json").read_text(encoding="utf-8"))
+    executor_result = json.loads(
+        (report_dir / "executor_result.json").read_text(encoding="utf-8")
+    )
+    implementation_result = json.loads(
+        (report_dir / "implementation_result.json").read_text(encoding="utf-8")
+    )
     candidate = json.loads((report_dir / "candidate.ui.json").read_text(encoding="utf-8"))
     messages = [
         json.loads(line)
@@ -111,8 +116,14 @@ def test_hotshot_16_frames_agent_edit_evidence_adds_registry_backed_missing_node
     ]
 
     assert evidence["scenario"] == "hotshot-16-frames-agent-edit"
-    assert result["ok"] is True
-    assert result["apply_allowed"] is True
+    assert executor_result["ok"] is True
+    assert executor_result["route"] == "adapt"
+    assert executor_result["apply_eligible"] is True
+    assert executor_result["candidate"] is not None
+    assert executor_result["no_candidate_reason"] is None
+    assert "ADE_AnimateDiffLoaderWithContext" in (
+        implementation_result.get("message") or ""
+    )
     research_batches = [
         message.get("batch", "")
         for message in messages
@@ -124,16 +135,22 @@ def test_hotshot_16_frames_agent_edit_evidence_adds_registry_backed_missing_node
     assert "Hotshot XL ComfyUI workflow" in research_batches[0]
     assert any("ComfyUI-AnimateDiff-Evolved" in message.get("report", "") for message in messages)
     node_types = {
-        node.get("type")
+        node.get("type") or node.get("class_type")
         for node in candidate.get("nodes", [])
         if isinstance(node, dict)
     }
     assert "ADE_AnimateDiffLoaderWithContext" in node_types
     assert "ADE_UseEvolvedSampling" in node_types
-    assert any(action.get("op") == "agent-edit.run" and action.get("ok") is True for action in actions)
+    assert any(action.get("op") == "executor.run" for action in actions)
     research_actions = [action for action in actions if action.get("op") == "research"]
-    assert [action.get("source") for action in research_actions[:2]] == ["workflows", "registry"]
-    assert any(action.get("op") == "add_node" for action in actions)
+    assert [action.get("source_preferences") for action in research_actions[:1]] == [
+        ["workflows", "registry"]
+    ]
+    implementation_actions = [action for action in actions if action.get("op") == "implementation"]
+    assert any(
+        action.get("added_hotshot_nodes") is True for action in implementation_actions
+    )
+    assert any(action.get("op") == "reply" for action in actions)
 
 
 def test_explore_hotshot_xl_research_route_evidence_stays_structural_fake(

@@ -1875,8 +1875,8 @@ def test_inner_subgraph_nodes_carry_vibecomfy_uid() -> None:
 
 
 def test_raw_widget_order_used_for_count_when_provider_has_it() -> None:
-    """Widget COUNT uses raw object_info_widget_order (nulls included) when
-    the provider supports raw_widget_order."""
+    """Widget COUNT reflects the committed widget table (UI-only slot included)
+    when the provider supports raw_widget_order."""
     from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
     wf = _wf()
@@ -1890,11 +1890,12 @@ def test_raw_widget_order_used_for_count_when_provider_has_it() -> None:
     report: list[dict] = []
     result = emit_ui_json(wf, schema_provider=provider, recovery_report=report)
 
-    # KSampler widget_length_check should reflect the RAW count (10 entries
-    # with 4 nulls), not the compacted count (6 entries).
+    # KSampler widget_length_check should reflect the committed table count
+    # (7 slots incl. the control_after_generate UI-only slot), so 7 values
+    # fit without overflow.
     ksamp_report = next(r for r in report if r["class_type"] == "KSampler")
     wlc = ksamp_report["widget_length_check"]
-    assert "10" in wlc, f"Expected raw count 10 in widget_length_check, got: {wlc}"
+    assert "7<=7" in wlc, f"Expected committed count 7 in widget_length_check, got: {wlc}"
 
     # widgets_values use raw ComfyUI ordering, including the UI-only control slot.
     ksamp_node = next(n for n in result["nodes"] if n["id"] == 1)
@@ -2041,12 +2042,13 @@ def test_widget_order_matches_object_info_for_covered_class() -> None:
     )
     raw_order = _raw_widget_order_from_provider("KSampler", provider)
     assert raw_order is not None, "KSampler should be in the object_info cache"
-    # Raw order from the cache: [null, "seed", "steps", "cfg", "sampler_name", "scheduler", null, null, null, "denoise"]
+    # Raw order from the cache: [null, "seed", null, "steps", "cfg", "sampler_name", "scheduler", null, null, null, "denoise"]
     assert raw_order[0] is None, f"Expected first slot to be None (control_after_generate), got: {raw_order[0]}"
     assert raw_order[1] == "seed"
-    assert raw_order[6] is None, f"Expected slot 6 to be None (UI-only), got: {raw_order[6]}"
-    assert raw_order[9] == "denoise"
-    assert len(raw_order) == 10, f"Expected 10 raw slots for KSampler, got: {len(raw_order)}"
+    assert raw_order[6] == "scheduler", f"Expected slot 6 to be scheduler, got: {raw_order[6]}"
+    assert raw_order[9] is None, f"Expected slot 9 to be None (UI-only), got: {raw_order[9]}"
+    assert raw_order[10] == "denoise"
+    assert len(raw_order) == 11, f"Expected 11 raw slots for KSampler, got: {len(raw_order)}"
 
 
 # ---------------------------------------------------------------------------

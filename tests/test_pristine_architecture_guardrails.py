@@ -210,6 +210,7 @@ def test_partial_rehydrated_gates_normalize_apply_and_queue_eligibility() -> Non
             "ui_emit_ok": True,
             "ui_fidelity_ok": True,
             "ui_load_safe_ok": True,
+            "plan_validate_ok": True,
             "state_match_ok": True,
         },
     )

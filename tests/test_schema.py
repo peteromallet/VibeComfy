@@ -16,6 +16,7 @@ from vibecomfy.ingest.normalize import (
     _schema_source_provenance,
 )
 from vibecomfy.schema import (
+    AuthoringSchemaProvider,
     CompositeSchemaProvider,
     InputSpec,
     ConversionSchemaProvider,
@@ -158,8 +159,11 @@ def test_authoring_schema_provider_prefers_committed_object_info_when_node_index
     assert provider.get_schema("SaveImage").source_provider == "object_info_index"
 
 
-def test_workflow_stub_schemas_are_not_emitted_as_local_node_signatures() -> None:
-    provider = get_authoring_schema_provider()
+def test_workflow_stub_schemas_are_not_emitted_as_local_node_signatures(tmp_path: Path) -> None:
+    provider = AuthoringSchemaProvider(
+        object_info_cache_dir=tmp_path,  # committed sources only — no local out/cache snapshots
+        on_demand_schemas=False,
+    )
 
     assert provider.get_schema("ADE_AnimateDiffLoaderWithContext") is None
 
@@ -171,8 +175,11 @@ def test_workflow_stub_schemas_are_not_emitted_as_local_node_signatures() -> Non
     assert rows == []
 
 
-def test_workflow_stub_index_rows_are_not_in_authoring_schema() -> None:
-    provider = get_authoring_schema_provider()
+def test_workflow_stub_index_rows_are_not_in_authoring_schema(tmp_path: Path) -> None:
+    provider = AuthoringSchemaProvider(
+        object_info_cache_dir=tmp_path,  # committed sources only — no local out/cache snapshots
+        on_demand_schemas=False,
+    )
 
     assert provider.get_schema("Hotshot") is None
     assert provider.get_schema("HotshotXL") is None
@@ -514,7 +521,10 @@ def test_normalize_to_api_maps_widgets_to_schema_input_names() -> None:
         "links": [],
     }
 
-    api = normalize_to_api(raw, schema_provider=provider)
+    # use_comfy_converter=False forces the offline schema-provider-driven
+    # normalizer: the fake PromptNode type is unknown to the live ComfyUI
+    # converter, and this test exercises the schema input-name mapping.
+    api = normalize_to_api(raw, schema_provider=provider, use_comfy_converter=False)
 
     assert api["1"]["inputs"] == {"text": "hello", "ckpt_name": "model.safetensors"}
 

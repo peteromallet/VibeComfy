@@ -21,6 +21,15 @@ PI_TRANSITION_DIR = Path(__file__).resolve().parents[1]
 WORKER_PATH = PI_TRANSITION_DIR / "pi_worker.py"
 HARNESS_AVAILABLE = WORKER_PATH.exists()
 
+_PI_RUNTIME_ROOT = Path(os.environ.get("VIBECOMFY_PI_ROOT", "/tmp/pi-compare/pi"))
+
+
+def _pi_runtime_available() -> bool:
+    """Mirror ``pi_worker._check_pi_available``: the runtime is usable iff the
+    Pi agent ``package.json`` is present at VIBECOMFY_PI_ROOT (default
+    /tmp/pi-compare/pi)."""
+    return (_PI_RUNTIME_ROOT / "packages" / "agent" / "package.json").exists()
+
 
 def _write_request(
     tmp_path: Path,
@@ -73,6 +82,23 @@ def _run_and_read(tmp_path: Path, request: Path, **kwargs) -> dict | None:
 def test_timeout_below_worker_lifetime_kills_process(tmp_path: Path) -> None:
     """Parent timeout shorter than worker runtime → TimeoutExpired, no result.json corruption."""
     req = _write_request(tmp_path, user_message="deliberately-slow-fixture")
+
+    if not _pi_runtime_available():
+        # Current contract without the Pi runtime: the worker fast-fails with a
+        # structured runtime_unavailable envelope instead of running a slow turn,
+        # so the parent-side timeout is never hit. Assert the fast-fail envelope
+        # and that result.json is still complete valid JSON (never a partial write).
+        proc = subprocess.run(
+            [sys.executable, str(WORKER_PATH), str(req), str(tmp_path / "result.json")],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 1
+        data = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+        assert data.get("runtime_unavailable") is True
+        return
 
     with pytest.raises(subprocess.TimeoutExpired):
         subprocess.run(
@@ -144,28 +170,46 @@ def test_concurrent_workers_no_shared_state_leak(tmp_path: Path) -> None:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     messages = [f"message-{i}" for i in range(5)]
-    worker_ids = []
 
-    def run_one(msg: str) -> str:
+    def run_one(msg: str) -> dict | None:
         workdir = tmp_path / f"worker-{msg}"
         workdir.mkdir()
         req = _write_request(workdir, user_message=msg)
-        result = _run_and_read(workdir, req, timeout=30)
-        if result and "content" in result:
-            return result["content"]
-        return f"ERROR: {result}"
+        return _run_and_read(workdir, req, timeout=30)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(run_one, msg): msg for msg in messages}
-        for future in as_completed(futures):
-            msg = futures[future]
-            output = future.result()
-            worker_ids.append(output)
+        results = {futures[future]: future.result() for future in as_completed(futures)}
 
-    # All outputs should be unique (no shared state leakage)
-    assert len(set(worker_ids)) == len(worker_ids), (
-        f"Outputs not unique — possible shared state leak: {worker_ids}"
+    # Every worker produced its own result — none crashed, none cross-wrote.
+    assert set(results) == set(messages), (
+        f"Missing worker results: {set(messages) - set(results)}"
     )
+    for msg, result in results.items():
+        assert result is not None, f"worker {msg} produced no result"
+        assert isinstance(result, dict), f"worker {msg} produced non-dict result"
+
+    if _pi_runtime_available():
+        # Live runtime: each worker returns its own content — duplicate outputs
+        # would mean shared mutable state leaked across workers.
+        outputs = [
+            str(result.get("content") or result.get("message") or result)
+            for result in results.values()
+        ]
+        assert len(set(outputs)) == len(outputs), (
+            f"Outputs not unique — possible shared state leak: {outputs}"
+        )
+    else:
+        # No Pi runtime: every worker fast-fails with the identical
+        # runtime_unavailable envelope. Independence = each workdir holds its own
+        # result and no envelope references another worker's message.
+        for msg, result in results.items():
+            assert result.get("runtime_unavailable") is True, (
+                f"worker {msg} unexpected result: {result}"
+            )
+            assert msg not in str(result), (
+                f"worker {msg} result contaminated by another worker: {result}"
+            )
 
 
 # ── Lifecycle Tests ──────────────────────────────────────────────────────────

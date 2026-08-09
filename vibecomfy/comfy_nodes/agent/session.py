@@ -38,6 +38,7 @@ from .projection_registry_v1 import (
     workflow_identity_v1,
 )
 from .mutation_materialization_v1 import build_mutation_materialization_v1
+from .layout_operation_v1 import build_layout_operation_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
 
 _LOGGER = logging.getLogger(__name__)
@@ -4504,6 +4505,7 @@ def record_idempotent_response(
             and eligibility.get("applyable") is True
         )
         layout_verification = None
+        layout_operation_envelope = None
         if authority_receipt.replay.verification_kind == "layout_structural_noop":
             layout_verification = (
                 {
@@ -4515,6 +4517,9 @@ def record_idempotent_response(
                 else None
             )
             applyable = applyable and layout_verification is not None
+            layout_operation_envelope = build_layout_operation_envelope(
+                submit_graph, candidate_graph
+            )
         transaction = build_candidate_transaction(
             workflow_id=workflow_id,
             session_id=session_id,
@@ -4539,6 +4544,7 @@ def record_idempotent_response(
             replay_ok=authority_receipt.replay.replay_ok,
             candidate_matches=authority_receipt.replay.candidate_matches,
             verification_kind=authority_receipt.replay.verification_kind,
+            layout_operation_envelope=layout_operation_envelope,
             applyable=applyable,
             state="candidate_ready" if applyable else "recoverable_error",
             mutation_materialization_envelope=(

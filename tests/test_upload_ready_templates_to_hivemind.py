@@ -374,6 +374,9 @@ def test_authenticated_endpoint_requires_contributor_key(monkeypatch, tmp_path, 
 
     monkeypatch.setattr(upload, "_repo_root", lambda: tmp_path)
     monkeypatch.delenv("HIVEMIND_CONTRIBUTOR_KEY", raising=False)
+    # The guard reads env first then ~/.hivemind/key on disk; force absence so
+    # the authenticated-endpoint check is actually exercised.
+    monkeypatch.setattr(upload, "_load_contributor_key", lambda: None)
 
     exit_code = upload.main(
         [

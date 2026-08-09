@@ -11,6 +11,7 @@ internal workflow, not just the headless service shell.
 from __future__ import annotations
 
 import json
+import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any, Generator
@@ -82,6 +83,37 @@ def _patch_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run harness scenarios in-process instead of in per-scenario subprocesses.
+
+    The harness runner fans out to isolated ``--single`` subprocesses by
+    default, which would shield the executor from the deterministic fakes
+    these tests install.  The fake subprocess delegates to the runner's own
+    in-process ``run_single`` entry point — the exact code path a subprocess
+    would execute — so the real headless pipeline still runs, with the
+    monkeypatched readiness/executor seams applied.
+    """
+
+    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        from tests.live_agentic_harness.runner import run_single
+
+        scenario_path = cmd[cmd.index("--single") + 1]
+        tag = cmd[cmd.index("--tag") + 1]
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        output_base = (
+            Path(cmd[cmd.index("--output-base") + 1])
+            if "--output-base" in cmd
+            else None
+        )
+        run_single(scenario_path, tag, output_base, out_file)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner.subprocess.run",
+        fake_subprocess_run,
+    )
 
 
 def _minimal_graph() -> dict[str, Any]:
@@ -310,6 +342,7 @@ def test_headless_harness_runner_dispatches_through_real_executor_pipeline(
     """The harness runner discovers a scenario and runs the full executor pipeline."""
     _set_headless_env(monkeypatch)
     _patch_readiness(monkeypatch)
+    _patch_runner_in_process(monkeypatch)
 
     from tests.live_agentic_harness.runner import run_tag
     from vibecomfy.executor import core as executor_core
@@ -331,6 +364,12 @@ def test_headless_harness_runner_dispatches_through_real_executor_pipeline(
 
     monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify)
     monkeypatch.setattr(executor_core, "run_reply_turn", fake_reply)
+
+    # Keep durable session artifacts inside the test tmp dir.
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.executor_durable.DEFAULT_SESSION_ROOT",
+        tmp_path / "sessions",
+    )
 
     scenarios_dir = tmp_path / "scenarios"
     scenarios_dir.mkdir(parents=True, exist_ok=True)

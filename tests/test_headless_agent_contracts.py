@@ -38,6 +38,7 @@ def test_headless_request_to_executor_request() -> None:
         "client_live_canvas_token",
         "expected_baseline_graph_hash",
         "expected_baseline_graph_hash_present",
+        "on_demand_schemas",
     }
 
 

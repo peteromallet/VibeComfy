@@ -262,7 +262,7 @@ const ACCESS_KINDS = new Set([
 const LEDGER_SLICES = new Set(["-", "S2", "S3", "S4"]);
 const SEMANTIC_OWNERS = new Set([
   "agent_status_poller", "comfy_adapter", "intent_graph_adapter",
-  "projection_registry_v1", "test-harness", "vibecomfy_roundtrip",
+  "preview_picker", "projection_registry_v1", "test-harness", "vibecomfy_roundtrip",
 ]);
 const NORMALIZATION_CATEGORIES = new Set([
   "canvas-draw", "capability-detect", "delta-execute", "delta-mutate",
@@ -365,7 +365,7 @@ function validateSemanticConsistency(row) {
     assert.ok(new Set(["applyLayoutOperation", "projectLayoutFromCandidate"]).has(row.target_api));
     assert.ok(new Set(["layout-mutate", "layout-project"]).has(row.normalization_category));
   } else if (row.support_status === "migration_debt") {
-    assert.ok(new Set(["comfy_adapter", "vibecomfy_roundtrip"]).has(row.semantic_owner));
+    assert.ok(new Set(["comfy_adapter", "preview_picker", "vibecomfy_roundtrip"]).has(row.semantic_owner));
     if (row.slice === "S2") {
       assert.ok(new Set(["NGA-010", "NGA-053"]).has(row.id), `${row.id} is not an explicit S2 migration-debt exception`);
       assert.equal(row.normalization_category, "graph-acquire");
@@ -572,12 +572,12 @@ test("machine ledger schema is closed and rejects placeholder metadata", () => {
   assert.throws(() => validateLedger(ledger({ ...row, fixture_proof: { path: "unicorn test that does not exist" } })), /path does not exist/);
 });
 
-test("all 81 rows pass semantic anchors and exact invented mutations fail", async () => {
+test("all 83 rows pass semantic anchors and exact invented mutations fail", async () => {
   const authority = JSON.parse(await readFile(nativeAuthorityLedgerPath, "utf8"));
-  assert.equal(authority.rows.length, 81);
+  assert.equal(authority.rows.length, 83);
   assert.deepEqual(
     authority.rows.map((row) => row.id).sort(),
-    Array.from({ length: 81 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
+    Array.from({ length: 83 }, (_, index) => `NGA-${String(index + 1).padStart(3, "0")}`),
   );
   assert.doesNotThrow(() => validateLedger(authority));
 

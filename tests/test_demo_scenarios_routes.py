@@ -73,20 +73,22 @@ class TestDemoManifest:
         assert len(scenarios) == 13
         assert len(set(ids)) == 13
         assert all(_is_safe_demo_id(sid) for sid in ids)
+        # Campaign bundle demo-candidate-factory 20260723-001: scenarios are
+        # keyed by the campaign case-id hash instead of the old semantic slugs.
         assert {
-            "tts_emotion_injection",
-            "qwen_face_distortion_wrong_slot",
-            "vace_identity_padded_reference",
-            "triporefine_stage_add",
-            "av_fps_desync",
-            "sdxl_plastic_fabric",
-            "wan22_latent_scaling_fix",
-            "llm_caption_override",
-            "animatediff_lineart_enable",
-            "mesh_noise_cleanup",
-            "grid_cells_512",
-            "seed_grid_to_row",
-            "hunyuan_i2v_latent_source",
+            "4d9f4cc4e0cc",
+            "ed9a5be99385",
+            "fa48d41b426e",
+            "525d2dd119c0",
+            "c2ac36fce632",
+            "760468474fe5",
+            "4446f9745c7c",
+            "226cfa590390",
+            "6face6f028bb",
+            "6efa4e39d7e2",
+            "f04edaa629c9",
+            "3f8bb372bd18",
+            "cf9df39da7e1",
         } <= set(ids)
 
     def test_list_endpoint_shape(self):
@@ -94,7 +96,7 @@ class TestDemoManifest:
         assert status == 200
         assert result["ok"] is True
         assert len(result["scenarios"]) == 13
-        assert result["source_run_tree"] == "out/agentic/agentic-100-20260630-021138"
+        assert result["source_run_tree"] == "out/demo-candidate-factory/20260723-001"
 
     def test_every_curated_scenario_resolves_from_packaged_assets(self):
         manifest = _load_demo_manifest()
@@ -106,14 +108,18 @@ class TestDemoManifest:
             assert isinstance(result["original_graph"].get("nodes"), list)
             assert isinstance(result["candidate_graph"].get("nodes"), list)
 
-    def test_qwen_demo_is_bound_to_the_wrong_slot_fix(self):
-        result, status = _resolve_demo_scenario("qwen_face_distortion_wrong_slot")
+    def test_conditioning_demo_fixes_miswired_prompt_feeds(self):
+        # Campaign bundle has no wrong-output-slot case anymore; the closest
+        # defect-class analog is the miswired conditioning feeds scenario: the
+        # positive/negative prompts were bound to the wrong sampler inputs and
+        # the fixer swaps the two CLIPTextEncode feeds back.
+        result, status = _resolve_demo_scenario("525d2dd119c0")
         assert status == 200
-        assert "Wrong output slot" in result["agent_reply"]
-        assert "denoised_output" in result["agent_reply"]
+        assert "wrong sampler inputs" in result["agent_reply"]
+        assert "CLIPTextEncode" in result["agent_reply"]
         assert result["outcome"]["kind"] == "candidate"
         assert any(
-            change.get("field_path") == "samples"
+            change.get("field_path") == "text"
             for change in result["outcome"]["changes"]
         )
         assert result["change_details"]["batch_turns"][0]["field_changes"]
@@ -121,19 +127,19 @@ class TestDemoManifest:
 
     def test_curated_assets_match_their_manifest_provenance_and_semantics(self):
         expected_evidence = {
-            "tts_emotion_injection": ("QwenEmotionNode", "QwenEmotionNode"),
-            "qwen_face_distortion_wrong_slot": ("Wrong output slot", "SamplerCustom"),
-            "vace_identity_padded_reference": ("center-cropped 512×512", "ImageResizeKJv2"),
-            "triporefine_stage_add": ("TripoRefineNode", "TripoRefineNode"),
-            "av_fps_desync": ("frame rate mismatch", "MMAudioSampler"),
-            "sdxl_plastic_fabric": ("CLIPTextEncodeSDXL", "CLIPTextEncodeSDXL"),
-            "wan22_latent_scaling_fix": ("ModelSamplingSD3", "ModelSamplingSD3"),
-            "llm_caption_override": ("hardcoded caption", "Florence2Run"),
-            "animatediff_lineart_enable": ("LineArt", "LineArtPreprocessor"),
-            "mesh_noise_cleanup": ("Hunyuan3D", "VoxelToMeshBasic"),
-            "grid_cells_512": ("512×512", "ImageGridComposite2x2"),
-            "seed_grid_to_row": ("ImageConcatMulti", "ImageConcatMulti"),
-            "hunyuan_i2v_latent_source": ("HyVideoSampler", "HyVideoSampler"),
+            "4d9f4cc4e0cc": ("noise seed", "RandomNoise"),
+            "ed9a5be99385": ("width", "EmptySD3LatentImage"),
+            "fa48d41b426e": ("target_text", "AILab_Qwen3TTSVoiceClone"),
+            "525d2dd119c0": ("wrong sampler inputs", "KSampler"),
+            "c2ac36fce632": ("language", "AILab_Qwen3TTSVoiceDesign"),
+            "760468474fe5": ("refinement pass", "ManualSigmas"),
+            "4446f9745c7c": ("upscale", "ImageScaleBy"),
+            "226cfa590390": ("text-to-song", "TextEncodeAceStepAudio1.5"),
+            "6face6f028bb": ("Lightning", "ModelSamplingAuraFlow"),
+            "6efa4e39d7e2": ("preview", "SamplerCustomAdvanced"),
+            "f04edaa629c9": ("upscale branches", "ImageUpscaleWithModel"),
+            "3f8bb372bd18": ("slow motion", "VHS_VideoCombine"),
+            "cf9df39da7e1": ("pose", "WanVideoEncode"),
         }
         manifest = _load_demo_manifest()
         for record in manifest["scenarios"]:
@@ -174,25 +180,28 @@ class TestDemoManifest:
             )
             fingerprints[digest] = scenario_id
 
-    def test_triporefine_demo_adds_a_real_refinement_stage(self):
-        result, status = _resolve_demo_scenario("triporefine_stage_add")
+    def test_ltx_refinement_demo_adds_a_real_refinement_stage(self):
+        # Campaign bundle replaced the Tripo 3D refinement case with the LTX
+        # video refinement case: the candidate adds a second-stage ManualSigmas
+        # refinement pass wired into the second sampler.
+        result, status = _resolve_demo_scenario("760468474fe5")
         assert status == 200
         assert (
             result["scenario"]["run_location"]["run_dir"]
-            == "3d-3d-model-generation-and-rigging-workflow-90a1d5"
+            == "cases/760468474fe5/attempts/001"
         )
         original_refine_count = sum(
-            node.get("type") == "TripoRefineNode"
+            node.get("type") == "ManualSigmas"
             for node in result["original_graph"]["nodes"]
             if isinstance(node, dict)
         )
         candidate_refine_count = sum(
-            node.get("type") == "TripoRefineNode"
+            node.get("type") == "ManualSigmas"
             for node in result["candidate_graph"]["nodes"]
             if isinstance(node, dict)
         )
         assert candidate_refine_count == original_refine_count + 1
-        assert "fine wrinkles, folds" in result["agent_reply"]
+        assert "refinement pass" in result["agent_reply"]
 
 
 # ── Scenario resolution with mocked filesystem roots ───────────────────────────

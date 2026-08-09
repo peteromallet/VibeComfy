@@ -313,21 +313,24 @@ def test_multinode_dependency_preflight_skips_annotations_and_retries_poisoned_p
         _retry_after_dependency_preflight_failure,
     )
 
+    # W-07 contract: the candidate graph is the legacy path's primary
+    # completeness witness and filters UI-only annotation classes; the
+    # advisory ``required_new_nodes`` list no longer filters them.  The
+    # annotations therefore live on the candidate graph, and derivation must
+    # skip them while keeping the real class.
     plan = {
-        "required_new_nodes": [
-            {"class_type": "Note"},
-            {"class_type": "MarkdownNote"},
-            {"class_type": "RealFeatureNode"},
-        ],
+        "required_new_nodes": [{"class_type": "RealFeatureNode"}],
         "candidate_graph": {
             "1": {"class_type": "KSampler", "inputs": {}},
             "2": {"class_type": "Note", "inputs": {}},
-            "3": {"class_type": "RealFeatureNode", "inputs": {}},
+            "3": {"class_type": "MarkdownNote", "inputs": {}},
+            "4": {"class_type": "RealFeatureNode", "inputs": {}},
         },
     }
     state = SimpleNamespace(
         guard_original_ui=None,
         graph={"1": {"class_type": "KSampler", "inputs": {}}},
+        route="adapt",
         execution_protocol_notes={
             "adaptation_plan": plan,
             "adaptation_plan_actionability": {"actionability": "actionable"},
@@ -346,6 +349,13 @@ def test_multinode_dependency_preflight_skips_annotations_and_retries_poisoned_p
     assert state.execution_protocol_notes["synthesis_retry"]["trigger"] == (
         "dependency_preflight_failed"
     )
+    assert state.execution_protocol_notes["synthesis_retry"][
+        "rejected_class_types"
+    ] == ["RealFeatureNode"]
+    assert state.execution_protocol_notes["adaptation_plan_actionability"] == {
+        "actionability": "non_actionable",
+        "non_actionable_reason": "dependency_preflight_failed_retry_synthesis",
+    }
     assert state.executor_adaptation_plan is None
 
 

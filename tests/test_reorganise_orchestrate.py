@@ -638,7 +638,9 @@ def test_apply_layout_candidate_patch_to_ui_only_mutates_furniture_and_reports_n
 
     assert ui == original
     assert result.layout_only_structural_noop is True
-    assert result.structural_hash_before == result.structural_hash_after
+    # Structural hash now includes layout (group geometry + node furniture); a
+    # layout-only change must move it while the topology-based noop stays True.
+    assert result.structural_hash_before != result.structural_hash_after
     assert "checkpoint" in result.applied_entry_keys
     assert nested_key in result.applied_entry_keys
     applied = result.ui_json

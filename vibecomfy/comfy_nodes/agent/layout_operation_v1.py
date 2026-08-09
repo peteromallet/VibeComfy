@@ -341,6 +341,113 @@ def assert_layout_operation_envelope(value: Any) -> dict[str, Any]:
     return normalized
 
 
+def _layout_node_uid(node: Mapping[str, Any]) -> str:
+    """Stable node identity: ``vibecomfy_uid`` (or nested property) else ``id``."""
+    properties = node.get("properties")
+    nested = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+    value = node.get("vibecomfy_uid") if node.get("vibecomfy_uid") is not None else nested
+    if value not in (None, ""):
+        return str(value)
+    return str(node.get("id", ""))
+
+
+def _layout_group_id(group: Mapping[str, Any]) -> str:
+    """Stable group identity: ``vibecomfy_group_id`` else ``id``."""
+    value = group.get("vibecomfy_group_id")
+    if value in (None, ""):
+        value = group.get("id")
+    return str(value) if value not in (None, "") else ""
+
+
+def build_layout_operation_envelope(
+    submit_graph: Mapping[str, Any] | None,
+    candidate_graph: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Derive the canonical layout operation envelope from a graph diff.
+
+    Layout-family candidates (``layout_structural_noop``) carry no semantic
+    delta; their forward mutation is the candidate layout itself.  This builds
+    the operation envelope from the observable node/group geometry difference
+    between the submit graph and the candidate graph, so the durable
+    transaction binds reproducible layout evidence.
+
+    Ops are emitted deterministically (nodes by stable uid, groups by stable
+    id); geometry values are copied verbatim and normalised by the digest
+    preimage, matching the JS mirror.
+    """
+    submit_nodes: dict[str, Mapping[str, Any]] = {}
+    for node in submit_graph.get("nodes", ()) if isinstance(submit_graph, Mapping) else ():
+        if isinstance(node, Mapping):
+            submit_nodes[_layout_node_uid(node)] = node
+    candidate_nodes: dict[str, Mapping[str, Any]] = {}
+    for node in candidate_graph.get("nodes", ()) if isinstance(candidate_graph, Mapping) else ():
+        if isinstance(node, Mapping):
+            candidate_nodes[_layout_node_uid(node)] = node
+    submit_groups: dict[str, Mapping[str, Any]] = {}
+    for group in submit_graph.get("groups", ()) if isinstance(submit_graph, Mapping) else ():
+        if isinstance(group, Mapping):
+            submit_groups[_layout_group_id(group)] = group
+    candidate_groups: dict[str, Mapping[str, Any]] = {}
+    for group in candidate_graph.get("groups", ()) if isinstance(candidate_graph, Mapping) else ():
+        if isinstance(group, Mapping):
+            candidate_groups[_layout_group_id(group)] = group
+
+    ops: list[dict[str, Any]] = []
+    for uid in sorted(candidate_nodes):
+        node = candidate_nodes[uid]
+        prev = submit_nodes.get(uid)
+        pos = node.get("pos")
+        size = node.get("size")
+        # No geometry on the candidate side: nothing representable as a
+        # set_node_geometry op (normalize requires at least ``pos``).
+        if pos is None and size is None:
+            continue
+        prev_pos = prev.get("pos") if prev is not None else None
+        prev_size = prev.get("size") if prev is not None else None
+        if pos == prev_pos and size == prev_size:
+            continue
+        op: dict[str, Any] = {"op": "set_node_geometry", "uid": uid}
+        if pos is not None:
+            op["pos"] = pos
+        if size is not None:
+            op["size"] = size
+        ops.append(op)
+
+    for gid in sorted(candidate_groups):
+        group = candidate_groups[gid]
+        prev = submit_groups.get(gid)
+        if prev is None:
+            # normalize requires ``bounding`` for add_group; skip groups that
+            # carry no geometry at all.
+            if group.get("bounding") is None:
+                continue
+            op: dict[str, Any] = {"op": "add_group", "id": gid}
+            for key in ("bounding", "title", "color"):
+                value = group.get(key)
+                if value is not None:
+                    op[key] = value
+            ops.append(op)
+        else:
+            changed: dict[str, Any] = {}
+            for key in ("bounding", "title", "color"):
+                value = group.get(key)
+                if value != prev.get(key) and value is not None:
+                    changed[key] = value
+            if changed:
+                ops.append({"op": "set_group_geometry", "id": gid, **changed})
+
+    for gid in sorted(submit_groups):
+        if gid not in candidate_groups:
+            ops.append({"op": "remove_group", "id": gid})
+
+    return {
+        "contract_version": LAYOUT_OPERATION_CONTRACT_V1,
+        "wire_version": LAYOUT_OPERATION_WIRE_VERSION,
+        "ops": ops,
+        "digest": compute_layout_operation_digest(ops),
+    }
+
+
 __all__ = [
     "LAYOUT_OPERATION_CONTRACT_V1",
     "LAYOUT_OPERATION_WIRE_VERSION",
@@ -349,4 +456,5 @@ __all__ = [
     "compute_layout_operation_digest",
     "normalize_layout_operation_v1",
     "assert_layout_operation_envelope",
+    "build_layout_operation_envelope",
 ]

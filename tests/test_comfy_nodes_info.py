@@ -84,6 +84,10 @@ def test_missing_git_metadata_is_closed_set_and_actionable(info_module, monkeypa
         diagnostic=RuntimeError(secret),
     )
     monkeypatch.setattr(info_module, "_web_source_hash", lambda: "123456789abc")
+    # Pin the served-asset dimension so remediation is the closed set for the
+    # missing-git problem alone; without this the checkout's real web_dist hash
+    # (which differs from the fake hash) adds restart_with_matching_web_assets.
+    monkeypatch.setattr(info_module, "WEB_DIRECTORY", "./web")
 
     payload = info_module._info_payload()
 

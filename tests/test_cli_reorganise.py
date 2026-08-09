@@ -189,6 +189,9 @@ def test_reorganise_preview_writes_artifacts_and_sanitized_report(
     assert manifest["options"]["compile_options"]["existing_group_policy"] == "preserve"
     assert manifest["options"]["compile_options"]["force_regroup"] is False
     assert manifest["apply_data"]["layout_only_structural_noop"] is True
+    # Preview apply_data snapshots the source graph's structural hash on both
+    # sides (equal by construction); the re-applied patch_apply evidence below
+    # carries the before/after pair where the layout-inclusive hash moves.
     assert (
         manifest["apply_data"]["structural_hash_before"]
         == manifest["apply_data"]["structural_hash_after"]
@@ -223,7 +226,7 @@ def test_reorganise_preview_writes_artifacts_and_sanitized_report(
     assert evidence["patch_apply"]["layout_only_structural_noop"] is True
     assert (
         evidence["patch_apply"]["structural_hash_before"]
-        == evidence["patch_apply"]["structural_hash_after"]
+        != evidence["patch_apply"]["structural_hash_after"]
     )
     assert (
         evidence["patch_apply"]["candidate_patch_sha256"]

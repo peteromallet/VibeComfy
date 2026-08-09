@@ -433,7 +433,7 @@ export function appendCandidateDetail(body, panel, message = null, snapshot = nu
     const canvasApplyAllowed = snapshot?.canvasApplyAllowed ?? panel.state.canvasApplyAllowed;
     const queueAllowed = snapshot?.queueAllowed ?? panel.state.queueAllowed;
     appendTextLine(body, `canvas_apply_allowed=${String(canvasApplyAllowed)}`, canvasApplyAllowed ? "#4caf50" : "#ffb86c");
-    appendTextLine(body, `queue_allowed=${String(queueAllowed)}`, queueAllowed ? "#4caf50" : "#ffb86c");
+    appendTextLine(body, `queueAllowed=${String(queueAllowed)}`, queueAllowed ? "#4caf50" : "#ffb86c");
   }
   appendTextLine(body, `apply_eligibility=${eligibility.reason}`, eligibility.applyable ? "#4caf50" : "#ffb86c");
   if (eligibility.message) {
@@ -555,7 +555,7 @@ export function appendFailureDetail(body, panel, snapshot = null, deps = {}) {
   appendTextLine(body, failure.user_facing_message || failure.message || failure.error || "Unknown failure", "#edf2f7");
   if (!normalDetailMode) {
     appendTextLine(body, `retryable=${String(Boolean(failure.retryable))} graph_unchanged=${String(Boolean(failure.graph_unchanged))}`, "#8d93a1");
-    appendTextLine(body, `canvas_apply_allowed=${String(Boolean(failure.canvas_apply_allowed))} queue_allowed=${String(Boolean(failure.queue_allowed))}`, "#8d93a1");
+    appendTextLine(body, `canvas_apply_allowed=${String(Boolean(failure.canvas_apply_allowed))} queueAllowed=${String(Boolean(failure.queueAllowed ?? failure.queue_allowed ?? panel.state.queueAllowed))}`, "#8d93a1");
   }
   const stageInfo = getBackendStageInfo(failure);
   if (!normalDetailMode && stageInfo) {

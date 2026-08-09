@@ -274,14 +274,17 @@ def test_build_search_corpus_warns_when_explicit_schema_provider_fails(
 
     entries = build_search_corpus(schema_provider=FailingSchemaProvider(), warnings=warnings)
 
-    assert entries == []
+    # Schema discovery failure must not abort the corpus build: the packaged
+    # indexes (ready templates, workflows) still resolve and surface.
+    assert entries, "corpus should still surface packaged-index entries"
+    assert all(entry.source != "object_info" for entry in entries)
     assert len(warnings) == 1
     assert warnings[0].source == "object_info"
     assert "object_info schema discovery failed" in warnings[0].message
     assert "RuntimeError: boom" in warnings[0].message
 
 
-def test_build_search_corpus_surfaces_only_ready_template_python_for_workflows(
+def test_build_search_corpus_surfaces_ready_templates_and_json_workflow_sources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -371,9 +374,11 @@ def test_build_search_corpus_surfaces_only_ready_template_python_for_workflows(
     assert "prompt" in ready.tags
     assert "LTXVLoader" in ready.tags
 
-    assert "image/json_only_template" not in by_id
-    assert "wan_official_i2v" not in by_id
-    assert "flux_depth_control" not in by_id
+    assert "image/json_only_template" in by_id
+    assert "wan_official_i2v" in by_id
+    assert "flux_depth_control" in by_id
+    # Coverage manifest rows with non-python paths are metadata only — they do
+    # not produce their own corpus entries.
     assert "coverage_json_only" not in by_id
 
     workflow_entries = [
@@ -382,7 +387,14 @@ def test_build_search_corpus_surfaces_only_ready_template_python_for_workflows(
         if entry.source in {"ready_template", "source_workflow", "external_workflow", "curated", "custom_node_examples"}
     ]
     assert workflow_entries
-    assert all(entry.path is None or entry.path.endswith(".py") for entry in workflow_entries)
+    assert all(entry.path is not None for entry in workflow_entries)
+    # The corpus now surfaces raw JSON workflow sources as well as ready-template python.
+    entry_sources = {entry.source for entry in entries}
+    assert "ready_template" in entry_sources
+    assert "source_workflow" in entry_sources
+    assert "external_workflow" in entry_sources
+    assert by_id["image/json_only_template"].source == "source_workflow"
+    assert by_id["flux_depth_control"].source == "external_workflow"
 
     results = search_entries(entries, "ltx2 3", limit=5)
     assert results[0].entry.class_type == "video/ltx2_3_t2v"

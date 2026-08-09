@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
 from vibecomfy.porting.layout.reconcile import (
     ReconcileResult,
     _subgraph_content_hash,
@@ -885,7 +885,10 @@ def test_music_video_monster_subgraph_definitions_hit():
         pytest.skip("music-video monster corpus file not found")
 
     data = json.load(open(_MUSIC_VIDEO_PATH))
-    wf = convert_to_vibe_format(data)
+    # Offline normalization preserves the UUID subgraph container nodes — the
+    # live ComfyUI converter expands them, which would defeat stage 4 matching.
+    api = normalize_to_api(data, use_comfy_converter=False)
+    wf = convert_to_vibe_format(api)
 
     # Build synthetic definitions store with 10 entries (6 real + 4 synthetic extras).
     definitions: dict = {}
@@ -947,7 +950,10 @@ def test_music_video_monster_subgraph_definitions_miss():
         pytest.skip("music-video monster corpus file not found")
 
     data = json.load(open(_MUSIC_VIDEO_PATH))
-    wf = convert_to_vibe_format(data)
+    # Offline normalization preserves the UUID subgraph container nodes — the
+    # live ComfyUI converter expands them, which would defeat stage 4 matching.
+    api = normalize_to_api(data, use_comfy_converter=False)
+    wf = convert_to_vibe_format(api)
 
     stale_hash = "0000000000000000"
     definitions = {}

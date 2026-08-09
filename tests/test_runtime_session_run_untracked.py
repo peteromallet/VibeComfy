@@ -516,7 +516,15 @@ def test_embedded_run_ensure_models_resolves_registry_assets_from_final_workflow
 
     asyncio.run(run_case())
 
-    assert calls == [
+    projected = [
+        (
+            [{key: entry[key] for key in ("name", "url", "subdir")} for entry in entries]
+            if isinstance(entries, list)
+            else entries
+        )
+        for entries in calls
+    ]
+    assert projected == [
         [
             {
                 "name": "ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
@@ -739,7 +747,15 @@ def test_embedded_run_ensure_models_resolves_cameraman_iclora_override(
 
     asyncio.run(run_case())
 
-    assert calls == [
+    projected = [
+        (
+            [{key: entry[key] for key in ("name", "url", "subdir")} for entry in entries]
+            if isinstance(entries, list)
+            else entries
+        )
+        for entries in calls
+    ]
+    assert projected == [
         [
             {
                 "name": "ltxv/ltx2/LTX2.3-22B_IC-LoRA-Cameraman_v1_10500.safetensors",

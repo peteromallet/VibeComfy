@@ -57,6 +57,7 @@ const FIELD_RULES_V1 = Object.freeze({
   "group.title": FIELD_CATEGORY.LAYOUT_SEMANTIC,
   "group.bounding": FIELD_CATEGORY.LAYOUT_SEMANTIC,
   "group.color": FIELD_CATEGORY.LAYOUT_SEMANTIC,
+  "group.nodes": FIELD_CATEGORY.LAYOUT_SEMANTIC,
 });
 
 export function classifyFieldV1({ entity, path, nodeType = null }) {

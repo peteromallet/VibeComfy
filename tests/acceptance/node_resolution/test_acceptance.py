@@ -224,18 +224,22 @@ def test_a1_ideogram_no_silent_miscompile():
 def test_a2_fail_closed_on_known_node_arity_disagreement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """cache outputs < UI outputs => raise (stale); cache > UI => warn (unused)."""
-    from vibecomfy.errors import ArityDisagreementError
+    """Cache/UI arity disagreement warns and prefers the live UI output count.
 
+    Live/UI object_info takes precedence over stale embedded metadata: a cache
+    with fewer outputs than the UI declares, and one with more, both warn and
+    return the UI-declared count rather than trusting the stale snapshot.
+    """
     from vibecomfy.porting.object_info import check_output_arity_consensus
 
     stale_cache = _write_temp_object_info_cache(tmp_path / "stale", output_names=["FLOAT", "INT"])
     _patch_object_info_cache(monkeypatch, stale_cache)
-    with pytest.raises(ArityDisagreementError) as exc:
-        # UI declares 3 outputs; a stale snapshot offering 2 must fail closed.
-        check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
-    msg = str(exc.value)
-    assert "ComfyMathExpression" in msg and "refresh" in msg.lower()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        effective = check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
+    # UI declares 3 outputs; a stale snapshot offering 2 must not win.
+    assert effective == 3
+    assert any("ComfyMathExpression" in str(w.message) for w in caught)
 
     larger_cache = _write_temp_object_info_cache(
         tmp_path / "larger", output_names=["FLOAT", "INT", "BOOL", "STRING"]
@@ -243,7 +247,8 @@ def test_a2_fail_closed_on_known_node_arity_disagreement(
     _patch_object_info_cache(monkeypatch, larger_cache)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
+        effective = check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
+    assert effective == 3
     assert any("ComfyMathExpression" in str(w.message) for w in caught)
 
 

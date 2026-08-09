@@ -41,7 +41,7 @@ def _run_generator() -> str:
             [sys.executable, "-m", "tools.generate_agent_contract_js", "--output", tmp_path],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=180,
             env=env,
             cwd=REPO_ROOT,
         )

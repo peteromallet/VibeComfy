@@ -1,87 +1,1627 @@
 {
-  "contract": "native_authority_ledger_v1",
-  "schema_version": 1,
-  "rows": [
-    {"id":"NGA-001","file":"agent_status_poller.js","region":"scrubDebugPayload","accesses":{"native_links":2},"purpose":"Bound diagnostic graph-link projection","semantic_owner":"agent_status_poller","target_api":"projection-only","slice":"-","projection_identity_effect":"redacted diagnostic projection","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-002","file":"comfy_adapter.js","region":"applyGraphCandidateInPlace","accesses":{"graph_clear":1,"graph_configure":1},"purpose":"Compensation-only whole graph replacement","semantic_owner":"comfy_adapter","target_api":"forbidden-forward","slice":"S4","projection_identity_effect":"whole graph replacement","normalization_category":"forbidden-forward","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-003","file":"comfy_adapter.js","region":"applyGraphDeltaInPlace","accesses":{"graph_clear":1,"graph_configure":1,"serialize":2,"stable_identity":1},"purpose":"Apply canonical delta with harness fallback","semantic_owner":"comfy_adapter","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"delta mutation","normalization_category":"delta-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-004","file":"comfy_adapter.js","region":"applyGraphLayoutInPlace","accesses":{"graph_add":1,"graph_remove":1,"group_construct":1,"native_groups":3,"native_nodes":1,"serialize":2,"stable_identity":4},"purpose":"Apply versioned layout candidate","semantic_owner":"comfy_adapter","target_api":"applyLayoutOperation","slice":"S4","projection_identity_effect":"layout and group mutation","normalization_category":"layout-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"blocking_migration"},
-    {"id":"NGA-005","file":"comfy_adapter.js","region":"applyPreflightPlanLive","accesses":{"graph_add":2,"graph_remove":2},"purpose":"Execute preflighted native delta plan","semantic_owner":"comfy_adapter","target_api":"applyPreflightPlan","slice":"S4","projection_identity_effect":"live delta mutation","normalization_category":"delta-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-006","file":"comfy_adapter.js","region":"buildGraphIndex","accesses":{"stable_identity":1},"purpose":"Index graph nodes by stable identity","semantic_owner":"comfy_adapter","target_api":"resolveStableIdentity","slice":"S3","projection_identity_effect":"identity index","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-007","file":"comfy_adapter.js","region":"buildMockAppFromProfile","accesses":{"graph_clear":1,"native_nodes":1},"purpose":"Browser harness native graph fixture","semantic_owner":"test-harness","target_api":"test-only","slice":"-","projection_identity_effect":"none","normalization_category":"harness","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"permitted_harness"},
-    {"id":"NGA-008","file":"comfy_adapter.js","region":"canonicalNodeUid","accesses":{"stable_identity":1},"purpose":"Read stable node UID","semantic_owner":"comfy_adapter","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"stable UID translation","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-009","file":"comfy_adapter.js","region":"configureLiveGroup","accesses":{"group_configure":1},"purpose":"Configure native layout group","semantic_owner":"comfy_adapter","target_api":"applyLayoutOperation","slice":"S4","projection_identity_effect":"group mutation","normalization_category":"layout-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"blocking_migration"},
-    {"id":"NGA-010","file":"comfy_adapter.js","region":"getLiveGraph","accesses":{"graph_acquire":1},"purpose":"Private transitional live graph acquisition","semantic_owner":"comfy_adapter","target_api":"intent_graph_adapter.acquire","slice":"S2","projection_identity_effect":"live reference","normalization_category":"graph-acquire","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-011","file":"comfy_adapter.js","region":"getNodeFieldValue","accesses":{"widget_rebuild":1},"purpose":"Dispatch native widget-field reads during delta preflight","semantic_owner":"comfy_adapter","target_api":"nativeNormalization","slice":"S3","projection_identity_effect":"widget normalization","normalization_category":"widget-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-012","file":"comfy_adapter.js","region":"iterateLinkRecords","accesses":{"native_links":1},"purpose":"Normalize serialized link containers","semantic_owner":"comfy_adapter","target_api":"enumerateLinks","slice":"S3","projection_identity_effect":"link normalization","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-013","file":"comfy_adapter.js","region":"linkShapeForGraph","accesses":{"native_links":2},"purpose":"Determine live link store shape","semantic_owner":"comfy_adapter","target_api":"enumerateLiveLinks","slice":"S3","projection_identity_effect":"link normalization","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-014","file":"comfy_adapter.js","region":"liveLinkEntries","accesses":{"native_links":1},"purpose":"Enumerate native link store","semantic_owner":"comfy_adapter","target_api":"enumerateLiveLinks","slice":"S3","projection_identity_effect":"link normalization","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-015","file":"comfy_adapter.js","region":"liveLinkMapDelete","accesses":{"native_links":10},"purpose":"Delete native link map entry","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.remove_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-016","file":"comfy_adapter.js","region":"liveLinkMapSet","accesses":{"native_links":7},"purpose":"Insert native link map entry","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.upsert_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-017","file":"comfy_adapter.js","region":"liveNodeIndex","accesses":{"native_nodes":2,"stable_identity":1},"purpose":"Index live nodes by stable UID","semantic_owner":"comfy_adapter","target_api":"resolveLiveNodeByUid","slice":"S3","projection_identity_effect":"identity index","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-018","file":"comfy_adapter.js","region":"preflightDeltaPlan","accesses":{"stable_identity":1},"purpose":"Resolve preflight targets by stable identity","semantic_owner":"comfy_adapter","target_api":"preflightDeltaPlan","slice":"S4","projection_identity_effect":"delta authority binding","normalization_category":"delta-preflight","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-019","file":"comfy_adapter.js","region":"projectCandidateGraphToRuntimeLayout","accesses":{"stable_identity":1},"purpose":"Project layout by stable UID","semantic_owner":"comfy_adapter","target_api":"projectLayoutFromCandidate","slice":"S4","projection_identity_effect":"layout identity binding","normalization_category":"layout-project","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"blocking_migration"},
-    {"id":"NGA-020","file":"comfy_adapter.js","region":"removeLinkFromSerializedGraph","accesses":{"native_links":2},"purpose":"Remove serialized link during preflight","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.remove_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-021","file":"comfy_adapter.js","region":"removeLiveLink","accesses":{"remove_link":2,"socket_rebuild":3},"purpose":"Remove native link","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.remove_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-022","file":"comfy_adapter.js","region":"repaintGraph","accesses":{"canvas_dirty":1,"graph_dirty":2},"purpose":"Private transitional canvas invalidation","semantic_owner":"comfy_adapter","target_api":"intent_graph_adapter.repaint","slice":"S2","projection_identity_effect":"none","normalization_category":"canvas-draw","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"permitted_canvas"},
-    {"id":"NGA-023","file":"comfy_adapter.js","region":"resolveEndpoint","accesses":{"stable_identity":1},"purpose":"Resolve link endpoint by stable identity","semantic_owner":"comfy_adapter","target_api":"resolveStableIdentity","slice":"S3","projection_identity_effect":"link identity translation","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-024","file":"comfy_adapter.js","region":"resolveFactory","accesses":{"node_factory":2},"purpose":"Resolve native node factory","semantic_owner":"comfy_adapter","target_api":"resolveNodeFactory","slice":"S3","projection_identity_effect":"node materialization","normalization_category":"factory-resolve","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-025","file":"comfy_adapter.js","region":"setNodeFieldValue","accesses":{"widget_rebuild":1},"purpose":"Dispatch exact native widget-field mutation","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.set_node_field","slice":"S4","projection_identity_effect":"widget mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-026","file":"comfy_adapter.js","region":"upsertLinkInSerializedGraph","accesses":{"native_links":2,"socket_rebuild":2},"purpose":"Upsert serialized link during preflight","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.upsert_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-027","file":"comfy_adapter.js","region":"upsertLiveLink","accesses":{"native_links":2,"node_connect":1,"socket_rebuild":2},"purpose":"Create native link via LiteGraph API","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.upsert_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-028","file":"intent_graph_adapter.js","region":"captureRevision","accesses":{"graph_revision":6},"purpose":"Capture typed live revision token","semantic_owner":"intent_graph_adapter","target_api":"captureRevision","slice":"S2","projection_identity_effect":"revision only","normalization_category":"revision-capture","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-029","file":"intent_graph_adapter.js","region":"captureSerialized","accesses":{"serialize":1},"purpose":"Capture immutable serialized graph","semantic_owner":"intent_graph_adapter","target_api":"capture","slice":"S2","projection_identity_effect":"immutable clone","normalization_category":"serialize-capture","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-030","file":"intent_graph_adapter.js","region":"consider","accesses":{"graph_acquire":2},"purpose":"Resolve unique live graph reference","semantic_owner":"intent_graph_adapter","target_api":"acquire","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"graph-acquire","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-031","file":"intent_graph_adapter.js","region":"deltaApplyCapability","accesses":{"graph_add":1,"graph_clear":1,"graph_configure":1,"graph_remove":1,"native_nodes":1,"serialize":2},"purpose":"Probe delta native capability","semantic_owner":"intent_graph_adapter","target_api":"capabilities.delta_apply","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"capability-detect","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-032","file":"intent_graph_adapter.js","region":"layoutApplyCapability","accesses":{"graph_add":1,"graph_remove":1,"native_groups":1,"native_nodes":1,"serialize":1},"purpose":"Probe layout native capability","semantic_owner":"intent_graph_adapter","target_api":"capabilities.layout_apply","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"capability-detect","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-033","file":"intent_graph_adapter.js","region":"nodeFactoryAvailable","accesses":{"node_factory":1},"purpose":"Probe node factory capability","semantic_owner":"intent_graph_adapter","target_api":"capabilities.delta_apply","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"capability-detect","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-034","file":"intent_graph_adapter.js","region":"repaint","accesses":{"canvas_dirty":1,"canvas_draw":1,"graph_dirty":2},"purpose":"Invalidate graph canvas through typed adapter","semantic_owner":"intent_graph_adapter","target_api":"repaint","slice":"S2","projection_identity_effect":"none","normalization_category":"canvas-draw","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-035","file":"projection_registry_v1.js","region":"buildStructuralGraphProjection","accesses":{"native_links":2},"purpose":"Project serialized structural links","semantic_owner":"projection_registry_v1","target_api":"projectGraphV1","slice":"-","projection_identity_effect":"structural projection","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-036","file":"projection_registry_v1.js","region":"cleanWidgets","accesses":{"widget_rebuild":1},"purpose":"Normalize serialized widget values","semantic_owner":"projection_registry_v1","target_api":"projectGraphV1","slice":"-","projection_identity_effect":"execution projection","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-037","file":"projection_registry_v1.js","region":"graphLinkIdentitiesV1","accesses":{"native_links":2},"purpose":"Project stable link identities","semantic_owner":"projection_registry_v1","target_api":"graphLinkIdentitiesV1","slice":"-","projection_identity_effect":"stable link identity","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-038","file":"projection_registry_v1.js","region":"nodeIdentityV1","accesses":{"stable_identity":1},"purpose":"Project stable node identity","semantic_owner":"projection_registry_v1","target_api":"nodeIdentityV1","slice":"-","projection_identity_effect":"stable node identity","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-039","file":"projection_registry_v1.js","region":"stablePreviewLinkMapV1","accesses":{"native_links":5},"purpose":"Project stable preview link map","semantic_owner":"projection_registry_v1","target_api":"stablePreviewLinkMapV1","slice":"-","projection_identity_effect":"stable preview identity","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-040","file":"vibecomfy_roundtrip.js","region":"applyRenderedNodeSizesToSerializedGraph","accesses":{"graph_acquire":4,"native_nodes":2},"purpose":"Measure rendered native node sizes","semantic_owner":"vibecomfy_roundtrip","target_api":"captureImmutableGraph.measurements","slice":"S3","projection_identity_effect":"layout measurement","normalization_category":"native-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-041","file":"vibecomfy_roundtrip.js","region":"attemptScopedCanvasRollback","accesses":{"load_graph_data":2},"purpose":"Compensate failed scoped mutation","semantic_owner":"vibecomfy_roundtrip","target_api":"restoreAuthorized","slice":"S4","projection_identity_effect":"whole graph restore","normalization_category":"restore-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-042","file":"vibecomfy_roundtrip.js","region":"buildGraphNodeIndex","accesses":{"stable_identity":1},"purpose":"Index serialized nodes by stable identity","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"stable identity index","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-043","file":"vibecomfy_roundtrip.js","region":"buildInverseDeltaOps","accesses":{"native_normalization":1,"stable_identity":7},"purpose":"Build inverse operations with stable identity","semantic_owner":"vibecomfy_roundtrip","target_api":"applyInverseDelta","slice":"S4","projection_identity_effect":"inverse authority","normalization_category":"restore-preflight","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-044","file":"vibecomfy_roundtrip.js","region":"canonicalNodeUid","accesses":{"stable_identity":1},"purpose":"Read local stable node UID","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"stable UID translation","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-045","file":"vibecomfy_roundtrip.js","region":"collectQueueIssues","accesses":{"stable_identity":1},"purpose":"Identify queue issues by stable UID","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"queue diagnostic identity","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-046","file":"vibecomfy_roundtrip.js","region":"computePreviewDiff","accesses":{"native_links":1},"purpose":"Compute preview link differences","semantic_owner":"vibecomfy_roundtrip","target_api":"immutablePreviewProjection","slice":"S3","projection_identity_effect":"preview link projection","normalization_category":"preview-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-047","file":"vibecomfy_roundtrip.js","region":"decorateIntentGraphPayload","accesses":{"native_normalization":1},"purpose":"Normalize intent graph payload","semantic_owner":"vibecomfy_roundtrip","target_api":"nativeNormalization","slice":"S3","projection_identity_effect":"intent node normalization","normalization_category":"native-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-048","file":"vibecomfy_roundtrip.js","region":"decorateIntentNode","accesses":{"socket_rebuild":2},"purpose":"S4 mutation: decorateIntentNode removes and rebuilds live sockets, reclassified from S3 because it mutates native socket arrays rather than observing them","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"live socket mutation","normalization_category":"socket-rebuild","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-049","file":"vibecomfy_roundtrip.js","region":"doApply","accesses":{"load_graph_data":1},"purpose":"Apply candidate through legacy materialization path","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"whole graph materialization","normalization_category":"forbidden-forward","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-050","file":"vibecomfy_roundtrip.js","region":"ensureLiveGraphLinkStore","accesses":{"native_links":8,"native_normalization":1},"purpose":"S4 mutation: ensureLiveGraphLinkStore replaces the native graph.links store (Map/Proxy/class) with plain objects, reclassified from S3 because it mutates the live link store rather than enumerating it","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"live link store mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-051","file":"vibecomfy_roundtrip.js","region":"findSerializedLinkByTarget","accesses":{"native_normalization":1},"purpose":"Find normalized serialized target link","semantic_owner":"vibecomfy_roundtrip","target_api":"enumerateLinks","slice":"S3","projection_identity_effect":"link normalization","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-052","file":"vibecomfy_roundtrip.js","region":"finish","accesses":{"load_graph_data":1},"purpose":"Restore graph after preview fixture","semantic_owner":"vibecomfy_roundtrip","target_api":"restoreAuthorized","slice":"S4","projection_identity_effect":"whole graph restore","normalization_category":"restore-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-053","file":"vibecomfy_roundtrip.js","region":"getLiveGraph","accesses":{"graph_acquire":1},"purpose":"Legacy local live graph acquisition","semantic_owner":"vibecomfy_roundtrip","target_api":"intent_graph_adapter.acquire","slice":"S2","projection_identity_effect":"live reference","normalization_category":"graph-acquire","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-054","file":"vibecomfy_roundtrip.js","region":"getLiveGraphNodes","accesses":{"native_nodes":2},"purpose":"Legacy local live node enumeration","semantic_owner":"vibecomfy_roundtrip","target_api":"intent_graph_adapter.enumerateNodes","slice":"S3","projection_identity_effect":"native node snapshot","normalization_category":"native-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-055","file":"vibecomfy_roundtrip.js","region":"getUid","accesses":{"stable_identity":1},"purpose":"Read graph UID for preview diff","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"stable identity","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-056","file":"vibecomfy_roundtrip.js","region":"installIntentNodeFallback","accesses":{"load_graph_data":2},"purpose":"Install fallback intent nodes","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"whole graph materialization","normalization_category":"forbidden-forward","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-057","file":"vibecomfy_roundtrip.js","region":"liveGraphNodeIndex","accesses":{"stable_identity":1},"purpose":"Index live graph by stable UID","semantic_owner":"vibecomfy_roundtrip","target_api":"resolveLiveNodeByUid","slice":"S3","projection_identity_effect":"stable identity index","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-058","file":"vibecomfy_roundtrip.js","region":"loadGraphDataWithoutScopeSwitch","accesses":{"load_graph_data":1},"purpose":"Load graph while preserving workflow scope","semantic_owner":"vibecomfy_roundtrip","target_api":"restoreAuthorized","slice":"S4","projection_identity_effect":"whole graph materialization","normalization_category":"restore-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-059","file":"vibecomfy_roundtrip.js","region":"lookupLiveNodeByUid","accesses":{"stable_identity":1},"purpose":"Lookup live node by stable UID","semantic_owner":"vibecomfy_roundtrip","target_api":"resolveLiveNodeByUid","slice":"S3","projection_identity_effect":"stable identity lookup","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-060","file":"vibecomfy_roundtrip.js","region":"normalizedSerializedLinks","accesses":{"native_links":3,"native_normalization":1},"purpose":"Normalize serialized link representation","semantic_owner":"vibecomfy_roundtrip","target_api":"enumerateLinks","slice":"S3","projection_identity_effect":"link normalization","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-061","file":"vibecomfy_roundtrip.js","region":"normalizeForSerialize","accesses":{"native_normalization":2},"purpose":"Normalize live graph before serialization","semantic_owner":"vibecomfy_roundtrip","target_api":"nativeNormalization","slice":"S3","projection_identity_effect":"serialize normalization","normalization_category":"native-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-062","file":"vibecomfy_roundtrip.js","region":"normalizeLiveExecNodesForSerialization","accesses":{"graph_acquire":4,"native_nodes":2,"native_normalization":1},"purpose":"S4 mutation: normalizeLiveExecNodesForSerialization writes live exec widgets, widgets_values, and properties.vibecomfy before serialization, reclassified from S3 because the read path mutates live nodes","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"live widget and property mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-063","file":"vibecomfy_roundtrip.js","region":"readGraphActualForOp","accesses":{"stable_identity":1},"purpose":"Read precondition actual by stable identity","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"precondition identity","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-064","file":"vibecomfy_roundtrip.js","region":"readNodeFieldValue","accesses":{"widget_rebuild":3},"purpose":"Read normalized native widget values","semantic_owner":"vibecomfy_roundtrip","target_api":"nativeNormalization.widgets","slice":"S3","projection_identity_effect":"widget normalization","normalization_category":"widget-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-065","file":"vibecomfy_roundtrip.js","region":"readNodeLinkSource","accesses":{"native_links":2,"stable_identity":1},"purpose":"Resolve normalized link source identity","semantic_owner":"vibecomfy_roundtrip","target_api":"enumerateLinks","slice":"S3","projection_identity_effect":"link identity translation","normalization_category":"link-normalize","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-066","file":"vibecomfy_roundtrip.js","region":"removeCompatibleLiveLinkFromNetwork","accesses":{"native_links":11},"purpose":"Remove compatible native link records","semantic_owner":"vibecomfy_roundtrip","target_api":"applyDeltaOp.remove_link","slice":"S4","projection_identity_effect":"link mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-067","file":"vibecomfy_roundtrip.js","region":"replaceDynamicExecSlotsFromCandidate","accesses":{"socket_rebuild":2,"widget_rebuild":1},"purpose":"S4 mutation: replaceDynamicExecSlotsFromCandidate overwrites live exec sockets, widgets, and properties from candidate data, reclassified from S3 because candidate data becomes live repair authority","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"candidate-driven slot mutation","normalization_category":"socket-rebuild","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-068","file":"vibecomfy_roundtrip.js","region":"resolveLiveNodeFromCandidate","accesses":{"stable_identity":1},"purpose":"Resolve live node by candidate stable UID","semantic_owner":"vibecomfy_roundtrip","target_api":"resolveLiveNodeByUid","slice":"S3","projection_identity_effect":"stable identity lookup","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-069","file":"vibecomfy_roundtrip.js","region":"restoreCandidateLinksOnLiveGraph","accesses":{"native_normalization":2,"socket_rebuild":2},"purpose":"Restore normalized candidate links","semantic_owner":"vibecomfy_roundtrip","target_api":"restoreAuthorized","slice":"S4","projection_identity_effect":"link restore","normalization_category":"restore-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-070","file":"vibecomfy_roundtrip.js","region":"sanitizeSerializedGraphLinks","accesses":{"native_links":5,"native_normalization":1,"socket_rebuild":3},"purpose":"S4 mutation: sanitizeSerializedGraphLinks rewrites graph.links, node.inputs[].link, and node.outputs[].links in place to dedupe and drop orphaned entries, reclassified from S3 because the read path mutates live socket and link arrays","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"live link and socket mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-071","file":"vibecomfy_roundtrip.js","region":"scrubDebugPayload","accesses":{"native_links":2},"purpose":"Bound debug graph-link projection","semantic_owner":"vibecomfy_roundtrip","target_api":"projection-only","slice":"-","projection_identity_effect":"redacted diagnostic projection","normalization_category":"projection","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"projection_only"},
-    {"id":"NGA-072","file":"vibecomfy_roundtrip.js","region":"setExecWidgetValue","accesses":{"widget_rebuild":1},"purpose":"S4 mutation: setExecWidgetValue overwrites widget.value, widgets_values array slots, and converted-io entries in place, reclassified from S3 because it writes live widget arrays rather than observing them","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"live widget mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-073","file":"vibecomfy_roundtrip.js","region":"undoLastApply","accesses":{"load_graph_data":1},"purpose":"Legacy browser undo restore","semantic_owner":"vibecomfy_roundtrip","target_api":"restoreAuthorized","slice":"S4","projection_identity_effect":"whole graph restore","normalization_category":"restore-execute","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-074","file":"vibecomfy_roundtrip.js","region":"widgetIndexFromFieldPath","accesses":{"stable_identity":1},"purpose":"Resolve widget field identity","semantic_owner":"vibecomfy_roundtrip","target_api":"identity_contract_v1","slice":"S3","projection_identity_effect":"widget identity","normalization_category":"identity-translate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-075","file":"comfy_adapter.js","region":"clear","accesses":{"graph_configure":1},"purpose":"Browser harness graph configure callback","semantic_owner":"test-harness","target_api":"test-only","slice":"-","projection_identity_effect":"none","normalization_category":"harness","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"permitted_harness"},
-    {"id":"NGA-076","file":"intent_graph_adapter.js","region":"capabilities","accesses":{"graph_dirty":1,"serialize":2},"purpose":"Aggregate typed native graph capabilities","semantic_owner":"intent_graph_adapter","target_api":"capabilities","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"capability-detect","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-077","file":"intent_graph_adapter.js","region":"graphApplyCapability","accesses":{"graph_clear":1,"graph_configure":1},"purpose":"Probe whole graph apply capability","semantic_owner":"intent_graph_adapter","target_api":"capabilities.graph_apply","slice":"S2","projection_identity_effect":"typed capability","normalization_category":"capability-detect","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"supported_adapter_owner"},
-    {"id":"NGA-078","file":"vibecomfy_roundtrip.js","region":"installGraphConfigureIntentFallback","accesses":{"graph_configure":2},"purpose":"S4 harness: installGraphConfigureIntentFallback monkey-patches graph.configure, mutates the incoming graph, repairs live nodes, and calls panel orchestration, reclassified from S3 because it installs an ambient configure/repair hook","semantic_owner":"vibecomfy_roundtrip","target_api":"applyCanonicalDelta","slice":"S4","projection_identity_effect":"configure hook mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/intent_graph_adapter_ownership_static.test.mjs","identifier":"every native graph access in the complete production web scope is classified"},"support_status":"migration_debt"},
-    {"id":"NGA-079","file":"comfy_adapter.js","region":"getWidgetFieldValue","accesses":{"widget_rebuild":2},"purpose":"Resolve logical field identity to serialized or live widget value","semantic_owner":"comfy_adapter","target_api":"nativeNormalization","slice":"S3","projection_identity_effect":"semantic field to widget carrier translation","normalization_category":"widget-normalize","fixture_proof":{"path":"tests/browser/roundtrip_smoke.test.mjs","identifier":"VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties"},"support_status":"migration_debt"},
-    {"id":"NGA-080","file":"comfy_adapter.js","region":"setWidgetFieldValue","accesses":{"widget_rebuild":3},"purpose":"Mutate the resolved live widget carrier without writing layout-owned node properties","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.set_node_field","slice":"S4","projection_identity_effect":"semantic field widget mutation","normalization_category":"delta-mutate","fixture_proof":{"path":"tests/browser/roundtrip_smoke.test.mjs","identifier":"VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties"},"support_status":"migration_debt"},
-    {"id":"NGA-081","file":"comfy_adapter.js","region":"materializeRegistryPlaceholder","accesses":{"socket_rebuild":2,"widget_rebuild":1},"purpose":"Materialize an exact non-runnable browser placeholder from a registry-resolvable candidate snapshot","semantic_owner":"comfy_adapter","target_api":"applyDeltaOp.add_node","slice":"S4","projection_identity_effect":"candidate-exact placeholder materialization","normalization_category":"socket-rebuild","fixture_proof":{"path":"tests/browser/roundtrip_smoke.test.mjs","identifier":"VibeComfy comfy_adapter applies exact registry-backed missing classes as typed non-runnable placeholders"},"support_status":"migration_debt"}
-  ]
+ "contract": "native_authority_ledger_v1",
+ "schema_version": 1,
+ "rows": [
+  {
+   "id": "NGA-001",
+   "file": "agent_status_poller.js",
+   "region": "scrubDebugPayload",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Bound diagnostic graph-link projection",
+   "semantic_owner": "agent_status_poller",
+   "target_api": "projection-only",
+   "slice": "-",
+   "projection_identity_effect": "redacted diagnostic projection",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-002",
+   "file": "comfy_adapter.js",
+   "region": "applyGraphCandidateInPlace",
+   "accesses": {
+    "graph_clear": 1,
+    "graph_configure": 1
+   },
+   "purpose": "Compensation-only whole graph replacement",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "forbidden-forward",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph replacement",
+   "normalization_category": "forbidden-forward",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-003",
+   "file": "comfy_adapter.js",
+   "region": "applyGraphDeltaInPlace",
+   "accesses": {
+    "graph_clear": 1,
+    "graph_configure": 1,
+    "serialize": 2,
+    "stable_identity": 1
+   },
+   "purpose": "Apply canonical delta with harness fallback",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "delta mutation",
+   "normalization_category": "delta-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-004",
+   "file": "comfy_adapter.js",
+   "region": "applyGraphLayoutInPlace",
+   "accesses": {
+    "graph_add": 1,
+    "graph_remove": 1,
+    "group_construct": 1,
+    "native_groups": 3,
+    "native_nodes": 1,
+    "serialize": 2,
+    "stable_identity": 4
+   },
+   "purpose": "Apply versioned layout candidate",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyLayoutOperation",
+   "slice": "S4",
+   "projection_identity_effect": "layout and group mutation",
+   "normalization_category": "layout-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "blocking_migration"
+  },
+  {
+   "id": "NGA-005",
+   "file": "comfy_adapter.js",
+   "region": "applyPreflightPlanLive",
+   "accesses": {
+    "graph_add": 2,
+    "graph_remove": 2
+   },
+   "purpose": "Execute preflighted native delta plan",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyPreflightPlan",
+   "slice": "S4",
+   "projection_identity_effect": "live delta mutation",
+   "normalization_category": "delta-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-006",
+   "file": "comfy_adapter.js",
+   "region": "buildGraphIndex",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Index graph nodes by stable identity",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "resolveStableIdentity",
+   "slice": "S3",
+   "projection_identity_effect": "identity index",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-007",
+   "file": "comfy_adapter.js",
+   "region": "buildMockAppFromProfile",
+   "accesses": {
+    "graph_clear": 1,
+    "native_nodes": 1
+   },
+   "purpose": "Browser harness native graph fixture",
+   "semantic_owner": "test-harness",
+   "target_api": "test-only",
+   "slice": "-",
+   "projection_identity_effect": "none",
+   "normalization_category": "harness",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "permitted_harness"
+  },
+  {
+   "id": "NGA-008",
+   "file": "comfy_adapter.js",
+   "region": "canonicalNodeUid",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Read stable node UID",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "stable UID translation",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-009",
+   "file": "comfy_adapter.js",
+   "region": "configureLiveGroup",
+   "accesses": {
+    "group_configure": 1
+   },
+   "purpose": "Configure native layout group",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyLayoutOperation",
+   "slice": "S4",
+   "projection_identity_effect": "group mutation",
+   "normalization_category": "layout-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "blocking_migration"
+  },
+  {
+   "id": "NGA-010",
+   "file": "comfy_adapter.js",
+   "region": "getLiveGraph",
+   "accesses": {
+    "graph_acquire": 1
+   },
+   "purpose": "Private transitional live graph acquisition",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "intent_graph_adapter.acquire",
+   "slice": "S2",
+   "projection_identity_effect": "live reference",
+   "normalization_category": "graph-acquire",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-011",
+   "file": "comfy_adapter.js",
+   "region": "getNodeFieldValue",
+   "accesses": {
+    "widget_rebuild": 1
+   },
+   "purpose": "Dispatch native widget-field reads during delta preflight",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "nativeNormalization",
+   "slice": "S3",
+   "projection_identity_effect": "widget normalization",
+   "normalization_category": "widget-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-012",
+   "file": "comfy_adapter.js",
+   "region": "iterateLinkRecords",
+   "accesses": {
+    "native_links": 1
+   },
+   "purpose": "Normalize serialized link containers",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "enumerateLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link normalization",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-013",
+   "file": "comfy_adapter.js",
+   "region": "linkShapeForGraph",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Determine live link store shape",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "enumerateLiveLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link normalization",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-014",
+   "file": "comfy_adapter.js",
+   "region": "liveLinkEntries",
+   "accesses": {
+    "native_links": 1
+   },
+   "purpose": "Enumerate native link store",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "enumerateLiveLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link normalization",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-015",
+   "file": "comfy_adapter.js",
+   "region": "liveLinkMapDelete",
+   "accesses": {
+    "native_links": 10
+   },
+   "purpose": "Delete native link map entry",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.remove_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-016",
+   "file": "comfy_adapter.js",
+   "region": "liveLinkMapSet",
+   "accesses": {
+    "native_links": 7
+   },
+   "purpose": "Insert native link map entry",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.upsert_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-017",
+   "file": "comfy_adapter.js",
+   "region": "liveNodeIndex",
+   "accesses": {
+    "native_nodes": 2,
+    "stable_identity": 1
+   },
+   "purpose": "Index live nodes by stable UID",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "resolveLiveNodeByUid",
+   "slice": "S3",
+   "projection_identity_effect": "identity index",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-018",
+   "file": "comfy_adapter.js",
+   "region": "preflightDeltaPlan",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Resolve preflight targets by stable identity",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "preflightDeltaPlan",
+   "slice": "S4",
+   "projection_identity_effect": "delta authority binding",
+   "normalization_category": "delta-preflight",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-019",
+   "file": "comfy_adapter.js",
+   "region": "projectCandidateGraphToRuntimeLayout",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Project layout by stable UID",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "projectLayoutFromCandidate",
+   "slice": "S4",
+   "projection_identity_effect": "layout identity binding",
+   "normalization_category": "layout-project",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "blocking_migration"
+  },
+  {
+   "id": "NGA-020",
+   "file": "comfy_adapter.js",
+   "region": "removeLinkFromSerializedGraph",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Remove serialized link during preflight",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.remove_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-021",
+   "file": "comfy_adapter.js",
+   "region": "removeLiveLink",
+   "accesses": {
+    "remove_link": 2,
+    "socket_rebuild": 3
+   },
+   "purpose": "Remove native link",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.remove_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-022",
+   "file": "comfy_adapter.js",
+   "region": "repaintGraph",
+   "accesses": {
+    "canvas_dirty": 1,
+    "graph_dirty": 2
+   },
+   "purpose": "Private transitional canvas invalidation",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "intent_graph_adapter.repaint",
+   "slice": "S2",
+   "projection_identity_effect": "none",
+   "normalization_category": "canvas-draw",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "permitted_canvas"
+  },
+  {
+   "id": "NGA-023",
+   "file": "comfy_adapter.js",
+   "region": "resolveEndpoint",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Resolve link endpoint by stable identity",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "resolveStableIdentity",
+   "slice": "S3",
+   "projection_identity_effect": "link identity translation",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-024",
+   "file": "comfy_adapter.js",
+   "region": "resolveFactory",
+   "accesses": {
+    "node_factory": 2
+   },
+   "purpose": "Resolve native node factory",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "resolveNodeFactory",
+   "slice": "S3",
+   "projection_identity_effect": "node materialization",
+   "normalization_category": "factory-resolve",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-025",
+   "file": "comfy_adapter.js",
+   "region": "setNodeFieldValue",
+   "accesses": {
+    "widget_rebuild": 1
+   },
+   "purpose": "Dispatch exact native widget-field mutation",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.set_node_field",
+   "slice": "S4",
+   "projection_identity_effect": "widget mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-026",
+   "file": "comfy_adapter.js",
+   "region": "upsertLinkInSerializedGraph",
+   "accesses": {
+    "native_links": 2,
+    "socket_rebuild": 2
+   },
+   "purpose": "Upsert serialized link during preflight",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.upsert_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-027",
+   "file": "comfy_adapter.js",
+   "region": "upsertLiveLink",
+   "accesses": {
+    "native_links": 2,
+    "node_connect": 1,
+    "socket_rebuild": 2
+   },
+   "purpose": "Create native link via LiteGraph API",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.upsert_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-028",
+   "file": "intent_graph_adapter.js",
+   "region": "captureRevision",
+   "accesses": {
+    "graph_revision": 6
+   },
+   "purpose": "Capture typed live revision token",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "captureRevision",
+   "slice": "S2",
+   "projection_identity_effect": "revision only",
+   "normalization_category": "revision-capture",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-029",
+   "file": "intent_graph_adapter.js",
+   "region": "captureSerialized",
+   "accesses": {
+    "serialize": 1
+   },
+   "purpose": "Capture immutable serialized graph",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capture",
+   "slice": "S2",
+   "projection_identity_effect": "immutable clone",
+   "normalization_category": "serialize-capture",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-030",
+   "file": "intent_graph_adapter.js",
+   "region": "consider",
+   "accesses": {
+    "graph_acquire": 2
+   },
+   "purpose": "Resolve unique live graph reference",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "acquire",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "graph-acquire",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-031",
+   "file": "intent_graph_adapter.js",
+   "region": "deltaApplyCapability",
+   "accesses": {
+    "graph_add": 1,
+    "graph_clear": 1,
+    "graph_configure": 1,
+    "graph_remove": 1,
+    "native_nodes": 1,
+    "serialize": 2
+   },
+   "purpose": "Probe delta native capability",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capabilities.delta_apply",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "capability-detect",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-032",
+   "file": "intent_graph_adapter.js",
+   "region": "layoutApplyCapability",
+   "accesses": {
+    "graph_add": 1,
+    "graph_remove": 1,
+    "native_groups": 1,
+    "native_nodes": 1,
+    "serialize": 1
+   },
+   "purpose": "Probe layout native capability",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capabilities.layout_apply",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "capability-detect",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-033",
+   "file": "intent_graph_adapter.js",
+   "region": "nodeFactoryAvailable",
+   "accesses": {
+    "node_factory": 1
+   },
+   "purpose": "Probe node factory capability",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capabilities.delta_apply",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "capability-detect",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-034",
+   "file": "intent_graph_adapter.js",
+   "region": "repaint",
+   "accesses": {
+    "canvas_dirty": 1,
+    "canvas_draw": 1,
+    "graph_dirty": 2
+   },
+   "purpose": "Invalidate graph canvas through typed adapter",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "repaint",
+   "slice": "S2",
+   "projection_identity_effect": "none",
+   "normalization_category": "canvas-draw",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-035",
+   "file": "projection_registry_v1.js",
+   "region": "buildStructuralGraphProjection",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Project serialized structural links",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "projectGraphV1",
+   "slice": "-",
+   "projection_identity_effect": "structural projection",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-036",
+   "file": "projection_registry_v1.js",
+   "region": "cleanWidgets",
+   "accesses": {
+    "widget_rebuild": 1
+   },
+   "purpose": "Normalize serialized widget values",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "projectGraphV1",
+   "slice": "-",
+   "projection_identity_effect": "execution projection",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-037",
+   "file": "projection_registry_v1.js",
+   "region": "graphLinkIdentitiesV1",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Project stable link identities",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "graphLinkIdentitiesV1",
+   "slice": "-",
+   "projection_identity_effect": "stable link identity",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-038",
+   "file": "projection_registry_v1.js",
+   "region": "nodeIdentityV1",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Project stable node identity",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "nodeIdentityV1",
+   "slice": "-",
+   "projection_identity_effect": "stable node identity",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-039",
+   "file": "projection_registry_v1.js",
+   "region": "stablePreviewLinkMapV1",
+   "accesses": {
+    "native_links": 5
+   },
+   "purpose": "Project stable preview link map",
+   "semantic_owner": "projection_registry_v1",
+   "target_api": "stablePreviewLinkMapV1",
+   "slice": "-",
+   "projection_identity_effect": "stable preview identity",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-040",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "applyRenderedNodeSizesToSerializedGraph",
+   "accesses": {
+    "graph_acquire": 4,
+    "native_nodes": 2
+   },
+   "purpose": "Measure rendered native node sizes",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "captureImmutableGraph.measurements",
+   "slice": "S3",
+   "projection_identity_effect": "layout measurement",
+   "normalization_category": "native-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-041",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "attemptScopedCanvasRollback",
+   "accesses": {
+    "load_graph_data": 2
+   },
+   "purpose": "Compensate failed scoped mutation",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "restoreAuthorized",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph restore",
+   "normalization_category": "restore-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-042",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "buildGraphNodeIndex",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Index serialized nodes by stable identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "stable identity index",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-043",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "buildInverseDeltaOps",
+   "accesses": {
+    "native_normalization": 1,
+    "stable_identity": 7
+   },
+   "purpose": "Build inverse operations with stable identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyInverseDelta",
+   "slice": "S4",
+   "projection_identity_effect": "inverse authority",
+   "normalization_category": "restore-preflight",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-044",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "canonicalNodeUid",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Read local stable node UID",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "stable UID translation",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-045",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "collectQueueIssues",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Identify queue issues by stable UID",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "queue diagnostic identity",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-046",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "computePreviewDiff",
+   "accesses": {
+    "native_links": 1
+   },
+   "purpose": "Compute preview link differences",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "immutablePreviewProjection",
+   "slice": "S3",
+   "projection_identity_effect": "preview link projection",
+   "normalization_category": "preview-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-047",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "decorateIntentGraphPayload",
+   "accesses": {
+    "native_normalization": 1
+   },
+   "purpose": "Normalize intent graph payload",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "nativeNormalization",
+   "slice": "S3",
+   "projection_identity_effect": "intent node normalization",
+   "normalization_category": "native-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-048",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "decorateIntentNode",
+   "accesses": {
+    "socket_rebuild": 2
+   },
+   "purpose": "S4 mutation: decorateIntentNode removes and rebuilds live sockets, reclassified from S3 because it mutates native socket arrays rather than observing them",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "live socket mutation",
+   "normalization_category": "socket-rebuild",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-049",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "doApply",
+   "accesses": {
+    "load_graph_data": 1
+   },
+   "purpose": "Apply candidate through legacy materialization path",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph materialization",
+   "normalization_category": "forbidden-forward",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-050",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "ensureLiveGraphLinkStore",
+   "accesses": {
+    "native_links": 8,
+    "native_normalization": 1
+   },
+   "purpose": "S4 mutation: ensureLiveGraphLinkStore replaces the native graph.links store (Map/Proxy/class) with plain objects, reclassified from S3 because it mutates the live link store rather than enumerating it",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "live link store mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-051",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "findSerializedLinkByTarget",
+   "accesses": {
+    "native_normalization": 1
+   },
+   "purpose": "Find normalized serialized target link",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "enumerateLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link normalization",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-052",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "finish",
+   "accesses": {
+    "load_graph_data": 1
+   },
+   "purpose": "Restore graph after preview fixture",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "restoreAuthorized",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph restore",
+   "normalization_category": "restore-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-053",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "getLiveGraph",
+   "accesses": {
+    "graph_acquire": 1
+   },
+   "purpose": "Legacy local live graph acquisition",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "intent_graph_adapter.acquire",
+   "slice": "S2",
+   "projection_identity_effect": "live reference",
+   "normalization_category": "graph-acquire",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-054",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "getLiveGraphNodes",
+   "accesses": {
+    "native_nodes": 2
+   },
+   "purpose": "Legacy local live node enumeration",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "intent_graph_adapter.enumerateNodes",
+   "slice": "S3",
+   "projection_identity_effect": "native node snapshot",
+   "normalization_category": "native-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-055",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "getUid",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Read graph UID for preview diff",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "stable identity",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-056",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "installIntentNodeFallback",
+   "accesses": {
+    "load_graph_data": 2
+   },
+   "purpose": "Install fallback intent nodes",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph materialization",
+   "normalization_category": "forbidden-forward",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-057",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "liveGraphNodeIndex",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Index live graph by stable UID",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "resolveLiveNodeByUid",
+   "slice": "S3",
+   "projection_identity_effect": "stable identity index",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-058",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "loadGraphDataWithoutScopeSwitch",
+   "accesses": {
+    "load_graph_data": 1
+   },
+   "purpose": "Load graph while preserving workflow scope",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "restoreAuthorized",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph materialization",
+   "normalization_category": "restore-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-059",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "lookupLiveNodeByUid",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Lookup live node by stable UID",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "resolveLiveNodeByUid",
+   "slice": "S3",
+   "projection_identity_effect": "stable identity lookup",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-060",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "normalizedSerializedLinks",
+   "accesses": {
+    "native_links": 3,
+    "native_normalization": 1
+   },
+   "purpose": "Normalize serialized link representation",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "enumerateLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link normalization",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-061",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "normalizeForSerialize",
+   "accesses": {
+    "native_normalization": 2
+   },
+   "purpose": "Normalize live graph before serialization",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "nativeNormalization",
+   "slice": "S3",
+   "projection_identity_effect": "serialize normalization",
+   "normalization_category": "native-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-062",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "normalizeLiveExecNodesForSerialization",
+   "accesses": {
+    "graph_acquire": 4,
+    "native_nodes": 2,
+    "native_normalization": 1
+   },
+   "purpose": "S4 mutation: normalizeLiveExecNodesForSerialization writes live exec widgets, widgets_values, and properties.vibecomfy before serialization, reclassified from S3 because the read path mutates live nodes",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "live widget and property mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-063",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "readGraphActualForOp",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Read precondition actual by stable identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "precondition identity",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-064",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "readNodeFieldValue",
+   "accesses": {
+    "widget_rebuild": 4
+   },
+   "purpose": "Read normalized native widget values",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "nativeNormalization.widgets",
+   "slice": "S3",
+   "projection_identity_effect": "widget normalization",
+   "normalization_category": "widget-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-065",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "readNodeLinkSource",
+   "accesses": {
+    "native_links": 2,
+    "stable_identity": 1
+   },
+   "purpose": "Resolve normalized link source identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "enumerateLinks",
+   "slice": "S3",
+   "projection_identity_effect": "link identity translation",
+   "normalization_category": "link-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-066",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "removeCompatibleLiveLinkFromNetwork",
+   "accesses": {
+    "native_links": 11
+   },
+   "purpose": "Remove compatible native link records",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyDeltaOp.remove_link",
+   "slice": "S4",
+   "projection_identity_effect": "link mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-067",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "replaceDynamicExecSlotsFromCandidate",
+   "accesses": {
+    "socket_rebuild": 2,
+    "widget_rebuild": 1
+   },
+   "purpose": "S4 mutation: replaceDynamicExecSlotsFromCandidate overwrites live exec sockets, widgets, and properties from candidate data, reclassified from S3 because candidate data becomes live repair authority",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "candidate-driven slot mutation",
+   "normalization_category": "socket-rebuild",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-068",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "resolveLiveNodeFromCandidate",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Resolve live node by candidate stable UID",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "resolveLiveNodeByUid",
+   "slice": "S3",
+   "projection_identity_effect": "stable identity lookup",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-069",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "restoreCandidateLinksOnLiveGraph",
+   "accesses": {
+    "native_normalization": 2,
+    "socket_rebuild": 2
+   },
+   "purpose": "Restore normalized candidate links",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "restoreAuthorized",
+   "slice": "S4",
+   "projection_identity_effect": "link restore",
+   "normalization_category": "restore-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-070",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "sanitizeSerializedGraphLinks",
+   "accesses": {
+    "native_links": 5,
+    "native_normalization": 1,
+    "socket_rebuild": 3
+   },
+   "purpose": "S4 mutation: sanitizeSerializedGraphLinks rewrites graph.links, node.inputs[].link, and node.outputs[].links in place to dedupe and drop orphaned entries, reclassified from S3 because the read path mutates live socket and link arrays",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "live link and socket mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-071",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "scrubDebugPayload",
+   "accesses": {
+    "native_links": 2
+   },
+   "purpose": "Bound debug graph-link projection",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "projection-only",
+   "slice": "-",
+   "projection_identity_effect": "redacted diagnostic projection",
+   "normalization_category": "projection",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "projection_only"
+  },
+  {
+   "id": "NGA-072",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "setExecWidgetValue",
+   "accesses": {
+    "widget_rebuild": 1
+   },
+   "purpose": "S4 mutation: setExecWidgetValue overwrites widget.value, widgets_values array slots, and converted-io entries in place, reclassified from S3 because it writes live widget arrays rather than observing them",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "live widget mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-073",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "undoLastApply",
+   "accesses": {
+    "load_graph_data": 1
+   },
+   "purpose": "Legacy browser undo restore",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "restoreAuthorized",
+   "slice": "S4",
+   "projection_identity_effect": "whole graph restore",
+   "normalization_category": "restore-execute",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-074",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "widgetIndexFromFieldPath",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Resolve widget field identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "widget identity",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-075",
+   "file": "comfy_adapter.js",
+   "region": "clear",
+   "accesses": {
+    "graph_configure": 1
+   },
+   "purpose": "Browser harness graph configure callback",
+   "semantic_owner": "test-harness",
+   "target_api": "test-only",
+   "slice": "-",
+   "projection_identity_effect": "none",
+   "normalization_category": "harness",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "permitted_harness"
+  },
+  {
+   "id": "NGA-076",
+   "file": "intent_graph_adapter.js",
+   "region": "capabilities",
+   "accesses": {
+    "graph_dirty": 1,
+    "serialize": 2
+   },
+   "purpose": "Aggregate typed native graph capabilities",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capabilities",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "capability-detect",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-077",
+   "file": "intent_graph_adapter.js",
+   "region": "graphApplyCapability",
+   "accesses": {
+    "graph_clear": 1,
+    "graph_configure": 1
+   },
+   "purpose": "Probe whole graph apply capability",
+   "semantic_owner": "intent_graph_adapter",
+   "target_api": "capabilities.graph_apply",
+   "slice": "S2",
+   "projection_identity_effect": "typed capability",
+   "normalization_category": "capability-detect",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "supported_adapter_owner"
+  },
+  {
+   "id": "NGA-078",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "installGraphConfigureIntentFallback",
+   "accesses": {
+    "graph_configure": 2
+   },
+   "purpose": "S4 harness: installGraphConfigureIntentFallback monkey-patches graph.configure, mutates the incoming graph, repairs live nodes, and calls panel orchestration, reclassified from S3 because it installs an ambient configure/repair hook",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "applyCanonicalDelta",
+   "slice": "S4",
+   "projection_identity_effect": "configure hook mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-079",
+   "file": "preview_picker.js",
+   "region": "nodeIdentity",
+   "accesses": {
+    "stable_identity": 1
+   },
+   "purpose": "Resolve preview picker node identity for projection",
+   "semantic_owner": "preview_picker",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "node identity",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-080",
+   "file": "vibecomfy_roundtrip.js",
+   "region": "widgetReferenceNodeFor",
+   "accesses": {
+    "graph_acquire": 2,
+    "native_nodes": 2
+   },
+   "purpose": "Resolve the live node backing a widget reference for projection identity",
+   "semantic_owner": "vibecomfy_roundtrip",
+   "target_api": "identity_contract_v1",
+   "slice": "S3",
+   "projection_identity_effect": "widget identity projection",
+   "normalization_category": "identity-translate",
+   "fixture_proof": {
+    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
+    "identifier": "every native graph access in the complete production web scope is classified"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-081",
+   "file": "comfy_adapter.js",
+   "region": "materializeRegistryPlaceholder",
+   "accesses": {
+    "socket_rebuild": 2,
+    "widget_rebuild": 1
+   },
+   "purpose": "Materialize an exact non-runnable browser placeholder from a registry-resolvable candidate snapshot",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.add_node",
+   "slice": "S4",
+   "projection_identity_effect": "candidate-exact placeholder materialization",
+   "normalization_category": "socket-rebuild",
+   "fixture_proof": {
+    "path": "tests/browser/roundtrip_smoke.test.mjs",
+    "identifier": "VibeComfy comfy_adapter applies exact registry-backed missing classes as typed non-runnable placeholders"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-082",
+   "file": "comfy_adapter.js",
+   "region": "getWidgetFieldValue",
+   "accesses": {
+    "widget_rebuild": 2
+   },
+   "purpose": "Resolve logical field identity to serialized or live widget value",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "nativeNormalization",
+   "slice": "S3",
+   "projection_identity_effect": "semantic field to widget carrier translation",
+   "normalization_category": "widget-normalize",
+   "fixture_proof": {
+    "path": "tests/browser/roundtrip_smoke.test.mjs",
+    "identifier": "VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties"
+   },
+   "support_status": "migration_debt"
+  },
+  {
+   "id": "NGA-083",
+   "file": "comfy_adapter.js",
+   "region": "setWidgetFieldValue",
+   "accesses": {
+    "widget_rebuild": 3
+   },
+   "purpose": "Mutate the resolved live widget carrier without writing layout-owned node properties",
+   "semantic_owner": "comfy_adapter",
+   "target_api": "applyDeltaOp.set_node_field",
+   "slice": "S4",
+   "projection_identity_effect": "semantic field widget mutation",
+   "normalization_category": "delta-mutate",
+   "fixture_proof": {
+    "path": "tests/browser/roundtrip_smoke.test.mjs",
+    "identifier": "VibeComfy comfy_adapter resolves logical widget fields before getter-only LiteGraph properties"
+   },
+   "support_status": "migration_debt"
+  }
+ ]
 }

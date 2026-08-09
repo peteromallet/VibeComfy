@@ -26,7 +26,9 @@ def test_agentic_reorganise_large_messy_ltx_workflow_evidence(tmp_path: Path) ->
 
     assert observation["node_count"] == 119
     assert observation["structural_noop"] is True
-    assert observation["structural_hash_before"] == observation["structural_hash_after"]
+    # structural hash now includes layout (group geometry + node furniture); a
+    # layout-only change must move it while the topology-based noop stays True.
+    assert observation["structural_hash_before"] != observation["structural_hash_after"]
     assert before["overlap_count"] > 0
     assert after["overlap_count"] == 0
     assert after["spacing_density"] < before["spacing_density"]
@@ -52,7 +54,7 @@ def test_agentic_reorganise_large_messy_batch_evidence(tmp_path: Path) -> None:
     assert observation["all_wall_aspect"] is True
     for case in observation["cases"]:
         assert case["structural_noop"] is True
-        assert case["structural_hash_before"] == case["structural_hash_after"]
+        assert case["structural_hash_before"] != case["structural_hash_after"]
         assert case["before_metrics"]["overlap_count"] > 0
         assert case["after_metrics"]["overlap_count"] == 0
         assert case["after_metrics"]["group_signal_strength"] >= 1.0
@@ -81,7 +83,9 @@ def test_reorganise_small_clean_workflows_use_node_only_layout() -> None:
         after = assess_reorganise_workflow(applied.ui_json)
         after_metrics = {metric.name: metric.value for metric in after.assessment.metrics}
         assert applied.layout_only_structural_noop is True
-        assert applied.structural_hash_before == applied.structural_hash_after
+        # node-only layout still re-projects furniture, so the layout-inclusive
+        # structural hash moves while the topology-based noop stays True.
+        assert applied.structural_hash_before != applied.structural_hash_after
         assert after_metrics["overlap_count"] == 0
 
 
@@ -108,7 +112,7 @@ def test_reorganise_ungrouped_complex_workflow_generates_groups() -> None:
         after = assess_reorganise_workflow(applied.ui_json)
         after_metrics = {metric.name: metric.value for metric in after.assessment.metrics}
         assert applied.layout_only_structural_noop is True
-        assert applied.structural_hash_before == applied.structural_hash_after
+        assert applied.structural_hash_before != applied.structural_hash_after
         assert after_metrics["overlap_count"] == 0
         assert after_metrics["group_signal_strength"] >= 1.0
 

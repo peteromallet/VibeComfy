@@ -103,8 +103,8 @@ def build_reorganise_large_messy_batch_evidence(report_dir: Path) -> dict[str, A
     )
     (root / "report.md").write_text(
         "Reorganised four large messy UI workflow fixtures. All candidates preserved "
-        "structural hashes, removed overlaps, and produced contact-sheet visual "
-        "evidence for image-understanding review.\n",
+        "workflow topology (layout-only changes), removed overlaps, and produced "
+        "contact-sheet visual evidence for image-understanding review.\n",
         encoding="utf-8",
     )
     return {
@@ -195,7 +195,7 @@ def _build_single_reorganise_case(root: Path, scenario: str, request_path: Path)
     )
     (root / "report.md").write_text(
         f"Reorganised {summary['node_count']}-node messy workflow fixture. The candidate preserved "
-        "the structural hash, reduced overlap_count from "
+        "workflow topology (layout-only change), reduced overlap_count from "
         f"{before_metrics['overlap_count']} to {after_metrics['overlap_count']}, "
         "and produced colored group sections for visual review.\n",
         encoding="utf-8",
@@ -323,7 +323,15 @@ def _group_stats(ui_json: Mapping[str, Any]) -> dict[str, float | int]:
         "standalone_label_group_count": sum(
             1
             for group, _rect in group_rects
-            if "label" in str(group.get("title") or "").lower() or "note" in str(group.get("title") or "").lower()
+            if (
+                "label" in str(group.get("title") or "").lower()
+                or "note" in str(group.get("title") or "").lower()
+            )
+            # The compiler's deliberate "Displays / Labels" section is a real
+            # display-node section, not a standalone label/note group (see
+            # compile.py: the "displays" bucket must not trip the generic
+            # "label" title rule).
+            and "displays" not in str(group.get("title") or "").lower()
         ),
     }
 

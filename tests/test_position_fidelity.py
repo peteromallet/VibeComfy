@@ -1044,11 +1044,11 @@ def test_editor_roundtrip_pixel_for_pixel():
         if not isinstance(ui, dict) or ui.get("pos") is None:
             continue
 
-        # Canonicalize positions the same way the emitter does (_canonicalize_coord
-        # rounds to 2 decimal places) so layout_drift sees zero delta on matched.
-        pos = [round(float(ui["pos"][0]), 2), round(float(ui["pos"][1]), 2)]
+        # The emitter preserves the source float positions exactly; use the
+        # same raw values (no rounding) so layout_drift sees zero delta.
+        pos = [float(ui["pos"][0]), float(ui["pos"][1])]
         size = (
-            [round(float(ui["size"][0]), 2), round(float(ui["size"][1]), 2)]
+            [float(ui["size"][0]), float(ui["size"][1])]
             if isinstance(ui.get("size"), list) and len(ui["size"]) >= 2
             else [0.0, 0.0]
         )

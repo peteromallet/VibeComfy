@@ -55,7 +55,7 @@ def test_classify_only_does_not_resolve_post_classify_specs(
     def _resolve_spec(_profile: str | None, stage: str) -> object:
         if stage != "classify":
             raise AssertionError(f"unexpected {stage} spec resolution")
-        return SimpleNamespace(agent="test", model="test-model")
+        return SimpleNamespace(agent="test", model="test-model", effort="high")
 
     monkeypatch.setattr("vibecomfy.executor.core._resolve_spec", _resolve_spec)
     monkeypatch.setattr(

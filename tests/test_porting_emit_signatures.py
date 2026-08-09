@@ -259,7 +259,7 @@ class TestSignatureEmissionForCanonicalOps:
     reverse-resolved to raw class types."""
 
     def test_midas_signature_round_trips_through_alias(self) -> None:
-        """MiDaS-DepthMapPreprocessor -> midas_depthmappreprocessor and
+        """MiDaS-DepthMapPreprocessor -> MiDaS_DepthMapPreprocessor and
         back."""
         from vibecomfy.porting.emitter import (
             NodeSignatureRow,
@@ -274,10 +274,19 @@ class TestSignatureEmissionForCanonicalOps:
             ),
         ]
         text = format_signature_rows(rows)
-        # The alias is in the signature line
-        assert "def midas_depthmappreprocessor() -> None:" in text
+        # The constructor alias replaces the hyphen with an underscore and
+        # keeps the original case.
+        assert "def MiDaS_DepthMapPreprocessor() -> None:" in text
         # The raw class is in a comment
-        assert "# raw class: MiDaS-DepthMapPreprocessor" in text
+        assert "# class_type: MiDaS-DepthMapPreprocessor" in text
+        # The emitted constructor name round-trips back to the raw class type.
+        provider = _FakeSchemaProvider({"MiDaS-DepthMapPreprocessor": object()})
+        from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
+
+        resolved = _resolve_class_type_from_alias(
+            "MiDaS_DepthMapPreprocessor", provider
+        )
+        assert resolved == "MiDaS-DepthMapPreprocessor"
 
     def test_preview_image_omits_raw_class_comment(self) -> None:
         """When the alias matches the raw class, no raw class comment is
@@ -299,9 +308,9 @@ class TestSignatureEmissionForCanonicalOps:
         assert "def preview_image() -> None:" in text
         assert "# raw class:" not in text
 
-    def test_camelcase_class_shows_raw_comment(self) -> None:
-        """PreviewImage -> previewimage differs, so raw class comment is
-        emitted."""
+    def test_camelcase_class_preserves_case_without_raw_comment(self) -> None:
+        """PreviewImage is already a valid identifier, so the constructor keeps
+        its case and no raw class comment is emitted."""
         from vibecomfy.porting.emitter import (
             NodeSignatureRow,
             format_signature_rows,
@@ -315,8 +324,9 @@ class TestSignatureEmissionForCanonicalOps:
             ),
         ]
         text = format_signature_rows(rows)
-        assert "# raw class: PreviewImage" in text
-        assert "def previewimage() -> None:" in text
+        # PreviewImage stays PreviewImage — alias matches raw class
+        assert "def PreviewImage() -> None:" in text
+        assert "# class_type:" not in text
 
     def test_deterministic_repeated_emission(self) -> None:
         """Calling format_signature_rows twice with the same rows produces
@@ -335,8 +345,8 @@ class TestSignatureEmissionForCanonicalOps:
         assert text1 == text2
 
     def test_hyphenated_type_emits_correct_signature(self) -> None:
-        """Hyphens are replaced with underscores, entire string is
-        lowercased."""
+        """Spaces and hyphens are replaced with underscores; case is
+        preserved."""
         from vibecomfy.porting.emitter import (
             NodeSignatureRow,
             format_signature_rows,
@@ -350,5 +360,5 @@ class TestSignatureEmissionForCanonicalOps:
             ),
         ]
         text = format_signature_rows(rows)
-        assert "# raw class: CR Multi-ControlNet Stack" in text
-        assert "def cr_multi_controlnet_stack() -> None:" in text
+        assert "# class_type: CR Multi-ControlNet Stack" in text
+        assert "def CR_Multi_ControlNet_Stack() -> None:" in text
