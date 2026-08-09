@@ -555,7 +555,7 @@ export function appendFailureDetail(body, panel, snapshot = null, deps = {}) {
   appendTextLine(body, failure.user_facing_message || failure.message || failure.error || "Unknown failure", "#edf2f7");
   if (!normalDetailMode) {
     appendTextLine(body, `retryable=${String(Boolean(failure.retryable))} graph_unchanged=${String(Boolean(failure.graph_unchanged))}`, "#8d93a1");
-    appendTextLine(body, `canvas_apply_allowed=${String(Boolean(failure.canvas_apply_allowed))} queueAllowed=${String(Boolean(failure.queueAllowed ?? failure.queue_allowed ?? panel.state.queueAllowed))}`, "#8d93a1");
+    appendTextLine(body, `canvas_apply_allowed=${String(Boolean(failure.canvas_apply_allowed))} queueAllowed=${String(Boolean(failure.queueAllowed ?? panel.state.queueAllowed))}`, "#8d93a1");
   }
   const stageInfo = getBackendStageInfo(failure);
   if (!normalDetailMode && stageInfo) {

@@ -360,15 +360,15 @@ def _layout_group_id(group: Mapping[str, Any]) -> str:
 
 
 def build_layout_operation_envelope(
-    submit_graph: Mapping[str, Any] | None,
-    candidate_graph: Mapping[str, Any] | None,
+    submit_ui: Mapping[str, Any] | None,
+    candidate_ui: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """Derive the canonical layout operation envelope from a graph diff.
 
     Layout-family candidates (``layout_structural_noop``) carry no semantic
     delta; their forward mutation is the candidate layout itself.  This builds
     the operation envelope from the observable node/group geometry difference
-    between the submit graph and the candidate graph, so the durable
+    between the submit UI and the candidate UI, so the durable
     transaction binds reproducible layout evidence.
 
     Ops are emitted deterministically (nodes by stable uid, groups by stable
@@ -376,19 +376,19 @@ def build_layout_operation_envelope(
     preimage, matching the JS mirror.
     """
     submit_nodes: dict[str, Mapping[str, Any]] = {}
-    for node in submit_graph.get("nodes", ()) if isinstance(submit_graph, Mapping) else ():
+    for node in submit_ui.get("nodes", ()) if isinstance(submit_ui, Mapping) else ():
         if isinstance(node, Mapping):
             submit_nodes[_layout_node_uid(node)] = node
     candidate_nodes: dict[str, Mapping[str, Any]] = {}
-    for node in candidate_graph.get("nodes", ()) if isinstance(candidate_graph, Mapping) else ():
+    for node in candidate_ui.get("nodes", ()) if isinstance(candidate_ui, Mapping) else ():
         if isinstance(node, Mapping):
             candidate_nodes[_layout_node_uid(node)] = node
     submit_groups: dict[str, Mapping[str, Any]] = {}
-    for group in submit_graph.get("groups", ()) if isinstance(submit_graph, Mapping) else ():
+    for group in submit_ui.get("groups", ()) if isinstance(submit_ui, Mapping) else ():
         if isinstance(group, Mapping):
             submit_groups[_layout_group_id(group)] = group
     candidate_groups: dict[str, Mapping[str, Any]] = {}
-    for group in candidate_graph.get("groups", ()) if isinstance(candidate_graph, Mapping) else ():
+    for group in candidate_ui.get("groups", ()) if isinstance(candidate_ui, Mapping) else ():
         if isinstance(group, Mapping):
             candidate_groups[_layout_group_id(group)] = group
 

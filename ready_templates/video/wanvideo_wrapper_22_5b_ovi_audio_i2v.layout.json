@@ -339,7 +339,7 @@
       "properties": {
         "vibecomfy_id": "PreviewAudio_16",
         "Node name for S&R": "PreviewAudio",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n22"
       }
     },
@@ -359,7 +359,7 @@
       "properties": {
         "vibecomfy_id": "LoadImage_17",
         "Node name for S&R": "LoadImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n9"
       }
     },

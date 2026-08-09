@@ -119,7 +119,7 @@
       "properties": {
         "vibecomfy_id": "LoadImage_5",
         "Node name for S&R": "LoadImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n6"
       }
     },

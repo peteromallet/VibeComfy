@@ -823,6 +823,7 @@ def test_agent_edit_turn_event_payload_compacts_and_excludes_sensitive_fields(
     assert "/tmp/secret.json" not in json.dumps(payload, sort_keys=True)
 
 
+@pytest.mark.xdist_group("serial")
 def test_agent_edit_route_extracts_only_non_empty_string_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

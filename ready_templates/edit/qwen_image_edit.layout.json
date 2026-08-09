@@ -19,7 +19,7 @@
       "properties": {
         "vibecomfy_id": "UNETLoader_0",
         "Node name for S&R": "UNETLoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n2"
       }
     },
@@ -39,7 +39,7 @@
       "properties": {
         "vibecomfy_id": "CLIPLoader_1",
         "Node name for S&R": "CLIPLoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n3"
       }
     },
@@ -59,7 +59,7 @@
       "properties": {
         "vibecomfy_id": "VAELoader_2",
         "Node name for S&R": "VAELoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n4"
       }
     },
@@ -79,7 +79,7 @@
       "properties": {
         "vibecomfy_id": "ComfySwitchNode_3",
         "Node name for S&R": "ComfySwitchNode",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n5"
       }
     },
@@ -99,7 +99,7 @@
       "properties": {
         "vibecomfy_id": "ComfySwitchNode_4",
         "Node name for S&R": "ComfySwitchNode",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n6"
       }
     },
@@ -119,7 +119,7 @@
       "properties": {
         "vibecomfy_id": "TextEncodeQwenImageEdit_5",
         "Node name for S&R": "TextEncodeQwenImageEdit",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n7"
       }
     },
@@ -139,7 +139,7 @@
       "properties": {
         "vibecomfy_id": "TextEncodeQwenImageEdit_6",
         "Node name for S&R": "TextEncodeQwenImageEdit",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n8"
       }
     },
@@ -159,7 +159,7 @@
       "properties": {
         "vibecomfy_id": "VAEEncode_7",
         "Node name for S&R": "VAEEncode",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n9"
       }
     },
@@ -179,7 +179,7 @@
       "properties": {
         "vibecomfy_id": "LoraLoaderModelOnly_8",
         "Node name for S&R": "LoraLoaderModelOnly",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n10"
       }
     },
@@ -199,7 +199,7 @@
       "properties": {
         "vibecomfy_id": "ComfySwitchNode_9",
         "Node name for S&R": "ComfySwitchNode",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n11"
       }
     },
@@ -219,7 +219,7 @@
       "properties": {
         "vibecomfy_id": "ModelSamplingAuraFlow_10",
         "Node name for S&R": "ModelSamplingAuraFlow",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n12"
       }
     },
@@ -239,7 +239,7 @@
       "properties": {
         "vibecomfy_id": "CFGNorm_11",
         "Node name for S&R": "CFGNorm",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n13"
       }
     },
@@ -259,7 +259,7 @@
       "properties": {
         "vibecomfy_id": "KSampler_12",
         "Node name for S&R": "KSampler",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n14"
       }
     },
@@ -279,7 +279,7 @@
       "properties": {
         "vibecomfy_id": "VAEDecode_13",
         "Node name for S&R": "VAEDecode",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n15"
       }
     },
@@ -299,7 +299,7 @@
       "properties": {
         "vibecomfy_id": "SaveImage_14",
         "Node name for S&R": "SaveImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n16"
       }
     },
@@ -319,7 +319,7 @@
       "properties": {
         "vibecomfy_id": "LoadImage_15",
         "Node name for S&R": "LoadImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n1"
       }
     }

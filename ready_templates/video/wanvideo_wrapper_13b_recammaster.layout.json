@@ -357,7 +357,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_17",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n11"
       }
     },
@@ -377,7 +377,7 @@
       "properties": {
         "vibecomfy_id": "PreviewImage_18",
         "Node name for S&R": "PreviewImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n13"
       }
     },
@@ -417,7 +417,7 @@
       "properties": {
         "vibecomfy_id": "PreviewImage_20",
         "Node name for S&R": "PreviewImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n21"
       }
     },

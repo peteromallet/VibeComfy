@@ -59,7 +59,7 @@
       "properties": {
         "vibecomfy_id": "LoadAudio_2",
         "Node name for S&R": "LoadAudio",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n2"
       }
     },
@@ -319,7 +319,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_15",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n19"
       }
     },
@@ -359,7 +359,7 @@
       "properties": {
         "vibecomfy_id": "CLIPVisionLoader_17",
         "Node name for S&R": "CLIPVisionLoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n7"
       }
     },
@@ -519,7 +519,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_25",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n26"
       }
     },

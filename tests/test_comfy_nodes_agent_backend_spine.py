@@ -1568,32 +1568,35 @@ def test_accept_reject_fail_closed_when_candidate_hash_missing_before_action_wri
     assert state["baseline_graph_hash"] is None
 
 
-def test_new_candidate_without_explicit_v2_evidence_is_rejected_before_publication(
+def test_v1_candidate_without_explicit_v2_evidence_remains_display_only(
     tmp_path: Path,
 ) -> None:
+    """A bare-graph candidate without v2_delta evidence is not published as a
+    V2 transaction; it is recorded as a V1 display-only artifact.
+    """
     root = tmp_path / "sessions"
     request = _request_graph("before")
     allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
     turn_id = str(allocation.context.turn_id)
     candidate_graph = {"nodes": [{"id": 9, "type": "SaveImage"}], "links": []}
-    with pytest.raises(ValueError, match="explicit v2_delta evidence"):
-        record_idempotent_response(
-            session_root=root,
-            session_id="s1",
-            scope="edit",
-            idempotency_key=None,
-            request_hash=allocation.request_hash,
-            response={"ok": True, "turn_id": turn_id, "graph": candidate_graph},
-            response_path=allocation.turn_dir / "response.json",
-            operation="edit",
-            turn_id=turn_id,
-        )
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={"ok": True, "turn_id": turn_id, "graph": candidate_graph},
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
 
-    assert not (allocation.turn_dir / "response.json").exists()
+    assert (allocation.turn_dir / "response.json").exists()
     state = read_state(root / "s1")
     turn_record = state["turns"][turn_id]
     assert turn_record["state"] == "candidate"
-    assert turn_record["candidate_graph_hash"] is None
+    assert isinstance(turn_record["candidate_graph_hash"], str)
+    assert len(turn_record["candidate_graph_hash"]) == 64
 
 
 def test_flat_delta_candidate_cannot_become_v2_transaction_authority(
