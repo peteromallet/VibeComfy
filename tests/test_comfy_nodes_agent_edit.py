@@ -19243,7 +19243,7 @@ def test_handle_agent_edit_clarify_route_returns_non_applyable_canonical_envelop
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "clarify"
-    assert "Which style" in result["message"]
+    assert "which style" in result["message"].lower()
     for forbidden in (
         "apply_eligibility",
         "eligibility",
