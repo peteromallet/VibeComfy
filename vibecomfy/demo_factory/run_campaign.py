@@ -7,15 +7,21 @@ Produces 20 test cases:
 
 Uses diverse workflows across modalities, workflow types, and modern models.
 
-Run:
-    python -m vibecomfy.demo_factory.run_campaign
+The Click CLI (``python -m vibecomfy.demo_factory``) is the sole user-facing
+surface; ``run_campaign()`` is the internal campaign engine it is built on.
+The legacy ``python -m vibecomfy.demo_factory.run_campaign`` entry point is
+kept as a thin compatibility wrapper over the same internal function.
 """
 from __future__ import annotations
 
 import argparse
+import click
 import copy
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,8 +35,39 @@ from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.porting.object_info.consume import get_class
 from vibecomfy.registry.ready import workflow_from_ready
 from vibecomfy.porting.emit.ui import emit_ui_json
-from vibecomfy.demo_factory.cli import _export_ready_ui
 from vibecomfy.schema import get_schema_provider
+
+
+def _export_ready_ui(ready_id: str) -> dict | None:
+    """Emit a schema'd golden UI graph for a ready template via offline port export.
+
+    Uses the object_info cache, so links/slots are properly typed — unlike the
+    schema-less best-effort emission from ``emit_ui_json`` without a provider.
+    """
+    fd, path = tempfile.mkstemp(suffix=".ui.json")
+    os.close(fd)
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable, "-m", "vibecomfy.cli", "port", "export",
+                ready_id, "--ready", "--to", "ui", "--out", path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            click.echo(f"port export failed: {proc.stderr[:300]}", err=True)
+            return None
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        click.echo(f"port export error: {exc}", err=True)
+        return None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 # Default campaign directory
@@ -1323,17 +1360,20 @@ def run_debug_case(
         }
 
 
-def main():
-    """Run the full campaign."""
-    parser = argparse.ArgumentParser(description="Run VibeComfy demo-scenario-factory campaign")
-    parser.add_argument("--output", type=str, default=str(DEFAULT_CAMPAIGN_DIR), help="Output directory")
-    parser.add_argument("--repair-count", type=int, default=10, help="Number of REPAIR cases")
-    parser.add_argument("--additive-count", type=int, default=10, help="Number of ADDITIVE cases")
-    parser.add_argument("--multinode-count", type=int, default=0, help="Number of MULTINODE additive cases")
-    parser.add_argument("--debug-count", type=int, default=0, help="Number of DEBUG cases")
-    args = parser.parse_args()
+def run_campaign(
+    output: str | Path = DEFAULT_CAMPAIGN_DIR,
+    repair_count: int = 10,
+    additive_count: int = 10,
+    multinode_count: int = 0,
+    debug_count: int = 0,
+) -> int:
+    """Run the full demo-scenario-factory campaign.
 
-    campaign_dir = Path(args.output)
+    Internal API — the Click CLI (``vibecomfy/demo_factory/cli.py``) is the
+    sole user-facing entry point. Returns the process exit code: 0 when the
+    pass rate is >= 0.5, else 1.
+    """
+    campaign_dir = Path(output)
     campaign_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)
@@ -1346,7 +1386,7 @@ def main():
 
     # Run REPAIR cases (1-10)
     print("Running REPAIR scenarios (creative engine)...")
-    for i, workflow_id in enumerate(REPAIR_WORKFLOWS[:args.repair_count], 1):
+    for i, workflow_id in enumerate(REPAIR_WORKFLOWS[:repair_count], 1):
         result = run_repair_case(workflow_id, i, campaign_dir)
         results.append(result)
         print(f"  Result: {result.get('verdict', 'unknown')}")
@@ -1354,7 +1394,7 @@ def main():
 
     # Run ADDITIVE cases (11-20)
     print("Running ADDITIVE scenarios (remove feature)...")
-    for i, (workflow_id, feature_type) in enumerate(ADDITIVE_WORKFLOWS[:args.additive_count], args.repair_count + 1):
+    for i, (workflow_id, feature_type) in enumerate(ADDITIVE_WORKFLOWS[:additive_count], repair_count + 1):
         result = run_additive_case(workflow_id, feature_type, i, campaign_dir)
         results.append(result)
         print(f"  Result: {result.get('verdict', 'unknown')}")
@@ -1362,8 +1402,8 @@ def main():
 
     # Run explicit multi-node additive cases without changing the legacy paths.
     print("Running MULTINODE ADDITIVE scenarios (remove explicit subgraph)...")
-    start = args.repair_count + args.additive_count + 1
-    for i, spec in enumerate(MULTINODE_WORKFLOWS[:args.multinode_count], start):
+    start = repair_count + additive_count + 1
+    for i, spec in enumerate(MULTINODE_WORKFLOWS[:multinode_count], start):
         result = run_multinode_case(spec, i, campaign_dir)
         results.append(result)
         print(f"  Result: {result.get('verdict', 'unknown')}")
@@ -1372,12 +1412,12 @@ def main():
     # Run exact realistic debugging cases without changing the legacy paths.
     print("Running DEBUG scenarios (exact user-mistake faults)...")
     start = (
-        args.repair_count
-        + args.additive_count
-        + args.multinode_count
+        repair_count
+        + additive_count
+        + multinode_count
         + 1
     )
-    for i, spec in enumerate(DEBUG_WORKFLOWS[:args.debug_count], start):
+    for i, spec in enumerate(DEBUG_WORKFLOWS[:debug_count], start):
         result = run_debug_case(spec, i, campaign_dir)
         results.append(result)
         print(f"  Result: {result.get('verdict', 'unknown')}")
@@ -1421,8 +1461,29 @@ def main():
     print("Results written to:", results_file)
 
     # Return exit code based on pass rate
-    sys.exit(0 if total_cases and total_passed >= total_cases * 0.5 else 1)
+    return 0 if total_cases and total_passed >= total_cases * 0.5 else 1
 
 
-if __name__ == "__main__":
-    main()
+def main() -> None:
+    """Legacy compatibility entry point — thin wrapper over ``run_campaign()``.
+
+    Kept so ``python -m vibecomfy.demo_factory.run_campaign`` and existing
+    callers of ``run_campaign.main()`` keep working; the Click CLI is the
+    canonical user-facing surface.
+    """
+    parser = argparse.ArgumentParser(description="Run VibeComfy demo-scenario-factory campaign")
+    parser.add_argument("--output", type=str, default=str(DEFAULT_CAMPAIGN_DIR), help="Output directory")
+    parser.add_argument("--repair-count", type=int, default=10, help="Number of REPAIR cases")
+    parser.add_argument("--additive-count", type=int, default=10, help="Number of ADDITIVE cases")
+    parser.add_argument("--multinode-count", type=int, default=0, help="Number of MULTINODE additive cases")
+    parser.add_argument("--debug-count", type=int, default=0, help="Number of DEBUG cases")
+    args = parser.parse_args()
+    sys.exit(
+        run_campaign(
+            output=args.output,
+            repair_count=args.repair_count,
+            additive_count=args.additive_count,
+            multinode_count=args.multinode_count,
+            debug_count=args.debug_count,
+        )
+    )

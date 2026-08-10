@@ -60,3 +60,14 @@ def test_unused_schema_dependencies_stay_out_of_core_metadata() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
 
     assert "pydantic>=2" not in project["dependencies"]
+
+
+def test_web_dist_excluded_from_wheel_and_sdist() -> None:
+    hatch = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["tool"]["hatch"]
+    web_dist_pattern = "/vibecomfy/comfy_nodes/web_dist/**"
+
+    wheel = hatch["build"]["targets"]["wheel"]
+    assert web_dist_pattern in wheel["exclude"]
+
+    sdist = hatch["build"]["targets"]["sdist"]
+    assert web_dist_pattern in sdist["exclude"]

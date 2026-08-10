@@ -104,11 +104,11 @@ ROOT_BANNED := \
 	version_matrix.json \
 	workflow_corpus
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
 
 all: check
 
-check: root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity post-root-clean
+check: root-clean docs template-index templates strict-ready fast snapshots oracle browser-smoke parity post-root-clean
 
 ci: check
 
@@ -157,7 +157,6 @@ templates: template-index
 
 strict-ready: template-index
 	$(PYTHON) -m tools.check_strict_ready_templates --json
-	$(PYTEST) -q $(STRICT_READY_PYTEST)
 
 fast:
 	$(PYTEST) -q --tb=short $(FAST_PYTEST) \
@@ -165,6 +164,11 @@ fast:
 		--cov-report=term-missing \
 		--cov-report=xml \
 		--cov-fail-under=0
+
+# Full-suite gate outside `make check`: every collected test (gpu excluded via
+# pyproject [tool.pytest.ini_options] addopts) parallelized across 8 xdist workers.
+full-pytest:
+	$(PYTEST) -n 8 -q -p no:cacheprovider
 
 snapshots:
 	$(PYTHON) -m tools.regenerate_snapshots --check
@@ -176,7 +180,7 @@ oracle:
 browser-smoke:
 	$(NODE) --test tests/browser/*.mjs
 
-# Keep this subset in `make check`; it is pure Node/browser-contract coverage without Playwright or ComfyUI prerequisites.
+# Standalone subset of browser-smoke; pure Node/browser-contract coverage without Playwright or ComfyUI prerequisites (browser-smoke already runs all tests/browser/*.mjs).
 browser-contracts:
 	$(NODE) --test $(BROWSER_CONTRACT_TESTS)
 
