@@ -489,13 +489,16 @@
       "_stage_summarize",
       "_stage_validate",
       "_ws_send",
-      "load_agent_generated_scratchpad",
       "queue_stage_result",
       "run_agent_turn",
       "run_agent_turn_batch",
       "run_agent_turn_delta",
       "run_model_turn"
-    ]
+    ],
+    "required_post_split": [
+      "load_agent_generated_scratchpad"
+    ],
+    "note_required_post_split": "required_post_split: names the S3 must-survive surface must expose after the edit-module split, NOT currently top-level attrs of the edit module. load_agent_generated_scratchpad is currently only a local import inside edit_transform_stages.py (hasattr(edit, ...) is False); it must become a top-level edit-module attr post-split (T-039). Kept out of patched_via_edit_module, which records only currently-present attrs."
   },
   "generated_for": "ORACLE-1 cleanup surface (T-004/T-005)",
   "module": "vibecomfy.comfy_nodes.agent",
