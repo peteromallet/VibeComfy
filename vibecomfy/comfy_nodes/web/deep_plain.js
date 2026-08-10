@@ -38,19 +38,20 @@ function _deepClone(value, stack) {
 
   stack.add(value);
   try {
-    if (Array.isArray(value)) {
-      const out = new Array(value.length);
-      // Own enumerable string keys — holes in sparse arrays stay holes.
-      for (const key of Object.keys(value)) {
-        out[key] = _deepClone(value[key], stack);
-      }
-      return out;
-    }
-    const out = {};
-    // Object.keys = own enumerable string keys: symbol keys, non-enumerable
-    // properties, and inherited members are all excluded.
+    const out = Array.isArray(value) ? new Array(value.length) : {};
+    // Own enumerable string keys: symbol keys, non-enumerable properties, and
+    // inherited members are all excluded by Object.keys. Keys are copied with
+    // defineProperty (not plain assignment) so an own data key named
+    // `__proto__` — e.g. produced by JSON.parse of a `{"__proto__": ...}`
+    // member — is preserved as an own key instead of mutating the clone's
+    // prototype and being lost. Data-key descriptors match assignment.
     for (const key of Object.keys(value)) {
-      out[key] = _deepClone(value[key], stack);
+      Object.defineProperty(out, key, {
+        value: _deepClone(value[key], stack),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return out;
   } finally {

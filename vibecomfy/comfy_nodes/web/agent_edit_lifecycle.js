@@ -41,6 +41,7 @@ import {
   normalizeDeltaOpsFromSubmitPayload,
 } from "./canonical_delta.js";
 import { deep_plain } from "./deep_plain.js";
+import { jsonClone } from "./json_clone.js";
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -1425,14 +1426,12 @@ const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
 ]);
 
 function _cloneLifecycleBaselineValue(value) {
-  if (value == null || typeof value !== "object") {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
+  // Shared JSON-family clone (json_clone.js): undefined/function members are
+  // dropped; a serialization failure (cycle, BigInt) THROWS — the restore
+  // never aliases the source. Baseline payloads are produced through
+  // jsonClone in agentic_replay.js / preview_picker.js, so they are
+  // JSON-origin and non-cyclic by construction.
+  return jsonClone(value);
 }
 
 function _handleRestoreLifecycleBaseline(panel, payload) {

@@ -248,3 +248,47 @@ test("deep_plain does not alias the source at any level (identity independence o
   source.a[1].b = 99;
   assert.equal(copy.a[1].b, 2);
 });
+
+// ── 7. Own `__proto__` data keys are preserved; prototype never mutated ────
+
+test("deep_plain preserves an own __proto__ data key as an own key (clone prototype stays Object.prototype)", () => {
+  // JSON.parse creates an OWN data property named `__proto__` — it does not
+  // run the Object.prototype setter. Plain-assignment cloning would set the
+  // clone's prototype to this value and drop the key entirely.
+  const source = JSON.parse('{"__proto__": {"evil": "value"}, "keep": 1}');
+
+  assert.ok(Object.prototype.hasOwnProperty.call(source, "__proto__"));
+
+  const copy = deep_plain(source);
+
+  // The key survives as an own data key…
+  assert.ok(Object.prototype.hasOwnProperty.call(copy, "__proto__"));
+  assert.deepEqual(Object.keys(copy), ["__proto__", "keep"]);
+  assert.deepEqual(copy.__proto__, { evil: "value" });
+  // …and the clone's prototype is untouched (NOT the __proto__ value).
+  assert.equal(Object.getPrototypeOf(copy), Object.prototype);
+  assert.equal(copy.keep, 1);
+  // Independence: mutating the clone's __proto__ value must not touch source.
+  copy.__proto__.evil = "mutated";
+  assert.equal(source.__proto__.evil, "value");
+});
+
+test("deep_plain deep-copies a nested object carrying an own __proto__ data key (independent + preserved)", () => {
+  const source = JSON.parse('{"outer": {"__proto__": {"nested": true}, "x": 1}, "y": 2}');
+  const copy = deep_plain(source);
+
+  assert.ok(Object.prototype.hasOwnProperty.call(copy.outer, "__proto__"));
+  assert.deepEqual(copy.outer.__proto__, { nested: true });
+  assert.equal(Object.getPrototypeOf(copy.outer), Object.prototype);
+  assert.equal(Object.getPrototypeOf(copy), Object.prototype);
+
+  // Structural equality holds with __proto__ treated as a plain data key.
+  assert.deepEqual(copy, source);
+  assert.notEqual(copy.outer, source.outer);
+
+  // Independence at the nested __proto__ level.
+  copy.outer.__proto__.nested = false;
+  assert.equal(source.outer.__proto__.nested, true);
+  copy.outer.x = 99;
+  assert.equal(source.outer.x, 1);
+});
