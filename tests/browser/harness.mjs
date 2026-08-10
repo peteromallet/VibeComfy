@@ -44,6 +44,8 @@ export const STAGED_WEB_MODULES = [
   "agentic_replay.js",
   "canonical_delta.js",
   "canonical_hash.js",
+  "deep_plain.js",
+  "json_clone.js",
   "graph_projection.js",
   "layout_verification_contract.js",
   "field_registry_v1.js",

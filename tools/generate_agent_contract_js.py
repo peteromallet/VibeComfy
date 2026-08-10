@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """Generate agent_edit_response_contract_generated.js from the Python source of truth.
 
-Source of truth: vibecomfy/comfy_nodes/agent/contracts.py (REBASELINE_RECOVERY_FIELDS)
+Inputs (and ONLY these — no fixture corpus is ever read):
+  1. Four contract constants from vibecomfy/comfy_nodes/agent/contracts.py:
+       - REBASELINE_RECOVERY_FIELDS (8 fields)
+       - PUBLIC_OUTCOME_KINDS
+       - INTERNAL_TO_PUBLIC_OUTCOME
+       - FAILURE_HINT_KEYS
+  2. Two embedded blocks in this file (verbatim emitted sections):
+       - EXTENDED_CONSTANTS_BLOCK
+       - HELPERS_BLOCK
+
+The agent_edit fixture corpus under tests/fixtures/agent_edit is a parity
+corpus for Python/JS tests — NOT generator input; it must never be referenced
+here (guarded by tests/test_agent_contract_codegen.py).
 
 Produces: vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js
 

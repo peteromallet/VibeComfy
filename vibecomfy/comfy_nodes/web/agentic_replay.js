@@ -33,6 +33,7 @@ import {
   commitTerminalResponse,
   commitTranscriptRehydrate,
 } from "./agent_lifecycle_commit.js";
+import { jsonClone as clonePlainData } from "./json_clone.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,17 +105,6 @@ function buildErrorDisplay() {
     display: "none",
   });
   return node;
-}
-
-function clonePlainData(value) {
-  if (value == null) {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
 }
 
 function normalizeEligibility(raw, fallbackReason = "applyable", fallbackMessage = "") {

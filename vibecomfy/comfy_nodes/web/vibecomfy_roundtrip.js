@@ -143,6 +143,7 @@ import {
   projectionReferenceV1,
   stablePreviewLinkMapV1,
 } from "./projection_registry_v1.js";
+import { jsonClone as clonePlainData } from "./json_clone.js";
 export {
   buildLayoutGraphProjection,
   buildStructuralGraphProjection,
@@ -2775,17 +2776,6 @@ function compactDetailsPreview(value) {
   };
   visit(value);
   return parts.join("; ");
-}
-
-function clonePlainData(value) {
-  if (value == null) {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
 }
 
 function safePreviewLogDetail(value) {

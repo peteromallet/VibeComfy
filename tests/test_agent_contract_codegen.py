@@ -94,3 +94,38 @@ def test_generated_js_matches_codegen():
             f"    python -m tools.generate_agent_contract_js\n\n"
             f"Diff:\n{diff}"
         )
+
+
+GENERATOR_PATH = os.path.join(REPO_ROOT, "tools", "generate_agent_contract_js.py")
+
+# The golden_v1 fixtures under tests/fixtures/agent_edit are a parity corpus
+# for Python/JS tests (layout_operation, m1_projection, mutation_materialization
+# golden_v1) — they are NOT generator input.  The generator may derive content
+# only from the contracts-module constants and its own embedded blocks.
+GOLDEN_FIXTURE_MARKERS = (
+    "golden",
+    "layout_operation",
+    "m1_projection",
+    "mutation_materialization",
+)
+
+
+def test_generator_does_not_read_golden_fixtures():
+    """The codegen must never reference the golden fixture corpus.
+
+    Source-inspection guard (mirrors the style of test_runtime_eval_absence.py):
+    if a future edit wires the generator to read tests/fixtures/agent_edit
+    golden_v1 fixtures, this test fails and the ownership regression is caught.
+    """
+    with open(GENERATOR_PATH, "r", encoding="utf-8") as fh:
+        source = fh.read()
+
+    hits = [marker for marker in GOLDEN_FIXTURE_MARKERS if marker in source]
+    assert hits == [], (
+        "tools/generate_agent_contract_js.py references golden-fixture marker(s) "
+        f"{hits}; the generator must read only the contracts-module constants "
+        "(REBASELINE_RECOVERY_FIELDS, PUBLIC_OUTCOME_KINDS, "
+        "INTERNAL_TO_PUBLIC_OUTCOME, FAILURE_HINT_KEYS) and its two embedded "
+        "blocks (EXTENDED_CONSTANTS_BLOCK, HELPERS_BLOCK) — never "
+        "tests/fixtures/agent_edit/*golden_v1.json."
+    )

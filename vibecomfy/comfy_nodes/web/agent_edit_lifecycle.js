@@ -40,14 +40,7 @@ import {
   classifyDeltaShape,
   normalizeDeltaOpsFromSubmitPayload,
 } from "./canonical_delta.js";
-
-function clonePlainData(value) {
-  if (Array.isArray(value)) return value.map(clonePlainData);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clonePlainData(entry)]));
-  }
-  return value;
-}
+import { deep_plain } from "./deep_plain.js";
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -1043,10 +1036,10 @@ function _readCandidateTransactionForTransition(payload) {
 
 function _readLegacyMigrationForTransition(payload) {
   const direct = payload?.legacyMigration || payload?.legacy_migration;
-  if (direct && typeof direct === "object") return clonePlainData(direct);
+  if (direct && typeof direct === "object") return deep_plain(direct);
   const source = _canonicalSourceFromPayload(payload);
   return source?.legacyMigration && typeof source.legacyMigration === "object"
-    ? clonePlainData(source.legacyMigration)
+    ? deep_plain(source.legacyMigration)
     : null;
 }
 
@@ -1094,7 +1087,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   const priorSessionId = panel.state.sessionId;
   const priorTurnId = panel.state.turnId;
   const priorRuntimeDependencies = Array.isArray(panel.state.runtimeDependencies)
-    ? clonePlainData(panel.state.runtimeDependencies)
+    ? deep_plain(panel.state.runtimeDependencies)
     : [];
   const stageSnapshot = _readStageSnapshotForTransition(payload);
   const identity = _writeDurableTurnIdentity(panel, {
@@ -1138,7 +1131,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.runtimeDependencies = hasRuntimeDependencyProjection
     ? (
         Array.isArray(payload.runtimeDependencies)
-          ? clonePlainData(payload.runtimeDependencies)
+          ? deep_plain(payload.runtimeDependencies)
           : []
       )
     : (restoringSameCandidate ? priorRuntimeDependencies : []);
@@ -1155,7 +1148,7 @@ function _writeLatestCandidateTransition(panel, payload) {
         applyable: false,
         reason: legacyMigration.classification,
         message: "Legacy transaction history is read-only and cannot authorize Apply.",
-        actions: clonePlainData(legacyMigration.actions || []),
+        actions: deep_plain(legacyMigration.actions || []),
       }
     : applyEligibility;
   panel.state.applyAllowed = applyAllowed;
@@ -1165,7 +1158,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = candidateTransaction
-    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
     : normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
   panel.state.agentEditProtocol = _candidateEditProtocol(
     payload?.result || payload?.baseline || {},
@@ -1929,7 +1922,7 @@ function _handleCandidateResponse(panel, payload) {
     || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = result.report || null;
   panel.state.runtimeDependencies = Array.isArray(payload?.runtimeDependencies)
-    ? clonePlainData(payload.runtimeDependencies)
+    ? deep_plain(payload.runtimeDependencies)
     : [];
   panel.state.serverSubmitGraphHash =
     projectedCandidate?.submitGraphHash
@@ -1944,7 +1937,7 @@ function _handleCandidateResponse(panel, payload) {
         applyable: false,
         reason: legacyMigration.classification,
         message: "Legacy transaction history is read-only and cannot authorize Apply.",
-        actions: clonePlainData(legacyMigration.actions || []),
+        actions: deep_plain(legacyMigration.actions || []),
       }
     : missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
   const candidateActionAllowed = Boolean(
@@ -1957,7 +1950,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = candidateTransaction
-    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
     : normalizeDeltaOpsFromSubmit(result);
   panel.state.agentEditProtocol = _candidateEditProtocol(
     result,
@@ -3138,7 +3131,7 @@ function _handlePrepareSuccess(panel, payload) {
   panel.state.preparedReceipt = receipt;
   panel.state.candidateTransaction = transaction || panel.state.candidateTransaction;
   panel.state.deltaOps = transaction
-    ? clonePlainData(transaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(transaction.plan.delta_ops_envelope.ops)
     : panel.state.deltaOps;
   panel.state.mutationPlanHash = transaction?.plan_hash
     || durableReceipt?.plan_hash || durableReceipt?.planHash
@@ -3442,7 +3435,7 @@ function _handleReconcileReceipts(panel, payload) {
     panel.state.mutationPlanHash = transaction.plan_hash;
     panel.state.generation = transaction.generation ?? null;
     panel.state.leaseNonce = transaction.lease_nonce || null;
-    panel.state.deltaOps = clonePlainData(transaction.plan.delta_ops_envelope.ops);
+    panel.state.deltaOps = deep_plain(transaction.plan.delta_ops_envelope.ops);
   }
   let terminalReconciled = false;
   if (receipts && typeof receipts === "object") {

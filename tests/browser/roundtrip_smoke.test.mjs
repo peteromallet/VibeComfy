@@ -25157,3 +25157,136 @@ test("preview delta-ops parity: legacy fallback does not override delta-derived 
     await harness.dispose();
   }
 });
+
+// ── Family B (T-031): roundtrip submit JSON clone pins ────────────────────
+// The submit orchestrator routes response fields through clonePlainData
+// (change_details before commit; outcome/report/change_details/apply_eligibility
+// again when the pending bubble is promoted; candidateReport when the turn
+// detail snapshot is recorded). These tests pin the undefined/function-loss
+// semantics T-032 must preserve when the JSON clones are migrated.
+
+test("Family B: roundtrip submit JSON clones drop undefined and function members from response fields", async () => {
+  const SESSION_ID = "session-family-b-json-clone";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", links: [] }] }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", links: [1] }] },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images", link: 1 }] },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0002",
+          baseline_turn_id: null,
+          outcome: { kind: "candidate", changes: [], callback: () => {}, ephemeral: undefined },
+          candidate_graph: candidateGraph,
+          eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] },
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          message: "Family B candidate ready.",
+          change_details: {
+            summary: "Added a saver.",
+            statements: [{ op_kind: "add_node", message: "Added SaveImage" }],
+            note: undefined,
+            helper: () => {},
+            nested: { fn: () => {} },
+          },
+          report: {
+            change: { content_edits: { preserved: ["uid-1"], new_auto_placed: ["uid-2"] } },
+            note: undefined,
+            helper: () => {},
+          },
+          audit_ref: { path: "/tmp/family-b-audit.json" },
+        },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [
+            { role: "user", text: "add a saver", turn_id: "0002" },
+            { role: "agent", text: "Family B candidate ready.", turn_id: "0002" },
+          ],
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === PANEL_STATE.AWAITING_REVIEW);
+    const panel = extensionModule.ensureAgentPanel();
+
+    // The orchestrator clones raw.change_details before committing it to state:
+    // undefined and function members must not survive the clone.
+    assert.ok(panel.state.changeDetails && typeof panel.state.changeDetails === "object");
+    assert.equal(panel.state.changeDetails.summary, "Added a saver.", "change detail data survives the clone");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panel.state.changeDetails, "note"),
+      false,
+      "undefined change_details member dropped",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panel.state.changeDetails, "helper"),
+      false,
+      "function change_details member dropped",
+    );
+    assert.deepEqual(panel.state.changeDetails.nested, {}, "nested function member dropped from change_details");
+
+    // rememberTurnDetailSnapshot re-clones the response fields into the turn
+    // detail snapshot compartment — the stable post-submit surface (the
+    // promoted bubble is transcript-projected and strips detail fields by
+    // design, so the snapshot is the observable clone output).
+    const detail = panel.state.turnDetailSnapshots?.["0002"];
+    assert.ok(detail, "turn detail snapshot recorded for turn 0002");
+    assert.ok(detail.candidateReport && typeof detail.candidateReport === "object");
+    assert.equal(Object.prototype.hasOwnProperty.call(detail.candidateReport, "note"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(detail.candidateReport, "helper"), false);
+    assert.deepEqual(
+      detail.candidateReport.change.content_edits,
+      { preserved: ["uid-1"], new_auto_placed: ["uid-2"] },
+      "report data survives the clone",
+    );
+    assert.ok(detail.changeDetails && typeof detail.changeDetails === "object");
+    assert.equal(Object.prototype.hasOwnProperty.call(detail.changeDetails, "note"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(detail.changeDetails, "helper"), false);
+    assert.deepEqual(detail.changeDetails.nested, {}, "nested function member dropped from snapshot change_details");
+  } finally {
+    await harness.dispose();
+  }
+});
