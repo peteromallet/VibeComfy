@@ -195,9 +195,9 @@ def test_malformed_payload_returns_error_envelope():
     assert "graph" not in result, "error envelope must not contain 'graph'"
 
 
-def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
+def test_failure_response_accept_preserves_nested_recovery() -> None:
     from vibecomfy.comfy_nodes.agent.contracts import FailureKind, failure_envelope
-    from vibecomfy.comfy_nodes.agent.routes import _validated_failure_response
+    from vibecomfy.comfy_nodes.agent.routes import _failure_response
 
     recovery = {
         "action": "rebaseline",
@@ -219,7 +219,7 @@ def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
         },
     )
 
-    payload = _validated_failure_response("accept", failure)
+    payload = _failure_response("accept", failure)
 
     assert payload["rebaseline_recovery"] == recovery
     assert payload["outcome"]["rebaseline_recovery"] == recovery

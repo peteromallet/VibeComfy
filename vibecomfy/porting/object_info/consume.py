@@ -36,13 +36,6 @@ _LITERAL_WIDGET_TYPES: frozenset[str] = frozenset({
     "BOOLEAN", "COMBO", "ENUM", "FLOAT", "INT", "STRING",
 })
 
-_CURATED_WIDGET_ORDERS: dict[str, list[str | None]] = {
-    # The checked-in object_info cache does not include LTX2_NAG in all
-    # environments. Curate only the missing fallback slot; WIDGET_SCHEMA owns
-    # the first three widget names and asks object_info for index 3.
-    "LTX2_NAG": ["nag_scale", "nag_alpha", "nag_tau", "inplace"],
-}
-
 _CURATED_OUTPUTS: dict[str, list[dict[str, str]]] = {
     # Core classes used by checked-in tests and v2.3 generated templates. These
     # labels are stable ComfyUI socket names and keep named handles available
@@ -467,11 +460,8 @@ def object_info_widget_order(class_type: str) -> list[str | None]:
     """
     entry = _resolve_class_type(class_type)
     if entry is None:
-        return list(_CURATED_WIDGET_ORDERS.get(class_type, []))
-    order = reconciled_object_info_widget_order(entry)
-    if class_type in _CURATED_WIDGET_ORDERS and "apply_to_all" not in order:
-        return list(_CURATED_WIDGET_ORDERS[class_type])
-    return order
+        return []
+    return reconciled_object_info_widget_order(entry)
 
 
 def reconciled_object_info_widget_order(entry: dict[str, Any]) -> list[str | None]:

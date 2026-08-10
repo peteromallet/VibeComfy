@@ -1,6 +1,32 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
+
+
+class DiagnosticLike(Protocol):
+    """Structural protocol for the four shared diagnostic fields.
+
+    Any object exposing read-only ``code``, ``message``, ``severity``, and
+    ``detail`` members is compatible, regardless of its concrete type — it does
+    not need to inherit from :class:`Diagnostic`.  ``to_json`` is deliberately
+    NOT part of this surface: serialization is a concrete-type concern.
+
+    Intentionally not ``@runtime_checkable``: ``isinstance`` checks are
+    meaningless for a duck-typed surface, so consumers should rely on static
+    typing (or explicit field access) instead.
+    """
+
+    @property
+    def code(self) -> str: ...
+
+    @property
+    def message(self) -> str: ...
+
+    @property
+    def severity(self) -> str: ...
+
+    @property
+    def detail(self) -> dict[str, Any]: ...
 
 
 class Diagnostic:

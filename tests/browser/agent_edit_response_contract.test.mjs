@@ -1988,19 +1988,19 @@ test("PLAN_OBLIGATION_STATES matches Python three-state contract", () => {
 // ── Delta diagnostic codes ──────────────────────────────────────────────
 
 test("DELTA_DIAGNOSTIC_CODES includes malformed, corrupted, truncated, absent, replay mismatch", () => {
-  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "delta_corrupted");
-  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "delta_truncated");
-  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "delta_absent");
-  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "delta_replay_mismatch");
+  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "corrupted_delta");
+  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "truncated_delta");
+  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "absent_delta");
+  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "replay_mismatch");
 
   assert.deepEqual(DELTA_DIAGNOSTIC_CODES, [
     "malformed_delta",
     "legacy_delta_shape",
     "unsupported_scoped_apply",
-    "delta_corrupted",
-    "delta_truncated",
-    "delta_absent",
-    "delta_replay_mismatch",
+    "corrupted_delta",
+    "truncated_delta",
+    "absent_delta",
+    "replay_mismatch",
   ]);
 });
 
@@ -2326,7 +2326,7 @@ test("normalizeAgentEditResponse does not crash on malformed delta evidence in d
     debug: {
       delta_evidence: {
         delta_evidence_valid: false,
-        delta_evidence_code: "delta_corrupted",
+        delta_evidence_code: "corrupted_delta",
         delta_evidence_detail: { reason: "truncated envelope" },
       },
     },

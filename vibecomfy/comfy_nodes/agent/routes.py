@@ -1008,10 +1008,23 @@ def _provider_status_message(
     return "The model provider is not ready."
 
 
-def _agent_error_response(failure: AgentError) -> dict[str, Any]:
-    response = failure.to_dict()
-    response.update(product_failure_envelope_fields(failure))
-    return response
+def _failure_response(stage: str, failure: Any) -> dict[str, Any]:
+    """Build the single agent-edit failure envelope shared by every route family.
+
+    Both the executor submit family and the legacy test-only handlers route
+    every failure through this one builder, so the two families emit the same
+    wire envelope: the v1 ``FailureEnvelope.to_dict()`` payload merged with the
+    product envelope fields, contract-stamped for the stage, and
+    stale-recovery-normalised exactly as the executor path always was.
+    """
+    serialized = _to_serializable(failure)
+    if isinstance(failure, AgentError):
+        serialized.update(product_failure_envelope_fields(failure))
+    try:
+        stamped = ensure_agent_edit_response_contract(serialized, stage=stage)
+    except Exception:
+        stamped = serialized
+    return _ensure_stale_recovery(stamped)
 
 
 def _handle_agent_edit(
@@ -1031,7 +1044,7 @@ def _handle_agent_edit(
             client_id=client_id,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("route", exc))
+        return _failure_response("route", classify_failure("route", exc))
     if isinstance(result, dict):
         return _sanitize_clarify_payload(result)
     failure = failure_envelope(
@@ -1039,7 +1052,7 @@ def _handle_agent_edit(
         "route",
         agent_failure_context={"explanation": "handle_agent_edit returned a non-dict result."},
     )
-    return _agent_error_response(failure)
+    return _failure_response("route", failure)
 
 
 def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1074,14 +1087,17 @@ def _handle_agent_executor_submit(
     from vibecomfy.executor.core import run_executor  # noqa: PLC0415
 
     if not isinstance(payload, dict):
-        failure = _agent_error_response(
-            failure_envelope(
-                FailureKind.MISSING_REQUIRED_FIELD,
+        return (
+            _failure_response(
                 "agent_executor",
-                agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "agent_executor",
+                    agent_failure_context={"explanation": "Request body must be a JSON object."},
+                ),
+            ),
+            400,
         )
-        return _validated_failure_response("agent_executor", failure), 400
 
     # ── T2: Normalise session_id before it reaches ExecutorRequest ────────
     # ExecutorRequest.from_payload() accepts a raw session_id string, but the
@@ -1098,8 +1114,7 @@ def _handle_agent_executor_submit(
     try:
         request = ExecutorRequest.from_payload(_executor_request_payload(safe_payload))
     except Exception as exc:
-        failure = _agent_error_response(classify_failure("agent_executor", exc))
-        return _validated_failure_response("agent_executor", failure), 400
+        return _failure_response("agent_executor", classify_failure("agent_executor", exc)), 400
     result = run_executor(request, client_id=client_id)
     response = _serialize_executor_result(result)
     # T7/T9: Durable turn writer for executor-only non-applyable turns
@@ -1163,12 +1178,13 @@ def _handle_agent_edit_chat(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "chat",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "chat",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     raw_session_id = payload.get("session_id")
     max_messages = _coerce_chat_max_messages(payload.get("max_messages"))
@@ -1181,14 +1197,15 @@ def _handle_agent_edit_chat(
             max_messages=max_messages,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("chat", exc))
+        return _failure_response("chat", classify_failure("chat", exc))
     if not isinstance(result, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "chat",
             failure_envelope(
                 FailureKind.VALIDATION_ERROR,
                 "chat",
                 agent_failure_context={"explanation": "read_session_chat returned a non-dict result."},
-            )
+            ),
         )
     latest_candidate = result.get("latest_candidate")
     outcome = (
@@ -1305,16 +1322,7 @@ def _normalize_action_response(
                 eligibility_message=success_message,
             )
         return serialized
-    return _validated_failure_response(stage, serialized)
-
-
-def _validated_failure_response(stage: str, failure: Any) -> dict[str, Any]:
-    serialized = _to_serializable(failure)
-    try:
-        stamped = ensure_agent_edit_response_contract(serialized, stage=stage)
-    except Exception:
-        stamped = serialized
-    return _ensure_stale_recovery(stamped)
+    return _failure_response(stage, serialized)
 
 
 def _audit_path_for_action(session_root: Path, session_id: str, turn_id: str, action: str) -> Path:
@@ -1359,21 +1367,23 @@ def _handle_agent_edit_accept(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "accept",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "accept",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     turn_id = payload.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id.strip():
-        return _agent_error_response(
+        return _failure_response(
+            "accept",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "accept",
                 agent_failure_context={"explanation": "turn_id is required."},
-            )
+            ),
         )
     root = _session_root_path(session_root)
     raw_session_id = payload.get("session_id")
@@ -1398,7 +1408,7 @@ def _handle_agent_edit_accept(
             else None,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("accept", exc))
+        return _failure_response("accept", classify_failure("accept", exc))
     serialized = _normalize_action_response(
         result,
         stage="accept",
@@ -1414,7 +1424,7 @@ def _handle_agent_edit_accept(
                 action="accept",
             )
         except Exception as exc:
-            return _agent_error_response(classify_failure("audit", exc))
+            return _failure_response("audit", classify_failure("audit", exc))
     return serialized
 
 
@@ -1424,21 +1434,23 @@ def _handle_agent_edit_reject(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "reject",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "reject",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     turn_id = payload.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id.strip():
-        return _agent_error_response(
+        return _failure_response(
+            "reject",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "reject",
                 agent_failure_context={"explanation": "turn_id is required."},
-            )
+            ),
         )
     root = _session_root_path(session_root)
     raw_session_id = payload.get("session_id")
@@ -1472,7 +1484,7 @@ def _handle_agent_edit_reject(
             else None,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("reject", exc))
+        return _failure_response("reject", classify_failure("reject", exc))
     serialized = _normalize_action_response(
         result,
         stage="reject",
@@ -1488,7 +1500,7 @@ def _handle_agent_edit_reject(
                 action="reject",
             )
         except Exception as exc:
-            return _agent_error_response(classify_failure("audit", exc))
+            return _failure_response("audit", classify_failure("audit", exc))
     return serialized
 
 
@@ -1498,12 +1510,13 @@ def _handle_agent_edit_rebaseline(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "rebaseline",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "rebaseline",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     raw_session_id = payload.get("session_id")
     # ── T2: Normalise session_id before it reaches durable rebaseline_session.
@@ -1518,7 +1531,7 @@ def _handle_agent_edit_rebaseline(
             else None,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("rebaseline", exc))
+        return _failure_response("rebaseline", classify_failure("rebaseline", exc))
     return _normalize_action_response(
         result,
         stage="rebaseline",
@@ -1533,39 +1546,43 @@ def _handle_agent_edit_audit(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "audit",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "audit",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     raw_session_id = payload.get("session_id")
     if not isinstance(raw_session_id, str) or not raw_session_id.strip():
-        return _agent_error_response(
+        return _failure_response(
+            "audit",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "audit",
                 agent_failure_context={"explanation": "session_id is required."},
-            )
+            ),
         )
     raw_turn_id = payload.get("turn_id")
     if not isinstance(raw_turn_id, str) or not raw_turn_id.strip():
-        return _agent_error_response(
+        return _failure_response(
+            "audit",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "audit",
                 agent_failure_context={"explanation": "turn_id is required."},
-            )
+            ),
         )
     action = payload.get("action")
     if action not in {"accept", "reject", "rebaseline"}:
-        return _agent_error_response(
+        return _failure_response(
+            "audit",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "audit",
                 agent_failure_context={"explanation": "action must be one of accept, reject, or rebaseline."},
-            )
+            ),
         )
     # ── T2: Normalise session_id and turn_id before path construction.
     session_id = normalize_session_id(raw_session_id)
@@ -1574,7 +1591,7 @@ def _handle_agent_edit_audit(
     try:
         body = audit_path.read_bytes()
     except OSError as exc:
-        return _agent_error_response(classify_failure("audit", exc))
+        return _failure_response("audit", classify_failure("audit", exc))
     return {
         "ok": True,
         "headers": {
@@ -1595,12 +1612,13 @@ def _handle_agent_credentials(
     env_path: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "credentials",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "credentials",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     try:
         return handle_credential_submission(
@@ -1608,7 +1626,7 @@ def _handle_agent_credentials(
             env_path=Path(env_path) if env_path is not None else None,
         )
     except Exception as exc:
-        return _agent_error_response(classify_failure("ingest", exc))
+        return _failure_response("ingest", classify_failure("ingest", exc))
 
 
 def _agent_settings_path(path: Any = None) -> Path:
@@ -1656,12 +1674,13 @@ def _handle_agent_settings_get(*, settings_path: Any = None) -> dict[str, Any]:
 
 def _handle_agent_settings_post(payload: Any, *, settings_path: Any = None) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return _agent_error_response(
+        return _failure_response(
+            "agent_settings",
             failure_envelope(
                 FailureKind.MISSING_REQUIRED_FIELD,
                 "agent_settings",
                 agent_failure_context={"explanation": "Request body must be a JSON object."},
-            )
+            ),
         )
     settings = _save_agent_settings(payload, settings_path=settings_path)
     return {"ok": True, **settings}
@@ -1707,7 +1726,7 @@ def _handle_research_contribution_run(
         started = _run_research_contribution_pipeline(runner=runner)
     except Exception as exc:
         _LOGGER.exception("Failed to start VibeComfy research contribution pipeline")
-        return _agent_error_response(classify_failure("agent_settings", exc))
+        return _failure_response("agent_settings", classify_failure("agent_settings", exc))
     trigger = {"started_at": _utc_now_iso(), **started}
     settings = _save_agent_settings({"research_contribution_last_trigger": trigger}, settings_path=settings_path)
     return {

@@ -99,10 +99,10 @@ export const OBLIGATION_SEVERITIES = Object.freeze([
 // ── Delta diagnostic codes (Python-sourced) ─────────────────────────────────
 // Source: vibecomfy/porting/edit/ops.py
 
-export const DELTA_DIAGNOSTIC_CORRUPTED = "delta_corrupted";
-export const DELTA_DIAGNOSTIC_TRUNCATED = "delta_truncated";
-export const DELTA_DIAGNOSTIC_ABSENT = "delta_absent";
-export const DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "delta_replay_mismatch";
+export const DELTA_DIAGNOSTIC_CORRUPTED = "corrupted_delta";
+export const DELTA_DIAGNOSTIC_TRUNCATED = "truncated_delta";
+export const DELTA_DIAGNOSTIC_ABSENT = "absent_delta";
+export const DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "replay_mismatch";
 
 /** All delta diagnostic codes (including those from canonical_delta.js). */
 export const DELTA_DIAGNOSTIC_CODES = Object.freeze([

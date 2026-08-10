@@ -11,7 +11,6 @@ from __future__ import annotations
 import ast
 import json
 import sys
-import tomllib
 from collections import defaultdict
 from pathlib import Path
 
@@ -39,16 +38,17 @@ UI_ONLY_PATTERNS = {
 }
 
 from vibecomfy.contracts.validation import OPAQUE_COMPONENT_CLASS_RE  # noqa: E402
+from vibecomfy.node_packs._lockfile import read_lockfile  # noqa: E402
 
 
-def parse_custom_nodes_lock(path: Path) -> dict[str, dict]:
-    """Parse the TOML custom_nodes.lock into nodepack records."""
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-    nodepacks = data.get("nodepacks", {})
-    if not isinstance(nodepacks, dict):
-        return {}
-    return {str(name): dict(value) for name, value in nodepacks.items() if isinstance(value, dict)}
+def parse_custom_nodes_lock(path: Path) -> dict[str, set[str]]:
+    """Read nodepack class sets via the shared lockfile reader.
+
+    Delegates to ``vibecomfy.node_packs._lockfile.read_lockfile`` (the
+    canonical lockfile parser) so this tool cannot drift from the lock
+    format written by the rest of the package.
+    """
+    return {entry.name: set(entry.class_set) for entry in read_lockfile(path)}
 
 
 def extract_class_types_from_file(filepath: Path) -> list[dict]:
@@ -104,14 +104,7 @@ def extract_class_types_from_file(filepath: Path) -> list[dict]:
 
 def main():
     # Parse lock
-    packs = parse_custom_nodes_lock(LOCK_FILE)
-
-    # Build pack class sets.
-    pack_class_sets = {}
-    for pack_key, pack_data in packs.items():
-        class_set = pack_data.get("class_set", [])
-        if isinstance(class_set, list):
-            pack_class_sets[pack_key] = set(class_set)
+    pack_class_sets = parse_custom_nodes_lock(LOCK_FILE)
 
     # Extract all class_types from ready templates
     all_refs = []
