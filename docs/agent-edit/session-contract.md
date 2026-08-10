@@ -379,7 +379,7 @@ Before `AddNodeOp` construction, a **pre-pass** over the parsed batch:
 4. **Explicit placement hints** (`near=…`, `relation=…`, `group=…`) take
    priority over inferred placement.
 
-The existing `edit_apply.py` semantics and the raw-coordinate surface are
+The existing `vibecomfy/porting/edit/apply.py` semantics and the raw-coordinate surface are
 **unchanged**.
 
 ---
@@ -594,8 +594,8 @@ block. The following are explicitly **out of scope** for M1:
   existing agent-edit pipeline.
 - `emit_agent_edit_python(…)` is the **new parallel entry point** used by
   `EditSession.render()`.
-- The existing typed edit-op infrastructure (`edit_ops.py`, `edit_apply.py`,
-  `edit_ledger.py`) is **unchanged** — `EditSession` lowers its interpreted
+- The existing typed edit-op infrastructure (`vibecomfy/porting/edit/ops.py`,
+  `vibecomfy/porting/edit/apply.py`, `vibecomfy/porting/edit/ledger.py`) is **unchanged** — `EditSession` lowers its interpreted
   statements to the same op types.
 
 ---

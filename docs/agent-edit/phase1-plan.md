@@ -9,7 +9,7 @@ the components that own them — there is no separate "revision" section.
 
 ## Relationship to existing work
 - **Reuses unchanged:** runtime wiring (`runtime`/`worker`/
-  launcher), session/accept/audit/idempotency (`agent_session.py`, the accept
+  launcher), session/accept/audit/idempotency (`vibecomfy/comfy_nodes/agent/session.py`, the accept
   routes), the panel UX, the scoped-uid machinery (`porting/uid.py`), the layout
   engine (`porting/layout*`, `layout_store.py`), and `EditorAheadError`
   (`refuse.py`) for user edits made between turns.
@@ -151,7 +151,7 @@ Two strict phases: **resolve-all, then mutate** (atomic).
     are exempted by C6. (Area 4: "cascade-remove" alone would sever a mid-chain
     reroute.)
   - `reorder` → widget/slot order on a named node.
-- Touch: new `porting/edit_apply.py`.
+- Touch: new `vibecomfy/porting/edit/apply_core.py`.
 
 ### C4. Placement function — small NEW, reuses layout engine
 `place(original_geometry, groups, new_node_links, anchor, relation) -> pos` — a
@@ -179,7 +179,7 @@ Root `groups` (and `extra`, `config`, `definitions`, `floatingLinks`, any unknow
 root field) are otherwise preserved **verbatim** by C5's root passthrough —
 forward-compatible by construction; only a box explicitly grown by an `add_node` is a
 permitted change.
-- Touch: `porting/edit_apply.py` calling into the existing layout engine.
+- Touch: `vibecomfy/porting/edit/apply_place.py` calling into the existing layout engine.
 
 ### C5. Full-UI assert — NEW (replaces API-space `guard_emit` on the edit path)
 - For every node **not** named in `delta` (after accounting for cascade link-cleanup
@@ -210,7 +210,7 @@ permitted change.
   `hash(name)`, which is `PYTHONHASHSEED`-randomized, so a group's `color` varies per
   process and would false-trip the assert. **Fixed now** in `groups.py`
   (`hash()` → `blake2b`); also benefits authoring determinism.
-- Touch: `porting/edit_apply.py` (or `refuse.py::guard_full_ui`).
+- Touch: `vibecomfy/porting/edit/apply_gate.py` (or `refuse.py::guard_full_ui`).
 
 ### C6. Editing test corpus — NEW (the only correctness bar for editing)
 For the LTX set, the Gemini/ByteDance graph, and standard graphs, scripted deltas:
@@ -235,7 +235,7 @@ For the LTX set, the Gemini/ByteDance graph, and standard graphs, scripted delta
   has no op-structure, so the plan's "recorded in the audit" promises had no receiver.
   (Confirmed safe by review: idempotency already holds via response-replay; no
   double-apply; ledger is rebuilt per ingest so no stale uid leak.)
-- Touch: `tests/test_agent_edit_apply.py` + fixtures; `agent_audit.py` (`delta_ops`).
+- Touch: `tests/test_porting_edit_apply.py` + fixtures; `agent_audit.py` (`delta_ops`).
 
 ## Wiring into the turn (flagged)
 New edit path: `ingest (C0 stamp+ledger, C1 project)` → `agent (C2 delta)` →

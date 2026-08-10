@@ -126,7 +126,7 @@ round-trip untouched. **One substrate, two policies.**
 
 - `agent_edit.py::_stage_ingest` — stamp uids on `state.graph` (substrate) before
   anything renders; carry it as the apply base.
-- `agent_provider.py::build_messages` — stop demanding "complete replacement file";
+- `vibecomfy/comfy_nodes/agent/provider.py::build_messages` — stop demanding "complete replacement file";
   request a `delta` of ops; render the uid-faithful view.
 - new `apply_delta(original_ui, delta)` + `resolve_target(original_ui, op)` — the
   pure apply + resolver (replaces `_stage_load_python`/`_stage_lower`/`_stage_emit`

@@ -574,6 +574,6 @@ These are deferred to M3.
 | `vibecomfy/comfy_nodes/agent/provider.py` | `BatchTurnResult`, `extract_batch_fence`, `build_batch_messages`, `run_agent_turn_batch`, `_normalize_batch_response`, `_call_batch_runtime` |
 | `vibecomfy/comfy_nodes/agent_edit.py` | `_agent_edit_batch_repl_enabled`, `_stage_agent_batch_repl`, `_render_batch_diff`, `_format_batch_report`, `_format_batch_report_json`, `_extract_clarify_message`, `_batch_budget_failure_kind`, batch state fields, routing precedence |
 | `vibecomfy/comfy_nodes/agent/contracts.py` | `FailureKind` entries (`BATCH_BUDGET_EXHAUSTED`, `CLARIFICATION_REQUIRED`, `MODEL_MISTAKE`, `UNREPRESENTABLE`, `SCHEMA_GAP`), `FAILURE_SPECS` for batch exits |
-| `vibecomfy/porting/edit_session.py` | `EditSession` (frozen API), `ReorderOp` import |
+| `vibecomfy/porting/edit/session.py` | `EditSession` (frozen API), `ReorderOp` import |
 | `tests/test_comfy_nodes_agent_edit.py` | Batch-REPL tests including flag-off regression, partial success, clarify/done/budget exit, structured reporting, and scripted transcript |
 | `tests/test_comfy_nodes_agent_backend_spine.py` | Batch fence extraction, prompt shape, and provider contract tests |
