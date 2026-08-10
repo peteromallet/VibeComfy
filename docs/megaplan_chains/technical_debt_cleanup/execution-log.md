@@ -40,3 +40,16 @@ Tasks (all PASS):
 - T-027 PASS — generator + regenerated JS emit corrupted_delta family; zero delta_corrupted; codegen 1 + browser 85/63 tests green.
 
 Oracle: round 1 FAIL (over-broad briefing flagged _CURATED_OUTPUTS LTX2_NAG entry — assessed as output-fallback, out of S20 widget scope); round 2 PASS with corrected contract (widget curation gone, schema canonical, _failure_response single, spellings aligned). ORACLE-4 = PASS (boundary make check pending).
+
+## ORACLE-5 batch (T-028…T-034) — JS clone + codegen
+
+Tasks (all PASS, two fix rounds):
+- T-028 PASS — tests/browser/deep_plain.test.mjs pins Family-A semantics (17 tests; module missing pre-T-029 by design).
+- T-029 PASS — W/deep_plain.js: recursion-stack WeakSet clone; 17/17 green.
+- T-030 PASS — Family A migrated to shared deep_plain (lifecycle/response_contract/transaction, 49 call sites); canonical_delta dead _clonePlainData removed; 572/572.
+- T-031 PASS — Family B pinned (6 tests: undefined/fn-drop + method injection); harness.mjs STAGED_WEB_MODULES + deep_plain.js (sanctioned T-030 fallout).
+- T-032 PASS (+fix) — W/json_clone.js shared JSON-family clone (~90 sites); injected-method outputs never re-cloned; jsonClone no longer aliases on cycle (throws TypeError — S8 bug fixed after T-033 pin exposed it).
+- T-033 PASS (after fix) — replay-snapshot independence + cycle-throw pins; agentic_replay 9/9.
+- T-034 PASS — generator ownership verified/documented (4 constants + 2 embedded blocks; zero golden reads); guard test; goldens byte-identical.
+
+Oracle: round 1 FAIL — 2 real findings: (1) _cloneLifecycleBaselineValue return-original fallback (last aliasing JSON clone), (2) deep_plain own-__proto__ key corruption. Fixes: jsonClone route + defineProperty copy (2 new __proto__ pins; 383/383). Round 2 PASS. ORACLE-5 = PASS. Boundary make check exit 0. roundtrip_smoke load-flake class re-observed (with/without change, different tests per run) — recorded.
