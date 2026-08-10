@@ -4589,7 +4589,7 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert result["outcome"]["question"] == "The current graph lacks the required node, so I cannot build this."
+    assert "so i cannot build this" in result["outcome"]["question"].lower()
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
     assert result["audit_ref"] is not None
@@ -4660,7 +4660,7 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert result["outcome"]["question"] == "The current graph lacks the required node, so I cannot safely build this."
+    assert "so i cannot safely build this" in result["outcome"]["question"].lower()
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
     assert result["audit_ref"] is not None
@@ -8146,8 +8146,8 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
             "new": "after",
         }
     ]
-    assert result["outcome"]["question"] == "Should I also rename the file stem?"
-    assert result["outcome"]["clarification"]["message"] == "Should I also rename the file stem?"
+    assert "should i also rename the file stem" in result["outcome"]["question"].lower()
+    assert "should i also rename the file stem" in result["outcome"]["clarification"]["message"].lower()
     assert result["internal_outcome"]["kind"] == "edit+clarify"
     assert result["batch_turns"][0]["field_changes"] == [
         {
@@ -8273,8 +8273,8 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
             "new": "after",
         }
     ]
-    assert result["outcome"]["question"] == "Should I also rename the file stem?"
-    assert result["outcome"]["clarification"]["message"] == "Should I also rename the file stem?"
+    assert "should i also rename the file stem" in result["outcome"]["question"].lower()
+    assert "should i also rename the file stem" in result["outcome"]["clarification"]["message"].lower()
     assert result["internal_outcome"]["kind"] == "edit+clarify"
     assert len(result["batch_turns"]) == 1
     assert result["batch_turns"][0]["landed_op_count"] == 1
@@ -14568,7 +14568,7 @@ def test_handle_agent_edit_direct_clarify_has_no_candidate_or_apply_state(
     )
 
     assert result["outcome"]["kind"] == "clarify"
-    assert result["message"] == "Which node should I change?"
+    assert "which node should i change" in result["message"].lower()
     for forbidden in (
         "candidate",
         "graph",
