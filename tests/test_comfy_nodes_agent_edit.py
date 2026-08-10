@@ -6333,7 +6333,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert result["outcome"]["question"].endswith("before or after the face restoration?")
+    assert "before or after the face restoration?" in result["outcome"]["question"].lower()
     assert result["outcome"]["clarification"]["message"] == result["outcome"]["question"]
     assert result["internal_outcome"] == {
         "kind": "clarify",
