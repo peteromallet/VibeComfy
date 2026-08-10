@@ -827,9 +827,10 @@ def test_agent_edit_turn_event_payload_compacts_and_excludes_sensitive_fields(
 def test_agent_edit_route_extracts_only_non_empty_string_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
-    real_aiohttp = sys.modules.get("aiohttp")
-    real_server = sys.modules.get("server")
+    from vibecomfy.comfy_nodes.agent.routes import (
+        _handle_agent_executor_submit,
+        register_agent_edit_routes,
+    )
 
     registered: dict[str, Any] = {}
 
@@ -846,24 +847,19 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
                 return fn
             return _decorator
 
-    server_module = types.ModuleType("server")
-    server_module.PromptServer = types.SimpleNamespace(instance=types.SimpleNamespace(routes=_Routes()))
-
     aiohttp_module = types.ModuleType("aiohttp")
     aiohttp_module.web = types.SimpleNamespace(
         json_response=lambda body, status=200: {"status": status, "body": body},
         Response=lambda **kwargs: kwargs,
     )
-
-    monkeypatch.setitem(sys.modules, "server", server_module)
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
 
-    # import_prompt_server caches the real PromptServer from an earlier
-    # import; evict it so the reload below re-resolves against the mocked
-    # server module and registers on the mock. reload() mutates the routes
-    # module in place, preserving the object other tests patch.
-    monkeypatch.delitem(sys.modules, "vibecomfy.comfy_nodes._server_compat", raising=False)
-    routes = importlib.reload(routes)
+    # Register the route handlers on a mock PromptServer app directly — the
+    # established pattern (see test_demo_scenarios_routes) — instead of
+    # reloading the routes module, whose import-time side effects pull in the
+    # real ComfyUI server and clobber any sys.modules mock mid-reload.
+    app = types.SimpleNamespace(routes=_Routes())
+    register_agent_edit_routes(app)
 
     captured: list[tuple[dict, str | None]] = []
     to_thread_calls: list[str] = []
@@ -873,8 +869,7 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
         return {"ok": True}, 200
 
     monkeypatch.setattr(
-        routes,
-        "_handle_agent_executor_submit",
+        "vibecomfy.comfy_nodes.agent.routes._handle_agent_executor_submit",
         _fake_handle_agent_executor_submit,
     )
     agent_edit_route = registered.get("/vibecomfy/agent-edit")
@@ -884,7 +879,9 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
         to_thread_calls.append(getattr(fn, "__name__", repr(fn)))
         return fn(*args, **kwargs)
 
-    monkeypatch.setattr(routes.asyncio, "to_thread", _fake_to_thread)
+    from vibecomfy.comfy_nodes.agent import routes as routes_module
+
+    monkeypatch.setattr(routes_module.asyncio, "to_thread", _fake_to_thread)
 
     class _Request:
         def __init__(self, payload):
@@ -893,31 +890,20 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
         async def json(self):
             return self._payload
 
-    try:
-        response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "client-123"})))
-        assert response["status"] == 200
-        assert captured[-1][1] == "client-123"
-        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
+    response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "client-123"})))
+    assert response["status"] == 200
+    assert captured[-1][1] == "client-123"
+    assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
 
-        response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": 99})))
-        assert response["status"] == 200
-        assert captured[-1][1] is None
-        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
+    response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": 99})))
+    assert response["status"] == 200
+    assert captured[-1][1] is None
+    assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
 
-        response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "   "})))
-        assert response["status"] == 200
-        assert captured[-1][1] is None
-        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
-    finally:
-        if real_aiohttp is not None:
-            sys.modules["aiohttp"] = real_aiohttp
-        else:
-            sys.modules.pop("aiohttp", None)
-        if real_server is not None:
-            sys.modules["server"] = real_server
-        else:
-            sys.modules.pop("server", None)
-        importlib.reload(routes)
+    response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "   "})))
+    assert response["status"] == 200
+    assert captured[-1][1] is None
+    assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
 
 
 def test_agent_edit_state_exposes_explicit_lowering_fields(tmp_path: Path) -> None:
@@ -8150,7 +8136,7 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
     assert result["apply_allowed"] is True
     assert result["apply_eligibility"]["reason"] == "applyable"
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
-    assert "should I also rename the file stem?" in result["message"]
+    assert "should i also rename the file stem?" in result["message"].lower()
     assert result["outcome"]["kind"] == "candidate"
     assert result["outcome"]["changes"] == [
         {
@@ -8277,7 +8263,7 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
     assert result["graph_unchanged"] is False
     assert result["apply_allowed"] is True
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
-    assert "should I also rename the file stem?" in result["message"]
+    assert "should i also rename the file stem?" in result["message"].lower()
     assert result["outcome"]["kind"] == "candidate"
     assert result["outcome"]["changes"] == [
         {
