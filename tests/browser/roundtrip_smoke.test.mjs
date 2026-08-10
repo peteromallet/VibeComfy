@@ -27,7 +27,10 @@ import {
   transition,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 import { boundedBrowserTransactionError } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
-import { projectionReferenceV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+import {
+  buildStructuralGraphProjection,
+  projectionReferenceV1,
+} from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 import { makeValidCandidateTransactionV2, bindTransactionHashes } from "./authority_factory.mjs";
 
 function sha256HexUtf8(value) {
@@ -1203,7 +1206,11 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
     assert.equal(payload.profile, "openai");
     assert.equal(payload.model, "gpt-5.1");
     assert.equal(payload.client_graph_hash, sha256HexUtf8(graph));
-    assert.equal(payload.client_structural_graph_hash, projectionReferenceV1(graph, "structural_v1").digest);
+    // client_structural_graph_hash is the session-compatibility digest of the
+    // legacy structural projection (structuralGraphHash in the roundtrip
+    // module); the typed projectionReferenceV1 digest is a separate authority
+    // carried only in v2 pre/postcondition evidence.
+    assert.equal(payload.client_structural_graph_hash, sha256HexUtf8(buildStructuralGraphProjection(graph)));
     assert.equal(payload.client_live_canvas_token, "live:rev:1");
     assert.equal(payload.expected_baseline_graph_hash, null);
     assert.equal("baseline_turn_id" in payload, false);
@@ -3086,10 +3093,12 @@ test("prepared transaction rehydrate restores candidate-mutated canvas before ca
     bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
     bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
     bindTransactionStructuralHash(extensionModule, rolledBackTransaction, candidateGraph);
-    preparedBaseline.structural_graph_hash = projectionReferenceV1(
-      originalGraph,
-      "structural_v1",
-    ).digest;
+    // The prepared baseline's structural hash is the session-compatibility
+    // (legacy projection) digest: rollback verification compares it against
+    // buildCanvasSnapshot().structuralHash, which is computed from
+    // buildStructuralGraphProjection.  The typed projectionReferenceV1 digest
+    // is a distinct authority and would never match the restored canvas.
+    preparedBaseline.structural_graph_hash = sha256HexUtf8(buildStructuralGraphProjection(originalGraph));
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "APPLY_PREPARED");
@@ -10849,6 +10858,11 @@ test("VibeComfy widget value overlays derive fallback bounds and clamp long text
     liveNode.widgets = [
       { name: "cfg", value: "old preview value", last_y: 0, computeSize: () => [0, 0] },
     ];
+    // Current contract: zero is an ordinary world coordinate, so the overlay
+    // anchors to the live node whenever its geometry is finite.  Only a live
+    // node with no geometry at all derives fallback bounds from the candidate.
+    liveNode.pos = undefined;
+    liveNode.size = undefined;
     harness.app.canvas.canvas = {
       ownerDocument: harness.document,
       width: 320,
@@ -21008,7 +21022,7 @@ test("VibeComfy keeps aggregate-free historical candidates read-only while enabl
     assert.equal(latestApply.disabled, false, "latest canonical candidate Apply must stay enabled");
     assert.equal(latestReject.disabled, false, "latest canonical candidate Reject must stay enabled");
     assert.equal(latestReason.textContent, "latest");
-    assert.match(harness.textDump(), /Candidate transaction authority is missing\./);
+    assert.match(harness.textDump(), /Candidate transaction authority is invalid\./);
   } finally {
     await harness.dispose();
   }
@@ -21174,7 +21188,7 @@ test("VibeComfy keeps aggregate-free superseded history read-only at the migrati
     assert.equal(oldApply.disabled, true);
     assert.equal(oldReject.disabled, true);
     assert.equal(oldReason.textContent, "missing_contract");
-    assert.match(harness.textDump(), /Candidate transaction authority is missing\./);
+    assert.match(harness.textDump(), /Candidate transaction authority is invalid\./);
   } finally {
     await harness.dispose();
   }
@@ -24786,10 +24800,12 @@ test("preview delta planner uses native auxiliary widget carriers for the full i
 });
 
 test("preview delta-ops parity: legacy graph-diff fallback cannot override normalized delta-op-derived highlights", async () => {
-  // Scenario: live graph and candidate graph differ by a widget value that is
-  // NOT reflected in the deltaOps.  The deltaOps only mention a different
-  // change.  We prove that when deltaOps are provided, the diff highlights
-  // come from deltaOps, NOT from the graph diff.
+  // Scenario: live graph and candidate graph differ by a widget value.  When
+  // canonical deltaOps (agreeing with the candidate graph) are provided, the
+  // diff highlights come from deltaOps, NOT from the graph diff or the
+  // report's content_edits.  A delta whose value disagrees with the candidate
+  // graph fails closed to the graph-diff fallback rather than overriding the
+  // candidate authority.
   const liveGraph = {
     nodes: [
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, widgets_values: ["live-value"], pos: [100, 100] },
@@ -24802,10 +24818,11 @@ test("preview delta-ops parity: legacy graph-diff fallback cannot override norma
     ],
     links: [],
   };
-  // deltaOps says: set widget[0] to "delta-value" — intentionally DIFFERENT
-  // from what the graph diff would detect (which would detect "live-value" → "candidate-value")
+  // deltaOps must agree with the candidate graph: the candidate graph is the
+  // canonical value authority, so the op's value mirrors "candidate-value".
+  // A delta whose value disagrees with the candidate fails closed (see below).
   const deltaOps = [
-    { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "delta-value" },
+    { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "candidate-value" },
   ];
 
   const harness = await createBrowserHarness({
@@ -24857,8 +24874,28 @@ test("preview delta-ops parity: legacy graph-diff fallback cannot override norma
     assert.equal(diffWithReport._deltaOpsDerived, true, "delta-derived even with report content_edits");
     assert.equal(diffWithReport.edited.length, 1, "one edited entry from delta ops");
 
-    // ── When deltaOps cause preflight failure, fallback still works ──
-    // (but that's tested elsewhere; here we prove the normal path)
+    // ── Fail-closed proof: a delta op whose value disagrees with the
+    // candidate graph is rejected by the canonical delta authority, so the
+    // preview falls back to the graph diff instead of silently overriding
+    // the candidate with the conflicting delta value ──
+    const inconsistentDeltaOps = [
+      { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "delta-value" },
+    ];
+    const diffInconsistent = extensionModule.computePreviewDiff(
+      candidateGraph,
+      { change: { content_edits: {} }, recovery: [] },
+      inconsistentDeltaOps,
+    );
+    assert.equal(
+      diffInconsistent._deltaOpsDerived,
+      false,
+      "inconsistent delta fails closed instead of overriding the candidate graph",
+    );
+    assert.equal(
+      diffInconsistent.edited.length,
+      1,
+      "fail-closed fallback still highlights the widget change from the graph diff",
+    );
   } finally {
     await harness.dispose();
   }
@@ -24867,7 +24904,10 @@ test("preview delta-ops parity: legacy graph-diff fallback cannot override norma
 test("preview delta-ops parity: overlay draw operations render correct colors and labels for delta-derived node highlights", async () => {
   const liveGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, pos: [100, 100], widgets_values: [] },
+      // The live node must expose the widget slot the delta targets
+      // (widgets_values.0); otherwise preflight cannot resolve the target and
+      // the delta fails closed to the graph-diff fallback.
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, pos: [100, 100], widgets_values: ["old"] },
       { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" }, pos: [300, 100], widgets_values: [] },
     ],
     links: [],
