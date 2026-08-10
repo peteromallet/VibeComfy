@@ -50,7 +50,7 @@ done()
 - Prose outside the fence becomes `BatchTurnResult.message` (the user-facing agent message).
 - Fenced code becomes `BatchTurnResult.batch` (the edit statements).
 
-The extractor (`extract_batch_fence` in `vibecomfy/comfy_nodes/agent_provider.py`)
+The extractor (`extract_batch_fence` in `vibecomfy/comfy_nodes/agent/provider.py`)
 uses a regex that matches `` ```batch `` (case-insensitive, optional language
 annotation) and strips everything outside.
 
@@ -251,7 +251,7 @@ with a tiebreaker that prefers more specific categories (`SCHEMA_GAP` >
 `UNREPRESENTABLE` > `MODEL_MISTAKE`).  If no diagnostic patterns match,
 `MODEL_MISTAKE` is the default.
 
-Each sub-kind has its own `FailureSpec` in `agent_contracts.py`:
+Each sub-kind has its own `FailureSpec` in `contracts.py`:
 
 | FailureKind | Retryable | Next action |
 |---|---|---|
@@ -323,7 +323,7 @@ The JSON variant (`_format_batch_report_json`) produces a deterministic dict:
 
 ### 7.1 Prompt construction — `build_batch_messages()`
 
-Location: `vibecomfy/comfy_nodes/agent_provider.py`
+Location: `vibecomfy/comfy_nodes/agent/provider.py`
 
 ```python
 messages = build_batch_messages(
@@ -342,7 +342,7 @@ Returns `[{"role": "system", "content": ...}, {"role": "user", "content": ...}]`
 
 ### 7.2 Response parsing — `extract_batch_fence()`
 
-Location: `vibecomfy/comfy_nodes/agent_provider.py`
+Location: `vibecomfy/comfy_nodes/agent/provider.py`
 
 ```python
 batch_code, prose = extract_batch_fence(raw_response_text)
@@ -353,7 +353,7 @@ Raises `MalformedModelJSON` on 0 or 2+ fences.
 
 ### 7.3 Turn execution — `run_agent_turn_batch()`
 
-Location: `vibecomfy/comfy_nodes/agent_provider.py`
+Location: `vibecomfy/comfy_nodes/agent/provider.py`
 
 ```python
 result = run_agent_turn_batch(task, messages, route=route, model=model)
@@ -571,9 +571,9 @@ These are deferred to M3.
 
 | File | Role |
 |---|---|
-| `vibecomfy/comfy_nodes/agent_provider.py` | `BatchTurnResult`, `extract_batch_fence`, `build_batch_messages`, `run_agent_turn_batch`, `_normalize_batch_response`, `_call_batch_runtime` |
+| `vibecomfy/comfy_nodes/agent/provider.py` | `BatchTurnResult`, `extract_batch_fence`, `build_batch_messages`, `run_agent_turn_batch`, `_normalize_batch_response`, `_call_batch_runtime` |
 | `vibecomfy/comfy_nodes/agent_edit.py` | `_agent_edit_batch_repl_enabled`, `_stage_agent_batch_repl`, `_render_batch_diff`, `_format_batch_report`, `_format_batch_report_json`, `_extract_clarify_message`, `_batch_budget_failure_kind`, batch state fields, routing precedence |
-| `vibecomfy/comfy_nodes/agent_contracts.py` | `FailureKind` entries (`BATCH_BUDGET_EXHAUSTED`, `CLARIFICATION_REQUIRED`, `MODEL_MISTAKE`, `UNREPRESENTABLE`, `SCHEMA_GAP`), `FAILURE_SPECS` for batch exits |
+| `vibecomfy/comfy_nodes/agent/contracts.py` | `FailureKind` entries (`BATCH_BUDGET_EXHAUSTED`, `CLARIFICATION_REQUIRED`, `MODEL_MISTAKE`, `UNREPRESENTABLE`, `SCHEMA_GAP`), `FAILURE_SPECS` for batch exits |
 | `vibecomfy/porting/edit_session.py` | `EditSession` (frozen API), `ReorderOp` import |
 | `tests/test_comfy_nodes_agent_edit.py` | Batch-REPL tests including flag-off regression, partial success, clarify/done/budget exit, structured reporting, and scripted transcript |
 | `tests/test_comfy_nodes_agent_backend_spine.py` | Batch fence extraction, prompt shape, and provider contract tests |

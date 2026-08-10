@@ -31,7 +31,7 @@ decided on the v3 minimal-shared-logic principle:
 - **Option A (`in_N`, CHOSEN):** additive schema entry only; no shared apply
   changes. Agent wires `in_0=`; UI shows the semantic label from `io`.
 - Option C (semantic named slots): cleaner agent syntax but needs a carve-out in
-  the shared apply gate (`edit_apply.py:1325`). Rejected to avoid shared-logic
+  the shared apply gate (`porting/edit/apply_resolve_add.py:1325`). Rejected to avoid shared-logic
   surgery; documented fallback if `in_0=` proves too awkward in practice.
 
 ## 1. Binding model — fixed `in_N` wire keys, semantic UI labels (Option A)
@@ -48,8 +48,8 @@ the only model consistent across all four layers:
 | UI (LiteGraph) | slot `in_0` **relabeled** to "image" from `io`; only the label changes, never the wire key |
 
 Why not DS_C's "named slots, no mapping": `_ensure_input_slot`
-(`edit_apply.py:2675-2685`) *does* create a slot by name, but apply rejects any
-input name absent from the static schema (`edit_apply.py:1325-1333`,
+(`porting/edit/apply_links.py:2675-2685`) *does* create a slot by name, but apply rejects any
+input name absent from the static schema (`porting/edit/apply_resolve_add.py:1325-1333`,
 `unknown_add_node_input`), and a static schema cannot enumerate arbitrary
 user-chosen names. Fixed `in_N` keys are declarable; semantic names are not.
 Option A also defuses the rename-breaks-the-key risk: the wire key is always
@@ -145,26 +145,26 @@ resize flicker (DS_A).
 
 The doc's "confirm multiline widget handling" was wrong on cost. `_fold_constant`
 **already** handles multiline strings + dict/list literals
-(`edit_session.py:2927,2931-2937`, verified) — that part is free. The real work
+(`porting/edit/_parse.py:2927,2931-2937`, verified) — that part is free. The real work
 is that the interpreter **blanket-blocks `vibecomfy.*` construction**:
 
-- Guard A (`edit_session.py:2045-2052`): rejects `vibecomfy.X(...)` dotted calls.
+- Guard A (`porting/edit/_resolve.py:2045-2052`): rejects `vibecomfy.X(...)` dotted calls.
 - Guard B (`:2056-2063`): rejects any `class_type.startswith("vibecomfy.")`.
-- Same guard in `_validate_call` (`:2786`).
+- Same guard in `_validate_call` (`porting/edit/_parse.py:2786`).
 
 Concrete changes (DS_C, ranked):
 1. **Builtin schema entry** for `vibecomfy.exec` (`schema/provider.py:~119`)
    declaring `source` (STRING), `io` (JSON/DICT), `in_0..in_15` (optional, `*`),
    outputs `out_0..out_15`. Without it: `unknown_add_node_class_type`
-   (`edit_apply.py:1256`) and every input rejected (`:1325`).
+   (`porting/edit/apply_resolve_add.py:1256`) and every input rejected (`:1325`).
 2. **Allowlist carve-out** for `vibecomfy.exec` at Guards A/B and `_validate_call`
    (small, surgical — do not open all `vibecomfy.*`).
 3. **`vibecomfy/_compile/_widgets.py`** entry so `source`/`io` are recognized widgets.
 4. **Prompt:** one "Custom code" section in `build_batch_messages`
-   (`agent_provider.py:210-254`) + worked example. Teach: wire `in_0=..`, declare
+   (`agent/provider.py:210-254`) + worked example. Teach: wire `in_0=..`, declare
    `io`, return a dict, imports pre-injected, plain strings only (no f-strings).
 5. **Discovery:** ensure `search(focus_types=["vibecomfy.exec"])` returns the
-   schema (signature rows are static — `emitter.py:4846`; add an example/usage
+   schema (signature rows are static — `porting/emit/signatures.py:4846`; add an example/usage
    line for the dynamic-IO contract).
 
 Agent-facing syntax:

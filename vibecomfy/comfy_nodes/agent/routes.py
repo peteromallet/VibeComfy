@@ -52,15 +52,11 @@ from .hivemind_feedback import submit_hivemind_feedback
 from .session import (
     accept_turn as _session_accept_turn,
     allocate_turn as _session_allocate_turn,
-    finalize_turn_transaction as _session_finalize_turn_transaction,
     normalize_path_component,
     normalize_session_id,
-    prepare_turn_transaction as _session_prepare_turn_transaction,
     rebaseline_session as _session_rebaseline_session,
-    reconcile_turn_transactions as _session_reconcile_turn_transactions,
     record_idempotent_response as _session_record_idempotent_response,
     reject_turn as _session_reject_turn,
-    rollback_turn_transaction as _session_rollback_turn_transaction,
     session_dir_for,
 )
 
@@ -83,22 +79,6 @@ def read_session_chat(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 def accept_turn(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _session_accept_turn(*args, **kwargs)
-
-
-def prepare_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _session_prepare_turn_transaction(*args, **kwargs)
-
-
-def finalize_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _session_finalize_turn_transaction(*args, **kwargs)
-
-
-def rollback_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _session_rollback_turn_transaction(*args, **kwargs)
-
-
-def reconcile_turn_transactions(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _session_reconcile_turn_transactions(*args, **kwargs)
 
 
 def reject_turn(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1798,8 +1778,12 @@ def register_agent_edit_routes(app) -> None:
     )
     from .session import (  # noqa: PLC0415
         accept_turn,
+        finalize_turn_transaction as _session_finalize_turn_transaction,
         normalize_session_id as _safe_session_id,
+        prepare_turn_transaction as _session_prepare_turn_transaction,
         rebaseline_session,
+        reconcile_turn_transactions as _session_reconcile_turn_transactions,
+        rollback_turn_transaction as _session_rollback_turn_transaction,
     )
     from .contracts import (
         FailureKind as _FK,
@@ -1963,7 +1947,7 @@ def register_agent_edit_routes(app) -> None:
             return _json_error("turn_id is required.", stage="prepare")
         try:
             result = await asyncio.to_thread(
-                prepare_turn_transaction,
+                _session_prepare_turn_transaction,
                 session_root=_SESSION_ROOT,
                 session_id=session_id,
                 turn_id=turn_id,
@@ -1994,7 +1978,7 @@ def register_agent_edit_routes(app) -> None:
             return _json_error("turn_id is required.", stage="finalize")
         try:
             result = await asyncio.to_thread(
-                finalize_turn_transaction,
+                _session_finalize_turn_transaction,
                 session_root=_SESSION_ROOT,
                 session_id=session_id,
                 turn_id=turn_id,
@@ -2025,7 +2009,7 @@ def register_agent_edit_routes(app) -> None:
             return _json_error("turn_id is required.", stage="rollback")
         try:
             result = await asyncio.to_thread(
-                rollback_turn_transaction,
+                _session_rollback_turn_transaction,
                 session_root=_SESSION_ROOT,
                 session_id=session_id,
                 turn_id=turn_id,
@@ -2054,7 +2038,7 @@ def register_agent_edit_routes(app) -> None:
         turn_id = payload.get("turn_id")
         try:
             result = await asyncio.to_thread(
-                reconcile_turn_transactions,
+                _session_reconcile_turn_transactions,
                 session_root=_SESSION_ROOT,
                 session_id=session_id,
                 turn_id=turn_id if isinstance(turn_id, str) and turn_id.strip() else None,
