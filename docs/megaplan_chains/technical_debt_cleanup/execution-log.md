@@ -27,3 +27,16 @@ Boundary gates:
 - make check: first boundary run exit 2 at browser-smoke — environmental timing flake (machine memory pressure from stray external megaplan watchdog pytest, PID 552; test passes isolated + in standalone browser-smoke). Flake policy applied: exact rerun green; full browser-smoke rerun green (BS=0). Second full make check rerun failed on same env class; third rerun launched. custom_nodes.lock pin restored after each make run.
 
 Oracle: ORACLE-3 round 1 FAIL (briefing misstated T-019 as "no argparse main"; S18 requires main() argparse legacy function); round 2 FAIL (my brief claimed Click commands must call run_campaign() — not in EXECUTION.md; real finding: module __main__ = second CLI surface); fix dispatched (__main__ removed); round 3 PASS (sole-surface + S18-preserved function verified). ORACLE-3 = PASS (boundary make check exit 0 on final rerun; env-flake recorded).
+
+## ORACLE-4 batch (T-021…T-027) — Python boundaries
+
+Tasks (all PASS):
+- T-021 PASS — new tests/test_agent_route_families.py (7 tests): executor-submit family (3 routes) vs 5 legacy test-only handlers distinct; reject_turn alive; no /agent-edit/audit route.
+- T-022 PASS — single `_failure_response` (routes.py:1011); legacy + executor families emit unified envelope; wire + CLI boundaries byte-identical (verified vs old legacy output incl. EDITOR_AHEAD_CONFLICT + nested-recovery).
+- T-023 PASS — canonical_hash.js docs cite _canonical_contract_primitives.py; diff comment-only; 38/38 browser tests.
+- T-024 PASS — class_inventory_audit uses node_packs._lockfile.read_lockfile(); hand-parsed TOML removed; 3 new tests.
+- T-025 PASS — DiagnosticLike Protocol (code/message/severity/detail; non-runtime_checkable; no to_json; exported via ir/__init__); 6 new tests.
+- T-026 PASS — 'inplace' at static WIDGET_SCHEMA slot 4; _CURATED_WIDGET_ORDERS deleted; _CURATED_OUTPUTS (output fallback) correctly retained.
+- T-027 PASS — generator + regenerated JS emit corrupted_delta family; zero delta_corrupted; codegen 1 + browser 85/63 tests green.
+
+Oracle: round 1 FAIL (over-broad briefing flagged _CURATED_OUTPUTS LTX2_NAG entry — assessed as output-fallback, out of S20 widget scope); round 2 PASS with corrected contract (widget curation gone, schema canonical, _failure_response single, spellings aligned). ORACLE-4 = PASS (boundary make check pending).
