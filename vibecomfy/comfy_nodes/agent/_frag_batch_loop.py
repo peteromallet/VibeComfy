@@ -1,7 +1,21 @@
-# Generated from edit.py. Keep behavior changes in the installed source body.
-# Contents: Batch REPL setup, prompt assembly, provider calls, and first clarify rejection branch.
+"""
+Batch REPL protocol, apply/lint pass, and exit branches (T-039 extraction of the edit_batch_loop fragment).
 
-SOURCE = r'''
+Extracted from the edit.py exec-assembled fragments (T-039, ORACLE-6).
+The fragment SOURCE string stays in edit.py until T-041 removes the machinery;
+this module is the live implementation. Function bodies resolve their free
+names from the assembled edit-module namespace at call time (marked with a
+T-039 late import comment) so monkeypatches on edit.* stay visible exactly as
+under the old exec assembly; guarded imports stay function-local.
+"""
+from __future__ import annotations
+
+import dataclasses
+import json
+import time
+from typing import Any, Mapping
+
+
 _BATCH_PROTOCOL_RETRY_PROMPT = """Your previous response could not be applied because it did not include a valid batch block.
 
 Reply in exactly this format:
@@ -46,6 +60,7 @@ def _batch_protocol_retry_messages(
     messages: list[dict[str, str]],
     exc: BaseException | None = None,
 ) -> list[dict[str, str]]:
+    from vibecomfy.comfy_nodes.agent.edit import (_BATCH_PROTOCOL_RETRY_PROMPT, _malformed_model_json_detail)  # T-039 late import: host namespace lookup; resolved at call time
     prompt = _BATCH_PROTOCOL_RETRY_PROMPT
     if exc is not None:
         detail = _malformed_model_json_detail(exc)
@@ -60,6 +75,7 @@ def _batch_protocol_retry_messages(
 
 
 def _evaluate_execution_plan_after_candidate_update(state: AgentEditState) -> dict[str, Any]:
+    from vibecomfy.comfy_nodes.agent.edit import (evaluate_execution_plan_for_state, structural_graph_hash)  # T-039 late import: host namespace lookup; resolved at call time
     if getattr(state, "execution_plan", None) is None:
         return {}
     if not isinstance(state.ui_payload, Mapping):
@@ -73,6 +89,7 @@ def _evaluate_execution_plan_after_candidate_update(state: AgentEditState) -> di
 
 
 def _execution_plan_status_for_prompt(state: AgentEditState) -> dict[str, Any]:
+    from vibecomfy.comfy_nodes.agent.edit import (format_compact_plan_status)  # T-039 late import: host namespace lookup; resolved at call time
     if getattr(state, "execution_plan", None) is None:
         return {}
     return format_compact_plan_status(state.execution_plan, state.plan_evaluation)
@@ -136,6 +153,7 @@ _MANIFEST_COMPACTOR_MAX_ANCHORS = 16
 
 
 def _manifest_compact_payload(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    from vibecomfy.comfy_nodes.agent.edit import (_MANIFEST_COMPACTOR_MAX_ANCHORS, _MANIFEST_COMPACTOR_MAX_EDGES, _MANIFEST_COMPACTOR_MAX_NODES)  # T-039 late import: host namespace lookup; resolved at call time
     """Render a complete manifest under the dedicated W-07 compactor budget.
 
     Returns the compact manifest dict when the manifest fits entirely within
@@ -242,6 +260,7 @@ def _active_manifest_from_plan(
     *,
     route: str | None,
 ) -> tuple[bool, Mapping[str, Any] | None]:
+    from vibecomfy.comfy_nodes.agent.edit import (_canonical_agent_edit_route, _manifest_is_complete)  # T-039 late import: host namespace lookup; resolved at call time
     """Return ``(manifest_active, manifest)`` for the W-07 compact-notes path.
 
     The manifest path is active ONLY when the canonical route is ``adapt`` AND
@@ -268,6 +287,7 @@ def _compact_protocol_string(value: Any, *, limit: int = _MAX_EXECUTION_PROTOCOL
 
 
 def _compact_protocol_list(value: Any, *, limit: int = _MAX_EXECUTION_PROTOCOL_LIST_ITEMS) -> list[Any]:
+    from vibecomfy.comfy_nodes.agent.edit import (_compact_protocol_string)  # T-039 late import: host namespace lookup; resolved at call time
     if not isinstance(value, (list, tuple)):
         return []
     compacted: list[Any] = []
@@ -289,6 +309,7 @@ def _copy_compact_protocol_fields(
     *,
     string_limit: int = _MAX_EXECUTION_PROTOCOL_STRING,
 ) -> dict[str, Any]:
+    from vibecomfy.comfy_nodes.agent.edit import (_compact_protocol_list, _compact_protocol_string)  # T-039 late import: host namespace lookup; resolved at call time
     result: dict[str, Any] = {}
     for key in keys:
         if key not in source:
@@ -314,6 +335,7 @@ def _copy_compact_protocol_fields(
 
 
 def _compact_protocol_jsonish(value: Any, *, depth: int = 0) -> Any:
+    from vibecomfy.comfy_nodes.agent.edit import (_MAX_EXECUTION_PROTOCOL_LIST_ITEMS, _compact_protocol_jsonish, _compact_protocol_string)  # T-039 late import: host namespace lookup; resolved at call time
     """Bound structured execution evidence without stringifying its records."""
     if isinstance(value, str):
         return _compact_protocol_string(value, limit=240)
@@ -340,6 +362,7 @@ def _compact_protocol_jsonish(value: Any, *, depth: int = 0) -> Any:
 
 
 def _compact_research_source_for_prompt(source: Any) -> dict[str, Any] | None:
+    from vibecomfy.comfy_nodes.agent.edit import (_MAX_EXECUTION_PROTOCOL_LIST_ITEMS, _compact_protocol_list, _copy_compact_protocol_fields)  # T-039 late import: host namespace lookup; resolved at call time
     if not isinstance(source, Mapping):
         return None
     compact = _copy_compact_protocol_fields(
@@ -384,6 +407,7 @@ def _compact_execution_protocol_notes_for_prompt(
     *,
     route: str | None = None,
 ) -> dict[str, Any]:
+    from vibecomfy.comfy_nodes.agent.edit import (_MAX_EXECUTION_PROTOCOL_SOURCES, _active_manifest_from_plan, _compact_protocol_jsonish, _compact_protocol_list, _compact_protocol_string, _compact_research_source_for_prompt, _copy_compact_protocol_fields, _manifest_compact_payload)  # T-039 late import: host namespace lookup; resolved at call time
     compact: dict[str, Any] = {}
 
     # W-07 — manifest-preferred compact protocol notes.  When the ADAPT-path
@@ -518,6 +542,7 @@ def _compact_execution_protocol_notes_for_prompt(
 
 
 def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
+    from vibecomfy.comfy_nodes.agent.edit import (_is_ui_only_annotation_class_type)  # T-039 late import: host namespace lookup; resolved at call time
     """Return class types from UI/API graphs in stable encounter order."""
     if not isinstance(graph, Mapping):
         return ()
@@ -571,6 +596,7 @@ def _is_ui_only_annotation_class_type(class_type: Any) -> bool:
 
 
 def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]:
+    from vibecomfy.comfy_nodes.agent.edit import (_is_ui_only_annotation_class_type)  # T-039 late import: host namespace lookup; resolved at call time
     """Return annotation classes ignored by dependency preflight."""
     ignored: list[str] = []
 
@@ -609,6 +635,7 @@ def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]
 
 
 def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    from vibecomfy.comfy_nodes.agent.edit import (_is_ui_only_annotation_class_type)  # T-039 late import: host namespace lookup; resolved at call time
     """Derive runtime dependency classes from a complete manifest's nodes.
 
     Reads ONLY ``nodes[].canonical_class_type`` (the authoritative class set).
@@ -643,6 +670,7 @@ def _actionable_plan_required_new_classes(
     state: AgentEditState,
     plan: Mapping[str, Any],
 ) -> tuple[str, ...]:
+    from vibecomfy.comfy_nodes.agent.edit import (_active_manifest_from_plan, _dependency_graph_class_types, _manifest_required_new_classes)  # T-039 late import: host namespace lookup; resolved at call time
     """Derive new runtime classes from every concrete typed-plan witness.
 
     W-07 — when the plan carries a COMPLETE ``topology_manifest`` on the
@@ -716,6 +744,7 @@ def _actionable_plan_required_new_classes(
 def _actionable_plan_dependency_status(
     state: AgentEditState,
 ) -> tuple[dict[str, Any], ...]:
+    from vibecomfy.comfy_nodes.agent.edit import (_actionable_plan_required_new_classes, _candidate_dict, _candidate_stable_key, _resolver_candidate_supports_class, _workflow_schema_candidates_from_research_context)  # T-039 late import: host namespace lookup; resolved at call time
     """Classify planned new classes as live, registry-resolvable, or unresolved.
 
     Absence from the live ``/object_info`` provider is not itself a blocker:
@@ -847,6 +876,7 @@ def _retry_after_dependency_preflight_failure(
 
 
 def _hydrate_actionable_registry_dependencies(state: AgentEditState) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import (LOGGER, _candidate_stable_key)  # T-039 late import: host namespace lookup; resolved at call time
     candidates: list[dict[str, Any]] = []
     for dependency in state.runtime_dependencies:
         if dependency.get("availability") != "registry_resolvable":
@@ -893,6 +923,7 @@ def _stage_agent_batch_repl(
     client_id: str | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> StageResult:
+    from vibecomfy.comfy_nodes.agent.edit import (FailureKind, MalformedModelJSON, MissingRequiredField, StageResult, _BATCH_EXIT_BUDGET, _BATCH_EXIT_DONE, _BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_NOOP, _BATCH_EXIT_PURE_CLARIFY, _actionable_plan_dependency_status, _actionable_plan_ui_only_classes, _agent_edit_batch_repl_enabled, _artifact, _batch_budget_artifixer_report, _batch_budget_failure_kind, _batch_candidate_graph_changed, _batch_protocol_parse_reason, _batch_protocol_retry_messages, _batch_research_memory_summary, _build_graph_report, _build_precedent_adaptation_prompt, _canonical_agent_edit_route, _compact_diag_to_dict, _compact_execution_protocol_notes_for_prompt, _direct_existing_parameter_tweak_feedback, _discovery_construction_nudge, _discovery_stop_message, _duplicate_search_cycle_feedback, _duration_ms, _edit_lint_enabled, _edit_noop_requires_graph_evidence_feedback, _effective_implementation_task, _emit_agent_edit_turn_event, _enrich_schema_provider_from_resolver_candidates, _evaluate_execution_plan_after_candidate_update, _execution_plan_done_refusal_hint, _execution_plan_status_for_prompt, _extract_search_signatures, _field_changes_payload, _finalize_revision_evidence_with_candidate, _focus_types_from_research_brief, _format_available_node_names, _format_batch_report, _format_batch_report_json, _format_node_variable_index, _format_research_brief_for_prompt, _hydrate_actionable_registry_dependencies, _hydrate_research_precedent_node_schemas, _is_code_node_intent, _is_graph_explain_intent, _json_safe, _malformed_model_json_detail, _noop_field_changes, _normalize_test_client_batch_response, _prefetch_research_summary, _premature_missing_custom_node_clarify_feedback, _premature_workflow_schema_clarify_feedback, _present_class_types, _read_only_discovery_turn_count, _real_field_changes, _render_batch_diff, _resolver_candidates_from_batch_result, _revision_candidate_retry_hint, _revision_evidence_prompt_json, _seed_focus_types_for_authoring, _selected_precedent_unknown_class_feedback, _targeted_edit_hardening_feedback, _workflow_class_types_from_research_context, build_batch_messages, ensure_sentence_message, evaluate_execution_plan_for_state, repair_field_changes, run_agent_turn_batch, split_terminal_clarify, structural_graph_hash, write_json_artifact)  # T-039 late import: host namespace lookup; resolved at call time
     from vibecomfy.porting.edit import session as edit_session_module
     from vibecomfy.porting.edit.apply_types import ValueDefaultContext
 
@@ -1503,4 +1534,977 @@ def _stage_agent_batch_repl(
                             "task": state.task,
                             "message": turn_result.message,
                             "batch": turn_result.batch,
-'''
+
+                            "report": clarify_feedback,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+                terminal_rejected_clarify = (
+                    _batch_candidate_graph_changed(state)
+                    or (
+                        last_failed_edit_turn >= 0
+                        and last_successful_edit_turn_after_failure < last_failed_edit_turn
+                    )
+                    or consecutive_errors >= max_consecutive_errors
+                    or (turn_number + 1) >= max_batches
+                )
+                if terminal_rejected_clarify:
+                    failure_kind = _batch_budget_failure_kind(state.batch_turns)
+                    state.batch_exit_mode = _BATCH_EXIT_BUDGET
+                    state.batch_final_summary = (
+                        f"Stopped after {state.batch_turn_count} turn(s); "
+                        f"{state.batch_budget_state.get('remaining_batches', 0)} turn(s) remaining."
+                    )
+                    _emit_agent_edit_turn_event(
+                        state,
+                        _context,
+                        turn_record,
+                        client_id=client_id,
+                        status="budget_exhausted",
+                    )
+                    return StageResult(
+                        stage="agent_batch",
+                        ok=False,
+                        blocking=True,
+                        duration_ms=_duration_ms(start),
+                        artifacts=(
+                            _artifact(state.before_py_path),
+                            _artifact(state.after_py_path),
+                            _artifact(state.model_request_path),
+                            _artifact(state.model_response_path),
+                            _artifact(state.candidate_ui_path),
+                            _artifact(state.messages_path),
+                        ),
+                        issues=(
+                            {
+                                "code": "batch_budget_exhausted",
+                                "severity": "error",
+                                "failure_kind": failure_kind.value,
+                                "message": state.batch_final_summary,
+                                "detail": {
+                                    "turn_count": state.batch_turn_count,
+                                    "budget_state": dict(state.batch_budget_state),
+                                    "budget_classification": failure_kind.value,
+                                },
+                            },
+                        ),
+                        value={
+                            "failure_kind": failure_kind.value,
+                            "turn_count": state.batch_turn_count,
+                            "budget_state": dict(state.batch_budget_state),
+                            "budget_classification": failure_kind.value,
+                        },
+                    )
+                last_report = clarify_feedback
+                last_landed_count = 0
+                _emit_agent_edit_turn_event(
+                    state,
+                    _context,
+                    turn_record,
+                    client_id=client_id,
+                    status="in_progress",
+                )
+                continue
+        if clarify_message is not None and not editable_batch.strip():
+            state.batch_turn_count = turn_number + 1
+            state.batch_exit_mode = (
+                _BATCH_EXIT_EDIT_CLARIFY
+                if _batch_candidate_graph_changed(state)
+                else _BATCH_EXIT_PURE_CLARIFY
+            )
+            state.batch_final_summary = (
+                f"Clarification requested after {state.batch_turn_count} batch turn(s)."
+            )
+            state.batch_budget_state = {
+                "max_batches": max_batches,
+                "max_consecutive_errors": max_consecutive_errors,
+                "remaining_batches": max_batches - state.batch_turn_count,
+                "remaining_consecutive_errors": max_consecutive_errors,
+                "consecutive_errors": consecutive_errors,
+            }
+            state.user_message = clarify_message
+            state.python_after = current_render
+            state.after_py_path.write_text(current_render, encoding="utf-8")
+            state.ui_payload = json.loads(json.dumps(session.working_ui))
+            write_json_artifact(state.candidate_ui_path, state.ui_payload)
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": True,
+                "queue_blockers": [],
+            }
+            turn_record = {
+                "turn_number": turn_number,
+                "batch": turn_result.batch,
+                "message": turn_result.message,
+                "route": turn_result.route,
+                "model": turn_result.model,
+                "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
+                "clarification_required": True,
+                "clarification_message": clarify_message,
+                "field_changes": [],
+            }
+            state.batch_turns.append(turn_record)
+            response_log[-1] = {
+                "turn_number": turn_number,
+                "response": turn_result.to_dict(),
+                "clarification": turn_record,
+            }
+            write_json_artifact(state.model_response_path, {"turns": response_log})
+            state.messages_path.open("a", encoding="utf-8").write(
+                json.dumps(
+                    {
+                        "turn_number": turn_number,
+                        "task": state.task,
+                        "message": turn_result.message,
+                        "batch": turn_result.batch,
+                        "clarification_required": clarify_message,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            state.artifacts = {
+                "request": str(state.request_path),
+                "original_ui": str(state.original_ui_path),
+                "before_python": str(state.before_py_path),
+                "after_python": str(state.after_py_path),
+                "model_request": str(state.model_request_path),
+                "model_response": str(state.model_response_path),
+                "candidate_ui": str(state.candidate_ui_path),
+                "revision_evidence": str(state.revision_evidence_path),
+                "messages": str(state.messages_path),
+            }
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="clarify",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={"mode": "clarification_required", "graph_unchanged": True},
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                }
+                if state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY
+                else {},
+            )
+
+        batch_result = session.apply_batch(editable_batch)
+        _enrich_schema_provider_from_resolver_candidates(
+            state,
+            session,
+            _resolver_candidates_from_batch_result(batch_result),
+        )
+        next_render = session.render()
+        state.python_after = next_render
+        state.after_py_path.write_text(next_render, encoding="utf-8")
+        state.ui_payload = json.loads(json.dumps(session.working_ui))
+        write_json_artifact(state.candidate_ui_path, state.ui_payload)
+        execution_plan_status = _evaluate_execution_plan_after_candidate_update(state)
+
+        # ── lint gate: post-apply no-op detection on landed ops ──────────
+        lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
+        lint_dropped_count = 0
+        lint_diag_dicts: tuple[dict[str, Any], ...] = ()
+        persisted_landed_ops = batch_result.landed_ops
+        if (
+            _edit_lint_enabled()
+            and batch_result.landed_ops
+            and _agent_edit_batch_repl_enabled()
+        ):
+            from vibecomfy.porting.edit.lint import LintIndex, lint_delta
+            from vibecomfy.porting.edit.ops import (
+                RemoveLinkOp,
+                SetModeOp,
+                SetNodeFieldOp,
+                UpsertLinkOp,
+            )
+
+            index = LintIndex.build(state.graph)
+            lint_result = lint_delta(
+                batch_result.landed_ops,
+                index,
+                schema_provider=state.schema_provider,
+            )
+
+            landed_add_uids = {
+                str(item.detail.get("minted_uid"))
+                for item in batch_result.statements
+                if item.ok
+                and str(item.op_kind or "") == "node_call"
+                and isinstance(item.detail, Mapping)
+                and item.detail.get("minted_uid") is not None
+            }
+
+            # Build (uid, field_path) identities for lint-dropped ops.
+            _dropped_keys: list[tuple[str, str]] = []
+            for norm in lint_result.normalizations:
+                if norm.disposition != "dropped_noop":
+                    continue
+                op = norm.op
+                key: tuple[str, str] | None = None
+                if isinstance(op, SetNodeFieldOp):
+                    key = (op.target.uid, op.target.field_path)
+                elif isinstance(op, SetModeOp):
+                    key = (op.target.uid, "mode")
+                elif isinstance(op, UpsertLinkOp):
+                    key = (op.target.uid, op.target.input_field)
+                elif isinstance(op, RemoveLinkOp) and op.target is not None:
+                    key = (op.target.uid, op.target.input_field)
+                if key is not None:
+                    _dropped_keys.append(key)
+            lint_dropped_op_ids = frozenset(_dropped_keys)
+            lint_dropped_count = lint_result.dropped_count
+
+            # Accumulate human-readable lint no-op messages
+            _turn_noop_msgs: list[str] = []
+            for norm in lint_result.normalizations:
+                if norm.disposition == "dropped_noop" and norm.issue is not None:
+                    _turn_noop_msgs.append(norm.issue.message)
+            state.lint_noop_messages = state.lint_noop_messages + tuple(_turn_noop_msgs)
+
+            def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
+                return {
+                    "code": issue.code,
+                    "message": issue.message,
+                    "severity": issue.severity,
+                    "op_index": getattr(issue, "op_index", None),
+                    "op_kind": getattr(issue, "op_kind", None),
+                    "source": "lint",
+                }
+
+            lint_issues = tuple(
+                issue
+                for issue in lint_result.issues
+                if not (
+                    issue.code == "unknown_target"
+                    and issue.uid in landed_add_uids
+                )
+            )
+            lint_diag_dicts = tuple(
+                _lint_issue_to_dict(issue) for issue in lint_issues
+            )
+            persisted_landed_ops = lint_result.surviving
+
+        raw_landed = len(batch_result.landed_ops)
+        effective_landed = raw_landed - lint_dropped_count
+        landed_count = effective_landed
+        total_landed += effective_landed
+        last_landed_count = effective_landed
+        # Compute this turn's search() signatures once; used for the duplicate-
+        # cycle feedback (against the PRIOR turn's state) and to advance the
+        # prior-search state for the NEXT turn.  "Landed" means ANY landed edit
+        # this turn — a search followed by a successful edit is not a dead-end
+        # and must not trigger the cycle guard on repeat.
+        current_search_signatures = _extract_search_signatures(batch_result)
+        if batch_result.landed_ops:
+            from vibecomfy.porting.edit.ops import (
+                DELTA_SCHEMA_VERSION,
+                ensure_root_scoped_delta_envelope,
+                op_to_dict,
+            )
+
+            delta_envelope_payload = ensure_root_scoped_delta_envelope(
+                {
+                    "schema_version": DELTA_SCHEMA_VERSION,
+                    "ops": [op_to_dict(op) for op in persisted_landed_ops],
+                },
+                strict=True,
+            ).to_dict()
+        else:
+            delta_envelope_payload = None
+        turn_is_read_only = effective_landed == 0 and all(
+            str(item.op_kind or "") in {"query", "done", "clarify"}
+            for item in batch_result.statements
+        )
+
+        turn_has_errors = (
+            (not batch_result.ok)
+            or bool(batch_result.diagnostics)
+            or any(
+                d.get("severity") == "error" for d in lint_diag_dicts
+            )
+        )
+        consecutive_errors = consecutive_errors + 1 if turn_has_errors else 0
+        diff_text = _render_batch_diff(current_render, next_render)
+        report_text = _format_batch_report(
+            batch_result,
+            consecutive_errors=consecutive_errors,
+            budget_remaining=max_batches - (turn_number + 1),
+            lint_dropped_count=lint_dropped_count,
+            lint_diagnostics=lint_diag_dicts,
+        )
+        direct_tweak_feedback = (
+            _direct_existing_parameter_tweak_feedback(state)
+            if turn_is_read_only
+            else ""
+        )
+        hardening_feedback = _targeted_edit_hardening_feedback(state) if turn_is_read_only else ""
+        # Duplicate-query cycle guard (Part C): detect when the agent re-emits
+        # an identical search() on consecutive turns after the prior search
+        # landed nothing.  Reads the PRIOR turn's search record
+        # (prior_search_signatures / prior_search_landed, init in the intro
+        # loop); the advance for THIS turn happens just below so the next turn
+        # sees this turn as its prior.
+        duplicate_search_feedback = _duplicate_search_cycle_feedback(
+            current_search_signatures,
+            prior_search_signatures,
+            prior_search_landed,
+        )
+        # Advance the prior-search state for the NEXT turn now that the feedback
+        # (which reads the old prior state) has been computed.  A turn with no
+        # search calls resets the tracker: the guard only fires on CONSECUTIVE
+        # identical searches, so an intervening non-search turn breaks the chain.
+        if current_search_signatures:
+            prior_search_signatures = current_search_signatures
+            prior_search_landed = effective_landed > 0
+        else:
+            prior_search_signatures = None
+            prior_search_landed = False
+        extra_feedback = "\n\n".join(
+            note
+            for note in (direct_tweak_feedback, hardening_feedback, duplicate_search_feedback)
+            if note
+        )
+        if extra_feedback:
+            report_text = f"{report_text}\n{extra_feedback}"
+        report_json = _format_batch_report_json(
+            batch_result,
+            consecutive_errors=consecutive_errors,
+            budget_remaining=max_batches - (turn_number + 1),
+            lint_dropped_count=lint_dropped_count,
+            lint_diagnostics=lint_diag_dicts,
+        )
+        field_changes = repair_field_changes(
+            state.graph,
+            tuple(batch_result.field_changes),
+        )
+        real_field_changes = _real_field_changes(
+            field_changes,
+            lint_dropped_op_ids=lint_dropped_op_ids,
+        )
+        noop_field_changes = _noop_field_changes(
+            field_changes,
+            lint_dropped_op_ids=lint_dropped_op_ids,
+        )
+        state.batch_field_changes = state.batch_field_changes + real_field_changes
+        state.batch_noop_field_changes = state.batch_noop_field_changes + noop_field_changes
+        turn_record = {
+            "turn_number": turn_number,
+            "batch": turn_result.batch,
+            "message": turn_result.message,
+            "route": turn_result.route,
+            "model": turn_result.model,
+            "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
+            "batch_ok": batch_result.ok,
+            "statement_count": len(batch_result.statements),
+            "landed_op_count": effective_landed,
+            "raw_landed_op_count": raw_landed,
+            "lint_dropped_op_count": lint_dropped_count,
+            "diagnostics": report_json["diagnostics"],
+            "statements": report_json["statements"],
+            "field_changes": _field_changes_payload(real_field_changes),
+            "diff": diff_text,
+            "report": report_text,
+        }
+        if execution_plan_status:
+            turn_record["execution_plan_status"] = execution_plan_status
+        if delta_envelope_payload is not None:
+            turn_record["delta_ops_envelope"] = delta_envelope_payload
+            turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
+        if noop_field_changes:
+            turn_record["noop_field_changes"] = _field_changes_payload(noop_field_changes)
+        if clarify_message is not None:
+            turn_record["clarification_required"] = True
+            turn_record["clarification_message"] = clarify_message
+        state.batch_turns.append(turn_record)
+        state.batch_feedback = report_text
+        state.batch_turn_count = turn_number + 1
+        state.batch_budget_state = {
+            "max_batches": max_batches,
+            "max_consecutive_errors": max_consecutive_errors,
+            "remaining_batches": max_batches - state.batch_turn_count,
+            "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
+            "consecutive_errors": consecutive_errors,
+        }
+        selected_precedent_unknown_class_feedback = (
+            _selected_precedent_unknown_class_feedback(state, batch_result)
+        )
+        if selected_precedent_unknown_class_feedback and not _batch_candidate_graph_changed(state):
+            turn_record["clarification_required"] = True
+            turn_record["clarification_message"] = selected_precedent_unknown_class_feedback
+            turn_record["authoring_blocker"] = "selected_precedent_unknown_class"
+
+        response_log[-1] = {
+            "turn_number": turn_number,
+            "response": turn_result.to_dict(),
+            "batch_result": turn_record,
+        }
+        write_json_artifact(state.model_response_path, {"turns": response_log})
+        message_record = {
+            "turn_number": turn_number,
+            "task": state.task,
+            "message": turn_result.message,
+            "batch": turn_result.batch,
+            "report": report_text,
+        }
+        if execution_plan_status:
+            message_record["execution_plan_status"] = execution_plan_status
+        if selected_precedent_unknown_class_feedback and not _batch_candidate_graph_changed(state):
+            message_record["authoring_blocker"] = "selected_precedent_unknown_class"
+            message_record["clarification_required"] = selected_precedent_unknown_class_feedback
+        state.messages_path.open("a", encoding="utf-8").write(
+            json.dumps(message_record, sort_keys=True)
+            + "\n"
+        )
+        if selected_precedent_unknown_class_feedback and not _batch_candidate_graph_changed(state):
+            state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
+            state.batch_final_summary = (
+                f"Clarification requested after {state.batch_turn_count} batch turn(s)."
+            )
+            state.user_message = selected_precedent_unknown_class_feedback
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": True,
+                "queue_blockers": [],
+                "authoring_blocker": {
+                    "reason": "selected_precedent_unknown_class",
+                    "message": selected_precedent_unknown_class_feedback,
+                },
+            }
+            response_log[-1] = {
+                "turn_number": turn_number,
+                "response": turn_result.to_dict(),
+                "batch_result": turn_record,
+                "clarification": {
+                    "message": selected_precedent_unknown_class_feedback,
+                    "reason": "selected_precedent_unknown_class",
+                },
+            }
+            write_json_artifact(state.model_response_path, {"turns": response_log})
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="clarify",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={
+                    "mode": "authoring_blocker",
+                    "graph_unchanged": True,
+                    "reason": "selected_precedent_unknown_class",
+                },
+            )
+
+
+        # Finish branches set the public state.user_message (deterministic text or
+        # a per-turn response), but the raw executor message is preserved in
+        # state.raw_executor_message from the intro and must not be overwritten.
+        if clarify_message is not None:
+            state.batch_exit_mode = (
+                _BATCH_EXIT_EDIT_CLARIFY
+                if _batch_candidate_graph_changed(state)
+                else _BATCH_EXIT_PURE_CLARIFY
+            )
+            state.batch_final_summary = (
+                f"Clarification requested after {state.batch_turn_count} batch turn(s)."
+            )
+            state.user_message = clarify_message
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY,
+                "queue_blockers": [],
+            }
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="clarify",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={
+                    "mode": "clarification_required",
+                    "graph_unchanged": state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY,
+                },
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                }
+                if state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY
+                else {},
+            )
+
+        current_render = next_render
+        last_diff = diff_text
+        last_report = report_text
+        done_requested = any(
+            item.ok and str(item.op_kind or "") == "done"
+            for item in batch_result.statements
+        )
+        turn_failed_edit = any(
+            (not item.ok)
+            and str(item.op_kind or "") not in {"query", "done", "clarify"}
+            for item in batch_result.statements
+        )
+        if turn_failed_edit:
+            failed_edit_turns += 1
+            last_failed_edit_turn = turn_number
+        elif effective_landed > 0 and last_failed_edit_turn >= 0:
+            last_successful_edit_turn_after_failure = turn_number
+        unresolved_failed_edit = (
+            last_failed_edit_turn >= 0
+            and last_successful_edit_turn_after_failure < last_failed_edit_turn
+        )
+        turn_is_read_only = effective_landed == 0 and all(
+            str(item.op_kind or "") in {"query", "done", "clarify"}
+            for item in batch_result.statements
+        )
+        # Don't honor a premature done(): feed guidance back and let the model
+        # self-correct. Two distinct cases, each separately bounded so a genuine
+        # no-change request still commits and we can't loop forever:
+        #  (1) NOTHING ever landed — committing would be an empty no-op. Causes:
+        #      a wrong node signature, or a read-only search() then done().
+        #  (2) Something landed but THIS (final) batch errored — some intended
+        #      statements failed to land (e.g. a wrong output-slot name), so the
+        #      edit is half-applied and likely broken (floating node / dangling
+        #      wire). The diagnostics name the fix; force one more turn.
+        refuse_done = False
+        hint = ""
+        if (
+            done_requested
+            and consecutive_errors < max_consecutive_errors
+            and not research_only_route
+        ):
+            if total_landed == 0 and (turn_has_errors or failed_edit_turns > 0):
+                done_noop_nudges += 1
+                refuse_done = True
+                if turn_has_errors:
+                    hint = (
+                        "your edit statement(s) did NOT land (see the diagnostics above)"
+                        " and nothing has been applied. Fix the failed statement — correct"
+                        " the wrong field name or supply the required input;"
+                        " call search(focus_types=[\"ClassName\"]) for the exact signature —"
+                        " then call done()."
+                    )
+                elif failed_edit_turns > 0:
+                    hint = (
+                        "earlier edit statement(s) failed and no edit has landed. A search()"
+                        " is read-only and does NOT fix the failed edit. Use the diagnostics"
+                        " above and construct a valid node/wire, or clarify the limitation;"
+                        " do not report this as already done."
+                    )
+                else:
+                    hint = (
+                        "you called done() without making any edit, so nothing was applied."
+                        " A search() is read-only and does NOT change the graph. Now CONSTRUCT"
+                        " and wire the node(s) the request needs (e.g. `up = NodeType(...)` then"
+                        " `consumer.input = up.OUTPUT`), then call done(). If the graph"
+                        " genuinely needs no change, call done() again to confirm."
+                    )
+            elif unresolved_failed_edit and turn_is_read_only:
+                done_noop_nudges += 1
+                refuse_done = True
+                hint = (
+                    "an earlier edit batch failed after partially mutating the graph."
+                    " A search() is read-only and does NOT repair that incomplete"
+                    " candidate. Use the search result and diagnostics above to"
+                    " construct and wire the missing node(s), then call done()."
+                )
+            elif (
+                (turn_number + 1) < max_batches
+                and total_landed == 0
+                and done_noop_nudges < 2
+            ):
+                done_noop_nudges += 1
+                refuse_done = True
+                hint = (
+                    "you called done() without making any edit, so nothing was applied."
+                    " A search() is read-only and does NOT change the graph. Now CONSTRUCT"
+                    " and wire the node(s) the request needs (e.g. `up = NodeType(...)` then"
+                    " `consumer.input = up.OUTPUT`), then call done(). If the graph"
+                    " genuinely needs no change, call done() again to confirm."
+                )
+            elif turn_has_errors and done_error_nudges < 2:
+                done_error_nudges += 1
+                refuse_done = True
+                hint = (
+                    "some of your edit statements did NOT land (see the diagnostics above),"
+                    " so the edit is INCOMPLETE — nodes the request needs may be left"
+                    " unconnected or a consumer's input left dangling. Do NOT stop here."
+                    " Fix ONLY the failed statement(s): use the exact output-slot/field names"
+                    " the diagnostics list (e.g. an output is `.UPSCALE_MODEL`, not `.model`),"
+                    " drop any kwarg the node does not declare, re-wire the consumer, then"
+                    " call done()."
+                )
+        if (
+            done_requested
+            and not refuse_done
+            and not research_only_route
+            and getattr(state, "execution_plan", None) is not None
+        ):
+            candidate_graph = (
+                state.ui_payload
+                if isinstance(state.ui_payload, Mapping)
+                else session.working_ui
+            )
+            update = evaluate_execution_plan_for_state(
+                state,
+                candidate_graph,
+                candidate_graph_hash=structural_graph_hash(candidate_graph),
+            )
+            execution_plan_status = dict(update.compact_status or {})
+            if execution_plan_status:
+                turn_record["execution_plan_status"] = execution_plan_status
+                if response_log and isinstance(response_log[-1], dict):
+                    batch_response_record = response_log[-1].get("batch_result")
+                    if isinstance(batch_response_record, dict):
+                        batch_response_record["execution_plan_status"] = execution_plan_status
+                    write_json_artifact(state.model_response_path, {"turns": response_log})
+            evaluation = getattr(state, "plan_evaluation", None)
+            if (
+                getattr(evaluation, "ok", True) is False
+                and getattr(evaluation, "blocking", False) is True
+            ):
+                refuse_done = True
+                hint = _execution_plan_done_refusal_hint(state)
+        if refuse_done:
+            last_report = last_report + "\n\nNOTE: done() was NOT accepted — " + hint
+            turn_record["report"] = last_report
+            if state.batch_turns and state.batch_turns[-1] is turn_record:
+                state.batch_turns[-1]["report"] = last_report
+            if response_log and isinstance(response_log[-1], dict):
+                batch_response_record = response_log[-1].get("batch_result")
+                if isinstance(batch_response_record, dict):
+                    batch_response_record["report"] = last_report
+                write_json_artifact(state.model_response_path, {"turns": response_log})
+            continue
+        if done_requested:
+            done_result = session.done()
+            state.batch_turn_count = turn_number + 1
+            state.batch_budget_state = {
+                "max_batches": max_batches,
+                "max_consecutive_errors": max_consecutive_errors,
+                "remaining_batches": max_batches - state.batch_turn_count,
+                "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
+                "consecutive_errors": consecutive_errors,
+            }
+            state.batch_exit_mode = (
+                _BATCH_EXIT_DONE if _batch_candidate_graph_changed(state) else _BATCH_EXIT_NOOP
+            )
+            state.batch_done_summary = done_result.summary
+            state.batch_final_summary = done_result.summary
+            if not done_result.ok:
+                return StageResult(
+                    stage="agent_batch",
+                    ok=False,
+                    blocking=True,
+                    duration_ms=_duration_ms(start),
+                    artifacts=(
+                        _artifact(state.before_py_path),
+                        _artifact(state.after_py_path),
+                        _artifact(state.model_request_path),
+                        _artifact(state.model_response_path),
+                        _artifact(state.candidate_ui_path),
+                        _artifact(state.messages_path),
+                    ),
+                    issues=tuple(_compact_diag_to_dict(item) for item in done_result.diagnostics),
+                    value={
+                        "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                        "turn_count": state.batch_turn_count,
+                        "done_summary": done_result.summary,
+                    },
+                )
+            state.user_message = ensure_sentence_message(
+                turn_result.message,
+                fallback="I made the requested workflow changes.",
+            )
+            state.report = {
+                "done_summary": done_result.summary,
+                "queue_blockers": [],
+            }
+            _finalize_revision_evidence_with_candidate(
+                state,
+                route=state.route,
+                conversation_messages=conversation_messages,
+            )
+            scoped = (
+                state.revision_evidence.scoped_diff
+                if state.revision_evidence is not None
+                else None
+            )
+            retryable_revise_blockers = (
+                set(getattr(scoped, "eligibility_blockers", ()))
+                - {"target_mismatch", "target_scope_violation"}
+            )
+            if (
+                _canonical_agent_edit_route(state.route) == "revise"
+                and state.revision_evidence is not None
+                and state.revision_evidence.candidate_eligible is not True
+                and retryable_revise_blockers
+                and (turn_number + 1) < max_batches
+                and done_candidate_rejection_nudges < 2
+            ):
+                done_candidate_rejection_nudges += 1
+                last_report = (
+                    last_report
+                    + "\n\nNOTE: done() was NOT accepted — "
+                    + _revision_candidate_retry_hint(state)
+                )
+                continue
+            state.artifacts = {
+                "request": str(state.request_path),
+                "original_ui": str(state.original_ui_path),
+                "before_python": str(state.before_py_path),
+                "after_python": str(state.after_py_path),
+                "python": str(state.after_py_path),
+                "model_request": str(state.model_request_path),
+                "model_response": str(state.model_response_path),
+                "candidate_ui": str(state.candidate_ui_path),
+                "revision_evidence": str(state.revision_evidence_path),
+                "messages": str(state.messages_path),
+            }
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="done",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.before_py_path),
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={"mode": "done", "done_summary": done_result.summary},
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                },
+            )
+        if (
+            total_landed == 0
+            and _read_only_discovery_turn_count(state) >= 3
+            and not _batch_candidate_graph_changed(state)
+        ):
+            read_only_discovery_turns = _read_only_discovery_turn_count(state)
+            direct_tweak_feedback = _direct_existing_parameter_tweak_feedback(state)
+            if (
+                direct_tweak_feedback
+                and read_only_discovery_turns < 6
+                and turn_number + 1 < max_batches
+            ):
+                last_report = direct_tweak_feedback
+                last_landed_count = 0
+                _emit_agent_edit_turn_event(
+                    state,
+                    _context,
+                    turn_record,
+                    client_id=client_id,
+                    status="in_progress",
+                )
+                continue
+            if read_only_discovery_turns < 6:
+                continue
+            state.batch_exit_mode = _BATCH_EXIT_PURE_CLARIFY
+            state.batch_final_summary = (
+                f"Stopped after {state.batch_turn_count} discovery-only batch turn(s)."
+            )
+            state.user_message = _discovery_stop_message(state)
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": True,
+                "queue_blockers": [],
+                "discovery_stop": {
+                    "turn_count": state.batch_turn_count,
+                    "reason": "repeated_read_only_discovery",
+                },
+            }
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="clarify",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={
+                    "mode": "discovery_stop",
+                    "graph_unchanged": True,
+                    "turn_count": state.batch_turn_count,
+                },
+            )
+        _emit_agent_edit_turn_event(
+            state,
+            _context,
+            turn_record,
+            client_id=client_id,
+            status="in_progress",
+        )
+        if consecutive_errors >= max_consecutive_errors:
+            break
+
+    failure_kind = _batch_budget_failure_kind(state.batch_turns)
+    artifixer_report = _batch_budget_artifixer_report(state, failure_kind)
+    state.batch_exit_mode = _BATCH_EXIT_BUDGET
+    state.batch_final_summary = (
+        f"Stopped after {state.batch_turn_count} turn(s); "
+        f"{state.batch_budget_state.get('remaining_batches', 0)} turn(s) remaining."
+    )
+    if state.batch_turns:
+        _emit_agent_edit_turn_event(
+            state,
+            _context,
+            state.batch_turns[-1],
+            client_id=client_id,
+            status="budget_exhausted",
+        )
+    return StageResult(
+        stage="agent_batch",
+        ok=False,
+        blocking=True,
+        duration_ms=_duration_ms(start),
+        artifacts=(
+            _artifact(state.before_py_path),
+            _artifact(state.after_py_path),
+            _artifact(state.model_request_path),
+            _artifact(state.model_response_path),
+            _artifact(state.candidate_ui_path),
+            _artifact(state.messages_path),
+        ),
+        issues=(
+            {
+                "code": "batch_budget_exhausted",
+                "severity": "error",
+                "failure_kind": failure_kind.value,
+                "message": state.batch_final_summary,
+                "detail": {
+                    "turn_count": state.batch_turn_count,
+                    "budget_state": dict(state.batch_budget_state),
+                    "budget_classification": failure_kind.value,
+                    "artifixer": artifixer_report,
+                },
+            },
+        ),
+        value={
+            "failure_kind": failure_kind.value,
+            "turn_count": state.batch_turn_count,
+            "budget_state": dict(state.batch_budget_state),
+            "budget_classification": failure_kind.value,
+            "diagnostics": (
+                {
+                    "code": "artifixer_not_attempted",
+                    "severity": "info",
+                    "message": "Artifact repair was not attempted for this terminal batch stop.",
+                    "detail": artifixer_report,
+                },
+            ),
+        },
+    )
+
+
+__all__ = (
+    "_BATCH_PROTOCOL_RETRY_PROMPT",
+    "_MANIFEST_COMPACTOR_MAX_ANCHORS",
+    "_MANIFEST_COMPACTOR_MAX_EDGES",
+    "_MANIFEST_COMPACTOR_MAX_NODES",
+    "_MAX_EXECUTION_PROTOCOL_LIST_ITEMS",
+    "_MAX_EXECUTION_PROTOCOL_SOURCES",
+    "_MAX_EXECUTION_PROTOCOL_STRING",
+    "_actionable_plan_dependency_status",
+    "_actionable_plan_required_new_classes",
+    "_actionable_plan_ui_only_classes",
+    "_active_manifest_from_plan",
+    "_batch_protocol_parse_reason",
+    "_batch_protocol_retry_messages",
+    "_compact_execution_protocol_notes_for_prompt",
+    "_compact_protocol_jsonish",
+    "_compact_protocol_list",
+    "_compact_protocol_string",
+    "_compact_research_source_for_prompt",
+    "_copy_compact_protocol_fields",
+    "_dependency_graph_class_types",
+    "_evaluate_execution_plan_after_candidate_update",
+    "_execution_plan_done_refusal_hint",
+    "_execution_plan_status_for_prompt",
+    "_hydrate_actionable_registry_dependencies",
+    "_is_ui_only_annotation_class_type",
+    "_malformed_model_json_detail",
+    "_manifest_compact_payload",
+    "_manifest_is_complete",
+    "_manifest_required_new_classes",
+    "_retry_after_dependency_preflight_failure",
+    "_stage_agent_batch_repl",
+)
