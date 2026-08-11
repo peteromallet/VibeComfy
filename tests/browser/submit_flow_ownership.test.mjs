@@ -17,6 +17,7 @@ function source(name) {
 }
 
 const roundtripSource = source("vibecomfy_roundtrip.js");
+const depsSource = source("agent_flow_deps.js");
 const lifecycleSource = source("agent_edit_lifecycle.js");
 
 // ── T-056 helpers ──────────────────────────────────────────────────────────
@@ -39,22 +40,22 @@ function makePanel(overrides = {}) {
 test("submit flow keeps exactly TWO module-level WeakMaps and one scalar deps object (S12)", () => {
   // Exactly two WeakMap singletons in the whole module — any third WeakMap
   // (e.g. a preview cache) breaks this pin.
-  const weakMapDeclarations = roundtripSource.match(/const\s+(\w+)\s*=\s*new WeakMap\(\)/g) || [];
+  const weakMapDeclarations = depsSource.match(/const\s+(\w+)\s*=\s*new WeakMap\(\)/g) || [];
   assert.deepEqual(
     weakMapDeclarations.map((declaration) => declaration.match(/const\s+(\w+)/)[1]).sort(),
     ["pendingTransactionSnapshotByPanel", "submitActivityByPanel"],
-    "vibecomfy_roundtrip.js must declare exactly submitActivityByPanel and pendingTransactionSnapshotByPanel as WeakMaps",
+    "agent_flow_deps.js must declare exactly submitActivityByPanel and pendingTransactionSnapshotByPanel as WeakMaps",
   );
   assert.equal(
-    (roundtripSource.match(/new WeakMap\(/g) || []).length,
+    (depsSource.match(/new WeakMap\(/g) || []).length,
     2,
-    "no other WeakMap may exist in vibecomfy_roundtrip.js (preview caching must stay on panel.state)",
+    "no other WeakMap may exist in agent_flow_deps.js (preview caching must stay on panel.state)",
   );
 
   // The watchdog deps carrier is a PLAIN OBJECT literal spreading the frozen
   // scalar defaults — NOT a WeakMap.
-  assert.match(roundtripSource, /const\s+submitWatchdogDepsState\s*=\s*\{\s*\.\.\.DEFAULT_SUBMIT_WATCHDOG_DEPS,\s*\};/);
-  assert.match(roundtripSource, /const\s+DEFAULT_SUBMIT_WATCHDOG_DEPS\s*=\s*Object\.freeze\(\{/);
+  assert.match(depsSource, /const\s+submitWatchdogDepsState\s*=\s*\{\s*\.\.\.DEFAULT_SUBMIT_WATCHDOG_DEPS,\s*\};/);
+  assert.match(depsSource, /const\s+DEFAULT_SUBMIT_WATCHDOG_DEPS\s*=\s*Object\.freeze\(\{/);
   for (const scalarKey of [
     "nowMs()",
     "setTimeoutFn(handler, delayMs)",
@@ -63,13 +64,13 @@ test("submit flow keeps exactly TWO module-level WeakMaps and one scalar deps ob
     "submitAbsoluteDeadlineMs: DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,",
     "submitAutomaticRetryCount: DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,",
   ]) {
-    assert.match(roundtripSource, new RegExp(scalarKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    assert.match(depsSource, new RegExp(scalarKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       `submitWatchdogDepsState must carry scalar dep ${scalarKey}`);
   }
 
   // Accessor seam is exported (get/inject/reset).
-  assert.match(roundtripSource, /export\s+function\s+configureSubmitWatchdogDeps\(/);
-  assert.match(roundtripSource, /export\s+function\s+resetSubmitWatchdogDeps\(/);
+  assert.match(depsSource, /export\s+function\s+configureSubmitWatchdogDeps\(/);
+  assert.match(depsSource, /export\s+function\s+resetSubmitWatchdogDeps\(/);
 });
 
 test("submit watchdog deps seam behaves as a plain-object singleton (behavioral via harness)", async () => {
@@ -148,6 +149,23 @@ test("lifecycle module is the authority and roundtrip delegates (no duplicate fa
 
   // ...and does NOT re-implement it.
   assertNoDefinition(roundtripSource, "createAgentEditState", "vibecomfy_roundtrip.js must not define its own createAgentEditState");
+
+  // The submit-flow singletons are imported from the owner module
+  // (agent_flow_deps.js), never re-declared here...
+  assert.match(roundtripSource, /from\s+["']\.\/agent_flow_deps\.js["']/, "roundtrip must import the submit-flow deps from agent_flow_deps.js");
+  assert.match(roundtripSource, /submitWatchdogDepsState,\s*$/m, "roundtrip must import submitWatchdogDepsState from agent_flow_deps.js");
+  assert.match(roundtripSource, /pendingTransactionSnapshotByPanel,\s*$/m, "roundtrip must import pendingTransactionSnapshotByPanel from agent_flow_deps.js");
+
+  // ...and the seams are re-exported for tests and external callers.
+  assert.match(roundtripSource, /export\s*\{\s*configureSubmitWatchdogDeps,/, "roundtrip must re-export configureSubmitWatchdogDeps");
+  assert.match(roundtripSource, /resetSubmitWatchdogDeps,\s*\};/, "roundtrip must re-export resetSubmitWatchdogDeps");
+
+  // No duplicate canonical implementation: the singletons are imported, never
+  // re-declared as module-level WeakMaps (owner is agent_flow_deps.js).
+  assert.equal(roundtripSource.includes("const submitActivityByPanel = new WeakMap()"), false,
+    "vibecomfy_roundtrip.js must not re-declare the submitActivityByPanel WeakMap (owner is agent_flow_deps.js)");
+  assert.equal(roundtripSource.includes("const pendingTransactionSnapshotByPanel = new WeakMap()"), false,
+    "vibecomfy_roundtrip.js must not re-declare the pendingTransactionSnapshotByPanel WeakMap (owner is agent_flow_deps.js)");
 });
 
 test("lifecycle-owned-by-clear removes the preview diff cache fields (behavioral)", () => {
