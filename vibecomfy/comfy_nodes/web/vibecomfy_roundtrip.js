@@ -65,11 +65,19 @@ import {
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import {
+  applyTypedSocketLabels,
+  applyTypedSocketLabelsLabelOnly,
+  applyTypedSocketTypesOnly,
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   applyGraphLayoutInPlace,
   installQueueGuard as installQueueGuardAdapter,
+  normalizeExecIoObject,
+  normalizeExecNodeForSerialization as normalizeExecNodeForSerializationAdapter,
+  normalizeGraphExecNodesForSerialization,
+  normalizeIntentTypedIo,
   projectCandidateGraphToRuntimeLayout,
+  readExecWidgetValue,
 } from "./comfy_adapter.js";
 import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import {
@@ -271,7 +279,7 @@ export function normalizeForSerialize(graph, { live = false } = {}) {
   if (live) {
     normalizeLiveExecNodesForSerialization();
   } else {
-    normalizeGraphExecNodesForSerialization(graph);
+    normalizeGraphExecNodesForSerialization(graph, { setExecWidgetValue });
     sanitizeSerializedGraphLinks(graph);
   }
 }
@@ -785,140 +793,8 @@ function truncateIntentPreview(value) {
     : text;
 }
 
-function normalizeIntentTypedIo(io, key) {
-  const entries = io?.[key];
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-  return entries
-    .map((entry) => {
-      if (!Array.isArray(entry) || entry.length < 2) {
-        return null;
-      }
-      const [name, type] = entry;
-      if (!name || !type) {
-        return null;
-      }
-      return { name: String(name), type: String(type) };
-    })
-    .filter(Boolean);
-}
-
-function readExecWidgetValue(node, key) {
-  const widgetsValues = node?.widgets_values;
-  if (widgetsValues && typeof widgetsValues === "object" && !Array.isArray(widgetsValues)) {
-    if (Object.prototype.hasOwnProperty.call(widgetsValues, key)) {
-      return widgetsValues[key];
-    }
-  }
-  if (Array.isArray(widgetsValues)) {
-    if (key === "source") {
-      return widgetsValues[0];
-    }
-    if (key === "io") {
-      return widgetsValues[1];
-    }
-  }
-  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
-  for (const widget of widgets) {
-    if (widget?.name === key) {
-      return widget.value;
-    }
-  }
-  return undefined;
-}
-
-function normalizeExecIoValue(value) {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value;
-  }
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch (_e) {
-    return null;
-  }
-}
-
-function normalizeExecIoEntries(entries) {
-  let rawItems = entries;
-  if (entries && typeof entries === "object" && !Array.isArray(entries)) {
-    rawItems = Object.entries(entries).map(([name, type]) => [name, type]);
-  }
-  if (!Array.isArray(rawItems)) {
-    return [];
-  }
-  return rawItems
-    .map((entry) => {
-      if (Array.isArray(entry) && entry.length >= 1) {
-        const name = String(entry[0] || "").trim();
-        const type = String(entry[1] || "").trim();
-        return name ? [name, type || "*"] : null;
-      }
-      if (entry && typeof entry === "object") {
-        const name = String(entry.name || "").trim();
-        const type = String(entry.type || "").trim();
-        return name && type ? [name, type] : null;
-      }
-      return null;
-    })
-    .filter(Boolean);
-}
-
-function normalizeExecIoObject(io) {
-  const normalized = normalizeExecIoValue(io);
-  if (!normalized) {
-    return null;
-  }
-  const inputs = normalizeExecIoEntries(normalized.inputs);
-  const outputs = normalizeExecIoEntries(normalized.outputs);
-  if (!inputs.length && !outputs.length) {
-    return null;
-  }
-  return { inputs, outputs };
-}
-
-function parseTypedSocketLabel(slot) {
-  const text = String(slot?.label || slot?.name || "").trim();
-  const match = /^(.+?)\s*:\s*([^:]+)$/.exec(text);
-  if (!match) {
-    return null;
-  }
-  const name = match[1].trim();
-  const type = match[2].trim();
-  return name && type ? [name, type] : null;
-}
-
-function deriveExecIoFromSocketLabels(node) {
-  const inputs = Array.isArray(node?.inputs)
-    ? node.inputs.map(parseTypedSocketLabel).filter(Boolean)
-    : [];
-  const outputs = Array.isArray(node?.outputs)
-    ? node.outputs.map(parseTypedSocketLabel).filter(Boolean)
-    : [];
-  if (!inputs.length && !outputs.length) {
-    return null;
-  }
-  return { inputs, outputs };
-}
-
-function readExecIoFromMetadata(node) {
-  const payload = node?.properties?.vibecomfy;
-  const fromPayload = normalizeExecIoObject(payload?.io);
-  if (fromPayload) {
-    return fromPayload;
-  }
-  const meta = node?.__vibecomfyIntentMeta;
-  const fromMeta = {
-    inputs: normalizeExecIoEntries(meta?.typedInputs),
-    outputs: normalizeExecIoEntries(meta?.typedOutputs),
-  };
-  return fromMeta.inputs.length || fromMeta.outputs.length ? fromMeta : null;
-}
-
+// Native widget mutation remains shell-owned and is injected into the adapter's
+// canonical exec normalization. This preserves the classified S4 mutation seam.
 function setExecWidgetValue(node, key, value) {
   if (!node || typeof node !== "object") {
     return;
@@ -944,43 +820,11 @@ function setExecWidgetValue(node, key, value) {
 }
 
 function normalizeExecNodeForSerialization(node, fallbackClassType = null) {
-  if (getIntentClassType(node, fallbackClassType) !== "vibecomfy.exec") {
-    return false;
-  }
-  const io =
-    normalizeExecIoObject(readExecWidgetValue(node, "io"))
-    || readExecIoFromMetadata(node)
-    || deriveExecIoFromSocketLabels(node);
-  if (!io) {
-    return false;
-  }
-  const source = readExecWidgetValue(node, "source");
-  setExecWidgetValue(node, "io", io);
-  if (source !== undefined) {
-    setExecWidgetValue(node, "source", source);
-  }
-  node.properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
-  const payload = node.properties.vibecomfy && typeof node.properties.vibecomfy === "object"
-    ? node.properties.vibecomfy
-    : {};
-  const intent = payload.intent && typeof payload.intent === "object" ? payload.intent : {};
-  node.properties.vibecomfy = {
-    ...payload,
-    kind: payload.kind || "code",
-    io,
-    intent: {
-      ...intent,
-      ...(typeof source === "string" ? { source } : {}),
-    },
-  };
-  return true;
-}
-
-function normalizeGraphExecNodesForSerialization(graph) {
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-  for (const node of nodes) {
-    normalizeExecNodeForSerialization(node);
-  }
+  return normalizeExecNodeForSerializationAdapter(
+    node,
+    fallbackClassType,
+    { setExecWidgetValue },
+  );
 }
 
 function sanitizeSerializedGraphLinks(graph) {
@@ -1177,59 +1021,6 @@ function styleForIntentMeta(meta) {
     return INTENT_STYLE_BY_KIND.degraded;
   }
   return INTENT_STYLE_BY_KIND[meta.kind] || INTENT_STYLE_BY_KIND.degraded;
-}
-
-function applyTypedSocketLabels(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed) {
-      continue;
-    }
-    const label = `${typed.name}: ${typed.type}`;
-    slot.name = label;
-    if ("label" in slot || typeof slot === "object") {
-      slot.label = label;
-    }
-  }
-}
-
-function applyTypedSocketLabelsLabelOnly(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed) {
-      continue;
-    }
-    const label = `${typed.name}: ${typed.type}`;
-    // Write ONLY slot.label; leave slot.name unchanged (in_i for serialization).
-    if ("label" in slot || typeof slot === "object") {
-      slot.label = label;
-    }
-  }
-}
-
-function applyTypedSocketTypesOnly(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed || typeof typed.type !== "string" || !typed.type) {
-      continue;
-    }
-    slot.type = typed.type;
-  }
 }
 
 function _isDynamicIoCodeNode(node) {
@@ -7444,27 +7235,9 @@ function appendAuditDetail(body, panel, message = null, snapshot = null) {
   body.appendChild(dlBtn);
 }
 
-function renderAudit(panel) {
-  if (!panel?.sections?.audit) {
-    return;
-  }
-  const body = panel.sections.audit;
-  clearNode(body);
-  appendAuditDetail(body, panel);
-}
-
 function appendDebugDetail(body, panel, snapshot = null) {
   const debugPayload = scrubDebugPayload(snapshot?.debugPayload || panel.state.debugPayload || { state: snapshot?.phase || panel.state.phase });
   body.appendChild(createDetails("Raw response (debug)", debugPayload));
-}
-
-function renderDebug(panel) {
-  if (!panel?.sections?.debug) {
-    return;
-  }
-  const body = panel.sections.debug;
-  clearNode(body);
-  appendDebugDetail(body, panel);
 }
 
 // ── Adapter capability snapshot for developer section ──────────────────────
