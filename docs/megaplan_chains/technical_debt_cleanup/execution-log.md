@@ -81,3 +81,21 @@ Tasks (all PASS):
 - T-048 PASS — importer audit clean (executor core/builder, debug cmd, routes); debug ownership test → _turn_state_machine.py canonical owner; atomic-write monkeypatch tests green.
 
 Oracle: PASS round 1 (first batch without oracle iterations). Boundary: full backend_spine 0 (291), full agent-edit 0 (441), browser-smoke standalone 0, make check exit 0 (clean run); settings-popover waitFor flake class re-recorded (env timing; standalone green). ORACLE-7 = PASS.
+
+## ORACLE-8 batch (T-049…T-055) — runtime (SPINE)
+
+Tasks (all PASS — implemented + committed as `c1af99e4` before the parent session crashed):
+- T-049 PASS — runtime contract decision: session.py sole owner (richer argv, configurable 300s, RuntimeStartupError + next_action); docs/runtime/surface.md.
+- T-050 PASS — SessionConfig canonical; runtime config becomes re-export.
+- T-051 PASS — argv canonicalized (sage-attention + io-dir); server_process delegates.
+- T-052 PASS — ready_timeout precedence extra → env → 300; RuntimeStartupError chain.
+- T-053 PASS — ServerSession + comfy_server both delegate to the sole owner.
+- T-054 PASS — vibecomfy/runtime/config.py deleted; imports repointed (server.py, server_process.py → runtime.session).
+- T-055 PASS — runtime integration matrix (tests/test_runtime_integration_matrix.py): embedded/server/session/CLI startup, argv, timeout, error chaining.
+
+Oracle: gate was mid-verification when session 019fe715 crashed (2026-08-11 08:37). Re-verified in full:
+- Round-1 finding (crashed session's oracle): check 2 FAIL — `tests/test_runtime_integration_matrix.py:8` contains `runtime/config.py`; checks 1, 3–8 and frozen 472/23/31/23 surfaces had PASSed.
+- Corrected check-2: the line is the T-055 matrix module docstring's HISTORICAL note ("``runtime/config.py`` deleted, ``server_process.py`` re-exports by identity"), not an import. Scoped negative rg for live imports (`from vibecomfy.runtime.config` / `import vibecomfy.runtime.config`) → ZERO hits. Intent of the gate (no live runtime.config consumers) holds.
+- Full re-verification (2026-08-11): focused runtime pytest — 128 passed; 4 failed are exactly the T-001-recorded quarantined baseline (tests/quarantine/runtime_embedded_surface.txt: test_auto_flush_truth_table, test_embedded_session_reuses_single_comfy_context, test_warm_policy_always_never_auto_flushes, test_warm_policy_never_flushes_before_every_run). `test ! -e vibecomfy/runtime/config.py` ✓. edit 472-name surface live (`VIBECOMFY_HEADLESS=1` import check) ✓. Boundary `make check` exit 0 (1612 pass / 2 skip / 0 fail). ORACLE-8 = PASS.
+
+Note: /tmp frozen ledgers from T-001..T-006 (`/tmp/cleanup-ownership.md`, `/tmp/cleanup-baseline.md`, `/tmp/cleanup-oracles.log`) were cleared by macOS /tmp cleanup between the crash and resume. Frozen contract set continues from committed sources only: EXECUTION.md, resolutions-digest.md, area-digest.md, tests/fixtures/agent_edit/cleanup_surface_manifest.json. No remaining gate depends on the /tmp files.
