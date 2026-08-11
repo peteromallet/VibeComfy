@@ -2391,7 +2391,10 @@ function _handleChatRehydrateSuccess(panel, payload) {
       return { render: false, stale: true };
     }
   }
-  const ingested = ingestChatRehydratePayload(panel.state, payload);
+  const ingested = payload?.ingestedChatRehydratePayload
+    && typeof payload.ingestedChatRehydratePayload === "object"
+    ? payload.ingestedChatRehydratePayload
+    : ingestChatRehydratePayload(panel.state, payload);
   // Compatibility mirror contract: chatMessages mirrors only safe
   // TranscriptMessage output. Raw rehydrate detail is projection input for
   // responseDetails/executionEvents/auditArtifacts/debugDiagnostics below.

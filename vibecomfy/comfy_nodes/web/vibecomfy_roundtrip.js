@@ -84,6 +84,7 @@ import {
   createAgentEditState,
   createAgentStateCompartments,
   eventSessionMatchesActiveScope,
+  ingestChatRehydratePayload,
   PANEL_STATE,
   RENDER_SECTIONS,
   normalizeDeltaOpsFromSubmit,
@@ -4282,7 +4283,7 @@ async function _rehydrateChat(panel) {
           msg.field_changes = normalizeFieldChangesFromMessage(msg.raw || msg);
         }
       }
-      const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+      const lifecyclePayload = {
         requestEpoch,
         messages,
         chatSessionPath: payload.sessionPath,
@@ -4300,6 +4301,14 @@ async function _rehydrateChat(panel) {
         baselineGraphSourcePath: payload.baselineGraphSourcePath,
         latestCandidate: payload.latestCandidate,
         latestTurnLifecycle: payload.latestTurnLifecycle,
+      };
+      const ingestedChatRehydratePayload = ingestChatRehydratePayload(
+        panel.state,
+        lifecyclePayload,
+      );
+      const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+        ...lifecyclePayload,
+        ingestedChatRehydratePayload,
       });
       if (successObligations.stale) {
         return;
