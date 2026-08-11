@@ -3,7 +3,8 @@
 Loads scenario YAML and briefs, dispatches actors, and writes frozen
 evidence packs under ``out/agentic/reports/<tag>/``.
 
-Uses only public ``sisypy`` APIs discovered via import introspection.
+Uses public ``sisypy`` run APIs discovered via import introspection. A bounded
+compatibility wrapper handles Sisypy's normalized assessor parse fallback.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import inspect
 import json
 import logging
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,39 @@ from tests.structural_harness.adapter import VibeComfyProjectAdapter
 
 
 _STRUCTURAL_ACTORS = STRUCTURAL_DISPATCHERS
+_ASSESSOR_PARSE_FAILURE_SUMMARY = "Failed to parse assessor response."
+_ASSESSOR_PARSE_FAILURE_WEAKNESS = "LLM response was not valid JSON."
+
+
+def _is_assessor_parse_failure(result: Any) -> bool:
+    """Return whether *result* is Sisypy's normalized JSON-parse fallback."""
+    weaknesses = result.get("weaknesses", []) if isinstance(result, dict) else []
+    return (
+        isinstance(result, dict)
+        and result.get("overall_passed") is False
+        and result.get("summary") == _ASSESSOR_PARSE_FAILURE_SUMMARY
+        and isinstance(weaknesses, list)
+        and _ASSESSOR_PARSE_FAILURE_WEAKNESS in weaknesses
+    )
+
+
+@contextmanager
+def _retry_assessor_parse_failure_once(sisypy_runner: Any) -> Iterator[None]:
+    """Retry only Sisypy's exact assessor parse fallback, once per call."""
+    original_assess = sisypy_runner.assess
+
+    def assess_with_retry(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        result = original_assess(*args, **kwargs)
+        if _is_assessor_parse_failure(result):
+            logging.warning("Assessor response was not valid JSON; retrying once.")
+            return original_assess(*args, **kwargs)
+        return result
+
+    sisypy_runner.assess = assess_with_retry
+    try:
+        yield
+    finally:
+        sisypy_runner.assess = original_assess
 
 
 def _resolve_repo_root() -> Path:
@@ -407,10 +443,12 @@ def run_chaining_family(
     """
     try:
         from sisypy import RunMode
-        from sisypy.runner import run_all
+        import sisypy.runner as sisypy_runner
     except ImportError:
         print("sisypy is not installed. Install with: pip install -e ../sisypy", file=sys.stderr)
         sys.exit(1)
+
+    run_all = sisypy_runner.run_all
 
     adapter = VibeComfyProjectAdapter(
         name="vibecomfy",
@@ -468,7 +506,8 @@ def run_chaining_family(
     if _supports_parameter(run_all, "subjective_base_url"):
         run_kwargs["subjective_base_url"] = subjective_base_url
     try:
-        return run_all(adapter, **run_kwargs)
+        with _retry_assessor_parse_failure_once(sisypy_runner):
+            return run_all(adapter, **run_kwargs)
     except TypeError as exc:
         # Work around a variable-shadowing bug in sisypy.runner.run_all
         # where the loop variable `rr` (line ~1494) overwrites the

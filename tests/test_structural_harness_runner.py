@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("sisypy")
@@ -128,3 +130,66 @@ def test_structural_runner_rejects_live_agent_actors() -> None:
 def test_structural_runner_rejects_live_mode() -> None:
     with pytest.raises(ValueError, match="only runs structural"):
         structural_runner.run_chaining_family(mode="live")
+
+
+def _parse_failure_result() -> dict[str, object]:
+    return {
+        "overall_passed": False,
+        "summary": "Failed to parse assessor response.",
+        "weaknesses": ["LLM response was not valid JSON."],
+    }
+
+
+def test_assessor_parse_failure_is_retried_once() -> None:
+    responses = iter([_parse_failure_result(), {"overall_passed": True}])
+    calls = 0
+
+    def fake_assess(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    sisypy_runner = SimpleNamespace(assess=fake_assess)
+    with structural_runner._retry_assessor_parse_failure_once(sisypy_runner):
+        result = sisypy_runner.assess()
+
+    assert result == {"overall_passed": True}
+    assert calls == 2
+    assert sisypy_runner.assess is fake_assess
+
+
+def test_assessor_parse_failure_retry_is_bounded() -> None:
+    calls = 0
+
+    def fake_assess(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return _parse_failure_result()
+
+    sisypy_runner = SimpleNamespace(assess=fake_assess)
+    with structural_runner._retry_assessor_parse_failure_once(sisypy_runner):
+        result = sisypy_runner.assess()
+
+    assert result == _parse_failure_result()
+    assert calls == 2
+
+
+def test_assessor_rubric_failure_is_not_retried() -> None:
+    calls = 0
+    rubric_failure = {
+        "overall_passed": False,
+        "summary": "Evidence violates an enforced rule.",
+        "weaknesses": ["Missing required artifact."],
+    }
+
+    def fake_assess(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return rubric_failure
+
+    sisypy_runner = SimpleNamespace(assess=fake_assess)
+    with structural_runner._retry_assessor_parse_failure_once(sisypy_runner):
+        result = sisypy_runner.assess()
+
+    assert result == rubric_failure
+    assert calls == 1

@@ -10,7 +10,7 @@ assessment:
   subjective: true
   enforced:
     - "research_summary.json (derived from research_result.json) contains a RuneXX custom-audio source whose path is an existing ready template: ready_templates/video/ltx2_3_runexx_custom_audio.py or ready_templates/video/ltx2_3_runexx_lipsync_custom_audio.py."
-    - "research_summary.json and implementation_payload.json contain NO research source path ending in .json; agent-facing research uses the .py workflow/template source."
+    - "Agent-facing research citations use the ready-template Python source: every path in research_summary.json agent_facing_source_paths, every actions.jsonl research.source_paths entry, and every primary path in implementation_payload.json execution_protocol_notes.research_sources MUST be a .py ready-template path (including ready_templates/video/ltx2_3_runexx_custom_audio.py or ready_templates/video/ltx2_3_runexx_lipsync_custom_audio.py). Paths ending in .json are permitted ONLY as provenance metadata in source_workflow_path, precedent_option_source_paths, or web_cached_provenance_paths; a web-cached .json workflow path MUST NOT appear in any agent-facing citation field."
     - "implementation_payload.json contains execution_protocol_notes.research_summary and/or research_context_packet, proving run_executor passed research context into handle_agent_edit before implementation."
     - "implementation_result.json exists and records an implementation message saying LoadAudio and LTX/RuneXX custom-audio nodes were added."
     - "compiled_api.json contains an audio input or audio-related node: LoadAudio, LTXVAudioVAEEncode, or RuneXXCustomAudioLipsync."

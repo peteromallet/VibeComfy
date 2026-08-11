@@ -1992,6 +1992,30 @@ def build_ltx_i2v_audio_research_execute_evidence(report_dir: Path) -> dict[str,
     last_payload = implementation_payloads[-1] if implementation_payloads else {}
     protocol_notes = last_payload.get("execution_protocol_notes") or {}
     research_summary_text = protocol_notes.get("research_summary", "")
+    agent_facing_sources = protocol_notes.get("research_sources", [])
+    agent_facing_source_paths = [
+        str(source.get("path"))
+        for source in agent_facing_sources
+        if isinstance(source, dict) and source.get("path")
+    ]
+    provenance_source_workflow_paths = sorted(
+        {
+            str(source.get("source_workflow_path"))
+            for source in agent_facing_sources
+            if isinstance(source, dict) and source.get("source_workflow_path")
+        }
+    )
+    web_cached_provenance_paths = sorted(
+        {
+            str(source.get("path"))
+            for source in research.sources
+            if (
+                isinstance(source, dict)
+                and source.get("source") == "external_workflow"
+                and str(source.get("path", "")).endswith(".json")
+            )
+        }
+    )
     import re
     found_paths = sorted(
         set(re.findall(r"ready_templates/video/[^\s,)]+\.py", research_summary_text))
@@ -2008,7 +2032,10 @@ def build_ltx_i2v_audio_research_execute_evidence(report_dir: Path) -> dict[str,
         "expected_ready_templates": list(expected_source_paths),
         "found_ready_template_paths": found_paths,
         "expected_found": any(path in found_paths for path in expected_source_paths),
+        "agent_facing_source_paths": agent_facing_source_paths,
         "precedent_option_source_paths": option_paths,
+        "provenance_source_workflow_paths": provenance_source_workflow_paths,
+        "web_cached_provenance_paths": web_cached_provenance_paths,
         "research_context_delivered": bool(research_summary_text),
     }
     research_summary_path = root / "research_summary.json"
@@ -2044,11 +2071,6 @@ def build_ltx_i2v_audio_research_execute_evidence(report_dir: Path) -> dict[str,
         encoding="utf-8",
     )
 
-    research_source_paths = [
-        str(source.get("path"))
-        for source in research.sources
-        if isinstance(source, dict) and source.get("path")
-    ]
     _write_actions(
         root / "actions.jsonl",
         [
@@ -2060,12 +2082,17 @@ def build_ltx_i2v_audio_research_execute_evidence(report_dir: Path) -> dict[str,
             },
             {
                 "op": "research",
-                "source_paths": research_source_paths,
+                "source_paths": agent_facing_source_paths,
                 "expected_runexx_audio_source_found": any(
-                    path in expected_source_paths for path in research_source_paths
+                    path in expected_source_paths for path in agent_facing_source_paths
                 ),
-                "source_paths_all_python": all(path.endswith(".py") for path in research_source_paths),
-                "source_paths_include_json": any(path.endswith(".json") for path in research_source_paths),
+                "source_paths_all_python": bool(agent_facing_source_paths)
+                and all(path.endswith(".py") for path in agent_facing_source_paths),
+                "source_paths_include_json": any(
+                    path.endswith(".json") for path in agent_facing_source_paths
+                ),
+                "provenance_source_workflow_paths": provenance_source_workflow_paths,
+                "web_cached_provenance_paths": web_cached_provenance_paths,
             },
             {
                 "op": "implementation",
