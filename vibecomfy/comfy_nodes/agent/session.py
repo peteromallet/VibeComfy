@@ -3890,6 +3890,44 @@ def allocate_turn(
     )
 
 
+_WORKFLOW_ID_NAMESPACE = uuid.UUID("27c3c4c9-5f52-4b93-9a8e-2d9f5c0b1a41")
+
+
+def _resolve_stable_workflow_id(
+    request_payload: Mapping[str, Any],
+    scope_metadata: Any,
+    session_id: str,
+    submit_graph: Any,
+) -> str:
+    """Resolve a stable Comfy workflow UUID for v2 candidate issuance.
+
+    The v2 contracts require ``workflow_id`` to be a stable Comfy workflow UUID
+    (projection_registry_v1.workflow_identity_v1). Port-exported and live-agent
+    submit graphs often omit it while carrying only a graph ``id``. Preserve an
+    explicit valid id; otherwise derive a DETERMINISTIC uuid5 from the session
+    plus the graph's own identity (its ``id``, else its canonical shape), so
+    the same workflow keeps the same workflow_id across turns — never a fresh
+    random id per turn.
+    """
+    workflow_id = request_payload.get("workflow_id")
+    if not isinstance(workflow_id, str) and isinstance(scope_metadata, Mapping):
+        workflow_id = scope_metadata.get("workflow_id")
+    if isinstance(workflow_id, str) and workflow_id:
+        try:
+            workflow_identity_v1(workflow_id)
+            return workflow_id
+        except ContractError:
+            pass
+    graph_id = submit_graph.get("id") if isinstance(submit_graph, Mapping) else None
+    if isinstance(graph_id, str) and graph_id:
+        seed = f"{session_id}:{graph_id}"
+    elif isinstance(submit_graph, Mapping):
+        seed = f"{session_id}:{canonical_json_bytes(submit_graph).decode('ascii', 'replace')}"
+    else:
+        seed = f"{session_id}:<no-graph>"
+    return str(uuid.uuid5(_WORKFLOW_ID_NAMESPACE, seed))
+
+
 def record_idempotent_response(
     *,
     session_root: Path,
@@ -3919,11 +3957,12 @@ def record_idempotent_response(
                 request_payload = loaded_request_payload
                 if requested_v2:
                     scope_metadata = request_payload.get("scope_metadata")
-                    workflow_id = request_payload.get("workflow_id")
-                    if not isinstance(workflow_id, str) and isinstance(scope_metadata, Mapping):
-                        workflow_id = scope_metadata.get("workflow_id")
+                    submit_graph = request_payload.get("graph")
+                    workflow_id = _resolve_stable_workflow_id(
+                        request_payload, scope_metadata, session_id, submit_graph
+                    )
                     workflow_identity_v1(workflow_id)
-                    if not isinstance(request_payload.get("graph"), Mapping):
+                    if not isinstance(submit_graph, Mapping):
                         raise ValueError("V2 candidate issuance requires the persisted submit graph.")
                     from .authority_receipts import build_and_persist_authority_receipt
 
@@ -3997,11 +4036,10 @@ def record_idempotent_response(
         if not isinstance(submit_graph, Mapping) or not isinstance(candidate_graph, Mapping):
             raise ValueError("V2 candidate issuance requires genuine submit and candidate graphs.")
         scope_metadata = request_payload.get("scope_metadata")
-        workflow_id = request_payload.get("workflow_id")
-        if not isinstance(workflow_id, str) and isinstance(scope_metadata, Mapping):
-            workflow_id = scope_metadata.get("workflow_id")
-        if not isinstance(workflow_id, str):
-            raise ValueError("V2 candidate issuance requires an explicit stable workflow_id UUID.")
+        workflow_id = _resolve_stable_workflow_id(
+            request_payload, scope_metadata, session_id, submit_graph
+        )
+        workflow_identity_v1(workflow_id)
         eligibility = stamped_response.get("eligibility")
         if not isinstance(eligibility, Mapping):
             eligibility = stamped_response.get("apply_eligibility")
