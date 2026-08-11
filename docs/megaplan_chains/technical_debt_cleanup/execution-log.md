@@ -68,3 +68,16 @@ Tasks (all PASS):
 Oracle: adversarial Codex-sol review round 1 FAIL (LOGGER + _stage_agent_batch_repl dual providers) → fixed → round 2 PASS. ORACLE-6 oracle round 1 FAIL (briefing over-scope: 7 edit_batch_loop matches were ledger/provenance docs + 1 real stale doc link) → doc fixed → round 2 PASS. ORACLE-6 = PASS.
 
 Boundary gates: full test_comfy_nodes_agent_edit.py AE=0 (441 tests; 1 static-scan test fixed), full backend_spine SPINE=0, browser-smoke standalone BS=0 (env flake class — stray external watchdog pytest PID 552 caused waitFor timeouts; process now exited), make docs green, final make check exit 0. custom_nodes.lock pin restored after each gate.
+
+## ORACLE-7 batch (T-042…T-048) — session extraction (SPINE)
+
+Tasks (all PASS):
+- T-042 PASS — tests/test_cleanup_surface_manifest.py +58 session tests (23/31/23 exact lists; 77 total).
+- T-043 PASS — empty _artifact_store/_v2_scoped_validation/_turn_state_machine scaffolds + session façade star-imports.
+- T-044 PASS — _artifact_store.py: 18 names from ranges :1147-1459/:3467-3647; zero write_state_atomic; session -494 lines pure deletion.
+- T-045 PASS — _v2_scoped_validation.py: 49-name module; session -1241 lines; all 23 private_imported_by_name resolve.
+- T-046 PASS — _turn_state_machine.py: _mutate_turn_state extracted; write_state_atomic late-bound at call time (S6); session -2259 lines.
+- T-047 PASS — record_idempotent_response + transaction API stay in session as thin delegates; load_candidate_transaction* wrappers restored.
+- T-048 PASS — importer audit clean (executor core/builder, debug cmd, routes); debug ownership test → _turn_state_machine.py canonical owner; atomic-write monkeypatch tests green.
+
+Oracle: PASS round 1 (first batch without oracle iterations). Boundary: full backend_spine 0 (291), full agent-edit 0 (441), browser-smoke standalone 0, make check exit 0 (clean run); settings-popover waitFor flake class re-recorded (env timing; standalone green). ORACLE-7 = PASS.
