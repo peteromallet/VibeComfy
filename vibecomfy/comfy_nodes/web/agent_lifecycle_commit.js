@@ -40,6 +40,19 @@ import {
   outcomeRequiresCustomNodes,
 } from "./agent_edit_response_contract.js";
 import { applyEligibility } from "./agent_candidate_actions.js";
+import {
+  clarificationMessageFromOutcome,
+  outcomeHasClarificationPrompt,
+  outcomeIsNoop,
+  outcomeRequiresClarification,
+} from "./agent_turn_reducer.js";
+
+export {
+  clarificationMessageFromOutcome,
+  outcomeHasClarificationPrompt,
+  outcomeIsNoop,
+  outcomeRequiresClarification,
+};
 
 // ---------------------------------------------------------------------------
 // Pure projection utilities (response-contract selectors wrapped defensively).
@@ -161,43 +174,6 @@ export function normalizeCommitApplyEligibility(candidateGraph, eligibility) {
     null,
     { missingContractAsNull: true },
   );
-}
-
-// ---------------------------------------------------------------------------
-// Pure outcome predicates.
-//
-// These mirror the small, source-agnostic predicates currently living privately
-// in `vibecomfy_roundtrip.js`. They are duplicated here (rather than imported)
-// because importing the roundtrip orchestrator would pull transport/canvas
-// side effects into this module. Keeping them local preserves the "no side
-// effects / no source branching" contract while still selecting the correct
-// transition event deterministically from a canonical outcome.
-// ---------------------------------------------------------------------------
-
-function _outcomeKindIs(outcome, kind) {
-  return Boolean(outcome && typeof outcome === "object" && outcome.kind === kind);
-}
-
-export function outcomeRequiresClarification(outcome) {
-  return _outcomeKindIs(outcome, "clarify");
-}
-
-export function outcomeIsNoop(outcome) {
-  return _outcomeKindIs(outcome, "noop");
-}
-
-export function clarificationMessageFromOutcome(outcome, fallbackMessage = null) {
-  if (!outcome || typeof outcome !== "object") {
-    return fallbackMessage;
-  }
-  if (typeof outcome.question === "string" && outcome.question.trim()) {
-    return outcome.question.trim();
-  }
-  return fallbackMessage;
-}
-
-export function outcomeHasClarificationPrompt(outcome) {
-  return typeof clarificationMessageFromOutcome(outcome) === "string";
 }
 
 /**

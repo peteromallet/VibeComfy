@@ -18,7 +18,6 @@ export function createApplyFlow(deps) {
     boundedBrowserTransactionError,
     buildActionIdempotencyKey,
     buildCanvasSnapshot,
-    buildInverseDeltaOpsForRollback,
     clearLayoutPreviewState,
     clonePlainData,
     commitFinalizeFailure,
@@ -32,7 +31,6 @@ export function createApplyFlow(deps) {
     commitVerifyCanvasSuccess,
     compensatedFailurePayload,
     createIntentGraphAdapter,
-    currentAgentPanel,
     decorateIntentGraphPayload,
     decorateIntentNode,
     extractChangedNodeFeedback,
@@ -41,10 +39,8 @@ export function createApplyFlow(deps) {
     inverseNodeUid,
     inverseSerializedLinks,
     isLayoutAuthorityTransaction,
-    isLegacyUndoCacheEntryV1,
     layoutPreviewBaselineSnapshot,
     markAgentPanelDirty,
-    measureRenderedNodeBodySize,
     nodeTargetRefForRollback,
     normalizeCandidateTransaction,
     pendingTransactionSnapshotByPanel,
@@ -53,7 +49,6 @@ export function createApplyFlow(deps) {
     pushHistory,
     pushTurnStatus,
     readGraphActualForOp,
-    readNodeSize,
     reconcilePreparedTransactionState,
     recordRoundtripResponseCompartments,
     recoveryForFailure,
@@ -76,41 +71,6 @@ export function createApplyFlow(deps) {
 
   function normalizeForApply(candidateGraph) {
     decorateIntentGraphPayload(candidateGraph);
-  }
-
-  function applyRenderedNodeSizesToSerializedGraph(graph, readLiveNodes = () => []) {
-    if (!graph || !Array.isArray(graph.nodes)) {
-      return;
-    }
-    const liveNodes = readLiveNodes();
-    if (!liveNodes.length) {
-      return;
-    }
-    const liveById = new Map();
-    for (const node of liveNodes) {
-      const id = node?.id;
-      if (id !== undefined && id !== null) {
-        liveById.set(String(id), node);
-      }
-    }
-    for (const serialized of graph.nodes) {
-      const live = liveById.get(String(serialized?.id));
-      if (!live) {
-        continue;
-      }
-      const measured = measureRenderedNodeBodySize(live);
-      if (!measured) {
-        continue;
-      }
-      const current = readNodeSize(serialized, NaN, NaN);
-      const currentW = Number.isFinite(current.w) && current.w > 0 ? current.w : 0;
-      const currentH = Number.isFinite(current.h) && current.h > 0 ? current.h : 0;
-      const nextW = Math.max(currentW, measured.w);
-      const nextH = Math.max(currentH, measured.h);
-      if (nextW > currentW + 0.5 || nextH > currentH + 0.5) {
-        serialized.size = [Math.round(nextW), Math.round(nextH)];
-      }
-    }
   }
 
   function applyGraphInPlaceWithIntentDecoration(candidate) {
@@ -236,85 +196,6 @@ export function createApplyFlow(deps) {
       }
     }
     return inverseOps;
-  }
-
-  async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification, restoreAuthority = null) {
-    const rollback = {
-      attempted: true,
-      undo_snapshot_available: isLegacyUndoCacheEntryV1(currentAgentPanel()?.state?.undoStack?.at(-1)),
-      restored: false,
-      attempts: [],
-    };
-    const inverseDeltaOps = buildInverseDeltaOpsForRollback(preApplyGraph, deltaOps);
-    const inverseAttempt = {
-      strategy: "inverse_delta",
-      delta_ops: clonePlainData(inverseDeltaOps),
-    };
-    // An empty semantic delta may represent an authoritative layout transaction.
-    // A no-op inverse cannot prove that whole-graph layout mutation was undone,
-    // so skip directly to the exact pre-apply graph restore in that case.
-    if (deltaOps.length > 0) {
-      try {
-        const result = applyGraphDeltaInPlace(app, {
-          deltaOps: inverseDeltaOps,
-          candidateGraph: clonePlainData(preApplyGraph),
-        });
-        const snapshot = await buildCanvasSnapshot();
-        const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
-        Object.assign(inverseAttempt, {
-          ok: restoreCheck.ok,
-          capability: clonePlainData(result?.capability || null),
-          applied_plan: clonePlainData(result?.plan || null),
-          restore_check: clonePlainData(restoreCheck),
-          client_graph_hash: snapshot.graphHash,
-          client_structural_graph_hash: snapshot.structuralHash,
-          client_live_canvas_token: snapshot.liveCanvasToken,
-        });
-        rollback.attempts.push(inverseAttempt);
-        if (restoreCheck.ok) {
-          rollback.restored = true;
-          rollback.restored_via = "inverse_delta";
-          return rollback;
-        }
-      } catch (error) {
-        inverseAttempt.ok = false;
-        inverseAttempt.error = String(error?.message || error);
-        rollback.attempts.push(inverseAttempt);
-      }
-    }
-
-    const fullRestoreAttempt = {
-      strategy: "whole_graph_restore",
-    };
-    try {
-      const restoreGraph = clonePlainData(preApplyGraph);
-      if (restoreAuthority?.canUseNativeRestore?.() === true) {
-        await restoreAuthority.restoreGraph(restoreGraph);
-      } else {
-        applyGraphCandidateInPlace(app, restoreGraph);
-      }
-      const snapshot = await buildCanvasSnapshot();
-      const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
-      Object.assign(fullRestoreAttempt, {
-        ok: restoreCheck.ok,
-        restore_check: clonePlainData(restoreCheck),
-        client_graph_hash: snapshot.graphHash,
-        client_structural_graph_hash: snapshot.structuralHash,
-        client_live_canvas_token: snapshot.liveCanvasToken,
-      });
-      rollback.attempts.push(fullRestoreAttempt);
-      if (restoreCheck.ok) {
-        rollback.restored = true;
-        rollback.restored_via = "whole_graph_restore";
-        return rollback;
-      }
-    } catch (error) {
-      fullRestoreAttempt.ok = false;
-      fullRestoreAttempt.error = String(error?.message || error);
-      rollback.attempts.push(fullRestoreAttempt);
-    }
-
-    return rollback;
   }
 
   function normalizeCandidateApplyEligibility(candidateGraph, eligibility) {
@@ -1359,10 +1240,8 @@ export function createApplyFlow(deps) {
 
   return {
     normalizeForApply,
-    applyRenderedNodeSizesToSerializedGraph,
     applyGraphInPlaceWithIntentDecoration,
     buildInverseDeltaOps,
-    attemptScopedCanvasRollback,
     normalizeCandidateApplyEligibility,
     applyAgentCandidate,
     isV2ApplyCandidate,

@@ -40,10 +40,6 @@ export const submitActivityByPanel = new WeakMap();
 // durable accepted baseline or rollback consumes them.
 export const pendingTransactionSnapshotByPanel = new WeakMap();
 
-export function getSubmitWatchdogDepsState() {
-  return { ...submitWatchdogDepsState };
-}
-
 export function configureSubmitWatchdogDeps(overrides = {}) {
   if (!overrides || typeof overrides !== "object") {
     return { ...submitWatchdogDepsState };

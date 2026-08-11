@@ -90,14 +90,14 @@ export function createAgentPreviewCache(deps) {
       ) {
         return panel.state._previewDiff;
       }
-  
+
       // ── Primary path: derive highlights from normalized delta ops ──────────
       // When canonical deltaOps are available, use preflightDeltaPlan to produce
       // a plan that mirrors the apply path, then convert plan entries to the
       // diff structure consumed by the preview overlay.  This ensures preview
       // and apply are driven by the same normalized mutation planning surface.
       const useDeltaOps = Array.isArray(deltaOps) && deltaOps.length > 0;
-  
+
       const previewCandidateGraph = prepareCandidateGraphForPanel(candidateGraph);
       const liveGraph = getLiveGraph();
       const liveNodes = getLiveGraphNodes(liveGraph);
@@ -137,18 +137,18 @@ export function createAgentPreviewCache(deps) {
       );
       const { candidateByUid, liveByUid } = identityIndex;
       const liveSerializedByUid = serializedIdentityIndex.liveByUid;
-  
+
       // ── Delta-ops-derived diff entries (built before the graph-diff fallback) ──
       let deltaDerivedEdited = null;
       let deltaDerivedAdded = null;
       let deltaDerivedRemoved = null;
-  
+
       if (useDeltaOps) {
         try {
           const liveSnapshot = liveSerializedGraph
             ? liveSerializedGraph
             : { nodes: [], links: [] };
-  
+
           // Run the same planning surface used by applyGraphDeltaInPlace.
           // Preview and Apply must resolve semantic fields through the same
           // native widget carrier map. Serialized ComfyUI graphs omit the live
@@ -168,19 +168,19 @@ export function createAgentPreviewCache(deps) {
                 || null;
             },
           });
-  
+
           // Convert plan entries to diff items.
           const planEditedMap = new Map();   // uidOrId -> Set<widgetIndex>
           const planAdded = [];
           const planRemoved = [];
-  
+
           // Resolve uid-or-id to uid.
           const resolveUid = (uidOrId) => {
             const key = String(uidOrId);
             if (candidateByUid.has(key) || liveByUid.has(key)) return key;
             return identityIndex.candidateUidByNativeId.get(key) || key;
           };
-  
+
           for (const step of plan) {
             if (step.op === "set_node_field") {
               const uid = resolveUid(step.uidOrId);
@@ -225,7 +225,7 @@ export function createAgentPreviewCache(deps) {
               planRemoved.push({ uid, class_type: classType });
             }
           }
-  
+
           deltaDerivedEdited = Array.from(planEditedMap.values());
           deltaDerivedAdded = planAdded;
           deltaDerivedRemoved = planRemoved;
@@ -236,7 +236,7 @@ export function createAgentPreviewCache(deps) {
           console.warn("[vibecomfy] computePreviewDiff — preflightDeltaPlan failed, falling back to graph diff:", safePreviewLogDetail(planErr));
         }
       }
-  
+
       // ── Edited: from delta ops or live-vs-candidate graph diff ──────────
       const edited = deltaDerivedEdited
         ? deltaDerivedEdited
@@ -264,7 +264,7 @@ export function createAgentPreviewCache(deps) {
             }
             return result;
           })();
-  
+
       // ── Added: from delta ops or live-vs-candidate graph diff ──────────
       const added = deltaDerivedAdded
         ? deltaDerivedAdded
@@ -286,7 +286,7 @@ export function createAgentPreviewCache(deps) {
             }
             return result;
           })();
-  
+
       // ── Removed: from delta ops or live-vs-candidate graph diff ──────────
       const removed = deltaDerivedRemoved
         ? deltaDerivedRemoved
@@ -304,7 +304,7 @@ export function createAgentPreviewCache(deps) {
             }
             return result;
           })();
-  
+
       // ── Removed named: from the backend report ────────────────────────────
       const removedNamed = (
         Array.isArray(candidateReport?.change?.content_edits?.removed_named)
@@ -314,7 +314,7 @@ export function createAgentPreviewCache(deps) {
         uid: item?.uid || null,
         class_type: item?.class_type || null,
       }));
-  
+
       // ── Unresolved: report entries we cannot square with either graph ─────
       const unresolved = [];
       const reportEdited = Array.isArray(candidateReport?.change?.content_edits?.edited)
@@ -326,7 +326,7 @@ export function createAgentPreviewCache(deps) {
       const reportRemoved = Array.isArray(candidateReport?.change?.content_edits?.removed)
         ? candidateReport.change.content_edits.removed
         : [];
-  
+
       for (const uid of reportEdited) {
         if (!liveByUid.has(uid) && !candidateByUid.has(uid)) {
           unresolved.push({ uid, kind: "edited", reason: "not found in live or candidate graph" });
@@ -342,11 +342,11 @@ export function createAgentPreviewCache(deps) {
           unresolved.push({ uid, kind: "removed", reason: "not found in live graph" });
         }
       }
-  
+
       if (unresolved.length > 0) {
         console.warn("[vibecomfy] computePreviewDiff — unresolved report entries:", safePreviewLogDetail(unresolved));
       }
-  
+
       // ── Edited Fields: from normalized FieldChange data (T10) ────────────
       // Read panel.state.lastSubmitFieldChanges (populated by submitAgentEdit
       // after a round-trip response) and merge outcomeChanges with all batch
@@ -358,7 +358,7 @@ export function createAgentPreviewCache(deps) {
       if (panel?.state?.lastSubmitFieldChanges) {
         const seenFieldKeys = new Set();
         const lfs = panel.state.lastSubmitFieldChanges;
-  
+
         // normalizeFieldChangesFromSubmit publishes the compact original-to-final
         // list.  Raw per-batch changes remain available for transcript/audit UI,
         // but must not leak abandoned intermediate values into the canvas review.
@@ -371,7 +371,7 @@ export function createAgentPreviewCache(deps) {
                 : []),
             ]);
         legacyFieldChanges = allFieldChanges;
-  
+
         for (const fc of allFieldChanges) {
           const fieldPath = typeof fc?.fieldPath === "string" && fc.fieldPath
             ? fc.fieldPath
@@ -382,7 +382,7 @@ export function createAgentPreviewCache(deps) {
           const fieldKey = `${fc.uid}::${fieldPath}`;
           if (seenFieldKeys.has(fieldKey)) continue;
           seenFieldKeys.add(fieldKey);
-  
+
           // Format the new value for display
           let newValueDisplay;
           if (!("new" in fc)) {
@@ -402,7 +402,7 @@ export function createAgentPreviewCache(deps) {
           } else {
             newValueDisplay = String(fc.new);
           }
-  
+
           editedFields.push({
             uid: fc.uid,
             field_path: fieldPath,
@@ -410,7 +410,7 @@ export function createAgentPreviewCache(deps) {
           });
         }
       }
-  
+
       const liveLinksByPhysicalEndpoint = stablePreviewLinkMapV1(
         livePreviewGraph,
         identityIndex.candidateUidByNativeId,
@@ -425,7 +425,7 @@ export function createAgentPreviewCache(deps) {
       const removed_links = [...liveLinksByPhysicalEndpoint]
         .filter(([physicalKey]) => !candidateLinksByPhysicalEndpoint.has(physicalKey))
         .map(([, displayKey]) => displayKey);
-  
+
       // ── Link-edited uids: only derived from graph diff; delta ops already ──
       // capture every node change explicitly in the plan.
       if (!deltaDerivedEdited) {
@@ -500,10 +500,10 @@ export function createAgentPreviewCache(deps) {
           }
         }
       }
-  
+
       const layoutMoved = ownedGraphDiff.layout_moved;
       const layoutGroups = ownedGraphDiff.layout_groups;
-  
+
       const legacyIntentDiff = !deltaDerivedEdited
         ? constrainPreviewDiffToLegacyIntent({
             graphDiff: { edited, added, removed, added_links, removed_links },
@@ -532,7 +532,7 @@ export function createAgentPreviewCache(deps) {
           entry.changedWidgetIndices.sort((left, right) => left - right);
         }
       }
-  
+
       const diff = {
         edited: legacyIntentDiff?.edited || edited,
         edited_fields: editedFields,
@@ -550,7 +550,7 @@ export function createAgentPreviewCache(deps) {
         _legacyIntentDerived: Boolean(legacyIntentDiff?._legacyIntentDerived),
         _roundtripDrift: legacyIntentDiff?._roundtripDrift || null,
       };
-  
+
       // ── Cache on panel state ──────────────────────────────────────────────
       if (panel && candidateGraphHash) {
         panel.state._previewDiff = diff;
@@ -559,7 +559,7 @@ export function createAgentPreviewCache(deps) {
         panel.state._previewDiffLiveCanvasRevision = liveCanvasRevision;
         panel.state._previewDiffInputSignature = inputSignature;
       }
-  
+
       return diff;
     } catch (e) {
       console.warn("[vibecomfy] computePreviewDiff failed, returning empty diff:", safePreviewLogDetail(e));
@@ -577,7 +577,7 @@ export function createAgentPreviewCache(deps) {
       };
     }
   }
-  
+
   function getOrBuildPreviewDiff() {
     const panel = currentAgentPanel();
     if (!panel) {
@@ -609,7 +609,7 @@ export function createAgentPreviewCache(deps) {
     }
     return computePreviewDiffFacade(candidateGraph, candidateReport, deltaOps);
   }
-  
+
   return {
     computePreviewDiff,
     getOrBuildPreviewDiff,

@@ -19,6 +19,7 @@ function source(name) {
 const roundtripSource = source("vibecomfy_roundtrip.js");
 const depsSource = source("agent_flow_deps.js");
 const lifecycleSource = source("agent_edit_lifecycle.js");
+const previewCacheSource = source("agent_preview_cache.js");
 
 // ── T-056 helpers ──────────────────────────────────────────────────────────
 // Mirror the definition-detection regex of frontend_ownership_regression.test.mjs
@@ -116,17 +117,18 @@ test("submit watchdog deps seam behaves as a plain-object singleton (behavioral 
 
 test("preview cache stays on panel.state keyed by primitive strings (S13)", () => {
   // Cache write sites — all on panel.state, none in a WeakMap.
-  assert.match(roundtripSource, /panel\.state\._previewDiff\s*=\s*diff;/);
-  assert.match(roundtripSource, /panel\.state\._previewDiffGraphHash\s*=\s*candidateGraphHash;/);
-  assert.match(roundtripSource, /panel\.state\._previewDiffCacheTag\s*=\s*deltaOpsCacheTag;/);
-  assert.match(roundtripSource, /panel\.state\._previewDiffLiveCanvasRevision\s*=\s*liveCanvasRevision;/);
-  assert.match(roundtripSource, /panel\.state\._previewDiffInputSignature\s*=\s*inputSignature;/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiff\s*=\s*diff;/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffGraphHash\s*=\s*candidateGraphHash;/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffCacheTag\s*=\s*deltaOpsCacheTag;/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffLiveCanvasRevision\s*=\s*liveCanvasRevision;/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffInputSignature\s*=\s*inputSignature;/);
   // Cache hit reads — keyed by the same primitives.
-  assert.match(roundtripSource, /panel\.state\._previewDiffGraphHash\s*===\s*candidateGraphHash/);
-  assert.match(roundtripSource, /panel\.state\._previewDiffCacheTag\s*===\s*deltaOpsCacheTag/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffGraphHash\s*===\s*candidateGraphHash/);
+  assert.match(previewCacheSource, /panel\.state\._previewDiffCacheTag\s*===\s*deltaOpsCacheTag/);
 
   // The cache tag is a primitive string: `delta:N` or "graph" — never an object key.
-  assert.match(roundtripSource, /deltaOpsCacheTag\s*=\s*[^;]*`delta:\$\{deltaOps\.length\}`\s*:\s*"graph"/);
+  assert.match(previewCacheSource, /deltaOpsCacheTag\s*=\s*[^;]*`delta:\$\{deltaOps\.length\}`\s*:\s*"graph"/);
+  assert.doesNotMatch(previewCacheSource, /new\s+WeakMap\s*\(/);
 
   // Layout preview cache shares the same panel.state home, keyed by
   // candidateGraphHash (primitive string), cleared by delete.

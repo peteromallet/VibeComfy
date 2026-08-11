@@ -515,7 +515,6 @@ const applyFlow = createApplyFlow({
   boundedBrowserTransactionError,
   buildActionIdempotencyKey,
   buildCanvasSnapshot,
-  buildInverseDeltaOpsForRollback: buildInverseDeltaOps,
   clearLayoutPreviewState,
   clonePlainData,
   commitFinalizeFailure,
@@ -538,10 +537,8 @@ const applyFlow = createApplyFlow({
   inverseNodeUid: canonicalNodeUid,
   inverseSerializedLinks: normalizedSerializedLinks,
   isLayoutAuthorityTransaction,
-  isLegacyUndoCacheEntryV1,
   layoutPreviewBaselineSnapshot,
   markAgentPanelDirty,
-  measureRenderedNodeBodySize,
   nodeTargetRefForRollback,
   normalizeCandidateTransaction,
   pendingTransactionSnapshotByPanel,
@@ -550,7 +547,6 @@ const applyFlow = createApplyFlow({
   pushHistory,
   pushTurnStatus,
   readGraphActualForOp,
-  readNodeSize,
   reconcilePreparedTransactionState,
   recordRoundtripResponseCompartments,
   recoveryForFailure,
@@ -1108,94 +1104,6 @@ function captureSerializedGraphForAgent() {
   const graph = clonePlainData(capture.data.graph);
   normalizeForSerialize(graph);
   return graph;
-}
-
-function applyRenderedNodeSizesToSerializedGraph(graph) {
-  return applyFlow.applyRenderedNodeSizesToSerializedGraph(graph, () => (
-    Array.isArray(app?.canvas?.graph?._nodes)
-      ? app.canvas.graph._nodes
-      : (Array.isArray(app?.canvas?.graph?.nodes) ? app.canvas.graph.nodes : [])
-  ));
-}
-
-function measureRenderedNodeBodySize(node) {
-  if (!node) {
-    return null;
-  }
-  const stored = readNodeSize(node, NaN, NaN);
-  let width = Number.isFinite(stored.w) && stored.w > 0 ? stored.w : 0;
-  let height = Number.isFinite(stored.h) && stored.h > 0 ? stored.h : 0;
-  const titleHeight = (window.LiteGraph && window.LiteGraph.NODE_TITLE_HEIGHT) || 30;
-  const widgetHeight = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
-  const slotHeight = (window.LiteGraph && window.LiteGraph.NODE_SLOT_HEIGHT) || 20;
-
-  if (typeof node.computeSize === "function") {
-    try {
-      const computed = node.computeSize();
-      const computedW = vecNumber(computed, 0, NaN);
-      const computedH = vecNumber(computed, 1, NaN);
-      if (Number.isFinite(computedW) && computedW > 0) {
-        width = Math.max(width, computedW);
-      }
-      if (Number.isFinite(computedH) && computedH > 0) {
-        height = Math.max(height, computedH);
-      }
-    } catch (_ignored) {
-      // Fall through to measured bounding/widget rows.
-    }
-  }
-
-  if (typeof node.getBounding === "function") {
-    try {
-      const bounds = node.getBounding();
-      const boundW = vecNumber(bounds, 2, NaN);
-      const boundH = vecNumber(bounds, 3, NaN);
-      if (Number.isFinite(boundW) && boundW > 0) {
-        width = Math.max(width, boundW);
-      }
-      if (Number.isFinite(boundH) && boundH > titleHeight) {
-        height = Math.max(height, boundH - titleHeight);
-      }
-    } catch (_ignored) {
-      // Widget row bounds below still provide a useful lower bound.
-    }
-  }
-
-  const slotRows = Math.max(
-    Array.isArray(node.inputs) ? node.inputs.length : 0,
-    Array.isArray(node.outputs) ? node.outputs.length : 0,
-  );
-  if (slotRows > 0) {
-    height = Math.max(height, slotRows * slotHeight);
-  }
-
-  const widgets = Array.isArray(node.widgets) ? node.widgets : [];
-  for (let index = 0; index < widgets.length; index += 1) {
-    const widget = widgets[index];
-    let rowTop = Number.isFinite(widget?.last_y)
-      ? widget.last_y
-      : slotRows * slotHeight + index * widgetHeight;
-    let rowHeight = widgetHeight;
-    if (widget && typeof widget.computeSize === "function") {
-      try {
-        const computed = widget.computeSize(width || stored.w || 200);
-        const computedH = vecNumber(computed, 1, NaN);
-        if (Number.isFinite(computedH) && computedH > 0) {
-          rowHeight = computedH;
-        }
-      } catch (_ignored) {
-        // Keep the LiteGraph widget-row fallback.
-      }
-    }
-    if (Number.isFinite(rowTop) && rowTop >= 0) {
-      height = Math.max(height, rowTop + rowHeight);
-    }
-  }
-
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-  return { w: width, h: height };
 }
 
 function readIntentMetadata(node, fallbackClassType = null) {
@@ -2269,13 +2177,6 @@ export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
     uidForRelatedLinkTarget(link) {
       return canonicalNodeUid(resolveGraphNode(preApplyGraph, link.target_id));
     },
-  });
-}
-
-async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification) {
-  return applyFlow.attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification, {
-    canUseNativeRestore: () => typeof app?.loadGraphData === "function",
-    restoreGraph: (graph) => loadGraphDataWithoutScopeSwitch(graph),
   });
 }
 

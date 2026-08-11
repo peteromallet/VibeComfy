@@ -42,6 +42,11 @@ import {
 } from "./canonical_delta.js";
 import { deep_plain } from "./deep_plain.js";
 import { jsonClone } from "./json_clone.js";
+import {
+  batchTurnKey,
+  durableTurnKey,
+  sortPanelTurns,
+} from "./agent_turn_reducer.js";
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -2578,45 +2583,6 @@ function _indexAuditArtifacts(artifacts) {
   return auditArtifactsByTurnId;
 }
 
-function _stableTurnSessionId(value) {
-  return typeof value === "string" && value ? value : "none";
-}
-
-function _batchTurnKey(sessionId, turnNumber) {
-  return `batch:${_stableTurnSessionId(sessionId)}:${turnNumber}`;
-}
-
-function _durableTurnKey(entry) {
-  const sessionId = _stableTurnSessionId(entry?.session_id);
-  const status = entry?.status || "unknown";
-  if (entry?.turn_id) {
-    return `durable:${sessionId}:${entry.turn_id}:${status}`;
-  }
-  const fallback = entry?.timestamp || entry?.message || entry?.task || entry?.failure_kind || "pending";
-  return `durable:${sessionId}:${status}:${fallback}`;
-}
-
-function _sortCompatibilityTurns(turns) {
-  const durable = [];
-  const batch = [];
-  const other = [];
-  for (const entry of Array.isArray(turns) ? turns : []) {
-    if (entry?.entry_type === "durable") {
-      durable.push(entry);
-    } else if (entry?.entry_type === "batch") {
-      batch.push(entry);
-    } else {
-      other.push(entry);
-    }
-  }
-  batch.sort((left, right) => {
-    const leftNumber = Number.isFinite(left?.turn_number) ? left.turn_number : -1;
-    const rightNumber = Number.isFinite(right?.turn_number) ? right.turn_number : -1;
-    return rightNumber - leftNumber;
-  });
-  return [...durable, ...batch, ...other].slice(0, 64);
-}
-
 function _compatibilityTurnsFromExecutionEvents(events) {
   const turns = [];
   for (const event of Array.isArray(events) ? events : []) {
@@ -2635,7 +2601,7 @@ function _compatibilityTurnsFromExecutionEvents(events) {
       }
       const entry = {
         entry_type: "batch",
-        turn_key: _batchTurnKey(sessionId, turnNumber),
+        turn_key: batchTurnKey(sessionId, turnNumber),
         session_id: sessionId,
         turn_id: typeof batchTurn.turn_id === "string" && batchTurn.turn_id ? batchTurn.turn_id : event.turn_id || null,
         parent_turn_id: event.turn_id || null,
@@ -2679,11 +2645,11 @@ function _compatibilityTurnsFromExecutionEvents(events) {
         audit_ref: event.auditRef || event.audit_ref || null,
         raw_payload: null,
       };
-      entry.turn_key = _durableTurnKey(entry);
+      entry.turn_key = durableTurnKey(entry);
       turns.push(entry);
     }
   }
-  return _sortCompatibilityTurns(turns);
+  return sortPanelTurns(turns);
 }
 
 function _ensureBoundaryCompartments(panel) {
