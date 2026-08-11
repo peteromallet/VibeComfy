@@ -7061,3 +7061,17 @@ __all__ = [
     "v2_mutation_plan_hash",
     "write_state_atomic",
 ]
+
+# ── ORACLE-7 SPINE façade re-exports (T-043) ────────────────────────────────
+# Seams for the session decomposition: T-044/045/046 move the pinned surface
+# ranges (_artifact_store / _v2_scoped_validation / _turn_state_machine) into
+# the three scaffold modules below.  Each filled module defines __all__ as
+# exactly the name set its extracted ranges contribute to this namespace, so
+# `import *` reproduces the identical top-level attributes — the same contract
+# edit.py uses for its _frag_* fragments (including _-prefixed helpers that
+# must stay importable by name for the T-048 monkeypatch/importer
+# compatibility).  The scaffolds are empty today, so these imports are no-ops
+# and must not change __all__ or the frozen 23/31/23 surface (S5).
+from ._artifact_store import *  # noqa: F401,F403
+from ._v2_scoped_validation import *  # noqa: F401,F403
+from ._turn_state_machine import *  # noqa: F401,F403

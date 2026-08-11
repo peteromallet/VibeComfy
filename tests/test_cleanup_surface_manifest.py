@@ -14,8 +14,12 @@ are asserted as a declared contract (membership in the manifest list), not as li
 attrs — ``load_agent_generated_scratchpad`` is absent pre-split and flips to a live
 presence after T-039 makes it real.
 
-T-042 adds session-manifest enforcement to this same file; the manifest already
-carries a ``session`` section and the loader below exposes it for that batch.
+T-042 (ORACLE-7, S5) adds session-manifest enforcement to this same file: the
+manifest's ``session`` section pins session.__all__ (23), public_direct (31)
+and private_imported_by_name (23), asserted against the live session module the
+same way the edit tests assert against edit. The suite MUST pass TODAY against
+the pre-extraction session module — that is the activation: T-043..T-048 will be
+checked against the frozen session surface.
 """
 
 from __future__ import annotations
@@ -26,14 +30,18 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent import edit as agent_edit
+from vibecomfy.comfy_nodes.agent import session as agent_session
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json"
 
-# Frozen count pinned by the ORACLE-1 capture; the name set itself is read from
-# the manifest (never hardcoded here), only the count is pinned.
+# Frozen counts pinned by the ORACLE-1 capture; the name sets themselves are
+# read from the manifest (never hardcoded here), only the counts are pinned.
 PINNED_EDIT_EXPORT_COUNT = 472
+PINNED_SESSION_ALL_COUNT = 23
+PINNED_SESSION_PUBLIC_DIRECT_COUNT = 31
+PINNED_SESSION_PRIVATE_IMPORTED_COUNT = 23
 
 
 def _load_manifest() -> dict:
@@ -51,11 +59,10 @@ def _edit_section() -> dict:
 
 
 def _session_section() -> dict:
-    # T-042: session-manifest enforcement lands here (same file, later batch).
-    # The manifest's session section already pins session.__all__ (20 imported
-    # by name) plus 11 non-__all__ public names and private imported-by-name
-    # attrs; T-042 asserts those against the live session module the same way
-    # the edit tests below assert against the live edit module.
+    # T-042: session-surface enforcement (S5). The manifest's session section
+    # pins session.__all__ (23, membership-only), public_direct (31) and
+    # private_imported_by_name (23); the tests below assert those against the
+    # live session module the same way the edit tests assert against edit.
     return _MANIFEST["session"]
 
 
@@ -105,3 +112,41 @@ def test_required_post_split_contract_declared_in_manifest() -> None:
     assert required, "required_post_split must declare the post-split contract"
     assert "load_agent_generated_scratchpad" in required
     # Post-T-039 flip point: for name in required: assert hasattr(agent_edit, name)
+
+
+# ── session surface (S5, T-042): __all__ 23 / public 31 / private 23 ─────────
+
+
+def test_session_all_matches_frozen_manifest_membership_only() -> None:
+    """`set(session.__all__)` equals the frozen manifest set; order is irrelevant."""
+    manifest_names = _session_section()["__all__"]
+    assert set(agent_session.__all__) == set(manifest_names)
+
+
+@pytest.mark.parametrize(
+    ("key", "pinned"),
+    [
+        ("__all__", PINNED_SESSION_ALL_COUNT),
+        ("public_direct", PINNED_SESSION_PUBLIC_DIRECT_COUNT),
+        ("private_imported_by_name", PINNED_SESSION_PRIVATE_IMPORTED_COUNT),
+    ],
+)
+def test_session_section_lengths_match_frozen_counts(key: str, pinned: int) -> None:
+    """Sanity: each session manifest list length matches its pinned 23/31/23 count."""
+    assert len(_session_section()[key]) == pinned
+
+
+@pytest.mark.parametrize("name", _session_section()["public_direct"])
+def test_session_public_direct_name_survives_as_live_attr(name: str) -> None:
+    """Every public_direct name stays a top-level session-module attr."""
+    assert hasattr(agent_session, name), f"{name} missing from live session module"
+
+
+@pytest.mark.parametrize("name", _session_section()["private_imported_by_name"])
+def test_session_private_imported_name_survives_as_live_attr(name: str) -> None:
+    """Every _-prefixed imported-by-name helper stays a top-level session-module attr.
+
+    These must remain importable by name for the T-048 monkeypatch/importer
+    compatibility, not just present via `session.<name>`.
+    """
+    assert hasattr(agent_session, name), f"{name} missing from live session module"
