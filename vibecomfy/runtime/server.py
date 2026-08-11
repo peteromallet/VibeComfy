@@ -6,8 +6,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from .config import SessionConfig
 from .server_process import _spawn_comfy_server
+from .session import SessionConfig
 
 
 @asynccontextmanager
