@@ -33,6 +33,7 @@ export const STAGED_WEB_MODULES = [
   "diagnostics_reporting.js",
   "executor_progress.js",
   "agent_turn_feed.js",
+  "agent_turn_reducer.js",
   "agent_status_poller.js",
   "agent_apply_flow.js",
   "agent_rebaseline_undo.js",
