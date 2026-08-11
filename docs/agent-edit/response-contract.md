@@ -20,7 +20,7 @@ Every agent-edit response carries an `outcome` object whose `kind` field is exac
 
 These four values constitute the **public union**.  No other `outcome.kind` value may
 leave the server.  Both the server‑side contract gate (`ensure_agent_edit_response_contract`
-in `agent_contracts.py`) and the browser boundary module
+in `contracts.py`) and the browser boundary module
 (`agent_edit_response_contract.js`) enforce this closed set.
 
 ---
@@ -119,7 +119,7 @@ response leaves the server.  The mapping is:
 The normalization entry points are:
 
 - **Server:** `public_outcome_from_turn_outcome()` and
-  `ensure_agent_edit_response_contract()` in `agent_contracts.py`.  The latter is the
+  `ensure_agent_edit_response_contract()` in `contracts.py`.  The latter is the
   gate called by all route handlers (`_validated_success_response`,
   `_validated_failure_response`, `_handle_agent_edit`).
 - **Browser:** `normalizePublicOutcome()` in `agent_edit_response_contract.js`.  The
@@ -569,9 +569,9 @@ they serve the boundary‑only legacy path.
 
 | Function                                   | Location              | Role                                           |
 |--------------------------------------------|-----------------------|------------------------------------------------|
-| `ensure_agent_edit_response_contract()`    | `agent_contracts.py`  | Canonical response gate for all endpoints.     |
-| `public_outcome_from_turn_outcome()`       | `agent_contracts.py`  | Maps internal `TurnOutcome` to public outcome. |
-| `_public_error_outcome_from_response()`    | `agent_contracts.py`  | Constructs public `error` outcome from failure. |
+| `ensure_agent_edit_response_contract()`    | `contracts.py`  | Canonical response gate for all endpoints.     |
+| `public_outcome_from_turn_outcome()`       | `contracts.py`  | Maps internal `TurnOutcome` to public outcome. |
+| `_public_error_outcome_from_response()`    | `contracts.py`  | Constructs public `error` outcome from failure. |
 | `_stamped_turn_response_outcome()`         | `agent_edit.py`       | Stamps a public outcome from a persisted turn. |
 | `_stamped_message_outcome()`               | `agent_edit.py`       | Normalizes chat.json message outcomes.         |
 | `_latest_session_candidate_payload()`      | `agent_edit.py`       | Builds `latest_candidate` with stamped outcome. |

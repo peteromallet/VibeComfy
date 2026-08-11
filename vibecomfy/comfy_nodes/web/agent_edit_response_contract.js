@@ -2,6 +2,7 @@ import {
   classifyCandidateTransactionBoundary,
   readCandidateTransaction as readCanonicalCandidateTransaction,
 } from "./agent_edit_transaction.js";
+import { deep_plain } from "./deep_plain.js";
 
 const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "candidate",
@@ -80,20 +81,6 @@ function asBooleanOrNull(value) {
   return typeof value === "boolean" ? value : null;
 }
 
-function clonePlainData(value) {
-  if (Array.isArray(value)) {
-    return value.map(clonePlainData);
-  }
-  if (isObject(value)) {
-    const clone = {};
-    for (const [key, entry] of Object.entries(value)) {
-      clone[key] = clonePlainData(entry);
-    }
-    return clone;
-  }
-  return value;
-}
-
 function freezePlainData(value) {
   if (Array.isArray(value)) {
     for (const entry of value) {
@@ -111,7 +98,7 @@ function freezePlainData(value) {
 }
 
 function frozenPlainClone(value) {
-  return freezePlainData(clonePlainData(value));
+  return freezePlainData(deep_plain(value));
 }
 
 function compactObject(value) {
@@ -228,12 +215,12 @@ function normalizeCustomNodeCandidate(candidate) {
     return null;
   }
   const packSource = isObject(candidate.pack) ? candidate.pack : candidate.ref;
-  const evidence = Array.isArray(candidate.evidence) ? clonePlainData(candidate.evidence) : [];
+  const evidence = Array.isArray(candidate.evidence) ? deep_plain(candidate.evidence) : [];
   const warnings = Array.isArray(candidate.warnings)
     ? candidate.warnings.map((warning) => String(warning)).filter(Boolean)
     : [];
   return compactObject({
-    pack: isObject(packSource) ? clonePlainData(packSource) : null,
+    pack: isObject(packSource) ? deep_plain(packSource) : null,
     expectedClasses: Array.isArray(candidate.expected_classes)
       ? candidate.expected_classes.map((item) => String(item)).filter(Boolean)
       : Array.isArray(candidate.expectedClasses)
@@ -325,7 +312,7 @@ function publicErrorOutcomeFromResponse(response, { defaultStage = null } = {}) 
   });
   const failureContext = response.agentFailureContext || response.agent_failure_context;
   if (isObject(failureContext)) {
-    payload.agentFailureContext = clonePlainData(failureContext);
+    payload.agentFailureContext = deep_plain(failureContext);
   }
   const recovery = extractRebaselineRecovery(response);
   if (recovery) {
@@ -335,7 +322,7 @@ function publicErrorOutcomeFromResponse(response, { defaultStage = null } = {}) 
 }
 
 function normalizePublicOutcome(rawOutcome, response, { allowLegacy, endpoint }) {
-  const outcome = clonePlainData(rawOutcome);
+  const outcome = deep_plain(rawOutcome);
   const kind = asString(outcome.kind);
   if (!kind) {
     throw new Error(
@@ -358,7 +345,7 @@ function normalizePublicOutcome(rawOutcome, response, { allowLegacy, endpoint })
         errorOutcome.rebaselineRecovery = normalizeRebaselineRecovery(errorOutcome.rebaselineRecovery);
       }
       if (isObject(errorOutcome.agent_failure_context) && !errorOutcome.agentFailureContext) {
-        errorOutcome.agentFailureContext = clonePlainData(errorOutcome.agent_failure_context);
+        errorOutcome.agentFailureContext = deep_plain(errorOutcome.agent_failure_context);
       }
       return errorOutcome;
     }
@@ -389,7 +376,7 @@ function normalizePublicOutcome(rawOutcome, response, { allowLegacy, endpoint })
       budgetExhausted: true,
       reason: asTrimmedString(outcome.reason),
       changes: publicKind === "candidate" && Array.isArray(outcome.changes)
-        ? clonePlainData(outcome.changes)
+        ? deep_plain(outcome.changes)
         : undefined,
     });
   }
@@ -397,7 +384,7 @@ function normalizePublicOutcome(rawOutcome, response, { allowLegacy, endpoint })
   if (INTERNAL_OUTCOME_KIND_MAP[kind] === "candidate") {
     return {
       kind: "candidate",
-      changes: Array.isArray(outcome.changes) ? clonePlainData(outcome.changes) : [],
+      changes: Array.isArray(outcome.changes) ? deep_plain(outcome.changes) : [],
       ...clarificationPayload(outcome.question),
     };
   }
@@ -441,8 +428,8 @@ function inferLegacyOutcome(response, { endpoint }) {
     ) {
       return compactObject({
         kind: response.route === "requires_custom_nodes" ? "requires_custom_nodes" : "noop",
-        candidates: Array.isArray(response.candidates) ? clonePlainData(response.candidates) : undefined,
-        warnings: Array.isArray(response.warnings) ? clonePlainData(response.warnings) : undefined,
+        candidates: Array.isArray(response.candidates) ? deep_plain(response.candidates) : undefined,
+        warnings: Array.isArray(response.warnings) ? deep_plain(response.warnings) : undefined,
         reason: asTrimmedString(response.reply)
           || asTrimmedString(response.message)
           || "Answer-only route",
@@ -451,7 +438,7 @@ function inferLegacyOutcome(response, { endpoint }) {
     if (response.apply_eligible === true && responseHasCandidatePayload(response)) {
       return {
         kind: "candidate",
-        changes: Array.isArray(response.changes) ? clonePlainData(response.changes) : [],
+        changes: Array.isArray(response.changes) ? deep_plain(response.changes) : [],
       };
     }
     return compactObject({
@@ -481,7 +468,7 @@ function inferLegacyOutcome(response, { endpoint }) {
   if (responseHasCandidatePayload(response)) {
     return {
       kind: "candidate",
-      changes: Array.isArray(response.changes) ? clonePlainData(response.changes) : [],
+      changes: Array.isArray(response.changes) ? deep_plain(response.changes) : [],
     };
   }
   throw new Error(
@@ -505,10 +492,10 @@ function normalizeEligibility(response, candidateGraph) {
     return null;
   }
   if (isObject(response.eligibility)) {
-    return clonePlainData(response.eligibility);
+    return deep_plain(response.eligibility);
   }
   if (isObject(response.apply_eligibility)) {
-    return clonePlainData(response.apply_eligibility);
+    return deep_plain(response.apply_eligibility);
   }
   if (typeof response.apply_eligible === "boolean") {
     return {
@@ -602,7 +589,7 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
     return null;
   }
   if (isObject(response.candidate)) {
-    const candidate = clonePlainData(response.candidate);
+    const candidate = deep_plain(response.candidate);
     if (!isObject(candidate.graph)) {
       candidate.graph = candidateGraph;
     }
@@ -687,11 +674,11 @@ function normalizeStageSnapshotPayload(snapshot) {
     durationMs: typeof snapshot.durationMs === "number"
       ? snapshot.durationMs
       : typeof snapshot.duration_ms === "number" ? snapshot.duration_ms : null,
-    gates: isObject(snapshot.gates) ? clonePlainData(snapshot.gates) : null,
-    artifacts: Array.isArray(snapshot.artifacts) ? clonePlainData(snapshot.artifacts) : null,
-    issues: Array.isArray(snapshot.issues) ? clonePlainData(snapshot.issues) : null,
+    gates: isObject(snapshot.gates) ? deep_plain(snapshot.gates) : null,
+    artifacts: Array.isArray(snapshot.artifacts) ? deep_plain(snapshot.artifacts) : null,
+    issues: Array.isArray(snapshot.issues) ? deep_plain(snapshot.issues) : null,
     value: Object.prototype.hasOwnProperty.call(snapshot, "value")
-      ? clonePlainData(snapshot.value)
+      ? deep_plain(snapshot.value)
       : null,
   });
 }
@@ -708,8 +695,8 @@ function normalizeFieldChangePayload(change) {
   return compactObject({
     uid,
     fieldPath,
-    old: Object.prototype.hasOwnProperty.call(change, "old") ? clonePlainData(change.old) : undefined,
-    new: Object.prototype.hasOwnProperty.call(change, "new") ? clonePlainData(change.new) : undefined,
+    old: Object.prototype.hasOwnProperty.call(change, "old") ? deep_plain(change.old) : undefined,
+    new: Object.prototype.hasOwnProperty.call(change, "new") ? deep_plain(change.new) : undefined,
   });
 }
 
@@ -968,14 +955,14 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     agentEditProtocol:
       asString(raw.agentEditProtocol) || asString(raw.agent_edit_protocol),
     reply: asString(raw.reply) || asString(raw.message),
-    evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? clonePlainData(raw.evidence) : null,
+    evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? deep_plain(raw.evidence) : null,
     outcome,
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     runtimeDependencies:
       Array.isArray(raw.runtimeDependencies)
-        ? clonePlainData(raw.runtimeDependencies)
+        ? deep_plain(raw.runtimeDependencies)
         : Array.isArray(raw.runtime_dependencies)
-          ? clonePlainData(raw.runtime_dependencies)
+          ? deep_plain(raw.runtime_dependencies)
           : [],
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
@@ -1016,11 +1003,11 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
       asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
     graphUnchanged:
       asBooleanOrNull(raw.graphUnchanged) ?? asBooleanOrNull(raw.graph_unchanged),
-    report: isObject(raw.report) ? clonePlainData(raw.report) : null,
-    auditRef: isObject(raw.auditRef) ? clonePlainData(raw.auditRef)
-      : isObject(raw.audit_ref) ? clonePlainData(raw.audit_ref)
+    report: isObject(raw.report) ? deep_plain(raw.report) : null,
+    auditRef: isObject(raw.auditRef) ? deep_plain(raw.auditRef)
+      : isObject(raw.audit_ref) ? deep_plain(raw.audit_ref)
         : null,
-    debug: isObject(raw.debug) ? clonePlainData(raw.debug) : null,
+    debug: isObject(raw.debug) ? deep_plain(raw.debug) : null,
     failureKind: asString(raw.failureKind) || asString(raw.failure_kind),
     retryable: asBooleanOrNull(raw.retryable),
     nextAction: asString(raw.nextAction) || asString(raw.next_action),
@@ -1171,7 +1158,7 @@ export function readApplyCandidate(value, options) {
     submitStructuralGraphHash:
       asString(candidate.submitStructuralGraphHash) || asString(candidate.submit_structural_graph_hash),
     candidateGraphHash: normalized.candidateGraphHash,
-    eligibility: isObject(normalized.eligibility) ? clonePlainData(normalized.eligibility) : null,
+    eligibility: isObject(normalized.eligibility) ? deep_plain(normalized.eligibility) : null,
     applyable: normalized.eligibility
       ? normalized.eligibility.applyable === true
       : normalized.applyEligible === true,
@@ -1964,9 +1951,9 @@ export function readUserFailure(value, options) {
       ?? normalized.graphUnchanged,
     agentFailureContext:
       isObject(normalized.outcome.agentFailureContext)
-        ? clonePlainData(normalized.outcome.agentFailureContext)
+        ? deep_plain(normalized.outcome.agentFailureContext)
         : isObject(normalized.outcome.agent_failure_context)
-          ? clonePlainData(normalized.outcome.agent_failure_context)
+          ? deep_plain(normalized.outcome.agent_failure_context)
           : null,
     rebaselineRecovery: normalized.rebaselineRecovery,
   });

@@ -1,19 +1,25 @@
 // canonical_hash.js — Browser-side deterministic canonical JSON and SHA-256
 //
-// Mirrors the Python backend's _canonical_bytes / _sha256 defined in
-// `vibecomfy/porting/reorganise/orchestrate.py`:
+// The canonical Python definition of this hashing identity lives in
+// `vibecomfy/comfy_nodes/agent/_canonical_contract_primitives.py` — the
+// zero-dependency leaf re-exported by `projection_registry_v1`.  That module
+// defines the canonical JSON serializer `canonical_json` (recursive UTF-16
+// object-key ordering via `_order_json_objects_utf16`, compact separators,
+// ASCII-safe escaping) plus:
 //
-//   def _canonical_bytes(value: Any) -> bytes:
+//   def canonical_json(value: Any, *, ensure_ascii: bool = True) -> str:
 //       return json.dumps(
-//           _freeze_jsonish(value),
-//           sort_keys=True,
+//           _order_json_objects_utf16(value),
+//           sort_keys=False,
 //           separators=(",", ":"),
-//           ensure_ascii=True,
-//           default=str,
-//       ).encode("utf-8")
+//           ensure_ascii=ensure_ascii,
+//       )
 //
-//   def _sha256(value: Any) -> str:
-//       return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+//   def canonical_json_bytes_v1(value: Any, *, ensure_ascii: bool = False) -> bytes:
+//       return canonical_json(value, ensure_ascii=ensure_ascii).encode("utf-8")
+//
+//   def _hash(value: Any) -> str:
+//       return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 //
 // This module is the single browser-side authority for canonical JSON hashing.
 // All lifecycle consumers (preview, apply, verify) must produce hashes that
@@ -153,8 +159,11 @@ function _escapeNonAscii(str) {
  * JSON.stringify with sorted keys, compact separators, ASCII-safe escaping,
  * and string fallback for non-serializable values.
  *
- * Mirrors Python: json.dumps(value, sort_keys=True, separators=(",", ":"),
- *                              ensure_ascii=True, default=str)
+ * Mirrors the Python leaf's canonical_json serialization semantics
+ * (json.dumps(..., separators=(",", ":"), ensure_ascii=True)) applied to a
+ * value whose keys were already ordered by _order_json_objects_utf16; the
+ * replacer below supplies the legacy default=str string fallback for
+ * non-JSON-serializable values.
  *
  * @param {*} value
  * @returns {string}
@@ -216,11 +225,11 @@ function _serializeCanonical(value, { ensureAscii }) {
   return ensureAscii ? _stringifyAsciiSafe(value) : _stringifyUtf8Safe(value);
 }
 
-// ── Canonicalization (mirrors _freeze_jsonish) ──────────────────────────────
+// ── Canonicalization (mirrors _order_json_objects_utf16) ────────────────────
 
 /**
- * Recursively canonicalize a JSON-compatible value to match Python's
- * _freeze_jsonish semantics:
+ * Recursively canonicalize a JSON-compatible value the way the Python leaf's
+ * _order_json_objects_utf16 does:
  *   - Plain objects get sorted keys with stringified key names
  *   - Arrays are recursively processed
  *   - Maps become plain objects with sorted, stringified keys
@@ -291,8 +300,9 @@ export function canonicalizeJsonLike(value) {
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Produce the exact canonical JSON string that Python's _canonical_bytes would
- * produce before UTF-8 encoding.
+ * Produce the exact canonical JSON string that the Python leaf's
+ * canonical_json(value, ensure_ascii=True) would produce before UTF-8
+ * encoding.
  *
  * Semantics:
  *   - Recursively sorts all object keys
@@ -325,8 +335,8 @@ export function compareCanonicalSessionJson(left, right) {
 }
 
 /**
- * Produce the canonical UTF-8 bytes that Python's _canonical_bytes would
- * return.
+ * Produce the canonical UTF-8 bytes that the Python leaf's
+ * canonical_json_bytes_v1(value, ensure_ascii=True) would return.
  *
  * @param {*} value
  * @returns {Uint8Array}
@@ -338,7 +348,8 @@ export function canonicalJsonBytes(value) {
 
 /**
  * Compute the SHA-256 hex digest of the canonical JSON representation.
- * Mirrors Python's _sha256(value) = hashlib.sha256(_canonical_bytes(value)).hexdigest()
+ * Mirrors the Python leaf's _hash(value) =
+ * hashlib.sha256(canonical_json(value).encode()).hexdigest()
  *
  * @param {*} value
  * @returns {string}

@@ -12,13 +12,13 @@ Source-code analysis (2026-06-08, Comfy-Org/ComfyUI master):
   - Since ``custom_nodes`` is a valid key in ``folder_names_and_paths``,
     the call succeeds and the path is registered exactly like a model folder.
 
-Therefore Step 7 (``_local_library_yaml.py``) will emit a YAML of the form::
+Therefore the session-level ``extra_model_paths.yaml`` injection (in session.py)
+emits a YAML of the form::
 
     vibecomfy_library:
       custom_nodes: <path>
 
-and the existing ``extra_model_paths_config`` injection in session.py will
-cause ``load_extra_path_config`` to register the directory.  No option-(b)
+and ``load_extra_path_config`` registers the directory.  No option-(b)
 ``folder_paths.add_model_folder_path`` fallback is needed.
 
 This test invokes the real ComfyUI loader (when available) and asserts

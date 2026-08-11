@@ -8,7 +8,7 @@ import pytest
 
 from vibecomfy.cli import build_parser
 from vibecomfy.comfy_nodes.agent.contracts import DiagnosticRecord
-from vibecomfy.comfy_nodes.agent.session import iter_turn_records
+from vibecomfy.comfy_nodes.agent.session import _mutate_turn_state, iter_turn_records
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +16,9 @@ DEBUG_PATH = REPO_ROOT / "vibecomfy" / "commands" / "_agent_edit_debug.py"
 ROUTES_PATH = REPO_ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "routes.py"
 SESSION_PATH = REPO_ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "session.py"
 CONTRACTS_PATH = REPO_ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "contracts.py"
+_TURN_STATE_MACHINE_PATH = (
+    REPO_ROOT / "vibecomfy" / "comfy_nodes" / "agent" / "_turn_state_machine.py"
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -251,7 +254,14 @@ def test_backend_debug_ownership_definitions_are_canonical() -> None:
 
     assert definitions["DiagnosticRecord"] == [CONTRACTS_PATH]
     assert definitions["iter_turn_records"] == [SESSION_PATH]
-    assert definitions["_mutate_turn_state"] == [SESSION_PATH]
+    # T-046 split: _mutate_turn_state is now canonical in _turn_state_machine.py;
+    # session re-exports it by name via the T-043 star-import seam so the debug
+    # command's session import path stays valid.
+    assert definitions["_mutate_turn_state"] == [_TURN_STATE_MACHINE_PATH]
+
+    # The session façade must still surface _mutate_turn_state as a top-level,
+    # callable attribute (importable by name from session post-split).
+    assert callable(_mutate_turn_state)
 
     debug_tree = ast.parse(DEBUG_PATH.read_text(encoding="utf-8"), filename=str(DEBUG_PATH))
     assert _module_imports_name(

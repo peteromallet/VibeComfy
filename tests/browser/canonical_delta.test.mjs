@@ -787,18 +787,18 @@ test("DELTA_DIAGNOSTIC_CODES includes all seven diagnostic codes", () => {
     "malformed_delta",
     "legacy_delta_shape",
     "unsupported_scoped_apply",
-    "delta_corrupted",
-    "delta_truncated",
-    "delta_absent",
-    "delta_replay_mismatch",
+    "corrupted_delta",
+    "truncated_delta",
+    "absent_delta",
+    "replay_mismatch",
   ]);
 });
 
 test("individual delta diagnostic constants match Python values", () => {
-  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "delta_corrupted");
-  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "delta_truncated");
-  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "delta_absent");
-  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "delta_replay_mismatch");
+  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "corrupted_delta");
+  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "truncated_delta");
+  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "absent_delta");
+  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "replay_mismatch");
 });
 
 // ── Malformed delta: corrupted envelope (non-object ops) ────────────────

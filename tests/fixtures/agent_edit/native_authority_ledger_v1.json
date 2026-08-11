@@ -773,45 +773,6 @@
    "support_status": "projection_only"
   },
   {
-   "id": "NGA-040",
-   "file": "vibecomfy_roundtrip.js",
-   "region": "applyRenderedNodeSizesToSerializedGraph",
-   "accesses": {
-    "graph_acquire": 4,
-    "native_nodes": 2
-   },
-   "purpose": "Measure rendered native node sizes",
-   "semantic_owner": "vibecomfy_roundtrip",
-   "target_api": "captureImmutableGraph.measurements",
-   "slice": "S3",
-   "projection_identity_effect": "layout measurement",
-   "normalization_category": "native-normalize",
-   "fixture_proof": {
-    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
-    "identifier": "every native graph access in the complete production web scope is classified"
-   },
-   "support_status": "migration_debt"
-  },
-  {
-   "id": "NGA-041",
-   "file": "vibecomfy_roundtrip.js",
-   "region": "attemptScopedCanvasRollback",
-   "accesses": {
-    "load_graph_data": 2
-   },
-   "purpose": "Compensate failed scoped mutation",
-   "semantic_owner": "vibecomfy_roundtrip",
-   "target_api": "restoreAuthorized",
-   "slice": "S4",
-   "projection_identity_effect": "whole graph restore",
-   "normalization_category": "restore-execute",
-   "fixture_proof": {
-    "path": "tests/browser/intent_graph_adapter_ownership_static.test.mjs",
-    "identifier": "every native graph access in the complete production web scope is classified"
-   },
-   "support_status": "migration_debt"
-  },
-  {
    "id": "NGA-042",
    "file": "vibecomfy_roundtrip.js",
    "region": "buildGraphNodeIndex",

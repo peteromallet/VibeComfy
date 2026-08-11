@@ -143,24 +143,6 @@ def _ensure_canonical_delta_ops(
     return envelope.ops
 
 
-def _canonical_delta_ops_envelope_payload(
-    delta_ops: tuple[Any, ...],
-) -> dict[str, Any]:
-    from vibecomfy.porting.edit.ops import (
-        DELTA_SCHEMA_VERSION,
-        ensure_root_scoped_delta_envelope,
-        op_to_dict,
-    )
-
-    return ensure_root_scoped_delta_envelope(
-        {
-            "schema_version": DELTA_SCHEMA_VERSION,
-            "ops": [op_to_dict(op) for op in delta_ops],
-        },
-        strict=True,
-    ).to_dict()
-
-
 def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageResult:
     from vibecomfy.porting.edit.apply import apply_delta
     from vibecomfy.porting.edit.apply import (

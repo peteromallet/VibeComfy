@@ -3,6 +3,7 @@
 // Apply/Reject/rollback/finalize availability.
 
 import { normalizeDeltaEnvelope } from "./canonical_delta.js";
+import { deep_plain } from "./deep_plain.js";
 import { canonicalSessionJsonString } from "./canonical_hash.js";
 import { normalizeLayoutVerification } from "./layout_verification_contract.js";
 import { classifyLegacyMigrationV1 } from "./legacy_migration_v1.js";
@@ -37,14 +38,6 @@ const LEGACY_STATE_ADAPTER = Object.freeze({
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function clonePlainData(value) {
-  if (Array.isArray(value)) return value.map(clonePlainData);
-  if (isObject(value)) {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clonePlainData(entry)]));
-  }
-  return value;
 }
 
 export function canonicalTransactionState(value) {
@@ -138,16 +131,16 @@ export function normalizeCandidateTransaction(value) {
     return null;
   }
   return Object.freeze({
-    ...clonePlainData(source),
+    ...deep_plain(source),
     state,
     resume_state: canonicalTransactionState(source.resume_state),
     plan: {
-      ...clonePlainData(source.plan),
-      delta_ops_envelope: clonePlainData(envelope),
+      ...deep_plain(source.plan),
+      delta_ops_envelope: deep_plain(envelope),
       op_count: envelope.ops.length,
     },
     authority: {
-      ...clonePlainData(source.authority),
+      ...deep_plain(source.authority),
       ...(layoutVerification ? { layout_verification: layoutVerification } : {}),
     },
     available_actions: actions,
@@ -211,7 +204,7 @@ export function classifyCandidateTransactionBoundary(value) {
       return Object.freeze({ classification: "v2_authority", actions: [...normalized.available_actions] });
     }
     if (candidate.contract_version === "candidate_transaction_v1") {
-      return Object.freeze(clonePlainData(classifyLegacyMigrationV1(candidate)));
+      return Object.freeze(deep_plain(classifyLegacyMigrationV1(candidate)));
     }
     return Object.freeze({
       classification: candidate.contract_version === CANDIDATE_TRANSACTION_CONTRACT_VERSION
@@ -263,8 +256,8 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
     throw new Error("Prepared layout verification contract differs from candidate authority.");
   }
   return {
-    envelope: clonePlainData(prepared.plan.delta_ops_envelope),
-    deltaOps: clonePlainData(prepared.plan.delta_ops_envelope.ops),
+    envelope: deep_plain(prepared.plan.delta_ops_envelope),
+    deltaOps: deep_plain(prepared.plan.delta_ops_envelope.ops),
     deltaHash: prepared.plan.delta_hash,
     verificationKind: resolvedPreparedKind,
     layoutVerification: preparedLayoutVerification,

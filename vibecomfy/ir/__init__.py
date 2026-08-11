@@ -19,10 +19,11 @@ from vibecomfy.ir.types import (
     WorkflowSource,
 )
 from vibecomfy.ir.workflow import VibeWorkflow, _NodeBuilder
-from vibecomfy.ir.diagnostic import Diagnostic
+from vibecomfy.ir.diagnostic import Diagnostic, DiagnosticLike
 
 __all__ = [
     "Diagnostic",
+    "DiagnosticLike",
     "RawWidgetPayload",
     "ValidationIssue",
     "ValidationReport",

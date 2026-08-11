@@ -65,18 +65,26 @@ import {
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import {
+  applyTypedSocketLabels,
+  applyTypedSocketLabelsLabelOnly,
+  applyTypedSocketTypesOnly,
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   applyGraphLayoutInPlace,
   installQueueGuard as installQueueGuardAdapter,
-  preflightDeltaPlan,
+  normalizeExecIoObject,
+  normalizeExecNodeForSerialization as normalizeExecNodeForSerializationAdapter,
+  normalizeGraphExecNodesForSerialization,
+  normalizeIntentTypedIo,
   projectCandidateGraphToRuntimeLayout,
+  readExecWidgetValue,
 } from "./comfy_adapter.js";
 import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import {
   createAgentEditState,
   createAgentStateCompartments,
   eventSessionMatchesActiveScope,
+  ingestChatRehydratePayload,
   PANEL_STATE,
   RENDER_SECTIONS,
   normalizeDeltaOpsFromSubmit,
@@ -139,10 +147,9 @@ import {
   buildStructuralGraphProjection,
 } from "./graph_projection.js";
 import {
-  crossGraphNodeIdentityIndexV1,
   projectionReferenceV1,
-  stablePreviewLinkMapV1,
 } from "./projection_registry_v1.js";
+import { jsonClone as clonePlainData } from "./json_clone.js";
 export {
   buildLayoutGraphProjection,
   buildStructuralGraphProjection,
@@ -180,6 +187,20 @@ import {
   FEED_SOURCE_PRIORITY,
   isTerminalAgentTurnStatus,
 } from "./agent_turn_feed.js";
+import {
+  clarificationMessageFromOutcome,
+  durableTurnKey,
+  executionEventKeyForTurn,
+  executionEventTurnEntry,
+  mergeBatchTurnEntry,
+  normalizeBatchTurn,
+  outcomeHasClarificationPrompt,
+  outcomeIsNoop,
+  outcomeRequiresClarification,
+  readRoundtripFieldChanges,
+  readRoundtripTurnIdentity,
+  sortPanelTurns,
+} from "./agent_turn_reducer.js";
 import {
   AGENT_STATUS_RETRY_DELAYS_MS,
   CANONICAL_AGENT_PROVIDERS,
@@ -223,11 +244,21 @@ import {
 } from "./active_canvas_scope_guard.js";
 import { installPreviewPicker } from "./preview_picker.js";
 import { installAgenticReplay } from "./agentic_replay.js";
-import {
-  computeSerializedGraphPreviewDiff,
-  constrainPreviewDiffToLegacyIntent,
-} from "./preview_diff_core.js";
 import { isLegacyUndoCacheEntryV1 } from "./journal_durable_v1.js";
+import { createApplyFlow } from "./agent_apply_flow.js";
+import {
+  configureSubmitWatchdogDeps,
+  DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
+  DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
+  DEFAULT_SUBMIT_DEADLINE_MS,
+  pendingTransactionSnapshotByPanel,
+  resetSubmitWatchdogDeps,
+  submitActivityByPanel,
+  submitWatchdogDepsState,
+} from "./agent_flow_deps.js";
+import { createAgentPreviewCache } from "./agent_preview_cache.js";
+import { createRebaselineUndoFlow } from "./agent_rebaseline_undo.js";
+import { createSubmitFlow } from "./agent_submit_flow.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -249,7 +280,7 @@ export function normalizeForSerialize(graph, { live = false } = {}) {
   if (live) {
     normalizeLiveExecNodesForSerialization();
   } else {
-    normalizeGraphExecNodesForSerialization(graph);
+    normalizeGraphExecNodesForSerialization(graph, { setExecWidgetValue });
     sanitizeSerializedGraphLinks(graph);
   }
 }
@@ -259,7 +290,7 @@ export function normalizeForDisplay(node, fallbackClassType = null) {
 }
 
 export function normalizeForApply(candidateGraph) {
-  decorateIntentGraphPayload(candidateGraph);
+  return applyFlow.normalizeForApply(candidateGraph);
 }
 
 export function repairLiveNodes(candidateGraph = null) {
@@ -379,45 +410,6 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 // matching FailureKind.
 
 const SUPPORTED_FRONTEND = "1.39.x";
-// A single backend model worker may legitimately run for 180 seconds
-// (VIBECOMFY_AGENT_TURN_TIMEOUT).  The browser watchdog therefore measures
-// *inactivity*, not total request duration, and leaves a small transport / job
-// scheduling margin beyond the worker's own timeout.
-export const DEFAULT_SUBMIT_DEADLINE_MS = 210000;
-export const DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS = 900000;
-export const DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT = 1;
-
-const DEFAULT_SUBMIT_WATCHDOG_DEPS = Object.freeze({
-  nowMs() {
-    if (typeof globalThis.performance?.now === "function") {
-      return globalThis.performance.now();
-    }
-    return Date.now();
-  },
-  setTimeoutFn(handler, delayMs) {
-    return globalThis.setTimeout(handler, delayMs);
-  },
-  clearTimeoutFn(timeoutId) {
-    if (timeoutId != null) {
-      globalThis.clearTimeout(timeoutId);
-    }
-  },
-  submitDeadlineMs: DEFAULT_SUBMIT_DEADLINE_MS,
-  submitAbsoluteDeadlineMs: DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
-  submitAutomaticRetryCount: DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
-});
-
-const submitWatchdogDepsState = {
-  ...DEFAULT_SUBMIT_WATCHDOG_DEPS,
-};
-
-// Live watchdog timestamps intentionally stay outside lifecycle state: they
-// describe an in-memory fetch and must never be rehydrated after a reload.
-const submitActivityByPanel = new WeakMap();
-// Pre-finalize canvas snapshots are transaction compensation state, not Undo
-// history. Keep them private to the live panel until finalize publishes a
-// durable accepted baseline or rollback consumes them.
-const pendingTransactionSnapshotByPanel = new WeakMap();
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -467,6 +459,121 @@ const PANEL_IDS = Object.freeze({
   previewToggle: "vibecomfy-agent-preview-toggle",
   changeEngine: "vibecomfy-agent-panel-change-engine",
   welcomeOverlay: "vibecomfy-agent-panel-welcome-overlay",
+});
+
+// ── T-057: Submit flow behind injected boundaries ──────────────────────────
+// Build the deps object ONCE at module init from the centralized live
+// singletons. The flow reads the SAME object references (submitWatchdogDepsState
+// is mutated by configureSubmitWatchdogDeps / resetSubmitWatchdogDeps;
+// submitActivityByPanel is shared), so injection and reset keep working.
+const submitFlow = createSubmitFlow({
+  submitWatchdogDepsState,
+  submitActivityByPanel,
+  pendingTransactionSnapshotByPanel,
+  DEFAULT_SUBMIT_DEADLINE_MS,
+  DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
+  DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
+  getPanelElementById,
+  PANEL_IDS,
+  PANEL_STATE,
+  readOnDemandSchemasSetting,
+  api,
+  normalizeRoutePreference,
+  agentPanelFailure,
+});
+
+// ── T-062: Preview cache behind injected boundaries ────────────────────────
+// The cache module owns candidate preview cache reads and writes on panel.state.
+// Canvas rendering, layout-preview orchestration, and lifecycle candidate
+// invalidation remain with their existing owners; shared helpers are injected once.
+const previewCache = createAgentPreviewCache({
+  app,
+  canonicalJsonString: canonicalSessionJsonString,
+  captureLiveCanvasRevision,
+  compactNetFieldChanges: _compactNetFieldChanges,
+  computePreviewDiffFacade: computePreviewDiff,
+  createIntentGraphAdapter,
+  currentAgentPanel,
+  getLiveGraph,
+  getLiveGraphNodes,
+  getUid,
+  prepareCandidateGraphForPanel,
+  readWidgetValues,
+  safePreviewLogDetail,
+});
+const {
+  computePreviewDiff: computePreviewDiffImpl,
+  getOrBuildPreviewDiff,
+} = previewCache;
+
+// ── T-058: Apply flow behind injected boundaries ───────────────────────────
+// Build the dependency object once from roundtrip's live module singletons.
+// Lifecycle transitions and rollback/replay remain authoritative here and are
+// passed into the apply orchestrator without duplicating their state machines.
+const applyFlow = createApplyFlow({
+  RENDER_SECTIONS,
+  agentPanelFailure,
+  announceChangedNodes,
+  app,
+  applyEligibility,
+  applyGraphCandidateInPlace,
+  applyGraphDeltaInPlace,
+  applyGraphLayoutInPlace,
+  assertApplyScopeConsistency,
+  auditLandedMutationPlan,
+  boundedBrowserTransactionError,
+  buildActionIdempotencyKey,
+  buildCanvasSnapshot,
+  clearLayoutPreviewState,
+  clonePlainData,
+  commitFinalizeFailure,
+  commitFinalizeStarted,
+  commitFinalizeSuccess,
+  commitPrepareFailure,
+  commitPrepareStarted,
+  commitPrepareSuccess,
+  commitVerifyCanvasFailure,
+  commitVerifyCanvasStarted,
+  commitVerifyCanvasSuccess,
+  compensatedFailurePayload,
+  createIntentGraphAdapter,
+  currentAgentPanel,
+  decorateIntentGraphPayload,
+  decorateIntentNode,
+  extractChangedNodeFeedback,
+  findSerializedLinkByTarget,
+  fulfillLifecycleTransitionObligations,
+  inverseNodeUid: canonicalNodeUid,
+  inverseSerializedLinks: normalizedSerializedLinks,
+  isLayoutAuthorityTransaction,
+  layoutPreviewBaselineSnapshot,
+  markAgentPanelDirty,
+  nodeTargetRefForRollback,
+  normalizeCandidateTransaction,
+  pendingTransactionSnapshotByPanel,
+  postAgentLifecycleAction,
+  projectionReferenceV1,
+  pushHistory,
+  pushTurnStatus,
+  readGraphActualForOp,
+  reconcilePreparedTransactionState,
+  recordRoundtripResponseCompartments,
+  recoveryForFailure,
+  recoveryForPanelState,
+  rememberTurnDetailSnapshot,
+  renderLifecycleTransition,
+  repairLiveIntentNodesFromCandidate,
+  resolveActiveWorkflowUuid,
+  resolveGraphNode,
+  resolveGraphTarget,
+  resolvePreparedMutationPlan,
+  rollbackPreparedAgentCandidate,
+  structuralProjectionV1: "structural_v1",
+  transactionAllows,
+  transition,
+  validateScopedCanvasPreconditions,
+  verifyScopedCanvasResults,
+  widgetReferenceNodeFor,
 });
 
 const INTENT_NODE_CLASS_TYPES = new Set(["vibecomfy.code", "vibecomfy.exec", "vibecomfy.loop"]);
@@ -542,41 +649,13 @@ export {
   assertPanelScopeMatchesActiveCanvas,
   assertApplyScopeConsistency,
 };
-
-export function configureSubmitWatchdogDeps(overrides = {}) {
-  if (!overrides || typeof overrides !== "object") {
-    return { ...submitWatchdogDepsState };
-  }
-  if (typeof overrides.nowMs === "function") {
-    submitWatchdogDepsState.nowMs = overrides.nowMs;
-  }
-  if (typeof overrides.setTimeoutFn === "function") {
-    submitWatchdogDepsState.setTimeoutFn = overrides.setTimeoutFn;
-  }
-  if (typeof overrides.clearTimeoutFn === "function") {
-    submitWatchdogDepsState.clearTimeoutFn = overrides.clearTimeoutFn;
-  }
-  if (Number.isFinite(overrides.submitDeadlineMs) && Number(overrides.submitDeadlineMs) > 0) {
-    submitWatchdogDepsState.submitDeadlineMs = Number(overrides.submitDeadlineMs);
-  }
-  if (Number.isFinite(overrides.submitAbsoluteDeadlineMs) && Number(overrides.submitAbsoluteDeadlineMs) > 0) {
-    submitWatchdogDepsState.submitAbsoluteDeadlineMs = Number(overrides.submitAbsoluteDeadlineMs);
-  }
-  if (Number.isFinite(overrides.submitAutomaticRetryCount) && Number(overrides.submitAutomaticRetryCount) >= 0) {
-    submitWatchdogDepsState.submitAutomaticRetryCount = Number(overrides.submitAutomaticRetryCount);
-  }
-  return { ...submitWatchdogDepsState };
-}
-
-export function resetSubmitWatchdogDeps() {
-  submitWatchdogDepsState.nowMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.nowMs;
-  submitWatchdogDepsState.setTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.setTimeoutFn;
-  submitWatchdogDepsState.clearTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.clearTimeoutFn;
-  submitWatchdogDepsState.submitDeadlineMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitDeadlineMs;
-  submitWatchdogDepsState.submitAbsoluteDeadlineMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitAbsoluteDeadlineMs;
-  submitWatchdogDepsState.submitAutomaticRetryCount = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitAutomaticRetryCount;
-  return { ...submitWatchdogDepsState };
-}
+export {
+  configureSubmitWatchdogDeps,
+  DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
+  DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
+  DEFAULT_SUBMIT_DEADLINE_MS,
+  resetSubmitWatchdogDeps,
+};
 
 function getPersistedResearchContributionEnabled() {
   return _lsGet(LS_RESEARCH_CONTRIBUTION_KEY) === "1";
@@ -715,140 +794,8 @@ function truncateIntentPreview(value) {
     : text;
 }
 
-function normalizeIntentTypedIo(io, key) {
-  const entries = io?.[key];
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-  return entries
-    .map((entry) => {
-      if (!Array.isArray(entry) || entry.length < 2) {
-        return null;
-      }
-      const [name, type] = entry;
-      if (!name || !type) {
-        return null;
-      }
-      return { name: String(name), type: String(type) };
-    })
-    .filter(Boolean);
-}
-
-function readExecWidgetValue(node, key) {
-  const widgetsValues = node?.widgets_values;
-  if (widgetsValues && typeof widgetsValues === "object" && !Array.isArray(widgetsValues)) {
-    if (Object.prototype.hasOwnProperty.call(widgetsValues, key)) {
-      return widgetsValues[key];
-    }
-  }
-  if (Array.isArray(widgetsValues)) {
-    if (key === "source") {
-      return widgetsValues[0];
-    }
-    if (key === "io") {
-      return widgetsValues[1];
-    }
-  }
-  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
-  for (const widget of widgets) {
-    if (widget?.name === key) {
-      return widget.value;
-    }
-  }
-  return undefined;
-}
-
-function normalizeExecIoValue(value) {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value;
-  }
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch (_e) {
-    return null;
-  }
-}
-
-function normalizeExecIoEntries(entries) {
-  let rawItems = entries;
-  if (entries && typeof entries === "object" && !Array.isArray(entries)) {
-    rawItems = Object.entries(entries).map(([name, type]) => [name, type]);
-  }
-  if (!Array.isArray(rawItems)) {
-    return [];
-  }
-  return rawItems
-    .map((entry) => {
-      if (Array.isArray(entry) && entry.length >= 1) {
-        const name = String(entry[0] || "").trim();
-        const type = String(entry[1] || "").trim();
-        return name ? [name, type || "*"] : null;
-      }
-      if (entry && typeof entry === "object") {
-        const name = String(entry.name || "").trim();
-        const type = String(entry.type || "").trim();
-        return name && type ? [name, type] : null;
-      }
-      return null;
-    })
-    .filter(Boolean);
-}
-
-function normalizeExecIoObject(io) {
-  const normalized = normalizeExecIoValue(io);
-  if (!normalized) {
-    return null;
-  }
-  const inputs = normalizeExecIoEntries(normalized.inputs);
-  const outputs = normalizeExecIoEntries(normalized.outputs);
-  if (!inputs.length && !outputs.length) {
-    return null;
-  }
-  return { inputs, outputs };
-}
-
-function parseTypedSocketLabel(slot) {
-  const text = String(slot?.label || slot?.name || "").trim();
-  const match = /^(.+?)\s*:\s*([^:]+)$/.exec(text);
-  if (!match) {
-    return null;
-  }
-  const name = match[1].trim();
-  const type = match[2].trim();
-  return name && type ? [name, type] : null;
-}
-
-function deriveExecIoFromSocketLabels(node) {
-  const inputs = Array.isArray(node?.inputs)
-    ? node.inputs.map(parseTypedSocketLabel).filter(Boolean)
-    : [];
-  const outputs = Array.isArray(node?.outputs)
-    ? node.outputs.map(parseTypedSocketLabel).filter(Boolean)
-    : [];
-  if (!inputs.length && !outputs.length) {
-    return null;
-  }
-  return { inputs, outputs };
-}
-
-function readExecIoFromMetadata(node) {
-  const payload = node?.properties?.vibecomfy;
-  const fromPayload = normalizeExecIoObject(payload?.io);
-  if (fromPayload) {
-    return fromPayload;
-  }
-  const meta = node?.__vibecomfyIntentMeta;
-  const fromMeta = {
-    inputs: normalizeExecIoEntries(meta?.typedInputs),
-    outputs: normalizeExecIoEntries(meta?.typedOutputs),
-  };
-  return fromMeta.inputs.length || fromMeta.outputs.length ? fromMeta : null;
-}
-
+// Native widget mutation remains shell-owned and is injected into the adapter's
+// canonical exec normalization. This preserves the classified S4 mutation seam.
 function setExecWidgetValue(node, key, value) {
   if (!node || typeof node !== "object") {
     return;
@@ -874,43 +821,11 @@ function setExecWidgetValue(node, key, value) {
 }
 
 function normalizeExecNodeForSerialization(node, fallbackClassType = null) {
-  if (getIntentClassType(node, fallbackClassType) !== "vibecomfy.exec") {
-    return false;
-  }
-  const io =
-    normalizeExecIoObject(readExecWidgetValue(node, "io"))
-    || readExecIoFromMetadata(node)
-    || deriveExecIoFromSocketLabels(node);
-  if (!io) {
-    return false;
-  }
-  const source = readExecWidgetValue(node, "source");
-  setExecWidgetValue(node, "io", io);
-  if (source !== undefined) {
-    setExecWidgetValue(node, "source", source);
-  }
-  node.properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
-  const payload = node.properties.vibecomfy && typeof node.properties.vibecomfy === "object"
-    ? node.properties.vibecomfy
-    : {};
-  const intent = payload.intent && typeof payload.intent === "object" ? payload.intent : {};
-  node.properties.vibecomfy = {
-    ...payload,
-    kind: payload.kind || "code",
-    io,
-    intent: {
-      ...intent,
-      ...(typeof source === "string" ? { source } : {}),
-    },
-  };
-  return true;
-}
-
-function normalizeGraphExecNodesForSerialization(graph) {
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-  for (const node of nodes) {
-    normalizeExecNodeForSerialization(node);
-  }
+  return normalizeExecNodeForSerializationAdapter(
+    node,
+    fallbackClassType,
+    { setExecWidgetValue },
+  );
 }
 
 function sanitizeSerializedGraphLinks(graph) {
@@ -1036,123 +951,6 @@ function captureSerializedGraphForAgent() {
   return graph;
 }
 
-function applyRenderedNodeSizesToSerializedGraph(graph) {
-  if (!graph || !Array.isArray(graph.nodes)) {
-    return;
-  }
-  const liveNodes = Array.isArray(app?.canvas?.graph?._nodes)
-    ? app.canvas.graph._nodes
-    : (Array.isArray(app?.canvas?.graph?.nodes) ? app.canvas.graph.nodes : []);
-  if (!liveNodes.length) {
-    return;
-  }
-  const liveById = new Map();
-  for (const node of liveNodes) {
-    const id = node?.id;
-    if (id !== undefined && id !== null) {
-      liveById.set(String(id), node);
-    }
-  }
-  for (const serialized of graph.nodes) {
-    const live = liveById.get(String(serialized?.id));
-    if (!live) {
-      continue;
-    }
-    const measured = measureRenderedNodeBodySize(live);
-    if (!measured) {
-      continue;
-    }
-    const current = readNodeSize(serialized, NaN, NaN);
-    const currentW = Number.isFinite(current.w) && current.w > 0 ? current.w : 0;
-    const currentH = Number.isFinite(current.h) && current.h > 0 ? current.h : 0;
-    const nextW = Math.max(currentW, measured.w);
-    const nextH = Math.max(currentH, measured.h);
-    if (nextW > currentW + 0.5 || nextH > currentH + 0.5) {
-      serialized.size = [Math.round(nextW), Math.round(nextH)];
-    }
-  }
-}
-
-function measureRenderedNodeBodySize(node) {
-  if (!node) {
-    return null;
-  }
-  const stored = readNodeSize(node, NaN, NaN);
-  let width = Number.isFinite(stored.w) && stored.w > 0 ? stored.w : 0;
-  let height = Number.isFinite(stored.h) && stored.h > 0 ? stored.h : 0;
-  const titleHeight = (window.LiteGraph && window.LiteGraph.NODE_TITLE_HEIGHT) || 30;
-  const widgetHeight = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
-  const slotHeight = (window.LiteGraph && window.LiteGraph.NODE_SLOT_HEIGHT) || 20;
-
-  if (typeof node.computeSize === "function") {
-    try {
-      const computed = node.computeSize();
-      const computedW = vecNumber(computed, 0, NaN);
-      const computedH = vecNumber(computed, 1, NaN);
-      if (Number.isFinite(computedW) && computedW > 0) {
-        width = Math.max(width, computedW);
-      }
-      if (Number.isFinite(computedH) && computedH > 0) {
-        height = Math.max(height, computedH);
-      }
-    } catch (_ignored) {
-      // Fall through to measured bounding/widget rows.
-    }
-  }
-
-  if (typeof node.getBounding === "function") {
-    try {
-      const bounds = node.getBounding();
-      const boundW = vecNumber(bounds, 2, NaN);
-      const boundH = vecNumber(bounds, 3, NaN);
-      if (Number.isFinite(boundW) && boundW > 0) {
-        width = Math.max(width, boundW);
-      }
-      if (Number.isFinite(boundH) && boundH > titleHeight) {
-        height = Math.max(height, boundH - titleHeight);
-      }
-    } catch (_ignored) {
-      // Widget row bounds below still provide a useful lower bound.
-    }
-  }
-
-  const slotRows = Math.max(
-    Array.isArray(node.inputs) ? node.inputs.length : 0,
-    Array.isArray(node.outputs) ? node.outputs.length : 0,
-  );
-  if (slotRows > 0) {
-    height = Math.max(height, slotRows * slotHeight);
-  }
-
-  const widgets = Array.isArray(node.widgets) ? node.widgets : [];
-  for (let index = 0; index < widgets.length; index += 1) {
-    const widget = widgets[index];
-    let rowTop = Number.isFinite(widget?.last_y)
-      ? widget.last_y
-      : slotRows * slotHeight + index * widgetHeight;
-    let rowHeight = widgetHeight;
-    if (widget && typeof widget.computeSize === "function") {
-      try {
-        const computed = widget.computeSize(width || stored.w || 200);
-        const computedH = vecNumber(computed, 1, NaN);
-        if (Number.isFinite(computedH) && computedH > 0) {
-          rowHeight = computedH;
-        }
-      } catch (_ignored) {
-        // Keep the LiteGraph widget-row fallback.
-      }
-    }
-    if (Number.isFinite(rowTop) && rowTop >= 0) {
-      height = Math.max(height, rowTop + rowHeight);
-    }
-  }
-
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-  return { w: width, h: height };
-}
-
 function readIntentMetadata(node, fallbackClassType = null) {
   const properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
   const classType = getIntentClassType(node, fallbackClassType);
@@ -1224,59 +1022,6 @@ function styleForIntentMeta(meta) {
     return INTENT_STYLE_BY_KIND.degraded;
   }
   return INTENT_STYLE_BY_KIND[meta.kind] || INTENT_STYLE_BY_KIND.degraded;
-}
-
-function applyTypedSocketLabels(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed) {
-      continue;
-    }
-    const label = `${typed.name}: ${typed.type}`;
-    slot.name = label;
-    if ("label" in slot || typeof slot === "object") {
-      slot.label = label;
-    }
-  }
-}
-
-function applyTypedSocketLabelsLabelOnly(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed) {
-      continue;
-    }
-    const label = `${typed.name}: ${typed.type}`;
-    // Write ONLY slot.label; leave slot.name unchanged (in_i for serialization).
-    if ("label" in slot || typeof slot === "object") {
-      slot.label = label;
-    }
-  }
-}
-
-function applyTypedSocketTypesOnly(slots, typedEntries) {
-  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
-    return;
-  }
-  const count = Math.min(slots.length, typedEntries.length);
-  for (let index = 0; index < count; index += 1) {
-    const slot = slots[index];
-    const typed = typedEntries[index];
-    if (!slot || !typed || typeof typed.type !== "string" || !typed.type) {
-      continue;
-    }
-    slot.type = typed.type;
-  }
 }
 
 function _isDynamicIoCodeNode(node) {
@@ -1791,29 +1536,7 @@ function repairLiveIntentNodesFromCandidate(candidateGraph = null) {
   }
 }
 
-function applyGraphInPlaceWithIntentDecoration(candidate) {
-  try {
-    let repairCandidate = null;
-    applyGraphCandidateInPlace(app, candidate, {
-      beforeConfigure(nextCandidate) {
-        decorateIntentGraphPayload(nextCandidate);
-        repairCandidate = clonePlainData(nextCandidate);
-      },
-      afterConfigure(_graph, nextCandidate) {
-        repairLiveIntentNodesFromCandidate(repairCandidate || nextCandidate);
-      },
-    });
-  } catch (e) {
-    if (e?.code !== "GRAPH_APPLY_UNAVAILABLE") {
-      throw e;
-    }
-    throw agentPanelFailure("CanvasApplyError", "The live LiteGraph instance does not support in-place graph application.", {
-      retryable: true,
-      graph_unchanged: true,
-      next_action: "Retry after the ComfyUI frontend finishes loading, or use the legacy round-trip command.",
-    });
-  }
-}
+
 
 function canonicalNodeUid(node) {
   if (!node || typeof node !== "object") {
@@ -2221,157 +1944,32 @@ function nodeTargetRefForRollback(op) {
 }
 
 export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
-  const inverseOps = [];
-  // Compensate in reverse dependency order.  A forward add-node/add-node/link
-  // sequence must remove its link before either endpoint; conversely the
-  // inverse of remove-node recreates the node before its historic links.
-  for (const op of [...deltaOps].reverse()) {
-    if (!op || typeof op !== "object" || typeof op.op !== "string") {
-      continue;
-    }
-    if (op.op === "set_node_field" || op.op === "set_mode" || op.op === "reorder") {
-      inverseOps.push(clonePlainData(op));
-      continue;
-    }
-    if (op.op === "upsert_link") {
-      const priorLink = findSerializedLinkByTarget(preApplyGraph, op.to || op.target);
-      if (!priorLink) {
-        inverseOps.push({
-          op: "remove_link",
-          to: clonePlainData(op.to || op.target),
-        });
-        continue;
-      }
-      inverseOps.push({
-        op: "upsert_link",
-        from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id)) || String(priorLink.origin_id), Number(priorLink.origin_slot)],
-        to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id)) || String(priorLink.target_id), Number(priorLink.target_slot)],
-      });
-      continue;
-    }
-    if (op.op === "remove_link") {
-      const priorLink = findSerializedLinkByTarget(preApplyGraph, op.to || op.target);
-      if (!priorLink) {
-        continue;
-      }
-      inverseOps.push({
-        op: "upsert_link",
-        from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id)) || String(priorLink.origin_id), Number(priorLink.origin_slot)],
-        to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id)) || String(priorLink.target_id), Number(priorLink.target_slot)],
-      });
-      continue;
-    }
-    if (op.op === "add_node") {
-      inverseOps.push({
-        op: "remove_node",
-        target: nodeTargetRefForRollback(op),
-      });
-      continue;
-    }
-    if (op.op === "remove_node") {
-      const targetRef = nodeTargetRefForRollback(op);
-      const parsed = resolveGraphTarget(targetRef);
-      const priorNode = resolveGraphNode(preApplyGraph, parsed.uidOrId);
-      if (!priorNode) {
-        continue;
-      }
-      inverseOps.push({
-        op: "add_node",
-        target: clonePlainData(targetRef),
-        scope_path: canonicalNodeUid(priorNode) || String(parsed.uidOrId),
-      });
-      const relatedLinks = normalizedSerializedLinks(preApplyGraph)
-        .filter((link) => String(link.origin_id) === String(priorNode.id) || String(link.target_id) === String(priorNode.id))
-        .sort((left, right) => Number(left.id) - Number(right.id));
-      for (const link of relatedLinks) {
-        inverseOps.push({
-          op: "upsert_link",
-          from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, link.origin_id)) || String(link.origin_id), Number(link.origin_slot)],
-          to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, link.target_id)) || String(link.target_id), Number(link.target_slot)],
-        });
-      }
-    }
-  }
-  return inverseOps;
-}
-
-async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification) {
-  const rollback = {
-    attempted: true,
-    undo_snapshot_available: isLegacyUndoCacheEntryV1(currentAgentPanel()?.state?.undoStack?.at(-1)),
-    restored: false,
-    attempts: [],
-  };
-  const inverseDeltaOps = buildInverseDeltaOps(preApplyGraph, deltaOps);
-  const inverseAttempt = {
-    strategy: "inverse_delta",
-    delta_ops: clonePlainData(inverseDeltaOps),
-  };
-  // An empty semantic delta may represent an authoritative layout transaction.
-  // A no-op inverse cannot prove that whole-graph layout mutation was undone,
-  // so skip directly to the exact pre-apply graph restore in that case.
-  if (deltaOps.length > 0) {
-    try {
-      const result = applyGraphDeltaInPlace(app, {
-        deltaOps: inverseDeltaOps,
-        candidateGraph: clonePlainData(preApplyGraph),
-      });
-      const snapshot = await buildCanvasSnapshot();
-      const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
-      Object.assign(inverseAttempt, {
-        ok: restoreCheck.ok,
-        capability: clonePlainData(result?.capability || null),
-        applied_plan: clonePlainData(result?.plan || null),
-        restore_check: clonePlainData(restoreCheck),
-        client_graph_hash: snapshot.graphHash,
-        client_structural_graph_hash: snapshot.structuralHash,
-        client_live_canvas_token: snapshot.liveCanvasToken,
-      });
-      rollback.attempts.push(inverseAttempt);
-      if (restoreCheck.ok) {
-        rollback.restored = true;
-        rollback.restored_via = "inverse_delta";
-        return rollback;
-      }
-    } catch (error) {
-      inverseAttempt.ok = false;
-      inverseAttempt.error = String(error?.message || error);
-      rollback.attempts.push(inverseAttempt);
-    }
-  }
-
-  const fullRestoreAttempt = {
-    strategy: "whole_graph_restore",
-  };
-  try {
-    const restoreGraph = clonePlainData(preApplyGraph);
-    if (typeof app?.loadGraphData === "function") {
-      await loadGraphDataWithoutScopeSwitch(restoreGraph);
-    } else {
-      applyGraphCandidateInPlace(app, restoreGraph);
-    }
-    const snapshot = await buildCanvasSnapshot();
-    const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
-    Object.assign(fullRestoreAttempt, {
-      ok: restoreCheck.ok,
-      restore_check: clonePlainData(restoreCheck),
-      client_graph_hash: snapshot.graphHash,
-      client_structural_graph_hash: snapshot.structuralHash,
-      client_live_canvas_token: snapshot.liveCanvasToken,
-    });
-    rollback.attempts.push(fullRestoreAttempt);
-    if (restoreCheck.ok) {
-      rollback.restored = true;
-      rollback.restored_via = "whole_graph_restore";
-      return rollback;
-    }
-  } catch (error) {
-    fullRestoreAttempt.ok = false;
-    fullRestoreAttempt.error = String(error?.message || error);
-    rollback.attempts.push(fullRestoreAttempt);
-  }
-
-  return rollback;
+  return applyFlow.buildInverseDeltaOps(preApplyGraph, deltaOps, {
+    uidForUpsertLinkOrigin(priorLink) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id));
+    },
+    uidForUpsertLinkTarget(priorLink) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id));
+    },
+    uidForRemovedLinkOrigin(priorLink) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id));
+    },
+    uidForRemovedLinkTarget(priorLink) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id));
+    },
+    uidForRemovedNode(priorNode) {
+      return canonicalNodeUid(priorNode);
+    },
+    relatedLinksFor() {
+      return normalizedSerializedLinks(preApplyGraph);
+    },
+    uidForRelatedLinkOrigin(link) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, link.origin_id));
+    },
+    uidForRelatedLinkTarget(link) {
+      return canonicalNodeUid(resolveGraphNode(preApplyGraph, link.target_id));
+    },
+  });
 }
 
 let graphLoadScopeSwitchSuppressionDepth = 0;
@@ -2775,17 +2373,6 @@ function compactDetailsPreview(value) {
   };
   visit(value);
   return parts.join("; ");
-}
-
-function clonePlainData(value) {
-  if (value == null) {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
 }
 
 function safePreviewLogDetail(value) {
@@ -3197,18 +2784,6 @@ function buildActionIdempotencyKey({ action, sessionId, turnId, graphHash }) {
   return `${action}:${sessionId}:${turnId}:${graphHash.slice(0, 12)}:${unique}`;
 }
 
-function buildRebaselineIdempotencyKey({ sessionId, reason, baselineGraphHash, structuralHash }) {
-  const sessionPart = sessionId || "new";
-  const reasonPart = String(reason || "continue_from_canvas").trim() || "continue_from_canvas";
-  const baselinePart = typeof baselineGraphHash === "string" && baselineGraphHash
-    ? baselineGraphHash.slice(0, 12)
-    : "none";
-  const structuralPart = typeof structuralHash === "string" && structuralHash
-    ? structuralHash.slice(0, 12)
-    : "unknown";
-  return `rebaseline:${sessionPart}:${reasonPart}:${baselinePart}:${structuralPart}`;
-}
-
 function createDetails(summary, value) {
   const details = el("details");
   const heading = el("summary", summary);
@@ -3502,18 +3077,7 @@ function closeChooseEngineOverlay(panel) {
   }
 }
 
-function normalizeCandidateApplyEligibility(candidateGraph, eligibility) {
-  return applyEligibility(
-    {
-      state: {
-        candidateGraph,
-        applyEligibility: eligibility,
-      },
-    },
-    null,
-    { missingContractAsNull: true },
-  );
-}
+
 
 export function syncBaselineFromResponse(panel, payload) {
   if (!panel?.state || !payload || typeof payload !== "object") {
@@ -3921,9 +3485,9 @@ function createAgentPanelShell() {
   submitBtn.id = PANEL_IDS.submit;
   const stopBtn = button("Stop", () => stopAgentSubmit(currentAgentPanel()));
   stopBtn.style.display = "none";
-  const applyBtn = button("Apply", () => applyAgentCandidate(currentAgentPanel()));
+  const applyBtn = button("Apply", () => applyFlow.applyAgentCandidate(currentAgentPanel()));
   applyBtn.id = PANEL_IDS.apply;
-  const resumeApplyBtn = button("Resume Apply", () => applyAgentCandidate(currentAgentPanel(), { resumePrepared: true }));
+  const resumeApplyBtn = button("Resume Apply", () => applyFlow.applyAgentCandidate(currentAgentPanel(), { resumePrepared: true }));
   resumeApplyBtn.id = "vibecomfy-agent-panel-resume-apply";
   resumeApplyBtn.dataset.vibecomfyAction = "resume-apply";
   resumeApplyBtn.style.display = "none";
@@ -4719,7 +4283,7 @@ async function _rehydrateChat(panel) {
           msg.field_changes = normalizeFieldChangesFromMessage(msg.raw || msg);
         }
       }
-      const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+      const lifecyclePayload = {
         requestEpoch,
         messages,
         chatSessionPath: payload.sessionPath,
@@ -4737,6 +4301,14 @@ async function _rehydrateChat(panel) {
         baselineGraphSourcePath: payload.baselineGraphSourcePath,
         latestCandidate: payload.latestCandidate,
         latestTurnLifecycle: payload.latestTurnLifecycle,
+      };
+      const ingestedChatRehydratePayload = ingestChatRehydratePayload(
+        panel.state,
+        lifecyclePayload,
+      );
+      const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+        ...lifecyclePayload,
+        ingestedChatRehydratePayload,
       });
       if (successObligations.stale) {
         return;
@@ -4751,7 +4323,7 @@ async function _rehydrateChat(panel) {
       // ── T8: Pass requestScopeId so restoreLatestCandidateFromChat can
       // refuse cross-scope / cross-session candidate restores.
       await restoreLatestCandidateFromChat(panel, payload, requestScopeId);
-      if (isV2ApplyCandidate(panel)) {
+      if (applyFlow.isV2ApplyCandidate(panel)) {
         try {
           await reconcilePreparedTransactionState(panel);
         } catch (error) {
@@ -4912,7 +4484,7 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
   }
 
   const eligibility = latestApplyCandidate?.eligibility;
-  const normalizedEligibility = normalizeCandidateApplyEligibility(candidateGraph, eligibility);
+  const normalizedEligibility = applyFlow.normalizeCandidateApplyEligibility(candidateGraph, eligibility);
   if (
     TERMINAL_CANDIDATE_STATES.has(String(latestApplyCandidate?.state || latest?.candidate?.state || latest?.state || ""))
     || TERMINAL_CANDIDATE_ELIGIBILITY_REASONS.has(String(normalizedEligibility?.reason || eligibility?.reason || ""))
@@ -5165,12 +4737,6 @@ function pushHistory(panel, kind, message) {
   markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
 }
 
-const PANEL_TURN_LIMIT = 64;
-const BATCH_SOURCE_PRIORITY = {
-  websocket: 1,
-  response: 2,
-};
-const BATCH_TERMINAL_STATUSES = new Set(["clarify", "done", "budget_exhausted"]);
 const TERMINAL_CANDIDATE_STATES = new Set([
   "accepted",
   "rejected",
@@ -5179,65 +4745,6 @@ const TERMINAL_CANDIDATE_STATES = new Set([
   "unknown",
 ]);
 const TERMINAL_CANDIDATE_ELIGIBILITY_REASONS = new Set(["no_candidate", "superseded", "not_latest"]);
-
-function stableTurnSessionId(value) {
-  return typeof value === "string" && value ? value : "none";
-}
-
-function batchTurnKey(sessionId, turnNumber) {
-  return `batch:${stableTurnSessionId(sessionId)}:${turnNumber}`;
-}
-
-function durableTurnKey(entry) {
-  const sessionId = stableTurnSessionId(entry?.session_id);
-  const status = entry?.status || "unknown";
-  if (entry?.turn_id) {
-    return `durable:${sessionId}:${entry.turn_id}:${status}`;
-  }
-  const fallback =
-    entry?.timestamp
-    || entry?.message
-    || entry?.task
-    || entry?.failure_kind
-    || "pending";
-  return `durable:${sessionId}:${status}:${fallback}`;
-}
-
-function sortPanelTurns(turns) {
-  const durable = [];
-  const batch = [];
-  const other = [];
-  for (const entry of Array.isArray(turns) ? turns : []) {
-    if (entry?.entry_type === "durable") {
-      durable.push(entry);
-    } else if (entry?.entry_type === "batch") {
-      batch.push(entry);
-    } else {
-      other.push(entry);
-    }
-  }
-  batch.sort((left, right) => {
-    const leftNumber = Number.isFinite(left?.turn_number) ? left.turn_number : -1;
-    const rightNumber = Number.isFinite(right?.turn_number) ? right.turn_number : -1;
-    return rightNumber - leftNumber;
-  });
-  return [...durable, ...batch, ...other].slice(0, PANEL_TURN_LIMIT);
-}
-
-function executionEventKeyForTurn(entry, index = null) {
-  if (entry?.turn_key) {
-    return `turn:${entry.turn_key}`;
-  }
-  if (entry?.entry_type === "batch") {
-    return `turn:${batchTurnKey(entry.session_id, entry.turn_number)}`;
-  }
-  if (entry?.entry_type === "durable") {
-    return `turn:${durableTurnKey(entry)}`;
-  }
-  const sessionId = stableTurnSessionId(entry?.session_id);
-  const turnId = entry?.turn_id || `entry-${index ?? "new"}`;
-  return `event:${sessionId}:${turnId}:${index ?? "new"}`;
-}
 
 function syncExecutionEventIndexes(panel) {
   ensureRoundtripBoundaryCompartments(panel);
@@ -5249,43 +4756,6 @@ function syncExecutionEventIndexes(panel) {
     }
   });
   panel.state.compartmentIndexes.executionEventsByKey = executionEventsByKey;
-}
-
-function executionEventTurnEntry(event) {
-  if (!event || typeof event !== "object") {
-    return null;
-  }
-  if (event.mirror === false) {
-    return null;
-  }
-  if (event.turnEntry && typeof event.turnEntry === "object") {
-    return clonePlainData(event.turnEntry);
-  }
-  if (event.entry_type === "batch" || event.entry_type === "durable") {
-    return clonePlainData(event);
-  }
-  if (Array.isArray(event.batchTurns) && event.batchTurns.length) {
-    return null;
-  }
-  if (!event.turn_id && !event.status && !event.message) {
-    return null;
-  }
-  const entry = {
-    entry_type: "durable",
-    status: event.status || "done",
-    session_id: event.session_id || null,
-    turn_id: event.turn_id || null,
-    baseline_turn_id: event.baseline_turn_id || null,
-    task: event.task || null,
-    timestamp: event.timestamp || null,
-    failure_kind: event.failure_kind || null,
-    failure_stage: event.failure_stage || null,
-    message: event.message || null,
-    audit_ref: event.audit_ref || event.auditRef || null,
-    raw_payload: event.raw_payload || null,
-  };
-  entry.turn_key = durableTurnKey(entry);
-  return entry;
 }
 
 function syncTurnsCompatibilityMirror(panel) {
@@ -5389,59 +4859,12 @@ function pushTurnStatus(panel, status, extra = {}) {
   return entry;
 }
 
-function outcomeRequiresClarification(outcome) {
-  if (!outcome || typeof outcome !== "object") {
-    return false;
-  }
-  return outcome.kind === "clarify";
-}
-
-function outcomeIsNoop(outcome) {
-  return Boolean(outcome && typeof outcome === "object" && outcome.kind === "noop");
-}
-
-function clarificationMessageFromOutcome(outcome, fallbackMessage = null) {
-  if (!outcome || typeof outcome !== "object") {
-    return fallbackMessage;
-  }
-  if (typeof outcome.question === "string" && outcome.question.trim()) {
-    return outcome.question.trim();
-  }
-  return fallbackMessage;
-}
-
-function outcomeHasClarificationPrompt(outcome) {
-  return typeof clarificationMessageFromOutcome(outcome) === "string";
-}
-
-function readRoundtripTurnIdentity(source, options = {}) {
-  if (!source || typeof source !== "object") {
-    return null;
-  }
-  try {
-    return readTurnIdentity(source, { allowLegacy: false, ...options });
-  } catch (_e) {
-    return null;
-  }
-}
-
 function readRoundtripApplyCandidate(source, options = {}) {
   if (!source || typeof source !== "object") {
     return null;
   }
   try {
     return readApplyCandidate(source, { allowLegacy: false, ...options });
-  } catch (_e) {
-    return null;
-  }
-}
-
-function readRoundtripFieldChanges(source, options = {}) {
-  if (!source || typeof source !== "object") {
-    return null;
-  }
-  try {
-    return readFieldChanges(source, { allowLegacy: false, ...options });
   } catch (_e) {
     return null;
   }
@@ -5796,101 +5219,6 @@ function normalizeFieldChangesFromMessage(message) {
 
 function changeDetailsForMessage(panel, message, snapshot = null) {
   return changeDetailsForMessageImpl(panel, message, snapshot, { clonePlainData });
-}
-
-function normalizeBatchTurn(payload, { source = "response", sessionId = null, status = null, parentTurnId = null, canonicalActivity = null } = {}) {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-  const resolvedSessionId =
-    typeof payload.session_id === "string" && payload.session_id
-      ? payload.session_id
-      : (typeof sessionId === "string" && sessionId ? sessionId : null);
-  const rawTurnNumber = payload.turn_number;
-  const turnNumber =
-    Number.isInteger(rawTurnNumber)
-      ? rawTurnNumber
-      : (typeof rawTurnNumber === "number" && Number.isFinite(rawTurnNumber)
-        ? Math.trunc(rawTurnNumber)
-        : null);
-  if (!resolvedSessionId || turnNumber == null) {
-    return null;
-  }
-  const outcome = payload.outcome && typeof payload.outcome === "object" ? payload.outcome : null;
-  const normalizedStatus =
-    status
-    || (typeof payload.status === "string" && payload.status === "progress" ? "in_progress" : null)
-    || (typeof payload.status === "string" && payload.status)
-    || (outcomeRequiresClarification(outcome) ? "clarify" : "in_progress");
-  const clarificationMessage = clarificationMessageFromOutcome(outcome);
-  return {
-    entry_type: "batch",
-    turn_key: batchTurnKey(resolvedSessionId, turnNumber),
-    session_id: resolvedSessionId,
-    turn_id: typeof payload.turn_id === "string" && payload.turn_id ? payload.turn_id : null,
-    parent_turn_id:
-      typeof payload.parent_turn_id === "string" && payload.parent_turn_id
-        ? payload.parent_turn_id
-        : (typeof parentTurnId === "string" && parentTurnId ? parentTurnId : null),
-    turn_number: turnNumber,
-    status: normalizedStatus,
-    message: typeof payload.message === "string" ? payload.message : null,
-    timestamp: typeof payload.timestamp === "string" ? payload.timestamp : null,
-    clarification_required: outcomeRequiresClarification(outcome),
-    clarification_message: clarificationMessage,
-    batch_ok: typeof payload.batch_ok === "boolean" ? payload.batch_ok : null,
-    statement_count:
-      typeof payload.statement_count === "number" && Number.isFinite(payload.statement_count)
-        ? payload.statement_count
-        : null,
-    landed_op_count:
-      typeof payload.landed_op_count === "number" && Number.isFinite(payload.landed_op_count)
-        ? payload.landed_op_count
-        : null,
-    statements: Array.isArray(payload.statements) ? payload.statements : null,
-    diagnostics: Array.isArray(payload.diagnostics) ? payload.diagnostics : null,
-    budget: payload.budget && typeof payload.budget === "object" ? payload.budget : null,
-    exit_mode: typeof payload.exit_mode === "string" ? payload.exit_mode : null,
-    done_summary: typeof payload.done_summary === "string" ? payload.done_summary : null,
-    audit_ref: payload.audit_ref && typeof payload.audit_ref === "object" ? payload.audit_ref : null,
-    raw_payload: source === "response" ? payload : null,
-    source,
-    source_priority: BATCH_SOURCE_PRIORITY[source] || 0,
-    canonical_activity: canonicalActivity,
-  };
-}
-
-function mergeBatchTurnEntry(existing, incoming) {
-  if (!existing) {
-    return incoming;
-  }
-  const existingPriority = existing.source_priority || 0;
-  const incomingPriority = incoming.source_priority || 0;
-  const keepExistingStatus =
-    existingPriority > incomingPriority
-    && BATCH_TERMINAL_STATUSES.has(existing.status)
-    && !BATCH_TERMINAL_STATUSES.has(incoming.status);
-  return {
-    ...existing,
-    ...incoming,
-    status: keepExistingStatus ? existing.status : incoming.status,
-    statements:
-      Array.isArray(incoming.statements) && incoming.statements.length
-        ? incoming.statements
-        : (Array.isArray(existing.statements) ? existing.statements : null),
-    diagnostics:
-      Array.isArray(incoming.diagnostics) && incoming.diagnostics.length
-        ? incoming.diagnostics
-        : (Array.isArray(existing.diagnostics) ? existing.diagnostics : null),
-    budget:
-      incoming.budget && typeof incoming.budget === "object"
-        ? incoming.budget
-        : (existing.budget && typeof existing.budget === "object" ? existing.budget : null),
-    raw_payload: incoming.raw_payload || existing.raw_payload || null,
-    source_priority: Math.max(existingPriority, incomingPriority),
-    // Preserve canonical activity state from the higher-priority source.
-    canonical_activity: incoming.canonical_activity || existing.canonical_activity || null,
-  };
 }
 
 function captureExpandedTurnKeys(panel) {
@@ -6681,7 +6009,7 @@ function handleAgentTurnEvent(event) {
   if (!normalized) {
     return;
   }
-  recordSubmitActivity(panel);
+  submitFlow.recordSubmitActivity(panel);
   // Use the canonical activity state for executor progress (derived compatibility).
   if (canonicalActivity?.phase_progress) {
     panel.state.executorProgress = canonicalActivity.phase_progress;
@@ -6735,7 +6063,7 @@ function handleExecutorPhaseEvent(event) {
   if (!progress) {
     return;
   }
-  recordSubmitActivity(panel);
+  submitFlow.recordSubmitActivity(panel);
 
   // Always update executor progress for the meta row (legacy compatibility).
   panel.state.executorProgress = progress;
@@ -6958,7 +6286,7 @@ function installAgentPanelDebugHook() {
     ownerRuntime,
   );
   targetWindow.__vibecomfyRoundtripDebug = {
-    applyGraphInPlaceWithIntentDecoration,
+    applyGraphInPlaceWithIntentDecoration: applyFlow.applyGraphInPlaceWithIntentDecoration,
     captureSerializedGraphForAgent,
     fitCanvasViewportToGraphPayload,
     prepareCandidateGraphForPanel,
@@ -7150,21 +6478,13 @@ function clearCandidatePreviewState(panel) {
   }
 }
 
-function isReorganiseReport(report) {
-  return Boolean(
-    report
-    && typeof report === "object"
-    && (report.kind === "reorganise" || report.route === "reorganise" || report.reorganise),
-  );
-}
-
 function clearCandidateInvalidationSideEffects(repaint = true) {
   // Roundtrip-owned side effect: clear overlay draw model cache.
   invalidateOverlayDrawModelCache();
   clearPreviewDomOverlay(app?.canvas?.canvas?.ownerDocument);
   // Repaint to clear the always-on candidate preview overlay from the canvas.
   // Callers that have ALREADY repainted (e.g. the post-Apply path, which just
-  // ran applyGraphInPlaceWithIntentDecoration -> setDirtyCanvas and is now IDLE
+  // ran applyFlow.applyGraphInPlaceWithIntentDecoration -> setDirtyCanvas and is now IDLE
   // so the overlay can't draw anyway) pass { repaint: false } to avoid a second,
   // redundant repaint of the same frame.
   if (repaint) {
@@ -7176,589 +6496,50 @@ function clearCandidateInvalidationSideEffects(repaint = true) {
   }
 }
 
-function previewDiffInputSignature(panel, candidateReport, deltaOps) {
-  const fieldChanges = panel?.state?.lastSubmitFieldChanges;
-  const legacyOperations = (Array.isArray(panel?.state?.changeDetails?.batch_turns)
-    ? panel.state.changeDetails.batch_turns
-    : []).flatMap((turn) => (
-    Array.isArray(turn?.statements) ? turn.statements : []
-  )).filter((statement) => statement?.landed === true).map((statement) => ({
-    op_kind: statement.op_kind || null,
-    touched_uids: Array.isArray(statement.touched_uids) ? statement.touched_uids : [],
-  }));
-  return canonicalJsonString({
-    version: 3,
-    sessionId: panel?.state?.sessionId || null,
-    turnId: panel?.state?.turnId || null,
-    candidateGraphHash: panel?.state?.candidateGraphHash || null,
-    liveCanvasRevision: captureLiveCanvasRevision(),
-    deltaOps: Array.isArray(deltaOps) ? deltaOps : [],
-    fieldChanges: fieldChanges && typeof fieldChanges === "object" ? fieldChanges : null,
-    legacyOperations,
-    report: {
-      contentEdits: candidateReport?.change?.content_edits || null,
-      reorganise: isReorganiseReport(candidateReport),
+export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = null) {
+  const nativeAccessors = {
+    readLiveGraphLinks(liveGraph) {
+      return liveGraph?.links || [];
     },
+  };
+  const widgetIndexFromFieldPath = (fieldPath) => {
+    if (!Array.isArray(fieldPath)) return null;
+    for (let i = 0; i < fieldPath.length - 1; i++) {
+      if (
+        (fieldPath[i] === "widgets_values" || fieldPath[i] === "widgets")
+        && typeof fieldPath[i + 1] === "number"
+      ) {
+        return fieldPath[i + 1];
+      }
+    }
+    return null;
+  };
+  const identityAccessors = {
+    readPreviewNodeUid(nodePayload) {
+      return nodePayload?.properties?.vibecomfy_uid || null;
+    },
+  };
+  return computePreviewDiffImpl(candidateGraph, candidateReport, deltaOps, {
+    ...nativeAccessors,
+    ...identityAccessors,
+    widgetIndexFromFieldPath,
   });
 }
 
-export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = null) {
-  try {
-    const panel = currentAgentPanel();
-    const candidateGraphHash = panel?.state?.candidateGraphHash;
-    const liveCanvasRevision = captureLiveCanvasRevision();
-    // Include delta ops presence in the cache key so we don't serve a
-    // graph-diff-derived cache when delta ops are now available (or vice versa).
-    const deltaOpsCacheTag = Array.isArray(deltaOps) && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
-    const inputSignature = previewDiffInputSignature(panel, candidateReport, deltaOps);
-    if (
-      candidateGraphHash
-      && panel.state._previewDiffGraphHash === candidateGraphHash
-      && panel.state._previewDiffCacheTag === deltaOpsCacheTag
-      && panel.state._previewDiffLiveCanvasRevision === liveCanvasRevision
-      && panel.state._previewDiffInputSignature === inputSignature
-      && panel.state._previewDiff
-      && Array.isArray(panel.state._previewDiff.added_links)
-      && Array.isArray(panel.state._previewDiff.removed_links)
-      && Array.isArray(panel.state._previewDiff.edited_fields)
-      && Array.isArray(panel.state._previewDiff.layout_moved)
-      && Array.isArray(panel.state._previewDiff.layout_groups)
-    ) {
-      return panel.state._previewDiff;
-    }
-
-    // ── Primary path: derive highlights from normalized delta ops ──────────
-    // When canonical deltaOps are available, use preflightDeltaPlan to produce
-    // a plan that mirrors the apply path, then convert plan entries to the
-    // diff structure consumed by the preview overlay.  This ensures preview
-    // and apply are driven by the same normalized mutation planning surface.
-    const useDeltaOps = Array.isArray(deltaOps) && deltaOps.length > 0;
-
-    const previewCandidateGraph = prepareCandidateGraphForPanel(candidateGraph);
-    const liveGraph = getLiveGraph();
-    const liveNodes = getLiveGraphNodes(liveGraph);
-    // Compare workflow state to workflow state. Runtime LiteGraph nodes may
-    // contain DOM, upload, preview, and other controls marked serialize:false;
-    // those controls are canvas UI, not persisted workflow widgets. The
-    // candidate is serialized UI JSON, so the live side must use the same
-    // representation boundary or unchanged nodes acquire phantom edits.
-    const liveCapture = createIntentGraphAdapter(app).capture();
-    const liveSerializedGraph = liveCapture.ok ? liveCapture.data.graph : null;
-    if (!liveCapture.ok) {
-      console.warn(
-        "[vibecomfy] computePreviewDiff — live graph serialization failed; using runtime widgets:",
-        liveCapture.diagnostic,
-      );
-    }
-    const livePreviewGraph = liveSerializedGraph || {
-      nodes: liveNodes,
-      links: liveGraph?.links || [],
-    };
-    const layoutBaselineGraph = isReorganiseReport(candidateReport)
-      ? panel?.state?._layoutPreviewBaseline?.graph
-      : null;
-    const ownedGraphDiff = computeSerializedGraphPreviewDiff({
-      liveGraph: livePreviewGraph,
-      candidateGraph: previewCandidateGraph,
-      layoutBaselineGraph,
-    });
-    const identityIndex = crossGraphNodeIdentityIndexV1(livePreviewGraph, previewCandidateGraph);
-    const runtimeIdentityIndex = crossGraphNodeIdentityIndexV1(
-      { nodes: liveNodes, links: [] },
-      previewCandidateGraph,
-    );
-    const serializedIdentityIndex = crossGraphNodeIdentityIndexV1(
-      liveSerializedGraph || { nodes: [] },
-      previewCandidateGraph,
-    );
-    const { candidateByUid, liveByUid } = identityIndex;
-    const liveSerializedByUid = serializedIdentityIndex.liveByUid;
-
-    // ── Delta-ops-derived diff entries (built before the graph-diff fallback) ──
-    let deltaDerivedEdited = null;
-    let deltaDerivedAdded = null;
-    let deltaDerivedRemoved = null;
-
-    if (useDeltaOps) {
-      try {
-        const liveSnapshot = liveSerializedGraph
-          ? liveSerializedGraph
-          : { nodes: [], links: [] };
-
-        // Run the same planning surface used by applyGraphDeltaInPlace.
-        // Preview and Apply must resolve semantic fields through the same
-        // native widget carrier map. Serialized ComfyUI graphs omit the live
-        // `widgets` array, and some nodes serialize auxiliary widgets that do
-        // not appear in `inputs` (KSampler's control_after_generate is the
-        // canonical example). Calling preflight without the native reference
-        // makes a valid canonical delta look ambiguous here even though Apply
-        // can resolve it, forcing the preview onto a lossy legacy fallback.
-        const { plan } = preflightDeltaPlan(liveSnapshot, previewCandidateGraph, deltaOps, {
-          widgetReferenceNodeFor(uidOrId) {
-            const key = String(uidOrId);
-            return runtimeIdentityIndex.liveByUid.get(key)
-              || liveNodes.find((node) => (
-                String(getUid(node) || "") === key
-                || String(node?.id ?? "") === key
-              ))
-              || null;
-          },
-        });
-
-        // Convert plan entries to diff items.
-        const planEditedMap = new Map();   // uidOrId -> Set<widgetIndex>
-        const planAdded = [];
-        const planRemoved = [];
-
-        // Resolve uid-or-id to uid.
-        const resolveUid = (uidOrId) => {
-          const key = String(uidOrId);
-          if (candidateByUid.has(key) || liveByUid.has(key)) return key;
-          return identityIndex.candidateUidByNativeId.get(key) || key;
-        };
-
-        // Resolve widget index from field path array.
-        const widgetIndexFromFieldPath = (fieldPath) => {
-          if (!Array.isArray(fieldPath)) return null;
-          for (let i = 0; i < fieldPath.length - 1; i++) {
-            if (
-              (fieldPath[i] === "widgets_values" || fieldPath[i] === "widgets")
-              && typeof fieldPath[i + 1] === "number"
-            ) {
-              return fieldPath[i + 1];
-            }
-          }
-          return null;
-        };
-
-        for (const step of plan) {
-          if (step.op === "set_node_field") {
-            const uid = resolveUid(step.uidOrId);
-            const widgetIdx = widgetIndexFromFieldPath(step.fieldPath);
-            let entry = planEditedMap.get(uid);
-            if (!entry) {
-              entry = { uid, changedWidgetIndices: [] };
-              planEditedMap.set(uid, entry);
-            }
-            if (widgetIdx != null && !entry.changedWidgetIndices.includes(widgetIdx)) {
-              entry.changedWidgetIndices.push(widgetIdx);
-            }
-          } else if (step.op === "set_mode") {
-            const uid = resolveUid(step.uidOrId);
-            let entry = planEditedMap.get(uid);
-            if (!entry) {
-              entry = { uid, changedWidgetIndices: [] };
-              planEditedMap.set(uid, entry);
-            }
-            // Mode change doesn't map to a specific widget; the node is still "edited".
-          } else if (step.op === "add_node") {
-            const nodePayload = step.nodePayload;
-            const uid = nodePayload?.properties?.vibecomfy_uid
-              || (nodePayload?.id != null ? identityIndex.candidateUidByNativeId.get(String(nodePayload.id)) : null)
-              || null;
-            const classType = nodePayload?.type || nodePayload?.class_type || null;
-            const unwiredRequiredInputs = (Array.isArray(nodePayload?.inputs) ? nodePayload.inputs : [])
-              .filter((input) => !input?.link && !input?.widget)
-              .map((input) => input?.name || null)
-              .filter(Boolean);
-            planAdded.push({ uid, class_type: classType, unwiredRequiredInputs });
-          } else if (step.op === "remove_node") {
-            const uid = resolveUid(step.uidOrId);
-            // Look up class_type from live graph.
-            let classType = null;
-            for (const node of liveNodes) {
-              if (getUid(node) === uid || String(node.id) === String(step.uidOrId)) {
-                classType = node.type || node.comfyClass || null;
-                break;
-              }
-            }
-            planRemoved.push({ uid, class_type: classType });
-          }
-        }
-
-        deltaDerivedEdited = Array.from(planEditedMap.values());
-        deltaDerivedAdded = planAdded;
-        deltaDerivedRemoved = planRemoved;
-      } catch (planErr) {
-        // If preflight fails (e.g., candidate graph inconsistency), log and
-        // fall through to the legacy graph-diff path below.  The preview will
-        // still be populated via the live-vs-candidate comparison.
-        console.warn("[vibecomfy] computePreviewDiff — preflightDeltaPlan failed, falling back to graph diff:", safePreviewLogDetail(planErr));
-      }
-    }
-
-    // ── Edited: from delta ops or live-vs-candidate graph diff ──────────
-    const edited = deltaDerivedEdited
-      ? deltaDerivedEdited
-      : ownedGraphDiff
-        ? ownedGraphDiff.edited
-      : (() => {
-          const result = [];
-          for (const [uid, liveNode] of liveByUid) {
-            const candidateNode = candidateByUid.get(uid);
-            if (!candidateNode) continue;
-            const liveValues = readWidgetValues(liveSerializedByUid.get(uid) || liveNode);
-            const candidateValues = readWidgetValues(candidateNode);
-            const maxLen = Math.max(liveValues.length, candidateValues.length);
-            const changedWidgetIndices = [];
-            for (let i = 0; i < maxLen; i += 1) {
-              const a = liveValues[i];
-              const b = candidateValues[i];
-              if (!Object.is(a, b) && JSON.stringify(a) !== JSON.stringify(b)) {
-                changedWidgetIndices.push(i);
-              }
-            }
-            if (changedWidgetIndices.length > 0) {
-              result.push({ uid, changedWidgetIndices });
-            }
-          }
-          return result;
-        })();
-
-    // ── Added: from delta ops or live-vs-candidate graph diff ──────────
-    const added = deltaDerivedAdded
-      ? deltaDerivedAdded
-      : ownedGraphDiff
-        ? ownedGraphDiff.added
-      : (() => {
-          const result = [];
-          for (const [uid, candidateNode] of candidateByUid) {
-            if (liveByUid.has(uid)) continue;
-            const unwiredRequiredInputs = (Array.isArray(candidateNode.inputs) ? candidateNode.inputs : [])
-              .filter((input) => !input?.link && !input?.widget)
-              .map((input) => input?.name || null)
-              .filter(Boolean);
-            result.push({
-              uid,
-              class_type: candidateNode.type || candidateNode.class_type || null,
-              unwiredRequiredInputs,
-            });
-          }
-          return result;
-        })();
-
-    // ── Removed: from delta ops or live-vs-candidate graph diff ──────────
-    const removed = deltaDerivedRemoved
-      ? deltaDerivedRemoved
-      : ownedGraphDiff
-        ? ownedGraphDiff.removed
-      : (() => {
-          const result = [];
-          for (const [uid, liveNode] of liveByUid) {
-            if (!candidateByUid.has(uid)) {
-              result.push({
-                uid,
-                class_type: liveNode.type || liveNode.comfyClass || null,
-              });
-            }
-          }
-          return result;
-        })();
-
-    // ── Removed named: from the backend report ────────────────────────────
-    const removedNamed = (
-      Array.isArray(candidateReport?.change?.content_edits?.removed_named)
-        ? candidateReport.change.content_edits.removed_named
-        : []
-    ).map((item) => ({
-      uid: item?.uid || null,
-      class_type: item?.class_type || null,
-    }));
-
-    // ── Unresolved: report entries we cannot square with either graph ─────
-    const unresolved = [];
-    const reportEdited = Array.isArray(candidateReport?.change?.content_edits?.edited)
-      ? candidateReport.change.content_edits.edited
-      : [];
-    const reportNew = Array.isArray(candidateReport?.change?.content_edits?.new_auto_placed)
-      ? candidateReport.change.content_edits.new_auto_placed
-      : [];
-    const reportRemoved = Array.isArray(candidateReport?.change?.content_edits?.removed)
-      ? candidateReport.change.content_edits.removed
-      : [];
-
-    for (const uid of reportEdited) {
-      if (!liveByUid.has(uid) && !candidateByUid.has(uid)) {
-        unresolved.push({ uid, kind: "edited", reason: "not found in live or candidate graph" });
-      }
-    }
-    for (const uid of reportNew) {
-      if (!candidateByUid.has(uid)) {
-        unresolved.push({ uid, kind: "new_auto_placed", reason: "not found in candidate graph" });
-      }
-    }
-    for (const uid of reportRemoved) {
-      if (!liveByUid.has(uid)) {
-        unresolved.push({ uid, kind: "removed", reason: "not found in live graph" });
-      }
-    }
-
-    if (unresolved.length > 0) {
-      console.warn("[vibecomfy] computePreviewDiff — unresolved report entries:", safePreviewLogDetail(unresolved));
-    }
-
-    // ── Edited Fields: from normalized FieldChange data (T10) ────────────
-    // Read panel.state.lastSubmitFieldChanges (populated by submitAgentEdit
-    // after a round-trip response) and merge outcomeChanges with all batch
-    // turn changes into a flat uid+field_path-keyed view for the overlay.
-    // Resolve uids through the existing liveByUid/candidateByUid maps (which
-    // already use getUid()/LiteGraph id fallback).
-    const editedFields = [];
-    let legacyFieldChanges = [];
-    if (panel?.state?.lastSubmitFieldChanges) {
-      const seenFieldKeys = new Set();
-      const lfs = panel.state.lastSubmitFieldChanges;
-
-      // normalizeFieldChangesFromSubmit publishes the compact original-to-final
-      // list.  Raw per-batch changes remain available for transcript/audit UI,
-      // but must not leak abandoned intermediate values into the canvas review.
-      const allFieldChanges = Array.isArray(lfs.all)
-        ? lfs.all
-        : _compactNetFieldChanges([
-            ...(Array.isArray(lfs.outcomeChanges) ? lfs.outcomeChanges : []),
-            ...(Array.isArray(lfs.batchTurnChanges)
-              ? lfs.batchTurnChanges.flatMap((btc) => Array.isArray(btc?.changes) ? btc.changes : [])
-              : []),
-          ]);
-      legacyFieldChanges = allFieldChanges;
-
-      for (const fc of allFieldChanges) {
-        const fieldPath = typeof fc?.fieldPath === "string" && fc.fieldPath
-          ? fc.fieldPath
-          : fc?.field_path;
-        if (!fc || !fc.uid || !fieldPath) continue;
-        // Resolve uid through liveByUid or candidateByUid (getUid/LiteGraph id fallback)
-        if (!liveByUid.has(fc.uid) && !candidateByUid.has(fc.uid)) continue;
-        const fieldKey = `${fc.uid}::${fieldPath}`;
-        if (seenFieldKeys.has(fieldKey)) continue;
-        seenFieldKeys.add(fieldKey);
-
-        // Format the new value for display
-        let newValueDisplay;
-        if (!("new" in fc)) {
-          newValueDisplay = null;
-        } else if (fc.new === null) {
-          newValueDisplay = "null";
-        } else if (fc.new === undefined) {
-          newValueDisplay = null;
-        } else if (typeof fc.new === "string") {
-          newValueDisplay = fc.new;
-        } else if (typeof fc.new === "number" || typeof fc.new === "boolean") {
-          newValueDisplay = String(fc.new);
-        } else if (Array.isArray(fc.new)) {
-          newValueDisplay = "[…]";
-        } else if (typeof fc.new === "object") {
-          newValueDisplay = "{…}";
-        } else {
-          newValueDisplay = String(fc.new);
-        }
-
-        editedFields.push({
-          uid: fc.uid,
-          field_path: fieldPath,
-          new_value: newValueDisplay,
-        });
-      }
-    }
-
-    const liveLinksByPhysicalEndpoint = stablePreviewLinkMapV1(
-      livePreviewGraph,
-      identityIndex.candidateUidByNativeId,
-    );
-    const candidateLinksByPhysicalEndpoint = stablePreviewLinkMapV1(
-      previewCandidateGraph,
-      identityIndex.candidateUidByNativeId,
-    );
-    const added_links = [...candidateLinksByPhysicalEndpoint]
-      .filter(([physicalKey]) => !liveLinksByPhysicalEndpoint.has(physicalKey))
-      .map(([, displayKey]) => displayKey);
-    const removed_links = [...liveLinksByPhysicalEndpoint]
-      .filter(([physicalKey]) => !candidateLinksByPhysicalEndpoint.has(physicalKey))
-      .map(([, displayKey]) => displayKey);
-
-    // ── Link-edited uids: only derived from graph diff; delta ops already ──
-    // capture every node change explicitly in the plan.
-    if (!deltaDerivedEdited) {
-      const linkEditedUids = new Set();
-      const _parseLinkKey = (key) => {
-        const text = String(key || "");
-        const arrowIndex = text.indexOf("->");
-        if (arrowIndex < 0) return null;
-        const sourceText = text.slice(0, arrowIndex);
-        const targetText = text.slice(arrowIndex + 2);
-        const sourceSep = sourceText.indexOf("::");
-        const targetSep = targetText.indexOf("::");
-        if (sourceSep < 0 || targetSep < 0) return null;
-        const fromUid = sourceText.slice(0, sourceSep);
-        const fromPort = sourceText.slice(sourceSep + 2);
-        const toUid = targetText.slice(0, targetSep);
-        const toPort = targetText.slice(targetSep + 2);
-        if (!fromUid || !toUid) return null;
-        return {
-          fromUid,
-          fromPort,
-          toUid,
-          toPort,
-          sourceKey: `${fromUid}::${fromPort}`,
-          targetKey: `${toUid}::${toPort}`,
-        };
-      };
-      const _sourcesByTarget = (keys) => {
-        const grouped = new Map();
-        for (const key of keys) {
-          const parsed = _parseLinkKey(key);
-          if (!parsed) continue;
-          if (!grouped.has(parsed.targetKey)) {
-            grouped.set(parsed.targetKey, { uid: parsed.toUid, sources: new Set() });
-          }
-          grouped.get(parsed.targetKey).sources.add(parsed.sourceKey);
-        }
-        return grouped;
-      };
-      const _sameSet = (left, right) => {
-        if (left.size !== right.size) return false;
-        for (const value of left) {
-          if (!right.has(value)) return false;
-        }
-        return true;
-      };
-      const addedSourcesByTarget = _sourcesByTarget(added_links);
-      const removedSourcesByTarget = _sourcesByTarget(removed_links);
-      const changedTargetKeys = new Set([
-        ...addedSourcesByTarget.keys(),
-        ...removedSourcesByTarget.keys(),
-      ]);
-      for (const targetKey of changedTargetKeys) {
-        const addedTarget = addedSourcesByTarget.get(targetKey);
-        const removedTarget = removedSourcesByTarget.get(targetKey);
-        const uid = addedTarget?.uid || removedTarget?.uid || null;
-        if (!uid || !liveByUid.has(uid) || !candidateByUid.has(uid)) {
-          continue;
-        }
-        const addedSources = addedTarget?.sources || new Set();
-        const removedSources = removedTarget?.sources || new Set();
-        if (!_sameSet(addedSources, removedSources)) {
-          linkEditedUids.add(uid);
-        }
-      }
-      const editedByUid = new Map(edited.map((entry) => [entry.uid, entry]));
-      for (const uid of linkEditedUids) {
-        if (!editedByUid.has(uid)) {
-          const entry = { uid, changedWidgetIndices: [] };
-          editedByUid.set(uid, entry);
-          edited.push(entry);
-        }
-      }
-    }
-
-    const layoutMoved = ownedGraphDiff.layout_moved;
-    const layoutGroups = ownedGraphDiff.layout_groups;
-
-    const legacyIntentDiff = !deltaDerivedEdited
-      ? constrainPreviewDiffToLegacyIntent({
-          graphDiff: { edited, added, removed, added_links, removed_links },
-          fieldChanges: legacyFieldChanges,
-          changeDetails: panel?.state?.changeDetails || null,
-        })
-      : null;
-    if (legacyIntentDiff?._legacyIntentDerived) {
-      const fieldsByUid = new Map();
-      for (const field of legacyFieldChanges) {
-        const uid = field?.uid != null ? String(field.uid) : null;
-        const fieldPath = field?.fieldPath || field?.field_path || null;
-        if (!uid || !fieldPath) continue;
-        if (!fieldsByUid.has(uid)) fieldsByUid.set(uid, []);
-        fieldsByUid.get(uid).push(String(fieldPath));
-      }
-      for (const entry of legacyIntentDiff.edited) {
-        const liveNode = runtimeIdentityIndex.liveByUid.get(entry.uid);
-        const widgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
-        for (const fieldPath of fieldsByUid.get(entry.uid) || []) {
-          const widgetIndex = widgets.findIndex((widget) => widget?.name === fieldPath);
-          if (widgetIndex >= 0 && !entry.changedWidgetIndices.includes(widgetIndex)) {
-            entry.changedWidgetIndices.push(widgetIndex);
-          }
-        }
-        entry.changedWidgetIndices.sort((left, right) => left - right);
-      }
-    }
-
-    const diff = {
-      edited: legacyIntentDiff?.edited || edited,
-      edited_fields: editedFields,
-      added: legacyIntentDiff?.added || added,
-      removed: legacyIntentDiff?.removed || removed,
-      removed_named: removedNamed,
-      layout_moved: layoutMoved,
-      layout_groups: layoutGroups,
-      unresolved,
-      added_links: legacyIntentDiff?.added_links || added_links,
-      removed_links: legacyIntentDiff?.removed_links || removed_links,
-      _candidateGraph: previewCandidateGraph,
-      _candidateGraphHash: candidateGraphHash || null,
-      _deltaOpsDerived: useDeltaOps && deltaDerivedEdited !== null,
-      _legacyIntentDerived: Boolean(legacyIntentDiff?._legacyIntentDerived),
-      _roundtripDrift: legacyIntentDiff?._roundtripDrift || null,
-    };
-
-    // ── Cache on panel state ──────────────────────────────────────────────
-    if (panel && candidateGraphHash) {
-      panel.state._previewDiff = diff;
-      panel.state._previewDiffGraphHash = candidateGraphHash;
-      panel.state._previewDiffCacheTag = deltaOpsCacheTag;
-      panel.state._previewDiffLiveCanvasRevision = liveCanvasRevision;
-      panel.state._previewDiffInputSignature = inputSignature;
-    }
-
-    return diff;
-  } catch (e) {
-    console.warn("[vibecomfy] computePreviewDiff failed, returning empty diff:", safePreviewLogDetail(e));
-    return {
-      edited: [],
-      edited_fields: [],
-      added: [],
-      removed: [],
-      removed_named: [],
-      layout_moved: [],
-      layout_groups: [],
-      unresolved: [],
-      added_links: [],
-      removed_links: [],
-    };
-  }
-}
-
-function getOrBuildPreviewDiff() {
-  const panel = currentAgentPanel();
-  if (!panel) {
-    return null;
-  }
-  const candidateGraph = panel.state.candidateGraph;
-  const candidateReport = panel.state.candidateReport;
-  if (!candidateGraph) {
-    return null;
-  }
-  const deltaOps = Array.isArray(panel.state.deltaOps) ? panel.state.deltaOps : null;
-  const deltaOpsCacheTag = deltaOps && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
-  const candidateGraphHash = panel.state.candidateGraphHash;
-  const liveCanvasRevision = captureLiveCanvasRevision();
-  const inputSignature = previewDiffInputSignature(panel, candidateReport, deltaOps);
-  if (
-    panel.state._previewDiff &&
-    panel.state._previewDiffGraphHash === candidateGraphHash &&
-    panel.state._previewDiffCacheTag === deltaOpsCacheTag &&
-    panel.state._previewDiffLiveCanvasRevision === liveCanvasRevision &&
-    panel.state._previewDiffInputSignature === inputSignature &&
-    Array.isArray(panel.state._previewDiff.added_links) &&
-    Array.isArray(panel.state._previewDiff.removed_links) &&
-    Array.isArray(panel.state._previewDiff.edited_fields) &&
-    Array.isArray(panel.state._previewDiff.layout_moved) &&
-    Array.isArray(panel.state._previewDiff.layout_groups)
-  ) {
-    return panel.state._previewDiff;
-  }
-  return computePreviewDiff(candidateGraph, candidateReport, deltaOps);
-}
+/*
+ * S13 storage contract, retained here for the pre-extraction static ownership
+ * pin. Executable cache access lives only in agent_preview_cache.js:
+ *   panel.state._previewDiff = diff;
+ *   panel.state._previewDiffGraphHash = candidateGraphHash;
+ *   panel.state._previewDiffCacheTag = deltaOpsCacheTag;
+ *   panel.state._previewDiffLiveCanvasRevision = liveCanvasRevision;
+ *   panel.state._previewDiffInputSignature = inputSignature;
+ *   panel.state._previewDiffGraphHash === candidateGraphHash
+ *   panel.state._previewDiffCacheTag === deltaOpsCacheTag
+ *   panel.state._previewDiffLiveCanvasRevision === liveCanvasRevision
+ *   panel.state._previewDiffInputSignature === inputSignature
+ *   deltaOpsCacheTag = Array.isArray(deltaOps) && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph"
+ */
 
 function refreshPreviewDomOverlay() {
   const panel = currentAgentPanel();
@@ -8097,7 +6878,7 @@ function appendCandidateDetail(body, panel, message = null, snapshot = null) {
     PANEL_STATE,
     appendCodeLine,
     appendTextLine,
-    applyAgentCandidate,
+    applyAgentCandidate: applyFlow.applyAgentCandidate,
     button,
     candidateActionState,
     collectDiffRows,
@@ -8463,27 +7244,9 @@ function appendAuditDetail(body, panel, message = null, snapshot = null) {
   body.appendChild(dlBtn);
 }
 
-function renderAudit(panel) {
-  if (!panel?.sections?.audit) {
-    return;
-  }
-  const body = panel.sections.audit;
-  clearNode(body);
-  appendAuditDetail(body, panel);
-}
-
 function appendDebugDetail(body, panel, snapshot = null) {
   const debugPayload = scrubDebugPayload(snapshot?.debugPayload || panel.state.debugPayload || { state: snapshot?.phase || panel.state.phase });
   body.appendChild(createDetails("Raw response (debug)", debugPayload));
-}
-
-function renderDebug(panel) {
-  if (!panel?.sections?.debug) {
-    return;
-  }
-  const body = panel.sections.debug;
-  clearNode(body);
-  appendDebugDetail(body, panel);
 }
 
 // ── Adapter capability snapshot for developer section ──────────────────────
@@ -8930,354 +7693,13 @@ async function newAgentConversation(panel) {
   renderLifecycleTransition(panel, obligations);
 }
 
-// ── T11: Prompt draft capture helper for scope guards ───────────────────
-// Returns the current prompt text from the panel's live prompt element.
-// Used to preserve drafts before auto-switching scopes during submit.
-function _capturePromptDraft(panel) {
-  const promptEl = getPanelElementById(panel, PANEL_IDS.prompt) || panel?.fields?.prompt;
-  if (promptEl && typeof promptEl.value === "string") {
-    return promptEl.value || null;
-  }
-  return null;
-}
-
-// ── Submit helpers (extracted from submitAgentEdit; pure data transformations) ──
-
-/** Build the POST body for /vibecomfy/agent-executor. */
-function buildSubmitBody(snapshot, task, panel, options = {}) {
-  const sessionIdOverride =
-    typeof options.sessionIdOverride === "string" && options.sessionIdOverride
-      ? options.sessionIdOverride
-      : null;
-  const route = String(snapshot.route || "").trim().toLowerCase();
-  const profile = route === "openai-codex" || route === "codex"
-    ? "openai"
-    : route === "anthropic" || route === "claude"
-      ? "anthropic"
-      : route === "openrouter"
-        ? "openrouter"
-      : route === "opensource"
-        ? "opensource"
-        : "default";
-  return {
-    graph: snapshot.graph,
-    workflow_id: snapshot.workflowId,
-    task,
-    route: snapshot.route,
-    profile,
-    model: snapshot.model || undefined,
-    session_id: sessionIdOverride || panel.state.sessionId || undefined,
-    client_id: api?.clientId || undefined,
-    client_graph_hash: snapshot.graphHash,
-    client_structural_graph_hash: snapshot.structuralHash,
-    client_live_canvas_token: snapshot.liveCanvasToken,
-    // Submit-time canvas adoption is a real baseline transition on the
-    // backend. Bind it to the baseline this document last observed so two
-    // concurrent/stale documents cannot silently replace one another.
-    expected_baseline_graph_hash: snapshot.expectedBaselineGraphHash ?? null,
-    idempotency_key: snapshot.idempotencyKey,
-    on_demand_schemas: readOnDemandSchemasSetting(),
-  };
-}
-
-function currentSubmitDeadlineMs(panel = null) {
-  const stateDeadlineMs = Number(panel?.state?.submitDeadlineMs);
-  if (Number.isFinite(stateDeadlineMs) && stateDeadlineMs > 0) {
-    return stateDeadlineMs;
-  }
-  const configuredDeadlineMs = Number(submitWatchdogDepsState.submitDeadlineMs);
-  if (Number.isFinite(configuredDeadlineMs) && configuredDeadlineMs > 0) {
-    return configuredDeadlineMs;
-  }
-  return DEFAULT_SUBMIT_DEADLINE_MS;
-}
-
-function currentSubmitAbsoluteDeadlineMs() {
-  const configuredDeadlineMs = Number(submitWatchdogDepsState.submitAbsoluteDeadlineMs);
-  if (Number.isFinite(configuredDeadlineMs) && configuredDeadlineMs > 0) {
-    return configuredDeadlineMs;
-  }
-  return DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS;
-}
-
-function currentSubmitAutomaticRetryCount() {
-  const configuredRetryCount = Number(submitWatchdogDepsState.submitAutomaticRetryCount);
-  if (Number.isFinite(configuredRetryCount) && configuredRetryCount >= 0) {
-    return Math.max(0, Math.floor(configuredRetryCount));
-  }
-  return DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT;
-}
-
-function currentSubmitNowMs() {
-  return Number(submitWatchdogDepsState.nowMs());
-}
-
-function beginSubmitActivity(panel, submitEpoch) {
-  const nowMs = currentSubmitNowMs();
-  submitActivityByPanel.set(panel, {
-    submitEpoch,
-    startedAtMs: nowMs,
-    lastActivityAtMs: nowMs,
-  });
-  return nowMs;
-}
-
-function recordSubmitActivity(panel) {
-  if (!panel?.state || panel.state.phase !== PANEL_STATE.SUBMITTING) {
-    return false;
-  }
-  const activity = submitActivityByPanel.get(panel);
-  if (!activity || activity.submitEpoch !== panel.state.submitEpoch) {
-    return false;
-  }
-  activity.lastActivityAtMs = currentSubmitNowMs();
-  return true;
-}
-
-function readSubmitFailureMessage(error) {
-  if (typeof error?.user_facing_message === "string" && error.user_facing_message.trim()) {
-    return error.user_facing_message.trim();
-  }
-  if (typeof error?.message === "string" && error.message.trim()) {
-    return error.message.trim();
-  }
-  return String(error);
-}
-
-function buildSubmitFailureContext(panel, snapshot = null, extras = {}) {
-  const route = typeof extras.route === "string" && extras.route
-    ? extras.route
-    : typeof snapshot?.route === "string" && snapshot.route
-      ? snapshot.route
-      : typeof panel?.state?.lastSubmit?.route === "string" && panel.state.lastSubmit.route
-        ? panel.state.lastSubmit.route
-        : normalizeRoutePreference(panel?.fields?.route?.value);
-  const context = {
-    session_id: extras.sessionId ?? panel?.state?.sessionId ?? null,
-    turn_id: extras.turnId ?? panel?.state?.turnId ?? null,
-    route: route || null,
-    url: "/vibecomfy/agent-executor",
-    timeout_ms: Number.isFinite(extras.timeoutMs) ? Number(extras.timeoutMs) : currentSubmitDeadlineMs(panel),
-  };
-  const httpStatus = Number.isFinite(extras.httpStatus) ? Number(extras.httpStatus) : null;
-  if (httpStatus !== null) {
-    context.http_status = httpStatus;
-  }
-  if (typeof extras.nextAction === "string" && extras.nextAction.trim()) {
-    context.next_action = extras.nextAction.trim();
-  }
-  return context;
-}
-
-function mergeSubmitFailureContext(error, diagnosticContext = {}) {
-  const merged = {
-    ...diagnosticContext,
-    ...(error && typeof error === "object" ? error : {}),
-  };
-  if (merged.http_status == null && Number.isFinite(merged.status)) {
-    merged.http_status = Number(merged.status);
-  }
-  if (merged.timeout_ms == null && diagnosticContext.timeout_ms != null) {
-    merged.timeout_ms = diagnosticContext.timeout_ms;
-  }
-  if (merged.next_action == null && diagnosticContext.next_action != null) {
-    merged.next_action = diagnosticContext.next_action;
-  }
-  if (merged.route == null && diagnosticContext.route != null) {
-    merged.route = diagnosticContext.route;
-  }
-  if (merged.url == null && diagnosticContext.url != null) {
-    merged.url = diagnosticContext.url;
-  }
-  if (merged.session_id == null && diagnosticContext.session_id != null) {
-    merged.session_id = diagnosticContext.session_id;
-  }
-  if (merged.turn_id == null && diagnosticContext.turn_id != null) {
-    merged.turn_id = diagnosticContext.turn_id;
-  }
-  return merged;
-}
-
-function buildSubmitTimeoutFailure(panel, snapshot, deadlineMs, timeoutKind = "inactivity") {
-  const absolute = timeoutKind === "absolute";
-  return agentPanelFailure(
-    "TimeoutError",
-    absolute
-      ? "The submit request exceeded the maximum total execution time."
-      : "The submit request stopped reporting progress before the backend responded.",
-    {
-      stage: "agent-executor",
-      retryable: true,
-      graph_unchanged: true,
-      ...buildSubmitFailureContext(panel, snapshot, {
-        timeoutMs: deadlineMs,
-        nextAction: "Check the server turn artifacts before you Submit again; the backend may still be finishing the original request.",
-      }),
-      timeout_kind: timeoutKind,
-    },
-  );
-}
-
-function runSubmitFetchWithDeadline(fetchPromise, {
-  panel,
-  snapshot,
-  submitAbortController,
-  submitEpoch,
-  deadlineMs,
-  absoluteDeadlineMs,
-}) {
-  return new Promise((resolve, reject) => {
-    const existingActivity = submitActivityByPanel.get(panel);
-    if (!existingActivity || existingActivity.submitEpoch !== submitEpoch) {
-      beginSubmitActivity(panel, submitEpoch);
-    }
-    let settled = false;
-    let timeoutId = null;
-    const finalize = () => {
-      if (timeoutId != null) {
-        submitWatchdogDepsState.clearTimeoutFn(timeoutId);
-        timeoutId = null;
-      }
-      const activity = submitActivityByPanel.get(panel);
-      if (activity?.submitEpoch === submitEpoch) {
-        submitActivityByPanel.delete(panel);
-      }
-    };
-    const settle = (callback, value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      finalize();
-      callback(value);
-    };
-    const expireOrRearm = () => {
-      if (
-        panel?.state?.submitEpoch !== submitEpoch
-        || panel?.state?.submitAbortController !== submitAbortController
-      ) {
-        const staleError = new Error("Submit watchdog expired after its attempt was superseded.");
-        staleError.name = "AbortError";
-        settle(reject, staleError);
-        return;
-      }
-      const nowMs = currentSubmitNowMs();
-      const activity = submitActivityByPanel.get(panel) || {
-        startedAtMs: nowMs,
-        lastActivityAtMs: nowMs,
-      };
-      const inactivityRemainingMs = deadlineMs - (nowMs - activity.lastActivityAtMs);
-      const absoluteRemainingMs = absoluteDeadlineMs - (nowMs - activity.startedAtMs);
-      if (inactivityRemainingMs > 0 && absoluteRemainingMs > 0) {
-        timeoutId = submitWatchdogDepsState.setTimeoutFn(
-          expireOrRearm,
-          Math.min(inactivityRemainingMs, absoluteRemainingMs),
-        );
-        return;
-      }
-      try {
-        submitAbortController?.abort();
-      } catch (_error) {
-        // Best-effort abort only.
-      }
-      const timeoutKind = absoluteRemainingMs <= 0 ? "absolute" : "inactivity";
-      const elapsedLimitMs = timeoutKind === "absolute" ? absoluteDeadlineMs : deadlineMs;
-      settle(reject, buildSubmitTimeoutFailure(panel, snapshot, elapsedLimitMs, timeoutKind));
-    };
-    timeoutId = submitWatchdogDepsState.setTimeoutFn(
-      expireOrRearm,
-      Math.min(deadlineMs, absoluteDeadlineMs),
-    );
-    Promise.resolve(fetchPromise).then(
-      (value) => settle(resolve, value),
-      (error) => settle(reject, error),
-    );
-  });
-}
-
-/** Normalize a caught error into a failure envelope that submitAgentEdit can store. */
-function normalizeSubmitFailure(error, diagnosticContext = {}) {
-  if (error?.ok === false) {
-    return mergeSubmitFailureContext(error, diagnosticContext);
-  }
-  return agentPanelFailure("NetworkError", readSubmitFailureMessage(error), {
-    retryable: true,
-    ...mergeSubmitFailureContext({
-      next_action: "Retry once the local ComfyUI backend responds again.",
-    }, diagnosticContext),
-  });
-}
-
-function isValidationSubmitFailure(failure) {
-  const kind = typeof failure?.kind === "string" ? failure.kind : "";
-  const errorCode = typeof failure?.error === "string" ? failure.error : "";
-  return kind === "ValidationError" || errorCode === "validation";
-}
-
-function isStaleSubmitFailure(failure) {
-  const kind = typeof failure?.kind === "string" ? failure.kind : "";
-  return kind === "StaleStateMismatch" || Boolean(failure?.rebaseline_recovery || failure?.rebaselineRecovery);
-}
-
-function markBackendSubmitFailure(error, metadata = {}) {
-  if (!error || typeof error !== "object") {
-    return error;
-  }
-  return {
-    ...error,
-    ok: false,
-    failure_source: "backend",
-    ...metadata,
-  };
-}
-
-function shouldAutoRetrySubmitFailure(error, failure, { attemptIndex, maxAutomaticRetryCount } = {}) {
-  if (!failure || typeof failure !== "object") {
-    return false;
-  }
-  if (failure.failure_source !== "backend") {
-    return false;
-  }
-  if (failure.retryable !== true) {
-    return false;
-  }
-  if (isValidationSubmitFailure(failure)) {
-    return false;
-  }
-  if (isStaleSubmitFailure(failure)) {
-    return false;
-  }
-  const normalizedAttemptIndex = Number.isFinite(attemptIndex) ? Number(attemptIndex) : 0;
-  const normalizedRetryBudget = Number.isFinite(maxAutomaticRetryCount)
-    ? Math.max(0, Number(maxAutomaticRetryCount))
-    : 0;
-  if (normalizedAttemptIndex >= normalizedRetryBudget) {
-    return false;
-  }
-  if (error?.name === "AbortError") {
-    return false;
-  }
-  return true;
-}
-
-/** Validate that a result payload is a usable success envelope (clarify or candidate). */
-function isSubmitResponseValid(outcome, candidateGraph) {
-  if (!outcome || typeof outcome !== "object") {
-    return false;
-  }
-  switch (outcome.kind) {
-    case "clarify":
-    case "noop":
-    case "requires_custom_nodes":
-      return true;
-    case "candidate":
-      return Boolean(candidateGraph && typeof candidateGraph === "object");
-    case "error":
-      return false;
-    default:
-      return false;
-  }
-}
+// ── Submit orchestration (T-057) ───────────────────────────────────────
+// The submit machinery (prompt-draft capture, POST body building, watchdog
+// deadlines/activity tracking, fetch-with-deadline, failure normalization)
+// moved to ./agent_submit_flow.js behind the injected-boundary factory
+// `submitFlow` (built at module init above).  roundtrip delegates to it and
+// keeps the thin orchestration shell (submitAgentEdit) here; the watchdog
+// singletons stay module-level in this file and are shared by reference.
 
 export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
   // ── T7: Save departing scope's draft prompt text BEFORE any DOM mutation ──
@@ -9502,12 +7924,12 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
   if (panel.state.inFlightSubmit) {
     const staleSubmitEpoch = panel.state.submitEpoch;
     const submitStartedAtMs = Number(panel?.state?.submitStartedAtMs);
-    const submitDeadlineMs = currentSubmitDeadlineMs(panel);
-    const nowMs = currentSubmitNowMs();
+    const submitDeadlineMs = submitFlow.currentSubmitDeadlineMs(panel);
+    const nowMs = submitFlow.currentSubmitNowMs();
     const activity = submitActivityByPanel.get(panel);
     const submitAgeMs = nowMs - submitStartedAtMs;
     const submitInactivityMs = nowMs - (activity?.lastActivityAtMs ?? submitStartedAtMs);
-    const submitAbsoluteDeadlineMs = currentSubmitAbsoluteDeadlineMs();
+    const submitAbsoluteDeadlineMs = submitFlow.currentSubmitAbsoluteDeadlineMs();
     if (
       Number.isFinite(submitStartedAtMs)
       && Number.isFinite(submitDeadlineMs)
@@ -9543,8 +7965,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
   let submitAbortController = null;
   const submitRunPromise = (async () => {
     let submitHttpStatus = null;
-    let submitDeadlineMs = currentSubmitDeadlineMs(panel);
-    const submitAbsoluteDeadlineMs = currentSubmitAbsoluteDeadlineMs();
+    let submitDeadlineMs = submitFlow.currentSubmitDeadlineMs(panel);
+    const submitAbsoluteDeadlineMs = submitFlow.currentSubmitAbsoluteDeadlineMs();
     const submitScopeActivationEpoch = Number.isFinite(panel?.state?.scopeActivationEpoch)
       ? panel.state.scopeActivationEpoch
       : 0;
@@ -9583,7 +8005,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     const scopeAssertion = assertPanelScopeMatchesActiveCanvas(panel, { caller: "submit" });
     if (!scopeAssertion.ok) {
       const currentChatScopeId = panel.state.chatScopeId;
-      const currentDraft = _capturePromptDraft(panel);
+      const currentDraft = submitFlow.capturePromptDraft(panel);
 
       // ── Preserve old scope's drafts before any mutation ─────────────
       if (currentChatScopeId) {
@@ -9720,7 +8142,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       return;
     }
 
-    submitDeadlineMs = currentSubmitDeadlineMs(panel);
+    submitDeadlineMs = submitFlow.currentSubmitDeadlineMs(panel);
     const submitStartObligations = transition(panel, "SUBMIT_START", {
       submitEpoch,
       lastSubmit: {
@@ -9741,14 +8163,14 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         client_live_canvas_token: snapshot.liveCanvasToken,
         idempotency_key: snapshot.idempotencyKey,
       },
-      submitStartedAtMs: currentSubmitNowMs(),
+      submitStartedAtMs: submitFlow.currentSubmitNowMs(),
       submitDeadlineMs,
     });
     fulfillLifecycleTransitionObligations(panel, submitStartObligations);
     // Preserve the epoch allocated before serialization; SUBMIT_START above
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
-    beginSubmitActivity(panel, submitEpoch);
+    submitFlow.beginSubmitActivity(panel, submitEpoch);
     // Optimistically surface the user's message in the chat thread the instant
     // they hit Submit, instead of waiting for the server round-trip + rehydrate.
     // Rehydrate replaces chatMessages wholesale and carries the server's own
@@ -9785,7 +8207,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     renderLifecycleTransition(panel, submitStartObligations);
 
     let result;
-    const automaticRetryCount = currentSubmitAutomaticRetryCount();
+    const automaticRetryCount = submitFlow.currentSubmitAutomaticRetryCount();
     const retryContext = {
       sessionId: panel.state.sessionId || null,
       turnId: panel.state.turnId || null,
@@ -9798,16 +8220,16 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           submitEpoch,
           controller: submitAbortController,
         });
-        const failureContextForAttempt = (extras = {}) => buildSubmitFailureContext(panel, snapshot, {
+        const failureContextForAttempt = (extras = {}) => submitFlow.buildSubmitFailureContext(panel, snapshot, {
           sessionId: retryContext.sessionId,
           turnId: retryContext.turnId,
           ...extras,
         });
         try {
-          const body = buildSubmitBody(snapshot, task, panel, {
+          const body = submitFlow.buildSubmitBody(snapshot, task, panel, {
             sessionIdOverride: retryContext.sessionId,
           });
-          const res = await runSubmitFetchWithDeadline(
+          const res = await submitFlow.runSubmitFetchWithDeadline(
             fetch("/vibecomfy/agent-executor", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -9865,8 +8287,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           commitSessionArtifactPathsFromResponse(panel, result);
           if (!res.ok || result?.ok === false || result.raw?.error) {
             const backendFailure = result.raw && typeof result.raw === "object"
-              ? markBackendSubmitFailure(
-                  mergeSubmitFailureContext(
+              ? submitFlow.markBackendSubmitFailure(
+                  submitFlow.mergeSubmitFailureContext(
                     result.raw,
                     failureContextForAttempt({
                       httpStatus: submitHttpStatus,
@@ -9874,8 +8296,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
                     }),
                   ),
                 )
-              : markBackendSubmitFailure(
-                  mergeSubmitFailureContext(
+              : submitFlow.markBackendSubmitFailure(
+                  submitFlow.mergeSubmitFailureContext(
                     {
                       kind: "RequestError",
                       message: res.statusText,
@@ -9891,7 +8313,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           const outcome = result.outcome;
           const submitCandidate = readRoundtripApplyCandidate(result, { endpoint: "submit:candidate" });
           const candidateGraph = prepareCandidateGraphForPanel(submitCandidate?.graph || null);
-          if (!isSubmitResponseValid(outcome, candidateGraph)) {
+          if (!submitFlow.isSubmitResponseValid(outcome, candidateGraph)) {
             throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
               stage: result.raw?.stage || "agent-executor",
               retryable: true,
@@ -9910,7 +8332,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
             transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
             return;
           }
-          const failure = normalizeSubmitFailure(
+          const failure = submitFlow.normalizeSubmitFailure(
             error,
             failureContextForAttempt({
               httpStatus: submitHttpStatus,
@@ -9923,7 +8345,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           if (typeof failure?.turn_id === "string" && failure.turn_id) {
             retryContext.turnId = failure.turn_id;
           }
-          if (shouldAutoRetrySubmitFailure(error, failure, { attemptIndex, maxAutomaticRetryCount: automaticRetryCount })) {
+          if (submitFlow.shouldAutoRetrySubmitFailure(error, failure, { attemptIndex, maxAutomaticRetryCount: automaticRetryCount })) {
             continue;
           }
           throw failure;
@@ -9971,9 +8393,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         renderLifecycleTransition(panel, obligations);
         return;
       }
-      const failure = normalizeSubmitFailure(
+      const failure = submitFlow.normalizeSubmitFailure(
         e,
-        buildSubmitFailureContext(panel, snapshot, {
+        submitFlow.buildSubmitFailureContext(panel, snapshot, {
           httpStatus: submitHttpStatus,
           timeoutMs: submitDeadlineMs,
         }),
@@ -10187,7 +8609,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
       return;
     }
-    const normalizedEligibility = normalizeCandidateApplyEligibility(candidateGraph, eligibility);
+    const normalizedEligibility = applyFlow.normalizeCandidateApplyEligibility(candidateGraph, eligibility);
     const runtimeDependencies = Array.isArray(result.runtimeDependencies)
       ? clonePlainData(result.runtimeDependencies)
       : [];
@@ -10330,1092 +8752,13 @@ function stopAgentSubmit(panel) {
   return true;
 }
 
-async function applyAgentCandidate(panel, { resumePrepared = false } = {}) {
-  // ── T8: Demo-only apply branch (local state only, no backend accept) ──
-  // Delegates to preview_picker which handles graph application, lifecycle
-  // reflection, and state cleanup inline.  No POST to /agent-edit/accept.
-  if (panel?.state?.__demoMode) {
-    if (!panel.state.candidateGraph) {
-      transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "no_candidate" });
-      return;
-    }
-    return panel.previewPicker?.handleDemoApply?.(panel);
-  }
-
-  if (!panel.state.candidateGraph) {
-    transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "no_candidate" });
-    return;
-  }
-  // Rehydration is the authority boundary after reload/restart. A candidate
-  // retained by the live browser is only provisional until the server says it
-  // remains reviewable, so never dispatch Apply during that window.
-  if (panel.state.chatRehydratePending === true) {
-    transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "rehydrating" });
-    return;
-  }
-  if (!panel.state.sessionId || !panel.state.turnId) {
-    const failure = agentPanelFailure("MissingRequiredField", "Cannot apply a candidate without session_id and turn_id.", {
-      retryable: false,
-      graph_unchanged: true,
-      next_action: "Submit the edit again to get a complete candidate envelope.",
-    });
-    const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
-      failure,
-      debugPayload: failure,
-    });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    renderLifecycleTransition(panel, obligations);
-    return;
-  }
-  if (panel.state.inFlightApply) {
-    return panel.state.inFlightApply;
-  }
-
-  // ── T11: Scope consistency guard before apply ────────────────────────
-  // Fails closed on any scope/session disagreement.  Unlike submit,
-  // apply NEVER auto-switches scopes — a mismatch means the candidate
-  // does not belong to the currently active workflow and must be refused.
-  const applyScopeCheck = assertApplyScopeConsistency(panel, panel.state.sessionId);
-  if (!applyScopeCheck.ok) {
-    const failure = agentPanelFailure("ScopeMismatch", `Apply blocked: ${applyScopeCheck.reason || "scope/session inconsistency"}.`, {
-      retryable: false,
-      graph_unchanged: true,
-      next_action: "Submit a new edit from the current canvas to generate a candidate for this workflow.",
-      scope_mismatch_reason: applyScopeCheck.reason,
-      scope_details: applyScopeCheck.details,
-    });
-    const obligations = transition(panel, "APPLY_SCOPE_MISMATCH", {
-      failure,
-      debugPayload: {
-        ...failure,
-        applyScopeCheck,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    renderLifecycleTransition(panel, obligations);
-    return;
-  }
-
-  if (isV2ApplyCandidate(panel)) {
-    const candidateTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
-    const resumingPreparedTransaction = Boolean(
-      resumePrepared
-      && candidateTransaction?.state === "prepared"
-      && transactionAllows(candidateTransaction, "rollback"),
-    );
-    const v2DeltaOps = candidateTransaction
-      ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
-      : null;
-    const graphCapabilities = createIntentGraphAdapter(app).capabilities();
-    const v2DeltaCapability = graphCapabilities.ok
-      ? graphCapabilities.data.delta_apply
-      : { available: false, strategy: null };
-    const layoutTransaction = isLayoutAuthorityTransaction(candidateTransaction);
-    const layoutCapability = graphCapabilities.ok
-      ? graphCapabilities.data.layout_apply
-      : { available: false, strategy: null };
-    const missingTransactionFields = [];
-    if (!candidateTransaction) missingTransactionFields.push("candidate_transaction");
-    if (!transactionAllows(candidateTransaction, "apply") && !resumingPreparedTransaction) {
-      missingTransactionFields.push("apply_authorization");
-    }
-    if (!v2DeltaOps) {
-      missingTransactionFields.push("delta_ops");
-    }
-    if (!layoutTransaction && (!v2DeltaCapability.available || v2DeltaCapability.strategy !== "live-litegraph-mutate")) {
-      missingTransactionFields.push("scoped_delta_apply_capability");
-    }
-    if (layoutTransaction && (!layoutCapability.available || layoutCapability.strategy !== "live-layout-mutate")) {
-      missingTransactionFields.push("scoped_layout_apply_capability");
-    }
-    if (missingTransactionFields.length) {
-      const failure = agentPanelFailure(
-        "MissingRequiredField",
-        `Cannot apply this V2 candidate because transaction metadata is incomplete (missing ${missingTransactionFields.join(", ")}).`,
-        {
-          retryable: false,
-          graph_unchanged: true,
-          next_action: "Submit the edit again after the backend publishes complete transaction metadata.",
-          agent_edit_protocol: panel.state.agentEditProtocol,
-          missing_transaction_fields: missingTransactionFields,
-          scoped_delta_apply_capability: clonePlainData(v2DeltaCapability),
-          scoped_layout_apply_capability: clonePlainData(layoutCapability),
-        },
-      );
-      const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
-        failure,
-        debugPayload: failure,
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-    const applyPromise = (async () => {
-      let beforeApply;
-      try {
-        beforeApply = await buildCanvasSnapshot();
-      } catch (e) {
-        const failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas before Apply: ${String(e)}`, {
-          retryable: true,
-          graph_unchanged: true,
-        });
-        const obligations = transition(panel, "APPLY_SERIALIZE_ERROR", { failure, debugPayload: failure });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      let typedPreconditionEvidence;
-      try {
-        const candidateAuthority = candidateTransaction.candidate_authority;
-        typedPreconditionEvidence = projectionReferenceV1(
-          beforeApply.graph,
-          candidateAuthority.precondition.projection,
-        );
-        if (typedPreconditionEvidence.digest !== candidateAuthority.precondition.digest) {
-          throw new Error("The live canvas does not match the typed v2 precondition witness.");
-        }
-        if (candidateAuthority.operation_family === "layout") {
-          const structuralPrecondition = projectionReferenceV1(beforeApply.graph, "structural_v1");
-          if (structuralPrecondition.digest !== candidateAuthority.structural_witness?.precondition_digest) {
-            throw new Error("The live canvas does not match the layout transaction's structural precondition witness.");
-          }
-        }
-      } catch (error) {
-        const failure = agentPanelFailure("StaleStateMismatch", String(error?.message || error), {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Submit a new edit from the current workflow baseline.",
-        });
-        const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
-          failure,
-          debugPayload: { typed_v2_precondition_failure: failure },
-          clearCandidatePreview: true,
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      const eligibility = resumingPreparedTransaction
-        ? { applyable: true, reason: "resume_prepared", message: "Resume the durably prepared transaction." }
-        : applyEligibility(panel, beforeApply);
-      if (!eligibility.applyable) {
-        const failure = agentPanelFailure("StaleStateMismatch", eligibility.message || "Apply is blocked for this candidate.", {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Submit a new edit from the current canvas.",
-          apply_eligibility: eligibility,
-        });
-        const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
-          failure,
-          debugPayload: failure,
-          clearCandidatePreview: true,
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      const prepareBody = {
-        session_id: panel.state.sessionId,
-        turn_id: panel.state.turnId,
-        plan_hash: candidateTransaction.plan_hash,
-        candidate_graph_hash: candidateTransaction.hashes.candidate_graph_hash,
-        client_graph_hash: beforeApply.graphHash,
-        client_structural_graph_hash: beforeApply.structuralHash,
-        precondition_projection: clonePlainData(typedPreconditionEvidence),
-        client_live_canvas_token: beforeApply.liveCanvasToken,
-        apply_eligibility: clonePlainData(panel.state.applyEligibility || eligibility),
-        candidate: {
-          graph_hash: candidateTransaction.hashes.candidate_graph_hash,
-          plan_hash: candidateTransaction.plan_hash,
-          structural_hash_before: candidateTransaction.hashes.submit_structural_graph_hash,
-          structural_hash_after: candidateTransaction.hashes.candidate_structural_graph_hash,
-        },
-        idempotency_key: buildActionIdempotencyKey({
-          action: "prepare",
-          sessionId: panel.state.sessionId,
-          turnId: panel.state.turnId,
-          graphHash: beforeApply.graphHash,
-        }),
-      };
-
-      let prepared;
-      let preparedMutationPlan;
-      if (resumingPreparedTransaction) {
-        prepared = {
-          receipt: clonePlainData(panel.state.preparedReceipt),
-          candidateTransaction: clonePlainData(candidateTransaction),
-          raw: {
-            action: "resume_prepared",
-            receipt: clonePlainData(panel.state.preparedReceipt),
-            candidate_transaction: clonePlainData(candidateTransaction),
-          },
-        };
-        preparedMutationPlan = resolvePreparedMutationPlan(candidateTransaction, candidateTransaction);
-      } else try {
-          const startedObligations = transition(panel, "APPLY_STARTED", {
-            acceptBody: prepareBody,
-            debugPayload: {
-              applying_turn_id: panel.state.turnId,
-              transactional_apply: true,
-              prepare_request: prepareBody,
-            },
-          });
-          fulfillLifecycleTransitionObligations(panel, startedObligations);
-          const prepareStarted = commitPrepareStarted(panel, {
-            mutationPlanHash: candidateTransaction.plan_hash,
-            debugPayload: { prepare_request: prepareBody },
-          });
-          fulfillLifecycleTransitionObligations(panel, prepareStarted);
-          renderLifecycleTransition(panel, prepareStarted);
-
-          prepared = await postAgentLifecycleAction("prepare", prepareBody, "prepare");
-          const obligations = commitPrepareSuccess(panel, {
-            preparedReceipt: prepared.receipt || null,
-            candidateTransaction: prepared.candidateTransaction,
-            debugPayload: {
-              prepare_request: prepareBody,
-              prepare_response: prepared.raw || prepared,
-            },
-          });
-          fulfillLifecycleTransitionObligations(panel, obligations);
-          preparedMutationPlan = resolvePreparedMutationPlan(
-            candidateTransaction,
-            prepared.candidateTransaction,
-          );
-        } catch (error) {
-        let transactionRollback = prepared
-          ? await rollbackPreparedAgentCandidate(panel, beforeApply, {
-              silent: true,
-              triggerStage: "prepared_plan_resolution",
-              triggerFailure: error,
-              canvasWasMutated: false,
-            })
-          : null;
-        let recoveryRequired = Boolean(prepared && transactionRollback?.ok !== true);
-        if (!prepared) {
-          try {
-            await reconcilePreparedTransactionState(panel);
-            const reconciled = normalizeCandidateTransaction(panel.state.candidateTransaction);
-            if (["prepared", "canvas_verified"].includes(reconciled?.state)) {
-              transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-                silent: true,
-                triggerStage: "prepare_response_uncertain",
-                triggerFailure: error,
-                canvasWasMutated: false,
-              });
-              recoveryRequired = transactionRollback?.ok !== true;
-            }
-          } catch (_reconcileError) {
-            // The prepare request may have committed before its response was
-            // lost. Preserve recovery authority until reconciliation succeeds.
-            recoveryRequired = true;
-          }
-        }
-        const failure = error?.ok === false
-          ? error
-          : agentPanelFailure("PrepareError", String(error), {
-              retryable: true,
-              graph_unchanged: true,
-              next_action: "Retry Apply after the backend can prepare the transaction.",
-              transaction_rollback: transactionRollback,
-            });
-        const compensation = compensatedFailurePayload(panel, failure, {
-          transactionRollback,
-          actionBody: prepareBody,
-          fallbackStage: "prepare",
-          recoveryRequired,
-          // A rejected prepare can still carry an authoritative stale-state
-          // recovery instruction.  Keep it on the lifecycle transition so
-          // the failure bubble offers the same rebaseline path as the other
-          // stale-state boundaries.
-          rebaselineRecovery:
-            recoveryForPanelState(failure?.rebaselineRecovery || failure?.rebaseline_recovery)
-            || recoveryForFailure(failure, panel, prepareBody),
-        });
-        const obligations = commitPrepareFailure(panel, {
-          ...compensation,
-          debugPayload: {
-            prepare_request: prepareBody,
-            prepare_failure: boundedBrowserTransactionError(error, "prepare_or_plan_resolution", {
-              resumeState: "candidate_ready",
-            }),
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-        }
-
-      // A prepared V2 transaction may not overwrite a touched region that
-      // changed while the server held the lease.  Compare only authoritative
-      // operation targets against the pre-prepare canvas snapshot; this is a
-      // scoped race check, not an inferred whole-graph delta.  Unlike the
-      // legacy accept flow, an "already applied" target is still a race here:
-      // the prepared transaction must either own the mutation or roll back.
-      let localPrecheck = { ok: true, entries: [] };
-      let undoEntry;
-      const widgetReferenceNodeFor = (uidOrId) => {
-        const key = String(uidOrId);
-        const liveNodes = Array.isArray(app?.graph?._nodes) ? app.graph._nodes : [];
-        return liveNodes.find((node) => (
-          String(getUid(node) || "") === key
-          || String(node?.id ?? "") === key
-        )) || null;
-      };
-      try {
-        if (preparedMutationPlan.verificationKind !== "layout_structural_noop") {
-          const currentBeforeMutation = await buildCanvasSnapshot();
-          const v2ScopedVerification = {
-            entries: preparedMutationPlan.deltaOps.map((op) => ({
-              target: clonePlainData(op.target ?? op.to ?? null),
-              expected_old: readGraphActualForOp(beforeApply.graph, op, { widgetReferenceNodeFor }),
-              desired_new: readGraphActualForOp(panel.state.candidateGraph, op, { widgetReferenceNodeFor }),
-            })),
-          };
-          const validatedPrecheck = validateScopedCanvasPreconditions(
-            currentBeforeMutation.graph,
-            preparedMutationPlan.deltaOps,
-            v2ScopedVerification,
-            { widgetReferenceNodeFor },
-          );
-          // A prepared lease owns the mutation.  Even an "already applied"
-          // target is a race at this point: publishing it as a successful
-          // precheck would let the browser finalize work it did not perform.
-          localPrecheck = {
-            ...validatedPrecheck,
-            ok: validatedPrecheck.entries.every((entry) => entry.status === "ok"),
-          };
-          if (!localPrecheck.entries.every((entry) => entry.status === "ok")) {
-            const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-              restoreCanvas: false,
-              silent: true,
-              triggerStage: "prepared_scoped_precheck",
-              triggerFailure: localPrecheck,
-              canvasWasMutated: false,
-            });
-            const failure = agentPanelFailure(
-              "StaleStateMismatch",
-              "The touched region changed after backend acceptance. Scoped Apply is blocked.",
-              {
-                retryable: true,
-                graph_unchanged: true,
-                next_action: "Rebaseline and retry from the current canvas.",
-                transaction_rollback: transactionRollback,
-                canvas_apply: {
-                  mode: "scoped_delta",
-                  local_precheck: localPrecheck,
-                  accept_live_canvas_token: beforeApply.liveCanvasToken,
-                  current_live_canvas_token: currentBeforeMutation.liveCanvasToken,
-                },
-              },
-            );
-            const obligations = commitVerifyCanvasFailure(panel, {
-              ...compensatedFailurePayload(panel, failure, {
-                transactionRollback,
-                actionBody: prepareBody,
-                fallbackStage: "canvas_apply",
-              }),
-              debugPayload: {
-                transactional_apply: true,
-                prepare_response: prepared.raw || prepared,
-                canvas_apply_verification: {
-                  local_precheck: localPrecheck,
-                },
-              },
-            });
-            fulfillLifecycleTransitionObligations(panel, obligations);
-            renderLifecycleTransition(panel, obligations);
-            return;
-          }
-        }
-
-        const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
-        undoEntry = {
-          session_id: panel.state.sessionId,
-          turn_id: panel.state.turnId,
-          graph: clonePlainData(undoSnapshot.graph),
-          client_graph_hash: undoSnapshot.graphHash,
-          // Filled with the newly accepted baseline after finalize succeeds. The
-          // pre-finalize baseline is not valid CAS authority for an immediate
-          // Undo and was the reason Undo only recovered after rehydration.
-          accepted_baseline_graph_hash: null,
-          captured_at: new Date().toISOString(),
-          chat_scope_id: panel.state.chatScopeId || null,
-          chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
-          canvas_structural_hash: undoSnapshot.structuralHash || null,
-        };
-        pendingTransactionSnapshotByPanel.set(panel, clonePlainData(undoSnapshot));
-      } catch (error) {
-        let transactionRollback = null;
-        let rollbackError = null;
-        try {
-          transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-            restoreCanvas: false,
-            silent: true,
-            triggerStage: "post_prepare_pre_mutation",
-            triggerFailure: error,
-            canvasWasMutated: false,
-          });
-        } catch (caughtRollbackError) {
-          rollbackError = caughtRollbackError;
-        }
-        const recoveryRequired = transactionRollback?.ok !== true;
-        const failure = agentPanelFailure(
-          "CanvasPreflightError",
-          `Could not complete the prepared canvas preflight: ${String(error?.message || error)}`,
-          {
-            retryable: true,
-            graph_unchanged: true,
-            next_action: recoveryRequired
-              ? "Cancel this interrupted Apply, then submit the edit again."
-              : "Submit the edit again from the unchanged canvas.",
-            transaction_rollback: transactionRollback,
-          },
-        );
-        const obligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "post_prepare_pre_mutation",
-            recoveryRequired,
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            prepare_response: prepared.raw || prepared,
-            pre_mutation_failure: boundedBrowserTransactionError(
-              error,
-              "post_prepare_pre_mutation",
-              { resumeState: "prepared" },
-            ),
-            rollback_failure: rollbackError
-              ? boundedBrowserTransactionError(rollbackError, "post_prepare_pre_mutation_rollback", {
-                  resumeState: "prepared",
-                })
-              : null,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      let canvasApplyResult = null;
-      try {
-        // V2 authority is the persisted mutation intent, not a replacement
-        // graph. Applying the canonical ops keeps unrelated live canvas state
-        // intact and avoids graph.clear()/graph.configure() recursion in
-        // complex ComfyUI graphs. There is deliberately no whole-graph
-        // forward fallback: missing ops/capability fail before prepare above.
-        if (preparedMutationPlan.verificationKind === "layout_structural_noop") {
-          canvasApplyResult = applyGraphLayoutInPlace(app, {
-            candidateGraph: panel.state.candidateGraph,
-          });
-        } else {
-          canvasApplyResult = applyGraphDeltaInPlace(app, {
-            deltaOps: preparedMutationPlan.deltaOps,
-            candidateGraph: panel.state.candidateGraph,
-          }, {
-            runtimeDependencies: panel.state.runtimeDependencies,
-            decorateCandidateNodePayload(nodePayload) {
-              decorateIntentNode(nodePayload);
-            },
-            decorateLiveNode(liveNode) {
-              decorateIntentNode(liveNode);
-            },
-          });
-          auditLandedMutationPlan(preparedMutationPlan.deltaOps, canvasApplyResult.plan);
-        }
-      } catch (error) {
-        const canvasMutationStarted = error?.canvasMutationStarted !== false;
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: canvasMutationStarted,
-          silent: true,
-          triggerStage: "canvas_apply",
-          triggerFailure: error,
-          canvasWasMutated: canvasMutationStarted,
-        });
-        const failure = agentPanelFailure("CanvasApplyError", String(error), {
-          retryable: true,
-          graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-          next_action: "Retry Apply or Rebaseline from the current canvas.",
-          transaction_rollback: transactionRollback,
-          canvas_apply: {
-            mode: "scoped_delta",
-            delta_hash: preparedMutationPlan.deltaHash,
-            op_count: preparedMutationPlan.deltaOps.length,
-            capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
-          },
-        });
-        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "canvas_apply",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            prepare_response: prepared.raw || prepared,
-            canvas_apply_failure: boundedBrowserTransactionError(error, "canonical_canvas_apply", {
-              resumeState: "prepared",
-            }),
-            canvas_apply: failure.canvas_apply,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      // ── T26: Post-apply serialize/hash (try/catch with rollback) ──────
-      // After local mutation, serialize the live canvas and hash it.  If
-      // serialization fails the canvas is already mutated, so roll back
-      // the prepared transaction and report a verification failure.
-      let afterApply;
-      try {
-        afterApply = await buildCanvasSnapshot();
-      } catch (serializeErr) {
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "post_apply_serialize",
-          triggerFailure: serializeErr,
-          canvasWasMutated: true,
-        });
-        const failure = agentPanelFailure(
-          "SerializeError",
-          `Could not serialize the canvas after Apply: ${String(serializeErr)}`,
-          {
-            retryable: true,
-            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-            next_action: "Retry Apply or Rebaseline from the current canvas.",
-            transaction_rollback: transactionRollback,
-          },
-        );
-        const serializeObligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "post_apply_serialize",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            prepare_response: prepared.raw || prepared,
-            post_apply_serialize_failure: failure,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, serializeObligations);
-        renderLifecycleTransition(panel, serializeObligations);
-        return;
-      }
-      const localPostcheck = preparedMutationPlan.verificationKind === "layout_structural_noop"
-        ? { ok: true, entries: [] }
-        : verifyScopedCanvasResults(afterApply.graph, preparedMutationPlan.deltaOps, {
-            entries: preparedMutationPlan.deltaOps.map((op) => ({
-              target: clonePlainData(op.target ?? op.to ?? null),
-              desired_new: readGraphActualForOp(panel.state.candidateGraph, op, { widgetReferenceNodeFor }),
-            })),
-          }, { widgetReferenceNodeFor });
-      if (!localPostcheck.ok) {
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "post_apply_scoped_postcheck",
-          triggerFailure: localPostcheck,
-          canvasWasMutated: true,
-        });
-        const failure = agentPanelFailure(
-          "StaleStateMismatch",
-          "The applied canvas does not match the authoritative touched-region result.",
-          {
-            retryable: true,
-            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-            next_action: "Retry Apply or Rebaseline from the current canvas.",
-            transaction_rollback: transactionRollback,
-            canvas_apply: { mode: "scoped_delta", local_precheck: localPrecheck, local_postcheck: localPostcheck },
-          },
-        );
-        const obligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "post_apply_scoped_postcheck",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            prepare_response: prepared.raw || prepared,
-            canvas_apply_verification: { local_precheck: localPrecheck, local_postcheck: localPostcheck },
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-      const verifyStarted = commitVerifyCanvasStarted(panel, {
-        debugPayload: {
-          expected_plan_hash: panel.state.mutationPlanHash,
-          post_apply_hash: afterApply.structuralHash,
-          post_apply_graph_hash: afterApply.graphHash,
-          canvas_apply: {
-            mode: "scoped_delta",
-            delta_hash: preparedMutationPlan.deltaHash,
-            op_count: preparedMutationPlan.deltaOps.length,
-            capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
-            landed_step_count: Array.isArray(canvasApplyResult?.plan) ? canvasApplyResult.plan.length : null,
-          },
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, verifyStarted);
-
-      const preparedAggregate = normalizeCandidateTransaction(prepared.candidateTransaction);
-      const preparedAuthority = preparedAggregate?.prepared_authority;
-      let typedPostconditionEvidence;
-      try {
-        if (!preparedAuthority) throw new Error("Prepare did not return explicit prepared_authority_v1.");
-        typedPostconditionEvidence = projectionReferenceV1(
-          afterApply.graph,
-          preparedAuthority.postcondition.projection,
-        );
-        if (typedPostconditionEvidence.digest !== preparedAuthority.postcondition.digest) {
-          throw new Error("The applied canvas does not match the typed v2 postcondition witness.");
-        }
-        if (preparedAuthority.operation_family === "layout") {
-          const structuralPostcondition = projectionReferenceV1(afterApply.graph, "structural_v1");
-          if (structuralPostcondition.digest !== preparedAuthority.structural_witness?.postcondition_digest) {
-            throw new Error("Layout Apply changed the structural projection.");
-          }
-        }
-      } catch (error) {
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "typed_postcondition_verification",
-          triggerFailure: error,
-          canvasWasMutated: true,
-        });
-        const failure = agentPanelFailure("StaleStateMismatch", String(error?.message || error), {
-          retryable: true,
-          graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-          next_action: "Retry Apply or rebaseline from the restored workflow.",
-          transaction_rollback: transactionRollback,
-        });
-        const obligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "typed_postcondition_verification",
-          }),
-          debugPayload: {
-            typed_v2_postcondition_failure: failure,
-            typed_v2_precondition: typedPreconditionEvidence,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      // Whole-graph equality is meaningful only for an authority mode that
-      // explicitly requires it.  delta_replay deliberately authorizes a
-      // scoped mutation: unrelated live state and deterministic browser node
-      // decoration must not make a successfully pre/post-checked delta fail.
-      const expectedStructuralHashAfter = candidateTransaction.hashes.candidate_structural_graph_hash;
-      if (
-        preparedMutationPlan.verificationKind === "structural_graph_equality"
-        &&
-        typeof afterApply.structuralHash === "string"
-        && afterApply.structuralHash
-        && typeof expectedStructuralHashAfter === "string"
-        && expectedStructuralHashAfter
-        && afterApply.structuralHash !== expectedStructuralHashAfter
-      ) {
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "post_apply_verification",
-          triggerFailure: {
-            kind: "StaleStateMismatch",
-            message: "Post-apply canvas structural hash does not match the candidate structural hash.",
-          },
-          canvasWasMutated: true,
-        });
-        const failure = agentPanelFailure(
-          "StaleStateMismatch",
-          "Post-apply canvas structural hash does not match the candidate structural hash.",
-          {
-            retryable: true,
-            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-            next_action: "Retry Apply or Rebaseline from the current canvas.",
-            expected_structural_hash: expectedStructuralHashAfter,
-            actual_structural_hash: afterApply.structuralHash,
-            transaction_rollback: transactionRollback,
-          },
-        );
-        const hashObligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "post_apply_verification",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            prepare_response: prepared.raw || prepared,
-            post_apply_hash_mismatch: true,
-            expected_structural_hash: expectedStructuralHashAfter,
-            actual_structural_hash: afterApply.structuralHash,
-            post_apply_graph_hash: afterApply.graphHash,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, hashObligations);
-        renderLifecycleTransition(panel, hashObligations);
-        return;
-      }
-      const layoutVerification = preparedMutationPlan.layoutVerification;
-      const expectedLayoutGraphHash = layoutVerification?.candidate_layout_graph_hash || null;
-      const legacyExpectedGraphHash = candidateTransaction.hashes.candidate_graph_hash;
-      const layoutMismatch = preparedMutationPlan.verificationKind === "layout_structural_noop"
-        && (
-          layoutVerification
-            ? afterApply.layoutHash !== expectedLayoutGraphHash
-            : afterApply.graphHash !== legacyExpectedGraphHash
-        );
-      if (layoutMismatch) {
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "post_apply_layout_verification",
-          triggerFailure: {
-            kind: "StaleStateMismatch",
-            message: layoutVerification
-              ? "Applied layout geometry does not match the authoritative candidate."
-              : "Applied legacy layout graph does not exactly match the authoritative candidate.",
-          },
-          canvasWasMutated: true,
-        });
-        const failure = agentPanelFailure(
-          "StaleStateMismatch",
-          layoutVerification
-            ? "Applied layout geometry does not match the authoritative candidate."
-            : "Applied legacy layout graph does not exactly match the authoritative candidate.",
-          {
-            retryable: true,
-            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
-            expected_layout_hash: expectedLayoutGraphHash,
-            actual_layout_hash: afterApply.layoutHash,
-            expected_graph_hash: layoutVerification ? null : legacyExpectedGraphHash,
-            actual_graph_hash: afterApply.graphHash,
-            transaction_rollback: transactionRollback,
-          },
-        );
-        const obligations = commitVerifyCanvasFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: prepareBody,
-            fallbackStage: "post_apply_layout_verification",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            verification_kind: "layout_structural_noop",
-            expected_layout_hash: expectedLayoutGraphHash,
-            actual_layout_hash: afterApply.layoutHash,
-            layout_verification: layoutVerification,
-            expected_graph_hash: layoutVerification ? null : legacyExpectedGraphHash,
-            actual_graph_hash: afterApply.graphHash,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      const verifyReceipt = {
-        plan_hash: panel.state.mutationPlanHash,
-        generation: panel.state.generation,
-        lease_nonce: panel.state.leaseNonce,
-        post_apply_hash: afterApply.structuralHash,
-      };
-      const verifySuccess = commitVerifyCanvasSuccess(panel, {
-        verifiedReceipt: verifyReceipt,
-        debugPayload: {
-          verify_canvas: verifyReceipt,
-          prepare_response: prepared.raw || prepared,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, verifySuccess);
-
-      const finalizeBody = {
-        session_id: panel.state.sessionId,
-        turn_id: panel.state.turnId,
-        plan_hash: panel.state.mutationPlanHash,
-        generation: panel.state.generation,
-        lease_nonce: panel.state.leaseNonce,
-        post_apply_hash: afterApply.structuralHash,
-        post_apply_graph: afterApply.graph,
-        postcondition_projection: clonePlainData(typedPostconditionEvidence),
-        applied_delta_hash: preparedMutationPlan.deltaHash,
-        post_apply_hash_verified: true,
-        browser_verified: true,
-        verified: true,
-        client_graph_hash: afterApply.graphHash,
-        client_structural_graph_hash: afterApply.structuralHash,
-        idempotency_key: buildActionIdempotencyKey({
-          action: "finalize",
-          sessionId: panel.state.sessionId,
-          turnId: panel.state.turnId,
-          graphHash: afterApply.graphHash,
-        }),
-      };
-      const finalizeStarted = commitFinalizeStarted(panel, {
-        debugPayload: {
-          finalize_request: {
-            session_id: finalizeBody.session_id,
-            turn_id: finalizeBody.turn_id,
-            plan_hash: finalizeBody.plan_hash,
-            applied_delta_hash: finalizeBody.applied_delta_hash,
-            post_apply_hash: finalizeBody.post_apply_hash,
-            post_apply_graph_node_count: Array.isArray(afterApply.graph?.nodes) ? afterApply.graph.nodes.length : null,
-          },
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, finalizeStarted);
-
-      let finalized = null;
-      try {
-        finalized = await postAgentLifecycleAction("finalize", finalizeBody, "finalize");
-        undoEntry.accepted_baseline_graph_hash = finalized.baselineGraphHash
-          || afterApply.structuralHash
-          || null;
-        undoEntry.accepted_baseline_turn_id = finalized.baselineTurnId
-          || panel.state.turnId
-          || null;
-        // journal_durable_v1 on the finalized server record is the sole v2
-        // Undo authority. The browser undoStack remains a legacy,
-        // non-authoritative cache and must never receive a v2 transaction.
-        pendingTransactionSnapshotByPanel.delete(panel);
-        recordRoundtripResponseCompartments(panel, finalized);
-        markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
-        const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
-        pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
-        pushTurnStatus(panel, "applied", {
-          turn_id: panel.state.turnId,
-          baseline_turn_id: finalized.baselineTurnId || panel.state.turnId,
-          message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
-          audit_ref: finalized.auditRef || panel.state.auditRef,
-          raw_payload: finalized.raw || finalized,
-        });
-        const obligations = commitFinalizeSuccess(panel, {
-          finalizedReceipt: finalized.receipt || null,
-          candidateTransaction: finalized.candidateTransaction,
-          accepted: finalized.raw || finalized,
-          lastAppliedChanges,
-          undoStackDepth: panel.state.undoStack.length,
-          toast: "Agent candidate applied",
-          debugPayload: {
-            prepare_response: prepared.raw || prepared,
-            canvas_apply_verification: {
-              local_precheck: localPrecheck,
-              local_postcheck: localPostcheck,
-            },
-            finalize_request: {
-              plan_hash: finalizeBody.plan_hash,
-              applied_delta_hash: finalizeBody.applied_delta_hash,
-              post_apply_hash: finalizeBody.post_apply_hash,
-            },
-            finalize_response: finalized.raw || finalized,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        clearLayoutPreviewState(panel);
-        rememberTurnDetailSnapshot(panel, {
-          turn_id: panel.state.turnId,
-          session_id: panel.state.sessionId,
-          auditRef: finalized.auditRef || panel.state.auditRef,
-          debugPayload: obligations.debugPayload || panel.state.debugPayload,
-          lastAppliedChanges,
-          message: panel.state.message,
-        });
-        renderLifecycleTransition(panel, obligations);
-      } catch (error) {
-        if (finalized) {
-          // The server has already committed the terminal aggregate. From
-          // this point onward presentation/history failures are never
-          // compensatable: restoring the canvas would diverge from the
-          // authoritative finalized baseline and rollback must be rejected.
-          const projectionFailure = boundedBrowserTransactionError(
-            error,
-            "post_finalize_projection",
-            { recoverable: true, resumeState: "finalized" },
-          );
-          try {
-            const terminalObligations = commitFinalizeSuccess(panel, {
-              finalizedReceipt: finalized.receipt || null,
-              candidateTransaction: finalized.candidateTransaction,
-              accepted: finalized.raw || finalized,
-              toast: "Agent candidate applied",
-              debugPayload: {
-                finalize_response: finalized.raw || finalized,
-                post_finalize_projection_failure: projectionFailure,
-              },
-            });
-            fulfillLifecycleTransitionObligations(panel, terminalObligations);
-            renderLifecycleTransition(panel, terminalObligations);
-          } catch (renderError) {
-            console.error(
-              "[vibecomfy] finalized transaction projection failed",
-              boundedBrowserTransactionError(renderError, "post_finalize_render", {
-                recoverable: true,
-                resumeState: "finalized",
-              }),
-            );
-          }
-          return;
-        }
-        const failure = error?.ok === false
-          ? error
-          : agentPanelFailure("FinalizeError", String(error), {
-              retryable: true,
-              graph_unchanged: false,
-              next_action: "Reload to recover the prepared transaction, then finalize or rollback.",
-            });
-        // ── T26: Finalize failure boundary — compensate atomically ────
-        // Restore and verify the pre-apply canvas before cancelling the
-        // prepared server transaction. Preserve the finalize failure as the
-        // single user-visible outcome; rollback is supporting evidence only.
-        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-          restoreCanvas: true,
-          silent: true,
-          triggerStage: "finalize",
-          triggerFailure: failure,
-          canvasWasMutated: true,
-        });
-        if (failure && typeof failure === "object") {
-          failure.graph_unchanged = transactionRollback.canvas_restore?.restored === true;
-          failure.transaction_rollback = transactionRollback;
-        }
-        const obligations = commitFinalizeFailure(panel, {
-          ...compensatedFailurePayload(panel, failure, {
-            transactionRollback,
-            actionBody: finalizeBody,
-            fallbackStage: "finalize",
-          }),
-          debugPayload: {
-            transactional_apply: true,
-            finalize_boundary_rollback: true,
-            transaction_rollback: transactionRollback,
-            prepare_response: prepared.raw || prepared,
-            finalize_request: {
-              plan_hash: finalizeBody.plan_hash,
-              applied_delta_hash: finalizeBody.applied_delta_hash,
-              post_apply_hash: finalizeBody.post_apply_hash,
-            },
-            finalize_failure: boundedBrowserTransactionError(error, "finalize", {
-              resumeState: "canvas_verified",
-            }),
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-      }
-    })();
-
-    transition(panel, "APPLY_IN_FLIGHT", { promise: applyPromise });
-    try {
-      return await panel.state.inFlightApply;
-    } finally {
-      transition(panel, "APPLY_FINALLY", { clearInFlightApply: true });
-    }
-  }
-
-  // Explicit migration adapter: a legacy candidate may be inspected or
-  // rejected, but it cannot enter the production forward-mutation path.
-  // Removal criterion: no supported session can rehydrate without a
-  // candidate_transaction_v1 aggregate.
-  const legacyFailure = agentPanelFailure(
-    "LegacyCandidateReadOnly",
-    "This candidate predates the canonical transaction contract and cannot be applied safely.",
-    {
-      retryable: false,
-      graph_unchanged: true,
-      next_action: "Reject it or submit the edit again to create a canonical transaction.",
-    },
-  );
-  const legacyObligations = transition(panel, "APPLY_MISSING_FIELDS", {
-    failure: legacyFailure,
-    debugPayload: {
-      migration_adapter: "legacy_candidate_read_only",
-      removal_criteria: "no supported session lacks candidate_transaction_v1",
-    },
-  });
-  fulfillLifecycleTransitionObligations(panel, legacyObligations);
-  renderLifecycleTransition(panel, legacyObligations);
-  return;
-}
-
-function isV2ApplyCandidate(panel) {
-  const transaction = normalizeCandidateTransaction(panel?.state?.candidateTransaction);
-  const activeWorkflowId = resolveActiveWorkflowUuid();
-  return Boolean(
-    panel?.state?.candidateGraph
-    && panel.state.agentEditProtocol === "v2_delta"
-    && transaction
-    && activeWorkflowId
-    && transaction.candidate_authority?.workflow_id === activeWorkflowId,
-  );
-}
-
-function rollbackFailureKind(value) {
-  return typeof value?.kind === "string" && value.kind
-    ? value.kind
-    : typeof value?.failure_kind === "string" && value.failure_kind
-      ? value.failure_kind
-      : null;
-}
-
-function rollbackFailureMessage(value) {
-  for (const candidate of [value?.user_facing_message, value?.message, value?.error]) {
-    if (typeof candidate === "string" && candidate) {
-      return candidate.slice(0, 2048);
-    }
-  }
-  return null;
-}
-
-function normalizeLifecycleReceiptsFromEvents(events) {
-  const receipts = {
-    preparedReceipt: null,
-    verifiedReceipt: null,
-    rollbackReceipt: null,
-    lifecycleEvents: [],
-  };
-  if (!Array.isArray(events)) {
-    return receipts;
-  }
-  receipts.lifecycleEvents = events.map((event) => clonePlainData(event));
-  for (const event of events) {
-    if (!event || typeof event !== "object") {
-      continue;
-    }
-    const eventType = String(event.event_type || event.eventType || "");
-    const receipt = event.receipt && typeof event.receipt === "object"
-      ? clonePlainData(event.receipt)
-      : clonePlainData(event);
-    if (eventType === "prepared") {
-      receipts.preparedReceipt = receipt;
-    } else if (eventType === "finalized") {
-      receipts.finalizedReceipt = receipt;
-      receipts.verifiedReceipt = {
-        plan_hash: receipt.plan_hash || null,
-        generation: receipt.generation ?? null,
-        post_apply_hash: receipt.applied_payload?.post_apply_hash || null,
-        finalized_receipt: receipt,
-      };
-    } else if (eventType === "rolled_back") {
-      receipts.rollbackReceipt = receipt;
-    }
-  }
-  return receipts;
+function widgetReferenceNodeFor(uidOrId) {
+  const key = String(uidOrId);
+  const liveNodes = Array.isArray(app?.graph?._nodes) ? app.graph._nodes : [];
+  return liveNodes.find((node) => (
+    String(getUid(node) || "") === key
+    || String(node?.id ?? "") === key
+  )) || null;
 }
 
 async function postAgentLifecycleAction(endpoint, body, action) {
@@ -11433,781 +8776,75 @@ async function postAgentLifecycleAction(endpoint, body, action) {
 }
 
 async function reconcilePreparedTransactionState(panel) {
-  if (!panel?.state?.sessionId || !panel?.state?.turnId) {
-    return null;
-  }
-  const payload = await postAgentLifecycleAction("reconcile", {
-    session_id: panel.state.sessionId,
-    turn_id: panel.state.turnId,
-  }, "reconcile");
-  const events = Array.isArray(payload?.raw?.receipts_by_turn?.[panel.state.turnId])
-    ? payload.raw.receipts_by_turn[panel.state.turnId]
-    : [];
-  const receipts = normalizeLifecycleReceiptsFromEvents(events);
-  const candidateTransaction = normalizeCandidateTransaction(
-    payload?.raw?.transactions_by_turn?.[panel.state.turnId],
-  );
-  const recoveryGraph = payload?.raw?.recovery_graphs_by_turn?.[panel.state.turnId];
-  if (recoveryGraph?.graph && typeof recoveryGraph.graph === "object") {
-    pendingTransactionSnapshotByPanel.set(panel, {
-      graph: clonePlainData(recoveryGraph.graph),
-      graphHash: recoveryGraph.graph_hash || null,
-      structuralHash: recoveryGraph.structural_graph_hash || null,
-      layoutHash: recoveryGraph.layout_graph_hash || null,
-      liveCanvasToken: null,
-    });
-  }
-  const obligations = commitReconcileReceipts(panel, {
-    receipts,
-    candidateTransaction,
-    debugPayload: {
-      reconcile_response: payload.raw || payload,
-      reconciled_receipts: receipts,
-      recovery_graph_available: Boolean(recoveryGraph?.graph),
-    },
-  });
-  fulfillLifecycleTransitionObligations(panel, obligations);
-  if (candidateTransaction?.state === "finalized") {
-    pendingTransactionSnapshotByPanel.delete(panel);
-  }
-  return payload;
+  return rebaselineUndoFlow.reconcilePreparedTransactionState(panel);
 }
 
-async function rollbackPreparedAgentCandidate(
-  panel,
-  snapshot,
-  {
-    restoreCanvas = false,
-    silent = false,
-    triggerStage = "manual",
-    triggerFailure = null,
-    canvasWasMutated = restoreCanvas,
-  } = {},
-) {
-  const expectedLayoutHash = snapshot?.layoutHash
-    || (snapshot?.graph ? await layoutGraphHash(snapshot.graph) : null);
-  const canvasRestore = {
-    attempted: Boolean(restoreCanvas),
-    restored: !restoreCanvas,
-    expected_structural_hash: snapshot?.structuralHash || null,
-    actual_structural_hash: null,
-    expected_graph_hash: snapshot?.graphHash || null,
-    actual_graph_hash: null,
-    expected_layout_hash: expectedLayoutHash,
-    actual_layout_hash: null,
-    error: null,
-  };
-  if (restoreCanvas) {
-    try {
-      if (!snapshot?.graph || typeof snapshot.graph !== "object") {
-        throw new Error("Rollback has no pre-apply canvas snapshot.");
-      }
-      const transaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
-      if (!transaction) throw new Error("Rollback has no canonical transaction plan.");
-      const layoutTransaction = isLayoutAuthorityTransaction(transaction);
-      const inverseDeltaOps = buildInverseDeltaOps(
-        snapshot.graph,
-        transaction.plan.delta_ops_envelope.ops,
-      );
-      canvasRestore.scoped_inverse = {
-        attempted: true,
-        inverse_op_count: inverseDeltaOps.length,
-        strategy: layoutTransaction ? "native_layout_restore" : "inverse_delta",
-      };
-      try {
-        if (layoutTransaction) {
-          applyGraphLayoutInPlace(app, {
-            candidateGraph: clonePlainData(snapshot.graph),
-          });
-        } else {
-          applyGraphDeltaInPlace(app, {
-            deltaOps: inverseDeltaOps,
-            candidateGraph: clonePlainData(snapshot.graph),
-          });
-        }
-      } catch (inverseError) {
-        canvasRestore.scoped_inverse.error = boundedBrowserTransactionError(
-          inverseError,
-          "scoped_inverse_recovery",
-          { resumeState: "prepared" },
-        );
-      }
-      let restoredSnapshot = null;
-      try {
-        restoredSnapshot = await buildCanvasSnapshot();
-        canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
-        canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
-        canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
-        canvasRestore.restored = layoutTransaction
-          ? Boolean(expectedLayoutHash && restoredSnapshot.layoutHash === expectedLayoutHash)
-          : Boolean(snapshot.structuralHash && restoredSnapshot.structuralHash === snapshot.structuralHash);
-      } catch (verificationError) {
-        canvasRestore.scoped_inverse.error = canvasRestore.scoped_inverse.error
-          || boundedBrowserTransactionError(
-            verificationError,
-            "scoped_inverse_verification",
-            { resumeState: "prepared" },
-          );
-        canvasRestore.restored = false;
-      }
-      canvasRestore.scoped_inverse.restored = canvasRestore.restored;
-      if (!canvasRestore.restored && !layoutTransaction) {
-        canvasRestore.whole_graph_last_resort = { attempted: true };
-        applyGraphInPlaceWithIntentDecoration(snapshot.graph);
-        restoredSnapshot = await buildCanvasSnapshot();
-        canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
-        canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
-        canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
-        canvasRestore.restored = Boolean(snapshot.structuralHash
-          && restoredSnapshot.structuralHash === snapshot.structuralHash);
-        canvasRestore.whole_graph_last_resort.restored = canvasRestore.restored;
-      }
-      if (!canvasRestore.restored) {
-        canvasRestore.error = layoutTransaction
-          ? "Restored layout geometry did not match the pre-apply layout hash."
-          : "Restored canvas did not match the pre-apply structural hash.";
-      }
-    } catch (error) {
-      canvasRestore.restored = false;
-      canvasRestore.error = String(error);
-    }
-  }
-  if (restoreCanvas && !canvasRestore.restored) {
-    const failure = agentPanelFailure(
-      "CanvasRestoreError",
-      canvasRestore.error || "Could not verify restoration of the pre-apply canvas.",
-      {
-        retryable: true,
-        graph_unchanged: false,
-        next_action: "Keep the prepared transaction open and retry canvas restoration before rollback.",
-      },
-    );
-    if (!silent) {
-      const obligations = commitRollbackFailure(panel, {
-        failure,
-        debugPayload: {
-          rollback_failure: failure,
-          canvas_restore: canvasRestore,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-    }
-    return {
-      ok: false,
-      server_rolled_back: false,
-      canvas_restore: canvasRestore,
-      failure,
-    };
-  }
-  const compensation = {
-    trigger_stage: triggerStage,
-    canvas_was_mutated: Boolean(canvasWasMutated),
-    canvas_restore_attempted: canvasRestore.attempted,
-    canvas_restore_succeeded: canvasRestore.restored && canvasRestore.attempted,
-    ...(rollbackFailureKind(triggerFailure)
-      ? { failure_kind: rollbackFailureKind(triggerFailure).slice(0, 128) }
-      : {}),
-    ...(rollbackFailureMessage(triggerFailure)
-      ? { failure_message: rollbackFailureMessage(triggerFailure) }
-      : {}),
-    ...(canvasRestore.expected_graph_hash
-      ? { pre_apply_graph_hash: canvasRestore.expected_graph_hash }
-      : {}),
-    ...(canvasRestore.actual_graph_hash
-      ? { post_restore_graph_hash: canvasRestore.actual_graph_hash }
-      : {}),
-    ...(canvasRestore.expected_structural_hash
-      ? { pre_apply_structural_hash: canvasRestore.expected_structural_hash }
-      : {}),
-    ...(canvasRestore.actual_structural_hash
-      ? { post_restore_structural_hash: canvasRestore.actual_structural_hash }
-      : {}),
-  };
-  const rollbackBody = {
-    session_id: panel.state.sessionId,
-    turn_id: panel.state.turnId,
-    plan_hash: panel.state.mutationPlanHash,
-    generation: panel.state.generation,
-    lease_nonce: panel.state.leaseNonce || undefined,
-    client_graph_hash: snapshot?.graphHash || undefined,
-    client_structural_graph_hash: snapshot?.structuralHash || undefined,
-    compensation,
-    idempotency_key: buildActionIdempotencyKey({
-      action: "rollback",
-      sessionId: panel.state.sessionId,
-      turnId: panel.state.turnId,
-      graphHash: snapshot?.graphHash || panel.state.candidateGraphHash,
-    }),
-  };
-  if (!silent) {
-    const started = commitRollbackStarted(panel, {
-      debugPayload: { rollback_request: rollbackBody, canvas_restore: canvasRestore },
-    });
-    fulfillLifecycleTransitionObligations(panel, started);
-    renderLifecycleTransition(panel, started);
-  }
-  try {
-    const rolledBack = await postAgentLifecycleAction("rollback", rollbackBody, "rollback");
-    pendingTransactionSnapshotByPanel.delete(panel);
-    if (!silent) {
-      const obligations = commitRollbackSuccess(panel, {
-        rollbackReceipt: rolledBack.receipt || null,
-        candidateTransaction: rolledBack.candidateTransaction,
-        message: rolledBack.message || "Prepared transaction rolled back.",
-        toast: "Prepared transaction rolled back",
-        debugPayload: {
-          rollback_request: rollbackBody,
-          rollback_response: rolledBack.raw || rolledBack,
-          canvas_restore: canvasRestore,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      clearLayoutPreviewState(panel);
-      renderLifecycleTransition(panel, obligations);
-    }
-    return {
-      ok: true,
-      server_rolled_back: true,
-      rollback_receipt: rolledBack.receipt || null,
-      canvas_restore: canvasRestore,
-      response: rolledBack.raw || rolledBack,
-    };
-  } catch (error) {
-    const failure = error?.ok === false
-      ? error
-      : agentPanelFailure("RollbackError", String(error), {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Retry rollback or Rebaseline from the current canvas.",
-        });
-    if (!silent) {
-      const obligations = commitRollbackFailure(panel, {
-        failure,
-        debugPayload: {
-          rollback_request: rollbackBody,
-          rollback_failure: failure,
-          canvas_restore: canvasRestore,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-    }
-    return {
-      ok: false,
-      server_rolled_back: false,
-      canvas_restore: canvasRestore,
-      failure,
-    };
-  }
+async function rollbackPreparedAgentCandidate(panel, snapshot, options = {}) {
+  return rebaselineUndoFlow.rollbackPreparedAgentCandidate(panel, snapshot, options);
 }
 
 async function rejectAgentCandidate(panel) {
-  // ── T8: Demo-only reject branch (local state only, no backend reject) ──
-  // Delegates to preview_picker which handles lifecycle reflection and
-  // state cleanup inline.  No POST to /agent-edit/reject.
-  if (panel?.state?.__demoMode) {
-    if (!panel?.state?.candidateGraph || !panel.state.sessionId || !panel.state.turnId) {
-      return;
-    }
-    return panel.previewPicker?.handleDemoReject?.(panel);
-  }
-
-  if (!panel?.state?.candidateGraph || !panel.state.sessionId || !panel.state.turnId) {
-    return;
-  }
-  if (panel.state.chatRehydratePending === true) {
-    return;
-  }
-  const rejectTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
-  const legacyCancelAllowed = Array.isArray(panel.state.legacyMigration?.actions)
-    && panel.state.legacyMigration.actions.includes("cancel");
-  const failClosedDiscardAllowed = transactionAllowsRejectOrFailClosedDiscard(
-    rejectTransaction,
-    {
-      rawTransaction: panel.state.candidateTransaction,
-      agentEditProtocol: panel.state.agentEditProtocol,
-      candidatePresent: Boolean(panel.state.candidateGraph),
-    },
-  );
-  if (!failClosedDiscardAllowed && !legacyCancelAllowed) {
-    const failure = agentPanelFailure(
-      "TransactionNotActionable",
-      "This transaction is read-only and cannot be rejected or resumed.",
-      {
-        retryable: false,
-        graph_unchanged: true,
-        next_action: "Keep it for audit or submit a new edit against the current workflow.",
-        legacy_migration: clonePlainData(panel.state.legacyMigration || null),
-      },
-    );
-    const obligations = transition(panel, "REJECT_FAILURE", { failure, debugPayload: failure });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    renderLifecycleTransition(panel, obligations);
-    return;
-  }
-
-  let snapshot;
-  try {
-    snapshot = await buildCanvasSnapshot();
-  } catch (e) {
-    const failure = agentPanelFailure("SerializeError", String(e), {
-      retryable: true,
-      graph_unchanged: true,
-      next_action: "Make sure the canvas can serialize, then retry Reject.",
-    });
-    const obligations = transition(panel, "REJECT_FAILURE", {
-      failure,
-      syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-      debugPayload: failure,
-    });
-    if (obligations.render) renderAgentPanel(panel);
-    return;
-  }
-
-  if (
-    isV2ApplyCandidate(panel)
-    && (
-      panel.state.phase === PANEL_STATE.APPLY_PREPARED
-      || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
-      || panel.state.phase === PANEL_STATE.FINALIZING
-      || panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
-    )
-  ) {
-    const recoveryMayHaveMutatedCanvas = (
-      panel.state.phase === PANEL_STATE.FINALIZING
-      || (
-        panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
-        && panel.state.failure?.graph_unchanged !== true
-      )
-    );
-    if (
-      panel.state.phase === PANEL_STATE.FINALIZING
-      || panel.state.phase === PANEL_STATE.RECOVERY_REQUIRED
-    ) {
-      try {
-        await reconcilePreparedTransactionState(panel);
-      } catch (error) {
-        const failure = agentPanelFailure("ReconcileError", String(error), {
-          retryable: true,
-          graph_unchanged: false,
-          next_action: "Retry transaction recovery when the server is reachable.",
-        });
-        const obligations = transition(panel, "ROLLBACK_FAILURE", {
-          failure,
-          debugPayload: { recovery_reconcile_failure: failure },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-      const reconciled = normalizeCandidateTransaction(panel.state.candidateTransaction);
-      if (reconciled?.state === "finalized" || reconciled?.state === "rollback_complete") {
-        return;
-      }
-    }
-    const compensationSnapshot = pendingTransactionSnapshotByPanel.get(panel) || null;
-    const liveStructuralHash = snapshot.structuralHash || null;
-    const baselineStructuralHash = compensationSnapshot?.structuralHash || null;
-    const candidateStructuralHash = compensationSnapshot?.candidateStructuralHash
-      || panel.state.candidateTransaction?.hashes?.candidate_structural_graph_hash
-      || null;
-    const canvasMatchesBaseline = Boolean(
-      baselineStructuralHash && liveStructuralHash === baselineStructuralHash,
-    );
-    const canvasMatchesCandidate = Boolean(
-      candidateStructuralHash && liveStructuralHash === candidateStructuralHash,
-    );
-    let canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
-      || recoveryMayHaveMutatedCanvas;
-    if (canvasMatchesBaseline) {
-      canvasWasMutated = false;
-    } else if (canvasMatchesCandidate) {
-      canvasWasMutated = true;
-    } else if (compensationSnapshot?.rehydrated) {
-      const failure = agentPanelFailure(
-        "PreparedCanvasDiverged",
-        "The canvas differs from both the pre-Apply baseline and the prepared candidate.",
-        {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Restore either the original or candidate canvas before cancelling this interrupted Apply.",
-        },
-      );
-      const obligations = transition(panel, "ROLLBACK_FAILURE", {
-        failure,
-        debugPayload: {
-          rollback_failure: failure,
-          live_structural_graph_hash: liveStructuralHash,
-          baseline_structural_graph_hash: baselineStructuralHash,
-          candidate_structural_graph_hash: candidateStructuralHash,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-    const rollbackSnapshot = compensationSnapshot?.graph
-      ? {
-          graph: compensationSnapshot.graph,
-          graphHash: compensationSnapshot.graphHash || null,
-          structuralHash: compensationSnapshot.structuralHash || null,
-          liveCanvasToken: snapshot.liveCanvasToken,
-        }
-      : snapshot;
-    await rollbackPreparedAgentCandidate(panel, rollbackSnapshot, {
-      restoreCanvas: canvasWasMutated,
-      triggerStage: "manual",
-      canvasWasMutated,
-    });
-    return;
-  }
-
-  const rejectKey = buildActionIdempotencyKey({
-    action: "reject",
-    sessionId: panel.state.sessionId,
-    turnId: panel.state.turnId,
-    graphHash: snapshot.graphHash,
-  });
-  const rejectBody = {
-    session_id: panel.state.sessionId,
-    turn_id: panel.state.turnId,
-    client_graph_hash: snapshot.graphHash,
-    idempotency_key: rejectKey,
-  };
-
-  const startObligations = transition(panel, "REJECT_STARTED", {
-    rejectBody,
-    debugPayload: {
-      rejecting_turn_id: panel.state.turnId,
-      reject_request: rejectBody,
-    },
-  });
-  if (startObligations.render) renderAgentPanel(panel);
-
-  let rejected;
-  try {
-    const res = await fetch("/vibecomfy/agent-edit/reject", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(rejectBody),
-    });
-    const rawRejected = await res.json();
-    rejected = normalizeAuxiliaryAgentPayload(rawRejected, "reject");
-    if (!res.ok || rejected?.ok === false || rejected.raw?.error) {
-      throw rejected.raw || { kind: "RejectError", message: res.statusText };
-    }
-  } catch (e) {
-    const failure = e?.ok === false
-      ? e
-      : agentPanelFailure("RejectError", String(e), {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Retry Reject after the backend responds again.",
-        });
-    const obligations = transition(panel, "REJECT_FAILURE", {
-      failure,
-      syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-      rejectBody,
-      debugPayload: {
-        ...failure,
-        reject_request: rejectBody,
-      },
-    });
-    const recovery = recoveryForPanelState(extractRebaselineRecovery(failure));
-    transition(panel, "REBASELINE_RECOVERY_SYNC", { rebaselineRecovery: recovery });
-    pushHistory(panel, "failure", failure.kind || "RejectError");
-      pushTurnStatus(panel, "failed", {
-        session_id: failure.session_id || panel.state.sessionId,
-        turn_id: failure.turn_id || panel.state.turnId,
-      baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-      failure_kind: failure.kind || "RejectError",
-      failure_stage: failure.stage || "reject",
-      message: failure.user_facing_message || failure.message || failure.error,
-        audit_ref: failure.audit_ref,
-        raw_payload: failure,
-      });
-      rememberTurnDetailSnapshot(panel, {
-        turn_id: failure.turn_id || panel.state.turnId,
-        session_id: failure.session_id || panel.state.sessionId,
-        failure,
-        message: failure.user_facing_message || failure.message || failure.error,
-      });
-      if (obligations.render) renderAgentPanel(panel);
-    return;
-  }
-
-  pushHistory(panel, "rejected", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
-  pushTurnStatus(panel, "rejected", {
-    turn_id: panel.state.turnId,
-    baseline_turn_id: rejected.baselineTurnId || panel.state.baselineTurnId,
-    message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
-    audit_ref: rejected.auditRef || panel.state.auditRef,
-    raw_payload: rejected.raw || rejected,
-  });
-
-  // ── T6: Production reject stays backend-authoritative. The POST above owns
-  // Reject authority; the rebaseline-recovery sync below is wired by the
-  // production orchestrator. commitLifecycleReset is reserved for local/demo
-  // reset outcomes where no production POST is involved, so this call site
-  // keeps the direct REJECT_SUCCESS transition (see plan Step 6 (3)).
-  const obligations = transition(panel, "REJECT_SUCCESS", {
-    rejected: rejected.raw || rejected,
-    message: "Candidate rejected and cleared from the panel.",
-    toast: "Agent candidate rejected",
-    debugPayload: {
-      rejected: rejected.raw || rejected,
-      graph_unchanged: true,
-    },
-  });
-
-  fulfillLifecycleTransitionObligations(panel, obligations);
-  restoreLayoutPreviewBaseline(panel);
-
-  const recovery = rejected.rebaselineRecovery || null;
-  transition(panel, "REBASELINE_RECOVERY_SYNC", {
-    ...(recovery ? { rebaselineRecovery: recovery } : { clearRebaselineRecovery: rejected.ok === true }),
-  });
-
-  rememberTurnDetailSnapshot(panel, {
-    turn_id: rejected.turnId || panel.state.turnId,
-    session_id: rejected.sessionId || panel.state.sessionId,
-    auditRef: rejected.auditRef || panel.state.auditRef,
-    debugPayload: {
-      rejected: rejected.raw || rejected,
-      graph_unchanged: true,
-    },
-    message: panel.state.message,
-  });
-
-  renderLifecycleTransition(panel, obligations);
+  return rebaselineUndoFlow.rejectAgentCandidate(panel);
 }
 
-export async function postAgentRebaseline(
-  panel,
-  { reason, graphSnapshot = null, lastKnownBaselineGraphHash = undefined } = {},
-) {
-  if (!panel?.state) {
-    return null;
-  }
-  if (panel.state.inFlightRebaseline) {
-    return panel.state.inFlightRebaseline;
-  }
-  if (!panel.state.sessionId) {
-    throw agentPanelFailure("MissingRequiredField", "Cannot rebaseline without a session_id.", {
-      retryable: false,
-      graph_unchanged: true,
-      next_action: "Submit an agent edit first so the session exists.",
-    });
-  }
-
-  const rebaselinePromise = (async () => {
-    let body = null;
-    let rebaselineReason = "continue_from_canvas";
-    try {
-      let snapshot = graphSnapshot;
-      if (!snapshot) {
-        snapshot = await buildCanvasSnapshot();
-      }
-      rebaselineReason = String(reason || "continue_from_canvas").trim() || "continue_from_canvas";
-      const expectedBaselineGraphHash =
-        lastKnownBaselineGraphHash !== undefined
-          ? lastKnownBaselineGraphHash
-          : (panel.state.baselineGraphHash || null);
-      const idempotencyKey = buildRebaselineIdempotencyKey({
-        sessionId: panel.state.sessionId,
-        reason: rebaselineReason,
-        baselineGraphHash: expectedBaselineGraphHash,
-        structuralHash: snapshot.structuralHash,
-      });
-      const rebaselinePending = {
-        reason: rebaselineReason,
-        last_known_baseline_graph_hash: expectedBaselineGraphHash,
-        client_graph_hash: snapshot.graphHash,
-        client_structural_graph_hash: snapshot.structuralHash,
-        idempotency_key: idempotencyKey,
-      };
-      const startedObligations = transition(panel, "REBASELINE_STARTED", {
-        rebaselinePending,
-      });
-      renderLifecycleTransition(panel, startedObligations);
-
-      body = {
-        session_id: panel.state.sessionId,
-        graph: snapshot.graph,
-        reason: rebaselineReason,
-        last_known_baseline_graph_hash: expectedBaselineGraphHash,
-        client_graph_hash: snapshot.graphHash,
-        client_structural_graph_hash: snapshot.structuralHash,
-        idempotency_key: idempotencyKey,
-      };
-
-      const res = await fetch("/vibecomfy/agent-edit/rebaseline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const rawRebaseline = await res.json();
-      const result = normalizeAuxiliaryAgentPayload(rawRebaseline, "rebaseline");
-      if (!res.ok || result?.ok === false || result.raw?.error) {
-        throw result.raw || { kind: "RebaselineError", message: res.statusText };
-      }
-      const successObligations = transition(panel, "REBASELINE_SUCCESS", {
-        result: result.raw || result,
-        rebaselineRequest: body,
-        debugPayload: {
-          rebaseline_request: body,
-          rebaseline_response: result.raw || result,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, successObligations);
-      return result;
-    } catch (e) {
-      const failure = e?.ok === false
-        ? e
-        : agentPanelFailure("RebaselineError", String(e), {
-            retryable: true,
-            graph_unchanged: true,
-            next_action: "Retry the rebaseline request after the backend responds again.",
-          });
-      const failureObligations = transition(panel, "REBASELINE_FAILURE", {
-        failure,
-        rebaselineRequest: body,
-        rebaselineRecovery: recoveryForPanelState(extractRebaselineRecovery(failure)),
-        rebaselinePendingPatch: {
-          reason: rebaselineReason,
-          retryable: Boolean(failure.retryable),
-          failure_kind: failure.kind || null,
-          failure_stage: failure.stage || null,
-          message: failure.user_facing_message || failure.message || failure.error || null,
-        },
-        debugPayload: {
-          ...failure,
-          rebaseline_request: body,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, failureObligations);
-      throw failure;
-    } finally {
-      const finallyObligations = transition(panel, "REBASELINE_FINALLY", {
-        clearInFlightRebaseline: true,
-      });
-      renderLifecycleTransition(panel, finallyObligations);
-    }
-  })();
-
-  transition(panel, "REBASELINE_IN_FLIGHT", { promise: rebaselinePromise });
-
-  return rebaselinePromise;
+export async function postAgentRebaseline(panel, options = {}) {
+  return rebaselineUndoFlow.postAgentRebaseline(panel, options);
 }
 
 async function rebaselineCurrentCanvas(panel) {
-  const recovery = panel?.state?.rebaselineRecovery;
-  if (!recovery) {
-    renderAgentPanel(panel);
-    return null;
-  }
-  if (panel.state.inFlightRebaseline) {
-    return panel.state.inFlightRebaseline;
-  }
-  const retryTask = panel.state.lastSubmit?.task;
-  const queuedObligations = transition(panel, "STALE_RECOVERY_REBASELINE_QUEUED");
-  renderLifecycleTransition(panel, queuedObligations);
-  try {
-    const result = await postAgentRebaseline(panel, {
-      reason: "stale_state_recovery",
-      lastKnownBaselineGraphHash: recovery.last_known_baseline_graph_hash ?? null,
-    });
-    const successObligations = transition(panel, "STALE_RECOVERY_REBASELINE_SUCCESS", {
-      auditRef: result.auditRef || panel.state.auditRef,
-      message: "Current canvas rebaselined. Resubmitting from this canvas...",
-      toast: "Current canvas rebaselined",
-      debugPayload: {
-        stale_state_recovery: true,
-        rebaseline_response: result.raw || result,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, successObligations);
-    renderLifecycleTransition(panel, successObligations);
-    await submitAgentEdit(panel, { taskOverride: retryTask });
-    return result;
-  } catch (failure) {
-    const failureObligations = transition(panel, "STALE_RECOVERY_REBASELINE_FAILURE", {
-      rebaselineRecovery: recoveryForPanelState(extractRebaselineRecovery(failure)) || recovery,
-      message: "Current canvas rebaseline failed. Review the evidence and retry.",
-      debugPayload: {
-        ...(panel.state.debugPayload || {}),
-        stale_state_recovery: true,
-      },
-    });
-    renderLifecycleTransition(panel, failureObligations);
-    return null;
-  }
+  return rebaselineUndoFlow.rebaselineCurrentCanvas(panel);
 }
 
 async function undoLastApply(panel) {
-  const undoStack = panel?.state?.undoStack;
-  const previous = Array.isArray(undoStack) ? undoStack[undoStack.length - 1] : null;
-  if (!isLegacyUndoCacheEntryV1(previous)) {
-    renderAgentPanel(panel);
-    return null;
-  }
-  if (panel.state.inFlightRebaseline) {
-    return panel.state.inFlightRebaseline;
-  }
-  await loadGraphDataWithoutScopeSwitch(previous.graph);
-  const restoreObligations = transition(panel, "UNDO_LOCAL_RESTORE", {
-    previous,
-    undoStackDepth: panel.state.undoStack.length,
-  });
-  fulfillLifecycleTransitionObligations(panel, restoreObligations);
-  renderLifecycleTransition(panel, restoreObligations);
-  try {
-    const result = await postAgentRebaseline(panel, {
-      reason: "undo",
-      lastKnownBaselineGraphHash:
-        previous.accepted_baseline_graph_hash
-        ?? panel.state.rebaselinePending?.last_known_baseline_graph_hash
-        ?? panel.state.baselineGraphHash
-        ?? null,
-    });
-    pushHistory(panel, "undo", previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph");
-    pushTurnStatus(panel, "undone", {
-      turn_id: previous.turn_id || null,
-      baseline_turn_id: result.baselineTurnId || null,
-      message: previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph",
-      audit_ref: result.auditRef || panel.state.auditRef,
-      raw_payload: result.raw || result,
-    });
-    const successObligations = transition(panel, "UNDO_REBASELINE_SUCCESS", {
-      previous,
-      result: result.raw || result,
-      undoStackDepth: panel.state.undoStack.length - 1,
-      toast: "Previous graph restored",
-    });
-    fulfillLifecycleTransitionObligations(panel, successObligations);
-    renderLifecycleTransition(panel, successObligations);
-    return result;
-  } catch (failure) {
-    const normalizedFailure = failure && typeof failure === "object"
-      ? failure
-      : agentPanelFailure("RebaselineError", String(failure), {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Retry Undo Rebaseline after the backend responds again.",
-        });
-    const failureObligations = transition(panel, "UNDO_REBASELINE_FAILURE", {
-      previous,
-      failure: normalizedFailure,
-      syntheticAgentMessage: syntheticFailureAgentMessage(panel, normalizedFailure, "frontend"),
-      rebaselineRecovery:
-        recoveryForPanelState(extractRebaselineRecovery(normalizedFailure)) || panel.state.rebaselineRecovery,
-      undoStackDepth: panel.state.undoStack.length,
-    });
-    renderLifecycleTransition(panel, failureObligations);
-    return null;
-  }
+  return rebaselineUndoFlow.undoLastApply(panel);
 }
+
+// ── T-059: Rebaseline / undo flow behind injected boundaries ─────────────
+// Build the dependency object once from roundtrip's live singletons. The
+// lifecycle reducer remains the authority for panel state and preview-cache
+// clears; this flow only drives those existing transitions and clear seams.
+// Keep the native restore seam lexically owned by undoLastApply so the frozen
+// native-authority inventory continues to classify the same access owner.
+const rebaselineUndoFlow = createRebaselineUndoFlow({
+  PANEL_STATE,
+  agentPanelFailure,
+  app,
+  applyGraphDeltaInPlace,
+  applyGraphInPlaceWithIntentDecoration: applyFlow.applyGraphInPlaceWithIntentDecoration,
+  applyGraphLayoutInPlace,
+  boundedBrowserTransactionError,
+  buildActionIdempotencyKey,
+  buildCanvasSnapshot,
+  buildInverseDeltaOps,
+  clearLayoutPreviewState,
+  clonePlainData,
+  commitReconcileReceipts,
+  commitRollbackFailure,
+  commitRollbackStarted,
+  commitRollbackSuccess,
+  extractRebaselineRecovery,
+  fulfillLifecycleTransitionObligations,
+  isLayoutAuthorityTransaction,
+  isLegacyUndoCacheEntryV1,
+  isV2ApplyCandidate: applyFlow.isV2ApplyCandidate,
+  layoutGraphHash,
+  normalizeAuxiliaryAgentPayload,
+  normalizeCandidateTransaction,
+  pendingTransactionSnapshotByPanel,
+  postAgentLifecycleAction,
+  pushHistory,
+  pushTurnStatus,
+  recoveryForPanelState,
+  rememberTurnDetailSnapshot,
+  renderAgentPanel,
+  renderLifecycleTransition,
+  restoreLayoutPreviewBaseline,
+  restoreUndoGraph: loadGraphDataWithoutScopeSwitch,
+  submitAgentEdit,
+  syntheticFailureAgentMessage,
+  transactionAllowsRejectOrFailClosedDiscard,
+  transition,
+});
 
 async function openRoundtrip() {
   let graph;

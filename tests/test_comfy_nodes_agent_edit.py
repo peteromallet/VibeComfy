@@ -687,16 +687,25 @@ def test_turn_event_name_matches_between_backend_emit_and_frontend_listener() ->
     (`vibecomfy.agent_edit.turn` vs `vibecomfy/agent-edit/turn`), which delivered
     zero live events. Pin them together so the two sides can never drift again."""
     repo_root = Path(__file__).resolve().parents[1]
-    backend_src = (repo_root / "vibecomfy" / "comfy_nodes" / "agent" / "edit.py").read_text(
-        encoding="utf-8"
-    )
+    # The emit can live in any module of the agent package (edit.py, the _frag_*.py
+    # exec-split fragments, edit_batch_repl.py): the wire contract is the event name,
+    # not the file that hosts it, so scan the whole package.
+    agent_dir = repo_root / "vibecomfy" / "comfy_nodes" / "agent"
     frontend_src = (
         repo_root / "vibecomfy" / "comfy_nodes" / "web" / "vibecomfy_roundtrip.js"
     ).read_text(encoding="utf-8")
 
-    backend_match = re.search(r'_ws_send\(\s*"([^"]+)"', backend_src)
-    assert backend_match, "could not find the backend _ws_send(...) emit string"
-    backend_event = backend_match.group(1)
+    backend_events: list[str] = []
+    for backend_path in agent_dir.glob("*.py"):
+        backend_src = backend_path.read_text(encoding="utf-8")
+        backend_events.extend(re.findall(r'_ws_send\(\s*"([^"]+)"', backend_src))
+    unique_backend_events = set(backend_events)
+    assert unique_backend_events, "could not find the backend _ws_send(...) emit string"
+    assert len(unique_backend_events) == 1, (
+        "expected exactly one distinct _ws_send(...) turn-event name across the agent "
+        f"package, found {sorted(unique_backend_events)!r}"
+    )
+    backend_event = unique_backend_events.pop()
 
     frontend_match = re.search(
         r'addEventListener\(\s*"([^"]+)"\s*,\s*agentTurnEventListener', frontend_src

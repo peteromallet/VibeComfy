@@ -190,6 +190,7 @@ def test_m1_static_authority_guardrails() -> None:
     root = Path(__file__).parents[1]
     source = (root / "vibecomfy/comfy_nodes/agent/projection_registry_v1.py").read_text()
     session_source = (root / "vibecomfy/comfy_nodes/agent/session.py").read_text()
+    turn_state_source = (root / "vibecomfy/comfy_nodes/agent/_turn_state_machine.py").read_text()
     identity_source = inspect.getsource(node_identity_v1)
     assert 'get("id")' not in identity_source
     from vibecomfy.comfy_nodes.agent.projection_registry_v1 import group_identity_v1
@@ -201,7 +202,7 @@ def test_m1_static_authority_guardrails() -> None:
     assert "return _registry_canonical_json_bytes(value, ensure_ascii=False)" in candidate_source
     assert 'agent_edit_protocol = "v2_delta"' not in session_source
     assert "_load_turn_delta_ops(session_dir=session_dir, turn_id=turn_id) is not None" not in session_source
-    assert "Legacy nonterminal authority is nonresumable" in session_source
+    assert "Legacy nonterminal authority is nonresumable" in turn_state_source
     for duplicate_owner_symbol in (
         "def _natural_id_key",
         "def _normalize_structural_widget_value",

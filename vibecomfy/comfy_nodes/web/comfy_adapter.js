@@ -88,6 +88,249 @@ function safeAdapterLogDetail(value) {
   return typeof value;
 }
 
+// ── Intent / exec normalization ─────────────────────────────────────────────────
+
+export function normalizeIntentTypedIo(io, key) {
+  const entries = io?.[key];
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) {
+        return null;
+      }
+      const [name, type] = entry;
+      if (!name || !type) {
+        return null;
+      }
+      return { name: String(name), type: String(type) };
+    })
+    .filter(Boolean);
+}
+
+export function readExecWidgetValue(node, key) {
+  const widgetsValues = node?.widgets_values;
+  if (widgetsValues && typeof widgetsValues === "object" && !Array.isArray(widgetsValues)) {
+    if (Object.prototype.hasOwnProperty.call(widgetsValues, key)) {
+      return widgetsValues[key];
+    }
+  }
+  if (Array.isArray(widgetsValues)) {
+    if (key === "source") {
+      return widgetsValues[0];
+    }
+    if (key === "io") {
+      return widgetsValues[1];
+    }
+  }
+  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+  for (const widget of widgets) {
+    if (widget?.name === key) {
+      return widget.value;
+    }
+  }
+  return undefined;
+}
+
+export function normalizeExecIoValue(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+export function normalizeExecIoEntries(entries) {
+  let rawItems = entries;
+  if (entries && typeof entries === "object" && !Array.isArray(entries)) {
+    rawItems = Object.entries(entries).map(([name, type]) => [name, type]);
+  }
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+  return rawItems
+    .map((entry) => {
+      if (Array.isArray(entry) && entry.length >= 1) {
+        const name = String(entry[0] || "").trim();
+        const type = String(entry[1] || "").trim();
+        return name ? [name, type || "*"] : null;
+      }
+      if (entry && typeof entry === "object") {
+        const name = String(entry.name || "").trim();
+        const type = String(entry.type || "").trim();
+        return name && type ? [name, type] : null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+export function normalizeExecIoObject(io) {
+  const normalized = normalizeExecIoValue(io);
+  if (!normalized) {
+    return null;
+  }
+  const inputs = normalizeExecIoEntries(normalized.inputs);
+  const outputs = normalizeExecIoEntries(normalized.outputs);
+  if (!inputs.length && !outputs.length) {
+    return null;
+  }
+  return { inputs, outputs };
+}
+
+function parseTypedSocketLabel(slot) {
+  const text = String(slot?.label || slot?.name || "").trim();
+  const match = /^(.+?)\s*:\s*([^:]+)$/.exec(text);
+  if (!match) {
+    return null;
+  }
+  const name = match[1].trim();
+  const type = match[2].trim();
+  return name && type ? [name, type] : null;
+}
+
+function deriveExecIoFromSocketLabels(node) {
+  const inputs = Array.isArray(node?.inputs)
+    ? node.inputs.map(parseTypedSocketLabel).filter(Boolean)
+    : [];
+  const outputs = Array.isArray(node?.outputs)
+    ? node.outputs.map(parseTypedSocketLabel).filter(Boolean)
+    : [];
+  if (!inputs.length && !outputs.length) {
+    return null;
+  }
+  return { inputs, outputs };
+}
+
+function readExecIoFromMetadata(node) {
+  const payload = node?.properties?.vibecomfy;
+  const fromPayload = normalizeExecIoObject(payload?.io);
+  if (fromPayload) {
+    return fromPayload;
+  }
+  const meta = node?.__vibecomfyIntentMeta;
+  const fromMeta = {
+    inputs: normalizeExecIoEntries(meta?.typedInputs),
+    outputs: normalizeExecIoEntries(meta?.typedOutputs),
+  };
+  return fromMeta.inputs.length || fromMeta.outputs.length ? fromMeta : null;
+}
+
+function execClassType(node, fallback = null) {
+  const classType = String(
+    node?.type
+      || node?.comfyClass
+      || node?.properties?.["Node name for S&R"]
+      || fallback
+      || "",
+  ).trim();
+  return classType === "vibecomfy.exec" ? classType : "";
+}
+
+export function normalizeExecNodeForSerialization(node, fallbackClassType = null, deps = {}) {
+  if (execClassType(node, fallbackClassType) !== "vibecomfy.exec") {
+    return false;
+  }
+  const io =
+    normalizeExecIoObject(readExecWidgetValue(node, "io"))
+    || readExecIoFromMetadata(node)
+    || deriveExecIoFromSocketLabels(node);
+  if (!io) {
+    return false;
+  }
+  if (typeof deps.setExecWidgetValue !== "function") {
+    throw new TypeError("normalizeExecNodeForSerialization requires setExecWidgetValue.");
+  }
+  const source = readExecWidgetValue(node, "source");
+  deps.setExecWidgetValue(node, "io", io);
+  if (source !== undefined) {
+    deps.setExecWidgetValue(node, "source", source);
+  }
+  node.properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
+  const payload = node.properties.vibecomfy && typeof node.properties.vibecomfy === "object"
+    ? node.properties.vibecomfy
+    : {};
+  const intent = payload.intent && typeof payload.intent === "object" ? payload.intent : {};
+  node.properties.vibecomfy = {
+    ...payload,
+    kind: payload.kind || "code",
+    io,
+    intent: {
+      ...intent,
+      ...(typeof source === "string" ? { source } : {}),
+    },
+  };
+  return true;
+}
+
+export function normalizeGraphExecNodesForSerialization(graph, deps = {}) {
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  for (const node of nodes) {
+    normalizeExecNodeForSerialization(node, null, deps);
+  }
+}
+
+export function applyTypedSocketLabels(slots, typedEntries) {
+  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
+    return;
+  }
+  const count = Math.min(slots.length, typedEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
+    const typed = typedEntries[index];
+    if (!slot || !typed) {
+      continue;
+    }
+    const label = `${typed.name}: ${typed.type}`;
+    slot.name = label;
+    if ("label" in slot || typeof slot === "object") {
+      slot.label = label;
+    }
+  }
+}
+
+export function applyTypedSocketLabelsLabelOnly(slots, typedEntries) {
+  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
+    return;
+  }
+  const count = Math.min(slots.length, typedEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
+    const typed = typedEntries[index];
+    if (!slot || !typed) {
+      continue;
+    }
+    const label = `${typed.name}: ${typed.type}`;
+    // Write ONLY slot.label; leave slot.name unchanged (in_i for serialization).
+    if ("label" in slot || typeof slot === "object") {
+      slot.label = label;
+    }
+  }
+}
+
+export function applyTypedSocketTypesOnly(slots, typedEntries) {
+  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
+    return;
+  }
+  const count = Math.min(slots.length, typedEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
+    const typed = typedEntries[index];
+    if (!slot || !typed || typeof typed.type !== "string" || !typed.type) {
+      continue;
+    }
+    slot.type = typed.type;
+  }
+}
+
 // ── Capability shape ───────────────────────────────────────────────────────
 // Each capability is { available: bool, detail: string, path: string | null }
 // where `detail` explains why a capability is missing in degraded profiles.

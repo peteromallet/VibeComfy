@@ -30,6 +30,7 @@ import {
   commitTerminalResponse,
   commitTranscriptRehydrate,
 } from "./agent_lifecycle_commit.js";
+import { jsonClone as clonePlainData } from "./json_clone.js";
 
 const LS_DEMO_PICKER_ENABLED = "vibecomfy_demo_picker_enabled";
 const SCENARIOS_ENDPOINT = "/vibecomfy/demo/scenarios";
@@ -165,17 +166,6 @@ function makeMessage({ role, text, sessionId, turnId, response = null }) {
     message.report = clonePlainData(response.report);
   }
   return message;
-}
-
-function clonePlainData(value) {
-  if (value == null) {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
 }
 
 function nodeIdentity(node) {

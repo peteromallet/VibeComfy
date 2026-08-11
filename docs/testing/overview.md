@@ -10,6 +10,13 @@ The VibeComfy test suite has three layers: fast unit tests that run on every pus
 - The CI job fails the merge if any test fails, errors, or unexpectedly passes (`xpassed`).
 - No GPU markers run on this path. `-m 'not gpu'` is the default in `pyproject.toml::[tool.pytest.ini_options]`.
 
+## Test-suite scope and the real coverage gap
+
+The repository contains **347** `test_*.py` files (`find tests -name 'test_*.py' | wc -l`). The `make check` gate selects only **20 distinct files** — the 19 files listed in `FAST_PYTEST` plus one oracle node in `tests/test_porting_ui_emitter.py` (`test_layer3_corpus_wide_convert_ui_to_api_gate`) — roughly **5.8%** of the suite. This is the real gap: the fast path is a smoke floor, not full coverage, and the remaining ~94% of test files only run on demand.
+
+- **`make full-pytest`** — the full-suite gate outside `make check`. Runs every collected test (GPU tests excluded via the default `-m 'not gpu'` addopts) parallelized across **8 pytest-xdist workers** (`-n 8 -q -p no:cacheprovider`).
+- **Quarantine behavior** — failures whose nodeids are listed in `tests/quarantine/*.txt` (plus the legacy known-failures file) are tolerated baseline failures. The plugin prints `TOLERATED QUARANTINED FAILURES` for them and resets the exit status to 0 when **every** failure is a known-baseline failure. **New failures always gate**: any failed nodeid absent from the quarantine index forces a non-zero exit. The quarantine index is a scoped, owned record — not a skip mechanism — and the full suite is expected to exit 0 modulo that recorded baseline.
+
 ## Coverage floor
 
 - Coverage is measured by `pytest-cov` and pinned in `pyproject.toml::[tool.coverage.report] fail_under`.

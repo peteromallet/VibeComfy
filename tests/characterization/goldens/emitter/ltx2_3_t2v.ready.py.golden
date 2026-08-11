@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
-from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVEmptyLatentAudio, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
+from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVEmptyLatentAudio, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
 from vibecomfy.nodes.ltxvideo import GuiderParameters, LTXFloatToInt, LTXVImgToVideoConditionOnly, LTXVTiledVAEDecode, LowVRAMCheckpointLoader, MultimodalGuider
 from vibecomfy.patches.ltx_lowvram import apply as apply_ltx_lowvram
 from vibecomfy.patches.requirements import ensure_custom_nodes
@@ -165,8 +165,9 @@ def build() -> VibeWorkflow:
 
     ltxvemptylatentaudio = LTXVEmptyLatentAudio(
         _id='3980',
-        frames_number=121,
+        frames_number=9,
         widget_0=9,
+        widget_1=8,
         frame_rate=ltxfloattoint,
         audio_vae=ltxvaudiovaeloader,
         _uid='n15',
@@ -185,8 +186,11 @@ def build() -> VibeWorkflow:
         _id='4981',
         resize_type='scale longer dimension',
         scale_method='lanczos',
+        longer_size=384,
+        widget_1=384,
         input=image,
         _uid='n19',
+        **{'resize_type.longer_size': 384},
     )
 
     positive, negative = LTXVConditioning(
@@ -233,7 +237,7 @@ def build() -> VibeWorkflow:
 
     multimodalguider = MultimodalGuider(
         _id='4808',
-        widget_0='28',
+        skip_blocks='28',
         model=loraloadermodelonly_2,
         negative=negative,
         parameters=guiderparameters_2,
@@ -284,24 +288,8 @@ def build() -> VibeWorkflow:
         _uid='n28',
     )
 
-    video_latent_2, audio_latent_2 = LTXVSeparateAVLatent(
-        _id='4845',
-        av_latent=output_2,
-        _uid='n29',
-    )
-
-    video_latent, audio_latent = LTXVSeparateAVLatent(
-        _id='4824',
-        av_latent=output,
-        _uid='n30',
-    )
-
-    ltxvaudiovaedecode_2 = LTXVAudioVAEDecode(
-        _id='4848',
-        audio_vae=ltxvaudiovaeloader,
-        samples=audio_latent_2,
-        _uid='n31',
-    )
+    video_latent_2, _ = LTXVSeparateAVLatent(_id='4845', av_latent=output_2, _uid='n29')
+    video_latent, _ = LTXVSeparateAVLatent(_id='4824', av_latent=output, _uid='n30')
 
     ltxvtiledvaedecode = LTXVTiledVAEDecode(
         _id='4982',
@@ -313,17 +301,9 @@ def build() -> VibeWorkflow:
         _uid='n32',
     )
 
-    ltxvaudiovaedecode = LTXVAudioVAEDecode(
-        _id='4818',
-        audio_vae=ltxvaudiovaeloader,
-        samples=audio_latent,
-        _uid='n33',
-    )
-
     createvideo_2 = CreateVideo(
         _id='4849',
         fps=DEFAULT_FPS,
-        audio=ltxvaudiovaedecode_2,
         images=ltxvtiledvaedecode,
         _uid='n34',
     )
@@ -341,7 +321,6 @@ def build() -> VibeWorkflow:
     createvideo = CreateVideo(
         _id='4819',
         fps=DEFAULT_FPS,
-        audio=ltxvaudiovaedecode,
         images=ltxvtiledvaedecode_2,
         _uid='n36',
     )

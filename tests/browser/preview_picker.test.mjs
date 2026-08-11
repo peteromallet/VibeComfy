@@ -906,3 +906,118 @@ test("clearActiveDemo tears down a staged demo and restores production identity"
     await harness.dispose();
   }
 });
+
+// ── Family B (T-031): demo scenario JSON clone pins ───────────────────────
+// makeMessage / stagePayload / loadScenarioById route scenario fields and
+// graphs through clonePlainData (JSON round-trip). These tests pin the
+// undefined/function-loss semantics T-032 must preserve when the JSON clones
+// are migrated to shared clone code.
+
+test("Family B: demo scenario clones drop undefined and function members from agent message and loaded graphs", async () => {
+  const harness = await createBrowserHarness({
+    withGraphMutation: true,
+    responses: {
+      "/vibecomfy/ping": { status: 200, body: "pong" },
+      "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/demo/scenarios": makeScenarioList(),
+      "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse({
+        outcome: { kind: "candidate", changes: [], callback: () => {}, ephemeral: undefined },
+        change_details: {
+          summary: "Added a demo output node.",
+          statements: [],
+          note: undefined,
+          helper: () => {},
+          nested: { fn: () => {} },
+        },
+        eligibility: { applyable: true, reason: "applyable", note: undefined, helper: () => {} },
+        report: { change: {}, note: undefined, helper: () => {} },
+        original_graph: {
+          nodes: [
+            { id: 1, type: "Input", pos: [100, 200], properties: { vibecomfy_uid: "uid-1", fn: () => {}, ephemeral: undefined } },
+          ],
+          links: [],
+        },
+        candidate_graph: {
+          nodes: [
+            { id: 1, type: "Input", pos: [100, 200], properties: { vibecomfy_uid: "uid-1" } },
+            { id: 2, type: "Output", pos: [2400, 200], properties: { vibecomfy_uid: "uid-2", fn: () => {}, ephemeral: undefined } },
+          ],
+          links: [],
+        },
+      }),
+    },
+  });
+  try {
+    globalThis.localStorage.setItem(LS_DEMO_PICKER_ENABLED, "1");
+    await harness.loadExtension();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    const runtime = await harness.loadPanelRuntime();
+    const panel = runtime.currentAgentPanel();
+    assert.ok(panel?.previewPicker, "preview picker is installed");
+
+    await waitFor(() => panel.previewPicker.select.children.length > 1, { label: "scenario options" });
+    const loaded = await panel.previewPicker.loadScenarioById("demo_a", { readyToApply: true });
+    assert.ok(loaded, "scenario loads through to review");
+
+    // loadedScenario graphs are clonePlainData outputs of the raw scenario:
+    // undefined/function members in the payload never reach the staged graphs.
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(loaded.original_graph.nodes[0].properties, "fn"),
+      false,
+      "function member dropped from loaded original graph",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(loaded.original_graph.nodes[0].properties, "ephemeral"),
+      false,
+      "undefined member dropped from loaded original graph",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(loaded.candidate_graph.nodes[1].properties, "fn"),
+      false,
+      "function member dropped from loaded candidate graph",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(loaded.candidate_graph.nodes[1].properties, "ephemeral"),
+      false,
+      "undefined member dropped from loaded candidate graph",
+    );
+    assert.equal(loaded.candidate_graph.nodes[1].properties.vibecomfy_uid, "uid-2", "data members survive the clone");
+
+    // The staged candidate graph on panel state is the same clonePlainData
+    // output (loadedScenario.candidate_graph): undefined/function members are
+    // gone, data members survive.
+    assert.ok(panel.state.candidateGraph, "panel carries the staged candidate graph");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panel.state.candidateGraph.nodes[1].properties, "fn"),
+      false,
+      "function member dropped from staged candidate graph",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panel.state.candidateGraph.nodes[1].properties, "ephemeral"),
+      false,
+      "undefined member dropped from staged candidate graph",
+    );
+    assert.equal(panel.state.candidateGraph.nodes[1].properties.vibecomfy_uid, "uid-2", "candidate uid survives the clone");
+
+    // The applied stage applies the candidate through replaceDemoGraphPreservingViewport's
+    // clonePlainData (preview_picker.js): the canvas must never receive the
+    // function/undefined members from the scenario payload.
+    panel.previewPicker.nextButton.click();
+    await waitFor(() => panel.state.__demoStage === "applied", { label: "applied" });
+    const canvasNodes = harness.getLiveNodes();
+    const appliedCandidate = canvasNodes.find((node) => node.properties?.vibecomfy_uid === "uid-2");
+    assert.ok(appliedCandidate, "candidate node applied to the canvas");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(appliedCandidate.properties, "fn"),
+      false,
+      "function member dropped before canvas apply",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(appliedCandidate.properties, "ephemeral"),
+      false,
+      "undefined member dropped before canvas apply",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});

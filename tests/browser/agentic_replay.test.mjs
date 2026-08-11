@@ -6,6 +6,12 @@ import {
   PANEL_STATE,
   RENDER_SECTIONS,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
+// The exact clone used by the replay-capture path: captureReplayBaseline
+// imports this module as clonePlainData and clones chatMessages,
+// transcriptMessages, candidateGraph, candidateReport, changeDetails, and the
+// rest through it.  It is dependency-free (no Node builtins / DOM), so it is
+// imported directly here to pin its cycle contract (T-033 / S8).
+import { jsonClone } from "../../vibecomfy/comfy_nodes/web/json_clone.js";
 
 const LS_AGENTIC_REPLAY_ENABLED = "vibecomfy_agentic_replay_enabled";
 
@@ -622,4 +628,319 @@ test("replay navigation cannot corrupt in-flight production submit state and pos
   } finally {
     await harness.dispose();
   }
+});
+
+// ── Family B (T-031): replay baseline JSON clone pins ─────────────────────
+// captureReplayBaseline / applyReplayStageVisualization clone panel state and
+// scenario graphs through JSON round-trip (clonePlainData + the lifecycle
+// baseline-restore clone). These tests pin the undefined/function-loss
+// semantics T-032 must preserve when the JSON clones are migrated.
+
+test("replay baseline JSON clone drops undefined and function members from restored state and stage graphs", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/vibecomfy/agentic-replay/runs": makeRunsResponse(),
+      "/vibecomfy/agentic-replay/runs/run_2026/tests": makeTestsResponse(),
+      "/vibecomfy/agentic-replay/runs/run_2026/tests/test_alpha": makeReplayScenario({
+        candidate_graph: {
+          nodes: [
+            { id: 1, type: "Sampler", properties: { vibecomfy_uid: "sampler-1", fn: () => {} } },
+            { id: 2, type: "Reroute", properties: { vibecomfy_uid: "reroute-2", ephemeral: undefined } },
+          ],
+          links: [],
+        },
+      }),
+    },
+  });
+  try {
+    globalThis.localStorage.setItem(LS_AGENTIC_REPLAY_ENABLED, "1");
+    const replay = await harness.loadAgenticReplay();
+    const shell = harness.document.createElement("div");
+    const headerRight = harness.document.createElement("div");
+    const candidateGraphCalls = [];
+    const panel = {
+      shell,
+      state: makePanelState({
+        phase: PANEL_STATE.AWAITING_REVIEW,
+        chatMessages: [
+          { role: "user", text: "stale message", ephemeral: undefined, callback: () => {} },
+        ],
+        transcriptMessages: [
+          { role: "user", text: "stale transcript", ephemeral: undefined, callback: () => {} },
+        ],
+        candidateGraph: { nodes: [{ id: 99, fn: () => {} }], links: [] },
+        candidateReport: { stale: true, nested: { fn: () => {} } },
+        responseDetails: { stale: true },
+        changeDetails: { summary: "stale change details", note: undefined, helper: () => {} },
+        lastAppliedChanges: { summary: "stale applied changes" },
+      }),
+    };
+    const controls = replay.installAgenticReplay(panel, {
+      headerRight,
+      helpers: {
+        app: harness.app,
+        applyGraphCandidateInPlace: () => {},
+        scheduleRenderAgentPanel: () => {},
+        currentAgentPanel: () => panel,
+        PANEL_STATE,
+        RENDER_SECTIONS,
+      },
+      applyReplayOriginalGraph() {},
+      applyReplayGraphCandidate(graph) {
+        candidateGraphCalls.push(graph);
+      },
+    });
+
+    await waitFor(() => controls.runSelect.children.length > 1);
+    controls.runSelect.value = "run_2026";
+    controls.runSelect.dispatchEvent({ type: "change", target: controls.runSelect });
+    await waitFor(() => controls.testSelect.children.length > 1);
+    controls.testSelect.value = "test_alpha";
+    controls.testSelect.dispatchEvent({ type: "change", target: controls.testSelect });
+    controls.loadButton.click();
+    await waitFor(() => controls.stageLabel.textContent === "1/4 — Sent");
+
+    // Navigate to the applied stage: the candidate graph handed to the canvas
+    // is a clonePlainData output of the scenario payload, so its function and
+    // undefined members must be gone before the graph ever reaches the canvas.
+    controls.nextButton.click();
+    controls.nextButton.click();
+    controls.nextButton.click();
+    await waitFor(() => controls.stageLabel.textContent === "4/4 — Applied");
+    assert.equal(candidateGraphCalls.length, 1, "applied stage applies the cloned candidate graph");
+    const appliedGraph = candidateGraphCalls[0];
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(appliedGraph.nodes[0].properties, "fn"),
+      false,
+      "function member dropped from stage-applied candidate graph",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(appliedGraph.nodes[1].properties, "ephemeral"),
+      false,
+      "undefined member dropped from stage-applied candidate graph",
+    );
+
+    // Clear restores the pre-replay baseline, which was captured through
+    // clonePlainData: undefined and function members must not reappear.
+    controls.clearButton.click();
+    assert.deepEqual(
+      panel.state.chatMessages,
+      [{ role: "user", text: "stale message" }],
+      "restored chat baseline drops undefined/function members",
+    );
+    assert.deepEqual(
+      panel.state.transcriptMessages,
+      [{ role: "user", text: "stale transcript" }],
+      "restored transcript baseline drops undefined/function members",
+    );
+    assert.deepEqual(
+      panel.state.candidateGraph,
+      { nodes: [{ id: 99 }], links: [] },
+      "restored candidate graph drops function members",
+    );
+    assert.deepEqual(
+      panel.state.candidateReport,
+      { stale: true, nested: {} },
+      "restored candidate report drops nested function members",
+    );
+    assert.deepEqual(
+      panel.state.changeDetails,
+      { summary: "stale change details" },
+      "restored change details drop undefined/function members",
+    );
+    assert.deepEqual(
+      panel.state.lastAppliedChanges,
+      { summary: "stale applied changes" },
+      "restored applied-change metadata survives the clone",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── T-033 (S8): replay snapshot independence + cycle pins ──────────────────
+// captureReplayBaseline clones chatMessages / transcriptMessages /
+// candidateGraph / candidateReport / changeDetails (and every other object
+// field) through clonePlainData — the shared JSON-family clone json_clone.js.
+// S8 requires snapshots to NEITHER alias NOR silently accept cycles:
+//   1. A captured snapshot must be structurally independent of the live panel
+//      state: mutating the source after capture must not change the snapshot,
+//      and mutating the snapshot must not change the source.
+//   2. Cyclic input must not be silently accepted: JSON.stringify throws on a
+//      cycle, so the JSON-family clone used by the replay path must throw
+//      (TypeError/RangeError) rather than alias the source.  jsonClone's
+//      legacy catch-and-return-original fallback violates this — the cycle
+//      test below pins the REQUIRED throwing behavior and is expected to fail
+//      until jsonClone is fixed (S8 re-dispatch).
+
+function makeSnapshotFixture() {
+  return {
+    chatMessages: [
+      { role: "user", text: "alpha", meta: { depth: 1, tags: ["a"] } },
+      { role: "agent", text: "beta", meta: { depth: 2, tags: ["b"] } },
+    ],
+    transcriptMessages: [{ role: "user", text: "t-alpha", meta: { depth: 1 } }],
+    candidateGraph: {
+      nodes: [{ id: 1, type: "Sampler", properties: { vibecomfy_uid: "sampler-1" } }],
+      links: [],
+    },
+    candidateReport: { ok: true, nested: { counts: { added: 1 } } },
+    changeDetails: { summary: "sum", statements: [{ op_kind: "add_node", message: "m1" }] },
+  };
+}
+
+test("replay baseline capture is independent of live panel state — post-capture source mutation does not leak into the snapshot", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/vibecomfy/agentic-replay/runs": makeRunsResponse(),
+      "/vibecomfy/agentic-replay/runs/run_2026/tests": makeTestsResponse(),
+      "/vibecomfy/agentic-replay/runs/run_2026/tests/test_alpha": makeReplayScenario(),
+    },
+  });
+  try {
+    globalThis.localStorage.setItem(LS_AGENTIC_REPLAY_ENABLED, "1");
+    const replay = await harness.loadAgenticReplay();
+    const shell = harness.document.createElement("div");
+    const headerRight = harness.document.createElement("div");
+    const panel = {
+      shell,
+      state: makePanelState({
+        phase: PANEL_STATE.AWAITING_REVIEW,
+        ...makeSnapshotFixture(),
+      }),
+    };
+    // Keep references to the exact source objects captureReplayBaseline
+    // clones at load time, so we can mutate them AFTER the capture.
+    const sourceChat = panel.state.chatMessages;
+    const sourceTranscript = panel.state.transcriptMessages;
+    const sourceGraph = panel.state.candidateGraph;
+    const sourceReport = panel.state.candidateReport;
+    const sourceChange = panel.state.changeDetails;
+
+    const controls = replay.installAgenticReplay(panel, {
+      headerRight,
+      helpers: {
+        app: harness.app,
+        applyGraphCandidateInPlace: () => {},
+        scheduleRenderAgentPanel: () => {},
+        currentAgentPanel: () => panel,
+        PANEL_STATE,
+        RENDER_SECTIONS,
+      },
+    });
+
+    await waitFor(() => controls.runSelect.children.length > 1);
+    controls.runSelect.value = "run_2026";
+    controls.runSelect.dispatchEvent({ type: "change", target: controls.runSelect });
+    await waitFor(() => controls.testSelect.children.length > 1);
+    controls.testSelect.value = "test_alpha";
+    controls.testSelect.dispatchEvent({ type: "change", target: controls.testSelect });
+    controls.loadButton.click();
+    await waitFor(() => controls.stageLabel.textContent === "1/4 — Sent");
+
+    // The baseline snapshot was captured during load (captureReplayBaseline).
+    // Mutate every SOURCE object deeply, at multiple nesting levels: an
+    // aliased snapshot would observe these edits at restore time.
+    sourceChat.push({ role: "user", text: "post-capture", meta: { depth: 9 } });
+    sourceChat[0].meta.depth = 999;
+    sourceChat[0].meta.tags.push("leaked");
+    sourceTranscript[0].meta.depth = 555;
+    sourceGraph.nodes.push({ id: 777, type: "Leaked" });
+    sourceGraph.nodes[0].properties.vibecomfy_uid = "mutated";
+    sourceReport.nested.counts.added = 424242;
+    sourceChange.statements.push({ op_kind: "leak", message: "leaked" });
+
+    // Clear restores the captured baseline: post-capture source mutations
+    // must not appear, at any nesting level.
+    controls.clearButton.click();
+    assert.deepEqual(
+      panel.state.chatMessages,
+      [
+        { role: "user", text: "alpha", meta: { depth: 1, tags: ["a"] } },
+        { role: "agent", text: "beta", meta: { depth: 2, tags: ["b"] } },
+      ],
+      "restored chatMessages snapshot ignores post-capture source mutation (deep)",
+    );
+    assert.deepEqual(
+      panel.state.transcriptMessages,
+      [{ role: "user", text: "t-alpha", meta: { depth: 1 } }],
+      "restored transcriptMessages snapshot ignores post-capture source mutation",
+    );
+    assert.deepEqual(
+      panel.state.candidateGraph,
+      {
+        nodes: [{ id: 1, type: "Sampler", properties: { vibecomfy_uid: "sampler-1" } }],
+        links: [],
+      },
+      "restored candidateGraph snapshot ignores post-capture source mutation",
+    );
+    assert.deepEqual(
+      panel.state.candidateReport,
+      { ok: true, nested: { counts: { added: 1 } } },
+      "restored candidateReport snapshot ignores post-capture source mutation (deep)",
+    );
+    assert.deepEqual(
+      panel.state.changeDetails,
+      { summary: "sum", statements: [{ op_kind: "add_node", message: "m1" }] },
+      "restored changeDetails snapshot ignores post-capture source mutation",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("replay JSON clone (jsonClone) is structurally independent in both directions at multiple nesting levels", () => {
+  // Direction 1: mutating the SOURCE after capture must not change the snapshot.
+  const sourceA = makeSnapshotFixture();
+  const snapshotA = jsonClone(sourceA);
+  sourceA.chatMessages[0].meta.depth = 999;
+  sourceA.chatMessages[0].meta.tags.push("leaked");
+  sourceA.chatMessages.push({ role: "user", text: "post-capture" });
+  sourceA.candidateGraph.nodes.push({ id: 777 });
+  sourceA.candidateReport.nested.counts.added = 424242;
+  sourceA.changeDetails.statements.push({ op_kind: "leak" });
+  assert.deepEqual(
+    snapshotA,
+    makeSnapshotFixture(),
+    "mutating the source after capture never leaks into the snapshot (deep)",
+  );
+
+  // Direction 2: mutating the SNAPSHOT must not change the source.
+  const sourceB = makeSnapshotFixture();
+  const snapshotB = jsonClone(sourceB);
+  snapshotB.chatMessages[0].meta.depth = 999;
+  snapshotB.chatMessages[0].meta.tags.push("snapshot-only");
+  snapshotB.chatMessages.push({ role: "agent", text: "snapshot-only" });
+  snapshotB.candidateGraph.nodes[0].properties.vibecomfy_uid = "mutated";
+  snapshotB.candidateGraph.nodes.push({ id: 777 });
+  snapshotB.candidateReport.nested.counts.added = 424242;
+  snapshotB.changeDetails.statements[0].message = "mutated";
+  snapshotB.changeDetails.statements.push({ op_kind: "snapshot-only" });
+  assert.deepEqual(
+    sourceB,
+    makeSnapshotFixture(),
+    "mutating the snapshot never leaks into the source (deep)",
+  );
+});
+
+test("replay JSON clone (jsonClone) throws on cyclic input instead of silently aliasing the source", () => {
+  // S8: snapshots must NEITHER alias NOR silently accept cycles.  The JSON
+  // family clone used by the replay path is a native JSON round-trip, which
+  // throws TypeError on a cycle — an aliased snapshot would mean the capture
+  // silently accepted a cyclic structure and pinned the source object.
+  const cyclicThroughArray = { chatMessages: [{ role: "user", text: "alpha" }] };
+  cyclicThroughArray.chatMessages.push(cyclicThroughArray);
+  assert.throws(
+    () => jsonClone(cyclicThroughArray),
+    (err) => err instanceof TypeError || err instanceof RangeError,
+    "jsonClone must throw on a cycle routed through an array element, never alias the source",
+  );
+
+  const selfReferential = {};
+  selfReferential.self = selfReferential;
+  assert.throws(
+    () => jsonClone(selfReferential),
+    (err) => err instanceof TypeError || err instanceof RangeError,
+    "jsonClone must throw on a self-referential object, never alias the source",
+  );
 });

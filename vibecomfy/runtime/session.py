@@ -20,6 +20,7 @@ from vibecomfy.errors import (
     MODEL_DOCTOR_NEXT_ACTION,
     ModelAssetError,
     QueueError,
+    RuntimeStartupError,
     SchemaValidationError,
     VibeComfyError,
 )
@@ -1401,7 +1402,13 @@ async def _spawn_comfy_server(
             await process.wait()
         if log_handle:
             log_handle.close()
-        raise TimeoutError(f"Managed Comfy server did not become ready within {ready_timeout_sec} seconds")
+        timeout = TimeoutError(
+            f"Managed Comfy server did not become ready within {ready_timeout_sec} seconds"
+        )
+        raise RuntimeStartupError(
+            str(timeout),
+            next_action="Check the ComfyUI startup log, installed custom nodes, and selected port before retrying.",
+        ) from timeout
     return process, managed_url, log_handle
 
 

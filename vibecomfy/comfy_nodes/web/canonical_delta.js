@@ -76,25 +76,6 @@ function _stableClone(obj) {
 }
 
 /**
- * Deep-clone plain JSON-compatible data.
- * @param {*} value
- * @returns {*}
- */
-function _clonePlainData(value) {
-  if (Array.isArray(value)) {
-    return value.map(_clonePlainData);
-  }
-  if (_isObject(value)) {
-    const clone = /** @type {object} */ ({});
-    for (const [key, entry] of Object.entries(value)) {
-      clone[key] = _clonePlainData(entry);
-    }
-    return clone;
-  }
-  return value;
-}
-
-/**
  * Freeze plain JSON-compatible data deeply.
  * @param {*} value
  * @returns {*}

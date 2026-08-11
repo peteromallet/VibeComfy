@@ -40,14 +40,13 @@ import {
   classifyDeltaShape,
   normalizeDeltaOpsFromSubmitPayload,
 } from "./canonical_delta.js";
-
-function clonePlainData(value) {
-  if (Array.isArray(value)) return value.map(clonePlainData);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clonePlainData(entry)]));
-  }
-  return value;
-}
+import { deep_plain } from "./deep_plain.js";
+import { jsonClone } from "./json_clone.js";
+import {
+  batchTurnKey,
+  durableTurnKey,
+  sortPanelTurns,
+} from "./agent_turn_reducer.js";
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -1043,10 +1042,10 @@ function _readCandidateTransactionForTransition(payload) {
 
 function _readLegacyMigrationForTransition(payload) {
   const direct = payload?.legacyMigration || payload?.legacy_migration;
-  if (direct && typeof direct === "object") return clonePlainData(direct);
+  if (direct && typeof direct === "object") return deep_plain(direct);
   const source = _canonicalSourceFromPayload(payload);
   return source?.legacyMigration && typeof source.legacyMigration === "object"
-    ? clonePlainData(source.legacyMigration)
+    ? deep_plain(source.legacyMigration)
     : null;
 }
 
@@ -1094,7 +1093,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   const priorSessionId = panel.state.sessionId;
   const priorTurnId = panel.state.turnId;
   const priorRuntimeDependencies = Array.isArray(panel.state.runtimeDependencies)
-    ? clonePlainData(panel.state.runtimeDependencies)
+    ? deep_plain(panel.state.runtimeDependencies)
     : [];
   const stageSnapshot = _readStageSnapshotForTransition(payload);
   const identity = _writeDurableTurnIdentity(panel, {
@@ -1138,7 +1137,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.runtimeDependencies = hasRuntimeDependencyProjection
     ? (
         Array.isArray(payload.runtimeDependencies)
-          ? clonePlainData(payload.runtimeDependencies)
+          ? deep_plain(payload.runtimeDependencies)
           : []
       )
     : (restoringSameCandidate ? priorRuntimeDependencies : []);
@@ -1155,7 +1154,7 @@ function _writeLatestCandidateTransition(panel, payload) {
         applyable: false,
         reason: legacyMigration.classification,
         message: "Legacy transaction history is read-only and cannot authorize Apply.",
-        actions: clonePlainData(legacyMigration.actions || []),
+        actions: deep_plain(legacyMigration.actions || []),
       }
     : applyEligibility;
   panel.state.applyAllowed = applyAllowed;
@@ -1165,7 +1164,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = candidateTransaction
-    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
     : normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
   panel.state.agentEditProtocol = _candidateEditProtocol(
     payload?.result || payload?.baseline || {},
@@ -1432,14 +1431,12 @@ const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
 ]);
 
 function _cloneLifecycleBaselineValue(value) {
-  if (value == null || typeof value !== "object") {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_e) {
-    return value;
-  }
+  // Shared JSON-family clone (json_clone.js): undefined/function members are
+  // dropped; a serialization failure (cycle, BigInt) THROWS — the restore
+  // never aliases the source. Baseline payloads are produced through
+  // jsonClone in agentic_replay.js / preview_picker.js, so they are
+  // JSON-origin and non-cyclic by construction.
+  return jsonClone(value);
 }
 
 function _handleRestoreLifecycleBaseline(panel, payload) {
@@ -1929,7 +1926,7 @@ function _handleCandidateResponse(panel, payload) {
     || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = result.report || null;
   panel.state.runtimeDependencies = Array.isArray(payload?.runtimeDependencies)
-    ? clonePlainData(payload.runtimeDependencies)
+    ? deep_plain(payload.runtimeDependencies)
     : [];
   panel.state.serverSubmitGraphHash =
     projectedCandidate?.submitGraphHash
@@ -1944,7 +1941,7 @@ function _handleCandidateResponse(panel, payload) {
         applyable: false,
         reason: legacyMigration.classification,
         message: "Legacy transaction history is read-only and cannot authorize Apply.",
-        actions: clonePlainData(legacyMigration.actions || []),
+        actions: deep_plain(legacyMigration.actions || []),
       }
     : missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
   const candidateActionAllowed = Boolean(
@@ -1957,7 +1954,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = candidateTransaction
-    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(candidateTransaction.plan.delta_ops_envelope.ops)
     : normalizeDeltaOpsFromSubmit(result);
   panel.state.agentEditProtocol = _candidateEditProtocol(
     result,
@@ -2394,7 +2391,10 @@ function _handleChatRehydrateSuccess(panel, payload) {
       return { render: false, stale: true };
     }
   }
-  const ingested = ingestChatRehydratePayload(panel.state, payload);
+  const ingested = payload?.ingestedChatRehydratePayload
+    && typeof payload.ingestedChatRehydratePayload === "object"
+    ? payload.ingestedChatRehydratePayload
+    : ingestChatRehydratePayload(panel.state, payload);
   // Compatibility mirror contract: chatMessages mirrors only safe
   // TranscriptMessage output. Raw rehydrate detail is projection input for
   // responseDetails/executionEvents/auditArtifacts/debugDiagnostics below.
@@ -2586,45 +2586,6 @@ function _indexAuditArtifacts(artifacts) {
   return auditArtifactsByTurnId;
 }
 
-function _stableTurnSessionId(value) {
-  return typeof value === "string" && value ? value : "none";
-}
-
-function _batchTurnKey(sessionId, turnNumber) {
-  return `batch:${_stableTurnSessionId(sessionId)}:${turnNumber}`;
-}
-
-function _durableTurnKey(entry) {
-  const sessionId = _stableTurnSessionId(entry?.session_id);
-  const status = entry?.status || "unknown";
-  if (entry?.turn_id) {
-    return `durable:${sessionId}:${entry.turn_id}:${status}`;
-  }
-  const fallback = entry?.timestamp || entry?.message || entry?.task || entry?.failure_kind || "pending";
-  return `durable:${sessionId}:${status}:${fallback}`;
-}
-
-function _sortCompatibilityTurns(turns) {
-  const durable = [];
-  const batch = [];
-  const other = [];
-  for (const entry of Array.isArray(turns) ? turns : []) {
-    if (entry?.entry_type === "durable") {
-      durable.push(entry);
-    } else if (entry?.entry_type === "batch") {
-      batch.push(entry);
-    } else {
-      other.push(entry);
-    }
-  }
-  batch.sort((left, right) => {
-    const leftNumber = Number.isFinite(left?.turn_number) ? left.turn_number : -1;
-    const rightNumber = Number.isFinite(right?.turn_number) ? right.turn_number : -1;
-    return rightNumber - leftNumber;
-  });
-  return [...durable, ...batch, ...other].slice(0, 64);
-}
-
 function _compatibilityTurnsFromExecutionEvents(events) {
   const turns = [];
   for (const event of Array.isArray(events) ? events : []) {
@@ -2643,7 +2604,7 @@ function _compatibilityTurnsFromExecutionEvents(events) {
       }
       const entry = {
         entry_type: "batch",
-        turn_key: _batchTurnKey(sessionId, turnNumber),
+        turn_key: batchTurnKey(sessionId, turnNumber),
         session_id: sessionId,
         turn_id: typeof batchTurn.turn_id === "string" && batchTurn.turn_id ? batchTurn.turn_id : event.turn_id || null,
         parent_turn_id: event.turn_id || null,
@@ -2687,11 +2648,11 @@ function _compatibilityTurnsFromExecutionEvents(events) {
         audit_ref: event.auditRef || event.audit_ref || null,
         raw_payload: null,
       };
-      entry.turn_key = _durableTurnKey(entry);
+      entry.turn_key = durableTurnKey(entry);
       turns.push(entry);
     }
   }
-  return _sortCompatibilityTurns(turns);
+  return sortPanelTurns(turns);
 }
 
 function _ensureBoundaryCompartments(panel) {
@@ -3138,7 +3099,7 @@ function _handlePrepareSuccess(panel, payload) {
   panel.state.preparedReceipt = receipt;
   panel.state.candidateTransaction = transaction || panel.state.candidateTransaction;
   panel.state.deltaOps = transaction
-    ? clonePlainData(transaction.plan.delta_ops_envelope.ops)
+    ? deep_plain(transaction.plan.delta_ops_envelope.ops)
     : panel.state.deltaOps;
   panel.state.mutationPlanHash = transaction?.plan_hash
     || durableReceipt?.plan_hash || durableReceipt?.planHash
@@ -3442,7 +3403,7 @@ function _handleReconcileReceipts(panel, payload) {
     panel.state.mutationPlanHash = transaction.plan_hash;
     panel.state.generation = transaction.generation ?? null;
     panel.state.leaseNonce = transaction.lease_nonce || null;
-    panel.state.deltaOps = clonePlainData(transaction.plan.delta_ops_envelope.ops);
+    panel.state.deltaOps = deep_plain(transaction.plan.delta_ops_envelope.ops);
   }
   let terminalReconciled = false;
   if (receipts && typeof receipts === "object") {

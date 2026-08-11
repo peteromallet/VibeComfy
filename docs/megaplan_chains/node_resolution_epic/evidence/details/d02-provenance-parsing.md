@@ -14,12 +14,12 @@ Now I have all the evidence. Here's my analysis:
 
 ## (b) Top 3 concrete risks / missing pieces
 
-**1. `resolve_pack()` has no version-pin parameter.** (pack_resolver.py:64-94)
-The resolver returns `PackRef.version` = the registry's `latest_version`, not a specific commit. The workflow's `ver` field (a git SHA like `3869b0482b6...`) cannot be passed through. To install "the version the workflow was authored on" (doc §5.2), you'd need either a new `resolve_pack(slug, version=sha)` API or a post-resolution `git checkout <sha>` step. Currently `install_pack()` (node_packs_install.py:99-138) clones HEAD unconditionally.
+**1. `resolve_pack()` has no version-pin parameter.** (registry/pack_resolver.py:64-94)
+The resolver returns `PackRef.version` = the registry's `latest_version`, not a specific commit. The workflow's `ver` field (a git SHA like `3869b0482b6...`) cannot be passed through. To install "the version the workflow was authored on" (doc §5.2), you'd need either a new `resolve_pack(slug, version=sha)` API or a post-resolution `git checkout <sha>` step. Currently `install_pack()` (node_packs/_install.py:99-138) clones HEAD unconditionally.
 
 **2. `aux_id` is completely absent from the codebase.** Zero source references. 12 corpus workflows have nodes where `cnr_id` is `null` but `aux_id` is present (e.g., `"aux_id": "yuvraj108c/ComfyUI-Video-Depth-Anything"`). The doc doesn't distinguish these as a separate resolution path, but in practice they're the only identifier on some nodes. The `aux_id` format is `owner/repo` — would need a GitHub API or URL-construction fallback distinct from the registry path.
 
-**3. No lockfile reconciliation exists.** The lockfile (custom_nodes.lock) stores `version = "unknown"` for every entry (line 7, 21, 35, 49). There's no code that reads `cnr_id`/`ver` from a workflow and checks whether the installed pack matches. The doc's proposed flow (§5.2: "resolve each node to a pinned pack version via the registry; reconcile against the lockfile") is entirely absent — it would require a new module that extracts `cnr_id`/`ver`, calls `resolve_pack` (extended for version pinning), compares against `read_lockfile()` entries, and triggers `restore_pack()` if pinned SHA ≠ installed SHA.
+**3. No lockfile reconciliation exists.** The lockfile (custom_nodes.lock) stores `version = "unknown"` for every entry (line 7, 21, 35, 49). There's no code that reads `cnr_id`/`ver` from a workflow and checks whether the installed pack matches. The doc's proposed flow (§5.2: "resolve each node to a pinned pack version via the registry; reconcile against the lockfile") is entirely absent — it would require a new module that extracts `cnr_id`/`ver`, calls `resolve_pack` (extended for version pinning), compares against `read_lockfile()` (node_packs/_lockfile.py) entries, and triggers `restore_pack()` if pinned SHA ≠ installed SHA.
 
 **Bonus: 8% of real workflows lack provenance entirely** (wan_t2v.json, wan_i2v.json, wan13b_control_lora.json — 47 nodes across 3 files). The doc acknowledges "provenance gaps" (§7) but proposes no concrete fallback for this case.
 

@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import click
@@ -14,33 +11,14 @@ import click
 def _export_ready_ui(ready_id: str) -> dict | None:
     """Emit a schema'd golden UI graph for a ready template via offline port export.
 
-    Uses the object_info cache, so links/slots are properly typed — unlike the
-    schema-less best-effort emission from ``emit_ui_json`` without a provider.
+    Thin delegation to the internal helper in ``run_campaign.py`` (the Click
+    CLI is the user-facing surface; campaign machinery lives internal). The
+    import is deferred so ``python -m vibecomfy.demo_factory --help`` does not
+    pull the heavy campaign module chain.
     """
-    fd, path = tempfile.mkstemp(suffix=".ui.json")
-    os.close(fd)
-    try:
-        proc = subprocess.run(
-            [
-                sys.executable, "-m", "vibecomfy.cli", "port", "export",
-                ready_id, "--ready", "--to", "ui", "--out", path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        if proc.returncode != 0:
-            click.echo(f"port export failed: {proc.stderr[:300]}", err=True)
-            return None
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - defensive
-        click.echo(f"port export error: {exc}", err=True)
-        return None
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+    from vibecomfy.demo_factory.run_campaign import _export_ready_ui as _export
+
+    return _export(ready_id)
 
 
 @click.group()

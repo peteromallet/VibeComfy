@@ -106,6 +106,57 @@ Run metadata keeps the legacy `outputs` list as resolved artifact paths. It also
 
 `EmbeddedSession` holds one `Comfy()` context across multiple `run()` calls. `ServerSession` holds one `comfyui serve` subprocess and uses HTTP for readiness, prompt queueing, and explicit flush.
 
+## Runtime Spawn Contract
+
+Decided (T-049, ORACLE-8; R:S7). The managed-Comfy spawn surface has ONE owner, ONE timeout
+contract, and ONE exception shape.
+
+**Sole owner — `vibecomfy/runtime/session.py`:**
+
+- `_comfy_server_argv(config)` — the richer argv builder. Beyond the shared vram/cache/reserve
+  flags it adds `--use-sage-attention` (from `extra["use_sage_attention"]` or the
+  `VIBECOMFY_ATTENTION_PROFILE` / `REIGH_VIBECOMFY_ATTENTION_PROFILE` env), the I/O directory
+  args `--input-directory`, `--output-directory`, `--temp-directory` (from
+  `extra["input_directory"]` / `output_directory` / `temp_directory`), and `--port`.
+- `_spawn_comfy_server(config, log_path=None)` — spawns `comfyui serve` with that argv and polls
+  the readiness probe (`/system_stats`) under a **configurable timeout**:
+
+  ```text
+  ready_timeout_sec = config.extra["ready_timeout_sec"]
+                      -> env VIBECOMFY_SESSION_READY_TIMEOUT_SEC
+                      -> 300 (default seconds)
+  ```
+
+  On timeout the spawned process is killed and `RuntimeStartupError` is raised (chained from the
+  underlying readiness `TimeoutError`) with the exact next action:
+
+  ```text
+  next_action: Check the ComfyUI startup log, installed custom nodes, and selected port before retrying.
+  ```
+
+**ServerSession spawn paths** — `ServerSession.start()`, `ServerSession.reconfigure()` (restart
+path), and the `session start` CLI daemon (`vibecomfy/commands/session.py`) all spawn through the
+session owner above.
+
+**Delegation (final)** — both managed-server surfaces delegate to the session owner
+by identity (no second implementation survives the consolidation):
+
+- `ServerSession.start()` / `ServerSession.reconfigure()` and the `session start`
+  CLI daemon call `_spawn_comfy_server` directly from `runtime/session.py`.
+- `runtime/server.py`'s `comfy_server` context manager calls the same
+  `_spawn_comfy_server` (and the same `_comfy_server_argv`) through
+  `runtime/server_process.py`, which re-exports the session-owned functions.
+- `vibecomfy/runtime/config.py` was deleted (T-054); all importers now use
+  `runtime/session.py`.
+
+There is ONE spawn and ONE exception shape: a readiness failure raises
+`RuntimeStartupError` — chained from the underlying readiness `TimeoutError` —
+with the next action above, from every startup surface: the one-shot run helper
+(`runtime/run.py`), the `comfy_server` context, `ServerSession.start()`, and the
+session CLI daemon. The old raw `TimeoutError` surface is retired: the only
+exception shape a caller sees for a readiness failure is `RuntimeStartupError`
+with the next action above.
+
 ## GraphBuilder
 
 GraphBuilder is available at `comfy_execution.graph_utils.GraphBuilder`. Its own docstring describes it as a utility that outputs graphs in the form expected by the ComfyUI backend.
@@ -117,5 +168,6 @@ VibeComfy's optional `workflow.compile("graphbuilder")` backend now uses this cl
 - Use `VibeWorkflow -> API dict` as the primary compiler path.
 - Use `GraphBuilder` as an optional backend, not the only representation.
 - Keep HTTP managed server mode for compatibility, `/object_info` discovery, and reusable warm sessions.
+- One runtime spawn contract: `runtime/session.py` owns the richer argv, the configurable readiness timeout (`extra` → env → 300s), and the `RuntimeStartupError` + next-action shape. `runtime/config.py` is deleted (T-054); `server_process.py` re-exports the session-owned spawn so `comfy_server` delegates by identity.
 - Use embedded mode when the caller needs to wait for completed outputs or owns an in-process warm session.
 - Treat `comfyui run-workflow` as an important parity check and operational fallback, not the core VibeComfy scratchpad API.

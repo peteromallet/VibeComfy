@@ -1442,3 +1442,177 @@ test("VibeComfy full lifecycle (display→serialize→apply→repair) preserves 
     await harness.dispose();
   }
 });
+
+// ── Family B (T-031): JSON-clone + method-injection pins ──────────────────
+// cloneDynamicSlot / liveLinkRecord are internal to vibecomfy_roundtrip.js;
+// these tests drive them through the exported repairLiveNodes entry point and
+// pin the observable contract T-032 must preserve when the JSON clones are
+// migrated to shared clone code.
+
+function familyBSeedGraph() {
+  const source = "def process(in_0):\n    return {\"image\": in_0}";
+  return {
+    nodes: [
+      {
+        id: 23,
+        type: "vibecomfy.exec",
+        inputs: [
+          { name: "in_0", type: "*", link: 40, ephemeral: undefined, callback: () => {}, marker: { fn: () => {} } },
+          { name: null, type: "*", link: null },
+        ],
+        outputs: [
+          { name: "out_0", type: "*", links: [41], ephemeral: undefined, callback: () => {} },
+        ],
+        widgets_values: [source, {}],
+        properties: { "Node name for S&R": "vibecomfy.exec", vibecomfy_uid: "n15" },
+      },
+      { id: 6, type: "VAEDecode", outputs: [{ name: "IMAGE", type: "IMAGE", links: [40] }] },
+      { id: 24, type: "SaveImage", inputs: [{ name: "images", type: "IMAGE", link: 41 }], outputs: [] },
+    ],
+    links: [
+      [40, 6, 0, 23, 0, "IMAGE"],
+      [41, 23, 0, 24, 0, "IMAGE"],
+    ],
+  };
+}
+
+async function familyBRepairHarness() {
+  const harness = await createBrowserHarness({
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+  const graph = familyBSeedGraph();
+  harness.app.canvas.graph._nodes = harness.app.canvas.graph._nodes.filter((node) => node.id !== 1);
+  for (const node of graph.nodes) {
+    harness.app.canvas.graph._nodes.push({
+      ...node,
+      inputs: node.inputs ? JSON.parse(JSON.stringify(node.inputs)) : [],
+      outputs: node.outputs ? JSON.parse(JSON.stringify(node.outputs)) : [],
+    });
+  }
+  harness.app.canvas.graph.links = new Map();
+  return { harness, graph };
+}
+
+test("Family B: cloneDynamicSlot JSON round-trip drops undefined/functions and injects non-enumerable serialize with in_i/out_i naming", async () => {
+  const { harness, graph } = await familyBRepairHarness();
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.repairLiveNodes(graph);
+
+    const execNode = harness.getLiveNodes().find((node) => node.type === "vibecomfy.exec");
+    assert.ok(execNode, "live exec node repaired");
+
+    // Naming contract: inputs become in_<index>, outputs out_<index>; an
+    // unnamed/null-named slot falls back to the direction-index name.
+    assert.deepEqual(execNode.inputs.map((slot) => slot.name), ["in_0", "in_1"]);
+    assert.deepEqual(execNode.outputs.map((slot) => slot.name), ["out_0"]);
+
+    // Method injection: every cloned slot carries an own, non-enumerable
+    // serialize method (invisible to JSON serialization but callable live).
+    for (const slot of [...execNode.inputs, ...execNode.outputs]) {
+      assert.equal(typeof slot.serialize, "function", "cloned slot carries injected serialize");
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(slot, "serialize"),
+        true,
+        "serialize is an own property of the cloned slot",
+      );
+      assert.equal(
+        Object.keys(slot).includes("serialize"),
+        false,
+        "serialize is non-enumerable so JSON serialization stays clean",
+      );
+    }
+
+    // (b) undefined/function members in pre-serialized input do not appear in
+    // the cloned output.
+    const in0 = execNode.inputs[0];
+    assert.equal(Object.prototype.hasOwnProperty.call(in0, "ephemeral"), false, "undefined member dropped");
+    assert.equal(Object.prototype.hasOwnProperty.call(in0, "callback"), false, "function member dropped");
+    assert.deepEqual(in0.marker, {}, "nested function member dropped");
+
+    // serialize() emits only enumerable data members (no functions).
+    assert.deepEqual(in0.serialize(), { name: "in_0", type: "*", link: 40, marker: {} });
+    assert.deepEqual(execNode.inputs[1].serialize(), { name: "in_1", type: "*", link: null });
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("Family B: liveLinkRecord injects live methods and keeps a JSON-clean 6-tuple serialization contract", async () => {
+  const { harness, graph } = await familyBRepairHarness();
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.repairLiveNodes(graph);
+
+    const liveLinks = harness.getLiveLinks();
+    assert.ok(liveLinks instanceof Map, "live link store remains Map-backed");
+    const record = liveLinks.get(40);
+    assert.ok(record, "link 40 restored as a live record");
+
+    // Method injection: asSerialisable / disconnect / serialize are own,
+    // non-enumerable methods.
+    assert.equal(typeof record.asSerialisable, "function");
+    assert.equal(typeof record.disconnect, "function");
+    assert.equal(typeof record.serialize, "function");
+    assert.deepEqual(
+      Object.keys(record),
+      ["id", "origin_id", "origin_slot", "target_id", "target_slot", "type"],
+      "injected methods are non-enumerable: only the six data fields serialize",
+    );
+
+    // Serialization contract: the live record round-trips to the canonical
+    // ComfyUI 6-tuple [id, origin_id, origin_slot, target_id, target_slot, type].
+    assert.deepEqual(record.asSerialisable(), [40, 6, 0, 23, 0, "IMAGE"]);
+    assert.deepEqual(record.serialize(), [40, 6, 0, 23, 0, "IMAGE"]);
+
+    // A JSON round-trip of the record keeps the data fields and drops the
+    // injected (non-enumerable) methods — the transport-clean projection.
+    const jsonRecord = JSON.parse(JSON.stringify(record));
+    assert.deepEqual(jsonRecord, { id: 40, origin_id: 6, origin_slot: 0, target_id: 23, target_slot: 0, type: "IMAGE" });
+    assert.equal(typeof jsonRecord.asSerialisable, "undefined");
+    assert.equal(typeof jsonRecord.disconnect, "undefined");
+    assert.equal(typeof jsonRecord.serialize, "undefined");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("Family B: re-clone of live exec slots preserves in_i/out_i naming and re-establishes injected serialize", async () => {
+  const { harness, graph } = await familyBRepairHarness();
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.repairLiveNodes(graph);
+    let execNode = harness.getLiveNodes().find((node) => node.type === "vibecomfy.exec");
+
+    // What serialization/reload does to the live slots: a JSON round-trip.
+    const jsonInputs = JSON.parse(JSON.stringify(execNode.inputs));
+    assert.deepEqual(jsonInputs.map((slot) => slot.name), ["in_0", "in_1"], "names survive as data");
+    for (const slot of jsonInputs) {
+      assert.equal(typeof slot.serialize, "undefined", "injected serialize is non-enumerable and absent after JSON round-trip");
+    }
+
+    // Re-run the repair pipeline against the JSON-round-tripped candidate
+    // slots: the naming contract holds and the injected methods are
+    // re-established on the live slots.
+    const candidate2 = JSON.parse(JSON.stringify(graph));
+    candidate2.nodes[0].inputs = jsonInputs;
+    extensionModule.repairLiveNodes(candidate2);
+    execNode = harness.getLiveNodes().find((node) => node.type === "vibecomfy.exec");
+
+    assert.deepEqual(execNode.inputs.map((slot) => slot.name), ["in_0", "in_1"], "naming contract holds after re-clone");
+    assert.deepEqual(execNode.outputs.map((slot) => slot.name), ["out_0"], "output naming contract holds after re-clone");
+    for (const slot of [...execNode.inputs, ...execNode.outputs]) {
+      assert.equal(typeof slot.serialize, "function", "re-clone through repair re-establishes injected serialize");
+      assert.equal(
+        Object.keys(slot).includes("serialize"),
+        false,
+        "re-injected serialize stays non-enumerable after re-clone",
+      );
+    }
+  } finally {
+    await harness.dispose();
+  }
+});

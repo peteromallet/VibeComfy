@@ -65,6 +65,20 @@ Acceptable shell wrappers include dependency assembly functions such as
 `agentPanelThreadRenderDeps()`, plus thin render wrappers that call imported
 owner functions.
 
+### Chat rehydration boundaries
+
+- `normalizeChatRehydratePayload` and `normalizeFieldChangesFromMessage` are
+  roundtrip-owned transport normalizers. They handle wire-format concerns,
+  including snake_case/camelCase aliases.
+- `ingestChatRehydratePayload` and `reconcileChatMessages` are lifecycle-owned
+  canonical-ingestion concerns. They project rehydrated chat into canonical
+  state and reconcile durable messages with eligible optimistic messages.
+- The roundtrip rehydrate entry applies the transport normalizers, then calls
+  the lifecycle-owned ingest function before committing the result through the
+  `CHAT_REHYDRATE_SUCCESS` transition.
+- Per S14, lifecycle does not absorb the transport normalizers: wire-format
+  aliasing belongs at the transport boundary, not in canonical state.
+
 ### `agent_status_poller.js`
 
 - Owns `ROUTE_STATUS_KIND`, `AGENT_STATUS_RETRY_DELAYS_MS`,

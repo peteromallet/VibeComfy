@@ -192,7 +192,7 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
         "triton_kernels",
     ],
     "LTX2MemoryEfficientSageAttentionPatch": ["triton_kernels"],
-    "LTX2_NAG": ["nag_scale", "nag_alpha", "nag_tau", None],
+    "LTX2_NAG": ["nag_scale", "nag_alpha", "nag_tau", "inplace"],
     "LTX2SamplingPreviewOverride": ["preview_rate"],
     "LTXICLoRALoaderModelOnly": ["lora_name", "strength_model"],
     "LTXAddVideoICLoRAGuide": [
