@@ -14,6 +14,7 @@ import inspect
 import json
 import logging
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -46,14 +47,24 @@ def _is_assessor_parse_failure(result: Any) -> bool:
 
 @contextmanager
 def _retry_assessor_parse_failure_once(sisypy_runner: Any) -> Iterator[None]:
-    """Retry only Sisypy's exact assessor parse fallback, once per call."""
+    """Retry only Sisypy's exact assessor parse fallback, bounded (3 attempts).
+
+    The deepseek-chat single-shot assessor occasionally returns an
+    unrecoverable non-JSON reply; the raw text is not persisted (sisypy
+    evidence gap), so the parse fallback is the only reliable signal. Three
+    bounded attempts with a short backoff absorb the flake class without
+    retrying genuine rubric failures.
+    """
     original_assess = sisypy_runner.assess
 
     def assess_with_retry(*args: Any, **kwargs: Any) -> dict[str, Any]:
         result = original_assess(*args, **kwargs)
-        if _is_assessor_parse_failure(result):
-            logging.warning("Assessor response was not valid JSON; retrying once.")
-            return original_assess(*args, **kwargs)
+        for attempt in range(2):
+            if not _is_assessor_parse_failure(result):
+                return result
+            logging.warning("Assessor response was not valid JSON; retrying (attempt %d/3).", attempt + 2)
+            time.sleep(1.5 * (attempt + 1))
+            result = original_assess(*args, **kwargs)
         return result
 
     sisypy_runner.assess = assess_with_retry

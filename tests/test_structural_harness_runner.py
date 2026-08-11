@@ -171,7 +171,7 @@ def test_assessor_parse_failure_retry_is_bounded() -> None:
         result = sisypy_runner.assess()
 
     assert result == _parse_failure_result()
-    assert calls == 2
+    assert calls == 3  # 1 initial + 2 bounded retries
 
 
 def test_assessor_rubric_failure_is_not_retried() -> None:
