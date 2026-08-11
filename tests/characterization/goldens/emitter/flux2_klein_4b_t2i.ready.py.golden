@@ -50,7 +50,7 @@ def text_to_image_flux2_klein_4b(
     """Text to Image (Flux.2 Klein 4B).
 
     Materialized from subgraph 7b34ab90-36f9-45ba-a665-71d418f0df18 in ready_templates/sources/official/image/flux2_klein_4b_t2i.json.
-    # vibecomfy source hash: sha256:7e23ff76fe31594b15dd0bcbc6de7ab96652c9ff9954568a19164b51fe58e563
+    # vibecomfy source hash: sha256:aab4db47d06710f6d59dcfb42683078752baa5b7c9edebea9c50784046917b2e
     Inner nodes: KSamplerSelect, Flux2Scheduler, CFGGuider, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, CLIPTextEncodex2, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader.
     """
 
@@ -154,7 +154,7 @@ def text_to_image_flux2_klein_4b_distilled(
     """Text to Image (Flux.2 Klein 4B Distilled).
 
     Materialized from subgraph a67caa28-5f85-4917-8396-36004960dd30 in ready_templates/sources/official/image/flux2_klein_4b_t2i.json.
-    # vibecomfy source hash: sha256:ea1cddf8d1c78a824b67736ab8e4d02b95912f6c2818be8c1efe0ff0b12da1da
+    # vibecomfy source hash: sha256:d06e6daa0bc022edf61f1858c26ff4cd67ba570e115de57bfc006ddeb0aa4ea1
     Inner nodes: KSamplerSelect, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader, CFGGuider, ConditioningZeroOut, CLIPTextEncode, Flux2Scheduler.
     """
 

@@ -168,7 +168,7 @@ fast:
 # Full-suite gate outside `make check`: every collected test (gpu excluded via
 # pyproject [tool.pytest.ini_options] addopts) parallelized across 8 xdist workers.
 full-pytest:
-	$(PYTEST) -n 8 -q -p no:cacheprovider
+	PYTHONHASHSEED=0 $(PYTEST) -n 8 -q -p no:cacheprovider
 
 snapshots:
 	$(PYTHON) -m tools.regenerate_snapshots --check

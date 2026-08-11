@@ -48,7 +48,7 @@ def qwen_image_edit(
     """Qwen-Image-Edit - single-image variant.
 
     Materialized from subgraph 74a8e1e2-9cb8-4112-978e-06ce1b5793f1 in ready_templates/sources/official/edit/qwen_image_edit.json.
-    # vibecomfy source hash: sha256:f6cc2d7a215bc64650a105ea033ac5af386f538c369d98ae084d9aded026cbe2
+    # vibecomfy source hash: sha256:f8aeaa7eece313c69d029725de90d986487d28e9a9d4e08a6b40790d47fda688
     Inner nodes: VAELoader, TextEncodeQwenImageEditx2, CFGNorm, ModelSamplingAuraFlow, VAEDecode, CLIPLoader, VAEEncode, LoraLoaderModelOnly, UNETLoader, PrimitiveFloatx2, PrimitiveIntx2, PrimitiveBoolean, KSampler, ComfySwitchNodex3.
     """
 
@@ -151,7 +151,6 @@ def qwen_image_edit(
     )
 
     cfgnorm = CFGNorm(
-        widget_0=1,
         model=modelsamplingauraflow,
         _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#75',
     )
@@ -159,6 +158,7 @@ def qwen_image_edit(
     ksampler = KSampler(
         seed=344147753686358,
         sampler_name='euler',
+        control_after_generate='randomize',
         steps=comfyswitchnode_3,
         cfg=comfyswitchnode_2,
         latent_image=vaeencode,

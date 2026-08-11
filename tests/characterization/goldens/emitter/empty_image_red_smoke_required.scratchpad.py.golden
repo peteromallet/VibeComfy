@@ -21,6 +21,7 @@ def build() -> VibeWorkflow:
         _outputs=('IMAGE',),
         width=64,
         height=64,
+        batch_size=1,
         color=16711680,
     )
     saveimage = _node(wf, 'SaveImage', '2', _uid='n2',

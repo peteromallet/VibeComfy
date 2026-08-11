@@ -51,7 +51,7 @@ def text_to_image_z_image_base(
     """Text to Image(Z-Image-Base).
 
     Materialized from subgraph 9b9009e4-2d3d-445f-9be5-6063f465757e in ready_templates/sources/official/image/z_image.json.
-    # vibecomfy source hash: sha256:7842e3e22849fa5c2ae13b65bf3256da47a6b3e242e0b4ca4d9221a0002dc54e
+    # vibecomfy source hash: sha256:2aafe87a9f038ed3afde41277d8a5ffad7adb54d9aeb3e04cb7c38de9a06753a
     Inner nodes: CLIPTextEncodex2, EmptySD3LatentImage, VAELoader, CLIPLoader, VAEDecode, ModelSamplingAuraFlow, UNETLoader, KSampler.
     """
 
@@ -98,6 +98,7 @@ def text_to_image_z_image_base(
     ksampler = KSampler(
         seed=770044821593082,
         sampler_name='res_multistep',
+        control_after_generate='randomize',
         steps=steps,
         cfg=cfg,
         latent_image=emptysd3latentimage,
