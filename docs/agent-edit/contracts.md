@@ -282,7 +282,7 @@ validation gates:
   inspect, research, respond, and revise behavior is not made stricter merely
   because the new gate exists.
 
-`done()` acceptance is also plan-backed. In [edit_batch_loop_finish.py](../../vibecomfy/comfy_nodes/agent/edit_batch_loop_finish.py),
+`done()` acceptance is also plan-backed. In [edit_batch_repl.py](../../vibecomfy/comfy_nodes/agent/edit_batch_repl.py),
 a requested `done()` reevaluates the latest candidate graph when
 `state.execution_plan` exists. If the resulting `PlanEvaluation` is
 `ok: false` and `blocking: true`, `done()` is not accepted; the next model turn
