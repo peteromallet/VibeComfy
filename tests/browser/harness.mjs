@@ -34,6 +34,7 @@ export const STAGED_WEB_MODULES = [
   "executor_progress.js",
   "agent_turn_feed.js",
   "agent_status_poller.js",
+  "agent_submit_flow.js",
   "agent_candidate_actions.js",
   "active_canvas_scope_guard.js",
   "scope_resolver.js",
