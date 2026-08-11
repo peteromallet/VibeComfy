@@ -15,9 +15,7 @@ import json
 from typing import Any, Mapping
 
 
-import logging
-
-LOGGER = logging.getLogger("vibecomfy.comfy_nodes.agent.edit_response_contract")
+from ._frag_state import LOGGER
 
 from .contracts import _clarification_payload
 

@@ -138,7 +138,13 @@ DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
 _SESSION_ROOT = Path("out/editor_sessions")
 DEFAULT_CHAT_DISPLAY_MESSAGES = 50
 PROMPT_MEMORY_MESSAGES = 5
-LOGGER = logging.getLogger(__name__)
+# T-040: canonical LOGGER for the whole split edit module. Pre-split, the exec
+# assembly ran edit_state's `logging.getLogger(__name__)` first and then the
+# edit_response_contract fragment (group 14) overwrote the shared namespace
+# binding with this explicit name — so edit.LOGGER resolved here. Every other
+# fragment imports this one object (directly from this foundation leaf, or
+# late-resolved off edit.* at call time); routing/handlers stay identical.
+LOGGER = logging.getLogger("vibecomfy.comfy_nodes.agent.edit_response_contract")
 _WARNED_LEGACY_CONTRACTS: set[str] = set()
 _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS: set[str] = set()
 
