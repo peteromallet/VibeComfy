@@ -53,3 +53,18 @@ Tasks (all PASS, two fix rounds):
 - T-034 PASS — generator ownership verified/documented (4 constants + 2 embedded blocks; zero golden reads); guard test; goldens byte-identical.
 
 Oracle: round 1 FAIL — 2 real findings: (1) _cloneLifecycleBaselineValue return-original fallback (last aliasing JSON clone), (2) deep_plain own-__proto__ key corruption. Fixes: jsonClone route + defineProperty copy (2 new __proto__ pins; 383/383). Round 2 PASS. ORACLE-5 = PASS. Boundary make check exit 0. roundtrip_smoke load-flake class re-observed (with/without change, different tests per run) — recorded.
+
+## ORACLE-6 batch (T-035…T-041) — edit exec split (SPINE)
+
+Tasks (all PASS):
+- T-035 PASS — A/edit_batch_repl.py: EditBatchReplDeps (75 fields: 58 private + 17 public, symtable-derived) + invocation-time build_edit_batch_repl_deps; stdlib-only imports; no singleton; 8 tests.
+- T-036 PASS — tests/test_cleanup_surface_manifest.py (19 tests): 472 __all__ set-equality, 13 patched, 4 imported, required_post_split membership.
+- T-037 PASS — 3 batch-loop fragments (2436 lines) → edit_batch_repl.py real functions behind late-built deps; edit.py delegates; apply_batch retained.
+- T-038 PASS — 8 foundation fragments → _frag_*.py modules (dependency order); 12 call-time late imports break cycles; 111-test slice.
+- T-039 PASS — 8 orchestration groups → _frag_*.py (142 names); guarded imports preserved; load_agent_generated_scratchpad live; 2 T-038 latent fixes.
+- T-040 PASS (+fix) — edit.py clean re-export façade; exec machinery deleted; __all__ static frozenset (472); adversarial review found LOGGER dual-provider + _stage_agent_batch_repl dual-provider → fixed (LOGGER unified to pre-split name ...edit_response_contract; -1568 lines).
+- T-041 PASS (+doc/test fixes) — 3 obsolete fragment files deleted; negative rg zero; stale contracts.md link fixed (make docs); _ws_send emit-scan test updated to agent-package scope.
+
+Oracle: adversarial Codex-sol review round 1 FAIL (LOGGER + _stage_agent_batch_repl dual providers) → fixed → round 2 PASS. ORACLE-6 oracle round 1 FAIL (briefing over-scope: 7 edit_batch_loop matches were ledger/provenance docs + 1 real stale doc link) → doc fixed → round 2 PASS. ORACLE-6 = PASS.
+
+Boundary gates: full test_comfy_nodes_agent_edit.py AE=0 (441 tests; 1 static-scan test fixed), full backend_spine SPINE=0, browser-smoke standalone BS=0 (env flake class — stray external watchdog pytest PID 552 caused waitFor timeouts; process now exited), make docs green, final make check exit 0. custom_nodes.lock pin restored after each gate.
