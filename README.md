@@ -68,31 +68,6 @@ VibeComfy preserves a workflow contract for agents. See
 Each path below is meant to be copied directly into an agent. The ComfyUI path
 also includes a manual install block because it is a normal custom-node install.
 
-### Use VibeComfy Directly
-
-Use this when you want an agent to install VibeComfy, discover templates, copy
-one into a recipe, import unfamiliar ComfyUI workflows when needed, validate the
-result, and show the runtime JSON that ComfyUI will receive.
-
-```text
-Clone https://github.com/peteromallet/VibeComfy and install it with `python -m pip install -e .`.
-The canonical agent skill lives in `docs/agent-skill/SKILL.md`; there are no root
-agent bootstrap copies. Run `python scripts/sync_agent_skill.py --apply` to check
-it, or `python scripts/sync_agent_skill.py --install-user` to install it globally.
-That installer uses SkillSinker: it symlinks the VibeComfy skill into detected Claude, Codex, and Hermes skill directories without overwriting existing entries, and it updates Codex's `AGENTS.md` with an idempotent fenced VibeComfy block.
-If I already have ComfyUI workflows or custom nodes, index them with `python -m vibecomfy.cli sources sync --official <official_workflow_dir> --external <my_workflow_dir> --custom-nodes <ComfyUI/custom_nodes> --json`, then use `workflows list`, `search`, `nodes list`, and `nodes spec` against that local context.
-List ready templates with `python -m vibecomfy.cli workflows list --ready`.
-Inspect `image/z_image` with `python -m vibecomfy.cli inspect image/z_image`.
-Copy it to `recipes/my_z_image.py` with `python -m vibecomfy.cli copy-to-recipe image/z_image --out recipes/my_z_image.py`.
-If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, first run `python -m vibecomfy.cli port check <workflow.json> --json` and `python -m vibecomfy.cli nodes install-plan <workflow.json>`, then convert it with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
-Edit the copied or converted Python itself: change prompts, seeds, steps, model choices, wiring, and output prefixes in the generated/template call sites, not by editing compiled API JSON.
-Validate the recipe with `python -m vibecomfy.cli validate recipes/my_z_image.py`.
-For converted scratchpads, validate `out/scratchpads/<name>.py` instead.
-Export the runtime API JSON with `python -m vibecomfy.cli port export recipes/my_z_image.py --to json --json`.
-If node packs are missing, use `python -m vibecomfy.cli nodes ensure <workflow>`. If model assets are missing, prefer normal `run` because it reconciles declared assets before queueing; use `fetch` only when explicitly staging authored model assets.
-Summarize what changed and show me the exact API JSON fields ComfyUI will receive before any GPU run.
-```
-
 ### Use VibeComfy Inside ComfyUI
 
 Use this when you want VibeComfy's ComfyUI extension nodes. The in-editor agent
@@ -100,7 +75,7 @@ panel also works from a normal install, but it needs the `agent` extra so the
 Arnold runtime package is present in the same Python environment as ComfyUI.
 
 ```text
-Install VibeComfy into my ComfyUI checkout. Use the same Python that runs ComfyUI, install VibeComfy editable with the agent extra if I want the in-editor agent panel, symlink `vibecomfy/comfy_nodes` into `ComfyUI/custom_nodes/vibecomfy`, restart ComfyUI, and verify that the VibeComfy node categories and `/vibecomfy/agent/status?route=auto` are available.
+Install VibeComfy into my ComfyUI checkout. Use the same Python that runs ComfyUI, install VibeComfy editable with the agent extra if I want the in-editor agent panel, symlink `vibecomfy/comfy_nodes` into `ComfyUI/custom_nodes/vibecomfy`, restart ComfyUI, and verify that the VibeComfy node categories are available.
 ```
 
 Manual install:
@@ -125,57 +100,33 @@ The symlink is what makes ComfyUI load `vibecomfy/comfy_nodes/__init__.py`,
 which registers the node classes and serves the bundled `web/` extension assets.
 
 After restart, look for nodes under `vibecomfy/exec`, `vibecomfy/intent`, and
-`conditioning/vibecomfy`. If you installed the agent extra, also verify:
+`conditioning/vibecomfy`.
 
-```bash
-curl "http://127.0.0.1:8190/vibecomfy/agent/status?route=auto"
-```
+The agent panel lets an agent edit a workflow from inside ComfyUI.
 
-The agent panel lets an agent edit a workflow from inside ComfyUI. `route=auto`
-uses OpenRouter when `OPENROUTER_API_KEY` is configured; Arnold-backed routes
-also require the `agent` extra above.
+### Use VibeComfy Directly
 
-### RunPod Baseline Setup
-
-For a new external RunPod user, install VibeComfy from GitHub into the same
-environment that runs ComfyUI, symlink `vibecomfy/comfy_nodes`, then run the
-baseline preparation step:
-
-```bash
-mkdir -p /workspace/vibecomfy/cache/{pip,tmp,huggingface,xdg}
-export TMPDIR=/workspace/vibecomfy/cache/tmp
-export PIP_CACHE_DIR=/workspace/vibecomfy/cache/pip
-export HF_HOME=/workspace/vibecomfy/cache/huggingface
-export HUGGINGFACE_HUB_CACHE=/workspace/vibecomfy/cache/huggingface/hub
-export XDG_CACHE_HOME=/workspace/vibecomfy/cache/xdg
-
-python -m pip install -e ".[agent,runpod-local]"
-vibecomfy runpod bootstrap-comfy \
-  --runtime-root /workspace/vibecomfy \
-  --external-address "https://<pod-id>-19123.proxy.runpod.net"
-```
-
-`bootstrap-comfy` creates the runtime directories, writes
-`extra_model_paths.yaml`, links the VibeComfy custom node, installs the locked
-LTX/Runex node-pack set, corrects PyTorch to the CUDA 12.8 build expected by
-the RunPod image, stages SD1.5 plus the basic LTX/Runex TTV model set, parks
-`ComfyUI-ResAdapter`, and prints the environment exports plus the `comfyui
-serve` command to run. Use `--full-ltx` only when the pod quota is large enough
-for every LTX auxiliary asset. ResAdapter currently imports sampler hooks that
-can hang a plain SD1.5 `KSampler` during model transfer; keep it out so SD1.5
-and LTX can share one ComfyUI process.
-
-### Use VibeComfy Through Astrid
-
-[Astrid](https://github.com/peteromallet/Astrid) is the higher-level agentic
-art harness one level above this repo. Use VibeComfy for workflow translation
-and execution; use Astrid for agent/human creative runs around image, video, and
-audio assets.
+Use this when you want an agent to install VibeComfy, discover templates, copy
+one into a recipe, import unfamiliar ComfyUI workflows when needed, validate the
+result, and show the runtime JSON that ComfyUI will receive.
 
 ```text
-Clone https://github.com/peteromallet/Astrid, install it editable with `cd Astrid && python -m pip install -e .`, run `python3 -m astrid skills install --all`, then run `python3 -m astrid skills doctor`.
-Use `python3 -m astrid --help`, `python3 -m astrid status`, and `python3 -m astrid next` to attach or create the working project; treat `astrid next` as the canonical next-action oracle.
-Explain how Astrid can use VibeComfy-backed image, video, or audio workflows inside an agent/human creative run. Start with one small demo plan, use VibeComfy for workflow translation/execution, and validate before any GPU run.
+Clone https://github.com/peteromallet/VibeComfy and install it with `python -m pip install -e .`.
+The canonical agent skill lives in `docs/agent-skill/SKILL.md`; there are no root
+agent bootstrap copies. Run `python scripts/sync_agent_skill.py --apply` to check
+it, or `python scripts/sync_agent_skill.py --install-user` to install it globally.
+That installer uses SkillSinker: it symlinks the VibeComfy skill into detected Claude, Codex, and Hermes skill directories without overwriting existing entries, and it updates Codex's `AGENTS.md` with an idempotent fenced VibeComfy block.
+If I already have ComfyUI workflows or custom nodes, index them with `python -m vibecomfy.cli sources sync --official <official_workflow_dir> --external <my_workflow_dir> --custom-nodes <ComfyUI/custom_nodes> --json`, then use `workflows list`, `search`, `nodes list`, and `nodes spec` against that local context.
+List ready templates with `python -m vibecomfy.cli workflows list --ready`.
+Inspect `image/z_image` with `python -m vibecomfy.cli inspect image/z_image`.
+Copy it to `recipes/my_z_image.py` with `python -m vibecomfy.cli copy-to-recipe image/z_image --out recipes/my_z_image.py`.
+If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, first run `python -m vibecomfy.cli port check <workflow.json> --json` and `python -m vibecomfy.cli nodes install-plan <workflow.json>`, then convert it with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
+Edit the copied or converted Python itself: change prompts, seeds, steps, model choices, wiring, and output prefixes in the generated/template call sites, not by editing compiled API JSON.
+Validate the recipe with `python -m vibecomfy.cli validate recipes/my_z_image.py`.
+For converted scratchpads, validate `out/scratchpads/<name>.py` instead.
+Export the runtime API JSON with `python -m vibecomfy.cli port export recipes/my_z_image.py --to json --json`.
+If node packs are missing, use `python -m vibecomfy.cli nodes ensure <workflow>`. If model assets are missing, prefer normal `run` because it reconciles declared assets before queueing; use `fetch` only when explicitly staging authored model assets.
+Summarize what changed and show me the exact API JSON fields ComfyUI will receive before any GPU run.
 ```
 
 ## Architecture In One Pass
