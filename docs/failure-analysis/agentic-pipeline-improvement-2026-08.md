@@ -150,3 +150,76 @@ Fix = reclassify by evidence (item 2), not phrase.
 3. Spec + land the `rich`-branch lossless decoder (item 3); corpus round-trip preservation test first.
 4. Then `6` (pinned consumers) and `7` (schema precedence — one-line swap at `_frag_research.py:821` first).
 5. Transport 2×2 experiment (native/OpenRouter × default/all-Flash) after deterministic fixes; decide prompt/model by data, not intuition.
+
+
+## 9. Scenario enumerations
+
+### Failed scenarios (54)
+`3d-3d-model-generation-and-preview-workflow-cc0df7`
+`3d-3d-model-generation-and-retargeting-workflow-f65774`
+`3d-3d-model-generation-and-rigging-from-image-352066`
+`3d-3d-model-generation-and-rigging-workflow-90a1d5`
+`3d-3d-shape-generation-and-export-workflow-8800a9`
+`3d-generates-a-3d-mesh-from`
+`audio-acestep-audio-generation-workflow-2a31ec`
+`audio-audio-processing-with-voice-tts-and-noise-remo-b80848`
+`audio-transcribes-audio-appends-text-regenerates`
+`audio-tts-narration-using-indextts-2`
+`hotshot-16-frames-agent-edit`
+`image-animatediff-video-from-images-with`
+`image-background-removal-and-grid-composition-54a681`
+`image-generates-a-2x2-seed-variation`
+`image-image-to-image-with-stable-zero123-and-backgro-def5b5`
+`image-inpainting-with-differential-diffusion-and-rea-1d414c`
+`image-kolors-image-generation-with-segs-detailer-and-d813fe`
+`image-sd3-image-generation-with-controlnet-19d221`
+`image-sdxl-txt2img-cat-in-spacesuit`
+`image-two-stage-qwen-image-generation`
+`multi-3d-preview-and-image-output-workflow-d93baf`
+`multi-ai-video-upscaling-with-detail-daemon-sampler-673197`
+`multi-animated-image-to-video-with-svd-and-lora-4ed6d9`
+`multi-animatediff-video-face-swapping-with-deflicker-506ebd`
+`multi-audio-to-image-mel-band-roformer-workflow-b22937`
+`multi-deforum-stable-diffusion-animation-with-ip-ada-78afac`
+`multi-flux2-image-and-video-generation-with-outpaint-435de2`
+`multi-image-to-3d-object-generation-with-background-1a7f84`
+`multi-image-to-video-generation-with-2`
+`multi-image-to-video-with-llm`
+`multi-image-to-video-with-upscaling-and-color-matchi-359848`
+`multi-svd-image-to-video-with-animation-builder-99e2a9`
+`multi-svd-image-to-video-with-webp-and-png-output-bd3afb`
+`multi-video-based-character-replacement-using`
+`multi-wan-vace-video-retargeting-driven`
+`multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457`
+`multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56`
+`speed-distillation-research`
+`video-animatediff-video-to-video-with-controlnet-and-3c978e`
+`video-animatediff-video-with-ipadapter-and-controlne-4eebf3`
+`video-anime-video-to-video-with-controlnet-and-openp-cb5cd2`
+`video-generates-a-video-from-a`
+`video-hunyuan-video-text-to-video-generation-265847`
+`video-hunyuanvideo-image-to-video-generation-with-en-ff076a`
+`video-image-to-video-conversion-with-moonvalley-d7853c`
+`video-ltx-video-upscaling-and-enhancement`
+`video-ltx-video-with-audio-and-inpainting-b3ba8a`
+`video-svd-image-to-video-generation-fc240f`
+`video-video-combine-with-image-loading-5b31ce`
+`video-video-frame-by-frame-style`
+`video-video-inpainting-with-spline-based-cut-and-dra-485ff2`
+`video-video-output-workflow-f855de`
+`video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20`
+`video-wan-video-generation-with-vace-and-multi-outpu-d1caec`
+
+### Matcher-only false-positive failures (9 — recoverable by item 1)
+`3d-generates-a-3d-mesh-from`
+`audio-acestep-audio-generation-workflow-2a31ec`
+`image-sd3-image-generation-with-controlnet-19d221`
+`multi-ai-video-upscaling-with-detail-daemon-sampler-673197`
+`multi-audio-to-image-mel-band-roformer-workflow-b22937`
+`video-generates-a-video-from-a`
+`video-hunyuan-video-text-to-video-generation-265847`
+`video-image-to-video-conversion-with-moonvalley-d7853c`
+`video-video-output-workflow-f855de`
+
+### MalformedModelJSON failures (0 — 11/14 infra-empty per Dig3)
+
