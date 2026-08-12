@@ -1953,7 +1953,7 @@ def run_executor(
         Always returns a result — failures are captured in the result
         shape, never raised as raw exceptions.
     """
-    plan: ClassifyDecision = ClassifyDecision.respond_only()
+    plan: ClassifyDecision | None = None
     research_result: ResearchResult | None = None
     implementation_result: ImplementationResult | None = None
     effective_graph: dict[str, Any] | None = request.graph
@@ -1984,7 +1984,7 @@ def run_executor(
             cache_breakout_complete=cache_breakout_complete,
         )
         return Report(
-            plan=plan or ClassifyDecision.respond_only(),
+            plan=plan,
             research=research,
             implementation=implementation,
             deepseek_usage=usage,
@@ -2105,9 +2105,10 @@ def run_executor(
                 )
     except _ExecutorPhaseError as exc:
         # The classify phase raised — the report must NOT claim a model
-        # decision (``respond_only``) that never happened. Record
-        # classification_status=failed so artifacts reflect reality; the
-        # default plan stays a neutral placeholder.
+        # decision (respond_only) that never happened. Record
+        # classification_status=failed and leave the plan None so artifacts
+        # reflect reality: failed classification carries no invented
+        # route/task/intent.
         report = _build_report(
             classification_status="failed",
             model_response=exc.model_response,

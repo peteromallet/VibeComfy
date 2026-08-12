@@ -1509,9 +1509,12 @@ def run_model_turn(
         raise
     except ImportError:
         raise
-    except (ProviderError, MalformedModelJSON, MissingRequiredField):
+    except (ProviderError, MalformedModelJSON, MissingRequiredField) as exc:
         # Same exception object propagates — keep its evidence attrs intact and
         # add the provider-known model/phase for the classify/reply envelope.
+        # ``as exc`` is load-bearing: without it the name is unbound in this
+        # clause and evidence attachment raises UnboundLocalError, destroying
+        # the original exception type + evidence.
         _attach_provider_context(exc, model=selected_model, phase=phase)
         raise
     except Exception as exc:

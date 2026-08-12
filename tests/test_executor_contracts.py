@@ -636,7 +636,7 @@ class TestImplementationResult:
 class TestReport:
     def test_default(self) -> None:
         r = Report()
-        assert isinstance(r.plan, ClassifyDecision)
+        assert r.plan is None
         assert r.research is None
         assert r.implementation is None
 

@@ -2101,15 +2101,15 @@ class Report:
     new top-level fields.
     """
 
-    plan: ClassifyDecision = field(default_factory=ClassifyDecision)
+    plan: ClassifyDecision | None = None
     research: ResearchResult | None = None
     implementation: ImplementationResult | None = None
     deepseek_usage: dict[str, Any] = field(default_factory=dict)
     deepseek_est_cost_usd: float | None = None
     deepseek_cost_basis: str | None = None
     # Truthful classification lifecycle signal: "failed" means classify raised
-    # (the default plan/respond_only placeholder is NOT a model decision then).
-    # Empty string means the signal was not recorded (legacy paths).
+    # (the plan is then None — no invented respond_only placeholder). Empty
+    # string means the signal was not recorded (legacy paths).
     classification_status: str = ""
     # Mirrors the batch-repl model_response.json attempt artifact: parse-failure
     # evidence (parse_reason, raw preview, usage, model, phase, endpoint) for the
@@ -2134,13 +2134,15 @@ class Report:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        plan_payload = self.plan.to_dict()
-        route = _public_route_for_plan(self.plan)
-        plan_payload["route"] = route
-        task = self.plan.effective_task
-        if task:
-            plan_payload["task"] = task
-        inner: dict[str, Any] = {"plan": plan_payload}
+        inner: dict[str, Any] = {}
+        if self.plan is not None:
+            plan_payload = self.plan.to_dict()
+            route = _public_route_for_plan(self.plan)
+            plan_payload["route"] = route
+            task = self.plan.effective_task
+            if task:
+                plan_payload["task"] = task
+            inner["plan"] = plan_payload
         if self.research is not None:
             inner["research"] = self.research.to_dict()
         if self.implementation is not None:
@@ -2264,18 +2266,27 @@ class AgentTurnResult:
     @classmethod
     def from_executor_result(cls, result: "ExecutorResult") -> "AgentTurnResult":
         plan = result.report.plan
-        route = _public_route_for_plan(plan)
         reply = result.reply or result.failure_message or ""
         warnings: list[str] = []
 
-        classification = {
-            "route": route,
-            "task": plan.effective_task,
-            "intent": plan.intent,
-            "plan_summary": plan.plan_summary,
-        }
-        if plan.route and plan.route != route:
-            classification["disposition"] = plan.route
+        if plan is None:
+            # Failed classification has NO decision (G0): do not invent a
+            # route/task/intent.  The classification evidence stays empty and
+            # the envelope carries no disposition.
+            classification: dict[str, Any] = {}
+            route = ""
+            disposition = ""
+        else:
+            route = _public_route_for_plan(plan)
+            classification = {
+                "route": route,
+                "task": plan.effective_task,
+                "intent": plan.intent,
+                "plan_summary": plan.plan_summary,
+            }
+            if plan.route and plan.route != route:
+                classification["disposition"] = plan.route
+            disposition = plan.route or plan.effective_route
 
         graph_inspection: dict[str, Any] = {}
         if route == "inspect":
@@ -2322,7 +2333,7 @@ class AgentTurnResult:
             ),
             candidate=candidate,
             no_candidate_reason=reason,
-            disposition=plan.route or plan.effective_route,
+            disposition=disposition,
         )
 
 

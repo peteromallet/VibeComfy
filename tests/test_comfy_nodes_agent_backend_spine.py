@@ -13386,3 +13386,75 @@ class TestAcceptNoBaselineAdvance:
         bridge = result.get("bridge")
         assert bridge is not None
         assert bridge["bridge_use_count"] >= 1
+
+
+def test_classify_provider_error_preserves_type_and_worker_evidence_on_wrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G0-5: provider.run_model_turn's re-raise path must not turn a
+    ProviderError into an UnboundLocalError and must keep the exception's
+    type + additive evidence (worker_result) intact."""
+    from vibecomfy.comfy_nodes.agent.provider import ProviderError
+
+    class _FailingRuntime:
+        @staticmethod
+        def run_model_turn(**kwargs):  # noqa: ANN001
+            exc = ProviderError("worker failed")
+            exc.worker_result = {"exit_code": 1, "stderr": "boom"}
+            raise exc
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: _FailingRuntime)
+
+    with pytest.raises(ProviderError) as excinfo:
+        agent_provider.run_model_turn(
+            "classify this request",
+            route="openrouter",
+            model="deepseek-chat",
+            profiling_context={"backend_phase": "classify"},
+        )
+
+    # The original exception object propagates (type preserved — the pre-fix
+    # code raised UnboundLocalError here, destroying ProviderError).
+    assert type(excinfo.value) is ProviderError
+    # Evidence survives the wrap unchanged.
+    assert excinfo.value.worker_result == {"exit_code": 1, "stderr": "boom"}
+    # Provider-known context is attached for the classify/reply envelope.
+    assert excinfo.value.model == "deepseek-chat"
+    assert excinfo.value.phase == "classify"
+
+
+def test_classify_failure_report_has_no_invented_respond_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G0-6: after a classification failure the report must carry
+    classification_status='failed' and NO invented route/task/intent=respond
+    (no ClassifyDecision.respond_only sentinel)."""
+    from vibecomfy.executor.contracts import ExecutorRequest
+    from vibecomfy.executor.core import _ExecutorPhaseError, run_executor
+
+    def _raise(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise _ExecutorPhaseError(
+            stage="classify",
+            failure_kind="model_error",
+            message="model refused to classify",
+        )
+
+    monkeypatch.setattr("vibecomfy.executor.core._run_classify", _raise)
+
+    result = run_executor(ExecutorRequest(query="do something"))
+
+    assert result.ok is False
+    assert result.failure_stage == "classify"
+    # The decision is nullable on failure — no respond_only sentinel exists.
+    assert result.report.plan is None
+    assert result.report.classification_status == "failed"
+
+    serialized = result.to_dict()
+    executor_payload = serialized["report"]["executor"]
+    assert executor_payload["classification_status"] == "failed"
+    # No plan payload, hence no invented route/task/intent=respond anywhere
+    # in the serialized report.
+    assert "plan" not in executor_payload
+    for invented_key in ("route", "task", "intent"):
+        assert invented_key not in executor_payload
+    assert "respond" not in json.dumps(executor_payload)
