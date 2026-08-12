@@ -72,6 +72,7 @@ CONTRACT FOR T-037..T-041
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import json
 import time
