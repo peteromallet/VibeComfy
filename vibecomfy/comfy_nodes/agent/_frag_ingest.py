@@ -140,24 +140,14 @@ def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
-    # The EditLedger walks a UI ``nodes`` array. An API-format (compiled_api)
-    # source has no ``nodes`` key, so every edit op would die on ``stale_graph_name``
-    # ("uid no longer present"). When the source is not already UI format,
-    # re-serialize the canonical VibeWorkflow (which ingests both formats) to a UI
-    # envelope so the ledger sees the nodes. UI-format inputs already have ``nodes``
-    # and are left untouched — re-serializing them is lossy and breaks the path that
-    # already works. ``state.graph`` is hashed/echoed/audited, so all downstream
-    # consumers share this one canonical view.
-    from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    # Public Agent Edit calls normalize before allocation. Keep the same adapter
+    # here as a defensive fallback for direct stage callers and recovered states.
+    from .graph_normalization import normalize_agent_edit_graph
 
-    if detect_workflow_shape(state.graph) != "ui":
-        state.workflow = convert_to_vibe_format(state.graph, schema_provider=state.schema_provider)
-        state.graph = emit_ui_json(
-            state.workflow,
-            schema_provider=state.schema_provider,
-            guard_original_ui=state.graph,
-        )
+    state.graph = normalize_agent_edit_graph(
+        state.graph,
+        schema_provider=state.schema_provider,
+    )
     ledger = EditLedger.ingest(state.graph)
     state.guard_original_ui = ledger.stamped_copy()
     original_ui_ref = write_json_artifact(state.original_ui_path, state.guard_original_ui)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,7 @@ from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
     CANDIDATE_AUTHORITY_V1,
     PREPARED_AUTHORITY_V1,
     ContractError,
+    assert_root_graph_v1,
     build_structural_graph_projection,
     canonical_json,
     classify_legacy_migration_v1,
@@ -30,6 +32,9 @@ from vibecomfy.comfy_nodes.agent.mutation_materialization_v1 import (
     compute_mutation_materialization_digest,
 )
 from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
+from vibecomfy.comfy_nodes.agent import edit as agent_edit
+from vibecomfy.comfy_nodes.agent import graph_normalization
+from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
 from vibecomfy.porting.edit.ops import EditOpParseError, normalize_delta_v1
 
 CORPUS = json.loads((Path(__file__).parent / "fixtures/agent_edit/m1_projection_golden_v1.json").read_text())
@@ -122,6 +127,134 @@ def test_native_projection_normalizes_host_ui_metadata_and_zero_widget_encodings
     omitted["nodes"][0].pop("widgets_values", None)
     variants.append(projection_reference_v1(omitted, "structural_v1")["digest"])
     assert len(set(variants)) == 1
+
+
+def test_agent_edit_normalizes_compiled_dict_nodes_before_strict_projection() -> None:
+    compiled_graph = {
+        "id": "6b59a19a09e6cdfe",
+        "nodes": {
+            "55": {
+                "class_type": "LoadImage",
+                "id": "55",
+                "inputs": {"image": "face_timberlake.jpg"},
+                "metadata": {
+                    "_ui": {
+                        "id": 55,
+                        "type": "LoadImage",
+                        "mode": 0,
+                        "pos": [-380, 490],
+                        "size": [315, 314],
+                        "inputs": [],
+                        "outputs": [
+                            {"name": "IMAGE", "type": "IMAGE", "links": None}
+                        ],
+                        "properties": {"Node name for S&R": "LoadImage"},
+                        "widgets_values": ["face_timberlake.jpg", "image"],
+                    }
+                },
+                "raw_widgets": {
+                    "has_dict_rows": False,
+                    "length": 2,
+                    "shape": "list",
+                    "source": "ui.widgets_values",
+                    "values": ["face_timberlake.jpg", "image"],
+                },
+                "uid": "55",
+                "widgets": {},
+            }
+        },
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+        "metadata": {},
+        "requirements": {
+            "custom_nodes": [],
+            "missing_models": [],
+            "missing_nodes": [],
+            "models": [],
+            "unsupported": [],
+        },
+        "compiled_api": {
+            "55": {
+                "class_type": "LoadImage",
+                "inputs": {"image": "face_timberlake.jpg"},
+            }
+        },
+        "vibecomfy_format_version": "1.0",
+    }
+
+    normalized = normalize_agent_edit_graph(compiled_graph)
+
+    assert_root_graph_v1(normalized)
+    assert isinstance(normalized["nodes"], list)
+    assert normalized["nodes"][0]["id"] == 55
+    assert normalized["nodes"][0]["properties"]["vibecomfy_uid"] == "55"
+    assert build_structural_graph_projection(normalized)["nodes"][0]["id"] == 55
+    assert projection_reference_v1(normalized, "structural_v1")["canonical"]["nodes"][0][
+        "uid"
+    ] == "55"
+
+
+def test_agent_edit_graph_normalization_leaves_list_nodes_unchanged() -> None:
+    graph = {"nodes": [], "links": [], "metadata": {"format": "ui"}}
+
+    assert normalize_agent_edit_graph(graph) is graph
+
+    empty_compiled = {
+        "id": "empty",
+        "nodes": {},
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+        "metadata": {},
+        "requirements": {},
+        "compiled_api": {},
+        "vibecomfy_format_version": "1.0",
+    }
+    assert normalize_agent_edit_graph(empty_compiled)["nodes"] == []
+
+    malformed_mixed = dict(empty_compiled)
+    malformed_mixed["nodes"] = {"1": "not-a-node"}
+    with pytest.raises(ValueError, match="nodes must contain only node objects"):
+        normalize_agent_edit_graph(malformed_mixed)
+
+
+def test_agent_edit_normalizes_graph_before_turn_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    submitted = {"nodes": {"55": {"id": "55"}}}
+    canonical = {"nodes": [], "links": []}
+    captured: dict[str, object] = {}
+
+    def fake_normalize(graph: dict, *, schema_provider: object) -> dict:
+        assert graph is submitted
+        return canonical
+
+    def fake_allocate_turn(**kwargs: object) -> SimpleNamespace:
+        request_payload = kwargs["request_payload"]
+        assert isinstance(request_payload, dict)
+        captured["graph"] = request_payload["graph"]
+        return SimpleNamespace(
+            replay=SimpleNamespace(
+                response={
+                    "ok": True,
+                    "message": "Replayed.",
+                    "outcome": {"kind": "noop"},
+                }
+            ),
+            conflict=None,
+        )
+
+    monkeypatch.setattr(graph_normalization, "normalize_agent_edit_graph", fake_normalize)
+    monkeypatch.setattr(agent_edit, "allocate_turn", fake_allocate_turn)
+
+    response = agent_edit.handle_agent_edit(
+        {"task": "adjust padding", "graph": submitted, "session_id": "session"},
+        schema_provider=object(),
+    )
+
+    assert captured["graph"] is canonical
+    assert response["outcome"]["kind"] == "noop"
 
 
 def test_load_image_projection_excludes_frontend_upload_widget_carriers() -> None:

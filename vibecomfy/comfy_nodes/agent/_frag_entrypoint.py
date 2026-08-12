@@ -63,6 +63,33 @@ def handle_agent_edit(
         if not isinstance(_on_demand_schemas, bool):
             _on_demand_schemas = None
         schema_provider = _default_runtime_schema_provider(on_demand_schemas=_on_demand_schemas)
+    # The executor may submit serialized Vibe/compiled graphs whose ``nodes``
+    # collection is a mapping.  Normalize before allocation so request.json,
+    # baseline hashes, batch editing/queue validation, and V2 transaction
+    # preconditions all consume the same canonical list-nodes UI graph.
+    from .graph_normalization import normalize_agent_edit_graph
+
+    try:
+        normalized_graph = normalize_agent_edit_graph(
+            graph,
+            schema_provider=schema_provider,
+        )
+    except Exception as exc:
+        failure = failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            "ingest",
+            agent_failure_context={
+                "explanation": f"Agent edit graph normalization failed: {exc}"
+            },
+        )
+        return _validated_agent_edit_response(
+            _product_failure_response(failure),
+            stage="ingest",
+        )
+    if normalized_graph is not graph:
+        payload = dict(payload)
+        payload["graph"] = normalized_graph
+        graph = normalized_graph
     root = session_root or _SESSION_ROOT
     session_id = _safe_session_id(payload.get("session_id"))
     allocation = allocate_turn(
