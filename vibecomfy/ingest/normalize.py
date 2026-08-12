@@ -84,7 +84,7 @@ def normalize_to_api(
         # authority. ``compiled_api`` is stale execution evidence and must never
         # decide which rich nodes exist — the API view is derived by decoding
         # the envelope into a VibeWorkflow and compiling it fresh.
-        workflow = _decode_serialized_vibe(raw)
+        workflow = VibeWorkflow.from_envelope(raw)
         api = workflow.compile("api")
         _merge_vibe_node_widget_evidence(raw, api)
         _enforce_exec_source_limits(api, surface="vibe.compiled_api")
@@ -380,13 +380,14 @@ def _vibe_string_list(value: Any, label: str) -> list[str]:
 
 
 def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
-    """Direct decoder for the serialized rich Vibe envelope (workflow shape "vibe").
+    """Implementation of :meth:`VibeWorkflow.from_envelope`.
 
-    The rich top-level ``nodes`` mapping and ``edges`` list are the ONLY
-    structural authority: ``compiled_api`` is never consulted for which nodes
-    exist — it is stale execution evidence by construction.  The decode is
-    whole-graph and fail-closed: any malformed or mixed entry raises
-    ``ValueError`` and no partial graph is ever returned.
+    Do not call this from new code — use ``VibeWorkflow.from_envelope`` (or
+    the module-level ``from_envelope``).  The decoder is fail-closed and
+    unrelaxed: the rich top-level ``nodes`` mapping and ``edges`` list are
+    the ONLY structural authority; ``compiled_api`` is never consulted for
+    which nodes exist.  Any malformed or mixed entry raises ``ValueError``
+    and no partial graph is ever returned.
 
     Every field is deep-copied.  Node ``metadata`` is preserved verbatim
     (including ``metadata._ui``) except that ``metadata[PROVENANCE_KEY]`` is
@@ -692,16 +693,17 @@ def _convert_to_vibe_format_impl(
     """Ingest a raw workflow dict (api/ui/vibe shapes) into a ``VibeWorkflow``.
 
     Serialized rich Vibe envelopes (shape ``"vibe"``) are decoded directly and
-    losslessly by :func:`_decode_serialized_vibe` — the rich ``nodes`` mapping
-    is the only authority for which nodes exist.  API and UI shapes keep the
-    existing compile-path ingest (``normalize_to_api`` → node extraction).
+    losslessly by :meth:`VibeWorkflow.from_envelope` — the rich ``nodes``
+    mapping is the only authority for which nodes exist.  API and UI shapes
+    keep the existing compile-path ingest (``normalize_to_api`` → node
+    extraction).
     """
     if detect_workflow_shape(api_workflow) == "vibe":
         # Serialized rich Vibe envelope: decode it directly and losslessly. The
         # rich ``nodes`` mapping is the only authority for which nodes exist;
         # ``compiled_api`` (and the api-derived path below) is never consulted
         # for the rich node set.
-        return _decode_serialized_vibe(api_workflow)
+        return VibeWorkflow.from_envelope(api_workflow)
     if detect_workflow_shape(api_workflow) != "api":
         api_workflow = normalize_to_api(
             api_workflow,

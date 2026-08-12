@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 from dataclasses import dataclass, field, replace
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,28 @@ from vibecomfy.contracts.validation import (  # noqa: E402
 # under ``workflow.metadata['summary']``.  Re-exported so consumers can
 # import from ``vibecomfy.workflow`` without reaching into contracts.
 from vibecomfy.contracts.summary import WorkflowSummary  # noqa: E402
+
+
+# Stored-envelope format version. The IR is the schema source: writers stamp
+# this via ``VibeWorkflow.to_envelope()`` rather than a script-local constant.
+FORMAT_VERSION = "1.0"
+VIBECOMFY_FORMAT_VERSION = FORMAT_VERSION
+
+
+def _to_plain(obj: Any) -> Any:
+    """Lossless walk of public dataclass fields (skip private ``_`` names)."""
+    if dataclasses.is_dataclass(obj):
+        result: dict[str, Any] = {}
+        for field_info in dataclasses.fields(obj):
+            if field_info.name.startswith("_"):
+                continue
+            result[field_info.name] = _to_plain(getattr(obj, field_info.name))
+        return result
+    if isinstance(obj, dict):
+        return {str(key): _to_plain(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(value) for value in obj]
+    return obj
 
 
 @dataclass(slots=True)
@@ -278,6 +301,31 @@ class VibeWorkflow:
         cloned._manual_input_names = set(self._manual_input_names)
         cloned._uid_counter = self._uid_counter
         return cloned
+
+    def to_envelope(self) -> dict[str, Any]:
+        """Serialize this IR as the stored vibe envelope.
+
+        Public dataclass fields plus ``vibecomfy_format_version``. No
+        ``compiled_api`` — ``compile("api")`` is a function, not stored data.
+        Transport stamps such as ``workflow_id`` are applied by callers after
+        this, not here.
+        """
+        plain = _to_plain(self)
+        plain["vibecomfy_format_version"] = FORMAT_VERSION
+        return plain
+
+    @classmethod
+    def from_envelope(cls, raw: dict[str, Any]) -> "VibeWorkflow":
+        """Fail-closed decoder for a serialized vibe envelope.
+
+        Rich ``nodes`` + ``edges`` are the only structural authority.
+        ``compiled_api`` is ignored. Malformed input raises ``ValueError``;
+        no partial graph is returned. Implementation is the existing ingest
+        decoder — this method does not relax it.
+        """
+        from vibecomfy.ingest.normalize import _decode_serialized_vibe
+
+        return _decode_serialized_vibe(raw)
 
     def clone(self) -> "VibeWorkflow":
         return self.copy()
@@ -911,6 +959,14 @@ class VibeWorkflow:
         while candidate in numeric:
             candidate += 1
         return str(candidate)
+
+
+def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
+    """Fail-closed reader for a serialized vibe envelope.
+
+    Module-level alias of :meth:`VibeWorkflow.from_envelope`.
+    """
+    return VibeWorkflow.from_envelope(raw)
 
 
 @dataclass(frozen=True)

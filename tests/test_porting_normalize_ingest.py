@@ -821,3 +821,165 @@ def test_vibe_rich_ingest_rejects_incomplete_envelope() -> None:
     bad_strict["strict_types"] = "yes"
     with pytest.raises(ValueError, match="strict_types must be a boolean"):
         convert_to_vibe_format(bad_strict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P5 — VibeWorkflow.to_envelope / from_envelope (one writer, one fail-closed reader)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_to_envelope_from_envelope_round_trip_90a1d5() -> None:
+    """to_envelope(from_envelope(90a1d5)) preserves 15/10/15 uids/modes; compile stays 2."""
+    from vibecomfy.workflow import FORMAT_VERSION, VibeWorkflow, from_envelope
+
+    raw = _load_90a1d5()
+    wf = from_envelope(raw)
+    via_convert = convert_to_vibe_format(raw)
+    assert set(wf.nodes) == set(via_convert.nodes)
+    assert len(wf.nodes) == 15
+    assert len(wf.edges) == 10
+    assert {node.uid for node in wf.nodes.values()} == {
+        node.uid for node in via_convert.nodes.values()
+    }
+    assert all(node.uid.strip() for node in wf.nodes.values())
+    assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
+
+    envelope = wf.to_envelope()
+    assert envelope["vibecomfy_format_version"] == FORMAT_VERSION
+    assert "compiled_api" not in envelope
+    assert len(envelope["nodes"]) == 15
+    assert len(envelope["edges"]) == 10
+
+    wf2 = VibeWorkflow.from_envelope(envelope)
+    assert len(wf2.nodes) == 15
+    assert len(wf2.edges) == 10
+    assert {node.uid for node in wf2.nodes.values()} == {node.uid for node in wf.nodes.values()}
+    assert dict(Counter(node.metadata.get("mode") for node in wf2.nodes.values())) == {4: 9, 0: 6}
+    for nid, node in wf2.nodes.items():
+        original = raw["nodes"][nid]
+        assert node.uid == original["uid"]
+        assert node.metadata["_ui"] == original["metadata"]["_ui"]
+        assert node.inputs == original["inputs"]
+        assert node.widgets == original["widgets"]
+    assert len(wf2.compile("api")) == 2
+    assert set(wf2.compile("api")) == {"3", "17"}
+
+
+def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
+    """A hand-built (old-style) envelope without compiled_api still decodes losslessly."""
+    from vibecomfy.workflow import VibeWorkflow
+
+    envelope = {
+        "id": "hand-built",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "hand-built", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {
+            "models": [],
+            "custom_nodes": [],
+            "missing_models": [],
+            "missing_nodes": [],
+            "unsupported": [],
+        },
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "CheckpointLoaderSimple",
+                "pack": None,
+                "inputs": {"ckpt_name": "model.safetensors"},
+                "widgets": {},
+                "metadata": {"_ui": {"mode": 0}, "mode": 0},
+                "uid": "uid-loader",
+            },
+            "2": {
+                "id": "2",
+                "class_type": "PreviewImage",
+                "pack": None,
+                "inputs": {},
+                "widgets": {},
+                "metadata": {"_ui": {"mode": 4}, "mode": 4},
+                "uid": "uid-preview",
+            },
+        },
+        "edges": [
+            {
+                "from_node": "1",
+                "from_output": "MODEL",
+                "to_node": "2",
+                "to_input": "images",
+            }
+        ],
+        "inputs": {},
+        "outputs": [{"node_id": "2", "output_type": "IMAGE"}],
+        "metadata": {"note": "old-style"},
+        "strict_types": False,
+    }
+    assert "compiled_api" not in envelope
+
+    wf = VibeWorkflow.from_envelope(envelope)
+    assert len(wf.nodes) == 2
+    assert len(wf.edges) == 1
+    assert wf.nodes["1"].uid == "uid-loader"
+    assert wf.nodes["1"].inputs["ckpt_name"] == "model.safetensors"
+    assert wf.nodes["2"].metadata["mode"] == 4
+    assert wf.nodes["2"].metadata["_ui"]["mode"] == 4
+    assert wf.outputs[0].node_id == "2"
+    written = wf.to_envelope()
+    assert "compiled_api" not in written
+    assert written["nodes"]["1"]["uid"] == "uid-loader"
+    assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
+
+
+def test_from_envelope_fails_closed_on_malformed_input() -> None:
+    """from_envelope raises on malformed input; it never returns a partial graph."""
+    from vibecomfy.workflow import VibeWorkflow
+
+    good = {
+        "id": "closed",
+        "source": {"id": "closed"},
+        "requirements": {},
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "PreviewImage",
+                "inputs": {},
+                "widgets": {},
+                "metadata": {},
+                "uid": "uid-1",
+            }
+        },
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+    }
+    assert len(VibeWorkflow.from_envelope(good).nodes) == 1
+
+    blank_uid = deepcopy(good)
+    blank_uid["nodes"]["2"] = {
+        "id": "2",
+        "class_type": "PreviewImage",
+        "inputs": {},
+        "widgets": {},
+        "metadata": {},
+        "uid": "",
+    }
+    with pytest.raises(ValueError, match="uid must be a nonblank string"):
+        VibeWorkflow.from_envelope(blank_uid)
+
+    mixed_node = deepcopy(good)
+    mixed_node["nodes"]["2"] = "not-a-mapping"
+    with pytest.raises(ValueError, match="node entries must be mappings"):
+        VibeWorkflow.from_envelope(mixed_node)
+
+    missing_source = deepcopy(good)
+    del missing_source["source"]
+    with pytest.raises(ValueError, match="source"):
+        VibeWorkflow.from_envelope(missing_source)
+
+    missing_requirements = deepcopy(good)
+    del missing_requirements["requirements"]
+    with pytest.raises(ValueError, match="requirements"):
+        VibeWorkflow.from_envelope(missing_requirements)
+
+    not_an_object = ["not", "an", "envelope"]
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        VibeWorkflow.from_envelope(not_an_object)  # type: ignore[arg-type]

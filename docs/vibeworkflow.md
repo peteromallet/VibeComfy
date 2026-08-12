@@ -16,9 +16,10 @@ Three views of the same graph, named by how they enter or leave:
 Required flows:
 
 ```text
-envelope -> VibeWorkflow   (lossless; rich nodes decode)
+envelope -> VibeWorkflow   (VibeWorkflow.from_envelope; lossless; fail-closed)
 UI JSON  -> VibeWorkflow   (list-node import)
 API dict -> VibeWorkflow   (Comfy prompt import)
+VibeWorkflow -> envelope   (VibeWorkflow.to_envelope; no compiled_api)
 VibeWorkflow -> compile("api")   (execution view; drops helpers/muted/bypassed)
 VibeWorkflow -> emit_ui_json()   (LiteGraph persist / apply)
 ```

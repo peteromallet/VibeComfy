@@ -106,6 +106,85 @@ def test_envelope_carries_workflow_json_compiled_api_and_python(monkeypatch, tmp
     assert "Python scratchpad source:" in envelope["data"]["body"]
 
 
+def test_emit_external_workflow_python_uses_from_envelope(monkeypatch, tmp_path) -> None:
+    """Hivemind Python emission decodes via from_envelope, not a lenient constructor."""
+    from vibecomfy.workflow import VibeWorkflow
+
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    workflow_path = corpus_dir / "hand.json"
+    envelope = {
+        "id": "hand",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "hand"},
+        "requirements": {},
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "PreviewImage",
+                "inputs": {},
+                "widgets": {},
+                "metadata": {"mode": 0},
+                "uid": "uid-preview",
+            }
+        },
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+    }
+    workflow_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    def fake_emit(workflow, **_kwargs: Any) -> str:
+        captured["workflow"] = workflow
+        return "# vibecomfy: generated scratchpad\n"
+
+    monkeypatch.setattr(
+        "vibecomfy.porting.emitter.emit_scratchpad_python",
+        fake_emit,
+    )
+    rendered = ext_upload._emit_external_workflow_python(
+        workflow_path, {"workflow_id": "hand"}
+    )
+    assert rendered.startswith("# vibecomfy: generated scratchpad")
+    workflow = captured["workflow"]
+    assert isinstance(workflow, VibeWorkflow)
+    assert len(workflow.nodes) == 1
+    assert workflow.nodes["1"].uid == "uid-preview"
+    # Fail-closed decoder stamps provenance; the deleted lenient constructor did not.
+    assert workflow.nodes["1"].metadata["provenance"] == "untrusted_source"
+
+
+def test_emit_external_workflow_python_fails_closed_on_blank_uid(tmp_path) -> None:
+    """Blank uid is rejected (no silent skip / empty-uid accept)."""
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    workflow_path = corpus_dir / "blank.json"
+    envelope = {
+        "id": "blank",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "blank"},
+        "requirements": {},
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "PreviewImage",
+                "inputs": {},
+                "widgets": {},
+                "metadata": {},
+                "uid": "",
+            }
+        },
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+    }
+    workflow_path.write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="uid must be a nonblank string"):
+        ext_upload._emit_external_workflow_python(workflow_path, {"workflow_id": "blank"})
+
+
 def test_envelope_sidecar_less_envelope_keeps_rich_nodes_gate(monkeypatch, tmp_path) -> None:
     """A new envelope without compiled_api still ranks rich: has_rich_nodes gate (P4)."""
     corpus_dir = tmp_path / "corpus"
