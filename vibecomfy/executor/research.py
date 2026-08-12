@@ -784,9 +784,9 @@ def _rank_hivemind_rows(rows: list[Any], query: str) -> list[dict[str, Any]]:
         if gates.get("parseable_workflow") is True:
             score += 40
             reasons.append("hivemind:parseable workflow")
-        if gates.get("has_compiled_api") is True:
+        if gates.get("has_rich_nodes") is True:
             score += 30
-            reasons.append("hivemind:compiled api available")
+            reasons.append("hivemind:rich nodes available")
         if semantics.get("task_type") in _HIVEMIND_SEMANTIC_TASK_TERMS:
             score += 10
         seen_reasons: set[str] = set()
@@ -5047,9 +5047,11 @@ def _graph_node_class_types(graph: dict | None) -> list[str]:
 
     Accepts either the raw ComfyUI-API shape ``{node_id: {"class_type": str,
     "inputs": ...}}`` or the vibecomfy wrapper bundle
-    ``{compiled_api: {node_id: {...}}, nodes, edges, ...}`` that production
-    passes as ``request.graph`` (see ``core.py``). The wrapper's top-level
-    values are not node dicts, so we descend into ``compiled_api`` when present.
+    ``{nodes, edges, ...}`` that production passes as ``request.graph`` (see
+    ``core.py``). The rich ``nodes`` mapping (or UI list) is the preferred
+    structural authority; only when ``nodes`` is absent does the fallback
+    descend into ``compiled_api`` (when present) or treat the graph itself as
+    the API dict.
     """
     if not isinstance(graph, dict):
         return []

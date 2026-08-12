@@ -721,7 +721,7 @@ def _envelope(row: dict[str, Any], *, corpus_dir: Path = DEFAULT_CORPUS_DIR) -> 
         "representations": workflow_payload["representations"],
         "vibecomfy_format_version": workflow_payload["vibecomfy_format_version"],
         "has_workflow_json": workflow_payload["workflow_json"] is not None,
-        "has_compiled_api": workflow_payload["compiled_api"] is not None,
+        "has_rich_nodes": workflow_payload["node_count"] is not None,
         "has_python_source": bool(workflow_payload["python_source"]),
         "python_source_error": workflow_payload["python_source_error"],
     }

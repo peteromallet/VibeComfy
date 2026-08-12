@@ -676,7 +676,9 @@ def _existing_parameter_tweak_targets_from_graph(
 ) -> list[tuple[int, str]]:
     nodes: Any = graph.get("nodes")
     if not isinstance(nodes, (Mapping, list)):
-        nodes = graph.get("compiled_api")
+        # The rich ``nodes`` mapping (or UI list) is the sole structural
+        # authority; there is no compiled_api twin to fall back to.
+        return []
     if isinstance(nodes, Mapping):
         node_items = list(nodes.items())
     elif isinstance(nodes, list):

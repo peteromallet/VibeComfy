@@ -24,17 +24,20 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     """Convert a LiteGraph UI graph to a VibeComfy IR envelope.
 
-    The headless agent-edit service consumes an IR envelope graph (with
-    ``compiled_api``, ``nodes`` as a dict, ``edges`` as a list, etc.), NOT a
-    litegraph UI graph (nodes=list, links=list). This helper converts the UI
-    format to the IR envelope by:
+    The headless agent-edit service consumes an IR envelope graph (rich
+    ``nodes`` as a dict, ``edges`` as a list, etc.), NOT a litegraph UI graph
+    (nodes=list, links=list). This helper converts the UI format to the IR
+    envelope by:
 
     1. Converting UI -> VibeWorkflow via ``convert_to_vibe_format``
     2. Serializing VibeWorkflow to the IR envelope with all required keys
 
+    The envelope is the serialized IR: rich ``nodes`` is the sole structural
+    authority and ``compile("api")`` is a derived function, not stored data, so
+    no ``compiled_api`` twin is written.
+
     Returns a dict with the IR envelope structure:
     {
-        "compiled_api": {...},  # ComfyUI API format
         "nodes": {...},         # VibeNode dict (node_id -> VibeNode)
         "edges": [...],         # VibeEdge list
         "inputs": {...},        # VibeInput dict
@@ -68,7 +71,6 @@ def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     envelope: dict[str, Any] = {
         "id": workflow.id,
         "workflow_id": workflow.id,  # Agent validation expects this field name
-        "compiled_api": workflow.compile("api"),
         "nodes": {},
         "edges": [],
         "inputs": {},

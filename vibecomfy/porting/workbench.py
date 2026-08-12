@@ -768,18 +768,28 @@ def load_port_source(
         )
     if resolved.suffix.lower() in {".png", ".webp"}:
         raw = _load_workflow_from_image(resolved)
-        api = normalize_to_api(
-            raw,
-            schema_provider=schema_provider,
-            use_comfy_converter=use_comfy_converter,
-            comfy_converter_strict=True,
-        )
-        workflow = convert_to_vibe_format(
-            api,
-            source_path=str(resolved),
-            workflow_id=indexed_id or resolved.stem,
-            schema_provider=schema_provider,
-        )
+        if detect_workflow_shape(raw) == "vibe":
+            # Serialized rich Vibe envelope: decode directly and losslessly. Do
+            # not compile-then-reingest — that throws the rich node set away.
+            workflow = convert_to_vibe_format(
+                raw,
+                source_path=str(resolved),
+                workflow_id=indexed_id or resolved.stem,
+                schema_provider=schema_provider,
+            )
+        else:
+            api = normalize_to_api(
+                raw,
+                schema_provider=schema_provider,
+                use_comfy_converter=use_comfy_converter,
+                comfy_converter_strict=True,
+            )
+            workflow = convert_to_vibe_format(
+                api,
+                source_path=str(resolved),
+                workflow_id=indexed_id or resolved.stem,
+                schema_provider=schema_provider,
+            )
         return LoadedPortSource(
             source_ref=source,
             source_kind="indexed_json" if indexed_id else "raw_json",
@@ -793,18 +803,28 @@ def load_port_source(
         raise FileNotFoundError(source)
 
     raw = load_workflow_json(resolved)
-    api = normalize_to_api(
-        raw,
-        schema_provider=schema_provider,
-        use_comfy_converter=use_comfy_converter,
-        comfy_converter_strict=True,
-    )
-    workflow = convert_to_vibe_format(
-        api,
-        source_path=str(resolved),
-        workflow_id=indexed_id or resolved.stem,
-        schema_provider=schema_provider,
-    )
+    if detect_workflow_shape(raw) == "vibe":
+        # Serialized rich Vibe envelope: decode directly and losslessly. Do not
+        # compile-then-reingest — that throws the rich node set away.
+        workflow = convert_to_vibe_format(
+            raw,
+            source_path=str(resolved),
+            workflow_id=indexed_id or resolved.stem,
+            schema_provider=schema_provider,
+        )
+    else:
+        api = normalize_to_api(
+            raw,
+            schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
+            comfy_converter_strict=True,
+        )
+        workflow = convert_to_vibe_format(
+            api,
+            source_path=str(resolved),
+            workflow_id=indexed_id or resolved.stem,
+            schema_provider=schema_provider,
+        )
     return LoadedPortSource(
         source_ref=source,
         source_kind="indexed_json" if indexed_id else "raw_json",

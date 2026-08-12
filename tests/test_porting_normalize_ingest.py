@@ -704,6 +704,30 @@ def test_vibe_rich_ingest_treats_compiled_api_as_optional_evidence() -> None:
     assert workflow.nodes["10"].class_type == "TripoRefineNode"
 
 
+def test_public_loaders_preserve_rich_envelope_90a1d5() -> None:
+    """load_workflow_any / load_port_source decode envelopes losslessly (P1).
+
+    Public loaders must return the full 15-node IR, not the 2-node compile
+    view: they decode the envelope directly instead of compile-then-reingest.
+    The execution view (compile("api")) is unchanged at 2 nodes.
+    """
+    from vibecomfy.cli_loader import load_workflow_any
+    from vibecomfy.porting.workbench import load_port_source
+
+    corpus = str(_CORPUS_90A1D5)
+
+    wf = load_workflow_any(corpus)
+    assert len(wf.nodes) == 15
+    assert wf.nodes["10"].class_type == "TripoRefineNode"
+    assert len(wf.compile("api")) == 2
+
+    loaded = load_port_source(corpus)
+    assert len(loaded.workflow.nodes) == 15
+    assert loaded.workflow.nodes["10"].class_type == "TripoRefineNode"
+    assert len(loaded.workflow.compile("api")) == 2
+    assert loaded.source_kind in {"indexed_json", "raw_json"}
+
+
 def test_vibe_rich_ingest_is_idempotent() -> None:
     """rich->UI and UI->IR->UI produce identical projections (nodes, edges, widgets, groups)."""
     raw = _load_90a1d5()

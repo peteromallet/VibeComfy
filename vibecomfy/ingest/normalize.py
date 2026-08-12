@@ -223,10 +223,10 @@ def _raw_widget_payload_dict(values: Any, *, source: str) -> dict[str, Any]:
 def _merge_vibe_node_widget_evidence(raw: dict[str, Any], api: dict[str, Any]) -> None:
     """Carry rich Vibe node widget evidence into the compiled API graph.
 
-    Serialized Vibe workflows store executable data under ``compiled_api`` and
-    preserve editor evidence under the sibling ``nodes`` map.  The compiled API
-    is what Comfy executes, but widget-shape recovery needs the observed
-    LiteGraph widget vector from ``nodes``.
+    The rich ``nodes`` map is the sole structural authority of a serialized
+    Vibe workflow; the executable API view is derived by compiling the IR
+    (``compile("api")``), never read from stored data.  Widget-shape recovery
+    needs the observed LiteGraph widget vector from the rich ``nodes`` map.
     """
     nodes = raw.get("nodes")
     if not isinstance(nodes, dict):

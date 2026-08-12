@@ -96,14 +96,54 @@ def test_envelope_carries_workflow_json_compiled_api_and_python(monkeypatch, tmp
     assert metadata["representation"] == "vibecomfy_external_workflow"
     assert metadata["representations"] == ["vibecomfy_json", "compiled_api", "scratchpad_python"]
     assert metadata["has_workflow_json"] is True
-    assert metadata["has_compiled_api"] is True
+    assert metadata["has_rich_nodes"] is True
     assert metadata["has_python_source"] is True
     assert metadata["workflow_semantics"]["node_class_multiset"] == {"LoadCheckpoint": 1}
-    assert metadata["workflow_semantics"]["promotion_gates"]["has_compiled_api"] is True
+    assert metadata["workflow_semantics"]["promotion_gates"]["has_rich_nodes"] is True
     assert payload["workflow_json"] == workflow_json
     assert payload["compiled_api"] == workflow_json["compiled_api"]
     assert payload["python_source"].startswith("# vibecomfy: generated scratchpad")
     assert "Python scratchpad source:" in envelope["data"]["body"]
+
+
+def test_envelope_sidecar_less_envelope_keeps_rich_nodes_gate(monkeypatch, tmp_path) -> None:
+    """A new envelope without compiled_api still ranks rich: has_rich_nodes gate (P4)."""
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    workflow_path = corpus_dir / "def456.json"
+    workflow_json = {
+        "vibecomfy_format_version": "1.0",
+        "nodes": {
+            "1": {"class_type": "LoadCheckpoint"},
+            "2": {"class_type": "PreviewImage"},
+        },
+        "edges": [],
+    }
+    workflow_path.write_text(json.dumps(workflow_json), encoding="utf-8")
+    row = _sample_row(corpus_path=str(workflow_path))
+    monkeypatch.setattr(
+        ext_upload,
+        "_emit_external_workflow_python",
+        lambda path, row: "# vibecomfy: generated scratchpad\nwf = build_workflow()\n",
+    )
+
+    envelope = ext_upload._envelope(row, corpus_dir=corpus_dir)
+    metadata = envelope["data"]["metadata"]
+    payload = envelope["data"]["payload"]
+
+    # No sidecar → no compiled_api representation; the rich-nodes gate stays on
+    # so the hivemind rank does not drop 30 points for sidecar-less envelopes.
+    assert metadata["representations"] == ["vibecomfy_json", "scratchpad_python"]
+    assert metadata["has_rich_nodes"] is True
+    assert metadata["has_workflow_json"] is True
+    assert metadata["workflow_semantics"]["node_class_multiset"] == {
+        "LoadCheckpoint": 1,
+        "PreviewImage": 1,
+    }
+    assert metadata["workflow_semantics"]["promotion_gates"]["has_rich_nodes"] is True
+    assert "has_compiled_api" not in metadata["workflow_semantics"]["promotion_gates"]
+    assert payload["workflow_json"] == workflow_json
+    assert payload["compiled_api"] is None
 
 
 def test_envelope_body_includes_provenance() -> None:

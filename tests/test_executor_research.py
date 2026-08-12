@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote_plus
 from unittest.mock import patch
@@ -258,7 +259,7 @@ class TestNormalizeHivemindSource:
                     "model_families": ["ltx"],
                     "promotion_gates": {
                         "has_workflow_json": True,
-                        "has_compiled_api": True,
+                        "has_rich_nodes": True,
                         "has_python_source": False,
                         "parseable_workflow": True,
                     },
@@ -269,7 +270,7 @@ class TestNormalizeHivemindSource:
         out = _normalize_hivemind_source(item)
 
         assert out["workflow_semantics"]["task_type"] == "image_to_video"
-        assert out["promotion_gates"]["has_compiled_api"] is True
+        assert out["promotion_gates"]["has_rich_nodes"] is True
 
 
 class TestBuildSummary:
@@ -883,7 +884,7 @@ class TestDefaultHivemindClient:
                 b'"body": "Workflow semantics: aliases=ltx, i2v.", '
                 b'"metadata": {"workflow_semantics": {"model_families": ["ltx"], '
                 b'"task_type": "image_to_video", "promotion_gates": {"parseable_workflow": true, '
-                b'"has_compiled_api": true}}}}]'
+                b'"has_rich_nodes": true}}}}]'
             )
             return type(
                 "MockResponse",
@@ -2091,6 +2092,21 @@ class TestWorkflowSourceNormalization:
         assert result.source_path == "inline/litegraph.json"
         assert [node.node_id for node in result.nodes] == ["10", "11"]
         assert result.nodes[1].inputs["images"] == ["10", 0]
+
+    def test_vibe_envelope_loads_node_records(self) -> None:
+        """A versioned rich envelope is a supported shape, not 'unknown' (P2)."""
+        corpus = (
+            Path(__file__).resolve().parent.parent
+            / "external_workflows/corpus/90a1d5ff9044902e.json"
+        )
+        raw = json.loads(corpus.read_text(encoding="utf-8"))
+        result = normalize_workflow_source(raw, source_path=str(corpus))
+        assert result.status == "loaded"
+        assert result.shape == "vibe"
+        assert result.blocks_candidate_output is False
+        # The execution view compiles the 15-node IR down to 2 nodes.
+        assert len(result.nodes) == 2
+        assert {node.node_id for node in result.nodes} == {"3", "17"}
 
     def test_common_wrapper_keys_are_unwrapped(self) -> None:
         result = normalize_workflow_source(
@@ -3698,13 +3714,13 @@ class TestBuildPrecedentPacket:
             "reasons": (
                 "hivemind:workflow resource",
                 "hivemind:parseable workflow",
-                "hivemind:compiled api available",
+                "hivemind:rich nodes available",
                 "hivemind:filename matched 'HotShotXL'",
             ),
             "promotion_gates": {
                 "has_workflow_json": True,
                 "parseable_workflow": True,
-                "has_compiled_api": True,
+                "has_rich_nodes": True,
             },
             "workflow_semantics": {
                 "model_families": ["hotshot", "animatediff", "sdxl"],

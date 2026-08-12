@@ -3,8 +3,10 @@
 Agent Edit's mutation and authority contracts operate on canonical ComfyUI
 LiteGraph JSON: ``nodes`` and ``links`` are lists.  Executor callers may carry
 the serialized Vibe format instead, whose rich ``nodes`` collection is keyed by
-node id and whose executable graph lives under ``compiled_api``.  Normalize
-that representation once, before session allocation persists or hashes it.
+node id.  The rich ``nodes`` mapping is the sole structural authority; the
+executable API view is derived by compiling the IR (``compile("api")``), never
+read from stored data.  Normalize that representation once, before session
+allocation persists or hashes it.
 """
 
 from __future__ import annotations

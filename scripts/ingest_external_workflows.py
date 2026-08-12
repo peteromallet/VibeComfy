@@ -97,9 +97,9 @@ def _vibe_workflow_to_dict(workflow: VibeWorkflow) -> dict[str, Any]:
         return obj
 
     plain = _to_plain(workflow)
-    # Always include the compiled API representation and a format version.
+    # The envelope is the serialized IR; compile("api") is a derived function,
+    # not stored data — new envelopes do not carry a compiled_api twin.
     plain["vibecomfy_format_version"] = VIBECOMFY_FORMAT_VERSION
-    plain["compiled_api"] = workflow.compile("api")
     return plain
 
 
