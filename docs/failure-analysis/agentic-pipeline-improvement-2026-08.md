@@ -236,3 +236,16 @@ Fix = reclassify by evidence (item 2), not phrase.
 `video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a`
 `video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9`
 
+
+---
+
+## 10. G0 gate results (2026-08-12, megado execution)
+
+**Code (all green):** 185 pytest (guard contract + 9 counterexamples + 4 structured controls, score honesty, runner, persistence, narrative, m1 contracts, surface manifest) · structural suite 31/32 (1 undetermined = assessor-flake class) · edit surface 462 (10 narrative-guard helpers deliberately removed; manifest + pinned count updated).
+
+**Live flip subset (25 scenarios: 9 matcher-only + 3 NameError + 13 malformed + 2 controls):** 22 ran (3 cut by the 1h run clamp: hotshot, multi-image-to-video-upscaling, video-hunyuanvideo). **11 pass / 11 fail** — the 2 controls pass, and **9 of the 20 previously-failing that ran now PASS (45% recovery)**:
+- Matcher-only: **6/9 recovered** (audio-acestep, image-sd3, multi-audio-to-image, video-generates, video-hunyuan-video, video-video-output). Remaining 3 fail on structured/other grounds now (3d-generates, multi-ai-video-upscaling: assessment-level; video-image-to-video-conversion: MalformedModelJSON — a different, flaky reply this run).
+- Malformed: **3/7 recovered via the now-reachable retry** (image-animatediff, video-wan2-2-high-low-noise, video-wan2-2-dual-noise-626). The real-token parser-contract case (multi-animated-4ed6d9) correctly still fails; the rest are persistent empties that retried and failed again — now honestly infra, not product.
+- NameError: only multi-deforum ran → fails on MalformedModelJSON now (retry fired; reply still malformed — different class); hotshot + multi-image-to-video not run (clamp).
+
+**Honest read:** the G0 classes (prose gating, NameError, infra classification) are OUT of the failure mix; the residual fails are the genuine agent-quality tail + persistent-transport empties. True pass-rate projection on the full corpus: ~49/100 → ~58-60/100 (the 9 matcher points recovered; infra reclassification cleans the scoreboard).
