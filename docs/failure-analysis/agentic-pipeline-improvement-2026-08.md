@@ -221,5 +221,18 @@ Fix = reclassify by evidence (item 2), not phrase.
 `video-image-to-video-conversion-with-moonvalley-d7853c`
 `video-video-output-workflow-f855de`
 
-### MalformedModelJSON failures (0 — 11/14 infra-empty per Dig3)
+### MalformedModelJSON failures (13 persisted — 11/14 infra-empty per Dig3; one of Dig3's 14 lacked a persisted response.json)
+`3d-3d-model-generation-and-preview-workflow-cc0df7`
+`hotshot-16-frames-agent-edit`
+`image-animatediff-video-from-images-with`
+`image-background-removal-and-grid-composition-54a681`
+`multi-animated-image-to-video-with-svd-and-lora-4ed6d9`
+`multi-image-to-video-with-upscaling-and-color-matchi-359848`
+`multi-svd-image-to-video-with-animation-builder-99e2a9`
+`multi-svd-image-to-video-with-webp-and-png-output-bd3afb`
+`video-hunyuanvideo-image-to-video-generation-with-en-ff076a`
+`video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9`
+`video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3`
+`video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a`
+`video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9`
 
