@@ -174,6 +174,8 @@ def test_agent_edit_normalizes_compiled_dict_nodes_before_strict_projection() ->
             "models": [],
             "unsupported": [],
         },
+        "source": {"id": "6b59a19a09e6cdfe"},
+        "strict_types": False,
         "compiled_api": {
             "55": {
                 "class_type": "LoadImage",
@@ -208,6 +210,8 @@ def test_agent_edit_graph_normalization_leaves_list_nodes_unchanged() -> None:
         "outputs": [],
         "metadata": {},
         "requirements": {},
+        "source": {"id": "empty"},
+        "strict_types": False,
         "compiled_api": {},
         "vibecomfy_format_version": "1.0",
     }

@@ -72,9 +72,16 @@ That function is the public ingest API (`vibecomfy/ingest/__init__.py:14`). `nor
 convert_to_vibe_format(raw 90a1d5)  → 15 nodes, 10 edges
 load_workflow_any(90a1d5)           →  2 nodes  (3, 17)
 workflow_from_file(...)             →  same 2-node compile view
+load_port_source(...)               →  same 2-node compile view
 ```
 
-`cli_loader.py:37-39` and `registry/library.py:22-24` always do `normalize_to_api(raw)` then `convert_to_vibe_format(api)`. After B02, `normalize_to_api` on a vibe envelope correctly decodes 15 and compiles to 2. The second call then *re-ingests the compile product as an API dict*, so the lossless IR is thrown away. This is the single highest-leverage leftover in B02's own lane.
+Three public loaders share the same compile-then-reingest:
+
+- `cli_loader.py:37-39` (`load_workflow_any`)
+- `registry/library.py:22-24` and `:48-50` (`workflow_from_file` / `workflow_from_id`)
+- `porting/workbench.py:795-807` (`load_port_source` JSON) and the PNG path at `:771-782`
+
+After B02, `normalize_to_api` on a vibe envelope correctly decodes 15 and compiles to 2. The second call then *re-ingests the compile product as an API dict*, so the lossless IR is thrown away. `load_port_source` is the porting entry: `inspect --field` (`commands/inspect.py:29`), `vibecomfy port`, `runtime/eval/plan.py:59`, and corpus tests (`test_porting_synthetic_fixtures.py`, `test_layout_store.py`). Fixing only `load_workflow_any` would leave `inspect --field` / `vibecomfy port` on the 2-node view. This is the single highest-leverage leftover in B02's own lane.
 
 **Parallel sniffers that disagree.**
 
@@ -82,7 +89,7 @@ workflow_from_file(...)             →  same 2-node compile view
 |---|---|---|
 | `detect_workflow_shape` | vibe = nodes-dict + (version **or** compiled_api-dict); api = *all* values have `class_type` | Official |
 | `graph_normalization.py:38` | `nodes` is a list → pass through as UI; else convert | No version check; any mapping goes through `convert_to_vibe_format` |
-| `routes.py:207-214` | UI = `nodes` is a list; API = *any* value has `class_type` | `any` vs `all`; a vibe envelope with compiled_api can look like API |
+| `routes.py:207-214` | UI = `nodes` is a list; API = *any* value has `class_type` | `any` vs `all` is real. A *top-level* vibe envelope does **not** look like API: `source` / `nodes` / `compiled_api` / `requirements` are dicts without a `class_type` key, so `_is_comfy_api_graph(envelope)` is False. It only looks like API if a caller passes the inner `nodes` or `compiled_api` mapping as the graph. |
 | `workflow_source.py:221-227` | maps `detect` `"ui"` → `"litegraph"`, `"api"` → `"api"`, **everything else → `"unknown"`** | A versioned rich envelope is **rejected as unsupported** (`:111-129`) before `normalize_to_api` ever runs |
 | Hivemind upload (`upload_external_workflows_to_hivemind.py:343`) | truthy `vibecomfy_format_version` + nodes-dict | Does not require `compiled_api`; then uses a private constructor |
 | Ingest classify (`ingest_external_workflows.py:170-193`) | list-nodes ≥ 2 → `comfy_ui`; numeric keys + `class_type`/`inputs` ≥ 2 → `comfy_api` | Thresholded; no vibe branch. Cloned in `pipeline_orchestrate.py:43-77` |
@@ -105,7 +112,7 @@ This is four different patterns. Treating them as one "generate everything from 
 
 **A. Closed-op hand mirrors — still earning their keep.**
 
-`projection_registry_v1.py` / `.js`, `canonical_hash`, `layout_operation_v1`, `mutation_materialization_v1`. The browser **must** verify UTF-16 / SHA-256 locally; ComfyUI loads `web/*.js` with no bundler (`frontend_ownership_map.md:28-30`). Golden JSON fixtures under `tests/fixtures/agent_edit/` are the digest SSOT. Dual validators for *authority* are intentional: the panel cannot phone Python to hash a candidate.
+`projection_registry_v1.py` / `.js`, `canonical_hash`, `layout_operation_v1`, `mutation_materialization_v1`. The browser **must** verify UTF-16 / SHA-256 locally. ComfyUI serves those files as ESM from `WEB_DIRECTORY` (`vibecomfy/comfy_nodes/__init__.py:43-84`) — either `./web` or an optional content-hashed `web_dist/<hash>/` copy, not a webpack of the IR. Production ESM imports are bare, e.g. `vibecomfy_roundtrip.js:131`. Golden JSON fixtures under `tests/fixtures/agent_edit/` are the digest SSOT. Dual validators for *authority* are intentional: the panel cannot phone Python to hash a candidate.
 
 **B. Generated JS unused in production — legacy debt.**
 
@@ -204,8 +211,8 @@ Live `is_intent_class_type` (`contracts/intent_nodes.py:243-306`) includes *all*
 | Smell | Evidence | Debt or earning? |
 |---|---|---|
 | Two IRs | `workflow.py` live; `ir/` clone drifted; fixer imports the clone | Debt. Delete the clone. |
-| Public loaders undo B02 | `cli_loader.py:37-39`, `library.py:22-24`; 15→2 on 90a1d5 | Debt, behavior-affecting, B02's lane. |
-| Leftover `compiled_api` readers | `edit_batch_memory.py:664-666`, `_frag_batch_memory.py:677-679`, `research.py:5056,787`, `intent_judge.py:85-88`, hivemind upload | Debt. Recompute or read rich `nodes`. |
+| Public loaders undo B02 | `cli_loader.py:37-39`, `library.py:22-24,48-50`, `workbench.py:795-807` (and PNG `:771-782`); 15→2 on 90a1d5 | Debt, behavior-affecting, B02's lane. |
+| Leftover `compiled_api` readers | Live: `_frag_batch_memory.py:677-679`, `research.py:5056,787`, `intent_judge.py:85-88`, hivemind upload. Snapshot only: `edit_batch_memory.py:664-666` (P8 deletes it). | Debt. Recompute or read rich `nodes`. |
 | Stale docs / comments | `docs/vibeworkflow.md`; scout §5 of the 2026-08 failure-analysis; `graph_normalization.py:1-7`; `normalize.py:223-229` | Debt. Ride with B02. |
 | Groups not on IR | `graph_normalization.py:50-62` side channel; `workflow.py` silent | Debt, but small. Promote a `groups` list on `VibeWorkflow`, not on `VibeNode`. |
 | `workflow_source` maps vibe → unknown | `workflow_source.py:221-227, 111-129` | Debt / bug. A versioned envelope is "unsupported." |
@@ -241,7 +248,7 @@ Not landed, and this plan does not ask B02 to land them:
 - Hivemind identity = `canonical_form(compile("api"))` hash (`ingest_external_workflows.py:71-73, 227`; corpus filenames are `hash[:16]`).
 - `ready_templates/` are authored Python + `.layout.json`, not vibe envelopes — lower risk, but `load_workflow_any` is their public entry.
 - Agent panel persist/apply is LiteGraph list-nodes + V2 deltas.
-- ~9k corpus files carry `compiled_api`. Leave them. The decoder already ignores the sidecar for structure.
+- ~2.8k corpus envelopes (`external_workflows/corpus/*.json`: 2799 files, 2797 carry both `compiled_api` and `vibecomfy_format_version`). Leave them. The ~8936 JSON files under `external_workflows/` include 6129 `.shadow` UI/API originals, which are not sidecar envelopes. The decoder already ignores the sidecar for structure.
 
 ---
 
@@ -296,7 +303,7 @@ class VibeWorkflow:
     groups: list[dict[str, Any]] = field(default_factory=list)
 
     def to_envelope(self) -> dict[str, Any]:
-        """Serialize this IR. No compiled_api. No extras the dataclass does not own."""
+        """Serialize this IR. No compiled_api. Transport stamps (workflow_id) are applied by callers after this, not here."""
         ...
 
     @classmethod
@@ -309,7 +316,9 @@ class VibeWorkflow:
         ...
 ```
 
-Envelope keys = public dataclass fields + `vibecomfy_format_version`. That is the entire stored schema. `compiled_api` is absent on new writes. Old corpus files may still carry it; `from_envelope` ignores it.
+Envelope keys = public dataclass fields + `vibecomfy_format_version`. That is the stored IR schema. `compiled_api` is absent on new writes. Old corpus files may still carry it; `from_envelope` ignores it.
+
+`workflow_id` is **not** an IR field (`VibeWorkflow` has `id`). Agent-edit apply still requires a UUID `workflow_id` (`projection_registry_v1.workflow_identity_v1` at `projection_registry_v1.py:93-94, 955`). `demo_factory/fixer.py:70` stamps `"workflow_id": workflow.id` today, and `_ensure_workflow_uuid` (`fixer.py:137-148`) exists because apply rejects graphs whose `workflow_id` is not a stable Comfy UUID. **`to_envelope()` must not silently drop that stamp.** Fixer (and any apply-bound writer) calls `to_envelope()` then `_ensure_workflow_uuid`. `from_envelope` already ignores unknown top-level keys, so a `workflow_id` extra is harmless on read.
 
 `VIBECOMFY_FORMAT_VERSION` moves out of `scripts/ingest_external_workflows.py:39` and lives next to the IR.
 
@@ -337,7 +346,7 @@ convert_to_vibe_format(...)   # kept as a thin dispatcher during migration
 normalize_to_api(...)         # kept: it is an execution-view adapter, not an IR constructor
 ```
 
-Happy-path loaders (`load_workflow_any`, `workflow_from_file`) try `from_envelope` first (version + nodes-dict), then `from_ui`, then `from_api`. They never `compile()` as a step on the way to an IR. `normalize_to_api` remains for callers that *want* the execution dict (queue, identity hash, offline API).
+Happy-path loaders (`load_workflow_any`, `workflow_from_file`, `load_port_source`) try `from_envelope` first (version + nodes-dict), then `from_ui`, then `from_api`. They never `compile()` as a step on the way to an IR. `normalize_to_api` remains for callers that *want* the execution dict (queue, identity hash, offline API).
 
 `detect_workflow_shape` becomes a private helper or a deprecated export. It is not how a caller is supposed to think.
 
@@ -402,11 +411,11 @@ Ordered, low-risk, cut to what pulls its weight. Each step: the change, files, w
 
 ### Principle
 
-Do not rewrite 9k corpus files. Do not change `compile()` semantics. Do not touch LiteGraph persist/apply. Prefer "stop writing / stop reading / name the door" over "invent a new format."
+Do not rewrite ~2.8k corpus envelopes. Do not change `compile()` semantics. Do not touch LiteGraph persist/apply. Prefer "stop writing / stop reading / name the door" over "invent a new format."
 
 ```mermaid
 flowchart TD
-  W0["Wave 0 - ride with B02\ndocs, public loader, stop writing sidecar"]
+  W0["Wave 0 - ride with B02\nP0 docs, P1 loaders, P2 workflow_source,\nP3 leftover readers, then P4 stop writing sidecar"]
   W1["Wave 1 - after B02\nenvelope API, named importers, delete clones"]
   W2["Wave 2 - small type cleanup\nmode + groups + copy()"]
   W0 --> W1 --> W2

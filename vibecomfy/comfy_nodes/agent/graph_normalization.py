@@ -10,6 +10,7 @@ that representation once, before session allocation persists or hashes it.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 
@@ -22,10 +23,13 @@ def normalize_agent_edit_graph(
 
     Existing UI graphs are returned unchanged, including object identity.  All
     other supported workflow shapes are round-tripped through ``VibeWorkflow``
-    and the canonical UI emitter.  For a serialized Vibe graph this maps each
-    ``nodes`` mapping key to a LiteGraph node ``id`` (numeric keys become
-    integers) and carries its stable string identity in
-    ``properties.vibecomfy_uid``; compiled edges become canonical ``links``.
+    and the canonical UI emitter.  For a serialized Vibe graph the rich
+    ``nodes`` mapping is the sole structural authority (``compiled_api`` is
+    never used to decide which nodes exist): each rich node maps to a
+    LiteGraph node ``id`` (numeric keys become integers) and carries its stable
+    string identity in ``properties.vibecomfy_uid``; rich edges become
+    canonical ``links``.  A top-level ``groups`` list is carried into the
+    emitted envelope (as a deepcopy); a non-list ``groups`` is rejected.
 
     The conversion is whole-graph and fail-closed: malformed or mixed mapping
     entries are never partially appended to an otherwise canonical node list.
@@ -34,12 +38,18 @@ def normalize_agent_edit_graph(
     if isinstance(graph.get("nodes"), list):
         return graph
 
-    for field in ("nodes", "compiled_api"):
-        entries = graph.get(field)
-        if isinstance(entries, Mapping) and any(
-            not isinstance(entry, Mapping) for entry in entries.values()
-        ):
-            raise ValueError(f"{field} must contain only node objects")
+    # The rich ``nodes`` mapping is the sole structural authority. ``compiled_api``
+    # is execution evidence only and is deliberately NOT validated here — it must
+    # never decide which rich nodes exist or gate the conversion.
+    entries = graph.get("nodes")
+    if isinstance(entries, Mapping) and any(
+        not isinstance(entry, Mapping) for entry in entries.values()
+    ):
+        raise ValueError("nodes must contain only node objects")
+
+    groups = graph.get("groups")
+    if groups is not None and not isinstance(groups, list):
+        raise ValueError("groups must be a list when present")
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
     from vibecomfy.porting.emit.ui import emit_ui_json
@@ -49,6 +59,7 @@ def normalize_agent_edit_graph(
         workflow,
         schema_provider=schema_provider,
         guard_original_ui=graph,
+        groups=deepcopy(groups) if groups is not None else None,
     )
 
 

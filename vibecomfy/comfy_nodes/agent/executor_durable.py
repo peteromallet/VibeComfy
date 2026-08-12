@@ -67,13 +67,28 @@ def maybe_write_executor_only_durable_turn(
     try:
         query_text_raw = getattr(request, "query", "") or payload.get("query") or payload.get("task") or ""
         query_text = query_text_raw if isinstance(query_text_raw, str) else ""
+        # Normalize any dict request graph to the canonical Agent Edit
+        # (LiteGraph) shape BEFORE building the artifact payload and calling
+        # allocate_turn_func, so allocation hashing/state and request.json
+        # persistence all see the SAME canonical graph. List-node UI graphs
+        # pass through unchanged. Failures fall through to the outer
+        # best-effort handler — a raw graph is never allocated or persisted.
+        request_graph = getattr(request, "graph", None)
+        if isinstance(request_graph, dict):
+            from .graph_normalization import normalize_agent_edit_graph
+
+            request_graph = normalize_agent_edit_graph(
+                request_graph, schema_provider=None
+            )
         request_artifact_payload: dict[str, Any] = {
             "query": query_text,
             "task": query_text,
             "session_id": session_id,
         }
-        if hasattr(request, "graph") and request.graph is not None:
-            request_artifact_payload["graph"] = dict(request.graph) if isinstance(request.graph, dict) else request.graph
+        if request_graph is not None:
+            request_artifact_payload["graph"] = (
+                dict(request_graph) if isinstance(request_graph, dict) else request_graph
+            )
         # Include workflow_id from request field or extract from graph
         workflow_id = None
         if hasattr(request, "workflow_id") and request.workflow_id is not None:

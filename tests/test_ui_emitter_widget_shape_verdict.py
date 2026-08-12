@@ -714,7 +714,47 @@ def test_pinned_connected_node_rewrites_stale_local_link_refs_to_global_links() 
     assert "43" not in json.dumps(ui)
 
 
-def test_isolated_pinned_node_with_stale_raw_link_ref_refuses() -> None:
+def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
+    """Captured raw _ui may list extra stale output links; pin must emit the IR link set."""
+    # Reuse the connected DynamicRows fixture but put TWO stale links on the
+    # pinned node's output while the IR has only one outgoing edge.
+    raw_ui = _raw_connected_dynamic_ui()
+    raw_ui["nodes"][0]["outputs"][0]["links"] = [43, 999]
+    wf = _wf()
+    wf.nodes["7"] = VibeNode(
+        "7",
+        "DynamicRows",
+        uid="uid-dynamic",
+        raw_widgets=_raw_widgets(),
+    )
+    wf.nodes["1"] = VibeNode("1", "KSampler", widgets={"widget_0": 4})
+    wf.nodes["9"] = VibeNode("9", "SaveImage", widgets={"filename_prefix": "out"})
+    wf.edges.extend(
+        [
+            VibeEdge("1", "0", "7", "image"),
+            VibeEdge("7", "0", "9", "images"),
+        ]
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(
+            wf,
+            schema_provider=_provider(),
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+        )
+
+    # Emit succeeded (no RefusedEmit) and the pinned output carries exactly the
+    # single remapped global link id, not the stale captured pair.
+    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
+    assert pinned["outputs"][0]["links"] == [2]
+    assert "999" not in json.dumps(ui)
+    assert "43" not in json.dumps(ui)
+
+
+def test_isolated_pinned_node_drops_stale_raw_link_ref() -> None:
+    """Rich edges are authority: a captured input link with no IR edge is dropped."""
     raw_ui = _raw_dynamic_ui()
     raw_ui["nodes"][0]["inputs"] = [{"name": "image", "type": "IMAGE", "link": 42}]
     wf = _wf()
@@ -725,18 +765,19 @@ def test_isolated_pinned_node_with_stale_raw_link_ref_refuses() -> None:
         raw_widgets=_raw_widgets(),
     )
 
-    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+    with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        emit_ui_json(
+        ui = emit_ui_json(
             wf,
             prior_store=store_from_ui_json(raw_ui),
             prior_ui_payload=raw_ui,
         )
 
-    assert exc_info.value.diff["7"]["axis"] == "pinned_link_refs"
-    assert exc_info.value.diff["7"]["reason"] == "pinned_link_id_mismatch"
-    assert exc_info.value.diff["7"]["details"]["original_reason"] == "unmappable_input_link"
-    assert exc_info.value.diff["7"]["details"]["raw_link"] == 42
+    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
+    image_inputs = [item for item in (pinned.get("inputs") or []) if item.get("name") == "image"]
+    assert image_inputs
+    assert image_inputs[0].get("link") is None
+    assert "42" not in json.dumps(ui)
 
 
 def test_collateral_overflow_pins_while_edited_ksampler_regenerates() -> None:

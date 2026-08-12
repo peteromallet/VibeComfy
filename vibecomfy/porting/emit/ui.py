@@ -291,6 +291,15 @@ def _resolve_furniture(
             properties = None
             title = None
 
+    # Source 2.5: ingest furniture fallback.  Ingest pops the captured mode off
+    # _ui (normalize.py) so compile's _get_node_mode never treats it as a live
+    # mute/bypass signal, but keeps the top-level copy for re-emit.  Only an
+    # int is accepted — sidecar (source 1) still wins over this fallback.
+    if mode is None:
+        _meta_mode = getattr(node, "metadata", {}).get("mode")
+        if isinstance(_meta_mode, int):
+            mode = _meta_mode
+
     # Source 3: fixed defaults
     if not isinstance(flags, dict):
         flags = {}
@@ -1653,6 +1662,30 @@ def _pinned_link_ref_refusal(
     )
 
 
+def _pinned_uid_refusal(
+    node_id: str,
+    class_type: str,
+    *,
+    axis: str,
+    reason: str,
+    details: Mapping[str, Any],
+) -> None:
+    from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
+
+    raise RefusedEmit(
+        f"Refusing to emit pinned raw UI node {node_id}: {reason}",
+        diff={
+            str(node_id): {
+                "axis": axis,
+                "node_id": str(node_id),
+                "class_type": class_type,
+                "reason": reason,
+                "details": {**dict(details)},
+            }
+        },
+    )
+
+
 def _coerce_link_refs(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -1681,53 +1714,42 @@ def _normalize_pinned_node_link_refs(
             details={"raw_inputs_type": type(raw_inputs).__name__},
         )
 
+    # Rich edges are structural authority. Extra/stale/nameless captured
+    # input links are dropped; IR-only incoming edges are appended. Duplicate
+    # captured names keep the first slot and clear the rest.
     seen_linked_inputs: set[str] = set()
-    for idx, raw_input in enumerate(raw_inputs):
+    for raw_input in raw_inputs:
         if not isinstance(raw_input, dict) or raw_input.get("link") is None:
             continue
         input_name = raw_input.get("name")
-        if input_name is None:
-            _pinned_link_ref_refusal(
-                node_id,
-                class_type,
-                "unmappable_input_link",
-                details={"input_index": idx, "raw_link": raw_input.get("link")},
-            )
+        if input_name is None or str(input_name) == "":
+            raw_input["link"] = None
+            continue
         input_key = str(input_name)
         if input_key in seen_linked_inputs:
-            _pinned_link_ref_refusal(
-                node_id,
-                class_type,
-                "ambiguous_input_link",
-                details={"input_name": input_key},
-            )
+            raw_input["link"] = None
+            continue
         current_link_ids = list(incoming_link_ids_by_input.get(input_key, []))
-        if len(current_link_ids) != 1:
-            _pinned_link_ref_refusal(
-                node_id,
-                class_type,
-                "unmappable_input_link",
-                details={
-                    "input_name": input_key,
-                    "raw_link": raw_input.get("link"),
-                    "current_link_ids": current_link_ids,
-                },
-            )
-        raw_input["link"] = current_link_ids[0]
-        seen_linked_inputs.add(input_key)
+        if len(current_link_ids) == 1:
+            raw_input["link"] = current_link_ids[0]
+            seen_linked_inputs.add(input_key)
+        elif current_link_ids:
+            raw_input["link"] = current_link_ids[0]
+            seen_linked_inputs.add(input_key)
+        else:
+            raw_input["link"] = None
 
-    missing_inputs = sorted(
-        input_name
-        for input_name, link_ids in incoming_link_ids_by_input.items()
-        if link_ids and input_name not in seen_linked_inputs
-    )
-    if missing_inputs:
-        _pinned_link_ref_refusal(
-            node_id,
-            class_type,
-            "missing_raw_input_link",
-            details={"input_names": missing_inputs},
+    for input_name, link_ids in incoming_link_ids_by_input.items():
+        if not link_ids or input_name in seen_linked_inputs:
+            continue
+        raw_inputs.append(
+            {
+                "name": input_name,
+                "type": "*",
+                "link": link_ids[0],
+            }
         )
+        seen_linked_inputs.add(input_name)
 
     raw_outputs = node_dict.get("outputs") or []
     if not isinstance(raw_outputs, list):
@@ -1742,57 +1764,34 @@ def _normalize_pinned_node_link_refs(
     for idx, raw_output in enumerate(raw_outputs):
         if not isinstance(raw_output, dict):
             continue
+        slot_raw = raw_output.get("slot_index", idx)
         try:
-            slot = int(raw_output.get("slot_index", idx))
+            slot = int(idx if slot_raw is None else slot_raw)
         except (TypeError, ValueError):
-            _pinned_link_ref_refusal(
-                node_id,
-                class_type,
-                "unmappable_output_links",
-                details={"output_index": idx, "slot_index": raw_output.get("slot_index")},
-            )
+            slot = idx
+        raw_output["slot_index"] = slot
         raw_link_refs = _coerce_link_refs(raw_output.get("links"))
         current_link_ids = sorted(outgoing_link_ids_by_slot.get(slot, []))
-        if raw_link_refs:
-            if not current_link_ids:
-                _pinned_link_ref_refusal(
-                    node_id,
-                    class_type,
-                    "unmappable_output_links",
-                    details={"slot_index": slot, "raw_links": raw_link_refs},
-                )
-            if len(raw_link_refs) != len(current_link_ids):
-                _pinned_link_ref_refusal(
-                    node_id,
-                    class_type,
-                    "output_link_count_mismatch",
-                    details={
-                        "slot_index": slot,
-                        "raw_links": raw_link_refs,
-                        "current_link_ids": current_link_ids,
-                    },
-                )
-            raw_output["links"] = current_link_ids
+        if raw_link_refs or current_link_ids:
+            # Rich-edge authority: always stamp the IR's current ids.
+            # Extra captured output links are stale and are dropped.
+            # Missing captured output links are filled from the IR.
+            raw_output["links"] = current_link_ids or None
             seen_output_slots.add(slot)
-        elif current_link_ids:
-            _pinned_link_ref_refusal(
-                node_id,
-                class_type,
-                "missing_raw_output_links",
-                details={"slot_index": slot, "current_link_ids": current_link_ids},
-            )
 
     missing_output_slots = sorted(
         slot
         for slot, link_ids in outgoing_link_ids_by_slot.items()
         if link_ids and slot not in seen_output_slots
     )
-    if missing_output_slots:
-        _pinned_link_ref_refusal(
-            node_id,
-            class_type,
-            "missing_raw_output_slot",
-            details={"slot_indexes": missing_output_slots},
+    for slot in missing_output_slots:
+        raw_outputs.append(
+            {
+                "name": f"output_{slot}",
+                "type": "*",
+                "links": sorted(outgoing_link_ids_by_slot.get(slot, [])),
+                "slot_index": slot,
+            }
         )
     return node_dict
 
@@ -1802,11 +1801,27 @@ def _raw_ui_payload_for_pin(
     *,
     node_id: str,
     class_type: str,
+    canonical_uid: str,
     litegraph_node_id: int,
     order: int,
     incoming_link_ids_by_input: Mapping[str, list[int]],
     outgoing_link_ids_by_slot: Mapping[int, list[int]],
 ) -> dict[str, Any]:
+    # Stable-UID gate: a pinned raw node is only emitted under an explicit
+    # canonical uid from the VibeNode. Never fall back to captured properties,
+    # node id, or stale captured identity — fail closed instead.
+    if not isinstance(canonical_uid, str) or not canonical_uid.strip():
+        _pinned_uid_refusal(
+            node_id,
+            class_type,
+            axis="pinned_stable_uid",
+            reason="missing_stable_uid",
+            details={
+                "canonical_uid_type": type(canonical_uid).__name__,
+                "canonical_uid": canonical_uid if isinstance(canonical_uid, str) else None,
+            },
+        )
+
     node_dict = deepcopy(dict(raw_ui_node))
     _normalize_pinned_node_link_refs(
         node_dict,
@@ -1817,6 +1832,25 @@ def _raw_ui_payload_for_pin(
     )
     node_dict["id"] = litegraph_node_id
     node_dict["order"] = order
+
+    # Properties gate: the copied payload must expose a dict to stamp into.
+    properties = node_dict.get("properties")
+    if properties is None:
+        properties = {}
+        node_dict["properties"] = properties
+    elif not isinstance(properties, dict):
+        _pinned_uid_refusal(
+            node_id,
+            class_type,
+            axis="pinned_properties",
+            reason="invalid_captured_properties",
+            details={"properties_type": type(properties).__name__},
+        )
+
+    # Canonical identity overlay: scrub the demoted stale key, then stamp the
+    # canonical uid so it always wins over missing/stale captured values.
+    properties.pop("ir_node_id", None)
+    properties["vibecomfy_uid"] = canonical_uid
     return node_dict
 
 
@@ -2369,17 +2403,21 @@ def emit_ui_json(
                 slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
                 lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
                 outgoing_link_ids_by_slot[slot].append(lid)
-            nodes.append(
-                _raw_ui_payload_for_pin(
-                    verdict.raw_ui_node or {},
-                    node_id=node_id,
-                    class_type=node.class_type,
-                    litegraph_node_id=id_remap[node_id],
-                    order=order,
-                    incoming_link_ids_by_input=incoming_link_ids_by_input,
-                    outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
-                )
+            pinned = _raw_ui_payload_for_pin(
+                verdict.raw_ui_node or {},
+                node_id=node_id,
+                class_type=node.class_type,
+                canonical_uid=node.uid,
+                litegraph_node_id=id_remap[node_id],
+                order=order,
+                incoming_link_ids_by_input=incoming_link_ids_by_input,
+                outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
             )
+            # Ingest pops the furniture mode off _ui (normalize.py), so a pinned
+            # raw copy would otherwise re-emit without it; stamp the resolved
+            # furniture mode (sidecar > metadata.mode) onto the emitted node.
+            pinned["mode"] = _resolve_furniture(node, matched_entries.get(key))["mode"]
+            nodes.append(pinned)
             continue
         matched_entry = matched_entries.get(key)
         # T9b: reconcile-driven merge.
@@ -2795,10 +2833,25 @@ def structural_validate(
             )
 
         if schema_outputs is not None:
-            if len(node.get("outputs", [])) != len(schema_outputs):
+            emitted_outputs = len(node.get("outputs", []))
+            schema_output_count = len(schema_outputs)
+            if emitted_outputs > schema_output_count:
                 errors.append(
                     f"node {node['id']}({class_type}): output slot count "
-                    f"{len(node.get('outputs', []))} != schema output count {len(schema_outputs)}"
+                    f"{emitted_outputs} != schema output count {schema_output_count}"
+                )
+            elif emitted_outputs < schema_output_count:
+                # Source-faithful pin (SaveImage/SaveVideo often emit
+                # outputs=[] while the schema lists a dummy socket).
+                skipped.append(
+                    {
+                        "node_id": node["id"],
+                        "class_type": class_type,
+                        "reason": (
+                            f"source-faithful output count {emitted_outputs} "
+                            f"< schema {schema_output_count}"
+                        ),
+                    }
                 )
 
     return {"ok": not errors, "errors": errors, "skipped": skipped}

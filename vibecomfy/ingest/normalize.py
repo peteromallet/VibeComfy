@@ -23,7 +23,16 @@ from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_nam
 from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
-from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import (
+    RawWidgetPayload,
+    VibeEdge,
+    VibeInput,
+    VibeNode,
+    VibeOutput,
+    VibeWorkflow,
+    WorkflowRequirements,
+    WorkflowSource,
+)
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
 EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
@@ -32,8 +41,12 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
     if "prompt" in raw and isinstance(raw["prompt"], dict):
         return detect_workflow_shape(raw["prompt"])
-    if isinstance(raw.get("compiled_api"), dict) and (
-        "vibecomfy_format_version" in raw or isinstance(raw.get("nodes"), dict)
+    # ``compiled_api`` is optional execution evidence.  A versioned rich
+    # envelope remains a Vibe envelope even when that evidence is absent or
+    # malformed; structural shape is established by the rich nodes mapping.
+    if isinstance(raw.get("nodes"), dict) and (
+        "vibecomfy_format_version" in raw
+        or isinstance(raw.get("compiled_api"), dict)
     ):
         return "vibe"
     if isinstance(raw.get("nodes"), list):
@@ -67,7 +80,12 @@ def normalize_to_api(
         _enforce_exec_source_limits(api, surface="api")
         return api
     if shape == "vibe":
-        api = deepcopy(raw["compiled_api"])
+        # The rich envelope (nodes mapping + edges list) is the only structural
+        # authority. ``compiled_api`` is stale execution evidence and must never
+        # decide which rich nodes exist — the API view is derived by decoding
+        # the envelope into a VibeWorkflow and compiling it fresh.
+        workflow = _decode_serialized_vibe(raw)
+        api = workflow.compile("api")
         _merge_vibe_node_widget_evidence(raw, api)
         _enforce_exec_source_limits(api, surface="vibe.compiled_api")
         return api
@@ -352,6 +370,302 @@ def _has_unknown_widget_inputs(api: dict[str, Any]) -> bool:
     return False
 
 
+def _vibe_string_list(value: Any, label: str) -> list[str]:
+    """Decode a serialized requirements list field: ``None`` → ``[]``, else a list of strings."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"serialized vibe envelope {label} must be a list of strings")
+    return list(value)
+
+
+def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
+    """Direct decoder for the serialized rich Vibe envelope (workflow shape "vibe").
+
+    The rich top-level ``nodes`` mapping and ``edges`` list are the ONLY
+    structural authority: ``compiled_api`` is never consulted for which nodes
+    exist — it is stale execution evidence by construction.  The decode is
+    whole-graph and fail-closed: any malformed or mixed entry raises
+    ``ValueError`` and no partial graph is ever returned.
+
+    Every field is deep-copied.  Node ``metadata`` is preserved verbatim
+    (including ``metadata._ui``) except that ``metadata[PROVENANCE_KEY]`` is
+    unconditionally enforced to ``"untrusted_source"`` at this external JSON
+    boundary, and stable node ``uid`` values are preserved exactly.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("serialized vibe envelope must be a JSON object")
+
+    nodes_raw = raw.get("nodes")
+    if not isinstance(nodes_raw, dict):
+        raise ValueError("serialized vibe envelope 'nodes' must be a mapping of node objects")
+    for key, entry in nodes_raw.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"node {key!r}: node entries must be mappings, got {type(entry).__name__}"
+            )
+
+    # ── top-level envelope fields ──────────────────────────────────────────
+    source_raw = raw.get("source")
+    if not isinstance(source_raw, dict):
+        raise ValueError("serialized vibe envelope 'source' must be a mapping")
+    source_id = source_raw.get("id")
+    if not isinstance(source_id, str) or not source_id.strip():
+        raise ValueError("source.id must be a nonblank string")
+    source_path = source_raw.get("path")
+    if source_path is not None and not isinstance(source_path, str):
+        raise ValueError("source.path must be a string or null")
+    source_provenance = source_raw.get("provenance")
+    if source_provenance is not None and not isinstance(source_provenance, dict):
+        raise ValueError("source.provenance must be a mapping or null")
+    source = WorkflowSource(
+        id=source_id,
+        path=source_path,
+        source_type=str(source_raw.get("source_type", "unknown")),
+        provenance=deepcopy(source_provenance) if isinstance(source_provenance, dict) else {},
+    )
+
+    workflow_id = raw.get("id")
+    if not isinstance(workflow_id, str) or not workflow_id.strip():
+        workflow_id = source_id
+
+    requirements_raw = raw.get("requirements")
+    if not isinstance(requirements_raw, dict):
+        raise ValueError("serialized vibe envelope 'requirements' must be a mapping")
+    requirements = WorkflowRequirements(
+        models=_vibe_string_list(
+            requirements_raw.get("models"), "requirements.models"
+        ),
+        custom_nodes=_vibe_string_list(
+            requirements_raw.get("custom_nodes"), "requirements.custom_nodes"
+        ),
+        missing_models=_vibe_string_list(
+            requirements_raw.get("missing_models"), "requirements.missing_models"
+        ),
+        missing_nodes=_vibe_string_list(
+            requirements_raw.get("missing_nodes"), "requirements.missing_nodes"
+        ),
+        unsupported=_vibe_string_list(
+            requirements_raw.get("unsupported"), "requirements.unsupported"
+        ),
+    )
+
+    metadata_raw = raw.get("metadata")
+    if metadata_raw is not None and not isinstance(metadata_raw, dict):
+        raise ValueError("serialized vibe envelope 'metadata' must be a mapping or null")
+
+    strict_types = raw.get("strict_types", False)
+    if not isinstance(strict_types, bool):
+        raise ValueError("strict_types must be a boolean")
+
+    workflow = VibeWorkflow(
+        id=workflow_id,
+        source=source,
+        requirements=requirements,
+        metadata=deepcopy(metadata_raw) if isinstance(metadata_raw, dict) else {},
+        strict_types=strict_types,
+    )
+
+    # ── nodes ──────────────────────────────────────────────────────────────
+    for key, entry in nodes_raw.items():
+        node_id = entry.get("id")
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise ValueError(f"node {key!r}: id must be a nonblank string")
+        if str(key) != node_id:
+            raise ValueError(f"node mapping key {key!r} must equal node.id {node_id!r}")
+        class_type = entry.get("class_type")
+        if not isinstance(class_type, str) or not class_type.strip():
+            raise ValueError(f"node {node_id!r}: class_type must be a nonblank string")
+        uid = entry.get("uid")
+        if not isinstance(uid, str) or not uid.strip():
+            raise ValueError(f"node {node_id!r}: uid must be a nonblank string")
+        pack = entry.get("pack")
+        if pack is not None and not isinstance(pack, str):
+            raise ValueError(f"node {node_id!r}: pack must be a string or null")
+        for field_name in ("inputs", "widgets", "metadata"):
+            value = entry.get(field_name)
+            if not isinstance(value, dict):
+                raise ValueError(f"node {node_id!r}: {field_name} must be a mapping")
+        raw_widgets = entry.get("raw_widgets")
+        raw_widget_payload: RawWidgetPayload | None = None
+        if raw_widgets is not None:
+            if not isinstance(raw_widgets, dict) or not {
+                "values",
+                "shape",
+                "source",
+                "has_dict_rows",
+                "length",
+            } <= set(raw_widgets):
+                raise ValueError(
+                    f"node {node_id!r}: raw_widgets must be a RawWidgetPayload mapping or null"
+                )
+            length = raw_widgets["length"]
+            if not isinstance(length, int) or isinstance(length, bool) or length < 0:
+                raise ValueError(
+                    f"node {node_id!r}: raw_widgets.length must be a nonnegative integer"
+                )
+            shape = raw_widgets["shape"]
+            source_name = raw_widgets["source"]
+            has_dict_rows = raw_widgets["has_dict_rows"]
+            if not isinstance(shape, str) or not shape.strip():
+                raise ValueError(
+                    f"node {node_id!r}: raw_widgets.shape must be a nonblank string"
+                )
+            if not isinstance(source_name, str) or not source_name.strip():
+                raise ValueError(
+                    f"node {node_id!r}: raw_widgets.source must be a nonblank string"
+                )
+            if not isinstance(has_dict_rows, bool):
+                raise ValueError(
+                    f"node {node_id!r}: raw_widgets.has_dict_rows must be a boolean"
+                )
+            raw_widget_payload = RawWidgetPayload(
+                values=deepcopy(raw_widgets["values"]),
+                shape=shape,
+                source=source_name,
+                has_dict_rows=has_dict_rows,
+                length=length,
+            )
+        node_metadata = deepcopy(entry["metadata"])
+        # S4 capability fence: ingest is the external-JSON boundary, so every
+        # decoded node is tagged untrusted_source. Unconditional set — never
+        # `setdefault` — so hostile JSON cannot pre-declare itself trusted.
+        node_metadata[PROVENANCE_KEY] = "untrusted_source"
+        workflow.nodes[node_id] = VibeNode(
+            id=node_id,
+            class_type=class_type,
+            pack=pack,
+            inputs=deepcopy(entry["inputs"]),
+            widgets=deepcopy(entry["widgets"]),
+            metadata=node_metadata,
+            uid=uid,
+            raw_widgets=raw_widget_payload,
+        )
+
+    # ── edges ──────────────────────────────────────────────────────────────
+    edges_raw = raw.get("edges")
+    if not isinstance(edges_raw, list):
+        raise ValueError("serialized vibe envelope 'edges' must be a list")
+    for index, edge in enumerate(edges_raw):
+        if not isinstance(edge, dict):
+            raise ValueError(
+                f"edge {index}: edge entries must be mappings, got {type(edge).__name__}"
+            )
+        for field_name in ("from_node", "from_output", "to_node", "to_input"):
+            value = edge.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"edge {index}: {field_name} must be a nonblank string")
+        if edge["from_node"] not in workflow.nodes or edge["to_node"] not in workflow.nodes:
+            raise ValueError(
+                f"edge {index}: endpoint node ids {edge['from_node']!r}/{edge['to_node']!r} "
+                "must exist in nodes"
+            )
+        workflow.edges.append(
+            VibeEdge(
+                from_node=edge["from_node"],
+                from_output=edge["from_output"],
+                to_node=edge["to_node"],
+                to_input=edge["to_input"],
+            )
+        )
+
+    # ── top-level inputs / outputs ─────────────────────────────────────────
+    inputs_raw = raw.get("inputs")
+    if not isinstance(inputs_raw, dict):
+        raise ValueError("serialized vibe envelope 'inputs' must be a mapping")
+    for name, entry in inputs_raw.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"input {name!r}: input entries must be mappings, got {type(entry).__name__}"
+            )
+        input_name = entry.get("name")
+        node_id = entry.get("node_id")
+        field = entry.get("field")
+        if not isinstance(input_name, str) or not input_name.strip():
+            raise ValueError(f"input {name!r}: name must be a nonblank string")
+        if str(name) != input_name:
+            raise ValueError(
+                f"input mapping key {name!r} must equal input.name {input_name!r}"
+            )
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise ValueError(f"input {name!r}: node_id must be a nonblank string")
+        if node_id not in workflow.nodes:
+            raise ValueError(f"input {name!r}: node_id {node_id!r} must exist in nodes")
+        if not isinstance(field, str) or not field.strip():
+            raise ValueError(f"input {name!r}: field must be a nonblank string")
+        required = entry.get("required", False)
+        if not isinstance(required, bool):
+            raise ValueError(f"input {name!r}: required must be a boolean")
+        aliases = entry.get("aliases", ())
+        if not isinstance(aliases, (list, tuple)) or not all(
+            isinstance(alias, str) for alias in aliases
+        ):
+            raise ValueError(f"input {name!r}: aliases must be a list of strings")
+        media_semantics = entry.get("media_semantics")
+        if media_semantics is not None and not isinstance(media_semantics, str):
+            raise ValueError(f"input {name!r}: media_semantics must be a string or null")
+        input_type = entry.get("type")
+        if input_type is not None and not isinstance(input_type, str):
+            raise ValueError(f"input {name!r}: type must be a string or null")
+        workflow.inputs[str(input_name)] = VibeInput(
+            name=str(input_name),
+            node_id=str(node_id),
+            field=str(field),
+            value=deepcopy(entry.get("value")),
+            type=input_type,
+            default=deepcopy(entry.get("default")),
+            required=required,
+            range=deepcopy(entry.get("range")),
+            aliases=tuple(aliases),
+            media_semantics=media_semantics,
+        )
+
+    outputs_raw = raw.get("outputs")
+    if not isinstance(outputs_raw, list):
+        raise ValueError("serialized vibe envelope 'outputs' must be a list")
+    for index, entry in enumerate(outputs_raw):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"output {index}: output entries must be mappings, got {type(entry).__name__}"
+            )
+        node_id = entry.get("node_id")
+        output_type = entry.get("output_type")
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise ValueError(f"output {index}: node_id must be a nonblank string")
+        if node_id not in workflow.nodes:
+            raise ValueError(
+                f"output {index}: node_id {node_id!r} must exist in nodes"
+            )
+        if not isinstance(output_type, str) or not output_type.strip():
+            raise ValueError(f"output {index}: output_type must be a nonblank string")
+        for field_name in ("name", "artifact_kind", "mime_type", "filename_prefix"):
+            value = entry.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"output {index}: {field_name} must be a string or null")
+        workflow.outputs.append(
+            VibeOutput(
+                node_id=node_id,
+                output_type=output_type,
+                name=entry.get("name"),
+                artifact_kind=entry.get("artifact_kind"),
+                mime_type=entry.get("mime_type"),
+                filename_prefix=entry.get("filename_prefix"),
+                expected_cardinality=deepcopy(entry.get("expected_cardinality")),
+            )
+        )
+
+    # The serialized snapshot is JSON-shaped (tuples became lists) and may have
+    # been produced from an older derived execution view. Rehydrate this
+    # derived evidence from the just-decoded rich graph so an untouched rich
+    # envelope has no synthetic widget/link delta at its first canonical emit.
+    # All non-derived workflow metadata remains preserved verbatim.
+    from vibecomfy.ingest.snapshot import capture_ingest_snapshot
+
+    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(raw, workflow)
+
+    return workflow
+
+
 def convert_to_vibe_format(
     api_workflow: dict[str, Any],
     *,
@@ -375,6 +689,19 @@ def _convert_to_vibe_format_impl(
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
+    """Ingest a raw workflow dict (api/ui/vibe shapes) into a ``VibeWorkflow``.
+
+    Serialized rich Vibe envelopes (shape ``"vibe"``) are decoded directly and
+    losslessly by :func:`_decode_serialized_vibe` — the rich ``nodes`` mapping
+    is the only authority for which nodes exist.  API and UI shapes keep the
+    existing compile-path ingest (``normalize_to_api`` → node extraction).
+    """
+    if detect_workflow_shape(api_workflow) == "vibe":
+        # Serialized rich Vibe envelope: decode it directly and losslessly. The
+        # rich ``nodes`` mapping is the only authority for which nodes exist;
+        # ``compiled_api`` (and the api-derived path below) is never consulted
+        # for the rich node set.
+        return _decode_serialized_vibe(api_workflow)
     if detect_workflow_shape(api_workflow) != "api":
         api_workflow = normalize_to_api(
             api_workflow,
@@ -446,10 +773,22 @@ def _convert_to_vibe_format_impl(
         # Both paths: pure-Python path stores the full raw node in _ui (line 99);
         # comfy-converter path stores a slim _ui enriched by _merge_slim_ui.
         # Captured as metadata DATA only — never enters inputs/widgets (K3 invariant).
-        _ui_node = metadata.get("_ui") or {}
-        for _vis_field in ("mode", "flags", "color", "bgcolor"):
-            if _vis_field in _ui_node:
-                metadata.setdefault(_vis_field, _ui_node[_vis_field])
+        _ui_raw = metadata.get("_ui")
+        if isinstance(_ui_raw, dict):
+            # The _ui dict is a shallow alias of the input API node's _ui
+            # (pure-Python path); deepcopy before mutating so the caller's
+            # node dict is never corrupted by the mode pop below.
+            # Only assign when a real _ui was present — do not invent {}.
+            _ui_node = deepcopy(_ui_raw)
+            metadata["_ui"] = _ui_node
+            for _vis_field in ("mode", "flags", "color", "bgcolor"):
+                if _vis_field in _ui_node:
+                    metadata.setdefault(_vis_field, _ui_node[_vis_field])
+            # Ingest furniture mode is NOT the compile mute/bypass signal — live
+            # _ui.mode set on the IR node is (workflow._get_node_mode). Pop the
+            # furniture copy so a captured mode can never trip compile bypass/mute;
+            # metadata['mode'] (copied above) still feeds the emitter's furniture.
+            _ui_node.pop("mode", None)
         # ── enrich node metadata from schema ──
         output_names = _schema_output_names(schema_provider, class_type)
         if output_names:

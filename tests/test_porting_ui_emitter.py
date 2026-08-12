@@ -5,13 +5,14 @@ import json
 import sys
 import types
 import warnings
+from typing import Any
 
 import pytest
 
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 # ---------------------------------------------------------------------------
@@ -2833,6 +2834,88 @@ def test_stale_ir_node_id_does_not_steal_uid() -> None:
     assert "ir_node_id" not in props
     # Other non-identity blob keys survive verbatim
     assert props["cnr_id"] == "stale-ref"
+
+
+# ---------------------------------------------------------------------------
+# B02-C3 — canonical stable UID stamping for pin-opaque raw UI emission
+# ---------------------------------------------------------------------------
+
+
+def _pin_opaque_raw_ui_node() -> dict[str, Any]:
+    """A raw litegraph node whose captured properties omit vibecomfy_uid and
+    carry a stale pre-M5 ir_node_id (must be scrubbed, never trusted)."""
+    return {
+        "id": 7,
+        "type": "DynamicRows",
+        "pos": [10, 20],
+        "size": [300, 120],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "inputs": [],
+        "outputs": [],
+        "properties": {"cnr_id": "pin-ref", "ir_node_id": "7"},
+        "widgets_values": [{"lora": "a"}, {"lora": "b"}],
+    }
+
+
+def _pin_opaque_dynamic_node(uid: str = "uid-dynamic") -> VibeNode:
+    """A dict-row dynamic node that the fence pins opaque from metadata._ui."""
+    return VibeNode(
+        "7",
+        "DynamicRows",
+        uid=uid,
+        raw_widgets=RawWidgetPayload(
+            values=[{"lora": "a"}, {"lora": "b"}],
+            shape="list",
+            source="ui.widgets_values",
+            has_dict_rows=True,
+            length=2,
+        ),
+        metadata={"_ui": _pin_opaque_raw_ui_node()},
+    )
+
+
+def test_pin_opaque_always_emits_vibecomfy_uid() -> None:
+    """A pin_opaque node whose captured raw _ui omits vibecomfy_uid must emit
+    the canonical node.uid overlaid on the deep-copied raw payload."""
+    wf = _wf()
+    wf.nodes["7"] = _pin_opaque_dynamic_node()
+
+    report: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(wf, recovery_report=report)
+
+    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
+    props = pinned["properties"]
+    # Canonical uid stamped even though the captured payload omitted it
+    assert props["vibecomfy_uid"] == "uid-dynamic"
+    # Stale pre-M5 ir_node_id scrubbed; non-identity captured keys retained
+    assert "ir_node_id" not in props
+    assert props["cnr_id"] == "pin-ref"
+    # Raw payload (widgets_values) still carried forward verbatim
+    assert pinned["widgets_values"] == [{"lora": "a"}, {"lora": "b"}]
+    entry = next(item for item in report if item.get("node_id") == "7")
+    assert entry["widget_shape_verdict"] == "pin_opaque"
+
+
+def test_pin_opaque_blank_uid_refuses_instead_of_emitting() -> None:
+    """A pin_opaque node with a blank/whitespace canonical uid fails closed
+    with RefusedEmit rather than emitting under node id or stale identity."""
+    for blank_uid in ("", "   "):
+        wf = _wf()
+        wf.nodes["7"] = _pin_opaque_dynamic_node(uid=blank_uid)
+
+        with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf)
+
+        diff = exc_info.value.diff["7"]
+        assert diff["axis"] == "pinned_stable_uid"
+        assert diff["reason"] == "missing_stable_uid"
+        assert diff["class_type"] == "DynamicRows"
+        assert "missing_stable_uid" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

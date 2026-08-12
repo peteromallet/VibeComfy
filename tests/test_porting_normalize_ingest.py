@@ -10,9 +10,15 @@ Proves:
 from __future__ import annotations
 
 import json
+from collections import Counter
+from copy import deepcopy
+from pathlib import Path
+
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
+from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.porting.emit.ui import emit_ui_json
 
 
 def _ksampler_api_node(*, control: str | None = None) -> dict:
@@ -99,9 +105,19 @@ def test_public_raw_widgets_alias_is_preserved_as_raw_widget_payload() -> None:
     assert "raw_widgets" not in node.metadata
 
 
-def test_vibe_shape_merges_rich_node_raw_widgets_into_compiled_api() -> None:
+def test_vibe_shape_decodes_rich_node_raw_widgets_payload() -> None:
+    """The rich decoder turns a serialized RawWidgetPayload into node.raw_widgets
+    and preserves node metadata._ui verbatim (lossless envelope decode)."""
+    rich_ui = {
+        "_ui": {
+            "id": 1,
+            "type": "PrimitiveInt",
+            "widgets_values": [7, "fixed"],
+        }
+    }
     wf = convert_to_vibe_format(
         {
+            "id": "test",
             "vibecomfy_format_version": "1.0",
             "compiled_api": {
                 "1": {
@@ -113,6 +129,10 @@ def test_vibe_shape_merges_rich_node_raw_widgets_into_compiled_api() -> None:
                 "1": {
                     "id": "1",
                     "class_type": "PrimitiveInt",
+                    "inputs": {},
+                    "widgets": {"widget_0": 7, "widget_1": "fixed"},
+                    "metadata": rich_ui,
+                    "uid": "1",
                     "raw_widgets": {
                         "values": [7, "fixed"],
                         "shape": "list",
@@ -120,27 +140,30 @@ def test_vibe_shape_merges_rich_node_raw_widgets_into_compiled_api() -> None:
                         "has_dict_rows": False,
                         "length": 2,
                     },
-                    "metadata": {
-                        "_ui": {
-                            "id": 1,
-                            "type": "PrimitiveInt",
-                            "widgets_values": [7, "fixed"],
-                        }
-                    },
                 }
             },
+            "edges": [],
+            "inputs": {},
+            "outputs": [],
+            "requirements": {},
+            "source": {"id": "test"},
+            "strict_types": False,
         }
     )
 
     node = wf.nodes["1"]
     assert node.raw_widgets is not None
     assert node.raw_widgets.values == [7, "fixed"]
-    assert "_ui" not in node.metadata
-
+    assert node.raw_widgets.length == 2
+    assert node.raw_widgets.shape == "list"
+    # metadata._ui is preserved verbatim (plus the provenance stamp).
+    assert node.metadata["_ui"] == rich_ui["_ui"]
+    assert node.metadata["provenance"] == "untrusted_source"
 
 def test_vibe_shape_carries_dynamic_dict_raw_ui_for_widget_pin() -> None:
     wf = convert_to_vibe_format(
         {
+            "id": "test",
             "vibecomfy_format_version": "1.0",
             "compiled_api": {
                 "81": {
@@ -152,6 +175,9 @@ def test_vibe_shape_carries_dynamic_dict_raw_ui_for_widget_pin() -> None:
                 "81": {
                     "id": "81",
                     "class_type": "VHS_SplitImages",
+                    "inputs": {},
+                    "widgets": {"split_index": 24},
+                    "uid": "81",
                     "raw_widgets": {
                         "values": {"split_index": 24},
                         "shape": "dict",
@@ -176,6 +202,12 @@ def test_vibe_shape_carries_dynamic_dict_raw_ui_for_widget_pin() -> None:
                     },
                 }
             },
+            "edges": [],
+            "inputs": {},
+            "outputs": [],
+            "requirements": {},
+            "source": {"id": "test"},
+            "strict_types": False,
         }
     )
 
@@ -569,3 +601,199 @@ def test_comfy_converter_lenient_skew_falls_back_offline_without_converter_exec(
     converter.assert_not_called()
     assert isinstance(result, dict)
     assert "1" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B02-C1 — lossless rich-envelope decode (serialized Vibe → IR → canonical UI)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CORPUS_90A1D5 = (
+    Path(__file__).resolve().parent.parent
+    / "external_workflows/corpus/90a1d5ff9044902e.json"
+)
+
+
+def _load_90a1d5() -> dict:
+    return json.loads(_CORPUS_90A1D5.read_text(encoding="utf-8"))
+
+
+def _ui_projection(ui: dict) -> dict:
+    """Deterministic projection of a canonical UI envelope for idempotence compare."""
+    nodes = sorted(
+        (
+            node["id"],
+            node["type"],
+            node.get("mode"),
+            (node.get("properties") or {}).get("vibecomfy_uid"),
+            json.dumps(node.get("widgets_values"), sort_keys=True),
+        )
+        for node in ui.get("nodes", [])
+    )
+    links = sorted((link[1], link[2], link[3], link[4]) for link in ui.get("links", []))
+    return {
+        "node_count": len(nodes),
+        "nodes": nodes,
+        "link_count": len(links),
+        "links": links,
+        "groups": ui.get("groups", []),
+    }
+
+
+def test_vibe_rich_ingest_preserves_90a1d5() -> None:
+    """The rich envelope decodes to the full 15-node IR, NOT the 2-node compiled_api."""
+    raw = _load_90a1d5()
+    assert len(raw["compiled_api"]) == 2, "precondition: compiled_api is stale/partial evidence"
+
+    wf = convert_to_vibe_format(raw)
+
+    assert len(wf.nodes) == 15
+    assert len(wf.edges) == 10
+    assert len(wf.outputs) == len(raw["outputs"])
+    assert wf.id == raw["id"]
+    assert wf.source.id == raw["source"]["id"]
+    assert wf.strict_types is False
+    assert wf.metadata["external_workflow"] is True
+
+    uids = [node.uid for node in wf.nodes.values()]
+    assert len(set(uids)) == 15, "uids must all be distinct"
+    assert all(isinstance(uid, str) and uid.strip() for uid in uids)
+
+    modes = Counter(node.metadata.get("mode") for node in wf.nodes.values())
+    assert dict(modes) == {4: 9, 0: 6}
+
+    assert wf.nodes["10"].class_type == "TripoRefineNode"
+    assert wf.nodes["10"].uid == raw["nodes"]["10"]["uid"]
+
+    # Lossless: every rich node's uid/metadata._ui/inputs/widgets decode verbatim.
+    for nid, node in wf.nodes.items():
+        rich = raw["nodes"][nid]
+        assert node.uid == rich["uid"], f"node {nid}: uid not preserved exactly"
+        assert node.class_type == rich["class_type"], f"node {nid}: class_type mismatch"
+        assert node.metadata["_ui"] == rich["metadata"]["_ui"], (
+            f"node {nid}: metadata._ui not preserved verbatim"
+        )
+        assert node.metadata["provenance"] == "untrusted_source"
+        assert node.inputs == rich["inputs"]
+        assert node.widgets == rich["widgets"]
+
+    # Canonical UI carries every rich node with the same id/class/mode/uid projection.
+    normalized = normalize_agent_edit_graph(raw)
+    assert len(normalized["nodes"]) == 15
+    assert len(normalized["links"]) == 10
+    by_id = {str(node["id"]): node for node in normalized["nodes"]}
+    assert set(by_id) == set(raw["nodes"])
+    for nid, rich in raw["nodes"].items():
+        ui_node = by_id[nid]
+        assert ui_node["type"] == rich["class_type"]
+        assert ui_node["mode"] == rich["metadata"]["_ui"]["mode"]
+        assert (ui_node.get("properties") or {})["vibecomfy_uid"] == rich["uid"]
+
+
+def test_vibe_rich_ingest_treats_compiled_api_as_optional_evidence() -> None:
+    """Rich structure remains authoritative when execution evidence is absent or bad."""
+    raw = _load_90a1d5()
+
+    without_evidence = deepcopy(raw)
+    without_evidence.pop("compiled_api")
+    assert len(convert_to_vibe_format(without_evidence).nodes) == 15
+
+    malformed_evidence = deepcopy(raw)
+    malformed_evidence["compiled_api"] = {"10": "not-an-api-node"}
+    workflow = convert_to_vibe_format(malformed_evidence)
+    assert len(workflow.nodes) == 15
+    assert workflow.nodes["10"].class_type == "TripoRefineNode"
+
+
+def test_vibe_rich_ingest_is_idempotent() -> None:
+    """rich->UI and UI->IR->UI produce identical projections (nodes, edges, widgets, groups)."""
+    raw = _load_90a1d5()
+
+    ui1 = normalize_agent_edit_graph(raw)  # rich -> UI
+    assert len(ui1["nodes"]) == 15 and len(ui1["links"]) == 10
+
+    # UI -> IR via the deterministic offline normalizer (the comfy converter
+    # intentionally drops mode-4 bypassed nodes — ComfyUI semantics, unchanged).
+    api2 = normalize_to_api(ui1, use_comfy_converter=False)
+    wf2 = convert_to_vibe_format(api2)
+    assert len(wf2.nodes) == 15 and len(wf2.edges) == 10
+
+    ui2 = emit_ui_json(wf2, schema_provider=None, groups=deepcopy(ui1.get("groups")))
+
+    assert _ui_projection(ui1) == _ui_projection(ui2)
+
+
+def test_vibe_rich_ingest_rejects_malformed_mixed_entries() -> None:
+    """Malformed/mixed rich entries raise ValueError; no partial graph is returned."""
+    raw = _load_90a1d5()
+
+    mixed_nodes = deepcopy(raw)
+    mixed_nodes["nodes"]["999"] = "not-a-node"
+    with pytest.raises(ValueError, match="must be mappings"):
+        convert_to_vibe_format(mixed_nodes)
+
+    key_mismatch = deepcopy(raw)
+    key_mismatch["nodes"]["10"]["id"] = "11"
+    with pytest.raises(ValueError, match="must equal node.id"):
+        convert_to_vibe_format(key_mismatch)
+
+    blank_uid = deepcopy(raw)
+    blank_uid["nodes"]["10"]["uid"] = "  "
+    with pytest.raises(ValueError, match="uid must be a nonblank string"):
+        convert_to_vibe_format(blank_uid)
+
+    negative_length = deepcopy(raw)
+    negative_length["nodes"]["10"]["raw_widgets"]["length"] = -1
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        convert_to_vibe_format(negative_length)
+
+    non_mapping_edges = deepcopy(raw)
+    non_mapping_edges["edges"] = ["not-an-edge"]
+    with pytest.raises(ValueError, match="must be mappings"):
+        convert_to_vibe_format(non_mapping_edges)
+
+
+def test_vibe_rich_ingest_rejects_dangling_endpoint_edges() -> None:
+    """Edges referencing endpoint node ids absent from nodes raise ValueError."""
+    raw = _load_90a1d5()
+
+    dangling_from = deepcopy(raw)
+    dangling_from["edges"] = [
+        {"from_node": "999", "from_output": "0", "to_node": "3", "to_input": "model_task_id"}
+    ]
+    with pytest.raises(ValueError, match="must exist in nodes"):
+        convert_to_vibe_format(dangling_from)
+
+    dangling_to = deepcopy(raw)
+    dangling_to["edges"] = [
+        {"from_node": "3", "from_output": "0", "to_node": "424242", "to_input": "model_file"}
+    ]
+    with pytest.raises(ValueError, match="must exist in nodes"):
+        convert_to_vibe_format(dangling_to)
+
+    blank_endpoint = deepcopy(raw)
+    blank_endpoint["edges"] = [
+        {"from_node": "", "from_output": "0", "to_node": "3", "to_input": "model_task_id"}
+    ]
+    with pytest.raises(ValueError, match="from_node must be a nonblank string"):
+        convert_to_vibe_format(blank_endpoint)
+
+
+def test_vibe_rich_ingest_rejects_incomplete_envelope() -> None:
+    """A vibe envelope missing required top-level sections is rejected, never partial."""
+    raw = _load_90a1d5()
+
+    for field in ("source", "requirements", "inputs", "edges"):
+        partial = deepcopy(raw)
+        del partial[field]
+        with pytest.raises(ValueError):
+            convert_to_vibe_format(partial)
+
+    bad_outputs = deepcopy(raw)
+    bad_outputs["outputs"] = "not-a-list"
+    with pytest.raises(ValueError, match="outputs.*must be a list"):
+        convert_to_vibe_format(bad_outputs)
+
+    bad_strict = deepcopy(raw)
+    bad_strict["strict_types"] = "yes"
+    with pytest.raises(ValueError, match="strict_types must be a boolean"):
+        convert_to_vibe_format(bad_strict)
