@@ -19626,14 +19626,14 @@ def test_additive_flag_does_not_bypass_pre_edit_readonly_gate(tmp_path) -> None:
     """
     import inspect
 
-    from vibecomfy.comfy_nodes.agent import edit_orchestration, edit_research
+    from vibecomfy.comfy_nodes.agent import _frag_orchestration, _frag_research
 
-    assert not hasattr(edit_research, "_state_additive_request"), (
+    assert not hasattr(_frag_research, "_state_additive_request"), (
         "_state_additive_request was re-added -- the additive flag-bypass must stay reverted"
     )
-    src = inspect.getsource(edit_orchestration)
+    src = inspect.getsource(_frag_orchestration)
     assert "_state_additive_request" not in src, (
-        "edit_orchestration references _state_additive_request -- the additive "
+        "_frag_orchestration references _state_additive_request -- the additive "
         "flag-bypass was re-added to the readonly gate"
     )
     assert "_can_attempt_local_additive_revise" in src

@@ -85,10 +85,11 @@ function assertCanonicalNormalPathHasNoLegacyAliases(value, path = "$") {
 test("PUBLIC_OUTCOME_KINDS stays the closed public contract", () => {
   assert.deepEqual(PUBLIC_OUTCOME_KINDS, [
     "candidate",
+    "candidate_transaction",
     "noop",
     "clarify",
-    "requires_custom_nodes",
     "error",
+    "requires_custom_nodes",
   ]);
 });
 

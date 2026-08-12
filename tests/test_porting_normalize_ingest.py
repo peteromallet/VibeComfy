@@ -983,3 +983,27 @@ def test_from_envelope_fails_closed_on_malformed_input() -> None:
     not_an_object = ["not", "an", "envelope"]
     with pytest.raises(ValueError, match="must be a JSON object"):
         VibeWorkflow.from_envelope(not_an_object)  # type: ignore[arg-type]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P6 — named importers (from_envelope / from_ui / from_api)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_named_from_envelope_preserves_90a1d5() -> None:
+    """The public ingest from_envelope door is lossless on the 90a1d5 fixture."""
+    from vibecomfy.ingest import from_envelope
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    raw = _load_90a1d5()
+    wf = from_envelope(raw)
+    via_convert = convert_to_vibe_format(raw)
+    assert len(wf.nodes) == 15
+    assert len(wf.edges) == 10
+    assert set(wf.nodes) == set(via_convert.nodes)
+    assert {node.uid for node in wf.nodes.values()} == {
+        node.uid for node in via_convert.nodes.values()
+    }
+    assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
+    assert len(wf.compile("api")) == 2
+    assert set(wf.compile("api")) == {"3", "17"}
