@@ -93,6 +93,85 @@ def _extract_json_object(text: str) -> dict:
     return parsed
 
 
+def _raw_response_preview(text: str | None, *, limit: int = 1200) -> str | None:
+    """Return a bounded, whitespace-normalized preview of a raw model response."""
+    if not isinstance(text, str):
+        return None
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 1].rstrip() + "…"
+
+
+def _parse_failure_reason(exc: BaseException, raw_text: str | None) -> str:
+    """Classify a worker response-parse failure into the shared evidence vocabulary.
+
+    Values are ``empty`` | ``missing_content`` | ``malformed_json`` |
+    ``non_json_content`` — the same vocabulary the classify/reply evidence
+    plumbing persists upstream.
+    """
+    if raw_text is not None and not str(raw_text).strip():
+        return "empty"
+    if isinstance(exc, json.JSONDecodeError):
+        return "malformed_json"
+    message = str(exc).lower()
+    if "not an object" in message or "non_json" in message:
+        return "non_json_content"
+    if isinstance(exc, ValueError):
+        if "must include" in message or "field" in message or "empty" in message:
+            return "missing_content"
+        return "malformed_json"
+    return "missing_content"
+
+
+def _persist_parse_evidence(
+    out: dict[str, Any],
+    exc: BaseException,
+    raw_text: str,
+    worker_metadata: dict[str, Any] | None,
+    request: dict[str, Any],
+    profiling_context: dict[str, Any],
+) -> None:
+    """Persist bounded parse-failure evidence on the worker failure envelope.
+
+    Additive only — the existing ``error`` / ``error_type`` envelope shape is
+    unchanged. Mirrors the batch-repl ``model_response`` detail capture
+    (parse_reason + raw preview) and adds the observed usage, model, phase,
+    endpoint, and finish reason so classify/reply attempts are diagnosable.
+    """
+    agent_kwargs = (
+        request.get("agent_kwargs")
+        if isinstance(request.get("agent_kwargs"), dict)
+        else {}
+    )
+    preview = _raw_response_preview(raw_text)
+    if preview:
+        out["raw_response_preview"] = preview
+    out["parse_reason"] = _parse_failure_reason(exc, raw_text)
+    model = request.get("model") or agent_kwargs.get("model")
+    if model:
+        out["model"] = model
+    phase = profiling_context.get("backend_phase") or "agent_turn"
+    if phase:
+        out["phase"] = phase
+    endpoint = agent_kwargs.get("base_url")
+    if endpoint:
+        out["endpoint"] = endpoint
+    if isinstance(worker_metadata, dict):
+        finish_reason = worker_metadata.get("finish_reason")
+        if isinstance(finish_reason, str) and finish_reason.strip():
+            out["finish_reason"] = finish_reason.strip()
+        usage = worker_metadata.get("deepseek_usage")
+        if isinstance(usage, dict):
+            out["deepseek_usage"] = usage
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                value = usage.get(key)
+                if isinstance(value, int):
+                    out[key] = value
+
+
 def _anchor_agent_package_on_syspath() -> None:
     """Put the agent package dir on sys.path so its bare top-level imports
     (``utils``, ``model_tools``, ``toolsets``, ...) resolve to its own modules.
@@ -318,13 +397,31 @@ def _dispatch_turn(
                 }
             )
             usage_tracker["cache_breakout_calls"] = tracked_usage["n_calls"]
-        return result.raw_output or "", {
+        finish_reason: str | None = None
+        if last_result:
+            # Prefer the last assistant message's finish_reason (the run
+            # result's own key is only populated for some API modes).
+            for msg in reversed(last_result.get("messages") or []):
+                if not isinstance(msg, dict):
+                    continue
+                value = msg.get("finish_reason")
+                if isinstance(value, str) and value.strip():
+                    finish_reason = value.strip()
+                    break
+            if finish_reason is None:
+                value = last_result.get("finish_reason")
+                if isinstance(value, str) and value.strip():
+                    finish_reason = value.strip()
+        metadata: dict[str, Any] = {
             "deepseek_usage": tracked_usage,
             "deepseek_cache_breakout_complete": (
                 tracked_usage["n_calls"] > 0
                 and usage_tracker["cache_breakout_calls"] >= tracked_usage["n_calls"]
             ),
         }
+        if finish_reason:
+            metadata["finish_reason"] = finish_reason
+        return result.raw_output or "", metadata
 
     # codex / claude / anything else: route through the shared default
     # dispatcher. Raises LookupError if the adapter is not registered.
@@ -357,6 +454,8 @@ def main() -> int:
 
     worker_started_at = utc_now_iso()
     worker_started_monotonic = time.monotonic()
+    raw_text: str | None = None
+    worker_metadata: dict[str, Any] | None = None
     try:
         agent_id = request.get("agent_id") or "hermes"
         response_contract = request.get("response_contract") or "python"
@@ -375,6 +474,7 @@ def main() -> int:
                 model=request.get("model"),
                 effort=request.get("effort"),
             )
+            raw_text = text
             span.update(raw_text_length=len(text or ""))
             if response_contract == "batch_repl":
                 if not isinstance(text, str) or not text.strip():
@@ -408,6 +508,23 @@ def main() -> int:
                 raise ValueError(f"Unsupported response_contract {response_contract!r}.")
             if isinstance(worker_metadata, dict):
                 out.update(worker_metadata)
+            # Self-describing envelope: carry the resolved model/phase/endpoint
+            # so upstream classify/reply evidence plumbing can persist them on a
+            # later parse failure without re-resolving provider internals.
+            agent_kwargs = (
+                request.get("agent_kwargs")
+                if isinstance(request.get("agent_kwargs"), dict)
+                else {}
+            )
+            model = request.get("model") or agent_kwargs.get("model")
+            if model:
+                out["model"] = model
+            phase = profiling_context.get("backend_phase") or "agent_turn"
+            if phase:
+                out["phase"] = phase
+            endpoint = agent_kwargs.get("base_url")
+            if endpoint:
+                out["endpoint"] = endpoint
     except Exception as exc:  # noqa: BLE001 - report all failures to parent
         out = {"error": str(exc), "error_type": type(exc).__name__}
         # A LookupError means no adapter is registered for the requested agent id
@@ -417,6 +534,18 @@ def main() -> int:
         # runtime-unavailable signal rather than a transient provider error.
         if isinstance(exc, (LookupError, ImportError)):
             out["runtime_unavailable"] = True
+        if raw_text is not None:
+            # The raw response was received but discarded on a parse/content
+            # failure — persist bounded evidence on the failure envelope instead
+            # of losing it (mirrors the batch-repl model_response detail).
+            _persist_parse_evidence(
+                out,
+                exc,
+                raw_text,
+                worker_metadata,
+                request,
+                profiling_context,
+            )
 
     out["_profiling"] = {
         **profiling_context,

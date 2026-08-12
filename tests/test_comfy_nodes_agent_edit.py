@@ -34,7 +34,6 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _stamped_turn_response_outcome,
     _synthesize_post_validation_narrative,
     _synthesize_batch_repl_message,
-    _validate_narrative_message,
     _write_turn_chat_artifact,
     _ws_send,
     handle_agent_edit,
@@ -2409,6 +2408,114 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     assert retry_meta["count"] == 1
     assert retry_meta["parse_reason"] is None
     assert "batch_repl response was empty" in retry_meta["reason"]
+
+
+def test_agent_edit_batch_protocol_retry_executes_dataclasses_replace(
+    tmp_path: Path,
+) -> None:
+    """The recovered batch-protocol retry path survives (behavioral lock).
+
+    Drives the real sync protocol-retry block in
+    ``edit_batch_repl._stage_agent_batch_repl`` (~:1528-1585): the facade's
+    FIRST model call raises MalformedModelJSON and the SECOND returns a valid
+    batch. The retry must execute ``dataclasses.replace(...)`` (:1577) to
+    attach the retry metadata — removing the ``import dataclasses`` line makes
+    that line raise NameError and this test fail (a behavioral lock, not an
+    import-presence assertion).
+    """
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
+
+    state = AgentEditState(
+        task="change the save prefix to after",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    context = TurnContext(session_id="protocol-retry-replace", turn_id="0001")
+
+    calls: list[list[dict[str, str]]] = []
+
+    def _retry_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        calls.append(messages)
+        if len(calls) == 1:
+            raise provider_mod.MalformedModelJSON(
+                "Agent response does not contain a ```batch fenced block. "
+                "Include exactly one ```batch code block with your edit statements.",
+                raw_response="I need a concrete schema before editing.",
+                parse_reason="missing_batch_fence",
+            )
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Changed the save prefix.",
+        }
+
+    result = agent_edit_module._stage_agent_batch_repl(
+        state,
+        context,
+        deepseek_client=_retry_client,
+    )
+
+    # Exactly two facade model calls: the malformed first + the retry.
+    assert len(calls) == 2
+    # The retry call carries the protocol-recovery nudge with the clarify
+    # escape hatch and the previous-response preview.
+    retry_prompt = calls[1][-1]["content"]
+    assert calls[1][-1]["role"] == "system"
+    assert "did not include a valid batch block" in retry_prompt
+    assert 'clarify("...")' in retry_prompt
+    assert "Previous response preview" in retry_prompt
+
+    # Successful normalized second result — no NameError, no failure envelope.
+    assert result.ok is True
+    assert result.blocking is False
+    assert result.value["mode"] == "done"
+    assert state.user_message == "Changed the save prefix."
+    assert "after" in state.python_after
+
+    # dataclasses.replace(:1577) actually executed: only that line attaches
+    # batch_repl_protocol_retry to the audit metadata that lands on state.
+    retry_meta = (state.provider_metadata or {})["batch_repl_protocol_retry"]
+    assert retry_meta["count"] == 1
+    assert retry_meta["parse_reason"] == "missing_batch_fence"
+
+    # The protocol retry is recorded in the model artifacts: an attempt-2
+    # request entry and an attempt-1 error entry before the received response.
+    request_turns = json.loads(state.model_request_path.read_text(encoding="utf-8"))[
+        "turns"
+    ]
+    assert len(request_turns) == 2
+    assert request_turns[1]["protocol_retry"] == {
+        "attempt": 2,
+        "reason": "missing_batch_fence",
+        "message": (
+            "Agent response does not contain a ```batch fenced block. "
+            "Include exactly one ```batch code block with your edit statements."
+        ),
+    }
+    response_turns = json.loads(state.model_response_path.read_text(encoding="utf-8"))[
+        "turns"
+    ]
+    assert response_turns[0]["error"]["retrying"] is True
+    assert response_turns[0]["error"]["attempt"] == 1
+    assert response_turns[0]["error"]["parse_reason"] == "missing_batch_fence"
+    assert response_turns[1]["response"]["message"] == "Changed the save prefix."
 
 
 def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failure_envelope(
@@ -7758,37 +7865,56 @@ def test_batch_repl_response_uses_post_validation_narrative_and_exposes_artifact
     )
 
 
-def test_validate_narrative_message_rejects_edit_contradictions() -> None:
-    validation = _validate_narrative_message(
-        "The graph is unchanged.",
-        narrative_context={
-            "outcome": {"internal_kind": "edit"},
-            "change": {"landed_operation_count": 1, "graph_changed": True},
-            "validation": {"passed": True},
-        },
+def test_synthesize_post_validation_narrative_always_ships_agent_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G0-T2: the agent's LLM narrative ALWAYS ships — no prose gate discards
+    it for a deterministic fallback, even when the prose contradicts the
+    structured record."""
+    monkeypatch.setenv("VIBECOMFY_NARRATOR_ROUTE", "test-route")
+    monkeypatch.setenv("VIBECOMFY_NARRATOR_MODEL", "test-model")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        # Deliberately contradictory prose: the old _validate_narrative_message
+        # gate would have flagged "unchanged" against the landed edit.
+        lambda **_kwargs: {"json": {"message": "The rest of the graph is unchanged."}},
     )
 
-    assert validation["ok"] is False
-    assert "contradicts_edit_outcome" in validation["issues"]
-    assert "claims_no_edit_when_edits_landed" in validation["issues"]
+    state = _make_state(
+        graph={"nodes": [{"id": 1, "type": "SaveImage"}]},
+        ui_payload={"nodes": [{"id": 1, "type": "SaveImage"}]},
+        batch_field_changes=(
+            FieldChange(uid="1", field_path="filename_prefix", old="before", new="after"),
+        ),
+        batch_exit_mode="done",
+        session_dir=tmp_path / "session",
+        turn_dir=tmp_path / "turns" / "0001",
+        narrative_context_path=Path("narrative_context.json"),
+        narrative_request_path=Path("narrative_request.json"),
+        narrative_response_path=Path("narrative_response.json"),
+        narrative_validation_path=Path("narrative_validation.json"),
+        artifacts={},
+    )
+    state.turn_dir.mkdir(parents=True, exist_ok=True)
+    context = TurnContext(session_id="narrative-always-ships", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
 
-
-def test_validate_narrative_message_requires_clarify_question_shape() -> None:
-    validation = _validate_narrative_message(
-        "I need one more detail before continuing.",
-        narrative_context={
-            "outcome": {
-                "internal_kind": "clarify",
-                "clarification_question": "Which node should I change?",
-            },
-            "change": {"landed_operation_count": 0, "graph_changed": False},
-            "validation": {"passed": False},
-        },
+    message = _synthesize_post_validation_narrative(
+        state,
+        context,
+        outcome=TurnOutcome.edit(changes=state.batch_field_changes),
+        public_outcome="candidate",
     )
 
-    assert validation["ok"] is False
-    assert "clarify_without_question" in validation["issues"]
-    assert "clarify_question_missing" in validation["issues"]
+    assert message == "The rest of the graph is unchanged."
+    validation_payload = json.loads(
+        (state.turn_dir / "narrative_validation.json").read_text(encoding="utf-8")
+    )
+    assert validation_payload["selected_source"] == "narrator"
+    assert validation_payload["fallback_reason"] == ""
+    assert validation_payload["final_validation"]["ok"] is True
 
 
 def test_synthesize_post_validation_narrative_provider_failure_falls_back_and_persists_artifacts(
@@ -19779,3 +19905,90 @@ class TestManifestProtocolAllowlist:
         classes = _actionable_plan_required_new_classes(state, plan)
         assert "LegacyOnly" in classes
         assert "ManifestOnly" not in classes
+
+
+def test_research_precedent_provisional_workflow_schema_does_not_shadow_real_schema() -> None:
+    """Real schema wins over workflow-JSON provisional at research hydration.
+
+    G0-R1 regression: the 485ff2 scenario's CutAndDragOnPath node must keep its
+    real named fields (inpaint, frame_width, ...) instead of being shadowed by
+    widget_N names derived from workflow-JSON evidence. The provisional provider
+    may only fill classes the real provider is missing.
+    """
+    from vibecomfy.comfy_nodes.agent._frag_research import _hydrate_research_precedent_node_schemas
+
+    real_provider = _Provider(
+        {
+            "CutAndDragOnPath": NodeSchema(
+                class_type="CutAndDragOnPath",
+                pack="ComfyUI-KJNodes",
+                inputs={
+                    "image": InputSpec("IMAGE", required=True),
+                    "coordinates": InputSpec("STRING", required=True),
+                    "mask": InputSpec("MASK", required=True),
+                    "frame_width": InputSpec("INT", required=True),
+                    "frame_height": InputSpec("INT", required=True),
+                    "inpaint": InputSpec("BOOLEAN", required=True),
+                },
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="object_info",
+                confidence=1.0,
+            ),
+        }
+    )
+
+    # Workflow-JSON evidence for the SAME node carries only positional
+    # widget_N names (workflow JSON has no widget names), plus one class the
+    # real provider genuinely lacks (ADE_MissingNode) so we can prove
+    # provisional still fills gaps.
+    workflow_schema = {
+        "CutAndDragOnPath": {
+            "input": {
+                "required": {
+                    "widget_0": ["IMAGE"],
+                    "widget_1": ["STRING"],
+                    "widget_2": ["MASK"],
+                    "widget_3": ["INT"],
+                    "widget_4": ["INT"],
+                    "widget_5": ["BOOLEAN"],
+                }
+            },
+            "output": [["IMAGE", "IMAGE"]],
+        },
+        "ADE_MissingNode": {
+            "input": {"required": {"widget_0": ["MODEL"]}},
+            "output": [["MODEL", "MODEL"]],
+        },
+    }
+    source = {
+        "source": "external_workflow",
+        "pack": "workflow",
+        "url": "https://example.test/485ff2fa6dcc1917.json",
+        "workflow_schema": workflow_schema,
+    }
+
+    state = _make_state(
+        schema_provider=real_provider,
+        executor_research_sources=(source,),
+    )
+    candidates = _hydrate_research_precedent_node_schemas(state)
+
+    # Shadowing class: real named schema must win, never widget_N names.
+    resolved = state.schema_provider.get_schema("CutAndDragOnPath")
+    assert resolved is not None
+    assert resolved.source_provider == "object_info"
+    assert "inpaint" in resolved.inputs
+    assert "frame_width" in resolved.inputs
+    assert "frame_height" in resolved.inputs
+    assert "image" in resolved.inputs
+    assert not any(name.startswith("widget_") for name in resolved.inputs), (
+        f"real schema shadowed by provisional widget_N inputs: {sorted(resolved.inputs)}"
+    )
+
+    # Missing class: provisional still fills the gap.
+    missing_resolved = state.schema_provider.get_schema("ADE_MissingNode")
+    assert missing_resolved is not None
+    assert missing_resolved.source_provider == "workflow_json_provisional"
+
+    # Hydration still surfaces the workflow candidates as reviewable evidence.
+    assert any("CutAndDragOnPath" in cand.get("expected_classes", ()) for cand in candidates)

@@ -38,7 +38,7 @@ MANIFEST_PATH = ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json"
 
 # Frozen counts pinned by the ORACLE-1 capture; the name sets themselves are
 # read from the manifest (never hardcoded here), only the counts are pinned.
-PINNED_EDIT_EXPORT_COUNT = 472
+PINNED_EDIT_EXPORT_COUNT = 462  # 472 - 10 narrative-guard helpers removed in G0-T2 (agent always writes the message, from the facts)
 PINNED_SESSION_ALL_COUNT = 23
 PINNED_SESSION_PUBLIC_DIRECT_COUNT = 31
 PINNED_SESSION_PRIVATE_IMPORTED_COUNT = 23

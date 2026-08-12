@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from vibecomfy.agent.deepseek_usage import (
     add_deepseek_usage,
@@ -53,6 +53,12 @@ _PROVIDER_INFRA_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"too many requests", re.IGNORECASE),
     re.compile(r"HTTP Error 429", re.IGNORECASE),
 )
+
+# "The model response could not be parsed" is infra ONLY with zero-token
+# evidence (an empty/transport response) — never on the phrase alone.  A
+# nonzero-token parse failure (e.g. markdown instead of JSON) is a product
+# failure.  See ``_provider_infra_failure_class``.
+_PARSE_FAILURE_PATTERN = re.compile(r"The model response could not be parsed", re.IGNORECASE)
 
 
 def _scenario_paths(scenarios_dir: Path) -> list[Path]:
@@ -226,9 +232,34 @@ def _summary_text_for_infra_classification(summary: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
+    """Observed completion tokens of the attempt's model call, or None when absent.
+
+    The attempt summary (agentic_summary) carries ``deepseek_usage`` at the top
+    level — the executor result's usage dict.  ``completion_tokens == 0`` is the
+    structured evidence of an empty/transport response; absence of the record is
+    NOT evidence, so it never classifies as infra.
+    """
+    usage = summary.get("deepseek_usage")
+    if not isinstance(usage, Mapping):
+        return None
+    value = usage.get("completion_tokens")
+    if not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
 def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
     text = _summary_text_for_infra_classification(summary)
     if not text:
+        return None
+    if _PARSE_FAILURE_PATTERN.search(text):
+        # The parse phrase alone is never infra: markdown instead of JSON is a
+        # product failure.  Only an empty model response — structured evidence
+        # that the call observed zero completion tokens (a transport-level
+        # reply) — is retryable infrastructure.
+        if _summary_completion_tokens(summary) == 0:
+            return "infra_empty_response"
         return None
     if any(pattern.search(text) for pattern in _PROVIDER_INFRA_PATTERNS):
         return "infra_provider_capacity"
@@ -250,8 +281,8 @@ def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
                     "check": "infra_classification",
                     "severity": "warning",
                     "detail": (
-                        "Provider capacity/rate-limit/credit failure was classified "
-                        "as retryable infrastructure, not product quality."
+                        f"{failure_class} failure was classified as retryable "
+                        "infrastructure, not product quality."
                     ),
                     "failure_class": failure_class,
                 }

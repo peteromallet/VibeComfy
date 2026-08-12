@@ -23,7 +23,7 @@ _NARRATOR_DEFAULT_MODEL = "openrouter:deepseek/deepseek-v4-flash"
 
 @dataclass
 class NarrativeContext:
-    """Compact summary of turn state used by the narrator to validate messages.
+    """Compact summary of turn state fed to the narrator for fact-grounded synthesis.
 
     Wraps the dict payload from ``_narrative_context_payload`` with typed
     accessors so callers do not need to reach into raw dict keys.
@@ -110,29 +110,6 @@ class NarrativeContext:
         return cls(payload=dict(payload))
 
 
-# ── Fast-path predicate (SD1) ─────────────────────────────────────────────
-
-def _narrator_fast_path_applies(narrative_context: NarrativeContext) -> bool:
-    """Return True when the turn qualifies for the deterministic fast-path.
-
-    SD1: Clean simple successes (outcome=edit, graph_changed=true,
-    landed_ops>0, validation_passed, no warnings/blocks) skip the LLM
-    narrator entirely and use a deterministic template.
-    """
-    if narrative_context.internal_kind != "edit":
-        return False
-    if not narrative_context.graph_changed:
-        return False
-    if narrative_context.landed_operation_count <= 0:
-        return False
-    if not narrative_context.validation_passed:
-        return False
-    # Warnings or blocks appear as failure_kind or validation issues.
-    if narrative_context.failure_kind:
-        return False
-    return True
-
-
 # ── Env-driven route/model read (SD3) ─────────────────────────────────────
 
 def _narrator_route() -> str | None:
@@ -181,21 +158,6 @@ def _assemble_narrative_context(
         change_details=change_details,
     )
     return NarrativeContext.from_dict(payload)
-
-
-# ── Guard helper ──────────────────────────────────────────────────────────
-
-def _guard_narrative_message(
-    message: str,
-    narrative_context: NarrativeContext,
-) -> dict[str, Any]:
-    from vibecomfy.comfy_nodes.agent.edit import (_validate_narrative_message)  # T-039 late import: host namespace lookup; resolved at call time
-    """Run deterministic guard checks on *message* against *narrative_context*.
-
-    Returns the same shape as ``_validate_narrative_message``:
-    ``{"ok": bool, "message": str, "issues": list[str]}``.
-    """
-    return _validate_narrative_message(message, narrative_context=narrative_context.payload)
 
 
 # ── Deterministic fallback ────────────────────────────────────────────────
@@ -296,7 +258,18 @@ _NARRATOR_SYSTEM_PROMPT = (
     "- If edits landed, describe what changed in plain language.\n"
     "- If nothing changed, say so honestly without inventing edits.\n"
     "- Never include markdown, code fences, or structured data in the message.\n"
-    "- Keep the message under 300 characters."
+    "- Keep the message under 300 characters.\n"
+    "You MUST state what happened per these structured facts and describe "
+    "exactly those facts:\n"
+    "  - change.graph_unchanged: whether the graph changed (true = unchanged).\n"
+    "  - outcome.kind: the public outcome kind (e.g. candidate, noop, clarify, failure).\n"
+    "  - change.landed_operation_count: how many operations actually landed.\n"
+    "  - validation.passed: whether post-edit validation passed.\n"
+    "Never claim an edit you did not land: when graph_unchanged is true or "
+    "landed_operation_count is 0, you MUST NOT say the graph was edited, "
+    "applied, updated, connected, or changed. Never claim validation passed "
+    "when validation.passed is false. The message must be consistent with "
+    "every one of these fields."
 )
 
 
@@ -373,7 +346,7 @@ def _call_narrator_llm(
     return message_raw, raw
 
 
-# ── Main entrypoint with fast-path + LLM + guard + fallback ───────────────
+# ── Main entrypoint (LLM narrator is the sole path) ───────────────────────
 
 def _narrate_final_message(
     state: AgentEditState,
@@ -384,18 +357,22 @@ def _narrate_final_message(
     public_outcome: str | None = None,
     apply_eligibility: ApplyEligibility | None = None,
 ) -> str:
-    from vibecomfy.comfy_nodes.agent.edit import (LOGGER, MalformedModelJSON, ProviderError, _NARRATOR_DEFAULT_MODEL, _NARRATOR_DEFAULT_ROUTE, _assemble_narrative_context, _build_narrator_messages, _call_narrator_llm, _deterministic_narrative_fallback, _guard_narrative_message, _narrator_fast_path_applies, _narrator_model, _narrator_route, _write_narrative_artifacts)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (LOGGER, MalformedModelJSON, ProviderError, _NARRATOR_DEFAULT_MODEL, _NARRATOR_DEFAULT_ROUTE, _assemble_narrative_context, _build_narrator_messages, _call_narrator_llm, _deterministic_narrative_fallback, _narrator_model, _narrator_route, _write_narrative_artifacts)  # T-039 late import: host namespace lookup; resolved at call time
     """Produce the final user-facing message for a completed agent-edit turn.
 
-    Design decisions SD1–SD3 (see plan_v1.meta.json):
-      - SD1: clean simple successes use deterministic fast-path and skip LLM.
-      - SD2: LLM narrator is invoked for success-with-warnings, clarify, noop,
-        blocked, budget, and failure outcomes.
-      - SD3: default route/model is openrouter/deepseek-v4-flash, overridable
-        via VIBECOMFY_NARRATOR_ROUTE and VIBECOMFY_NARRATOR_MODEL env vars.
+    The agent ALWAYS writes the message: the LLM narrator is invoked for every
+    outcome, and whatever message it produces is the final message — prose is
+    never gated or replaced by a deterministic substitute. The deterministic
+    fallback is used only when no agent message exists (provider failure,
+    timeout, or a response that did not yield a message).
 
-    The fast-path writes compact narrative_context.json and
-    narrative_validation.json artifacts.  The LLM path additionally writes
+    The synthesis prompt feeds the agent the structured outcome
+    (``change.graph_unchanged``, ``outcome.kind``,
+    ``change.landed_operation_count``, ``validation.passed``) and requires the
+    narrative to describe exactly those facts.
+
+    Every path writes compact narrative_context.json and
+    narrative_validation.json artifacts; the LLM path additionally writes
     narrator_request.json and narrator_response.json.  All artifact writes
     are best-effort (failures logged and swallowed).
     """
@@ -410,52 +387,12 @@ def _narrate_final_message(
             apply_eligibility=apply_eligibility,
         )
 
-        # ── SD1: Fast-path for clean simple successes ─────────────────
-        if _narrator_fast_path_applies(narrative_context):
-            message = _deterministic_narrative_fallback(
-                state,
-                outcome=outcome,
-                failure=failure,
-                narrative_context=narrative_context,
-            )
-            validation = _guard_narrative_message(message, narrative_context)
-            _write_narrative_artifacts(state, narrative_context, validation)
-
-            if validation.get("ok"):
-                return message
-
-            # Guard rejected fast-path message (should be extremely rare).
-            # Fall through to raw fallback without context.
-            LOGGER.warning(
-                "Narrator fast-path message failed guard: %s",
-                validation.get("issues", []),
-            )
-            raw_fallback = _deterministic_narrative_fallback(
-                state,
-                outcome=outcome,
-                failure=failure,
-                narrative_context=None,
-                fallback_reason="guard_rejected_fast_path",
-            )
-            # Write a secondary validation artifact for the raw fallback.
-            fallback_validation = _guard_narrative_message(
-                raw_fallback,
-                narrative_context,
-            )
-            _write_narrative_artifacts(
-                state,
-                narrative_context,
-                fallback_validation,
-            )
-            return raw_fallback
-
-        # ── SD2/SD3: LLM narrator path ───────────────────────────────
-
-        # Resolve route/model from env vars with defaults.
+        # ── LLM narrator path (sole path; SD1 fast-path removed) ──────
         route = _narrator_route() or _NARRATOR_DEFAULT_ROUTE
         model = _narrator_model() or _NARRATOR_DEFAULT_MODEL
 
-        # Pre-compute the deterministic fallback in case the LLM path fails.
+        # Pre-compute the deterministic fallback in case the LLM path
+        # produces no message at all.
         fallback_message = _deterministic_narrative_fallback(
             state,
             outcome=outcome,
@@ -498,57 +435,33 @@ def _narrate_final_message(
             )
             fallback_reason = "provider_failure"
 
-        # Guard LLM output when available.
-        validation: dict[str, Any] = {"ok": False, "message": "", "issues": ["llm_not_called"]}
+        # ── Select the message: the agent's own message ALWAYS ships. ──
+        # There is no prose gate and no discard-and-replace: when the LLM
+        # narrator produced a message, that message IS the final message.
+        # The deterministic fallback ships only when no agent message exists.
         if llm_message is not None and fallback_reason is None:
-            validation = _guard_narrative_message(llm_message, narrative_context)
-            if validation.get("ok"):
-                _write_narrative_artifacts(
-                    state,
-                    narrative_context,
-                    validation,
-                    request_messages=llm_request,
-                    llm_response=llm_response,
-                )
-                return llm_message
+            selected_source = "narrator"
+            selected_message = llm_message
+        else:
+            selected_source = "fallback"
+            selected_message = fallback_message
+            fallback_reason = fallback_reason or "no_narrator_message"
 
-            # LLM message failed guard checks — fall back.
-            LOGGER.warning(
-                "Narrator LLM message failed guard checks: %s",
-                validation.get("issues", []),
-            )
-            fallback_reason = "refused_narrative"
-        elif llm_message is not None:
-            # fallback_reason is set from an exception above.
-            validation = _guard_narrative_message(llm_message, narrative_context)
-
-        # ── Fallback: use deterministic message ───────────────────────
-        fallback_validation = _guard_narrative_message(fallback_message, narrative_context)
-
+        validation: dict[str, Any] = {
+            "ok": True,
+            "message": selected_message,
+            "issues": [],
+            "selected_source": selected_source,
+            "fallback_reason": fallback_reason,
+        }
         _write_narrative_artifacts(
             state,
             narrative_context,
-            fallback_validation,
+            validation,
             request_messages=llm_request,
             llm_response=llm_response,
         )
-
-        if fallback_validation.get("ok"):
-            return fallback_message
-
-        # Guard rejected even the fallback — return raw fallback without context.
-        LOGGER.warning(
-            "Narrator fallback message also failed guard: %s",
-            fallback_validation.get("issues", []),
-        )
-        raw_fallback = _deterministic_narrative_fallback(
-            state,
-            outcome=outcome,
-            failure=failure,
-            narrative_context=None,
-            fallback_reason="guard_rejected_fallback",
-        )
-        return raw_fallback
+        return selected_message
 
     except Exception as exc:
         LOGGER.warning(
@@ -574,9 +487,7 @@ __all__ = (
     "_build_narrator_messages",
     "_call_narrator_llm",
     "_deterministic_narrative_fallback",
-    "_guard_narrative_message",
     "_narrate_final_message",
-    "_narrator_fast_path_applies",
     "_narrator_model",
     "_narrator_route",
     "_write_narrative_artifacts",

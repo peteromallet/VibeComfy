@@ -200,6 +200,57 @@ def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str |
     return normalized[: limit - 1].rstrip() + "…"
 
 
+# Additive evidence attributes that classify/reply failure plumbing forwards
+# across provider boundaries (worker envelope -> runtime error -> provider
+# error -> executor failure envelope). The failure envelope's public shape is
+# unchanged; these attributes only ride on exceptions in between.
+_EVIDENCE_ATTRS = (
+    "worker_result",
+    "parse_reason",
+    "raw_response_preview",
+    "finish_reason",
+    "completion_tokens",
+    "prompt_tokens",
+    "total_tokens",
+    "model",
+    "phase",
+    "endpoint",
+)
+
+
+def _forward_evidence_attrs(source: BaseException, target: BaseException) -> None:
+    """Copy additive evidence attributes from *source* onto *target*."""
+    for name in _EVIDENCE_ATTRS:
+        if getattr(target, name, None) is not None:
+            continue
+        value = getattr(source, name, None)
+        if value is None:
+            continue
+        try:
+            setattr(target, name, value)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+
+
+def _attach_provider_context(
+    exc: BaseException,
+    *,
+    model: str | None,
+    phase: str | None,
+) -> None:
+    """Fill provider-known model/phase evidence when the exception lacks it."""
+    if model and getattr(exc, "model", None) is None:
+        try:
+            setattr(exc, "model", model)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+    if phase and getattr(exc, "phase", None) is None:
+        try:
+            setattr(exc, "phase", phase)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+
+
 def normalize_user_message(message: str | None) -> str:
     if not isinstance(message, str):
         return ""
@@ -1421,6 +1472,11 @@ def run_model_turn(
     selected_route = route_descriptor.normalized_route
     dispatch_route = _runtime_dispatch_route(route_descriptor, selected_route)
     selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+    phase = (
+        profiling_context.get("backend_phase")
+        if isinstance(profiling_context, Mapping)
+        else None
+    )
     runtime = _load_arnold_runtime()
     run_model_turn_fn: Callable[..., Any] | None = getattr(runtime, "run_model_turn", None)
     try:
@@ -1454,9 +1510,15 @@ def run_model_turn(
     except ImportError:
         raise
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
+        # Same exception object propagates — keep its evidence attrs intact and
+        # add the provider-known model/phase for the classify/reply envelope.
+        _attach_provider_context(exc, model=selected_model, phase=phase)
         raise
     except Exception as exc:
-        raise ProviderError(str(exc)) from exc
+        wrapped = ProviderError(str(exc))
+        _forward_evidence_attrs(exc, wrapped)
+        _attach_provider_context(wrapped, model=selected_model, phase=phase)
+        raise wrapped from exc
 
     if not isinstance(response, Mapping):
         raise ProviderError("Generic model turn returned a non-dict response.")

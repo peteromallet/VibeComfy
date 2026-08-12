@@ -818,7 +818,7 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
                         *(_candidate_stable_key(candidate) for candidate in workflow_candidates),
                     }
                 )
-                state.schema_provider = CompositeSchemaProvider(provisional, state.schema_provider)
+                state.schema_provider = CompositeSchemaProvider(state.schema_provider, provisional)
         except Exception as exc:  # noqa: BLE001 - keep registry fallback below available
             LOGGER.debug("workflow schema provisional hydration unavailable: %s", exc)
 

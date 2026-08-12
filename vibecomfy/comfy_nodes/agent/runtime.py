@@ -250,6 +250,21 @@ def _raise_worker_error(result: Mapping[str, Any]) -> None:
     error_type = str(result.get("error_type") or "").strip()
     message = f"{error_type}: {err}" if error_type and error_type not in err else err
     lowered = message.lower()
+
+    def _with_worker_result(exc: BaseException) -> BaseException:
+        """Attach the full worker result dict additively for evidence plumbing.
+
+        The exception type and message are unchanged; upstream classify/reply
+        failure envelopes can read ``worker_result`` to persist parse_reason,
+        raw preview, usage, model, phase, and endpoint without re-resolving
+        provider internals.
+        """
+        try:
+            exc.worker_result = dict(result)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+        return exc
+
     if (
         error_type in {"AuthError", "AuthenticationError", "PermissionError"}
         or "authenticationerror" in lowered
@@ -258,10 +273,10 @@ def _raise_worker_error(result: Mapping[str, Any]) -> None:
         or "invalid api key" in lowered
         or "unauthorized" in lowered
     ):
-        raise PermissionError(message)
+        raise _with_worker_result(PermissionError(message))
     if _is_runtime_unavailable(result):
-        raise ImportError(message)
-    raise RuntimeError(message)
+        raise _with_worker_result(ImportError(message))
+    raise _with_worker_result(RuntimeError(message))
 
 
 def _normalize_route(route: str | None) -> str:

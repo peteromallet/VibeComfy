@@ -19,7 +19,10 @@ _edit_batch_repl = import_module(f"{__package__ or 'vibecomfy.comfy_nodes.agent'
 # identical top-level attributes.
 # T-040: these imports are now the ONLY source of façade names. The exec
 # assembler and the fragment SOURCE strings are gone from the live path;
-# __all__ below pins the frozen 472-name surface.
+# __all__ below pins the frozen name surface (G0-T2 removed the 10
+# deterministic-prose-gating names: the _NARRATIVE_* pattern constants,
+# _validate_narrative_message, _guard_narrative_message, and
+# _narrator_fast_path_applies).
 from ._frag_state import *  # noqa: F401,F403
 from ._frag_humanize import *  # noqa: F401,F403
 from ._frag_batch_memory import *  # noqa: F401,F403
@@ -157,13 +160,6 @@ __all__ = frozenset(
         "_MAX_EXECUTION_PROTOCOL_SOURCES",
         "_MAX_EXECUTION_PROTOCOL_STRING",
         "_MISSING_FIELD_CHANGE_OLD",
-        "_NARRATIVE_COUNT_PATTERN",
-        "_NARRATIVE_EDIT_CLAIM_PATTERNS",
-        "_NARRATIVE_GATE_JARGON_PATTERNS",
-        "_NARRATIVE_NO_EDIT_PATTERNS",
-        "_NARRATIVE_QUESTION_START",
-        "_NARRATIVE_VALIDATION_FAIL_PATTERNS",
-        "_NARRATIVE_VALIDATION_PASS_PATTERNS",
         "_NARRATOR_DEFAULT_MODEL",
         "_NARRATOR_DEFAULT_ROUTE",
         "_NARRATOR_RESPONSE_REQUIRED_FIELD",
@@ -297,7 +293,6 @@ __all__ = frozenset(
         "_format_statement_source",
         "_graph_class_types",
         "_graph_class_types_missing_from_schema",
-        "_guard_narrative_message",
         "_has_enough_grounded_facts_for_dev_narrative",
         "_human_change_phrase",
         "_humanized_edit_message",
@@ -345,7 +340,6 @@ __all__ = frozenset(
         "_narrative_research_payload",
         "_narrative_revision_payload",
         "_narrative_stage_payload",
-        "_narrator_fast_path_applies",
         "_narrator_message_from_response",
         "_narrator_model",
         "_narrator_route",
@@ -470,7 +464,6 @@ __all__ = frozenset(
         "_ui_widget_value_for_field",
         "_v2_candidate_mutation_plan_fields",
         "_validate_delta_evidence_for_apply",
-        "_validate_narrative_message",
         "_validated_agent_edit_response",
         "_validation_summary_payload",
         "_warn_ignored_public_protocol_envs_once",

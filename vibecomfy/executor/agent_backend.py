@@ -46,6 +46,45 @@ def _extract_content(result: dict[str, Any]) -> str:
     )
 
 
+def _preview_raw(text: str | None, *, limit: int = 1200) -> str | None:
+    """Bounded, whitespace-normalized preview of raw model output."""
+    if not isinstance(text, str):
+        return None
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 1].rstrip() + "…"
+
+
+def _attach_model_turn_evidence(
+    exc: BaseException,
+    result: dict[str, Any] | None,
+    *,
+    model: str,
+    phase: str,
+    raw: str | None,
+) -> None:
+    """Attach additive parse evidence to a classify/reply exception in place.
+
+    The provider result dict carries the worker's deepseek_usage plus the
+    resolved model/phase/endpoint; attaching it (and the raw content preview)
+    lets the executor's failure envelope persist tokens + raw preview + context
+    without re-resolving provider internals.
+    """
+    try:
+        if result is not None and getattr(exc, "worker_result", None) is None:
+            exc.worker_result = dict(result)  # type: ignore[attr-defined]
+        if raw is not None and getattr(exc, "raw_response_preview", None) is None:
+            exc.raw_response_preview = _preview_raw(raw)  # type: ignore[attr-defined]
+        for name, value in (("model", model), ("phase", phase)):
+            if getattr(exc, name, None) is None:
+                setattr(exc, name, value)
+    except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+        pass
+
+
 def run_classify_turn(
     query: str,
     *,
@@ -115,9 +154,21 @@ def run_classify_turn(
             model=model,
             effort=effort,
             response_contract="json",
+            profiling_context={"backend_phase": "classify"},
         )
-        raw = _extract_content(result)
-        decision = parse_classify_response(raw)
+        raw: str | None = None
+        try:
+            raw = _extract_content(result)
+            decision = parse_classify_response(raw)
+        except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
+            _attach_model_turn_evidence(
+                exc,
+                result,
+                model=model,
+                phase="classify",
+                raw=raw,
+            )
+            raise
         span.update(
             content_length=len(raw),
             plan_research=decision.research,
@@ -218,9 +269,21 @@ def run_reply_turn(
             model=model,
             effort=effort,
             response_contract="json",
+            profiling_context={"backend_phase": "reply"},
         )
-        raw = _extract_content(result)
-        reply = parse_reply_response(raw)
+        raw: str | None = None
+        try:
+            raw = _extract_content(result)
+            reply = parse_reply_response(raw)
+        except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
+            _attach_model_turn_evidence(
+                exc,
+                result,
+                model=model,
+                phase="reply",
+                raw=raw,
+            )
+            raise
         span.update(content_length=len(raw), reply_preview=short_text(reply))
         return reply
 

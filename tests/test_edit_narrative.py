@@ -1,8 +1,11 @@
 """Unit tests for the post-validation narrative narrator.
 
-Covers the new edit_narrator module without invoking a real provider.
-Tests exercise the fast-path predicate, guard checks, deterministic fallback,
+Covers the edit_narrator module without invoking a real provider.
+Tests exercise the fact-grounded prompt construction, deterministic fallback,
 and the full _narrate_final_message entrypoint with mocked provider.
+G0-T2: the agent ALWAYS writes the message — the LLM narrator runs for every
+outcome and its message always ships; the deterministic fallback is used only
+when no agent message exists (provider failure / timeout / malformed).
 """
 
 from __future__ import annotations
@@ -21,9 +24,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _build_narrator_messages,
     _call_narrator_llm,
     _deterministic_narrative_fallback,
-    _guard_narrative_message,
     _narrate_final_message,
-    _narrator_fast_path_applies,
     _net_field_changes,
     _total_landed_edit_count,
     _write_narrative_artifacts,
@@ -255,185 +256,43 @@ class TestNarrativeContext:
         assert ctx.clarification_question == "Which node should I edit?"
 
 
-# ── Fast-path predicate (SD1) ───────────────────────────────────────────────
+# ── Fact-grounded synthesis prompt (G0-T2) ──────────────────────────────────
 
 
-class TestNarratorFastPath:
-    def test_clean_edit_success_applies(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "edit", "public_kind": "candidate", "clarification_question": ""},
-            change={"graph_changed": True, "landed_operation_count": 2},
-            validation={"passed": True},
-        )
-        assert _narrator_fast_path_applies(ctx) is True
+class TestNarratorPromptFactGrounded:
+    def test_system_prompt_requires_describing_structured_facts(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit import _NARRATOR_SYSTEM_PROMPT
+        prompt = _NARRATOR_SYSTEM_PROMPT
+        assert "graph_unchanged" in prompt
+        assert "outcome.kind" in prompt
+        assert "landed_operation_count" in prompt
+        assert "validation.passed" in prompt
+        assert "Never claim an edit you did not land" in prompt
+        assert "describe exactly those facts" in prompt
 
-    def test_not_edit_outcome_does_not_apply(self) -> None:
-        for kind in ("clarify", "noop", "budget", "edit+clarify"):
-            ctx = _make_narrative_context(
-                outcome={"internal_kind": kind, "public_kind": kind, "clarification_question": ""},
-            )
-            assert _narrator_fast_path_applies(ctx) is False, f"kind={kind} should not fast-path"
-
-    def test_graph_not_changed_does_not_apply(self) -> None:
-        ctx = _make_narrative_context(
-            change={"graph_changed": False, "landed_operation_count": 0},
-        )
-        assert _narrator_fast_path_applies(ctx) is False
-
-    def test_zero_landed_ops_does_not_apply(self) -> None:
-        ctx = _make_narrative_context(
-            change={"graph_changed": True, "landed_operation_count": 0},
-        )
-        assert _narrator_fast_path_applies(ctx) is False
-
-    def test_failed_validation_does_not_apply(self) -> None:
-        ctx = _make_narrative_context(
-            validation={"passed": False},
-        )
-        assert _narrator_fast_path_applies(ctx) is False
-
-    def test_failure_kind_present_does_not_apply(self) -> None:
-        ctx = _make_narrative_context(
-            failure={"kind": "timeout", "message": "timed out"},
-        )
-        assert _narrator_fast_path_applies(ctx) is False
-
-    def test_graph_changed_but_zero_landed_ops_does_not_apply(self) -> None:
-        ctx = _make_narrative_context(
-            change={"graph_changed": True, "landed_operation_count": 0},
-        )
-        assert _narrator_fast_path_applies(ctx) is False
-
-
-# ── Guard checks ────────────────────────────────────────────────────────────
-
-
-class TestGuardNarrativeMessage:
-    def test_accepts_clean_edit_message(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "edit", "public_kind": "candidate", "clarification_question": ""},
-            change={"graph_changed": True, "landed_operation_count": 1},
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("Changed the filename prefix on the SaveImage node.", ctx)
-        assert result["ok"] is True
-        assert result["issues"] == []
-
-    def test_rejects_empty_message(self) -> None:
-        ctx = _make_narrative_context()
-        result = _guard_narrative_message("", ctx)
-        assert result["ok"] is False
-        assert "empty_message" in result["issues"]
-
-    def test_rejects_gate_jargon(self) -> None:
-        ctx = _make_narrative_context()
-        result = _guard_narrative_message("Gate A passed and plan_validate_ok was true.", ctx)
-        assert result["ok"] is False
-        assert "exposed_gate_jargon" in result["issues"]
-
-    def test_rejects_no_edit_claim_when_edit_outcome(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "edit", "public_kind": "candidate", "clarification_question": ""},
-            change={"graph_changed": True, "landed_operation_count": 2},
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("The graph is unchanged.", ctx)
-        assert result["ok"] is False
-        assert "contradicts_edit_outcome" in result["issues"]
-        # It should also flag that no edits were claimed when edits actually landed
-        assert "claims_no_edit_when_edits_landed" in result["issues"]
-
-    def test_rejects_edit_claim_when_no_edit_outcome(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "noop", "public_kind": "noop", "clarification_question": ""},
-            change={"graph_changed": False, "landed_operation_count": 0},
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("Changed several nodes in the graph.", ctx)
-        assert result["ok"] is False
-        assert "contradicts_no_edit_outcome" in result["issues"]
-
-    def test_rejects_edit_outcome_without_landed_operations(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "edit", "public_kind": "candidate", "clarification_question": ""},
-            change={"graph_changed": False, "landed_operation_count": 0},
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("Everything is good.", ctx)
-        assert result["ok"] is False
-        assert "edit_outcome_without_landed_operations" in result["issues"]
-
-    def test_rejects_incorrect_landed_operation_count(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={"internal_kind": "edit", "public_kind": "candidate", "clarification_question": ""},
-            change={"graph_changed": True, "landed_operation_count": 1},
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("Applied 5 changes to the workflow.", ctx)
-        assert result["ok"] is False
-        assert "incorrect_landed_operation_count" in result["issues"]
-
-    def test_rejects_validation_pass_claim_when_validation_failed(self) -> None:
-        ctx = _make_narrative_context(
-            validation={"passed": False},
-        )
-        result = _guard_narrative_message("Validation passed and the candidate is ready to apply.", ctx)
-        assert result["ok"] is False
-        assert "contradicts_validation_failure" in result["issues"]
-
-    def test_rejects_validation_fail_claim_when_validation_passed(self) -> None:
-        ctx = _make_narrative_context(
-            validation={"passed": True},
-        )
-        result = _guard_narrative_message("Validation failed due to schema errors.", ctx)
-        assert result["ok"] is False
-        assert "contradicts_validation_success" in result["issues"]
-
-    def test_rejects_clarify_without_question(self) -> None:
+    def test_user_message_feeds_the_structured_outcome(self) -> None:
+        """The narrator request embeds graph_unchanged, outcome.kind, and
+        landed_operation_count so the agent writes the message FROM the facts."""
         ctx = _make_narrative_context(
             outcome={
-                "internal_kind": "clarify",
-                "public_kind": "clarify",
-                "clarification_question": "Which node should I change?",
+                "kind": "candidate",
+                "internal_kind": "edit",
+                "public_kind": "candidate",
+                "clarification_question": "",
             },
-            change={"graph_changed": False, "landed_operation_count": 0},
-            validation={"passed": False},
-        )
-        result = _guard_narrative_message("I need one more detail before continuing.", ctx)
-        assert result["ok"] is False
-        assert "clarify_without_question" in result["issues"]
-        assert "clarify_question_missing" in result["issues"]
-
-    def test_accepts_clarify_with_question(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={
-                "internal_kind": "clarify",
-                "public_kind": "clarify",
-                "clarification_question": "Which node should I edit?",
+            change={
+                "graph_changed": True,
+                "graph_unchanged": False,
+                "landed_operation_count": 2,
             },
-            change={"graph_changed": False, "landed_operation_count": 0},
-            validation={"passed": False},
-        )
-        result = _guard_narrative_message(
-            "Which node should I edit before continuing?", ctx,
-        )
-        assert result["ok"] is True
-        assert result["issues"] == []
-
-    def test_accepts_edit_clarify_with_question(self) -> None:
-        ctx = _make_narrative_context(
-            outcome={
-                "internal_kind": "edit+clarify",
-                "public_kind": "clarify",
-                "clarification_question": "Should I also update the color?",
-            },
-            change={"graph_changed": True, "landed_operation_count": 3},
             validation={"passed": True},
         )
-        result = _guard_narrative_message(
-            "Applied 3 changes. Should I also update the color?", ctx,
-        )
-        assert result["ok"] is True
+        messages = _build_narrator_messages(ctx)
+        content = messages[1]["content"]
+        assert '"graph_unchanged": false' in content
+        assert '"kind": "candidate"' in content
+        assert '"landed_operation_count": 2' in content
+        assert '"passed": true' in content
 
 
 # ── Deterministic fallback ──────────────────────────────────────────────────
@@ -533,7 +392,7 @@ class TestBuildNarratorMessages:
 
 
 class TestWriteNarrativeArtifacts:
-    def test_writes_context_and_validation_on_fast_path(self, tmp_path: Path) -> None:
+    def test_writes_context_and_validation_without_request_response(self, tmp_path: Path) -> None:
         state = _make_state(
             session_dir=tmp_path / "session",
             turn_dir=tmp_path / "turns" / "0001",
@@ -594,16 +453,17 @@ class TestWriteNarrativeArtifacts:
 
 
 class TestNarrateFinalMessage:
-    def test_clean_success_uses_fast_path_and_skips_llm(
+    def test_clean_success_calls_llm_and_ships_agent_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """SD1: clean edit success → fast-path, no LLM call."""
+        """G0-T2: even a clean edit success goes through the LLM narrator and
+        the agent's message is the final message — no deterministic fast-path."""
         called_llm = False
 
         def _fake_run_model_turn(**kwargs: Any) -> dict[str, Any]:
             nonlocal called_llm
             called_llm = True
-            return {"json": {"message": "should not be used"}}
+            return {"json": {"message": "Changed the save prefix to after."}}
 
         monkeypatch.setattr(
             "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
@@ -626,7 +486,7 @@ class TestNarrateFinalMessage:
             artifacts={},
         )
         state.turn_dir.mkdir(parents=True, exist_ok=True)
-        context = TurnContext(session_id="fast-path", turn_id="0001")
+        context = TurnContext(session_id="clean-success", turn_id="0001")
         for gate_name in context.gate_results:
             context.set_gate(gate_name, True)
 
@@ -637,10 +497,9 @@ class TestNarrateFinalMessage:
             public_outcome="candidate",
         )
 
-        assert not called_llm, "LLM should not be called for clean edit success"
-        assert len(message) > 0
-        assert "after" in message
-        # Artifacts should be written on fast-path
+        assert called_llm, "the agent (LLM narrator) must write every message"
+        assert message == "Changed the save prefix to after."
+        # Artifacts should be written on every path
         assert (state.turn_dir / "narrative_context.json").is_file()
         assert (state.turn_dir / "narrative_validation.json").is_file()
 
@@ -762,10 +621,10 @@ class TestNarrateFinalMessage:
         # Should have fallen back, not crashed
         assert "after" in message
 
-    def test_unchanged_graph_edit_goes_to_llm_not_fast_path(
+    def test_unchanged_graph_edit_calls_llm_and_ships_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Unchanged graph + edit outcome → not clean success → LLM path."""
+        """Unchanged graph + edit outcome → the LLM narrator writes the message."""
         llm_called = False
 
         def _fake_run_model_turn(**kwargs: Any) -> dict[str, Any]:
@@ -805,10 +664,10 @@ class TestNarrateFinalMessage:
         assert llm_called, "LLM should be called when graph is unchanged"
         assert len(message) > 0
 
-    def test_failed_validation_goes_to_llm_not_fast_path(
+    def test_failed_validation_calls_llm_and_ships_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Failed validation → not clean success → LLM path."""
+        """Failed validation → the LLM narrator still writes the message."""
         llm_called = False
 
         def _fake_run_model_turn(**kwargs: Any) -> dict[str, Any]:
@@ -886,13 +745,19 @@ class TestNarrateFinalMessage:
 
         assert "?" in message
 
-    def test_llm_message_failing_guard_falls_back(
+    def test_llm_message_always_ships_even_when_prose_contradicts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """LLM produces a message that fails guard → fallback."""
+        """G0-T2: the agent's message ALWAYS ships — no prose gate discards it.
+
+        The LLM produces a message whose prose contradicts the outcome
+        ("The graph is unchanged." for an edit that landed). Under the old
+        deterministic guard this was discarded for a fallback; now it ships
+        verbatim: scoring is structured-only and fact-grounding is enforced
+        at the prompt, not by a discard-and-replace gate.
+        """
         monkeypatch.setattr(
             "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
-            # LLM returns a message that contradicts the edit outcome
             lambda **_kwargs: {"json": {"message": "The graph is unchanged."}},
         )
 
@@ -912,7 +777,7 @@ class TestNarrateFinalMessage:
             artifacts={},
         )
         state.turn_dir.mkdir(parents=True, exist_ok=True)
-        context = TurnContext(session_id="guard-reject", turn_id="0001")
+        context = TurnContext(session_id="always-ship", turn_id="0001")
         for gate_name in context.gate_results:
             context.set_gate(gate_name, True)
 
@@ -923,9 +788,11 @@ class TestNarrateFinalMessage:
             public_outcome="candidate",
         )
 
-        # Should have fallen back to deterministic, which includes the actual change
-        assert "after" in message
-        assert message != "The graph is unchanged."
+        assert message == "The graph is unchanged."
+        validation = json.loads(
+            (state.turn_dir / "narrative_validation.json").read_text(encoding="utf-8")
+        )
+        assert validation["selected_source"] == "narrator"
 
     def test_raw_executor_message_not_published(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

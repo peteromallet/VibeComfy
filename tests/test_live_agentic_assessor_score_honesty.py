@@ -147,3 +147,95 @@ def test_queue_validation_stage_failure_still_fails(tmp_path: Path) -> None:
     assert assessment["passed"] is False
     assert [issue["check"] for issue in assessment["issues"]] == ["gates"]
     assert "queue_validate_ok" in assessment["issues"][0]["detail"]
+
+
+def test_message_prose_never_affects_score(tmp_path: Path) -> None:
+    """G0-T2: scoring is structured-only — identical structured records score
+    identically no matter what prose the message carries.
+
+    The same record (an edit landed, candidate produced, gates passed) must
+    pass both with a grounded message and with message prose that the old
+    deterministic matcher misread as a contradiction ("unchanged" parts of the
+    graph).  The reverse also holds: a record with no landed edit and failed
+    gates fails identically whether the message admits it or falsely claims
+    success.
+    """
+    base = {
+        "ok": True,
+        "graph_unchanged": False,
+        "candidate_graph": {"1": {"class_type": "KSampler"}},
+        "outcome": {"kind": "candidate"},
+        "change_details": {"landed_operation_count": 1},
+        "gates": {
+            "ir_validate_ok": True,
+            "lower_ok": True,
+            "python_load_ok": True,
+            "queue_validate_ok": True,
+            "state_match_ok": True,
+            "ui_emit_ok": True,
+            "ui_fidelity_ok": True,
+            "ui_load_safe_ok": True,
+        },
+    }
+    scenario = {"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}}
+
+    passing_messages = (
+        "Applied 1 edit.",
+        "Updated the KSampler; the other nodes are unchanged.",
+        "Node connections are unchanged; only the seed changed.",
+        "I have not applied any further changes; this edit is complete.",
+    )
+    scores = []
+    for index, message in enumerate(passing_messages):
+        run_dir = tmp_path / f"pass-{index}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "response.json").write_text(
+            json.dumps({**base, "message": message}),
+            encoding="utf-8",
+        )
+        assessment = assess_live_output_dir(run_dir, scenario=scenario)
+        scores.append((assessment["passed"], assessment["error_count"]))
+
+    assert scores == [(True, 0)] * len(passing_messages), scores
+    assert all(
+        issue["check"] != "message_artifact"
+        for index in range(len(passing_messages))
+        for issue in assess_live_output_dir(tmp_path / f"pass-{index}", scenario=scenario)["issues"]
+    )
+
+    failing_base = {
+        "ok": True,
+        "graph_unchanged": True,
+        "no_candidate_reason": "no_changes",
+        "outcome": {"kind": "noop"},
+        "change_details": {"landed_operation_count": 0},
+        "gates": {
+            "ir_validate_ok": False,
+            "lower_ok": False,
+            "python_load_ok": False,
+            "queue_validate_ok": False,
+            "state_match_ok": True,
+            "ui_emit_ok": False,
+            "ui_fidelity_ok": False,
+            "ui_load_safe_ok": False,
+        },
+    }
+    failing_messages = (
+        "No changes were needed.",
+        "Applied 3 edits and the candidate is ready to apply.",
+        "Validation passed; everything landed.",
+    )
+    failing_scores = []
+    for index, message in enumerate(failing_messages):
+        run_dir = tmp_path / f"fail-{index}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "response.json").write_text(
+            json.dumps({**failing_base, "message": message}),
+            encoding="utf-8",
+        )
+        assessment = assess_live_output_dir(run_dir, scenario=scenario)
+        failing_scores.append((assessment["passed"], assessment["error_count"]))
+
+    # Four structured errors: graph_changed, no_candidate_reason,
+    # outcome_kind, and gates — identical for every message wording.
+    assert failing_scores == [(False, 4)] * len(failing_messages), failing_scores

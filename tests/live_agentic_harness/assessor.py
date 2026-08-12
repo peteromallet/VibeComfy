@@ -44,32 +44,6 @@ _SOFT_WARNING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"Too Many Requests", re.IGNORECASE),
 ]
 
-_MESSAGE_EDIT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(applied|changed|updated|edited|rewired|connected|disconnected|added|removed)\b", re.I),
-)
-
-_MESSAGE_NO_EDIT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(no (?:change|changes|edit|edits|updates?) needed|unchanged|left the graph unchanged|nothing needed changing)\b", re.I),
-)
-
-_MESSAGE_VALIDATION_PASS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(validation (?:passed|succeeded)|ready to apply|safe to apply)\b", re.I),
-)
-
-_MESSAGE_VALIDATION_FAIL_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(validation (?:failed|error|errors)|invalid|blocked by validation)\b", re.I),
-)
-
-_MESSAGE_QUESTION_START = re.compile(
-    r"^\s*(?:what|which|where|when|why|how|who|whom|whose|should|would|could|can|do|does|did|is|are|am|will|won't)\b",
-    re.I,
-)
-
-_MESSAGE_COUNT_PATTERN = re.compile(
-    r"\b(\d+)\s+(?:landed\s+)?(?:edit|edits|operation|operations|change|changes)\b",
-    re.I,
-)
-
 
 def _load_json(path: Path) -> dict[str, Any] | None:
     """Load a JSON artifact if it exists and is valid."""
@@ -235,103 +209,6 @@ def _collect_pattern_matches(
                     issues.append(node)
                 break
     return issues
-
-
-def _collect_message_artifact_contradictions(response: Mapping[str, Any]) -> list[str]:
-    """Return obvious public-message contradictions against response artifacts."""
-    message = " ".join(str(response.get("message") or "").split())
-    if not message:
-        return []
-
-    contradictions: list[str] = []
-    claims_edit = any(pattern.search(message) for pattern in _MESSAGE_EDIT_PATTERNS)
-    claims_no_edit = any(pattern.search(message) for pattern in _MESSAGE_NO_EDIT_PATTERNS)
-    claims_validation_pass = any(
-        pattern.search(message) for pattern in _MESSAGE_VALIDATION_PASS_PATTERNS
-    )
-    claims_validation_fail = any(
-        pattern.search(message) for pattern in _MESSAGE_VALIDATION_FAIL_PATTERNS
-    )
-
-    graph_unchanged = response.get("graph_unchanged")
-    outcome = response.get("outcome")
-    outcome_kind = outcome.get("kind") if isinstance(outcome, Mapping) else None
-    internal_outcome = response.get("internal_outcome")
-    internal_kind = internal_outcome.get("kind") if isinstance(internal_outcome, Mapping) else None
-    change_details = response.get("change_details")
-    landed_operation_count = (
-        int(change_details.get("landed_operation_count") or 0)
-        if isinstance(change_details, Mapping)
-        else 0
-    )
-
-    if graph_unchanged is True and claims_edit:
-        contradictions.append("message claims edits even though response.graph_unchanged is True")
-    if graph_unchanged is False and landed_operation_count > 0 and claims_no_edit:
-        contradictions.append("message claims no change even though response graph changed")
-
-    if outcome_kind in {"noop", "clarify", "requires_custom_nodes"} and claims_edit:
-        contradictions.append(
-            f"message claims edits even though outcome.kind={outcome_kind!r}"
-        )
-    if outcome_kind == "candidate" and claims_no_edit:
-        contradictions.append("message claims no change even though outcome.kind='candidate'")
-
-    if internal_kind in {"edit", "edit+clarify"} and claims_no_edit:
-        contradictions.append(
-            f"message claims no change even though internal_outcome.kind={internal_kind!r}"
-        )
-    if internal_kind in {"noop", "clarify"} and claims_edit:
-        contradictions.append(
-            f"message claims edits even though internal_outcome.kind={internal_kind!r}"
-        )
-    if internal_kind in {"clarify", "edit+clarify"}:
-        has_question_shape = "?" in message or bool(_MESSAGE_QUESTION_START.search(message))
-        if not has_question_shape:
-            contradictions.append(
-                f"message omits a direct question for internal_outcome.kind={internal_kind!r}"
-            )
-
-    if landed_operation_count == 0 and claims_edit:
-        contradictions.append("message claims landed edits even though landed_operation_count=0")
-    if landed_operation_count > 0 and claims_no_edit:
-        contradictions.append(
-            "message claims no change even though landed_operation_count is positive"
-        )
-    for match in _MESSAGE_COUNT_PATTERN.finditer(message):
-        if int(match.group(1)) != landed_operation_count:
-            contradictions.append(
-                "message claims a landed operation count that disagrees with change_details"
-            )
-            break
-
-    gates = response.get("gates")
-    gate_values = [
-        gates[name]
-        for name in (
-            "python_load_ok",
-            "ir_validate_ok",
-            "ui_load_safe_ok",
-            "queue_validate_ok",
-            "plan_validate_ok",
-            "state_match_ok",
-        )
-        if isinstance(gates, Mapping) and isinstance(gates.get(name), bool)
-    ]
-    validation_failed = bool(_collect_hard_diagnostics(response)) or any(
-        value is False for value in gate_values
-    )
-    validation_passed = bool(gate_values) and all(value is True for value in gate_values)
-    if validation_failed and claims_validation_pass:
-        contradictions.append(
-            "message claims validation success even though diagnostics or gates show failure"
-        )
-    if validation_passed and claims_validation_fail:
-        contradictions.append(
-            "message claims validation failure even though validation evidence passed"
-        )
-
-    return contradictions
 
 
 def _expects_graph_changed(
@@ -862,14 +739,11 @@ def assess_live_output_dir(
                 }
             )
 
-        for detail in _collect_message_artifact_contradictions(response):
-            issues.append(
-                {
-                    "check": "message_artifact",
-                    "severity": "error",
-                    "detail": detail,
-                }
-            )
+        # G0-T2: the deterministic message-artifact prose matcher is removed.
+        # Scoring is structured-only — prose never gates a scenario. The
+        # agent's message always ships as written; the structured
+        # cross-checks (graph_changed, outcome_kind, gates, landed counts,
+        # effective edits) above remain fully authoritative.
 
         # Critical upstream failures (Hivemind 500, etc.). When a successful
         # candidate exists, a recovered research-side upstream error should stay

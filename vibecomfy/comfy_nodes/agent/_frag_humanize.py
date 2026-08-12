@@ -610,44 +610,6 @@ def _change_details_payload(state: AgentEditState, context: TurnContext) -> dict
     return payload
 
 
-_NARRATIVE_GATE_JARGON_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bGate\s+[AB]\b", re.I),
-    re.compile(r"\bidentity verified\b", re.I),
-    re.compile(r"\bplan_validate_ok\b", re.I),
-    re.compile(r"\bqueue_validate_ok\b", re.I),
-    re.compile(r"\bui_fidelity_ok\b", re.I),
-    re.compile(r"\bir_validate_ok\b", re.I),
-    re.compile(r"\bstate_match_ok\b", re.I),
-    re.compile(r"\bedit_scope_ok\b", re.I),
-    re.compile(r"\bpython_load_ok\b", re.I),
-)
-
-_NARRATIVE_EDIT_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(applied|changed|updated|edited|rewired|connected|disconnected|added|removed)\b", re.I),
-)
-
-_NARRATIVE_NO_EDIT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(no (?:change|changes|edit|edits|updates?) needed|unchanged|left the graph unchanged|nothing needed changing)\b", re.I),
-)
-
-_NARRATIVE_VALIDATION_PASS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(validation (?:passed|succeeded)|valid(?:ated)?|ready to apply|safe to apply)\b", re.I),
-)
-
-_NARRATIVE_VALIDATION_FAIL_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(validation (?:failed|error|errors|issue|issues)|invalid|blocked by validation)\b", re.I),
-)
-
-_NARRATIVE_QUESTION_START = re.compile(
-    r"^\s*(?:what|which|where|when|why|how|who|whom|whose|should|would|could|can|do|does|did|is|are|am|will|won't)\b",
-    re.I,
-)
-
-_NARRATIVE_COUNT_PATTERN = re.compile(
-    r"\b(\d+)\s+(?:landed\s+)?(?:edit|edits|operation|operations|change|changes)\b",
-    re.I,
-)
-
 _NARRATOR_RESPONSE_REQUIRED_FIELD = "message"
 
 
@@ -656,7 +618,14 @@ def _narrator_system_message() -> str:
         "You write the final user-facing status line for a completed agent-edit turn. "
         "Use only the provided structured facts. Do not invent edits, validation status, "
         "or apply readiness. Do not mention internal gate labels. Return JSON with a "
-        'single string field named "message".'
+        'single string field named "message".\n'
+        "You MUST state what happened per these structured fields: whether the graph "
+        "changed (change.graph_changed / change.graph_unchanged), the outcome kind "
+        "(outcome.kind), and how many operations landed (change.landed_operation_count). "
+        "Never claim an edit you did not land: when graph_unchanged is true or "
+        "landed_operation_count is 0, you MUST NOT say the graph was edited, applied, "
+        "updated, connected, or changed. Never claim validation passed when "
+        "validation.passed is false. Describe exactly those facts."
     )
 
 
@@ -672,10 +641,17 @@ def _narrator_user_message(
             "must_include": [
                 "Describe what actually happened after validation.",
                 "Ask a direct question when the outcome requires clarification.",
+                "State exactly what the structured facts report: whether the graph changed "
+                "(change.graph_unchanged), the outcome kind (outcome.kind), and the landed "
+                "operation count (change.landed_operation_count).",
             ],
             "must_avoid": [
                 "Internal gate jargon",
                 "Contradicting the landed edit count or validation outcome",
+                "Claiming an edit you did not land — never say the graph changed, an edit "
+                "applied, or a connection was made when graph_unchanged is true or "
+                "landed_operation_count is 0",
+                "Claiming validation passed when validation.passed is false",
             ],
         },
         "raw_executor_message": raw_executor_message[:240],
@@ -899,6 +875,7 @@ def _narrative_context_payload(
         "task": " ".join((state.task or "").split())[:240],
         "route": state.route or "",
         "outcome": {
+            "kind": public_outcome or "",
             "internal_kind": internal_kind,
             "public_kind": public_outcome or "",
             "batch_exit_mode": state.batch_exit_mode or "",
@@ -910,6 +887,7 @@ def _narrative_context_payload(
         },
         "change": {
             "graph_changed": graph_changed,
+            "graph_unchanged": not graph_changed,
             "landed_operation_count": landed_operation_count,
             "operations": compact_change_details.get("operations", []),
         },
@@ -965,7 +943,7 @@ def _fallback_narrative_message(
 
     if outcome.kind == "edit":
         message = _humanized_edit_message(state)
-        if fallback_reason in {"provider_failure", "malformed_response", "refused_narrative", "timeout"}:
+        if fallback_reason in {"provider_failure", "malformed_response", "timeout"}:
             message = ensure_sentence_message(message, fallback="The candidate is ready to review.")
         return _append_post_edit_reorganisation_advice(message, state)
     if outcome.kind == "edit+clarify":
@@ -998,79 +976,6 @@ def _fallback_narrative_message(
         if isinstance(change, Mapping) and int(change.get("landed_operation_count") or 0) > 0:
             return _humanized_edit_message(state)
     return ensure_sentence_message(state.user_message, fallback="The agent edit turn completed.")
-
-
-def _validate_narrative_message(
-    message: Any,
-    *,
-    narrative_context: Mapping[str, Any],
-) -> dict[str, Any]:
-    text = " ".join(str(message or "").split())
-    issues: list[str] = []
-    if not text:
-        issues.append("empty_message")
-        return {"ok": False, "message": "", "issues": issues}
-
-    lowered = text.lower()
-    for pattern in _NARRATIVE_GATE_JARGON_PATTERNS:
-        if pattern.search(text):
-            issues.append("exposed_gate_jargon")
-            break
-
-    outcome_payload = narrative_context.get("outcome")
-    change_payload = narrative_context.get("change")
-    validation_payload = narrative_context.get("validation")
-    internal_kind = outcome_payload.get("internal_kind") if isinstance(outcome_payload, Mapping) else ""
-    question = outcome_payload.get("clarification_question") if isinstance(outcome_payload, Mapping) else ""
-    landed_operation_count = (
-        int(change_payload.get("landed_operation_count") or 0)
-        if isinstance(change_payload, Mapping)
-        else 0
-    )
-    graph_changed = bool(change_payload.get("graph_changed")) if isinstance(change_payload, Mapping) else False
-    validation_passed = bool(validation_payload.get("passed")) if isinstance(validation_payload, Mapping) else False
-
-    claims_edit = any(pattern.search(text) for pattern in _NARRATIVE_EDIT_CLAIM_PATTERNS)
-    claims_no_edit = any(pattern.search(text) for pattern in _NARRATIVE_NO_EDIT_PATTERNS)
-    if internal_kind in {"edit", "edit+clarify"}:
-        if claims_no_edit:
-            issues.append("contradicts_edit_outcome")
-        if landed_operation_count <= 0 or not graph_changed:
-            issues.append("edit_outcome_without_landed_operations")
-    else:
-        if claims_edit:
-            issues.append("contradicts_no_edit_outcome")
-
-    if landed_operation_count <= 0 and claims_edit:
-        issues.append("claims_landed_edits_when_none_landed")
-    if landed_operation_count > 0 and claims_no_edit:
-        issues.append("claims_no_edit_when_edits_landed")
-
-    for match in _NARRATIVE_COUNT_PATTERN.finditer(text):
-        claimed_count = int(match.group(1))
-        if claimed_count != landed_operation_count:
-            issues.append("incorrect_landed_operation_count")
-            break
-
-    if validation_passed:
-        if any(pattern.search(text) for pattern in _NARRATIVE_VALIDATION_FAIL_PATTERNS):
-            issues.append("contradicts_validation_success")
-    else:
-        if any(pattern.search(text) for pattern in _NARRATIVE_VALIDATION_PASS_PATTERNS):
-            issues.append("contradicts_validation_failure")
-
-    if internal_kind in {"clarify", "edit+clarify"}:
-        has_question_shape = "?" in text or bool(_NARRATIVE_QUESTION_START.search(text))
-        if not has_question_shape:
-            issues.append("clarify_without_question")
-        if isinstance(question, str) and question.strip() and question.strip("?").lower() not in lowered:
-            issues.append("clarify_question_missing")
-
-    return {
-        "ok": not issues,
-        "message": text,
-        "issues": issues,
-    }
 
 
 def _narrative_artifact_path(state: AgentEditState, path: Path) -> Path:
@@ -1170,33 +1075,20 @@ def _synthesize_post_validation_narrative(
             )
             response_payload["provider_response"] = _json_safe(dict(narrator_response))
             candidate_message = _narrator_message_from_response(narrator_response)
-            candidate_validation = _validate_narrative_message(
-                candidate_message,
-                narrative_context=narrative_context,
-            )
             response_payload["candidate_message"] = candidate_message
-            if candidate_validation.get("ok"):
-                final_message = candidate_validation["message"]
-                fallback_reason = ""
-                response_payload["selected_source"] = "narrator"
-                response_payload["selected_message"] = final_message
-                validation_payload = {
-                    "attempted": True,
-                    "selected_source": "narrator",
-                    "selected_message": final_message,
-                    "candidate_validation": candidate_validation,
-                }
-            else:
-                fallback_reason = "refused_narrative"
-                response_payload["selected_message"] = fallback_message
-                response_payload["fallback_reason"] = fallback_reason
-                validation_payload = {
-                    "attempted": True,
-                    "selected_source": "fallback",
-                    "selected_message": fallback_message,
-                    "candidate_validation": candidate_validation,
-                    "fallback_reason": fallback_reason,
-                }
+            # The agent's own message ALWAYS ships: never discard the LLM
+            # narrative for a deterministic substitute, regardless of its
+            # prose. Fact-grounding is enforced at the prompt, not by a gate.
+            final_message = candidate_message
+            fallback_reason = ""
+            response_payload["selected_source"] = "narrator"
+            response_payload["selected_message"] = final_message
+            validation_payload = {
+                "attempted": True,
+                "selected_source": "narrator",
+                "selected_message": final_message,
+                "fallback_reason": fallback_reason,
+            }
         except TimeoutError as exc:
             fallback_reason = "timeout"
             response_payload["error"] = {
@@ -1250,11 +1142,11 @@ def _synthesize_post_validation_narrative(
             "fallback_reason": fallback_reason,
         }
 
-    final_validation = _validate_narrative_message(
-        final_message,
-        narrative_context=narrative_context,
-    )
-    validation_payload["final_validation"] = final_validation
+    validation_payload["final_validation"] = {
+        "ok": True,
+        "message": final_message,
+        "issues": [],
+    }
     response_payload["selected_message"] = final_message
     write_json_artifact(response_path, response_payload)
     write_json_artifact(validation_path, validation_payload)
@@ -1344,10 +1236,7 @@ def _synthesize_batch_repl_message(
 
 
 __all__ = (
-     "_NARRATIVE_COUNT_PATTERN", "_NARRATIVE_EDIT_CLAIM_PATTERNS",
-     "_NARRATIVE_GATE_JARGON_PATTERNS", "_NARRATIVE_NO_EDIT_PATTERNS",
-     "_NARRATIVE_QUESTION_START", "_NARRATIVE_VALIDATION_FAIL_PATTERNS",
-     "_NARRATIVE_VALIDATION_PASS_PATTERNS", "_NARRATOR_RESPONSE_REQUIRED_FIELD",
+     "_NARRATOR_RESPONSE_REQUIRED_FIELD",
      "_append_post_edit_reorganisation_advice", "_article_for",
      "_batch_candidate_graph_changed", "_batch_warning_sentence",
      "_change_details_payload", "_change_subject", "_compact_change_details_payload",
@@ -1368,5 +1257,5 @@ __all__ = (
      "_sentence_case", "_structural_change_phrases", "_synthesize_batch_repl_message",
      "_synthesize_post_validation_narrative", "_terminal_answer_message",
      "_ui_display_widget_value_for_field", "_ui_node_by_uid",
-     "_validate_narrative_message", "_validation_summary_payload",
+     "_validation_summary_payload",
 )

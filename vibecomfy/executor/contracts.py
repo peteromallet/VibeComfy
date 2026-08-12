@@ -2107,6 +2107,15 @@ class Report:
     deepseek_usage: dict[str, Any] = field(default_factory=dict)
     deepseek_est_cost_usd: float | None = None
     deepseek_cost_basis: str | None = None
+    # Truthful classification lifecycle signal: "failed" means classify raised
+    # (the default plan/respond_only placeholder is NOT a model decision then).
+    # Empty string means the signal was not recorded (legacy paths).
+    classification_status: str = ""
+    # Mirrors the batch-repl model_response.json attempt artifact: parse-failure
+    # evidence (parse_reason, raw preview, usage, model, phase, endpoint) for the
+    # last classify/reply model attempt. None when the turn did not fail on a
+    # model response.
+    model_response: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -2117,6 +2126,12 @@ class Report:
                 for k, v in coerce_deepseek_usage(self.deepseek_usage).items()
             }),
         )
+        if self.model_response is not None:
+            object.__setattr__(
+                self,
+                "model_response",
+                _freeze_jsonish(self.model_response),
+            )
 
     def to_dict(self) -> dict[str, Any]:
         plan_payload = self.plan.to_dict()
@@ -2136,6 +2151,10 @@ class Report:
             inner["deepseek_est_cost_usd"] = float(self.deepseek_est_cost_usd)
         if isinstance(self.deepseek_cost_basis, str) and self.deepseek_cost_basis:
             inner["deepseek_cost_basis"] = self.deepseek_cost_basis
+        if self.classification_status:
+            inner["classification_status"] = self.classification_status
+        if self.model_response is not None:
+            inner["model_response"] = _thaw_jsonish(self.model_response)
         return {"executor": inner}
 
 

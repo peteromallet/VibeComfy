@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.live_agentic_harness.assessor import _collect_message_artifact_contradictions
 from tests.live_agentic_harness.guard import guard_output_dir
 from tests.harness_common import (
     DISPATCHER_FAKE,
@@ -485,96 +484,372 @@ def test_agentic_guard_accepts_linked_source_edit_that_changes_effective_value(t
     assert verdict["assessment"]["passed"] is True
 
 
-def test_collect_message_artifact_contradictions_flags_graph_and_outcome_mismatch() -> None:
-    contradictions = _collect_message_artifact_contradictions(
+# ── G0-T2: structured-only scoring — prose never gates a scenario ──────────
+#
+# The nine matcher-only scenarios (Dig2 counterfactual rescore,
+# docs/failure-analysis/agentic-pipeline-improvement-2026-08.md §9) failed
+# ONLY because the deterministic message-artifact matcher misread prose:
+#   - group A: the message says parts of the graph are "unchanged" while the
+#     structured record proves an edit landed (the old \bunchanged\b matcher
+#     produced "message claims no change even though response graph changed");
+#   - group B: the message is an explanation that uses words like
+#     "connected"/"applied" while the structured record proves no edit landed
+#     (the old \bconnected\b/\bapplied\b matchers produced "message claims
+#     edits even though response.graph_unchanged is True").
+# With deterministic prose gating removed, every one of these must PASS on the
+# structured record alone — the message never flips pass/fail.
+
+_ALL_GATES_PASS = {
+    "ir_validate_ok": True,
+    "lower_ok": True,
+    "plan_validate_ok": True,
+    "python_load_ok": True,
+    "queue_validate_ok": True,
+    "state_match_ok": True,
+    "ui_emit_ok": True,
+    "ui_fidelity_ok": True,
+    "ui_load_safe_ok": True,
+}
+
+# (scenario_id, response) — prose excerpts are grounded in the persisted
+# response.json artifacts of the recorded matcher-only failures.
+_MATCHER_ONLY_COUNTEREXAMPLES: tuple[tuple[str, dict[str, object]], ...] = (
+    (
+        "3d-generates-a-3d-mesh-from",
         {
-            "message": "Applied 1 edit and updated the workflow.",
+            "message": (
+                "Done — I tuned the mesh-generation path to reduce floating bits and noise. "
+                "Concretely, `KSampler` steps went from 20 to 50 so the sampler converges "
+                "further before `VAEDecodeHunyuan3D` extracts the mesh; node connections and "
+                "other widgets are unchanged (structure validated)."
+            ),
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"landed_operation_count": 1},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "audio-acestep-audio-generation-workflow-2a31ec",
+        {
+            "message": (
+                "The AceStepSFTGenerate node now uses acestep-sft-v2.safetensors as its base "
+                "model checkpoint (widget_0), replacing acestep-v15.safetensors. The rest of "
+                "the SFT chain (audio input, prompt, LoRA, and save) is preserved unchanged."
+            ),
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"landed_operation_count": 1},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "image-sd3-image-generation-with-controlnet-19d221",
+        {
+            "message": (
+                "I lowered the ControlNet influence to give your text prompt the upper hand: "
+                "the `strength` widget on `ACN_AdvancedControlNetApply` (node 60) is now 0.5, "
+                "down from 0.6, while the tile ControlNet loader and its start/end percent "
+                "(0 / 0.75) stay unchanged."
+            ),
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"landed_operation_count": 1},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "video-generates-a-video-from-a",
+        {
+            "message": (
+                "Done — I set the video output to 24 fps by updating the `frame_rate` widget "
+                "on VHS_VideoCombine from 15 to 24. No other nodes were touched; the "
+                "`Modelscopet2v` and `CR Prompt Text` nodes are unchanged."
+            ),
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"landed_operation_count": 1},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "video-image-to-video-conversion-with-moonvalley-d7853c",
+        {
+            "message": (
+                "Updated MoonvalleyImg2VideoNode so the output videos are 5.0 seconds long: "
+                "frame count (widget_3) 7 -> 120, frame rate (widget_6) 100 -> 24 fps. "
+                "LoadImage and SaveVideo are unchanged and still connected as before."
+            ),
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"landed_operation_count": 2},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
+        {
+            "message": (
+                "Here's what your graph (29 nodes) actually does, and where the color-shift "
+                "suspects live. Pipeline as connected: 1. Conditioning — CLIPLoader encodes "
+                "the prompt via CLIPTextEncode; 2. Sampling chain — UNETLoader feeds three "
+                "BetaSamplingScheduler nodes. Since the SeedVR2 nodes are disconnected here, "
+                "I'd verify whether the upscaler is being used."
+            ),
             "graph_unchanged": True,
             "outcome": {"kind": "noop"},
-            "internal_outcome": {"kind": "noop"},
             "change_details": {"landed_operation_count": 0},
-        }
-    )
-
-    assert "message claims edits even though response.graph_unchanged is True" in contradictions
-    assert "message claims edits even though outcome.kind='noop'" in contradictions
-    assert "message claims edits even though internal_outcome.kind='noop'" in contradictions
-    assert "message claims landed edits even though landed_operation_count=0" in contradictions
-
-
-def test_collect_message_artifact_contradictions_flags_missing_clarify_question() -> None:
-    contradictions = _collect_message_artifact_contradictions(
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "multi-audio-to-image-mel-band-roformer-workflow-b22937",
         {
-            "message": "Applied 1 edit. I need one more detail before continuing.",
-            "graph_unchanged": False,
-            "outcome": {"kind": "candidate"},
-            "internal_outcome": {"kind": "edit+clarify"},
-            "change_details": {"landed_operation_count": 1},
-        }
-    )
-
-    assert contradictions == [
-        "message omits a direct question for internal_outcome.kind='edit+clarify'"
-    ]
-
-
-def test_collect_message_artifact_contradictions_flags_landed_count_mismatch() -> None:
-    contradictions = _collect_message_artifact_contradictions(
+            "message": (
+                "This graph is an audio-enhancement pipeline: load a WAV, process it with a "
+                "Mel-band separation model, then upscale the result. The sampler applies "
+                "MelBandRoFormer to do the core audio processing. Portability note: the "
+                "model loader isn't connected to the data flow; no changes were made."
+            ),
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop"},
+            "change_details": {"landed_operation_count": 0},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "video-hunyuan-video-text-to-video-generation-265847",
         {
-            "message": "Applied 2 edits to the workflow.",
-            "graph_unchanged": False,
-            "outcome": {"kind": "candidate"},
-            "internal_outcome": {"kind": "edit"},
-            "change_details": {"landed_operation_count": 1},
-        }
-    )
-
-    assert contradictions == [
-        "message claims a landed operation count that disagrees with change_details"
-    ]
-
-
-def test_collect_message_artifact_contradictions_flags_validation_diagnostic_mismatch() -> None:
-    contradictions = _collect_message_artifact_contradictions(
+            "message": (
+                "This is a Hunyuan Video T2V workflow: UNETLoader -> ModelSamplingSD3 -> "
+                "SamplerCustomAdvanced with euler / 20 steps / denoise=1, starting from "
+                "EmptyHunyuanLatentVideo (73 frames). There is a VAEDecode (node 8) that is "
+                "not connected to the save node; the animated WEBP is saved from "
+                "VAEDecodeTiled at 24 fps."
+            ),
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop"},
+            "change_details": {"landed_operation_count": 0},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+    (
+        "video-video-output-workflow-f855de",
         {
-            "message": "Applied 1 edit and it is ready to apply.",
-            "graph_unchanged": False,
-            "outcome": {"kind": "candidate"},
-            "internal_outcome": {"kind": "edit"},
-            "change_details": {"landed_operation_count": 1},
-            "gates": {
-                "python_load_ok": True,
-                "ir_validate_ok": False,
-                "ui_load_safe_ok": True,
-            },
-        }
+            "message": (
+                "This graph makes a low-resolution image, upscales it, decodes latents, and "
+                "writes the video directly. Likely causes of blur: both upscale stages are "
+                "toggled off, so the saved frames are the tiny base resolution. Note the "
+                "detail-enhancement edits I have not applied."
+            ),
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop"},
+            "change_details": {"landed_operation_count": 0},
+            "gates": _ALL_GATES_PASS,
+        },
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "response"),
+    _MATCHER_ONLY_COUNTEREXAMPLES,
+    ids=[scenario_id for scenario_id, _ in _MATCHER_ONLY_COUNTEREXAMPLES],
+)
+def test_agentic_guard_matcher_only_scenarios_pass_without_prose_gating(
+    tmp_path: Path,
+    scenario_id: str,
+    response: dict[str, object],
+) -> None:
+    """The nine matcher-only scenarios now pass: prose never gates scoring."""
+    output_dir = tmp_path / scenario_id
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    expect_edit = bool(response.get("graph_unchanged") is False)
+    scenario = {
+        "id": scenario_id,
+        "assessment": {
+            "expect_graph_changed": expect_edit,
+            "skip_intent_judge": True,
+        },
+    }
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is True, verdict["assessment"]["issues"]
+    assert verdict["score_class"] == "pass"
+    assert verdict["assessment"]["passed"] is True
+    assert all(
+        issue["check"] != "message_artifact"
+        for issue in verdict["assessment"]["issues"]
+    ), "prose must never produce an error-severity issue"
+
+
+def test_agentic_guard_false_landed_claim_still_fails_via_structured_checks(
+    tmp_path: Path,
+) -> None:
+    """Control: a message claiming edits that never landed still fails the run.
+
+    The failure comes from the STRUCTURED record (no edit landed while one was
+    expected — graph_changed / outcome_kind / no_candidate_reason), never from
+    matching the message's words.
+    """
+    output_dir = tmp_path / "false-landed-claim"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "message": "Applied 2 edits and rewired the sampler.",
+                "graph_unchanged": True,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "noop"},
+                "change_details": {"landed_operation_count": 0},
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert contradictions == [
-        "message claims validation success even though diagnostics or gates show failure"
-    ]
+    scenario = {
+        "id": "false-landed-claim",
+        "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+    }
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert {"graph_changed", "outcome_kind", "no_candidate_reason"} <= error_checks
+    assert "message_artifact" not in error_checks
 
 
-def test_collect_message_artifact_contradictions_ignores_grounded_non_contradiction() -> None:
-    contradictions = _collect_message_artifact_contradictions(
-        {
-            "message": "Applied 1 edit. Should I also rename the file stem?",
-            "graph_unchanged": False,
-            "outcome": {"kind": "candidate"},
-            "internal_outcome": {"kind": "edit+clarify"},
-            "change_details": {"landed_operation_count": 1},
-            "gates": {
-                "python_load_ok": True,
-                "ir_validate_ok": True,
-                "ui_load_safe_ok": True,
-                "queue_validate_ok": True,
-                "plan_validate_ok": True,
-                "state_match_ok": True,
-            },
-        }
+def test_agentic_guard_false_unchanged_claim_still_fails_via_structured_checks(
+    tmp_path: Path,
+) -> None:
+    """Control: a message claiming nothing changed when an edit DID land fails.
+
+    The structured record proves the edit landed (outcome.kind=candidate) while
+    the scenario expected a no-edit outcome — the outcome_kind STRUCTURED check
+    catches it, not the message's words.
+    """
+    output_dir = tmp_path / "false-unchanged-claim"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "message": "No changes were needed; the workflow already matches that.",
+                "graph_unchanged": False,
+                "outcome": {"kind": "candidate"},
+                "change_details": {"landed_operation_count": 1},
+                "gates": _ALL_GATES_PASS,
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert contradictions == []
+    scenario = {
+        "id": "false-unchanged-claim",
+        "assessment": {
+            "expect_graph_changed": False,
+            "expected_outcome_kinds": ["noop", "clarify"],
+        },
+    }
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "outcome_kind" in error_checks
+    assert "message_artifact" not in error_checks
+
+
+def test_agentic_guard_false_connection_claim_still_fails_via_effective_edit_check(
+    tmp_path: Path,
+) -> None:
+    """Control: a message claiming a connection that changed nothing effective.
+
+    The effective_edit STRUCTURED check compares the UI artifacts and proves
+    the claimed target never changed value; the message's words are irrelevant.
+    """
+    output_dir = tmp_path / "false-connection-claim"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_successful_candidate(
+        output_dir,
+        message="Connected the frame-count source to the generator.",
+    )
+    _write_ui_pair(
+        output_dir,
+        _frame_count_graph(target_value=8, linked=False, save_prefix="before"),
+        _frame_count_graph(target_value=8, linked=False, save_prefix="after"),
+    )
+
+    verdict = guard_output_dir(output_dir, scenario=_effective_target_scenario())
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert error_checks == {"effective_edit"}
+    assert "message_artifact" not in error_checks
+
+
+def test_agentic_guard_false_validation_success_claim_still_fails_via_gates(
+    tmp_path: Path,
+) -> None:
+    """Control: a message claiming validation passed when gates failed.
+
+    The gates STRUCTURED check reads the gate flags; the message's words do not
+    enter scoring at all.
+    """
+    output_dir = tmp_path / "false-validation-success-claim"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "message": "Validation passed and the candidate is ready to apply.",
+                "graph_unchanged": False,
+                "outcome": {"kind": "candidate"},
+                "candidate_graph": {"nodes": [{"id": 1}]},
+                "gates": {
+                    "ir_validate_ok": False,
+                    "lower_ok": True,
+                    "plan_validate_ok": False,
+                    "python_load_ok": True,
+                    "queue_validate_ok": True,
+                    "state_match_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scenario = {
+        "id": "false-validation-success-claim",
+        "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+    }
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "gates" in error_checks
+    assert "message_artifact" not in error_checks
 
 
 def test_agentic_guard_rejects_shared_linked_source_edit_by_default(tmp_path: Path) -> None:
