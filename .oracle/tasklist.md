@@ -1,7 +1,7 @@
 # MEGADO Phase 4 — Frozen Agent-Edit Pipeline Tasklist
 
 **Frozen from:** `docs/failure-analysis/agentic-pipeline-improvement-2026-08.md` at repository SHA `6ac560fa`
-**Revision 1 (pre-execution, orchestrator):** B02 re-scoped per the matcher deep-dive (2026-08-12) — demote prose `message_artifact` to warning-only/remove (producer-side guard `edit_humanize.py` is authoritative; 28/28 firings were false positives), and fold the `_frag_research.py:821` schema-precedence quick win in as a B02 rider. B06 updated to cover the remaining precedence sites.
+**Revision 1 (pre-execution, orchestrator):** B02 re-scoped per the matcher deep-dive (2026-08-12) + design decision — **the agent always writes the message, from the facts**: remove deterministic prose gating (assessor `message_artifact` + producer-side discard-and-replace fallback), make synthesis fact-grounded (agent receives and must describe the structured outcome), scoring structured-only. Folded the `_frag_research.py:821` schema-precedence quick win in as a B02 rider. B06 updated to cover the remaining precedence sites.
 **Execution order:** B01 → B02 → B03 → B04 → B05 → B06 → B07 → B08 → B09 → B10 → B11
 **Normal executor:** DeepSeek V4 Flash, one executor per batch
 **`[HARD]` executor:** GPT-5.6 Sol, high reasoning
@@ -69,11 +69,14 @@ Deep-dive verdict (MatcherDeepDive, 2026-08-12): the prose matcher is **redundan
 
 ### Tasks
 
-1. **[HARD] Demote `message_artifact` to warning severity (or remove the assessor copy).**
-   - Touch: `tests/live_agentic_harness/assessor.py` (the `message_artifact` emission at `:868-870` and the contradiction collector `:240-320`), `tests/test_live_agentic_harness_guard_contract.py`, `tests/test_live_agentic_assessor_score_honesty.py`.
-   - The matcher may remain as a **warning-only** backstop (informational, never error): a warning cannot flip a scenario's pass/fail. Prefer removing the assessor copy outright and relying on the producer-side guard — decide with the oracle; the end state must be: prose never gates a scenario.
-   - Keep the structured cross-checks (graph_changed, outcome_kind, landed counts) fully authoritative — they do NOT change.
-   - Encode the nine enumerated matcher-only scenarios as counterexample fixtures proving they no longer produce error-severity issues; keep four affirmative contradiction controls (false landed claims / false unchanged claims / false connection claims / false validation-success claims) that must still fail via the STRUCTURED checks (not the prose matcher).
+1. **[HARD] Remove deterministic prose gating; make message synthesis fact-grounded.**
+   - Touch: `tests/live_agentic_harness/assessor.py` (remove/demote the `message_artifact` emission at `:868-870` and contradiction collector `:240-320`), `edit_humanize.py` (`_validate_narrative_message` at `:975-1070` and the discard-and-replace fallback at `:1150-1160`), the message-synthesis prompt, `tests/test_live_agentic_harness_guard_contract.py`, `tests/test_live_agentic_assessor_score_honesty.py`, `tests/test_comfy_nodes_agent_backend_spine.py`.
+   - **End state (three clauses):**
+     a. The agent ALWAYS writes the message — no deterministic substitute is ever shipped in its place; the producer-side discard-and-replace is removed.
+     b. The message is written FROM the facts: the synthesis prompt feeds the agent the structured outcome (`graph_unchanged`, `outcome.kind`, `landed_operation_count`, validation/error details) and requires the narrative to describe exactly those facts ("you MUST state what happened per these fields; never claim an edit you did not land").
+     c. Scoring is structured-only: prose never gates a scenario (`message_artifact` is removed or warning-only backstop at most).
+   - Structured cross-checks (graph_changed, outcome_kind, landed counts) remain fully authoritative and unchanged.
+   - Encode the nine enumerated matcher-only scenarios as counterexample fixtures proving no error-severity prose issue; keep four affirmative contradiction controls that must still fail via the STRUCTURED checks.
 
 ### Rider (quick win, pulled forward from B06)
 
@@ -103,13 +106,14 @@ Expected: exit 0 (rider: schema swap does not regress the edit surface or m1 con
 ### Acceptance criteria
 
 - The 9 matcher-only failures recover (+9 true pass) via prose no longer being error-gated.
-- Genuine message/artifact inconsistency can never hide: it is caught by the structured checks or the producer-side narrative guard.
-- Matching, where retained, is warning-only and cannot flip a verdict.
+- The agent's message is ALWAYS the agent's own text — no deterministic fallback substitution exists in the pipeline.
+- The synthesis prompt requires fact-grounded narratives (agent receives and must describe the structured outcome); verified by a fixture where the facts say unchanged and the narrative cannot claim landed edits.
+- Genuine message/artifact inconsistency can never hide: it is caught by the structured checks, and the fact-grounded prompt prevents it at synthesis.
 - Rider: `_frag_research.py:821` real-schema-first; the 485ff2 CutAndDragOnPath case resolves to named fields, not `widget_N`.
 
 ### Formal checkpoint B02
 
-Review the demotion semantics, the 9 counterexamples, the four structured controls, the rider diff, and `git diff C01..C02`. Look for any residual error-severity prose gating and confirm the structured guards are untouched. Verdict: `PASS` or issue list; rework B02 until `PASS`.
+Review the end-state clauses (agent always writes / fact-grounded synthesis / structured-only scoring), the 9 counterexamples, the four structured controls, the removed fallback, the rider diff, and `git diff C01..C02`. Look for any residual deterministic prose gate anywhere in the pipeline and confirm the structured guards are untouched. Verdict: `PASS` or issue list; rework B02 until `PASS`.
 
 ---
 
