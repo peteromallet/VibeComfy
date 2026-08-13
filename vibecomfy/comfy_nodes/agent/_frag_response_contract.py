@@ -926,6 +926,41 @@ def _session_artifact_response_fields(state: AgentEditState) -> dict[str, Any]:
     }
 
 
+def _build_research_findings_payload(state: AgentEditState) -> dict[str, Any]:
+    """Build the durable ``research_findings`` packet for the research route.
+
+    Re-synthesizes ``summary`` and ``community_summary`` via
+    ``format_community_summary`` from the deduplicated collected union
+    (``state.collected_research_sources``, already deduped at fold time),
+    capped at 12 for presentation, with transport-only warnings.  No ranking,
+    no evidence strength, no latch, and never a stop decision — the agent
+    already judged every row in ``query_output``.
+    """
+    from vibecomfy.executor.hivemind_clients import format_community_summary
+
+    all_sources = tuple(
+        dict(source)
+        for source in (getattr(state, "collected_research_sources", ()) or ())
+        if isinstance(source, Mapping)
+    )
+    sources = all_sources[:12]
+    query = str(getattr(state, "user_message", "") or "")
+    paragraph = format_community_summary(sources, query=query)
+    warnings: list[str] = []
+    if not sources:
+        warnings.append("research route: no community sources were collected")
+    elif len(all_sources) > 12:
+        warnings.append(
+            "research route: community sources capped at 12 for presentation"
+        )
+    return {
+        "sources": sources,
+        "summary": paragraph,
+        "community_summary": paragraph,
+        "warnings": tuple(warnings),
+    }
+
+
 def _build_batch_repl_response(
     state: AgentEditState,
     context: TurnContext,
@@ -1157,6 +1192,14 @@ def _build_batch_repl_response(
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
+    # ── B04: durable research findings (research route) ──────────────────
+    # Transport-only evidence carry: the deduplicated collected union is
+    # capped for presentation and the extractive community paragraph is
+    # re-synthesized via format_community_summary.  No ranking, no strength,
+    # no latch, no stop decision.  graph_unchanged / no_candidate_reason stay
+    # set above (tests lock those).
+    if canonical_route == "research":
+        response["research_findings"] = _build_research_findings_payload(state)
     built_response = build_legacy_agent_edit_v1(
         {
             **response,

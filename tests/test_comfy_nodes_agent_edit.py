@@ -6739,6 +6739,15 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     assert result.get("candidate") is None
     assert result["apply_eligibility"]["applyable"] is False
     assert result.get("graph_unchanged") is True
+    # B04: the durable research route stamps research_findings (transport-only
+    # evidence carry) while preserving graph_unchanged / no_candidate_reason.
+    assert result.get("no_candidate_reason") == "route_not_applyable"
+    findings = result.get("research_findings")
+    assert isinstance(findings, dict)
+    assert "sources" in findings
+    assert "summary" in findings
+    assert "community_summary" in findings
+    assert isinstance(findings.get("warnings"), (list, tuple))
     assert captured_messages
     system_prompt = captured_messages[0][0]["content"]
     user_prompt = captured_messages[0][1]["content"]

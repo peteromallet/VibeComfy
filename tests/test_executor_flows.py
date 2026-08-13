@@ -447,21 +447,27 @@ def _fake_handle_agent_edit_research(payload: dict, **kwargs: Any) -> dict:
     assert payload["graph"] == {"nodes": [], "links": []}
     assert "research_summary" not in payload
     assert "executor_research" not in payload
-    assert payload["research_brief"] == {
-        "research_goal": "Find distilled or faster ways to run the current ComfyUI video workflow.",
-        "search_directions": [
-            "distilled or lightning video/motion models compatible with AnimateDiff-style workflows",
-            "AnimateDiff speed settings such as context length, sampler, steps, and frame count",
-            "ComfyUI workflow examples that trade quality for faster generation",
-        ],
-        "source_preferences": ["workflows", "messages", "web"],
-        "avoid": [
-            "generic searches for the raw sentence",
-            "stopword-only searches such as there way run",
-            "treating Discord snippets as authoritative without workflow evidence",
-        ],
-        "known_graph_context": "Attached graph may be absent; infer only broad workflow family from the request.",
-    }
+    brief = payload["research_brief"]
+    assert brief["research_goal"] == (
+        "Find distilled or faster ways to run the current ComfyUI video workflow."
+    )
+    assert brief["search_directions"] == [
+        "distilled or lightning video/motion models compatible with AnimateDiff-style workflows",
+        "AnimateDiff speed settings such as context length, sampler, steps, and frame count",
+        "ComfyUI workflow examples that trade quality for faster generation",
+    ]
+    assert brief["source_preferences"] == ["workflows", "messages", "web"]
+    # avoid's tail wording varies by classifier input: the explicit
+    # classifier avoid ("treating Discord snippets ...") vs the bare-plan
+    # fallback brief ("inventing community consensus ..."). Lock the shared
+    # prefix only.
+    assert brief["avoid"][:2] == [
+        "generic searches for the raw sentence",
+        "stopword-only searches such as there way run",
+    ]
+    assert brief["known_graph_context"] == (
+        "Attached graph may be absent; infer only broad workflow family from the request."
+    )
     return {
         "ok": True,
         "graph": {"nodes": [{"id": 99, "type": "ShouldNotApply"}]},
@@ -480,6 +486,71 @@ def _fake_handle_agent_edit_research(payload: dict, **kwargs: Any) -> dict:
         "artifacts": {"messages": "/tmp/turns/0001/messages.jsonl"},
         "detail_json_path": "/tmp/turns/0001/response.json",
     }
+
+
+def _fake_handle_agent_edit_research_findings(payload: dict, **kwargs: Any) -> dict:
+    """Fake a durable research response carrying hoistable research_findings.
+
+    Keeps the B04-critical shape: graph_unchanged=True +
+    no_candidate_reason="route_not_applyable" (the pre-B04 shortcut shape),
+    plus an alice/ltx_chatter hivemind_message and an approved distillation
+    under ``research_findings``.
+    """
+    base = _fake_handle_agent_edit_research(payload, **kwargs)
+    base["message"] = "No graph changes were needed."
+    base["research_findings"] = {
+        "sources": [
+            {
+                "source": "hivemind_message",
+                "kind": "message",
+                "author": "alice",
+                "channel": "ltx_chatter",
+                "title": "LTX 2.5 is great",
+                "class_type": "LTX 2.5 is great",
+                "description": "LTX 2.5 handles fast previews really well.",
+                "hivemind_id": "9001",
+                "url": "",
+                "created_at": "2026-08-12T10:00:00Z",
+                "score": 0,
+                "pack": "banodoco-discord",
+            },
+            {
+                "source": "hivemind_distillation",
+                "kind": "distillation",
+                "title": "LTX 2.5 community distillation",
+                "class_type": "LTX 2.5 community distillation",
+                "description": "Hands-on notes on LTX 2.5 fast previews.",
+                "distillation_status": "approved",
+                "confidence": 0.9,
+                "hivemind_id": "9002",
+                "url": "",
+                "created_at": "2026-08-12T09:00:00Z",
+            },
+        ],
+        "summary": "workflow-only summary of LTX research",
+        "community_summary": (
+            "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
+        ),
+        "warnings": (),
+    }
+    return base
+
+
+def _fake_reply_research_findings(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    plan: ClassifyDecision | None = None,
+    research_summary: str | None = None,
+    implementation_message: str | None = None,
+    **kwargs: Any,
+) -> str:
+    """Return a fake reply that cites the hoisted community findings."""
+    return (
+        "Community notes: alice in #ltx_chatter says LTX 2.5 handles fast "
+        "previews really well."
+    )
 
 
 def _fake_classify_explain_graph(
@@ -680,7 +751,14 @@ class TestResearchOnlyFlow:
 
         assert result.ok is True
         assert result.reply is not None
-        assert "distilled/faster" in result.reply
+        # B04: the research route falls through to _run_reply, so the
+        # user-facing reply is the reply-model output — not the narrator line.
+        assert result.reply == (
+            "Based on my research, here are the relevant node types: "
+            "KSampler, VAEDecode, CLIPTextEncode."
+        )
+        assert result.reply != result.report.implementation.message
+        mock_reply.assert_called_once()
         assert result.report.plan.research is True
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
@@ -810,12 +888,109 @@ class TestResearchOnlyFlow:
 
         assert result.ok is True
         assert result.reply is not None
-        assert "distilled/faster" in result.reply
+        # B04: reply comes from _run_reply (the reply model), not the
+        # terminal-no-candidate narrator line.
+        assert "Hotshot XL" in result.reply
+        assert result.reply != result.report.implementation.message
+        mock_reply.assert_called_once()
         assert result.report.plan.research is True
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
         assert result.report.research is None
         mock_corpus.assert_not_called()
+        mock_edit.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research_findings)
+    @mock.patch("vibecomfy.executor.research.build_search_corpus")
+    def test_research_hoist_populates_report_research(
+        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+    ) -> None:
+        """Durable research_findings hoist onto report.research for research."""
+        request = ExecutorRequest(
+            query="What do people think about LTX 2.5?", profile="default"
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.research is not None
+        assert result.report.research.community_summary
+        assert "alice in #ltx_chatter" in result.report.research.community_summary
+        assert any(
+            src.get("source") == "hivemind_message"
+            and src.get("author") == "alice"
+            and src.get("channel") == "ltx_chatter"
+            for src in result.report.research.sources
+        )
+        report_dict = result.to_dict()["report"]["executor"]
+        assert report_dict["research"]["sources"]
+        assert any(
+            src.get("source") == "hivemind_message"
+            for src in report_dict["research"]["sources"]
+        )
+        assert result.to_dict()["route"] == "research"
+        assert result.to_dict()["candidate"] is None
+        assert result.to_dict()["apply_eligible"] is False
+        mock_reply.assert_called_once()
+        mock_edit.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_findings)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research_findings)
+    @mock.patch("vibecomfy.executor.research.build_search_corpus")
+    def test_research_route_terminal_no_candidate_still_runs_reply(
+        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+    ) -> None:
+        """A terminal-no-candidate research implement still runs _run_reply.
+
+        The durable response is graph_unchanged=True +
+        no_candidate_reason="route_not_applyable" (the pre-B04 shortcut shape)
+        with research_findings carrying an alice/ltx_chatter message.  The
+        user-facing reply must come from run_reply_turn — with the community
+        summary and author/channel sources — never the narrator line.
+        """
+        request = ExecutorRequest(
+            query="What do people think about LTX 2.5?", profile="default"
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        # Hoisted onto report.research with the community evidence.
+        assert result.report.research is not None
+        assert result.report.research.community_summary
+        assert "alice" in result.report.research.community_summary
+        assert any(
+            src.get("source") == "hivemind_message"
+            and src.get("author") == "alice"
+            and src.get("channel") == "ltx_chatter"
+            for src in result.report.research.sources
+        )
+        # _run_reply ran and received community_summary (preferred over
+        # summary) plus author/channel sources.
+        mock_reply.assert_called_once()
+        _, reply_kwargs = mock_reply.call_args
+        assert reply_kwargs["research_summary"] == (
+            "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
+        )
+        assert reply_kwargs["research_summary"] != result.report.research.summary
+        assert any(
+            src.get("source") == "hivemind_message"
+            and src.get("author") == "alice"
+            and src.get("channel") == "ltx_chatter"
+            for src in (reply_kwargs.get("research_sources") or ())
+        )
+        # The user-facing reply is the reply-model output, NOT
+        # implementation_result.message / the narrator line.
+        assert result.reply == (
+            "Community notes: alice in #ltx_chatter says LTX 2.5 handles fast "
+            "previews really well."
+        )
+        assert result.reply != result.report.implementation.message
+        assert "No graph changes were needed" not in result.reply
+        assert result.to_dict()["route"] == "research"
+        assert result.to_dict()["candidate"] is None
+        assert result.to_dict()["apply_eligible"] is False
         mock_edit.assert_called_once()
 
 

@@ -550,6 +550,12 @@ _REPLY_SYSTEM = (
     "the concrete graph edit; for route=\"reorganise\", describe the layout "
     "cleanup without implying semantic workflow changes; for route=\"adapt\", "
     "explain how the researched precedent informed the edit.\n"
+    "- For route=\"research\", lead with the community findings, not with a "
+    "graph-change status line: no edit was made. Do not claim community "
+    "consensus, majority opinion, or aggregate sentiment unless the findings "
+    "literally state it. Cite community sources only by the author/channel or "
+    "title/status/confidence shown in the research sources; never invent "
+    "authors, channels, titles, or quotes.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -636,10 +642,36 @@ def build_reply_messages(
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")
     if research_sources:
-        source_lines = [
-            f"  - {src.get('title', src.get('label', 'unnamed'))}"
-            for src in research_sources[:8]
-        ]
+        # B04 citation split: hivemind_message sources are cited by
+        # author/channel; hivemind_distillation sources by title/status/
+        # confidence.  Never invent authors/channels for distillations.
+        source_lines: list[str] = []
+        for src in research_sources[:8]:
+            source_kind = str(src.get("source") or "")
+            if source_kind == "hivemind_message":
+                author = str(src.get("author") or "").strip()
+                channel = str(src.get("channel") or "").strip()
+                if author and channel:
+                    label = f"{author} in #{channel}"
+                elif author:
+                    label = author
+                elif channel:
+                    label = f"#{channel}"
+                else:
+                    label = str(src.get("title") or src.get("label") or "unnamed")
+            elif source_kind == "hivemind_distillation":
+                title = str(
+                    src.get("title") or src.get("class_type") or "unnamed"
+                ).strip()
+                status = str(
+                    src.get("distillation_status") or "pending"
+                ).strip() or "pending"
+                confidence = src.get("confidence")
+                conf = f"/{confidence}" if confidence not in (None, "") else ""
+                label = f"{title} ({status}{conf})"
+            else:
+                label = str(src.get("title") or src.get("label") or "unnamed")
+            source_lines.append(f"  - {label}")
         if source_lines:
             parts.append("Research sources:\n" + "\n".join(source_lines))
     if research_warnings:
