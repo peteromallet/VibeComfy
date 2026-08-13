@@ -189,7 +189,7 @@ b02-corpus-full:
 		exit 2; \
 	fi
 	PYTHONPATH="$(CURDIR)" $(PYTHON) scripts/check_b02_rich_preservation.py \
-		--corpus-dir "$(CORPUS_DIR)" --expected-count 2797
+		--corpus-dir "$(CORPUS_DIR)" --expected-count 2825
 
 browser-smoke:
 	$(NODE) --test tests/browser/*.mjs
