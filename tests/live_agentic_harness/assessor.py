@@ -13,8 +13,10 @@ run artifacts to catch failures that metadata alone cannot:
 * validation gates that failed for an apply/edit route
 * (when enabled) an LLM intent judge that scores the edit against the query
 
-The deterministic checks run first; the LLM judge is called afterward for
-scenarios that expect a graph change.
+The deterministic checks run first. Judges run afterward: grounded-refusal
+for allowlisted no-edit candidates, edit-intent for expected graph changes,
+and a rubric-driven semantic-answer judge for D13 non-edits. Outages are
+undetermined; only ``pass`` satisfies a scenario.
 """
 
 from __future__ import annotations
@@ -26,7 +28,11 @@ from typing import Any, Mapping
 
 from vibecomfy.executor.graph_facts import GraphFieldTarget, compare_effective_field
 
-from .intent_judge import judge_edit_intent, judge_grounded_refusal
+from .intent_judge import (
+    judge_edit_intent,
+    judge_grounded_refusal,
+    judge_semantic_answer,
+)
 
 _ERROR_SEVERITIES = {"error", "fatal"}
 
@@ -342,6 +348,106 @@ def _assessment_config(scenario: Mapping[str, Any] | None) -> Mapping[str, Any]:
     return assessment if isinstance(assessment, Mapping) else {}
 
 
+def _scenario_kind(scenario: Mapping[str, Any] | None) -> str:
+    """Classify the scenario as edit, semantic_product, or health_control."""
+    if scenario is None:
+        return "unknown"
+    classification = scenario.get("classification")
+    if isinstance(classification, Mapping):
+        kind = classification.get("kind")
+        if kind in {"health_control", "semantic_product", "edit"}:
+            return str(kind)
+    if scenario.get("answer_rubric"):
+        return "semantic_product"
+    return "edit"
+
+
+def _excluded_from_semantic_product_rates(scenario: Mapping[str, Any] | None) -> bool:
+    if scenario is None:
+        return False
+    classification = scenario.get("classification")
+    if isinstance(classification, Mapping) and (
+        classification.get("excluded_from_semantic_product_rates") is True
+        or classification.get("kind") == "health_control"
+    ):
+        return True
+    return False
+
+
+def _answer_rubric(scenario: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if scenario is None:
+        return None
+    rubric = scenario.get("answer_rubric")
+    return rubric if isinstance(rubric, Mapping) else None
+
+
+def _tri_state_from_judge(verdict: Mapping[str, Any]) -> str:
+    """Map a judge return value to pass|fail|undetermined.
+
+    ``pass_`` True is pass. ``pass_`` False is fail, including malformed
+    parsed verdicts. ``pass_`` None (outage, missing evidence, unparsable
+    JSON) is undetermined.
+    """
+    if verdict.get("pass_") is True:
+        return "pass"
+    if verdict.get("pass_") is False:
+        return "fail"
+    return "undetermined"
+
+
+def _record_judge_result(
+    *,
+    issues: list[dict[str, Any]],
+    judge_results: list[dict[str, Any]],
+    check: str,
+    judge_name: str,
+    verdict: Mapping[str, Any],
+) -> str:
+    """Append a judge result and a matching issue. Return the tri-state."""
+    tri = _tri_state_from_judge(verdict)
+    judge_results.append(
+        {
+            "judge": judge_name,
+            "verdict": tri,
+            "pass_": verdict.get("pass_"),
+            "criteria": verdict.get("criteria") or {},
+            "rationale": verdict.get("rationale", ""),
+            "error": verdict.get("error"),
+        }
+    )
+    if tri == "fail":
+        issues.append(
+            {
+                "check": check,
+                "severity": "error",
+                "detail": (
+                    f"{judge_name} failed: {verdict.get('rationale', 'no rationale')} "
+                    f"criteria={verdict.get('criteria')}"
+                ),
+            }
+        )
+    elif tri == "pass":
+        issues.append(
+            {
+                "check": check,
+                "severity": "info",
+                "detail": (
+                    f"{judge_name} passed: {verdict.get('rationale', 'no rationale')} "
+                    f"criteria={verdict.get('criteria')}"
+                ),
+            }
+        )
+    else:
+        issues.append(
+            {
+                "check": check,
+                "severity": "undetermined",
+                "detail": f"{judge_name} could not run: {verdict.get('error')}",
+            }
+        )
+    return tri
+
+
 def _effective_edit_targets(scenario: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     """Return explicit effective-value targets required by the scenario."""
     assessment = _assessment_config(scenario)
@@ -620,30 +726,54 @@ def assess_live_output_dir(
 
     The returned dict has:
 
-    * ``passed`` — True iff no error-level issues were found.
+    * ``passed`` — True iff ``verdict`` is ``pass``.
+    * ``verdict`` — ``pass``, ``fail``, or ``undetermined``.
     * ``expect_graph_changed`` — whether the scenario expected an edit.
     * ``issue_count`` / ``error_count`` — counts.
     * ``issues`` — list of ``{"check", "severity", "detail"}`` dicts.
+    * ``judge_results`` — one entry per judge that ran.
     """
     output_dir = Path(output_dir)
     response = _load_json(output_dir / "response.json")
     impl_result = _load_json(output_dir / "implementation_result.json")
 
     issues: list[dict[str, Any]] = []
+    judge_results: list[dict[str, Any]] = []
     expect_graph_changed = _expects_graph_changed(scenario, response)
     expected_outcome_kinds = _expected_outcome_kinds(scenario)
     allowed_safe_refusal_outcome_kinds = _allowed_safe_refusal_outcome_kinds(scenario)
+    assessment_cfg = _assessment_config(scenario)
+    skip_intent_judge = bool(assessment_cfg.get("skip_intent_judge"))
+    skip_semantic_judge = bool(assessment_cfg.get("skip_semantic_judge"))
     safe_refusal_accepted = False
+    refusal_outage = False
+    outcome_kind: Any = None
 
     if response is not None:
         outcome = response.get("outcome") or {}
         outcome_kind = outcome.get("kind")
-        safe_refusal_accepted = (
+        refusal_candidate = (
             expect_graph_changed
             and response.get("graph_unchanged") is True
             and isinstance(outcome_kind, str)
             and outcome_kind in allowed_safe_refusal_outcome_kinds
         )
+
+        # Universal grounded-refusal adjudication: an allowlisted label is
+        # only a candidate. The judge decides pass/fail/undetermined.
+        if refusal_candidate:
+            refusal_verdict = judge_grounded_refusal(output_dir, scenario or {})
+            refusal_tri = _record_judge_result(
+                issues=issues,
+                judge_results=judge_results,
+                check="grounded_refusal",
+                judge_name="grounded_refusal",
+                verdict=refusal_verdict,
+            )
+            if refusal_tri == "pass":
+                safe_refusal_accepted = True
+            elif refusal_tri == "undetermined":
+                refusal_outage = True
 
         # Top-level response health.
         if response.get("ok") is False:
@@ -684,6 +814,10 @@ def assess_live_output_dir(
                         "detail": f"Accepted safe refusal outcome.kind={outcome_kind!r}.",
                     }
                 )
+            elif refusal_outage:
+                # Outage cannot satisfy the scenario, but must not collapse
+                # to a structural graph_changed product-fail.
+                pass
             elif response.get("graph_unchanged") is True:
                 issues.append(
                     {
@@ -702,6 +836,7 @@ def assess_live_output_dir(
             route = _canonical_route(response)
             if (
                 not safe_refusal_accepted
+                and not refusal_outage
                 and response.get("graph_unchanged") is False
                 and not _explicitly_non_edit_route(response)
             ):
@@ -731,6 +866,7 @@ def assess_live_output_dir(
             # bypass the structural checks by relabeling alone.
             if (
                 not safe_refusal_accepted
+                and not refusal_outage
                 and response.get("graph_unchanged") is False
                 and route in _NON_EDIT_ROUTES
             ):
@@ -746,7 +882,11 @@ def assess_live_output_dir(
                 )
 
             no_reason = response.get("no_candidate_reason")
-            if not safe_refusal_accepted and no_reason in {"no_changes", "no_candidate"}:
+            if (
+                not safe_refusal_accepted
+                and not refusal_outage
+                and no_reason in {"no_changes", "no_candidate"}
+            ):
                 issues.append(
                     {
                         "check": "no_candidate_reason",
@@ -755,7 +895,11 @@ def assess_live_output_dir(
                     }
                 )
 
-            if not safe_refusal_accepted and outcome_kind in {"noop", "requires_custom_nodes"}:
+            if (
+                not safe_refusal_accepted
+                and not refusal_outage
+                and outcome_kind in {"noop", "requires_custom_nodes"}
+            ):
                 issues.append(
                     {
                         "check": "outcome_kind",
@@ -780,7 +924,7 @@ def assess_live_output_dir(
                         ),
                     }
                 )
-            if false_gates and not safe_refusal_accepted:
+            if false_gates and not safe_refusal_accepted and not refusal_outage:
                 issues.append(
                     {
                         "check": "gates",
@@ -789,7 +933,7 @@ def assess_live_output_dir(
                     }
                 )
 
-            if not safe_refusal_accepted:
+            if not safe_refusal_accepted and not refusal_outage:
                 issues.extend(_assess_effective_edit_targets(output_dir, response, scenario))
         elif expected_outcome_kinds:
             outcome = response.get("outcome") or {}
@@ -806,93 +950,24 @@ def assess_live_output_dir(
                     }
                 )
 
-        # LLM intent judge: score the candidate edit against the query when the
-        # scenario expects a graph change.  This runs by default; set
-        # ``assessment.skip_intent_judge: true`` in the scenario to disable it.
-        # A DESIRED edit must never pass on an allowlisted refusal label
-        # without an active grounded-refusal judge: the judge runs and must
-        # confirm the refusal is grounded (supported blocker, no representable
-        # edit, specific next action, no fabricated inability), and it FAILS
-        # CLOSED when the judge is unavailable.  graph_unchanged=false plus a
-        # refusal label is never a safe refusal (safe_refusal_accepted requires
-        # graph_unchanged=true), so it is still scored by the structural guards
-        # and — for desired scenarios — fails closed without a judge verdict.
-        # Non-desired edit-or-refuse scenarios keep the historical bypass.
+        # Edit-intent judge: score the candidate when an edit is expected and
+        # this is not a refusal candidate (refusals were already judged above).
+        # Outage is undetermined and cannot satisfy the scenario. Malformed
+        # parsed verdicts fail. graph_unchanged=false plus a refusal label is
+        # never a safe refusal, so it still hits structural guards and the
+        # edit-intent judge.
         if (
             expect_graph_changed
-            and not scenario.get("assessment", {}).get("skip_intent_judge")
+            and not skip_intent_judge
+            and not refusal_candidate
         ):
-            if safe_refusal_accepted and scenario.get("desired"):
-                verdict = judge_grounded_refusal(output_dir, scenario)
-                if verdict.get("pass_") is False:
-                    issues.append(
-                        {
-                            "check": "grounded_refusal",
-                            "severity": "error",
-                            "detail": (
-                                f"Refusal not grounded: {verdict.get('rationale', 'no rationale')} "
-                                f"criteria={verdict.get('criteria')}"
-                            ),
-                        }
-                    )
-                elif verdict.get("pass_") is True:
-                    issues.append(
-                        {
-                            "check": "grounded_refusal",
-                            "severity": "info",
-                            "detail": (
-                                f"Grounded refusal confirmed: {verdict.get('rationale', 'no rationale')} "
-                                f"criteria={verdict.get('criteria')}"
-                            ),
-                        }
-                    )
-                else:
-                    issues.append(
-                        {
-                            "check": "grounded_refusal",
-                            # A desired block is an active acceptance rubric;
-                            # an absent grounded-refusal judge fails closed.
-                            "severity": "error",
-                            "detail": (
-                                "Grounded-refusal judge could not run: "
-                                f"{verdict.get('error')}"
-                            ),
-                        }
-                    )
-            elif not safe_refusal_accepted:
-                verdict = judge_edit_intent(output_dir, scenario)
-                if verdict.get("pass_") is False:
-                    issues.append(
-                        {
-                            "check": "intent_judge",
-                            "severity": "error",
-                            "detail": (
-                                f"LLM intent judge failed: {verdict.get('rationale', 'no rationale')} "
-                                f"criteria={verdict.get('criteria')}"
-                            ),
-                        }
-                    )
-                elif verdict.get("pass_") is True:
-                    issues.append(
-                        {
-                            "check": "intent_judge",
-                            "severity": "info",
-                            "detail": (
-                                f"LLM intent judge passed: {verdict.get('rationale', 'no rationale')} "
-                                f"criteria={verdict.get('criteria')}"
-                            ),
-                        }
-                    )
-                else:
-                    issues.append(
-                        {
-                            "check": "intent_judge",
-                            # A desired block is an active acceptance rubric, not
-                            # optional context. Fail closed if its judge is absent.
-                            "severity": "error" if scenario.get("desired") else "warning",
-                            "detail": f"LLM intent judge could not run: {verdict.get('error')}",
-                        }
-                    )
+            _record_judge_result(
+                issues=issues,
+                judge_results=judge_results,
+                check="intent_judge",
+                judge_name="edit_intent",
+                verdict=judge_edit_intent(output_dir, scenario or {}),
+            )
 
         # Any hard diagnostic anywhere in the response envelope.
         for msg in _collect_hard_diagnostics(response):
@@ -933,6 +1008,22 @@ def assess_live_output_dir(
                 }
             )
 
+    # Semantic-answer judge runs for every D13 rubric scenario regardless
+    # of edit expectation or response presence. Health controls are
+    # structurally scored only.
+    if (
+        _answer_rubric(scenario) is not None
+        and not _excluded_from_semantic_product_rates(scenario)
+        and not skip_semantic_judge
+    ):
+        _record_judge_result(
+            issues=issues,
+            judge_results=judge_results,
+            check="semantic_answer",
+            judge_name="semantic_answer",
+            verdict=judge_semantic_answer(output_dir, scenario or {}),
+        )
+
     if impl_result is not None:
         # G0R: the residual "unchanged" substring gate over the
         # implementation_result message is removed — prose never gates
@@ -962,12 +1053,42 @@ def assess_live_output_dir(
         deduped.append(issue)
 
     errors = [issue for issue in deduped if issue["severity"] == "error"]
-    return {
-        "passed": len(errors) == 0,
+    undetermined_issues = [
+        issue for issue in deduped if issue["severity"] == "undetermined"
+    ]
+    if errors:
+        verdict = "fail"
+    elif undetermined_issues:
+        verdict = "undetermined"
+    else:
+        verdict = "pass"
+
+    original_ui_path = output_dir / "original.ui.json"
+    final_ui_path = output_dir / "final.ui.json"
+    assessment = {
+        "passed": verdict == "pass",
+        "verdict": verdict,
         "expect_graph_changed": expect_graph_changed,
         "expected_outcome_kinds": sorted(expected_outcome_kinds),
         "allow_safe_refusal_outcome_kinds": sorted(allowed_safe_refusal_outcome_kinds),
         "issue_count": len(deduped),
         "error_count": len(errors),
         "issues": deduped,
+        "judge_results": judge_results,
+        "scenario_kind": _scenario_kind(scenario),
+        "excluded_from_semantic_product_rates": _excluded_from_semantic_product_rates(
+            scenario
+        ),
+        "ui_evidence": {
+            "original": original_ui_path.is_file(),
+            "final": final_ui_path.is_file(),
+        },
     }
+    try:
+        (output_dir / "assessment.json").write_text(
+            json.dumps(assessment, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return assessment

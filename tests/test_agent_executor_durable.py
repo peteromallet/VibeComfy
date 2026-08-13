@@ -104,6 +104,10 @@ def test_non_applyable_executor_response_writes_request_response_and_chat(tmp_pa
     assert chat_payload["route"] == "inspect"
     assert chat_payload["messages"][0]["text"] == request.query
     assert chat_payload["messages"][1]["text"] == response["reply"]
+    original_ui = json.loads((turn_dir / "original.ui.json").read_text(encoding="utf-8"))
+    final_ui = json.loads((turn_dir / "final.ui.json").read_text(encoding="utf-8"))
+    assert original_ui == request.graph
+    assert final_ui == original_ui
 
 
 def test_executor_durable_normalizes_before_allocation(tmp_path, monkeypatch) -> None:

@@ -81,7 +81,13 @@ def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: P
         "research.json",
         "implementation_payload.json",
         "implementation_result.json",
+        "original.ui.json",
+        "final.ui.json",
     ]
+    original_ui = _read_json(output_dir / "original.ui.json")
+    final_ui = _read_json(output_dir / "final.ui.json")
+    assert original_ui == request["graph"]
+    assert final_ui == {"nodes": [{"id": 2}]}
     assert _read_json(output_dir / "request.json")["extra"]["api_key"] == "<redacted>"
     assert (
         _read_json(output_dir / "request.json")["extra"]["nested"]["access_token"]
@@ -535,3 +541,103 @@ def test_synthesized_response_secrets_in_ordinary_fields_are_redacted(tmp_path: 
     assert "url-secret" not in persisted
     assert "live-token" not in persisted
     assert "live-abcdef" not in persisted
+
+
+_NON_EDIT_UI_ROUTES = (
+    "respond",
+    "research",
+    "inspect",
+    "clarify",
+    "requires_custom_nodes",
+)
+
+
+@pytest.mark.parametrize("route", _NON_EDIT_UI_ROUTES)
+def test_universal_ui_evidence_for_non_edit_routes_without_turn_dir(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Every adjudicated non-edit route persists original/final with final==original."""
+    graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    output_dir = tmp_path / route
+    synthesize_headless_artifacts(
+        request={"query": f"{route} this graph", "graph": graph},
+        result=ExecutorResult.success(
+            report=Report(plan=ClassifyDecision(route=route, task=route)),
+            reply="ok",
+            graph=graph,
+        ),
+        response={"ok": True, "route": route, "graph_unchanged": True},
+        output_dir=output_dir,
+        status="success",
+    )
+    original = _read_json(output_dir / "original.ui.json")
+    final = _read_json(output_dir / "final.ui.json")
+    assert original == graph
+    assert final == original
+
+
+@pytest.mark.parametrize("route", _NON_EDIT_UI_ROUTES)
+def test_universal_ui_evidence_for_non_edit_routes_with_turn_dir(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Turn-dir synthesis still projects final from original for unchanged routes."""
+    graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    turn_dir = tmp_path / "sessions" / "s1" / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "request.json").write_text(json.dumps({"query": route, "graph": graph}))
+    (turn_dir / "response.json").write_text(
+        json.dumps({"ok": True, "route": route, "graph_unchanged": True})
+    )
+    output_dir = tmp_path / f"out-{route}"
+    synthesize_headless_artifacts(
+        request={"query": route, "graph": graph},
+        result=ExecutorResult.success(
+            report=Report(plan=ClassifyDecision(route=route, task=route)),
+            reply="ok",
+        ),
+        response={
+            "ok": True,
+            "route": route,
+            "graph_unchanged": True,
+            "detail_json_path": str(turn_dir / "response.json"),
+        },
+        output_dir=output_dir,
+        status="success",
+    )
+    original = _read_json(output_dir / "original.ui.json")
+    final = _read_json(output_dir / "final.ui.json")
+    assert original == graph
+    assert final == original
+
+
+def test_edit_route_final_ui_uses_candidate_when_graph_changed(tmp_path: Path) -> None:
+    original_graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    candidate_graph = {"nodes": [{"id": 1, "type": "LoadImage"}, {"id": 2, "type": "SaveImage"}], "links": []}
+    turn_dir = tmp_path / "sessions" / "s1" / "turns" / "0002"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "original.ui.json").write_text(json.dumps(original_graph))
+    (turn_dir / "candidate.ui.json").write_text(json.dumps(candidate_graph))
+    (turn_dir / "response.json").write_text(json.dumps({"ok": True, "route": "revise"}))
+    output_dir = tmp_path / "edit-out"
+    synthesize_headless_artifacts(
+        request={"query": "add save", "graph": original_graph},
+        result=ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise", implement=True),
+                implementation=ImplementationResult(message="edited"),
+            ),
+            graph=candidate_graph,
+        ),
+        response={
+            "ok": True,
+            "route": "revise",
+            "graph_unchanged": False,
+            "detail_json_path": str(turn_dir / "response.json"),
+        },
+        output_dir=output_dir,
+        status="success",
+    )
+    assert _read_json(output_dir / "original.ui.json") == original_graph
+    assert _read_json(output_dir / "final.ui.json") == candidate_graph

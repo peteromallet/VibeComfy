@@ -290,6 +290,7 @@ def test_implementation_result_unchanged_prose_does_not_gate_scoring(tmp_path: P
     )
 
     assert assessment["passed"] is True, assessment["issues"]
+    assert assessment["verdict"] == "pass"
     assert not [
         issue for issue in assessment["issues"] if issue["check"] == "implementation_result"
     ]

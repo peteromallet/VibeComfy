@@ -346,7 +346,10 @@ def test_agentic_guard_rejects_unexpected_noop_for_safe_refusal_scenarios(tmp_pa
     assert {issue["check"] for issue in assessment["issues"]} == {"outcome_kind"}
 
 
-def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(tmp_path: Path) -> None:
+def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
     output_dir = tmp_path / "edit-or-refuse"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -378,19 +381,25 @@ def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(tmp_p
 
     scenario = {
         "id": "edit-or-refuse",
+        "query": "replace the missing custom node",
         "assessment": {
             "expect_graph_changed": True,
             "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
         },
     }
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
+    )
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
     assert verdict["live_agentic_success"] is True
     assessment = verdict["assessment"]
     assert assessment["passed"] is True
+    assert assessment["verdict"] == "pass"
     assert assessment["expect_graph_changed"] is True
     assert assessment["allow_safe_refusal_outcome_kinds"] == ["clarify", "requires_custom_nodes"]
-    assert {issue["check"] for issue in assessment["issues"]} == {"safe_refusal"}
+    assert {"safe_refusal", "grounded_refusal"} <= {issue["check"] for issue in assessment["issues"]}
 
 
 def test_desired_edit_rejects_safe_refusal_when_grounded_judge_unavailable(
@@ -416,8 +425,11 @@ def test_desired_edit_rejects_safe_refusal_when_grounded_judge_unavailable(
     )
 
     assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["verdict"] == "undetermined"
+    assert verdict["assessment"]["passed"] is False
     assert any(
-        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        issue["check"] == "grounded_refusal" and issue["severity"] == "undetermined"
         for issue in verdict["assessment"]["issues"]
     )
 
@@ -510,13 +522,17 @@ def test_desired_edit_refusal_label_with_graph_change_fails_closed_without_verdi
     )
 
     assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "fail"
     error_checks = {
         issue["check"]
         for issue in verdict["assessment"]["issues"]
         if issue["severity"] == "error"
     }
-    assert "intent_judge" in error_checks, verdict["assessment"]["issues"]
     assert {"outcome_kind", "landed_operation_count", "gates"} <= error_checks
+    assert any(
+        issue["check"] == "intent_judge" and issue["severity"] == "undetermined"
+        for issue in verdict["assessment"]["issues"]
+    )
 
 
 def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(tmp_path: Path) -> None:
@@ -620,8 +636,11 @@ def test_desired_edit_fails_closed_when_intent_judge_is_unavailable(
     )
 
     assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["verdict"] == "undetermined"
+    assert verdict["assessment"]["passed"] is False
     assert any(
-        issue["check"] == "intent_judge" and issue["severity"] == "error"
+        issue["check"] == "intent_judge" and issue["severity"] == "undetermined"
         for issue in verdict["assessment"]["issues"]
     )
 
@@ -1312,7 +1331,8 @@ def test_agentic_guard_expected_edit_with_positive_landed_count_passes(
 
 def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
     tmp_path: Path,
-) -> None:
+    monkeypatch,
+) -> None:  # noqa: ANN001
     """G0R: an accepted grounded refusal (graph_unchanged=true, allowed
     outcome kind) is exempt from the landed_operation_count requirement."""
     output_dir = tmp_path / "landed-count-refusal-exempt"
@@ -1330,10 +1350,15 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
         encoding="utf-8",
     )
 
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
+    )
     verdict = guard_output_dir(
         output_dir,
         scenario={
             "id": "landed-count-refusal-exempt",
+            "query": "add the missing custom node",
             "assessment": {
                 "expect_graph_changed": True,
                 "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
@@ -1343,7 +1368,10 @@ def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
 
     assert verdict["live_agentic_success"] is True
     assert verdict["assessment"]["passed"] is True
-    assert {issue["check"] for issue in verdict["assessment"]["issues"]} == {"safe_refusal"}
+    assert verdict["assessment"]["verdict"] == "pass"
+    assert {"safe_refusal", "grounded_refusal"} <= {
+        issue["check"] for issue in verdict["assessment"]["issues"]
+    }
     assert not [
         issue
         for issue in verdict["assessment"]["issues"]
@@ -1463,11 +1491,14 @@ def test_agentic_guard_rejects_failure_outcome_without_landed_count(tmp_path: Pa
 
 def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
     tmp_path: Path,
-) -> None:
+    monkeypatch,
+) -> None:  # noqa: ANN001
     """G0R positive control: a canonical non-edit route (route=respond) with
     graph_unchanged=true and an authorized refusal outcome kind is still
     exempt — the route-aware exemption must not over-correct truthful non-edit
-    responses."""
+    responses. B06 still requires the grounded-refusal judge; a passing
+    verdict keeps the structural exemption.
+    """
     output_dir = tmp_path / "landed-count-genuine-non-edit-route-exempt"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -1483,11 +1514,16 @@ def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
         ),
         encoding="utf-8",
     )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
+    )
 
     verdict = guard_output_dir(
         output_dir,
         scenario={
             "id": "landed-count-genuine-non-edit-route-exempt",
+            "query": "what does this graph do?",
             "assessment": {
                 "expect_graph_changed": True,
                 "allow_safe_refusal_outcome_kinds": ["respond", "clarify"],
@@ -1500,6 +1536,7 @@ def test_agentic_guard_exempts_genuine_non_edit_route_with_unchanged_graph(
     assert verdict["assessment"]["passed"] is True
     checks = {issue["check"] for issue in verdict["assessment"]["issues"]}
     assert "safe_refusal" in checks
+    assert "grounded_refusal" in checks
     assert "landed_operation_count" not in checks
     assert "route_graph_consistency" not in checks
 
@@ -1657,3 +1694,430 @@ def test_agentic_guard_product_fails_real_queue_validation_failure(tmp_path: Pat
     assert verdict["score_class"] == "product_fail"
     assert [issue["check"] for issue in verdict["assessment"]["issues"]] == ["gates"]
     assert "queue_validate_ok" in verdict["assessment"]["issues"][0]["detail"]
+
+
+def _semantic_product_scenario(**overrides: object) -> dict:
+    scenario: dict[str, object] = {
+        "id": "semantic-fixture",
+        "query": "Why is the output blurry?",
+        "assessment": {"expect_graph_changed": False},
+        "classification": {"kind": "semantic_product"},
+        "answer_rubric": {
+            "judge": "semantic_answer",
+            "required_node_evidence": ["SaveVideo"],
+            "expected_criteria": [
+                "Ground claims in the workflow.",
+                "Name the relevant node.",
+                "Give a causal diagnosis.",
+                "Answer the asked question.",
+            ],
+            "pass_condition": "Pass only when the answer is grounded, relevant, and correct.",
+            "fail_conditions": [
+                "hallucinated nodes",
+                "technically wrong",
+                "irrelevant",
+                "vacuous listing",
+                "empty answer",
+            ],
+        },
+    }
+    scenario.update(overrides)
+    return scenario
+
+
+def _semantic_verdict(*, grounded: bool = True, relevant: bool = True, correct: bool = True) -> dict:
+    return {
+        "pass_": grounded and relevant and correct,
+        "criteria": {
+            "grounded": grounded,
+            "relevant": relevant,
+            "correct": correct,
+        },
+        "rationale": "fixture verdict",
+    }
+
+
+def _write_non_edit_response(output_dir: Path, *, reply: str = "SaveVideo uses a low bitrate.") -> None:
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "route": "inspect",
+                "graph_unchanged": True,
+                "reply": reply,
+                "message": reply,
+                "outcome": {"kind": "noop"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_refusal_fixtures_produce_pass_fail_fail_undetermined(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Grounded / unsupported / fabricated / outage → pass / fail / fail / undetermined."""
+    cases = (
+        ("grounded", _grounded_refusal_verdict(grounded=True), "pass", "pass"),
+        (
+            "unsupported",
+            {
+                "pass_": False,
+                "criteria": {
+                    "supported_blocker": False,
+                    "no_representable_edit": True,
+                    "specific_next_action": True,
+                    "no_fabricated_inability": True,
+                },
+                "rationale": "no supported blocker",
+            },
+            "fail",
+            "product_fail",
+        ),
+        ("fabricated", _grounded_refusal_verdict(grounded=False), "fail", "product_fail"),
+        (
+            "outage",
+            {"pass_": None, "error": "judge unavailable"},
+            "undetermined",
+            "undetermined",
+        ),
+    )
+    for name, judge_verdict, expected_verdict, expected_score in cases:
+        output_dir = tmp_path / name
+        _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+        _write_safe_refusal_response(output_dir)
+        monkeypatch.setattr(
+            "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+            lambda *args, _verdict=judge_verdict, **kwargs: _verdict,
+        )
+        result = guard_output_dir(
+            output_dir,
+            scenario=_desired_edit_scenario(f"refusal-{name}"),
+        )
+        assert result["assessment"]["verdict"] == expected_verdict, name
+        assert result["score_class"] == expected_score, name
+        assert result["live_agentic_success"] is (expected_verdict == "pass"), name
+        assert result["assessment"]["passed"] is (expected_verdict == "pass"), name
+
+
+def test_allowlisted_refusal_without_desired_still_requires_grounded_judge(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Label-first acceptance is gone: non-desired allowlisted refusals are judged."""
+    output_dir = tmp_path / "no-desired-refusal"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=False),
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "no-desired-refusal",
+            "query": "set seed to 42",
+            "assessment": {
+                "expect_graph_changed": True,
+                "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+            },
+        },
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "fail"
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
+def test_identical_refusal_prose_fails_when_schema_contradicts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Same plausible refusal prose with contradictory schema/graph evidence fails."""
+    output_dir = tmp_path / "contradictory-schema-refusal"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    _write_ui_pair(
+        output_dir,
+        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]},
+        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]},
+    )
+    (output_dir / "final.ui.json").write_text(
+        (output_dir / "original.ui.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (output_dir / "implementation_payload.json").write_text(
+        json.dumps(
+            {
+                "graph": {
+                    "compiled_api": {
+                        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        payload = json.loads(messages[1]["content"])
+        captured["payload"] = payload
+        schema = payload.get("schema_context") or {}
+        compiled = schema.get("compiled_api") or {}
+        inventory = payload.get("node_inventory") or []
+        types = {item.get("type") for item in inventory if isinstance(item, dict)}
+        has_loader = "CheckpointLoaderSimple" in compiled or "CheckpointLoaderSimple" in types
+        criteria = {
+            "supported_blocker": not has_loader,
+            "no_representable_edit": not has_loader,
+            "specific_next_action": True,
+            "no_fabricated_inability": not has_loader,
+        }
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": all(criteria.values()),
+                    "criteria": criteria,
+                    "rationale": "schema contains the cited class" if has_loader else "ok",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("contradictory-schema-refusal"),
+    )
+
+    assert "schema_context" in captured["payload"] or "node_inventory" in captured["payload"]
+    assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "fail"
+    assert any(issue["check"] == "grounded_refusal" for issue in verdict["assessment"]["issues"])
+
+
+def test_healthy_but_false_explanation_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    output_dir = tmp_path / "false-explanation"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_non_edit_response(
+        output_dir,
+        reply="The blur is caused by a GaussianBlur node that is not in the graph.",
+    )
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}], "links": []}),
+        encoding="utf-8",
+    )
+    (output_dir / "final.ui.json").write_text(
+        (output_dir / "original.ui.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: _semantic_verdict(grounded=False, correct=False),
+    )
+
+    verdict = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
+
+    assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "fail"
+    assert any(issue["check"] == "semantic_answer" for issue in verdict["assessment"]["issues"])
+    assert any(
+        result["judge"] == "semantic_answer" and result["verdict"] == "fail"
+        for result in verdict["assessment"]["judge_results"]
+    )
+
+
+def test_semantic_judge_outage_never_passes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    output_dir = tmp_path / "semantic-outage"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_non_edit_response(output_dir)
+    (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
+    )
+
+    verdict = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
+
+    assert verdict["live_agentic_success"] is False
+    assert verdict["score_class"] == "undetermined"
+    assert verdict["assessment"]["verdict"] == "undetermined"
+    assert verdict["assessment"]["passed"] is False
+
+
+def test_empty_but_valid_semantic_answer_fails(tmp_path: Path) -> None:
+    output_dir = tmp_path / "empty-answer"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_non_edit_response(output_dir, reply="   ")
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+    )
+    (output_dir / "final.ui.json").write_text(
+        (output_dir / "original.ui.json").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    verdict = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
+
+    assert verdict["live_agentic_success"] is False
+    assert verdict["assessment"]["verdict"] == "fail"
+    semantic = [
+        result
+        for result in verdict["assessment"]["judge_results"]
+        if result["judge"] == "semantic_answer"
+    ]
+    assert semantic and semantic[0]["verdict"] == "fail"
+
+
+def test_every_semantic_non_edit_has_rubric_and_judge_result(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    scenarios_dir = Path(__file__).parent / "live_agentic_harness" / "scenarios"
+    semantic = []
+    for path in sorted(scenarios_dir.glob("*.json")):
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+        if scenario.get("answer_rubric"):
+            semantic.append(scenario)
+
+    assert len(semantic) == 35
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: _semantic_verdict(),
+    )
+
+    for scenario in semantic:
+        assert scenario["answer_rubric"]["judge"] == "semantic_answer"
+        output_dir = tmp_path / scenario["id"]
+        _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+        _write_non_edit_response(output_dir)
+        (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+        (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+        verdict = guard_output_dir(output_dir, scenario=scenario)
+        results = verdict["assessment"]["judge_results"]
+        assert any(result["judge"] == "semantic_answer" for result in results), scenario["id"]
+        assert verdict["assessment"]["scenario_kind"] == "semantic_product"
+        assert verdict["assessment"]["excluded_from_semantic_product_rates"] is False
+
+
+def test_health_controls_are_structurally_scored_not_semantically_judged(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    called = {"semantic": False}
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: called.__setitem__("semantic", True) or _semantic_verdict(),
+    )
+    for scenario_id in ("live-graph-explanation-smoke", "speed-distillation-research"):
+        output_dir = tmp_path / scenario_id
+        _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+        _write_non_edit_response(output_dir, reply="ok")
+        scenario_path = (
+            Path(__file__).parent / "live_agentic_harness" / "scenarios" / f"{scenario_id}.json"
+        )
+        scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        verdict = guard_output_dir(output_dir, scenario=scenario)
+        assert verdict["assessment"]["scenario_kind"] == "health_control"
+        assert verdict["assessment"]["excluded_from_semantic_product_rates"] is True
+        assert not any(
+            result["judge"] == "semantic_answer"
+            for result in verdict["assessment"]["judge_results"]
+        )
+        assert verdict["assessment"]["verdict"] == "pass"
+    assert called["semantic"] is False
+
+
+def test_corrected_d13_edits_use_edit_intent_judge(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    called = {"edit": 0, "semantic": 0}
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_edit_intent",
+        lambda *args, **kwargs: (
+            called.__setitem__("edit", called["edit"] + 1)
+            or {
+                "pass_": True,
+                "criteria": {
+                    "correct_node_targeted": True,
+                    "correct_parameter_changed": True,
+                    "value_semantically_matches_intent": True,
+                    "no_orphaned_wiring": True,
+                },
+                "rationale": "edit matches desired outcome",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: called.__setitem__("semantic", called["semantic"] + 1)
+        or _semantic_verdict(),
+    )
+    for scenario_id in _CORRECTED_D13_EDIT_IDS:
+        output_dir = tmp_path / scenario_id
+        _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+        _write_successful_candidate(output_dir)
+        _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1}]})
+        scenario = json.loads(
+            (
+                Path(__file__).parent
+                / "live_agentic_harness"
+                / "scenarios"
+                / f"{scenario_id}.json"
+            ).read_text(encoding="utf-8")
+        )
+        verdict = guard_output_dir(output_dir, scenario=scenario)
+        assert any(
+            result["judge"] == "edit_intent" for result in verdict["assessment"]["judge_results"]
+        ), scenario_id
+        assert not any(
+            result["judge"] == "semantic_answer"
+            for result in verdict["assessment"]["judge_results"]
+        ), scenario_id
+        assert scenario.get("desired")
+        assert scenario["assessment"]["expect_graph_changed"] is True
+    assert called["edit"] == 3
+    assert called["semantic"] == 0
+
+
+def test_only_pass_satisfies_a_semantic_scenario(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    output_dir = tmp_path / "semantic-pass-only"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_non_edit_response(output_dir)
+    (output_dir / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (output_dir / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: _semantic_verdict(),
+    )
+    passing = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
+    assert passing["live_agentic_success"] is True
+    assert passing["assessment"]["verdict"] == "pass"
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_semantic_answer",
+        lambda *args, **kwargs: {"pass_": None, "error": "outage"},
+    )
+    undetermined = guard_output_dir(output_dir, scenario=_semantic_product_scenario())
+    assert undetermined["live_agentic_success"] is False
+    assert undetermined["assessment"]["verdict"] == "undetermined"

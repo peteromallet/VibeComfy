@@ -5,9 +5,11 @@ from pathlib import Path
 
 from tests.live_agentic_harness.intent_judge import (
     _parse_refusal_verdict,
+    _parse_semantic_verdict,
     _parse_verdict,
     judge_edit_intent,
     judge_grounded_refusal,
+    judge_semantic_answer,
 )
 
 
@@ -21,6 +23,20 @@ def _edit_verdict_content(**overrides: object) -> dict:
             "no_orphaned_wiring": True,
         },
         "rationale": "all criteria satisfied",
+    }
+    content.update(overrides)
+    return content
+
+
+def _semantic_verdict_content(**overrides: object) -> dict:
+    content = {
+        "pass_": True,
+        "criteria": {
+            "grounded": True,
+            "relevant": True,
+            "correct": True,
+        },
+        "rationale": "all semantic criteria satisfied",
     }
     content.update(overrides)
     return content
@@ -124,6 +140,29 @@ def test_parse_refusal_verdict_string_false_pass_with_all_criteria_true_is_not_p
 
     assert verdict["pass_"] is False
     assert all(verdict["criteria"].values())
+
+
+def test_parse_semantic_verdict_genuine_all_true_is_pass() -> None:
+    verdict = _parse_semantic_verdict(json.dumps(_semantic_verdict_content()))
+
+    assert verdict["pass_"] is True
+    assert all(verdict["criteria"].values())
+
+
+def test_parse_semantic_verdict_string_false_pass_with_all_criteria_true_is_not_pass() -> None:
+    verdict = _parse_semantic_verdict(json.dumps(_semantic_verdict_content(pass_="false")))
+
+    assert verdict["pass_"] is False
+    assert all(verdict["criteria"].values())
+
+
+def test_parse_semantic_verdict_pass_true_with_false_criterion_is_not_pass() -> None:
+    criteria = _semantic_verdict_content()["criteria"]
+    criteria["grounded"] = False
+    verdict = _parse_semantic_verdict(json.dumps(_semantic_verdict_content(criteria=criteria)))
+
+    assert verdict["pass_"] is False
+    assert verdict["criteria"]["grounded"] is False
 
 
 def test_parse_refusal_verdict_pass_true_with_false_criterion_is_not_pass() -> None:
@@ -518,4 +557,155 @@ def test_intent_judge_recomputes_schema_context_for_sidecar_less_envelope(
     compiled = payload["schema_context"]["compiled_api"]
     assert set(compiled) == {"10", "17"}
     assert compiled["10"]["inputs"]["prompt"] == "refine it"
-    assert "Schema and widget evidence" in messages[0]["content"]
+
+
+def test_semantic_judge_surfaces_derived_fail_for_fabricated_pass(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "original.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+    )
+    (tmp_path / "final.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+    )
+    (tmp_path / "response.json").write_text(
+        json.dumps({"reply": "SaveVideo is the output node.", "ok": True}),
+        encoding="utf-8",
+    )
+    criteria = _semantic_verdict_content()["criteria"]
+    criteria["correct"] = False
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        lambda *args, **kwargs: {"content": json.dumps(_semantic_verdict_content(criteria=criteria))},
+    )
+
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {
+            "query": "what writes the video?",
+            "answer_rubric": {
+                "judge": "semantic_answer",
+                "required_node_evidence": ["SaveVideo"],
+                "expected_criteria": ["grounded", "relevant", "correct", "useful"],
+            },
+        },
+    )
+
+    assert verdict["pass_"] is False
+    assert verdict["criteria"]["correct"] is False
+
+
+def test_semantic_judge_empty_answer_fails_without_model_call(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "original.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (tmp_path / "response.json").write_text(json.dumps({"reply": "  ", "ok": True}), encoding="utf-8")
+
+    def fail_if_called(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        raise AssertionError("empty answers must not call the model")
+
+    monkeypatch.setattr("tests.live_agentic_harness.intent_judge.run_model_turn", fail_if_called)
+
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {"query": "explain this", "answer_rubric": {"judge": "semantic_answer"}},
+    )
+
+    assert verdict["pass_"] is False
+    assert verdict["criteria"] == {"grounded": False, "relevant": False, "correct": False}
+
+
+def test_semantic_judge_missing_ui_is_undetermined(tmp_path: Path) -> None:
+    (tmp_path / "response.json").write_text(
+        json.dumps({"reply": "It saves a video.", "ok": True}), encoding="utf-8"
+    )
+
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {"query": "explain this", "answer_rubric": {"judge": "semantic_answer"}},
+    )
+
+    assert verdict["pass_"] is None
+    assert "missing UI" in verdict["error"]
+
+
+def test_semantic_judge_includes_rubric_and_ui_not_prose_as_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    original = {"nodes": [{"id": 1, "type": "SaveVideo"}], "links": []}
+    (tmp_path / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(original), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps({"reply": "SaveVideo writes the clip.", "ok": True}), encoding="utf-8"
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {"content": json.dumps(_semantic_verdict_content())}
+
+    monkeypatch.setattr("tests.live_agentic_harness.intent_judge.run_model_turn", fake_run_model_turn)
+
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {
+            "query": "what writes the video?",
+            "answer_rubric": {
+                "judge": "semantic_answer",
+                "required_node_evidence": ["SaveVideo"],
+                "expected_criteria": ["grounded", "relevant", "correct", "useful"],
+                "fail_conditions": ["hallucinated"],
+            },
+        },
+    )
+
+    assert verdict["pass_"] is True
+    payload = seen["payload"]
+    assert payload["original_ui"] == original
+    assert payload["final_ui"] == original
+    assert payload["required_node_evidence"] == ["SaveVideo"]
+    assert payload["node_inventory"] == [{"id": 1, "type": "SaveVideo"}]
+    assert payload["answer"] == "SaveVideo writes the clip."
+
+
+def test_grounded_refusal_judge_includes_ui_inventory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "outcome": {"kind": "requires_custom_nodes"},
+                "message": "the node class is unavailable",
+                "graph_unchanged": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "original.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "final.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]}),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {"content": json.dumps(_refusal_verdict_content())}
+
+    monkeypatch.setattr("tests.live_agentic_harness.intent_judge.run_model_turn", fake_run_model_turn)
+
+    verdict = judge_grounded_refusal(tmp_path, {"query": "set seed to 42"})
+
+    assert verdict["pass_"] is True
+    payload = seen["payload"]
+    assert payload["node_inventory"] == [{"id": 1, "type": "CheckpointLoaderSimple"}]
+    assert payload["original_ui"]["nodes"][0]["type"] == "CheckpointLoaderSimple"

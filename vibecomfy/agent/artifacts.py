@@ -382,6 +382,115 @@ def _append_manifest(manifest: list[str], file_name: str) -> None:
         manifest.append(file_name)
 
 
+_EMPTY_UI: dict[str, Any] = {"nodes": [], "links": []}
+_UNCHANGED_UI_ROUTES = frozenset(
+    {"clarify", "respond", "inspect", "research", "requires_custom_nodes"}
+)
+
+
+def _as_graph_mapping(value: Any) -> dict[str, Any] | None:
+    """Return a JSON object graph, or None when no graph payload is present."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return None
+
+
+def _request_graph(request: Mapping[str, Any]) -> dict[str, Any] | None:
+    return _as_graph_mapping(request.get("graph"))
+
+
+def _result_graph(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    graph = getattr(result, "graph", None)
+    mapped = _as_graph_mapping(graph)
+    if mapped is not None:
+        return mapped
+    payload = _json_safe(result)
+    if isinstance(payload, Mapping):
+        return _as_graph_mapping(payload.get("graph"))
+    return None
+
+
+def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _route_projects_final_from_original(response: Mapping[str, Any]) -> bool:
+    """Unchanged / refused / clarify / inspect / research routes project final=original."""
+    route = response.get("route")
+    if isinstance(route, str) and route in _UNCHANGED_UI_ROUTES:
+        return True
+    if response.get("graph_unchanged") is True:
+        return True
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        kind = outcome.get("kind")
+        if kind in {"clarify", "requires_custom_nodes", "noop"}:
+            return True
+    return False
+
+
+def persist_universal_ui_evidence(
+    *,
+    request: Mapping[str, Any],
+    result: Any,
+    response: Mapping[str, Any],
+    output_dir: Path,
+    manifest: list[str],
+) -> None:
+    """Write authoritative original.ui.json and final.ui.json for every route.
+
+    Non-edit, refused, and unchanged routes explicitly project final from
+    original. Edit routes that produced a candidate persist that candidate as
+    final. Missing graphs become an empty UI document so both files always exist.
+    """
+    original_path = output_dir / "original.ui.json"
+    final_path = output_dir / "final.ui.json"
+    candidate_path = output_dir / "candidate.ui.json"
+
+    original = _load_ui_mapping(original_path)
+    if original is None:
+        original = _request_graph(request)
+    if original is None:
+        original = dict(_EMPTY_UI)
+
+    if _route_projects_final_from_original(response):
+        final = original
+    else:
+        final = _load_ui_mapping(final_path)
+        if final is None:
+            final = _load_ui_mapping(candidate_path)
+        if final is None:
+            artifacts = response.get("artifacts")
+            if isinstance(artifacts, Mapping):
+                for key in ("final_ui", "candidate_ui"):
+                    artifact_path = artifacts.get(key)
+                    if isinstance(artifact_path, str) and artifact_path:
+                        final = _load_ui_mapping(Path(artifact_path))
+                        if final is not None:
+                            break
+        if final is None:
+            final = _as_graph_mapping(
+                response.get("candidate_graph") or response.get("candidate")
+            )
+        if final is None:
+            final = _result_graph(result)
+        if final is None:
+            final = original
+
+    _safe_write(original_path, _redact(original))
+    _append_manifest(manifest, "original.ui.json")
+    _safe_write(final_path, _redact(final))
+    _append_manifest(manifest, "final.ui.json")
+
+
 def synthesize_headless_artifacts(
     *,
     request: Mapping[str, Any],
@@ -471,6 +580,14 @@ def synthesize_headless_artifacts(
         for copied_name in copied:
             _append_manifest(manifest, copied_name)
 
+    persist_universal_ui_evidence(
+        request=request,
+        result=result,
+        response=response,
+        output_dir=output_dir,
+        manifest=manifest,
+    )
+
     copied_set = set(copied)
     optional_model_artifacts = {
         name: name in copied_set or name in manifest
@@ -490,4 +607,4 @@ def synthesize_headless_artifacts(
     }
 
 
-__all__ = ["synthesize_headless_artifacts"]
+__all__ = ["persist_universal_ui_evidence", "synthesize_headless_artifacts"]

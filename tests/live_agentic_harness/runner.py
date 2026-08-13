@@ -101,6 +101,7 @@ def _synthetic_guard(
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
         "assessment": {
             "passed": False,
+            "verdict": "fail",
             "expect_graph_changed": expect_graph_changed,
             "issue_count": 1,
             "error_count": 1,

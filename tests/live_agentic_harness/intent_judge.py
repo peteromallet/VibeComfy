@@ -17,6 +17,9 @@ from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 
 _PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "text_judge.prompt.md"
 _REFUSAL_PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "refusal_judge.prompt.md"
+_SEMANTIC_PROMPT_PATH = (
+    Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "semantic_answer_judge.prompt.md"
+)
 
 
 def _load_prompt() -> str:
@@ -37,6 +40,21 @@ def _load_prompt() -> str:
         '"correct_parameter_changed": true | false, "value_semantically_matches_intent": true | false, '
         '"no_orphaned_wiring": true | false}, "rationale": "<one or two sentences>"}\n'
         "`pass_` must be true if and only if all four criteria are true."
+    )
+
+
+def _load_semantic_prompt() -> str:
+    if _SEMANTIC_PROMPT_PATH.is_file():
+        return _SEMANTIC_PROMPT_PATH.read_text(encoding="utf-8")
+    return (
+        "You are a precise evaluator for ComfyUI workflow answers. Evaluate the\n"
+        "answer against exactly three binary criteria: grounded, relevant, correct.\n"
+        "Judge only against structured workflow/schema/UI evidence, never against\n"
+        "the answer's own wording. Respond with JSON and nothing else:\n"
+        '{"pass_": true | false, "criteria": {"grounded": true | false, '
+        '"relevant": true | false, "correct": true | false}, '
+        '"rationale": "<one or two sentences>"}\n'
+        "`pass_` must be true if and only if all three criteria are true."
     )
 
 
@@ -95,6 +113,12 @@ _REFUSAL_CRITERION_KEYS = (
     "no_representable_edit",
     "specific_next_action",
     "no_fabricated_inability",
+)
+
+_SEMANTIC_CRITERION_KEYS = (
+    "grounded",
+    "relevant",
+    "correct",
 )
 
 
@@ -163,6 +187,95 @@ def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
     """
     parsed = json.loads(_strip_code_fences(raw))
     return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS)
+
+
+def _parse_semantic_verdict(raw: str) -> dict[str, Any]:
+    """Parse the semantic-answer judge's JSON response into a normalized dict.
+
+    Same fail-closed contract as :func:`_parse_verdict`: the verdict is
+    derived from grounded/relevant/correct, not from the model's
+    self-declared ``pass_``. Malformed parsed objects fail; only
+    ``json.loads`` raising stays undetermined in the caller.
+    """
+    parsed = json.loads(_strip_code_fences(raw))
+    return _derive_verdict(parsed, _SEMANTIC_CRITERION_KEYS)
+
+
+def _load_json_mapping(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _load_ui_pair(
+    output_dir: Path,
+    response: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Load original.ui.json and final.ui.json (candidate as a final fallback)."""
+    artifacts = response.get("artifacts") if isinstance(response, Mapping) else None
+    original_path = output_dir / "original.ui.json"
+    final_path = output_dir / "final.ui.json"
+    candidate_path = output_dir / "candidate.ui.json"
+    if isinstance(artifacts, Mapping):
+        if isinstance(artifacts.get("original_ui"), str):
+            original_path = Path(artifacts["original_ui"])
+        if isinstance(artifacts.get("final_ui"), str):
+            final_path = Path(artifacts["final_ui"])
+        elif isinstance(artifacts.get("candidate_ui"), str):
+            candidate_path = Path(artifacts["candidate_ui"])
+    original = _load_json_mapping(original_path)
+    final = _load_json_mapping(final_path)
+    if final is None:
+        final = _load_json_mapping(candidate_path)
+    return original, final
+
+
+def _ui_node_inventory(ui: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Structured node inventory from a UI or API-shaped graph. Not prose."""
+    if not isinstance(ui, Mapping):
+        return []
+    inventory: list[dict[str, Any]] = []
+    nodes = ui.get("nodes")
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            inventory.append(
+                {
+                    "id": node.get("id"),
+                    "type": node.get("type") or node.get("class_type"),
+                }
+            )
+        return inventory
+    for key, node in ui.items():
+        if not isinstance(node, Mapping):
+            continue
+        class_type = node.get("class_type") or node.get("type")
+        if class_type is None and "inputs" not in node:
+            continue
+        inventory.append({"id": node.get("id", key), "type": class_type})
+    return inventory
+
+
+def _structured_answer_text(response: Mapping[str, Any] | None) -> str:
+    """Return the agent's answer from structured envelope fields only."""
+    if not isinstance(response, Mapping):
+        return ""
+    for key in ("reply", "message"):
+        value = response.get(key)
+        if isinstance(value, str):
+            return value
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        for key in ("answer", "reply", "question"):
+            value = outcome.get(key)
+            if isinstance(value, str):
+                return value
+    return ""
 
 
 def _load_implementation_payload(output_dir: Path) -> dict[str, Any] | None:
@@ -383,6 +496,8 @@ def judge_edit_intent(
         original_ui_path = output_dir / "original.ui.json"
     if candidate_ui_path is None:
         candidate_ui_path = output_dir / "candidate.ui.json"
+        if not candidate_ui_path.is_file():
+            candidate_ui_path = output_dir / "final.ui.json"
 
     if not original_ui_path.is_file() or not candidate_ui_path.is_file():
         return {
@@ -521,17 +636,23 @@ def judge_grounded_refusal(
     if not isinstance(refusal.get("outcome"), Mapping):
         return {"pass_": None, "error": "response.json is missing a refusal outcome"}
 
+    original_ui, final_ui = _load_ui_pair(output_dir, response if isinstance(response, Mapping) else None)
+    node_inventory = _ui_node_inventory(original_ui if original_ui is not None else final_ui)
+
     system_prompt = _load_refusal_prompt()
     implementation_payload = _load_implementation_payload(output_dir)
     schema_context = _schema_context_from_payload(implementation_payload) or {}
-    if schema_context:
+    if schema_context or node_inventory:
         system_prompt = (
             system_prompt.rstrip()
-            + "\n\n## Schema evidence\n"
-            "When schema_context is provided, use it to verify whether a cited "
-            "blocker is real. A 'requires_custom_nodes' refusal is fabricated if "
-            "the needed node class actually exists in compiled_api. Do not guess "
-            "from node names when compiled_api is available."
+            + "\n\n## Schema and graph evidence\n"
+            "When schema_context or node_inventory is provided, use it to verify "
+            "whether a cited blocker is real. A 'requires_custom_nodes' refusal is "
+            "fabricated if the needed node class actually exists in compiled_api "
+            "or in the workflow node inventory. Do not guess from the refusal "
+            "message wording when structured schema/graph evidence is available. "
+            "Identical refusal prose with contradictory schema or graph evidence "
+            "must fail."
         )
     desired = scenario.get("desired")
     payload: dict[str, Any] = {"nl_intent": query, "refusal": refusal}
@@ -539,6 +660,12 @@ def judge_grounded_refusal(
         payload["desired_outcome"] = desired
     if schema_context:
         payload["schema_context"] = schema_context
+    if original_ui is not None:
+        payload["original_ui"] = original_ui
+    if final_ui is not None:
+        payload["final_ui"] = final_ui
+    if node_inventory:
+        payload["node_inventory"] = node_inventory
     user_content = json.dumps(payload, indent=2)
 
     try:
@@ -572,5 +699,102 @@ def judge_grounded_refusal(
         "route": route,
         "model": model,
         "elapsed_ms": response.get("_profiling", {}).get("elapsed_ms"),
+    }
+    return verdict
+
+
+def judge_semantic_answer(
+    output_dir: Path | str,
+    scenario: Mapping[str, Any],
+    *,
+    route: str = "deepseek",
+    model: str = "deepseek-v4-pro",
+) -> dict[str, Any]:
+    """Run the rubric-driven semantic-answer judge for a D13 non-edit.
+
+    Criteria are grounded, relevant, and correct. An empty or whitespace-only
+    answer fails structurally without a model call. Missing UI evidence or a
+    model/parse outage returns ``pass_`` None. Malformed parsed verdicts fail.
+    """
+    output_dir = Path(output_dir)
+    rubric = scenario.get("answer_rubric")
+    if not isinstance(rubric, Mapping):
+        return {"pass_": None, "error": "scenario has no answer_rubric"}
+
+    query = str(scenario.get("query", "")).strip()
+    if not query:
+        return {"pass_": None, "error": "scenario has no query"}
+
+    response_path = output_dir / "response.json"
+    response = _load_json_mapping(response_path)
+    answer = _structured_answer_text(response)
+    if not answer.strip():
+        return {
+            "pass_": False,
+            "criteria": {"grounded": False, "relevant": False, "correct": False},
+            "rationale": "empty or whitespace-only answer",
+        }
+
+    original_ui, final_ui = _load_ui_pair(output_dir, response)
+    if original_ui is None or final_ui is None:
+        return {
+            "pass_": None,
+            "error": "missing UI artifacts: original.ui.json / final.ui.json",
+        }
+
+    node_inventory = _ui_node_inventory(original_ui)
+    required_nodes = rubric.get("required_node_evidence")
+    if not isinstance(required_nodes, list):
+        required_nodes = []
+
+    system_prompt = _load_semantic_prompt()
+    implementation_payload = _load_implementation_payload(output_dir)
+    schema_context = _schema_context_from_payload(implementation_payload) or {}
+    payload: dict[str, Any] = {
+        "nl_intent": query,
+        "answer": answer,
+        "original_ui": original_ui,
+        "final_ui": final_ui,
+        "node_inventory": node_inventory,
+        "required_node_evidence": required_nodes,
+        "expected_criteria": rubric.get("expected_criteria") or [],
+        "fail_conditions": rubric.get("fail_conditions") or [],
+        "pass_condition": rubric.get("pass_condition") or "",
+    }
+    if schema_context:
+        payload["schema_context"] = schema_context
+    user_content = json.dumps(payload, indent=2)
+
+    try:
+        model_response = run_model_turn(
+            "evaluate whether a workflow answer is grounded, relevant, and correct",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            route=route,
+            model=model,
+            response_contract="json",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"pass_": None, "error": f"model call failed: {exc}"}
+
+    raw = model_response.get("content") or ""
+    if not raw:
+        return {"pass_": None, "error": "model returned empty content"}
+
+    try:
+        verdict = _parse_semantic_verdict(raw)
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        return {
+            "pass_": None,
+            "error": f"could not parse judge response: {exc}",
+            "raw": raw[:500],
+        }
+
+    verdict["metadata"] = {
+        "route": route,
+        "model": model,
+        "elapsed_ms": model_response.get("_profiling", {}).get("elapsed_ms"),
     }
     return verdict
