@@ -682,3 +682,90 @@ def test_working_ui_unchanged_after_describe(flat_ui: dict[str, Any]) -> None:
         _ = session.describe(name)
 
     assert session.working_ui == before, "describe() mutated working_ui!"
+
+
+def test_session_snapshot_includes_render_caches_and_journal_surface(
+    flat_ui: dict[str, Any],
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    session.render()
+    snapshot = session._snapshot_mutable_state()
+    assert set(snapshot) >= {
+        "working_ui",
+        "landed_ops",
+        "touched_uids",
+        "touched_node_ids",
+        "uid_by_name",
+        "name_by_uid",
+        "unbound_names",
+        "value_default_context",
+        "render_count",
+        "last_rendered_source",
+        "last_rendered_workflow",
+        "last_render_diagnostics",
+    }
+    assert snapshot["render_count"] == 1
+    assert isinstance(snapshot["last_rendered_source"], str)
+    assert snapshot["last_rendered_source"]
+
+
+def test_apply_batch_unexpected_exception_restores_session_journal(
+    flat_ui: dict[str, Any],
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    session.render()
+    before = session._snapshot_mutable_state()
+    original_execute = session._execute_statements
+
+    def _boom(*args, **kwargs):
+        session.working_ui = {"nodes": [], "links": []}
+        session.landed_ops.append("dirty")
+        session.touched_uids.add("dirty")
+        session.render_count += 7
+        session.last_rendered_source = "mutated"
+        return original_execute(*args, **kwargs)
+
+    def _raise(*args, **kwargs):
+        _boom(*args, **kwargs)
+        raise RuntimeError("apply exploded")
+
+    session._execute_statements = _raise  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="apply exploded"):
+        session.apply_batch('positive.text = "journal restore"')
+
+    assert session.working_ui == before["working_ui"]
+    assert session.landed_ops == before["landed_ops"]
+    assert session.touched_uids == before["touched_uids"]
+    assert session.touched_node_ids == before["touched_node_ids"]
+    assert session.uid_by_name == before["uid_by_name"]
+    assert session.name_by_uid == before["name_by_uid"]
+    assert session.unbound_names == before["unbound_names"]
+    assert session.value_default_context == before["value_default_context"]
+    assert session.render_count == before["render_count"]
+    assert session.last_rendered_source == before["last_rendered_source"]
+    assert session.last_rendered_workflow is before["last_rendered_workflow"]
+    assert session.last_render_diagnostics == before["last_render_diagnostics"]
+    assert session.ledger.resolve_node("", "2") is not None
+
+
+def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
+    flat_ui: dict[str, Any],
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    session.render()
+    before_ui = json.loads(json.dumps(session.working_ui))
+    before_names = dict(session.uid_by_name)
+
+    result = session.apply_batch(
+        'positive.text = "journal should not see this"\n'
+        "missing = CompletelyUnknownNode()\n"
+    )
+
+    assert result.ok is False
+    assert result.landed_ops == ()
+    assert session.working_ui == before_ui
+    assert session.uid_by_name == before_names
+    assert any(
+        diagnostic.code == "batch_transaction_rolled_back"
+        for diagnostic in result.diagnostics
+    )

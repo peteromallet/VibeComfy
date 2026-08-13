@@ -2378,7 +2378,16 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     calls: list[dict[str, object]] = []
     responses = iter(
         [
-            {"content": ""},
+            {
+                "content": "",
+                "model_attempts": [
+                    {
+                        "outcome": "failure",
+                        "failure_type": "empty_response",
+                        "token_usage": {"completion_tokens": 0},
+                    }
+                ],
+            },
             {
                 "content": (
                     "Applied.\n\n```batch\n"
@@ -2425,7 +2434,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     provider_metadata = response_turns[0]["batch_result"]["provider_metadata"]
     retry_meta = provider_metadata["batch_repl_retry"]
     assert retry_meta["count"] == 1
-    assert retry_meta["parse_reason"] is None
+    assert retry_meta["parse_reason"] == "empty"
     assert "batch_repl response was empty" in retry_meta["reason"]
 
 
@@ -20523,3 +20532,350 @@ def test_schema_enrichment_cross_turn_keeps_real_first(
     _assert_b04_real_first(turn2_session.schema_provider, gap_source="comfy_registry_provisional")
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
     assert state.schema_provider is turn2_session.schema_provider
+
+
+# ── B05-lite: journaled unexpected-exception rollback ───────────────────────
+
+_B05_FAULT_POINTS = (
+    "after_apply",
+    "after_render",
+    "after_candidate_write",
+    "after_done",
+    "after_finalize",
+)
+_B05_JOURNALED_FILES = (
+    "after.py",
+    "candidate.ui.json",
+    "model_request.json",
+    "model_response.json",
+    "messages.jsonl",
+    "revision_evidence.json",
+)
+
+
+def _b05_journal_mod():
+    return importlib.import_module("vibecomfy.comfy_nodes.agent.batch_rollback_journal")
+
+
+def _b05_file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.exists() else None
+
+
+def _b05_install_fault(
+    monkeypatch: pytest.MonkeyPatch,
+    point: str,
+    *,
+    fire_on_nth: int = 1,
+) -> dict[str, int]:
+    journal = _b05_journal_mod()
+    seen = {"count": 0}
+
+    def _injector(seen_point: str) -> None:
+        if seen_point != point:
+            return
+        seen["count"] += 1
+        if seen["count"] >= fire_on_nth:
+            raise journal.InjectedBatchFault(seen_point)
+
+    monkeypatch.setattr(journal, "BATCH_FAULT_INJECTOR", _injector)
+    return seen
+
+
+def _b05_capture_loop_entry(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    journal = _b05_journal_mod()
+    captured: dict[str, object] = {"journals": []}
+    real_capture = journal.capture_loop_entry_journal
+
+    def _capture(session, state, *, turn_number, context=None):
+        item = real_capture(session, state, turn_number=turn_number, context=context)
+        captured["session"] = session
+        captured["state"] = state
+        captured["journals"].append(item)
+        captured["journal"] = item
+        return item
+
+    monkeypatch.setattr(journal, "capture_loop_entry_journal", _capture)
+    return captured
+
+
+def _b05_assert_session_restored(session, snapshot: dict) -> None:
+    assert session.working_ui == snapshot["working_ui"]
+    assert session.landed_ops == snapshot["landed_ops"]
+    assert session.touched_uids == snapshot["touched_uids"]
+    assert session.touched_node_ids == snapshot["touched_node_ids"]
+    assert session.uid_by_name == snapshot["uid_by_name"]
+    assert session.name_by_uid == snapshot["name_by_uid"]
+    assert session.unbound_names == snapshot["unbound_names"]
+    assert session.value_default_context == snapshot["value_default_context"]
+    assert session.render_count == snapshot["render_count"]
+    assert session.last_rendered_source == snapshot["last_rendered_source"]
+    assert session.last_rendered_workflow is snapshot["last_rendered_workflow"]
+    assert session.last_render_diagnostics == snapshot["last_render_diagnostics"]
+    restored_ids = {
+        str(node.get("id"))
+        for node in session.working_ui.get("nodes") or []
+        if isinstance(node, dict)
+    }
+    original_ids = {
+        str(node.get("id"))
+        for node in snapshot["working_ui"].get("nodes") or []
+        if isinstance(node, dict)
+    }
+    assert restored_ids == original_ids
+
+
+def _b05_assert_files_restored(turn_dir: Path, files: dict) -> None:
+    names = {
+        "after_py_path": "after.py",
+        "candidate_ui_path": "candidate.ui.json",
+        "model_request_path": "model_request.json",
+        "model_response_path": "model_response.json",
+        "messages_path": "messages.jsonl",
+        "revision_evidence_path": "revision_evidence.json",
+    }
+    for attr, name in names.items():
+        snapshot = files[attr]
+        path = turn_dir / name
+        if snapshot.existed:
+            assert path.is_file()
+            assert path.read_bytes() == (snapshot.data or b"")
+        else:
+            assert not path.exists()
+
+
+@pytest.mark.parametrize("file_precond", ("absent", "empty", "nonempty"))
+def test_file_snapshot_journal_restores_absent_empty_and_nonempty(
+    tmp_path: Path,
+    file_precond: str,
+) -> None:
+    journal = _b05_journal_mod()
+    path = tmp_path / "after.py"
+    if file_precond == "empty":
+        path.write_bytes(b"")
+    elif file_precond == "nonempty":
+        path.write_bytes(b"print('loop-entry')\n")
+    snap = journal.snapshot_file(path)
+    if file_precond == "absent":
+        path.write_bytes(b"partial-after-mutation")
+    elif file_precond == "empty":
+        path.write_bytes(b"no-longer-empty")
+    else:
+        path.unlink()
+        path.write_bytes(b"replaced")
+    journal.restore_file(path, snap)
+    if file_precond == "absent":
+        assert not path.exists()
+    elif file_precond == "empty":
+        assert path.exists()
+        assert path.read_bytes() == b""
+    else:
+        assert path.read_bytes() == b"print('loop-entry')\n"
+
+
+@pytest.mark.parametrize("fault_point", _B05_FAULT_POINTS)
+def test_batch_repl_unexpected_exception_journal_restores_loop_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_point: str,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = f"b05-rollback-{fault_point}"
+    captured = _b05_capture_loop_entry(monkeypatch)
+    _b05_install_fault(monkeypatch, fault_point)
+    events: list[tuple[str, dict[str, object], str | None]] = []
+    model_calls: list[list[dict[str, str]]] = []
+
+    def _capture_ws_send(
+        event: str,
+        payload: dict[str, object],
+        *,
+        client_id: str | None = None,
+    ) -> None:
+        events.append((event, payload, client_id))
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
+
+    def _fake_batch_client(messages):
+        model_calls.append(messages)
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result.get("canvas_apply_allowed") is False
+    assert len(model_calls) == 1
+    journal = captured["journal"]
+    session = captured["session"]
+    _b05_assert_session_restored(session, journal.session_snapshot)
+    turn_id = str(result.get("turn_id") or journal.turn_id)
+    turn_dir = turn_dir_for(tmp_path, session_id, turn_id)
+    _b05_assert_files_restored(turn_dir, journal.files)
+    assert not (turn_dir / "model_request.json").exists()
+    assert not (turn_dir / "model_response.json").exists()
+    assert not (turn_dir / "candidate.ui.json").exists()
+    assert not (turn_dir / "after.py").exists()
+    abort_path = turn_dir / "abort.json"
+    assert abort_path.is_file()
+    abort = json.loads(abort_path.read_text(encoding="utf-8"))
+    assert abort["contract_version"] == "batch_repl_abort_v1"
+    assert abort["code"] == "unexpected_batch_exception"
+    assert abort["status"] == "aborted"
+    assert abort["restored"] is True
+    assert abort["committed"] is False
+    assert abort["fault_point"] == fault_point
+    assert abort["error_type"] == "InjectedBatchFault"
+    assert "success" not in json.dumps(abort).lower()
+    assert (turn_dir / "response.json").is_file()
+    session_state = read_state(tmp_path / session_id)
+    turn_record = session_state["turns"][turn_id]
+    assert turn_record.get("abort", {}).get("status") == "aborted"
+    assert turn_record.get("state") != "candidate" or turn_record.get("abort")
+    assert turn_record.get("candidate_graph_hash") is None
+    assert all(payload.get("status") != "done" for _, payload, _ in events)
+    abort_events = [payload for _, payload, _ in events if payload.get("status") == "aborted"]
+    assert abort_events
+    assert abort_events[0].get("rolled_back") is True
+    assert abort_events[0].get("committed") is False
+    assert abort_events[0].get("landed_op_count") == 0
+    if isinstance(result.get("graph"), dict):
+        assert result["graph"] != {"nodes": []}
+
+
+def test_batch_repl_abort_restores_nonempty_loop_entry_files_on_second_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = "b05-rollback-nonempty"
+    captured = _b05_capture_loop_entry(monkeypatch)
+    _b05_install_fault(monkeypatch, "after_candidate_write", fire_on_nth=2)
+    model_calls: list[object] = []
+
+    def _fake_batch_client(_messages):
+        model_calls.append(_messages)
+        if len(model_calls) == 1:
+            return {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Applied the first change.",
+            }
+        return {
+            "batch": 'saveimage.filename_prefix = "again"\ndone()',
+            "message": "Tried a second change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix twice",
+            "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert len(model_calls) == 2
+    journals = captured["journals"]
+    assert len(journals) >= 2
+    second = journals[1]
+    session = captured["session"]
+    _b05_assert_session_restored(session, second.session_snapshot)
+    turn_dir = turn_dir_for(tmp_path, session_id, str(second.turn_id))
+    _b05_assert_files_restored(turn_dir, second.files)
+    assert second.files["after_py_path"].existed
+    assert second.files["candidate_ui_path"].existed
+    assert (turn_dir / "after.py").read_bytes() == second.files["after_py_path"].data
+    assert (turn_dir / "candidate.ui.json").read_bytes() == second.files["candidate_ui_path"].data
+    abort = json.loads((turn_dir / "abort.json").read_text(encoding="utf-8"))
+    assert abort["status"] == "aborted"
+    assert abort["fault_point"] == "after_candidate_write"
+    assert abort["committed"] is False
+
+
+def test_batch_repl_abort_does_not_make_another_model_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    _b05_install_fault(monkeypatch, "after_done")
+    model_calls = {"n": 0}
+
+    def _fake_batch_client(_messages):
+        model_calls["n"] += 1
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        }
+
+    handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "b05-no-retry",
+            "max_batches": 4,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+    assert model_calls["n"] == 1
+
+
+def test_batch_repl_abort_telemetry_does_not_claim_done(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    _b05_install_fault(monkeypatch, "after_finalize")
+    events: list[dict[str, object]] = []
+
+    def _capture_ws_send(event: str, payload: dict[str, object], *, client_id: str | None = None) -> None:
+        events.append(payload)
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
+
+    handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "b05-telemetry",
+            "max_batches": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        },
+        session_root=tmp_path,
+    )
+    statuses = [event.get("status") for event in events]
+    assert "done" not in statuses
+    assert "aborted" in statuses
+    abort_event = next(event for event in events if event.get("status") == "aborted")
+    assert abort_event.get("rolled_back") is True
+    assert abort_event.get("committed") is False
