@@ -393,6 +393,50 @@ def test_adding_setter_to_orphaned_getnode_channel_is_detected():
 # Ghost endpoints (B03 rework7: oracle blocking issue)
 # ---------------------------------------------------------------------------
 
+def test_ghost_source_through_new_reroute_attributes_existing_consumer_issue():
+    """A ghost source hidden behind a new Reroute must reach the existing
+    terminal consumer instead of disappearing with the snapshot-absent helper.
+    """
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["8"] = VibeNode("8", "Reroute", uid="new-reroute")
+    wf.edges = [
+        VibeEdge("ghost", "0", "8", ""),
+        VibeEdge("8", "0", "9", "images"),
+    ]
+
+    delta = compute_field_delta(snap, wf)
+    semantic = delta["consumer"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ("unknown_source:ghost",)
+    assert semantic["global_after_resolution_issues"] == ()
+
+
+def test_new_source_to_ghost_consumer_carries_issue_on_new_source():
+    """Issue-only deltas on snapshot-absent known endpoints must be retained."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["7"] = VibeNode("7", "DynamicRows", uid="existing-pin")
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["8"] = VibeNode("8", "KSampler", uid="new-source")
+    wf.edges = [VibeEdge("8", "0", "ghost-consumer", "images")]
+
+    delta = compute_field_delta(snap, wf)
+    semantic = delta["new-source"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == (
+        "unknown_consumer:ghost-consumer",
+    )
+    assert semantic["global_after_resolution_issues"] == ()
+    assert "semantic_link_set" not in delta.get("existing-pin", {})
+
+
 def test_known_source_to_ghost_consumer_edge_carries_attributed_issue():
     """A known source → missing-consumer edge must attribute ``unknown_consumer``
     to the source's uid so the issue lands on a snapshot-present fence target.

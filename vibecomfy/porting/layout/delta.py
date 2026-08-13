@@ -4,8 +4,10 @@
 ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
 the live IR state of a ``VibeWorkflow``.
 
-Nodes absent from *snapshot* (added after ingest) are omitted from the result —
-downstream logic treats them as ``'snapshot-absent'``.
+Ordinary field/link changes on nodes absent from *snapshot* (added after
+ingest) are omitted from the result — downstream logic treats them as
+``'snapshot-absent'``.  Resolution issues are the exception: they are always
+surfaced so emission can fail closed before touching an unresolved endpoint.
 """
 from __future__ import annotations
 
@@ -88,9 +90,6 @@ def _canonical_semantic_link_set(
         }
     )
     issues: set[str] = set()
-    # Ordered record of every issue as first detected, so a failing resolution
-    # can attribute exactly the issues it added to the consuming edge.
-    issue_log: list[str] = []
     # canonical consumer uid -> resolution issues that involve it.
     attribution: dict[str, set[str]] = defaultdict(set)
 
@@ -98,7 +97,6 @@ def _canonical_semantic_link_set(
         if issue in issues:
             return
         issues.add(issue)
-        issue_log.append(issue)
 
     uids: dict[str, str] = {}
     for node_id, (uid, _class_type, _channel) in sorted(
@@ -168,7 +166,15 @@ def _canonical_semantic_link_set(
         current = start
         result: tuple[str, str] | None = None
         issues_for_key: frozenset[str] = frozenset()
-        walk_start = len(issue_log)
+        walk_issues: set[str] = set()
+
+        def record_walk_issue(issue: str) -> None:
+            # Global diagnostics dedupe by text, but every failed walk still
+            # needs its own attribution even when another walk recorded the
+            # same issue first.
+            record_issue(issue)
+            walk_issues.add(issue)
+
         while True:
             key = current
             if key in memo:
@@ -178,12 +184,13 @@ def _canonical_semantic_link_set(
                 cycle_nodes = {
                     hop[0] for hop in path[path.index(key):]
                 } | {key[0]}
-                record_issue(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
+                record_walk_issue(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
                 result = None
                 break
             spec = normalized_nodes.get(key[0])
             if spec is None:
-                record_issue(f"unknown_source:{key[0]}")
+                issue = f"unknown_source:{key[0]}"
+                record_walk_issue(issue)
                 result = None
                 break
             uid, class_type, channel = spec
@@ -205,13 +212,13 @@ def _canonical_semantic_link_set(
                     result = (uid, key[1])
                     break
                 if len(candidates) != 1:
-                    record_issue(f"reroute_source_count:{key[0]}:{len(candidates)}")
+                    record_walk_issue(f"reroute_source_count:{key[0]}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
             elif class_type == "GetNode":
                 if not channel:
-                    record_issue(f"broadcast_name_missing:{key[0]}")
+                    record_walk_issue(f"broadcast_name_missing:{key[0]}")
                     result = None
                     break
                 setters = sorted(set(setters_by_channel.get(str(channel), ())))
@@ -225,7 +232,7 @@ def _canonical_semantic_link_set(
                     result = (uid, key[1])
                     break
                 if len(setters) != 1:
-                    record_issue(
+                    record_walk_issue(
                         f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
                     )
                     result = None
@@ -240,7 +247,7 @@ def _canonical_semantic_link_set(
                     result = (setter_uid, key[1])
                     break
                 if len(candidates) != 1:
-                    record_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
+                    record_walk_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
@@ -255,14 +262,14 @@ def _canonical_semantic_link_set(
                     result = (uid, key[1])
                     break
                 if len(candidates) != 1:
-                    record_issue(f"setnode_as_source:{key[0]}:{len(candidates)}")
+                    record_walk_issue(f"setnode_as_source:{key[0]}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
             in_progress.add(key)
             path.append(key)
             if len(path) > _MAX_SEMANTIC_WALK:
-                record_issue(f"semantic_walk_limit:{key[0]}")
+                record_walk_issue(f"semantic_walk_limit:{key[0]}")
                 result = None
                 break
             current = (next_node, next_port)
@@ -270,7 +277,7 @@ def _canonical_semantic_link_set(
             # A failure may have been replayed from a memoized key; either way
             # the issues that blocked this resolution belong to every consumer
             # of it, so the full set is cached on each visited key.
-            issues_for_key = frozenset(issue_log[walk_start:]) | issues_for_key
+            issues_for_key = frozenset(walk_issues) | issues_for_key
         for visited_key in path:
             memo[visited_key] = (result, issues_for_key)
             in_progress.discard(visited_key)
@@ -489,7 +496,9 @@ def compute_field_delta(
     ``{uid: {field_name: delta}}`` — only nodes and fields where something
     changed. Scalar fields use ``(old_value, new_value)``; link changes use a
     ``semantic_link_set`` record carrying canonical before/after sets and
-    resolution issues. Nodes absent from *snapshot* are omitted.
+    resolution issues. Nodes absent from *snapshot* are omitted unless a
+    canonical resolution issue is attributed to them (or is globally
+    unresolved), in which case an issue-only semantic record is emitted.
     Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
     omitted; callers that need to detect removals should diff snapshot keys against
     the current IR's uid set directly.
@@ -529,30 +538,38 @@ def compute_field_delta(
     )
     # Issues with no per-uid attribution target (both endpoints ghost, e.g.
     # ``unknown_source`` + ``unknown_consumer`` on a fully missing edge) cannot
-    # land on any single fence target.  They are surfaced on EVERY
-    # snapshot-present uid's ``semantic_link_set`` record so the pin fence
+    # land on any single fence target.  They are surfaced on EVERY live
+    # uid's ``semantic_link_set`` record so the widget-shape fence
     # fails closed with a typed ``RefusedEmit`` instead of letting the
     # unresolved ghost edge crash the emitter with a bare ``KeyError``
     # (B03 rework7).  Attributable issues never fan out (rework5 guarantee).
-    attributed_before = (
-        frozenset().union(*before_attribution.values())
-        if before_attribution
-        else frozenset()
+    # Only attribution targets that can actually receive a delta count as
+    # surfaced.  In particular, newly-added live nodes are valid targets, while
+    # issues attributed solely to a removed node fall back to the global bucket.
+    live_uids = {str(uid) for uid in uid_to_node}
+    before_targets = {before_aliases.get(uid, uid) for uid in live_uids}
+    after_targets = {after_aliases.get(uid, uid) for uid in live_uids}
+    attributed_before = frozenset().union(
+        *(before_attribution.get(uid, frozenset()) for uid in before_targets)
     )
-    attributed_after = (
-        frozenset().union(*after_attribution.values())
-        if after_attribution
-        else frozenset()
+    attributed_after = frozenset().union(
+        *(after_attribution.get(uid, frozenset()) for uid in after_targets)
     )
     global_before_issues = tuple(sorted(set(before_issues) - attributed_before))
     global_after_issues = tuple(sorted(set(after_issues) - attributed_after))
 
     delta: dict[str, dict[str, Any]] = {}
-    for uid, old_snap in snapshot.items():
+    # Preserve snapshot order, then add live snapshot-absent nodes in workflow
+    # order.  New nodes still omit ordinary deltas; this wider target set exists
+    # solely so their attributed/global resolution issues reach the fence.
+    candidate_uids = tuple(dict.fromkeys((*snapshot.keys(), *uid_to_node.keys())))
+    for uid in candidate_uids:
         node = uid_to_node.get(uid)
         if node is None:
             # Node removed after snapshot — omit per spec (caller diffs keys directly).
             continue
+
+        old_snap = snapshot.get(uid)
 
         # Recompute the current signature for this node.
         all_values = {**node.widgets, **node.inputs}
@@ -563,27 +580,33 @@ def compute_field_delta(
         }
 
         node_delta: dict[str, Any] = {}
-        for field_name in _SNAPSHOT_FIELDS:
-            old_val = old_snap[field_name]
-            new_val = current[field_name]
-            if old_val != new_val:
-                node_delta[field_name] = (old_val, new_val)
+        if old_snap is not None:
+            for field_name in _SNAPSHOT_FIELDS:
+                old_val = old_snap[field_name]
+                new_val = current[field_name]
+                if old_val != new_val:
+                    node_delta[field_name] = (old_val, new_val)
 
-        uid_key = before_aliases.get(str(uid), str(uid))
+        before_uid_key = before_aliases.get(str(uid), str(uid))
+        after_uid_key = after_aliases.get(str(uid), str(uid))
         before_incident = tuple(
-            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
+            link
+            for link in canonical_before
+            if link[0] == before_uid_key or link[2] == before_uid_key
         )
         after_incident = tuple(
-            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
+            link
+            for link in canonical_after
+            if link[0] == after_uid_key or link[2] == after_uid_key
         )
-        # Resolution issues are attached only to the snapshot nodes actually
-        # involved (issue-named uids plus consumers of the failing edges), so
+        # Resolution issues are attached only to the live nodes actually
+        # involved (known endpoint uids plus consumers of failing walks), so
         # a single ambiguous helper never fabricates a semantic-link delta on
         # unrelated pins (B03 oracle finding 3 fan-out amplification).
-        before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
-        after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
+        before_uid_issues = tuple(sorted(before_attribution.get(before_uid_key, ())))
+        after_uid_issues = tuple(sorted(after_attribution.get(after_uid_key, ())))
         if (
-            before_incident != after_incident
+            (old_snap is not None and before_incident != after_incident)
             or before_uid_issues
             or after_uid_issues
             or global_before_issues
@@ -595,13 +618,28 @@ def compute_field_delta(
                 "before_resolution_issues": before_uid_issues,
                 "after_resolution_issues": after_uid_issues,
                 # Unattributed global issues (fully ghost endpoints) ride on
-                # every snapshot-present fence target (B03 rework7).
+                # every live fence target (B03 rework7/rework8).
                 "global_before_resolution_issues": global_before_issues,
                 "global_after_resolution_issues": global_after_issues,
             }
 
         if node_delta:
             delta[uid] = node_delta
+
+    # A graph containing only ghost endpoints has no live node on which to
+    # hang the global diagnostics.  Preserve the public invariant anyway:
+    # canonical resolution issues must never collapse to an empty delta.
+    if not delta and (before_issues or after_issues):
+        delta["unresolved"] = {
+            "semantic_link_set": {
+                "before": (),
+                "after": (),
+                "before_resolution_issues": (),
+                "after_resolution_issues": (),
+                "global_before_resolution_issues": tuple(before_issues),
+                "global_after_resolution_issues": tuple(after_issues),
+            }
+        }
 
     return delta
 

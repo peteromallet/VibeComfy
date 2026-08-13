@@ -1495,6 +1495,65 @@ def test_pinned_semantic_ghost_consumer_edge_refuses_with_link_delta() -> None:
     assert "unknown_consumer:ghost" in semantic_delta["after_resolution_issues"]
 
 
+def test_pinned_semantic_ghost_source_through_new_reroute_refuses_with_link_delta() -> None:
+    """A ghost source behind a new helper refuses at the existing consumer."""
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["8"] = VibeNode("8", "Reroute", uid="new-reroute")
+    wf.edges = [
+        VibeEdge("ghost", "0", "8", ""),
+        VibeEdge("8", "0", "7", "image"),
+    ]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["before"] == []
+    assert semantic_delta["after"] == []
+    assert semantic_delta["after_resolution_issues"] == ["unknown_source:ghost"]
+
+
+def test_pinned_semantic_new_source_to_ghost_consumer_refuses_with_link_delta() -> None:
+    """A snapshot-absent known source carries its issue into the fence."""
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["8"] = VibeNode("8", "KSampler", uid="new-source")
+    wf.edges = [VibeEdge("8", "0", "ghost-consumer", "images")]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["8"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["before"] == []
+    assert semantic_delta["after"] == []
+    assert semantic_delta["after_resolution_issues"] == [
+        "unknown_consumer:ghost-consumer"
+    ]
+
+
+def test_schema_backed_snapshot_resolution_issue_refuses() -> None:
+    """A clean schema-backed node is never SAFE while resolution is broken."""
+    wf = _wf()
+    wf.nodes["1"] = VibeNode("1", "KSampler", uid="schema-backed", widgets={"seed": 42})
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+    wf.edges = [VibeEdge("1", "0", "ghost-consumer", "images")]
+
+    with pytest.raises(RefusedEmit) as exc_info:
+        emit_ui_json(wf, schema_provider=_provider())
+
+    details = exc_info.value.diff["1"]["details"]
+    assert details["decision"] == "refuse"
+    assert details["safe_to_regenerate"] is False
+    assert details["link_delta"]["semantic_link_set"]["after_resolution_issues"] == [
+        "unknown_consumer:ghost-consumer"
+    ]
+
+
 def test_pinned_semantic_fully_ghost_edge_refuses_with_link_delta() -> None:
     """B03 rework7: an edge whose endpoints are BOTH missing has no per-uid
     attribution target, so the unresolved global issues ride on every

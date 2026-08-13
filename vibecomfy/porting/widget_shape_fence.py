@@ -199,6 +199,21 @@ def decide_widget_shape(
             recovery="observed_dynamic_widgets_regenerate",
         )
 
+    # Canonical semantic differences and resolution issues are both link
+    # deltas.  Neither regeneration nor opaque carry-forward can make an
+    # unresolved endpoint safe, so refuse before the schema-backed fast path
+    # below can return SAFE_TO_REGENERATE (B03 rework8).
+    if has_link_delta:
+        return _verdict(
+            evidence,
+            WidgetShapeDecision.REFUSE,
+            (*static_reasons, WidgetShapeReason.LINK_DELTA),
+            raw_ui_node=raw_ui_node,
+            layout_entry=layout_entry,
+            field_delta=field_delta,
+            link_delta=link_delta,
+        )
+
     if evidence.explicit_widget_overflow:
         refuse_reasons = list(static_reasons)
         if not static_reasons and evidence.explicit_widget_overflow:
@@ -211,8 +226,6 @@ def decide_widget_shape(
             refuse_reasons.append(WidgetShapeReason.MISSING_LAYOUT_ENTRY)
         if has_widget_delta:
             refuse_reasons.append(WidgetShapeReason.WIDGET_DELTA)
-        if has_link_delta:
-            refuse_reasons.append(WidgetShapeReason.LINK_DELTA)
         return _verdict(
             evidence,
             WidgetShapeDecision.REFUSE,
@@ -246,8 +259,6 @@ def decide_widget_shape(
         pin_blockers.append(WidgetShapeReason.MISSING_LAYOUT_ENTRY)
     if has_widget_delta:
         pin_blockers.append(WidgetShapeReason.WIDGET_DELTA)
-    if has_link_delta:
-        pin_blockers.append(WidgetShapeReason.LINK_DELTA)
 
     if len(pin_blockers) == len(static_reasons):
         return _verdict(
@@ -401,7 +412,7 @@ def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
     even when the successfully resolved portions of the two sets are equal.
     Unattributed *global* resolution issues (e.g. a fully ghost edge whose
     endpoints are both missing) also fail closed: they ride on every
-    snapshot-present fence target, so any widget-shape blocker anywhere in the
+    live fence target, so any widget-shape blocker anywhere in the
     graph refuses the emit with a typed ``RefusedEmit`` instead of a bare
     ``KeyError`` downstream (B03 rework7).
     """
