@@ -311,8 +311,8 @@ Prompt/model quality work remains cut. This batch replaces it with the verified 
    - Legitimate dynamic inputs require an explicit node/schema contract.
 6. Define ONE shared, concrete dynamic-port contract covering the verified node families (count-driven: `ImageConcatMulti` `image_N`, `LTXVImgToVideoInplaceKJ` `num_images.*`, `SimpleCalculator` `input_N`, `LTXVAddGuide` `guide_N`, `SimpleCalculatorKJ` payload vars, `in_N` fixed slots; helpers/proxies: `Reroute`, `GetNode`, `SetNode`, `PrimitiveNode`; dynamic `INPUT_TYPES` custom nodes) — a single predicate used by resolution, mutation, and projection (not a duplicated list at three sites). A port is valid iff present in `node["outputs"]`/`["inputs"]`, or the class matches the dynamic contract AND the schema-fallback slot is bounds-verified before link write.
 7. Materialize declared ports during node construction, not opportunistically during link application (materialize-then-validate: build schema input sockets into `inputs` at `ui.py:1325` symmetric with outputs, then keep write-time bounds checks but emit diagnostics instead of silent returns at `apply_links.py:303/314`).
-7. Resolve projection ports by canonical name with a validated index fallback.
-8. Return typed pre-apply diagnostics instead of creating malformed links and failing during projection.
+8. Resolve projection ports by canonical name with a validated index fallback.
+9. Return typed pre-apply diagnostics instead of creating malformed links and failing during projection.
 
 ### Acceptance
 
