@@ -121,6 +121,14 @@ def _canonical_semantic_link_set(
                 ].add(f"unknown_source:{source}")
         if consumer not in normalized_nodes:
             record_issue(f"unknown_consumer:{consumer}")
+            # The consumer is ghost, but the SOURCE endpoint is known — the
+            # issue belongs on the source's uid so it lands on a
+            # snapshot-present fence target and refuses (B03 rework7).
+            source_spec = normalized_nodes.get(source)
+            if source_spec is not None:
+                attribution[
+                    aliases.get(str(source_spec[0]), str(source_spec[0]))
+                ].add(f"unknown_consumer:{consumer}")
         # Keep the helper endpoint's input identity until ambiguity has been
         # decided.  Two edges from the same source/output into different
         # helper inputs are still two distinct candidates and must fail closed.
@@ -328,8 +336,9 @@ def _issue_mentioned_uids(
     """Map the graph-local node ids named by a resolution issue to stable uids.
 
     ``unknown_source``/``unknown_consumer`` name ghost ids absent from
-    ``nodes`` by construction; they are attributed to the consuming edge at
-    record time instead of here.
+    ``nodes`` by construction; they are attributed at record time instead of
+    here — ``unknown_source`` to the consuming edge's uid and
+    ``unknown_consumer`` to the known source's uid (B03 rework7).
     """
     code, _, rest = issue.partition(":")
     parts = rest.split(":") if rest else []
@@ -508,16 +517,35 @@ def compute_field_delta(
     # contain newly lowered clones absent from the snapshot, so it retains the
     # complete validated live alias map.
     before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
-    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
+    canonical_before, before_issues, before_attribution = _canonical_semantic_link_set(
         before_nodes,
         before_links,
         consumer_uid_aliases=before_aliases,
     )
-    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
+    canonical_after, after_issues, after_attribution = _canonical_semantic_link_set(
         after_nodes,
         after_links,
         consumer_uid_aliases=after_aliases,
     )
+    # Issues with no per-uid attribution target (both endpoints ghost, e.g.
+    # ``unknown_source`` + ``unknown_consumer`` on a fully missing edge) cannot
+    # land on any single fence target.  They are surfaced on EVERY
+    # snapshot-present uid's ``semantic_link_set`` record so the pin fence
+    # fails closed with a typed ``RefusedEmit`` instead of letting the
+    # unresolved ghost edge crash the emitter with a bare ``KeyError``
+    # (B03 rework7).  Attributable issues never fan out (rework5 guarantee).
+    attributed_before = (
+        frozenset().union(*before_attribution.values())
+        if before_attribution
+        else frozenset()
+    )
+    attributed_after = (
+        frozenset().union(*after_attribution.values())
+        if after_attribution
+        else frozenset()
+    )
+    global_before_issues = tuple(sorted(set(before_issues) - attributed_before))
+    global_after_issues = tuple(sorted(set(after_issues) - attributed_after))
 
     delta: dict[str, dict[str, Any]] = {}
     for uid, old_snap in snapshot.items():
@@ -554,12 +582,22 @@ def compute_field_delta(
         # unrelated pins (B03 oracle finding 3 fan-out amplification).
         before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
         after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
-        if before_incident != after_incident or before_uid_issues or after_uid_issues:
+        if (
+            before_incident != after_incident
+            or before_uid_issues
+            or after_uid_issues
+            or global_before_issues
+            or global_after_issues
+        ):
             node_delta["semantic_link_set"] = {
                 "before": before_incident,
                 "after": after_incident,
                 "before_resolution_issues": before_uid_issues,
                 "after_resolution_issues": after_uid_issues,
+                # Unattributed global issues (fully ghost endpoints) ride on
+                # every snapshot-present fence target (B03 rework7).
+                "global_before_resolution_issues": global_before_issues,
+                "global_after_resolution_issues": global_after_issues,
             }
 
         if node_delta:

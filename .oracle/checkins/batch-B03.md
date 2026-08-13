@@ -1,7 +1,7 @@
 Reading additional input from stdin...
-2026-08-13T18:35:32.261000Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/pipelines/epic-blitz/SKILL.md: missing YAML frontmatter delimited by ---
-2026-08-13T18:35:32.261835Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
-2026-08-13T18:35:32.261842Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
+2026-08-13T20:18:18.745836Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/pipelines/epic-blitz/SKILL.md: missing YAML frontmatter delimited by ---
+2026-08-13T20:18:18.745893Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
+2026-08-13T20:18:18.745902Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
 OpenAI Codex v0.147.0
 --------
 workdir: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
@@ -11,7 +11,7 @@ approval: never
 sandbox: read-only
 reasoning effort: high
 reasoning summaries: none
-session id: 019ffc68-7494-7952-9363-10646457619e
+session id: 019ffcc6-8a92-7073-b3bf-1198567418ad
 --------
 user
 # MEGADO CHECKPOINT — Batch B03 (oracle: GPT-5.6 Sol, high reasoning, READ-ONLY)
@@ -20,7 +20,7 @@ You are the B03 oracle gate for the megado run on the VibeComfy agent-edit pipel
 
 ## The batch
 
-**B03 [HARD] — Canonical semantic pin comparison.** Tasks + acceptance from `.oracle/tasklist.md` (B03 section). Diff to review: `git diff e1bef3bf..59a5f16c` (B04 PASS SHA → B03 commit). Executors: GPT-5.6 Sol (implementation) + DeepSeek Flash (traversal-termination rework).
+**B03 [HARD] — Canonical semantic pin comparison.** Tasks + acceptance from `.oracle/tasklist.md` (B03 section). Diff to review: `git diff e1bef3bf..e82d54bf` (B04 PASS SHA → B03 commit). Executors: GPT-5.6 Sol (implementation) + DeepSeek Flash (traversal-termination rework).
 
 ## Executor evidence
 
@@ -38,7 +38,7 @@ You are the B03 oracle gate for the megado run on the VibeComfy agent-edit pipel
 4. Termination: cyclic/unresolved paths terminate deterministically (visited-set), fail closed; stress evidence in the rework.
 5. Fixtures cover: flat Set/Get fan-out; 1:1 reroute lowering; loop-cloned consumer UIDs; nested subgraphs; multi-output nodes; genuine removed/repointed/orphaned consumers.
 6. Multi-output identity preserved; B02 preservation tests green (test_b02_rich_preservation.py 4/4 — it's slow, run it if sandbox permits).
-7. Scope: only B03 files + conftest perf fix; `git diff --check e1bef3bf..59a5f16c` clean.
+7. Scope: only B03 files + conftest perf fix; `git diff --check e1bef3bf..e82d54bf` clean.
 8. Run the focused slices yourself where sandbox permits (`-p no:rerunfailures` if the socket plugin blocks; skip the quarantined parity baseline).
 
 ## Output
@@ -47,9 +47,9 @@ First line: `B03 CHECKPOINT VERDICT: PASS|FAIL — <one line>`.
 Then per-focus findings (1–8) with evidence, and an issue list if FAIL (file:line + rework). Be adversarial but fair.
 warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
 codex
-I’m using the `megado` skill because this is an oracle checkpoint for an active megado batch. I’ll inspect the batch contract and exact diff first, then trace each of the eight focus areas and run only the scoped test slices in read-only mode.
+I’m using the `megado` checkpoint procedure and will keep the review read-only. I’ll inspect the acceptance criteria and diff directly, while delegating an independent test/evidence check so implementation review and validation stay separate.
 exec
-/bin/zsh -lc "sed -n '1,260p' /Users/peteromalley/.codex/skills/megado/SKILL.md" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "sed -n '1,240p' /Users/peteromalley/.codex/skills/megado/SKILL.md" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
 ---
 name: megado
@@ -219,256 +219,14 @@ PYENV_VERSION=3.11.11 python ~/.claude/skills/subagent-launcher/launch_hermes_ag
 git add -A && git commit -m "megado: <project>" && git push && open .
 ```
 
-codex
-The megado oracle protocol explicitly requires a delegated critique pass. I’m applying that here as a read-only independent review of the semantic-delta helper and its fail-closed behavior; I’ll retain the final judgment and validate all cited evidence myself.
+2026-08-13T20:18:35.097278Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/pipelines/epic-blitz/SKILL.md: missing YAML frontmatter delimited by ---
+2026-08-13T20:18:35.098011Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
+2026-08-13T20:18:35.098034Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
 exec
-/bin/zsh -lc "sed -n '1,320p' /Users/peteromalley/.codex/skills/subagent-launcher/SKILL.md" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "rg -n -A120 -B10 '"'^## B03|''^### B03|B03 '"\\[' .oracle/tasklist.md" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
----
-name: subagent-launcher
-description: Launch an external model as a subagent for a second opinion, adversarial review, or delegated work. Default pathway is an agentic DeepSeek / Kimi / Zhipu GLM hermes subagent (file/web/terminal tools, one process or fanned out N-wide); also Codex (GPT-5.5) and Claude via the Agent tool. Use for independent root-cause analysis, cross-checking your reasoning, judge/jury panels, or handing implementation to a different model.
----
-
-# Subagent launcher (multi-model)
-
-Dispatch work to a model other than the one driving the conversation. Two payoffs: **independence** — a *different* model's judgement, not a copy of your own — and **context hygiene** — the subagent's tool calls and reasoning stay in *its* context; only the conclusion returns to you.
-
-Three pathways:
-
-| Pathway | Model | Invocation | Tools |
-| --- | --- | --- | --- |
-| **Hermes agentic** *(default)* | DeepSeek V4 (Pro/Flash), Kimi K2.7, Zhipu GLM, … | `launch_hermes_agent.py` — or `fan.py` to run N in one process | `file`, `web`, optional `terminal` |
-| **Codex** | GPT-5.5 | `codex exec` (CLI) | sandboxed workspace |
-| **Claude** | Claude (Opus/Sonnet/Haiku) | `launch_claude_agent.py --model=opus` or Claude Code `Agent` tool | Claude Code tools |
-
-**Default to the hermes agentic pathway, and to DeepSeek Flash within it** — different model family, cheap, fast, tool-using. Reach for DeepSeek Pro only when the task needs reasoning judgement; reach for Codex or Claude only when you specifically want their strengths.
-
-> **⚠️ Network sandbox warning for Codex subagents**
-> `codex exec` runs its subprocess with `CODEX_SANDBOX_NETWORK_DISABLED=1`. Hermes agents (DeepSeek/Kimi/MiMo/GLM/OpenRouter) need outbound network to reach their provider APIs, so **launching them from inside a `codex exec` subagent will fail**. The launcher itself is fine; it fails only because the parent process has no network.
->
-> **Workarounds:**
-> 1. Launch the hermes subagent directly from a normal shell or Bash tool.
-> 2. If you need a **Codex subagent to orchestrate hermes subagents**, run the
->    outer Codex command with `--sandbox danger-full-access` and seal stdin with
->    `</dev/null`, for example:
->
->    ```bash
->    timeout 3600 codex exec --sandbox danger-full-access \
->      -c model_reasoning_effort=high \
->      "$(cat /tmp/brief.md)" </dev/null
->    ```
->
->    `read-only` and `workspace-write` both disable outbound network for the
->    Codex subprocess; only `danger-full-access` allows nested Hermes provider
->    API calls from inside `codex exec`. Tell Codex explicitly to use
->    `launch_hermes_agent.py` or `fan.py`, and to spend its own context budget
->    by delegating broad searches, file mapping, and independent reviews to
->    DeepSeek/Kimi subagents wherever practical.
->
-> This network restriction does not affect Codex or Claude subagents.
-
-## Picking a pathway
-
-- **Default — an independent DeepSeek/Kimi subagent that reads the repo itself?** → §1 (`launch_hermes_agent.py --toolsets="file,web"`). Need many at once (≥ ~5 parallel)? Same pathway, `fan.py`.
-- **Pure chat opinion, no tools?** → §1 with `--toolsets=""`.
-- **Most-different-from-Claude judgement, or write-heavy implementation in a sandbox?** → §2 Codex.
-- **Same-*family* judgement but isolated from this thread, with explicit Opus/Sonnet selection?** → §3 Claude CLI launcher. If the host exposes the Claude Code `Agent` tool and model selection is not required, that is also fine.
-- **Jury for a high-stakes call?** → fan the same prompt to Codex + hermes-DeepSeek + hermes-Kimi in parallel; divergence is the signal.
-- **Bigger than ~a day or two of work?** → it's a *deliverable*, not a dispatch: run a `megaplan` (itself launched as a subagent) and size it with the **`megaplan-decision`** skill. Past ~2 weeks → an epic.
-- **Already have the answer?** → don't dispatch. Subagents aren't free.
-
-## Use the cheapest subagent that can do the job
-
-Independence is the *why*; cost is the *which*. Default to the cheapest model that can plausibly succeed; escalate only on evidence.
-
-1. **MiMo V2.5 Pro Ultraspeed** (`fast`, alias for `mimo:mimo-v2.5-pro-ultraspeed`) — very fast. High-volume, low-judgement work: scan files, extract facts, short first-pass research.
-2. **DeepSeek V4 Flash** (`deepseek:deepseek-v4-flash`, **the default**) — non-reasoning, fast, cheap. The default for most dispatches: implementation, mechanical edits, focused investigation, verification. Escalate to Pro only on evidence that reasoning is needed.
-3. **DeepSeek V4 Pro** (`deepseek:deepseek-v4-pro`) — reasoning model. Use when the task needs judgement: root-cause analysis, "is this sound", "should this merge".
-4. **GPT-5.5 (Codex) or Claude** — only for *real* complexity: subtle multi-step reasoning, write-heavy implementation, the strongest adversarial review.
-
-Two rules: **start low, escalate on evidence** (don't reach for the frontier model "to be safe"); and **prepare the context so a cheap model can win** — most "cheap model failed" cases are under-specified prompts. A moment spent scoping the task is cheaper than burning a Claude subagent on something Flash could do.
-
-Beware the asymmetry: reasoning models handed mechanical briefs refactor (because that's what reasoning does); non-reasoning models handed architectural briefs literally execute fragments without understanding the intent. Match brief shape to model mode, not just model to task.
-
----
-
-## 1. Hermes agentic (DeepSeek / Kimi / Zhipu GLM) — the default
-
-A real tool-using agent in a non-Claude model's voice, far lighter than a `megaplan` run. It wraps megaplan's `AIAgent` primitive as a standalone CLI: the agent reads files, searches the codebase, fetches URLs, and (with `terminal`) runs commands — single-turn, no plan state or critique loop. For a pure-chat opinion with no repo access, run the same command with `--toolsets=""`.
-
-The launcher discovers the active runtime itself. It first tries an installed legacy `megaplan.agent` distribution, then falls back to the current Arnold checkout (`~/Documents/Arnold` by default, or `ARNOLD_PATH=/path/to/Arnold`). Do not add an `arnold_pipelines.megaplan.agent` compatibility package to fix import failures; the real Hermes runtime lives under `arnold_pipelines.megaplan.agent` in the Arnold checkout.
-
-```bash
-PYENV_VERSION=3.11.11 python ~/.claude/skills/subagent-launcher/launch_hermes_agent.py \
-  --toolsets="file,web" \
-  --query-file=/tmp/brief.md \
-  --max-tokens=65536 \
-  --project-dir="$PWD"
-# Final response → stdout; tool progress/timings → stderr.
-```
-
-Key flags:
-
-- **`--model`** (default `deepseek:deepseek-v4-flash`). Prefix convention from the megaplan key pool:
-  - `fast`, `mimo`, `mimo-fast` → `mimo:mimo-v2.5-pro-ultraspeed` (very fast MiMo path; requires `MIMO_API_KEY`)
-  - `deepseek:deepseek-v4-flash` (default, non-reasoning) / `deepseek:deepseek-v4-pro` (reasoning) → DeepSeek API
-  - `kimi:kimi-k2.7-code` → Kimi coding API (requires `KIMI_API_KEY` or `MOONSHOT_API_KEY`)
-  - `zhipu:glm-5.2` / `zhipu:glm-4.6` → Zhipu GLM API (requires `ZHIPU_API_KEY`)
-  - `google:gemini-…`, `minimax:MiniMax-M2`, … — see `megaplan/runtime/key_pool.py:resolve_model`
-- **`--toolsets`** (default `"file,web"`): `file` (`read_file`/`write_file`/`patch`/`search_files`), `web` (`fetch_url`), `terminal` (shell — **no sandbox**, runs as you; never for untrusted prompts). `""` = pure chat.
-- **Note:** in the standalone `launch_hermes_agent.py` entrypoint, the `file` toolset is only available when `terminal` is also enabled, because file operations are routed through the terminal environment. If the agent emits tool-call markup but does not actually read files (or claims it has no filesystem access), pass `--toolsets="file,web,terminal"`.
-- **`--query` / `--query-file`** — pass exactly one; use `--query-file` for anything past a sentence.
-- **`--max-tokens`** (default 65536 — model output ceiling for DeepSeek V4). **In normal use, do not pass this flag.** The launcher already defaults to the model's ceiling, so adding it yourself just creates copy-paste noise and makes it easy to accidentally inflate the cap for no benefit. These are reasoning models; reasoning tokens are billed and counted against `max_tokens`, so a brief that fires 20+ tool calls can burn the entire budget on reasoning before emitting a single output token — the result is an empty answer (`finish_reason: length`) with the tool history visible in stderr. The built-in ceiling protects against that silent failure. **Only pass `--max-tokens` when you specifically want a shorter cap** because you have already scoped the brief to ≤5 tool calls and want to bound cost/output length. Other ceilings: Kimi K2.7 ~32768, Zhipu GLM-5.2 / GLM-4.6 ~32768, DeepSeek Flash 8192 (non-reasoning, doesn't burn budget on thinking so 8K is fine).
-- **`--project-dir`** — chdir so the `file` tool resolves relative paths as you expect.
-- **Runtime discovery** — set `ARNOLD_PATH=/path/to/Arnold` only for nonstandard checkouts. Normal shells should not need manual `PYTHONPATH`.
-- **`--context-budget-tokens`** — raise the auto-compaction floor when a broad file audit on a long-context model compacts too early, e.g. `--context-budget-tokens=100000`.
-
-Output is **freeform text** — if you want JSON, ask for it in the prompt and parse defensively; for an *enforced* schema, use megaplan, not this pathway.
-
-### Fan out N at once — `fan.py`
-
-`launch_hermes_agent.py` is one subprocess per call; each re-imports the Arnold/Hermes runtime. For **≥ ~5 parallel agents or programmatic batches**, `fan.py` runs N `AIAgent`s in one process (imports once, ~5–15× less RAM). Same flags, plus a briefs directory and per-task output:
-
-```bash
-PYENV_VERSION=3.11.11 python ~/.claude/skills/subagent-launcher/fan.py \
-  --briefs-dir=/tmp/briefs --output-dir=/tmp/results \
-  --max-workers=5 --model="deepseek:deepseek-v4-flash" \
-  --toolsets="file,web" --max-tokens=65536 --task-timeout=1800 --project-dir="$PWD"
-# Or positional brief paths instead of --briefs-dir.
-# Per-brief models: --model-map="fast:scan-*.md,pro:verdict-*.md"
-```
-
-Each brief `<stem>.md` yields `<stem>.txt` (response), `<stem>.meta.json` (status/timing/tool_calls), and an aggregate `_report.json`. Kill a running fan from another shell: `fan_kill.py --output-dir=… [--hard]`. Default `--task-timeout=1800` (30 min — forensic work with ≥10 tool calls routinely exceeds 10 min; the old 600s default would silently SIGKILL agents mid-investigation). Bump higher for very heavy briefs (e.g. `--task-timeout=3600` for cross-file audits). Add `--isolation=processes` if you need to SIGKILL one task without touching the rest. Below ~5 parallel, just launch `launch_hermes_agent.py` N times in parallel Bash calls — simpler.
-
-### Use `megaplan` instead when you need
-
-multi-phase orchestration (plan → critique → revise → execute → gate → review), schema-enforced output, persistent plan state / approval gates, or the megaplan sandbox. See *Multi-phase delegation* below.
-
-### Liveness
-
-The script logs `[tool]` / `[done]` to stderr every 1–5 s while alive and ends with `[launch_hermes_agent] done in N.Ns`. No new tool lines for minutes = wedged. For `fan.py`, watch `.meta.json` files appearing under `--output-dir`.
-
----
-
-## 2. Codex (GPT-5.5)
-
-`codex exec` from Bash (the `/codex:*` plugin wraps the same call).
-
-```bash
-codex exec --sandbox read-only "$(cat /tmp/prompt.md)" </dev/null > /tmp/out.txt 2>&1
-```
-
-- `--sandbox read-only | workspace-write | danger-full-access` — analysis / let it edit files / full shell.
-- `-c model_reasoning_effort=low|medium|high` — `medium` default.
-- `codex exec review [--pr <n>]` for PR review; `codex apply` to apply its last diff.
-- **Always seal stdin with `</dev/null`.** Otherwise `codex exec` blocks forever at `Reading additional input from stdin...` (0% CPU, no error) even when the prompt is in argv. That banner prints on healthy runs too — the wedge signal is the output file *not growing*. Wrap long runs in `timeout 1800` (30 min — review and write-heavy briefs routinely run 15+ min; 600s is too tight).
-
-## 3. Claude (Opus/Sonnet/Haiku)
-
-Use the Claude CLI launcher when you need an explicit model selector from any
-host, including Codex sessions where the platform `spawn_agent` tool does not
-expose a model field:
-
-```bash
-python ~/.claude/skills/subagent-launcher/launch_claude_agent.py \
-  --model=opus \
-  --query-file=/tmp/brief.md \
-  --project-dir="$PWD" \
-  --tools="Read,Grep,Glob" \
-  --timeout=1800
-```
-
-`--model` accepts Claude Code aliases such as `opus` / `sonnet` / `haiku` or a
-full model name such as `claude-opus-4-8`. The launcher invokes
-`claude --print --model <model>` with `--project-dir` as the subprocess cwd and
-prints the final answer to stdout while diagnostics go to stderr. It leaves
-Claude Code's default tool policy alone unless you pass `--tools`; use
-`--permission-mode` deliberately. It adds `--no-session-persistence` by default
-so one-off subagents do not clutter Claude history; pass `--keep-session` when
-you want resumability.
-
-When you are already inside Claude Code and the `Agent` tool is available,
-you can still dispatch through it — cleanly-scoped, no memory of the outer
-conversation, so the prompt must be self-contained. Subagent types:
-`general-purpose` (full tools), `Explore` (fast read-only search), `Plan`
-(architect, no code), `claude-code-guide`, `code-reviewer`.
-
-```
-Agent({ description: "…", subagent_type: "general-purpose",
-        prompt: "<self-contained brief: working dir, files, what to return, length cap>" })
-```
-
-Prefer Claude over Codex when you want the *same family* of judgement isolated from this thread (keeping the main context clean), or specifically want Opus judgement. For genuinely different model-family judgement, prefer Codex, DeepSeek, or Kimi.
-
----
-
-## Multi-phase delegation (when a single-turn agent isn't enough)
-
-When DeepSeek/Kimi need a full plan-execute-review cycle across many files, route through megaplan:
-
-```bash
-PYENV_VERSION=3.11.11 megaplan init --project-dir "$PWD" \
-  --profile all-deepseek-pro-direct --robustness light "<task>"
-# Kimi: --profile all-open
-```
-
-`--robustness light` is a fast single pass; drop it for the full workflow (default `full`). The **`megaplan-decision`** skill covers the profile / robustness / depth dials.
-
-## Writing the prompt (any pathway)
-
-The receiving model has **zero context** from your conversation. Brief it like a smart colleague who just walked in:
-
-**Is your brief a spec or a memo?** A spec lists inputs and outputs (do X at line Y, then Z). A memo explains context and asks for judgement. Reasoning models will treat any memo as license to architect — even if the underlying ask was 5 mechanical edits. If the work is mechanical, strip the rationale; the "why" belongs in the commit message, not the brief.
-
-- Working directory and **exact** file paths (not "the relevant files").
-- Goal + why it matters; what you've already ruled out.
-- Output shape and a length cap ("ranked list, < 300 words").
-- For adversarial / second-opinion work, tell it to take a position and not hedge — otherwise it hedges.
-- Anti-pattern: the options menu. "Pick whichever of A/B/C fits" reliably invites a reasoning model to optimize across the options and often produce a fourth one you didn't ask for. One ask, one solution path. Save options menus for genuine judgement calls — and when you do use them, route the work to a non-reasoning model that can't optimize past them.
-
-Don't dispatch what you already know, and don't re-ask what you've answered — add a twist (rank these, find the flaw, argue the other side) or skip it.
-
-## Judge / jury for high-stakes calls
-
-Send the same unbiased prompt to several models in parallel (Codex + hermes-DeepSeek + hermes-Kimi, optionally a Claude `Agent`) and compare — convergence on a subtle call is far stronger than one model's confidence; divergence is signal. Reserve it for risky pre-merge reviews, hard-to-reverse architecture calls, security-sensitive paths. Don't fan out routine work. For a multi-lens sense-check of one proposal (human-user / agent-user / abstraction lenses), give each agent only its own lens and never show one's output to another.
-
-## Detecting hangs
-
-Check liveness **30–60 s after launch**, not 10 minutes in.
-
-- **Codex** — see the `</dev/null` wedge above; the tell is an output file stuck at the banner size while wall-clock climbs.
-- **Hermes / fan.py** — `--max-tokens` too low → empty answer (`finish_reason: length`); else watch the stderr `[tool]`/`[done]` heartbeat.
-- **Claude Agent / launcher** — synchronous, rarely wedges; the common failure is a terse prompt → shallow hedged answer in < 30 s. Cap length and demand a position.
-- **megaplan** — an "stuck" run is usually a gated step awaiting approval; `megaplan status --plan <name>`.
-
-**Liveness ≠ correctness.** A subagent can stream for 10 minutes and still answer uselessly — read the response; there's no shortcut.
-
-## Quick reference
-
-```bash
-# 1. Hermes agentic (default) — DeepSeek/Kimi/Zhipu GLM with tools
-PYENV_VERSION=3.11.11 python ~/.claude/skills/subagent-launcher/launch_hermes_agent.py \
-  --model="deepseek:deepseek-v4-flash" --toolsets="file,web" \
-  --query-file=/tmp/brief.md --max-tokens=65536 --project-dir="$PWD"
-# Default: --model="deepseek:deepseek-v4-flash"   Very fast: --model=fast   Pro (reasoning): --model="deepseek:deepseek-v4-pro"   Kimi: --model="kimi:kimi-k2.7-code"   GLM: --model="zhipu:glm-5.2"
-# Pure chat: --toolsets=""    Fan N≥5: fan.py --briefs-dir=… --output-dir=… --max-workers=5 --task-timeout=1800
-
-# 2. Codex — always seal stdin with </dev/null, allow 30 min
-timeout 1800 codex exec --sandbox read-only "<prompt>" </dev/null              # analysis
-timeout 1800 codex exec --sandbox workspace-write "<prompt>" </dev/null        # implementer
-timeout 1800 codex exec --sandbox danger-full-access "<prompt>" </dev/null     # orchestrates hermes subagents (network required)
-codex exec review --pr 123
-
-# 3. Claude — explicit Opus selector via Claude CLI
-python ~/.claude/skills/subagent-launcher/launch_claude_agent.py \
-  --model=opus --query-file=/tmp/prompt.md --project-dir="$PWD"
-
-# Multi-phase: megaplan init --profile all-deepseek-pro-direct --robustness light "<task>"
-```
-
-exec
-/bin/zsh -lc "rg -n -A100 -B8 '"'^##? B03|B03 '"\\[' .oracle/tasklist.md" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
+154-- Provisional `widget_N` names and empty choices cannot shadow real semantic names/choices.
+155-- Invalid enum values are rejected before mutation for add and set.
 156-- Missing local asset filenames remain warning-only.
 157-
 158-### Oracle checkpoint
@@ -578,505 +336,500 @@ exec
 262-### Oracle checkpoint
 263-
 264-Review refusal and semantic-answer fixture packs, evidence availability, and control/product separation.
+265-
+266----
+267-
+268-## B07-lite — Explicit transport experiment
+269-
+270-### Tasks
+271-
+272-1. Add the smallest explicit harness selector, preferably `--transport {openrouter,native}`.
+273-2. Eliminate ambient-credential transport selection.
+274-3. Consume B01’s actual successful/failed provenance; do not create another metadata format.
+275-4. If historical call artifacts are restored, determine their actual transports rather than trusting readiness labels.
+276-5. Run an approximately ten-scenario empty-heavy matched native/OpenRouter experiment on the same commit, scenario set, profile, and configuration.
+277-6. Keep OpenRouter canonical unless a material repeatable advantage receives later oracle approval.
+278-
+279-### Acceptance
+280-
+281-- Ambient credentials cannot silently change transport.
+282-- Every attempt reports requested/resolved model, provider, transport, endpoint, finish reason, tokens, and attempt.
+283-- Secrets remain redacted.
+284-- The experiment reports scenario IDs, typed-empty rate, attempts, latency, and configuration digest.
 
 exec
-/bin/zsh -lc 'git log --oneline --decorate -8 --all && git rev-parse HEAD && git branch --show-current' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc 'git diff --name-status e1bef3bf..e82d54bf && git log --oneline --decorate -5 e82d54bf' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-59a5f16c (HEAD -> oracle-run) megado B03 rework4: SetNode-as-source resolves via unique inbound terminal (compiler parity), fail-closed only on ambiguous/cyclic; corpus mismatches 340->29, 011c7ad9 clean, zero new refusals; 67 focused tests green
-289e61d2 (oracle-info-run) megado B05: real batch-REPL integration test for informational path
+A	.oracle/briefs/batch-B03-rework.md
+A	.oracle/briefs/batch-B03-rework2.md
+A	.oracle/briefs/batch-B03-rework3.md
+A	.oracle/briefs/batch-B03-rework4.md
+A	.oracle/briefs/batch-B03-rework5.md
+A	.oracle/briefs/batch-B03-rework6.md
+A	.oracle/briefs/batch-B03.md
+A	.oracle/checkins/batch-B03.md
+M	tests/conftest.py
+M	tests/test_layout_delta.py
+M	tests/test_ui_emitter_widget_shape_verdict.py
+M	vibecomfy/porting/emit/ui.py
+M	vibecomfy/porting/layout/delta.py
+M	vibecomfy/porting/lowering.py
+M	vibecomfy/porting/refuse.py
+M	vibecomfy/porting/widget_shape_fence.py
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+e82d54bf (HEAD -> oracle-run) megado B03 rework5+6: GetNode input-channel resolution (compiler parity), global-issue attribution fix; VHS schema-less dict-row pins preserve via observed-shape recovery — corpus 2838 workflows 0 mismatches 0 refused 0 uidless; 77 focused tests green
+59a5f16c megado B03 rework4: SetNode-as-source resolves via unique inbound terminal (compiler parity), fail-closed only on ambiguous/cyclic; corpus mismatches 340->29, 011c7ad9 clean, zero new refusals; 67 focused tests green
 1e6b28c9 megado B03 rework3: snapshot aliases corroborated (no UID-shape inference), canonical incident attribution catches repointed clones, helper input-port identity preserved, deterministic duplicate diagnostics, real nested-subgraph + multi-output fixtures — 62 tests green
-ad1a3c3d megado B04: hoist research_findings, run _run_reply on research route, cite community sources
 5ae0f66c megado B03 rework2: symmetric loop-clone normalization — snapshot set canonicalized with its own aliases, unchanged lowered workflow yields empty semantic delta; no-mutation regression + stress green; 55 tests pass
-2ae42426 megado B03: research-route omit default (messages+web), followup, memory, community_summary
 e353e768 megado B03: canonical semantic pin comparison — dedupe multiplicity, normalize reroute/loop-clone UIDs, fail-closed on genuine consumer changes; traversal termination fix (pin test 45s->0.7s, cyclic/5000-hop stress green); 39 widget-verdict + 14 layout tests pass
-29c9991d megado B02: sources= tier gating in research() + _resolve client split
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-59a5f16c8b65e3b3a8aded97e75bb9f446b04b74
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-oracle-run
 
 exec
-/bin/zsh -lc 'git status --short --branch && git diff --stat e1bef3bf..59a5f16c && git diff --name-status e1bef3bf..59a5f16c && git diff --check e1bef3bf..59a5f16c' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 10ms:
-exec
-/bin/zsh -lc "PYENV_VERSION=3.11.11 python /Users/peteromalley/.claude/skills/subagent-launcher/launch_hermes_agent.py --model=deepseek:deepseek-v4-flash --toolsets=file,terminal --query 'READ-ONLY adversarial critique. Working directory is /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle. Do not modify any file. Review git diff e1bef3bf..59a5f16c for B03 canonical semantic pin comparison against .oracle/tasklist.md lines 164-196. Focus only on subtle correctness bugs: canonical semantic-set uniqueness, port identity, reroute and loop-clone normalization, ambiguity or unresolved fail-closed behavior, deterministic termination, and missing acceptance fixtures. Also check KISS/YAGNI and whether a second topology abstraction was introduced. Return a ranked issue list with exact file and line evidence, or say no issue found; under 600 words. Do not run tests that create or update tracked files.' --project-dir=/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- exited 1 in 109ms:
-[launch_hermes_agent] FATAL: running inside a `codex exec` sandbox with network disabled (CODEX_SANDBOX_NETWORK_DISABLED=1). Hermes agents cannot reach provider APIs.
-
-Fix one of:
-  1. Launch this hermes subagent directly from a normal shell, or
-  2. Run the parent Codex subagent with `--sandbox danger-full-access`.
-
-See the subagent-launcher SKILL.md for details.
+/bin/zsh -lc 'git status --short --branch && git rev-parse --show-toplevel && git diff --check e1bef3bf..e82d54bf && git diff --stat e1bef3bf..e82d54bf' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 6ms:
+ .oracle/briefs/batch-B03-rework.md            |    34 +
+ .oracle/briefs/batch-B03-rework2.md           |    36 +
+ .oracle/briefs/batch-B03-rework3.md           |    29 +
+ .oracle/briefs/batch-B03-rework4.md           |    41 +
+ .oracle/briefs/batch-B03-rework5.md           |    50 +
+ .oracle/briefs/batch-B03-rework6.md           |    34 +
+ .oracle/briefs/batch-B03.md                   |    50 +
+ .oracle/checkins/batch-B03.md                 | 17724 ++++++++++++++++++++++++
+ tests/conftest.py                             |    16 +-
+ tests/test_layout_delta.py                    |   396 +-
+ tests/test_ui_emitter_widget_shape_verdict.py |   774 ++
+ vibecomfy/porting/emit/ui.py                  |     3 +-
+ vibecomfy/porting/layout/delta.py             |   521 +-
+ vibecomfy/porting/lowering.py                 |    11 +-
+ vibecomfy/porting/refuse.py                   |     1 +
+ vibecomfy/porting/widget_shape_fence.py       |    19 +-
+ 16 files changed, 19699 insertions(+), 40 deletions(-)
 
 codex
-The required DeepSeek critique could not launch because this read-only Codex sandbox disables outbound provider access. I’m keeping the review read-only and substituting an isolated repository critique while I independently inspect the implementation and tests; this preserves the adversarial cross-check, though not the intended model-family diversity.
-2026-08-13T18:36:23.003676Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/pipelines/epic-blitz/SKILL.md: missing YAML frontmatter delimited by ---
-2026-08-13T18:36:23.004007Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
-2026-08-13T18:36:23.004036Z ERROR codex_core::session::session: failed to load skill /Users/peteromalley/Documents/Arnold/arnold_pipelines/megaplan/planning/skills/planning/SKILL.md: missing YAML frontmatter delimited by ---
+The tasklist matches the stated contract. The diff is clean, but it includes seven B03 brief/checkpoint artifacts in addition to the implementation/tests; I’m treating those as orchestration provenance and separately checking whether the runtime/code scope stayed confined to B03 plus the stated test-import optimization. One existing local modification is present only in `.oracle/checkins/batch-B03.md`; I will not touch it.
 exec
-/bin/zsh -lc 'git diff --unified=80 e1bef3bf..59a5f16c -- vibecomfy/porting/layout/delta.py vibecomfy/porting/widget_shape_fence.py vibecomfy/porting/refuse.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc 'git diff --unified=80 e1bef3bf..e82d54bf -- vibecomfy/porting/widget_shape_fence.py vibecomfy/porting/refuse.py vibecomfy/porting/lowering.py vibecomfy/porting/emit/ui.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-diff --git a/vibecomfy/porting/layout/delta.py b/vibecomfy/porting/layout/delta.py
-index a2dd1982..4bb6fcff 100644
---- a/vibecomfy/porting/layout/delta.py
-+++ b/vibecomfy/porting/layout/delta.py
-@@ -1,104 +1,426 @@
- """Field-level delta computation between an ingest snapshot and the current IR.
+diff --git a/vibecomfy/porting/emit/ui.py b/vibecomfy/porting/emit/ui.py
+index 2fa52899..f5562fc3 100644
+--- a/vibecomfy/porting/emit/ui.py
++++ b/vibecomfy/porting/emit/ui.py
+@@ -1508,169 +1508,170 @@ def _schema_default_widget_values_for_node(
+     for name, value in class_defaults(node.class_type).items():
+         defaults.setdefault(str(name), deepcopy(value))
+     return defaults
 
- ``compute_field_delta`` compares a stored ``_ingest_snapshot`` (captured at
- ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
- the live IR state of a ``VibeWorkflow``.
 
- Nodes absent from *snapshot* (added after ingest) are omitted from the result —
- downstream logic treats them as ``'snapshot-absent'``.
- """
- from __future__ import annotations
+ def _jsonable_widget_shape_value(value: Any) -> Any:
+     raw_value = getattr(value, "value", value)
+     if isinstance(raw_value, Mapping):
+         return {str(k): _jsonable_widget_shape_value(v) for k, v in raw_value.items()}
+     if isinstance(raw_value, tuple):
+         return [_jsonable_widget_shape_value(v) for v in raw_value]
+     if isinstance(raw_value, list):
+         return [_jsonable_widget_shape_value(v) for v in raw_value]
+     if isinstance(raw_value, (str, int, float, bool)) or raw_value is None:
+         return raw_value
+     return repr(raw_value)
 
-+import ast
-+from collections import defaultdict
-+from collections.abc import Iterable, Mapping
- from typing import TYPE_CHECKING, Any
 
-+from vibecomfy.porting.lowering import clone_uid
-+
- if TYPE_CHECKING:
-     from vibecomfy.workflow import VibeWorkflow
+ def _widget_shape_evidence_summary(evidence: WidgetShapeEvidence) -> dict[str, Any]:
+     return {
+         "node_id": evidence.node_id,
+         "class_type": evidence.class_type,
+         "schema_less": evidence.schema_less,
+         "confidence": evidence.confidence,
+         "raw_widget_count": evidence.raw_widget_count,
+         "candidate_widget_count": evidence.candidate_widget_count,
+         "schema_widget_count": evidence.schema_widget_count,
+         "raw_widget_shape": evidence.raw_widget_shape,
+         "has_dict_rows": evidence.has_dict_rows,
+         "overflow": evidence.overflow,
+         "provider": evidence.provider,
+         "explicit_widget_overflow": evidence.explicit_widget_overflow,
+         "raw_widget_length_recovered": evidence.raw_widget_length_recovered,
+         "value_domain": evidence.value_domain,
+     }
 
- _SNAPSHOT_FIELDS = (
-     "class_type",
-     "widget_values_sig",
--    "incoming_edge_sig",
--    "outgoing_edge_sig",
-     "public_input_binding",
- )
 
-+SemanticLink = tuple[str, str, str, str]
-+SemanticNode = tuple[str, str, str | None]
-+_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
-+
-+# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
-+# a single terminal-source walk.  Every hop is memoized, so a healthy graph
-+# resolves each helper at most once; this cap is a fail-closed backstop so the
-+# semantic traversal is bounded for any input, however pathological.
-+_MAX_SEMANTIC_WALK = 10_000
-+
-+
-+def canonical_semantic_link_set(
-+    nodes: Mapping[str, SemanticNode],
-+    links: Iterable[SemanticLink],
-+    *,
-+    consumer_uid_aliases: Mapping[str, str] | None = None,
-+) -> tuple[tuple[SemanticLink, ...], tuple[str, ...]]:
-+    """Return a deduplicated semantic link set and deterministic resolution issues.
-+
-+    ``nodes`` maps graph-local node ids to ``(stable_uid, class_type,
-+    broadcast_name)``. ``links`` preserves both endpoint ports as
-+    ``(source_id, source_output, consumer_id, consumer_input)``. Set/Get and
-+    Reroute plumbing is resolved to its terminal source; loop-cloned consumer
-+    UIDs are collapsed to the source consumer UID. Ambiguous, missing, orphaned,
-+    or cyclic paths are reported instead of being silently discarded.
-+    """
-+    aliases = {
-+        str(uid): str(canonical)
-+        for uid, canonical in (consumer_uid_aliases or {}).items()
-+    }
-+    normalized_nodes = {
-+        str(node_id): (str(spec[0]), str(spec[1]), spec[2])
-+        for node_id, spec in nodes.items()
-+    }
-+    link_rows = sorted(
-+        {
-+            (str(source), str(source_output), str(consumer), str(consumer_input))
-+            for source, source_output, consumer, consumer_input in links
-+        }
-+    )
-+    issues: set[str] = set()
-+
-+    uids: dict[str, str] = {}
-+    for node_id, (uid, _class_type, _channel) in sorted(
-+        normalized_nodes.items(), key=lambda item: (item[1][0], item[0])
-+    ):
-+        prior_id = uids.get(uid)
-+        if prior_id is not None and prior_id != node_id:
-+            issues.add(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
-+        else:
-+            uids[uid] = node_id
-+
-+    inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-+    for source, source_output, consumer, consumer_input in link_rows:
-+        if source not in normalized_nodes:
-+            issues.add(f"unknown_source:{source}")
-+        if consumer not in normalized_nodes:
-+            issues.add(f"unknown_consumer:{consumer}")
-+        # Keep the helper endpoint's input identity until ambiguity has been
-+        # decided.  Two edges from the same source/output into different
-+        # helper inputs are still two distinct candidates and must fail closed.
-+        inbound[consumer].append((source, source_output, consumer_input))
-+
-+    setters_by_channel: dict[str, list[str]] = defaultdict(list)
-+    for node_id, (_uid, class_type, channel) in normalized_nodes.items():
-+        if class_type == "SetNode" and channel:
-+            setters_by_channel[str(channel)].append(node_id)
-+
-+    # Iterative terminal-source resolution with memoization.
-+    #
-+    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
-+    # SetNode-as-source passthrough) follows exactly one candidate or fails
-+    # closed, so the walk is a simple chain.  The result of every visited
-+    # (node_id, output_port) key is cached,
-+    # making the whole traversal linear in the helper graph and immune to
-+    # repeated fan-out re-walks.  Re-entering a key that is still on the
-+    # current path means the graph is cyclic: the walk terminates immediately
-+    # and the path is reported via ``cyclic_path:`` (fail closed).  The hard
-+    # ``_MAX_SEMANTIC_WALK`` hop cap guarantees bounded time even for
-+    # adversarial inputs, so every call returns a deterministic verdict.
-+    memo: dict[tuple[str, str], tuple[str, str] | None] = {}
-+    in_progress: set[tuple[str, str]] = set()
-+
-+    def terminal_source(
-+        node_id: str,
-+        output_port: str,
-+    ) -> tuple[str, str] | None:
-+        start = (node_id, output_port)
-+        if start in memo:
-+            return memo[start]
-+        path: list[tuple[str, str]] = []
-+        current = start
-+        result: tuple[str, str] | None = None
-+        while True:
-+            key = current
-+            if key in memo:
-+                result = memo[key]
-+                break
-+            if key in in_progress:
-+                cycle_nodes = {
-+                    hop[0] for hop in path[path.index(key):]
-+                } | {key[0]}
-+                issues.add(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
-+                result = None
-+                break
-+            spec = normalized_nodes.get(key[0])
-+            if spec is None:
-+                issues.add(f"unknown_source:{key[0]}")
-+                result = None
-+                break
-+            uid, class_type, channel = spec
-+            if class_type not in _SEMANTIC_HELPERS:
-+                result = (uid, key[1])
-+                break
-+            if class_type == "Reroute":
-+                candidates = sorted(set(inbound.get(key[0], ())))
-+                if len(candidates) != 1:
-+                    issues.add(f"reroute_source_count:{key[0]}:{len(candidates)}")
-+                    result = None
-+                    break
-+                next_node, next_port, _target_input = candidates[0]
-+            elif class_type == "GetNode":
-+                if not channel:
-+                    issues.add(f"broadcast_name_missing:{key[0]}")
-+                    result = None
-+                    break
-+                setters = sorted(set(setters_by_channel.get(str(channel), ())))
-+                if len(setters) != 1:
-+                    issues.add(
-+                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
-+                    )
-+                    result = None
-+                    break
-+                setter_id = setters[0]
-+                candidates = sorted(set(inbound.get(setter_id, ())))
-+                if len(candidates) != 1:
-+                    issues.add(f"broadcast_source_count:{setter_id}:{len(candidates)}")
-+                    result = None
-+                    break
-+                next_node, next_port, _target_input = candidates[0]
-+            else:  # SetNode used as a source resolves passthrough through its
-+                # unique inbound terminal, exactly as the compiler resolves the
-+                # same case (_compile/_resolve.py:172).  Zero or multiple
-+                # inbound candidates are genuinely ambiguous and fail closed.
-+                candidates = sorted(set(inbound.get(key[0], ())))
-+                if len(candidates) != 1:
-+                    issues.add(f"setnode_as_source:{key[0]}:{len(candidates)}")
-+                    result = None
-+                    break
-+                next_node, next_port, _target_input = candidates[0]
-+            in_progress.add(key)
-+            path.append(key)
-+            if len(path) > _MAX_SEMANTIC_WALK:
-+                issues.add(f"semantic_walk_limit:{key[0]}")
-+                result = None
-+                break
-+            current = (next_node, next_port)
-+        for visited_key in path:
-+            memo[visited_key] = result
-+            in_progress.discard(visited_key)
-+        memo[start] = result
-+        return result
-+
-+    semantic: set[SemanticLink] = set()
-+    for source, source_output, consumer, consumer_input in link_rows:
-+        consumer_spec = normalized_nodes.get(consumer)
-+        if consumer_spec is None:
-+            continue
-+        consumer_uid, consumer_class_type, _channel = consumer_spec
-+        if consumer_class_type in {"SetNode", "Reroute"}:
-+            continue
-+        if consumer_class_type == "GetNode":
-+            issues.add(f"helper_input_unsupported:{consumer}")
-+            continue
-+        terminal = terminal_source(source, source_output)
-+        if terminal is None:
-+            continue
-+        semantic.add(
-+            (
-+                terminal[0],
-+                terminal[1],
-+                aliases.get(consumer_uid, consumer_uid),
-+                consumer_input,
-+            )
-+        )
-+
-+    return tuple(sorted(semantic)), tuple(sorted(issues))
-+
-+
-+def _snapshot_channel(snapshot_entry: Mapping[str, Any]) -> str | None:
-+    for field_name, value_repr in snapshot_entry.get("widget_values_sig", ()):
-+        if str(field_name) not in {"widget_0", "name"}:
-+            continue
-+        try:
-+            value = ast.literal_eval(str(value_repr))
-+        except (SyntaxError, ValueError):
-+            value = value_repr
-+        if value is not None:
-+            return str(value)
-+    return None
-+
-+
-+def _snapshot_semantic_graph(
-+    snapshot: Mapping[str, Mapping[str, Any]],
-+) -> tuple[dict[str, SemanticNode], list[SemanticLink]]:
-+    nodes = {
-+        str(uid): (
-+            str(uid),
-+            str(entry.get("class_type", "")),
-+            _snapshot_channel(entry),
-+        )
-+        for uid, entry in snapshot.items()
-+    }
-+    links: list[SemanticLink] = []
-+    for source_uid, entry in snapshot.items():
-+        for source_output, target in entry.get("outgoing_edge_sig", ()):
-+            target_uid, target_input = target
-+            links.append(
-+                (str(source_uid), str(source_output), str(target_uid), str(target_input))
-+            )
-+        for target_input, source in entry.get("incoming_edge_sig", ()):
-+            incoming_source_uid, source_output = source
-+            links.append(
-+                (
-+                    str(incoming_source_uid),
-+                    str(source_output),
-+                    str(source_uid),
-+                    str(target_input),
-+                )
-+            )
-+    # A partial snapshot deliberately omits some node records while retained
-+    # signatures may still name those peers. They remain valid opaque semantic
-+    # endpoints; only the live graph must resolve every graph-local node id.
-+    for source_uid, _source_output, target_uid, _target_input in links:
-+        nodes.setdefault(source_uid, (source_uid, "", None))
-+        nodes.setdefault(target_uid, (target_uid, "", None))
-+    return nodes, links
-+
-+
-+def _snapshot_consumer_uid_aliases(
-+    nodes: Mapping[str, SemanticNode],
-+    validated_live_aliases: Mapping[str, str],
-+) -> dict[str, str]:
-+    """Return only snapshot aliases corroborated by live lowering provenance.
-+
-+    A clone-shaped UID is ordinary user data unless the live node carries a
-+    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
-+    matches it.  Requiring that validated alias *and* the exact UID in the
-+    snapshot gives both sides independent evidence and prevents textual UID
-+    shape alone from fabricating snapshot topology.
-+    """
-+    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
-+    return {
-+        str(uid): str(source_uid)
-+        for uid, source_uid in validated_live_aliases.items()
-+        if str(uid) in snapshot_uids
-+    }
-+
-+
-+def _workflow_semantic_graph(
-+    current_ir: "VibeWorkflow",
-+) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
-+    nodes: dict[str, SemanticNode] = {}
-+    consumer_uid_aliases: dict[str, str] = {}
-+    for node_id, node in current_ir.nodes.items():
-+        channel = None
-+        if node.class_type in {"SetNode", "GetNode"}:
-+            value = node.inputs.get("widget_0", node.widgets.get("widget_0"))
-+            if value is None:
-+                value = node.inputs.get("name")
-+            if value is not None:
-+                channel = str(value)
-+        stable_uid = str(node.uid if node.uid else node_id)
-+        nodes[str(node_id)] = (
-+            stable_uid,
-+            str(node.class_type),
-+            channel,
-+        )
-+        lowering = node.metadata.get("vibecomfy.lowering")
-+        if isinstance(lowering, Mapping):
-+            source_uid = lowering.get("source_uid")
-+            loop_uid = lowering.get("loop_uid")
-+            iteration_index = lowering.get("iteration_index")
-+            if (
-+                isinstance(source_uid, str)
-+                and isinstance(loop_uid, str)
-+                and isinstance(iteration_index, int)
-+                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
-+            ):
-+                consumer_uid_aliases[stable_uid] = source_uid
-+    links = [
-+        (str(edge.from_node), str(edge.from_output), str(edge.to_node), str(edge.to_input))
-+        for edge in current_ir.edges
-+    ]
-+    return nodes, links, consumer_uid_aliases
-+
-
- def compute_field_delta(
-     snapshot: dict[str, Any],
-     current_ir: "VibeWorkflow",
--) -> dict[str, dict[str, tuple]]:
-+) -> dict[str, dict[str, Any]]:
-     """Compute field-level changes between a stored snapshot and the current IR.
-
-     Parameters
-     ----------
-     snapshot:
-         A ``{uid: NodeFieldSnapshot}`` dict as returned by
-         ``capture_ingest_snapshot``.  This is the *before* state.
-     current_ir:
-         The live ``VibeWorkflow`` to compare against.  This is the *after* state.
-
-     Returns
-     -------
--    ``{uid: {field_name: (old_value, new_value)}}`` — only nodes and fields
--    where something changed.  Nodes absent from *snapshot* are omitted.
-+    ``{uid: {field_name: delta}}`` — only nodes and fields where something
-+    changed. Scalar fields use ``(old_value, new_value)``; link changes use a
-+    ``semantic_link_set`` record carrying canonical before/after sets and
-+    resolution issues. Nodes absent from *snapshot* are omitted.
-     Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
-     omitted; callers that need to detect removals should diff snapshot keys against
-     the current IR's uid set directly.
-     """
-     # Build uid → node lookup for the current IR.
--    uid_to_node = {(node.uid if node.uid else node_id): node for node_id, node in current_ir.nodes.items()}
-+    uid_to_node = {
-+        (node.uid if node.uid else node_id): node
-+        for node_id, node in current_ir.nodes.items()
-+    }
-
-     # Recompute current signatures inline to avoid a round-trip through capture.
-     nodes = current_ir.nodes
--    edges = current_ir.edges
-     workflow_inputs = current_ir.inputs
-
--    id_to_uid: dict[str, str] = {}
--    for node_id, node in nodes.items():
--        id_to_uid[node_id] = node.uid if node.uid else node_id
--
--    incoming: dict[str, list] = {node_id: [] for node_id in nodes}
--    for edge in edges:
--        if edge.to_node in incoming:
--            source_uid = id_to_uid.get(edge.from_node, edge.from_node)
--            incoming[edge.to_node].append((edge.to_input, (source_uid, edge.from_output)))
--
--    outgoing: dict[str, list] = {node_id: [] for node_id in nodes}
--    for edge in edges:
--        if edge.from_node in outgoing:
--            target_uid = id_to_uid.get(edge.to_node, edge.to_node)
--            outgoing[edge.from_node].append((edge.from_output, (target_uid, edge.to_input)))
--
-     public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
-     for input_name, vibe_input in workflow_inputs.items():
-         if vibe_input.node_id in public_bindings:
-             public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
-
--    delta: dict[str, dict[str, tuple]] = {}
-+    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
-+    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
-+    # Snapshot aliasing requires corroboration from both representations: the
-+    # exact clone UID must exist in the snapshot and the corresponding live
-+    # node must carry validated lowering metadata.  The after graph may also
-+    # contain newly lowered clones absent from the snapshot, so it retains the
-+    # complete validated live alias map.
-+    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
-+    canonical_before, before_issues = canonical_semantic_link_set(
-+        before_nodes,
-+        before_links,
-+        consumer_uid_aliases=before_aliases,
-+    )
-+    canonical_after, after_issues = canonical_semantic_link_set(
-+        after_nodes,
-+        after_links,
-+        consumer_uid_aliases=after_aliases,
-+    )
-+
-+    delta: dict[str, dict[str, Any]] = {}
-     for uid, old_snap in snapshot.items():
-         node = uid_to_node.get(uid)
-         if node is None:
-             # Node removed after snapshot — omit per spec (caller diffs keys directly).
-             continue
-
-         # Recompute the current signature for this node.
-         all_values = {**node.widgets, **node.inputs}
-         current: dict[str, Any] = {
-             "class_type": node.class_type,
-             "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
--            "incoming_edge_sig": tuple(sorted(incoming.get(node.id, []))),
--            "outgoing_edge_sig": tuple(sorted(outgoing.get(node.id, []))),
-             "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
+ def _widget_shape_report_fields(verdict: Any) -> dict[str, Any]:
+     reasons = [_jsonable_widget_shape_value(reason) for reason in getattr(verdict, "reasons", ())]
+     fields: dict[str, Any] = {
+         "widget_shape_verdict": _jsonable_widget_shape_value(getattr(verdict, "decision", None)),
+     }
+     if reasons:
+         fields["widget_shape_reasons"] = reasons
+     if getattr(verdict, "pin_opaque", False) or getattr(verdict, "refuse", False):
+         details: dict[str, Any] = {
+             "reasons": reasons,
+             "evidence": _widget_shape_evidence_summary(verdict.evidence),
          }
+         if getattr(verdict, "field_delta", None):
+             details["field_delta"] = _jsonable_widget_shape_value(verdict.field_delta)
+         if getattr(verdict, "link_delta", None):
+             details["link_delta"] = _jsonable_widget_shape_value(verdict.link_delta)
+         fields["widget_shape_details"] = details
+     return fields
 
--        node_delta: dict[str, tuple] = {}
-+        node_delta: dict[str, Any] = {}
-         for field_name in _SNAPSHOT_FIELDS:
-             old_val = old_snap[field_name]
-             new_val = current[field_name]
-             if old_val != new_val:
-                 node_delta[field_name] = (old_val, new_val)
 
-+        uid_key = before_aliases.get(str(uid), str(uid))
-+        before_incident = tuple(
-+            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
-+        )
-+        after_incident = tuple(
-+            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
-+        )
-+        if before_incident != after_incident or before_issues or after_issues:
-+            node_delta["semantic_link_set"] = {
-+                "before": before_incident,
-+                "after": after_incident,
-+                "before_resolution_issues": before_issues,
-+                "after_resolution_issues": after_issues,
-+            }
-+
-         if node_delta:
-             delta[uid] = node_delta
+ def _node_delta(
+     deltas: Mapping[str, Mapping[str, Any]],
+     node_id: str,
+     node: Any,
+ ) -> Mapping[str, Any]:
+     uid = getattr(node, "uid", "")
+     if uid and uid in deltas:
+         return deltas[uid]
+     return deltas.get(node_id, {})
 
-     return delta
+
+ def _split_widget_shape_deltas(
+     deltas: Mapping[str, Mapping[str, Any]],
+     node_id: str,
+     node: Any,
+ ) -> tuple[dict[str, Any], dict[str, Any]]:
+     delta = dict(_node_delta(deltas, node_id, node))
+     field_delta: dict[str, Any] = {}
+     link_delta: dict[str, Any] = {}
+     if "widget_values_sig" in delta:
+         field_delta["widgets_values"] = delta["widget_values_sig"]
+     if "public_input_binding" in delta:
+         field_delta["public_input_binding"] = delta["public_input_binding"]
+-    for key in ("incoming_edge_sig", "outgoing_edge_sig"):
++    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
+         if key in delta:
+             link_delta[key] = delta[key]
+     for key, value in delta.items():
+         if key not in {
+             "widget_values_sig",
+             "public_input_binding",
+             "incoming_edge_sig",
+             "outgoing_edge_sig",
++            "semantic_link_set",
+         }:
+             field_delta[key] = value
+     return field_delta, link_delta
+
+
+ def _build_recovery_entry(
+     p: Mapping[str, Any],
+     verdict: Any,
+     *,
+     has_raw_ui_payload: bool,
+ ) -> dict[str, Any]:
+     entry: dict[str, Any] = {
+         "node_id": p["node_id"],
+         "class_type": p["class_type"],
+         "provider": p.get("provider"),
+         "confidence": p.get("confidence"),
+         "schema_less": p["schema_less"],
+         "control_after_generate": p.get("control_after_generate"),
+         "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
+         "widget_length_check": p.get("widget_length_check"),
+         "value_domain": getattr(getattr(verdict, "evidence", None), "value_domain", None),
+         "has_raw_ui_payload": has_raw_ui_payload,
+     }
+     entry.update(_widget_shape_report_fields(verdict))
+     recovery = getattr(verdict, "recovery", None)
+     if getattr(verdict, "evidence", None) is not None and getattr(
+         verdict.evidence, "raw_widget_length_recovered", False
+     ):
+         recovery = "raw_widgets_values_length"
+     if recovery is not None:
+         entry["widget_shape_recovery"] = recovery
+     if p.get("widget_order_guesses"):
+         entry["widget_order_guesses"] = p["widget_order_guesses"]
+     if p["schema_less"]:
+         entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
+     elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
+         entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
+     return entry
+
+
+ def _pinned_link_ref_refusal(
+     node_id: str,
+     class_type: str,
+     reason: str,
+     *,
+     details: Mapping[str, Any],
+ ) -> None:
+     from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
+
+     typed_reason = (
+         "pinned_link_id_mismatch"
+         if reason
+         in {
+             "unmappable_input_link",
+             "ambiguous_input_link",
+             "missing_raw_input_link",
+             "unmappable_output_links",
+             "output_link_count_mismatch",
+             "missing_raw_output_links",
+             "missing_raw_output_slot",
+         }
+         else "pinned_link_surface_changed"
+     )
+
+     raise RefusedEmit(
+         f"Refusing to emit pinned raw UI node {node_id}: {typed_reason}",
+         diff={
+             str(node_id): {
+                 "axis": "pinned_link_refs",
+                 "node_id": str(node_id),
+                 "class_type": class_type,
+                 "reason": typed_reason,
+                 "details": {**dict(details), "original_reason": reason},
+             }
+         },
+     )
+
+
+ def _pinned_uid_refusal(
+     node_id: str,
+diff --git a/vibecomfy/porting/lowering.py b/vibecomfy/porting/lowering.py
+index 1cead444..adf42a1a 100644
+--- a/vibecomfy/porting/lowering.py
++++ b/vibecomfy/porting/lowering.py
+@@ -237,230 +237,235 @@ def _validate_lowered_workflow(
+             },
+         )
+         for issue in issues
+         if issue.severity == "error"
+     ]
+     return summary, diagnostics
+
+
+ def _normalize_count(
+     intent: Mapping[str, Any], loop_node_id: str
+ ) -> tuple[int | None, list[LoweringDiagnostic]]:
+     """Normalize count/iterations from loop intent.
+
+     Returns (count_or_none, diagnostics). count_or_none is None when the
+     bound is missing or invalid.
+     """
+     count = intent.get("count", intent.get("iterations"))
+     if isinstance(count, bool):
+         count = int(count)
+     if isinstance(count, int):
+         if 1 <= count <= INTENT_LOOP_MAX_ITERATIONS:
+             return count, []
+         return None, [
+             LoweringDiagnostic(
+                 code="loop_bound_out_of_range",
+                 message=(
+                     f"Loop count/iterations {count} out of range "
+                     f"[1, {INTENT_LOOP_MAX_ITERATIONS}]."
+                 ),
+                 loop_node_id=loop_node_id,
+                 detail={"count": count, "max": INTENT_LOOP_MAX_ITERATIONS},
+             )
+         ]
+     # count is missing or non-integer — check for "over"
+     return None, []
+
+
+ def _node_sort_key(node_id: str) -> tuple[int, int | str, str]:
+     if node_id.isdigit():
+         return (0, int(node_id), node_id)
+     return (1, node_id, node_id)
+
+
+ def _edge_sort_key(
+     edge: tuple[str, str, str, str] | "LoweringBoundaryInput" | "LoweringBoundaryOutput",
+ ) -> tuple[tuple[int, int | str, str], str, tuple[int, int | str, str], str]:
+     if isinstance(edge, LoweringBoundaryOutput):
+         return (
+             _node_sort_key(edge.source_node_id),
+             edge.source_output,
+             _node_sort_key(edge.consumer_node_id),
+             edge.consumer_input,
+         )
+     if isinstance(edge, LoweringBoundaryInput):
+         return (
+             _node_sort_key(edge.source_node_id),
+             edge.source_output,
+             _node_sort_key(edge.target_node_id),
+             edge.target_input,
+         )
+     source_node, source_output, target_node, target_input = edge
+     return (
+         _node_sort_key(source_node),
+         source_output,
+         _node_sort_key(target_node),
+         target_input,
+     )
+
+
+ def _is_terminal_node(workflow: "VibeWorkflow", node_id: str) -> bool:
+     return not any(edge.from_node == node_id for edge in workflow.edges)
+
+
+ def _is_duplicable_terminal_sink(workflow: "VibeWorkflow", node_id: str) -> bool:
+     node = workflow.nodes[node_id]
+     if node.class_type in OUTPUT_NODE_NAMES:
+         return True
+     return any(output.node_id == node_id for output in workflow.outputs)
+
+
+-def _clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
++def clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
++    """Return the stable UID used for a node cloned by loop lowering."""
+     loop_scope, loop_local = parse_uid(loop_uid or "")
+     _, source_local = parse_uid(source_uid)
+     local_uid = f"{loop_local or 'loop'}:iter{iteration_index}:{source_local}"
+     return make_uid(loop_scope, local_uid)
+
+
++# Compatibility for internal/tests that imported the formerly-private helper.
++_clone_uid = clone_uid
 +
 +
-+__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
+ def _clone_node(
+     workflow: "VibeWorkflow",
+     source_node: "VibeNode",
+     *,
+     loop_node_id: str,
+     loop_uid: str | None,
+     iteration_index: int,
+     clone_role: str,
+     variable: str,
+     iteration_value: Any,
+     original_intent_hash: str,
+ ) -> "VibeNode":
+     new_id = workflow._next_node_id()
+     source_uid = source_node.uid or source_node.id
+-    clone_uid = _clone_uid(loop_uid, source_uid, iteration_index)
++    cloned_uid = clone_uid(loop_uid, source_uid, iteration_index)
+     cloned_metadata = copy.deepcopy(source_node.metadata)
+     cloned_metadata["vibecomfy.lowering"] = {
+         "loop_node_id": loop_node_id,
+         "loop_uid": loop_uid or loop_node_id,
+         "source_node_id": source_node.id,
+         "source_uid": source_uid,
+         "iteration_index": iteration_index,
+         "clone_role": clone_role,
+         "variable": variable,
+         "iteration_value": iteration_value,
+         "original_intent_hash": original_intent_hash,
+     }
+
+     # --- Deterministic clone layout positioning ---
+     # Read source node position from _ui metadata; default to (0, 0).
+     source_ui = source_node.metadata.get("_ui")
+     if isinstance(source_ui, dict):
+         source_pos = source_ui.get("pos", [0, 0])
+         source_size = source_ui.get("size")
+     else:
+         source_pos = [0, 0]
+         source_size = None
+     try:
+         source_x = float(source_pos[0])
+         source_y = float(source_pos[1])
+     except (TypeError, IndexError, ValueError):
+         source_x, source_y = 0.0, 0.0
+     # Compute clone position: horizontal stride per iteration, same y.
+     clone_pos = [source_x + HORIZONTAL_STRIDE * iteration_index, source_y]
+     snapped_pos = snap_pos(clone_pos)
+     # Ensure _ui sub-dict exists and store the snapped position.
+     clone_ui: dict[str, Any] = cloned_metadata.setdefault("_ui", {})
+     clone_ui["pos"] = snapped_pos
+     if source_size is not None:
+         try:
+             clone_ui["size"] = source_size
+         except (TypeError, IndexError):
+             pass
+     # --- End layout positioning ---
+
+     cloned = source_node.__class__(
+         id=new_id,
+         class_type=source_node.class_type,
+         pack=source_node.pack,
+         inputs=copy.deepcopy(source_node.inputs),
+         widgets=copy.deepcopy(source_node.widgets),
+         metadata=cloned_metadata,
+-        uid=clone_uid,
++        uid=cloned_uid,
+         raw_widgets=copy.deepcopy(source_node.raw_widgets),
+     )
+     workflow.nodes[new_id] = cloned
+     return cloned
+
+
+ def _matches_variable_target(variable: str, field: str) -> bool:
+     if variable == "seed":
+         return field in SEED_FIELDS
+     return field in TEXT_FIELDS
+
+
+ def _collect_loop_target_fields(
+     workflow: "VibeWorkflow",
+     plan: LoopLoweringPlan,
+ ) -> tuple[tuple[LoopTargetField, ...] | None, list[LoweringDiagnostic]]:
+     diagnostics: list[LoweringDiagnostic] = []
+     target_fields: list[LoopTargetField] = []
+     for edge in sorted(
+         (candidate for candidate in workflow.edges if candidate.from_node == plan.loop_node_id),
+         key=lambda edge: _edge_sort_key((edge.from_node, edge.from_output, edge.to_node, edge.to_input)),
+     ):
+         if not _matches_variable_target(plan.variable, edge.to_input):
+             diagnostics.append(
+                 LoweringDiagnostic(
+                     code="unsupported_loop_target_field",
+                     message=(
+                         f"Loop variable {plan.variable!r} cannot be concretized into "
+                         f"field {edge.to_input!r}."
+                     ),
+                     loop_node_id=plan.loop_node_id,
+                     loop_uid=plan.loop_uid,
+                     detail={"target_node_id": edge.to_node, "target_field": edge.to_input},
+                 )
+             )
+             continue
+         target_fields.append(
+             LoopTargetField(source_node_id=edge.to_node, target_field=edge.to_input)
+         )
+     if diagnostics:
+         return None, diagnostics
+     return tuple(target_fields), diagnostics
+
+
+ def _read_source_field_value(node: "VibeNode", field: str) -> Any:
+     if field in node.inputs:
+         return node.inputs[field]
+     if field in node.widgets:
+         return node.widgets[field]
+     return None
+
+
+ def _coerce_iteration_values(
+     workflow: "VibeWorkflow",
+     plan: LoopLoweringPlan,
+     target_fields: Sequence[LoopTargetField],
+ ) -> tuple[tuple[Any, ...] | None, list[LoweringDiagnostic]]:
+     diagnostics: list[LoweringDiagnostic] = []
+     if plan.is_over:
+         if plan.variable == "seed":
+             if any(not isinstance(value, int) or isinstance(value, bool) for value in plan.over_values):
+                 diagnostics.append(
+                     LoweringDiagnostic(
+                         code="unsupported_seed_values",
+                         message="Seed loops require integer literal iteration values.",
+                         loop_node_id=plan.loop_node_id,
+                         loop_uid=plan.loop_uid,
+                         detail={"values": list(plan.over_values)},
+                     )
+                 )
+                 return None, diagnostics
+         elif any(not isinstance(value, str) for value in plan.over_values):
+             diagnostics.append(
+                 LoweringDiagnostic(
+                     code="unsupported_text_values",
+                     message="Prompt/text loops require string literal iteration values.",
+                     loop_node_id=plan.loop_node_id,
+                     loop_uid=plan.loop_uid,
+                     detail={"values": list(plan.over_values)},
+                 )
 diff --git a/vibecomfy/porting/refuse.py b/vibecomfy/porting/refuse.py
 index d3e5a53f..f41dcf6e 100644
 --- a/vibecomfy/porting/refuse.py
@@ -1546,7 +1299,7 @@ index e2218534..4082be11 100644
  ]
 
 exec
-/bin/zsh -lc 'git diff --unified=50 e1bef3bf..59a5f16c -- vibecomfy/porting/lowering.py vibecomfy/porting/emit/ui.py tests/conftest.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc 'git diff --unified=50 e1bef3bf..e82d54bf -- tests/conftest.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 diff --git a/tests/conftest.py b/tests/conftest.py
@@ -1671,41 +1424,1203 @@ index bef383d1..cf96fa65 100644
      if budget is None:
          budget_str = "unset"
      else:
+
+exec
+/bin/zsh -lc 'git diff --unified=80 e1bef3bf..e82d54bf -- vibecomfy/porting/layout/delta.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+diff --git a/vibecomfy/porting/layout/delta.py b/vibecomfy/porting/layout/delta.py
+index a2dd1982..e8fba20f 100644
+--- a/vibecomfy/porting/layout/delta.py
++++ b/vibecomfy/porting/layout/delta.py
+@@ -1,104 +1,571 @@
+ """Field-level delta computation between an ingest snapshot and the current IR.
+
+ ``compute_field_delta`` compares a stored ``_ingest_snapshot`` (captured at
+ ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
+ the live IR state of a ``VibeWorkflow``.
+
+ Nodes absent from *snapshot* (added after ingest) are omitted from the result —
+ downstream logic treats them as ``'snapshot-absent'``.
+ """
+ from __future__ import annotations
+
++import ast
++from collections import defaultdict
++from collections.abc import Iterable, Mapping
+ from typing import TYPE_CHECKING, Any
+
++from vibecomfy.porting.lowering import clone_uid
++
+ if TYPE_CHECKING:
+     from vibecomfy.workflow import VibeWorkflow
+
+ _SNAPSHOT_FIELDS = (
+     "class_type",
+     "widget_values_sig",
+-    "incoming_edge_sig",
+-    "outgoing_edge_sig",
+     "public_input_binding",
+ )
+
++SemanticLink = tuple[str, str, str, str]
++SemanticNode = tuple[str, str, str | None]
++_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
++
++# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
++# a single terminal-source walk.  Every hop is memoized, so a healthy graph
++# resolves each helper at most once; this cap is a fail-closed backstop so the
++# semantic traversal is bounded for any input, however pathological.
++_MAX_SEMANTIC_WALK = 10_000
++
++
++def canonical_semantic_link_set(
++    nodes: Mapping[str, SemanticNode],
++    links: Iterable[SemanticLink],
++    *,
++    consumer_uid_aliases: Mapping[str, str] | None = None,
++) -> tuple[tuple[SemanticLink, ...], tuple[str, ...]]:
++    """Return a deduplicated semantic link set and deterministic resolution issues.
++
++    ``nodes`` maps graph-local node ids to ``(stable_uid, class_type,
++    broadcast_name)``. ``links`` preserves both endpoint ports as
++    ``(source_id, source_output, consumer_id, consumer_input)``. Set/Get and
++    Reroute plumbing is resolved to its terminal source; loop-cloned consumer
++    UIDs are collapsed to the source consumer UID. Ambiguous, missing, orphaned,
++    or cyclic paths are reported instead of being silently discarded.
++    """
++    semantic, issues, _attribution = _canonical_semantic_link_set(
++        nodes,
++        links,
++        consumer_uid_aliases=consumer_uid_aliases,
++    )
++    return semantic, issues
++
++
++def _canonical_semantic_link_set(
++    nodes: Mapping[str, SemanticNode],
++    links: Iterable[SemanticLink],
++    *,
++    consumer_uid_aliases: Mapping[str, str] | None = None,
++) -> tuple[tuple[SemanticLink, ...], tuple[str, ...], dict[str, frozenset[str]]]:
++    """Resolution core: returns ``(links, issues, issue_attribution)``.
++
++    ``issue_attribution`` maps each canonical consumer uid to the resolution
++    issues that involve it: issues recorded while resolving one of the
++    consumer's inbound edges plus issues that name one of its graph-local
++    ids.  ``compute_field_delta`` uses this map so a single global issue
++    never fans out into a per-node delta on every snapshot node.
++    """
++    aliases = {
++        str(uid): str(canonical)
++        for uid, canonical in (consumer_uid_aliases or {}).items()
++    }
++    normalized_nodes = {
++        str(node_id): (str(spec[0]), str(spec[1]), spec[2])
++        for node_id, spec in nodes.items()
++    }
++    link_rows = sorted(
++        {
++            (str(source), str(source_output), str(consumer), str(consumer_input))
++            for source, source_output, consumer, consumer_input in links
++        }
++    )
++    issues: set[str] = set()
++    # Ordered record of every issue as first detected, so a failing resolution
++    # can attribute exactly the issues it added to the consuming edge.
++    issue_log: list[str] = []
++    # canonical consumer uid -> resolution issues that involve it.
++    attribution: dict[str, set[str]] = defaultdict(set)
++
++    def record_issue(issue: str) -> None:
++        if issue in issues:
++            return
++        issues.add(issue)
++        issue_log.append(issue)
++
++    uids: dict[str, str] = {}
++    for node_id, (uid, _class_type, _channel) in sorted(
++        normalized_nodes.items(), key=lambda item: (item[1][0], item[0])
++    ):
++        prior_id = uids.get(uid)
++        if prior_id is not None and prior_id != node_id:
++            record_issue(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
++        else:
++            uids[uid] = node_id
++
++    inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
++    for source, source_output, consumer, consumer_input in link_rows:
++        if source not in normalized_nodes:
++            record_issue(f"unknown_source:{source}")
++            consumer_spec = normalized_nodes.get(consumer)
++            if consumer_spec is not None:
++                attribution[
++                    aliases.get(str(consumer_spec[0]), str(consumer_spec[0]))
++                ].add(f"unknown_source:{source}")
++        if consumer not in normalized_nodes:
++            record_issue(f"unknown_consumer:{consumer}")
++        # Keep the helper endpoint's input identity until ambiguity has been
++        # decided.  Two edges from the same source/output into different
++        # helper inputs are still two distinct candidates and must fail closed.
++        inbound[consumer].append((source, source_output, consumer_input))
++
++    setters_by_channel: dict[str, list[str]] = defaultdict(list)
++    for node_id, (_uid, class_type, channel) in normalized_nodes.items():
++        if class_type == "SetNode" and channel:
++            setters_by_channel[str(channel)].append(node_id)
++
++    # Iterative terminal-source resolution with memoization.
++    #
++    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
++    # SetNode-as-source passthrough) follows exactly one candidate or fails
++    # closed, so the walk is a simple chain.  The result of every visited
++    # (node_id, output_port) key is cached,
++    # making the whole traversal linear in the helper graph and immune to
++    # repeated fan-out re-walks.  Re-entering a key that is still on the
++    # current path means the graph is cyclic: the walk terminates immediately
++    # and the path is reported via ``cyclic_path:`` (fail closed).  The hard
++    # ``_MAX_SEMANTIC_WALK`` hop cap guarantees bounded time even for
++    # adversarial inputs, so every call returns a deterministic verdict.
++    # ``(result, issues)`` where ``issues`` are the resolution issues recorded
++    # while first resolving that key (replayed on memo hits so every consuming
++    # edge of a failed key is attributed the same fail-closed diagnostics).
++    memo: dict[tuple[str, str], tuple[tuple[str, str] | None, frozenset[str]]] = {}
++    in_progress: set[tuple[str, str]] = set()
++
++    def terminal_source(
++        node_id: str,
++        output_port: str,
++    ) -> tuple[tuple[str, str] | None, frozenset[str]]:
++        start = (node_id, output_port)
++        if start in memo:
++            return memo[start]
++        path: list[tuple[str, str]] = []
++        current = start
++        result: tuple[str, str] | None = None
++        issues_for_key: frozenset[str] = frozenset()
++        walk_start = len(issue_log)
++        while True:
++            key = current
++            if key in memo:
++                result, issues_for_key = memo[key]
++                break
++            if key in in_progress:
++                cycle_nodes = {
++                    hop[0] for hop in path[path.index(key):]
++                } | {key[0]}
++                record_issue(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
++                result = None
++                break
++            spec = normalized_nodes.get(key[0])
++            if spec is None:
++                record_issue(f"unknown_source:{key[0]}")
++                result = None
++                break
++            uid, class_type, channel = spec
++            if class_type not in _SEMANTIC_HELPERS:
++                result = (uid, key[1])
++                break
++            if class_type == "Reroute":
++                candidates = sorted(set(inbound.get(key[0], ())))
++                if not candidates:
++                    # A Reroute with no inbound terminal is opaque display
++                    # plumbing: its outbound edge carries no resolvable source,
++                    # so the helper degenerates to an opaque terminal at its
++                    # own (uid, port).  This is a stable property of the graph,
++                    # not a change — recording ``reroute_source_count:*:0``
++                    # here fabricated a link delta on every downstream consumer
++                    # of unchanged schema-less nodes (B03 rework6).  Two or
++                    # more inbound candidates remain genuine ambiguity and fail
++                    # closed below.
++                    result = (uid, key[1])
++                    break
++                if len(candidates) != 1:
++                    record_issue(f"reroute_source_count:{key[0]}:{len(candidates)}")
++                    result = None
++                    break
++                next_node, next_port, _target_input = candidates[0]
++            elif class_type == "GetNode":
++                if not channel:
++                    record_issue(f"broadcast_name_missing:{key[0]}")
++                    result = None
++                    break
++                setters = sorted(set(setters_by_channel.get(str(channel), ())))
++                if not setters:
++                    # No SetNode backs this channel: the GetNode is an unbacked
++                    # display device whose outbound value is opaque.  It
++                    # degenerates to an opaque terminal at its own (uid, port)
++                    # instead of fabricating ``broadcast_setter_count:*:0`` on
++                    # unchanged consumers (B03 rework6).  Multiple setters for
++                    # one channel remain genuine ambiguity and fail closed below.
++                    result = (uid, key[1])
++                    break
++                if len(setters) != 1:
++                    record_issue(
++                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
++                    )
++                    result = None
++                    break
++                setter_id = setters[0]
++                candidates = sorted(set(inbound.get(setter_id, ())))
++                if not candidates:
++                    # The channel's sole SetNode has no inbound terminal: the
++                    # setter itself is the opaque value source.  Same degenerate
++                    # rule as the source-less SetNode-as-source case below.
++                    setter_uid = normalized_nodes[setter_id][0]
++                    result = (setter_uid, key[1])
++                    break
++                if len(candidates) != 1:
++                    record_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
++                    result = None
++                    break
++                next_node, next_port, _target_input = candidates[0]
++            else:  # SetNode used as a source resolves passthrough through its
++                # unique inbound terminal, exactly as the compiler resolves the
++                # same case (_compile/_resolve.py:172).  A source-less SetNode
++                # (zero inbound) degenerates to an opaque terminal at its own
++                # uid (B03 rework6); two or more inbound candidates are
++                # genuinely ambiguous and fail closed below.
++                candidates = sorted(set(inbound.get(key[0], ())))
++                if not candidates:
++                    result = (uid, key[1])
++                    break
++                if len(candidates) != 1:
++                    record_issue(f"setnode_as_source:{key[0]}:{len(candidates)}")
++                    result = None
++                    break
++                next_node, next_port, _target_input = candidates[0]
++            in_progress.add(key)
++            path.append(key)
++            if len(path) > _MAX_SEMANTIC_WALK:
++                record_issue(f"semantic_walk_limit:{key[0]}")
++                result = None
++                break
++            current = (next_node, next_port)
++        if result is None:
++            # A failure may have been replayed from a memoized key; either way
++            # the issues that blocked this resolution belong to every consumer
++            # of it, so the full set is cached on each visited key.
++            issues_for_key = frozenset(issue_log[walk_start:]) | issues_for_key
++        for visited_key in path:
++            memo[visited_key] = (result, issues_for_key)
++            in_progress.discard(visited_key)
++        memo[start] = (result, issues_for_key)
++        return result, issues_for_key
++
++    semantic: set[SemanticLink] = set()
++    for source, source_output, consumer, consumer_input in link_rows:
++        consumer_spec = normalized_nodes.get(consumer)
++        if consumer_spec is None:
++            continue
++        consumer_uid, consumer_class_type, _channel = consumer_spec
++        if consumer_class_type in {"SetNode", "Reroute"}:
++            continue
++        consumer_key = aliases.get(consumer_uid, consumer_uid)
++        if consumer_class_type == "GetNode":
++            if consumer_input == "broadcast_out":
++                # An edge entering a GetNode through its channel input is a
++                # display edge: the compiler resolves the GetNode's outbound
++                # through its channel and removes the helper-touching display
++                # edge (_compile/_resolve.py:136). Resolving the channel here
++                # means a resolvable chain never emits helper_input_unsupported;
++                # genuinely unresolvable channels (missing name, non-unique
++                # setter, non-unique setter inbound, cycles) still fail closed
++                # with the specific issue recorded by the walk.
++                _terminal, term_issues = terminal_source(consumer, source_output)
++                attribution[consumer_key].update(term_issues)
++                continue
++            record_issue(f"helper_input_unsupported:{consumer}")
++            attribution[consumer_key].add(f"helper_input_unsupported:{consumer}")
++            continue
++        terminal, term_issues = terminal_source(source, source_output)
++        attribution[consumer_key].update(term_issues)
++        if terminal is None:
++            continue
++        semantic.add(
++            (
++                terminal[0],
++                terminal[1],
++                aliases.get(consumer_uid, consumer_uid),
++                consumer_input,
++            )
++        )
++
++    # Named-node attribution: an issue that names a graph-local node also
++    # belongs on that node's own uid, even when the failing walk was first
++    # observed from a different consumer (memoized resolution).
++    for issue in issues:
++        for mentioned_uid in _issue_mentioned_uids(issue, normalized_nodes):
++            attribution[mentioned_uid].add(issue)
++
++    return (
++        tuple(sorted(semantic)),
++        tuple(sorted(issues)),
++        {uid: frozenset(issue_set) for uid, issue_set in attribution.items()},
++    )
++
++
++def _issue_mentioned_uids(
++    issue: str,
++    nodes: Mapping[str, SemanticNode],
++) -> frozenset[str]:
++    """Map the graph-local node ids named by a resolution issue to stable uids.
++
++    ``unknown_source``/``unknown_consumer`` name ghost ids absent from
++    ``nodes`` by construction; they are attributed to the consuming edge at
++    record time instead of here.
++    """
++    code, _, rest = issue.partition(":")
++    parts = rest.split(":") if rest else []
++    if code == "duplicate_uid" and len(parts) >= 3:
++        # duplicate_uid:<uid>:<id_a>:<id_b>
++        mentioned = {parts[0]}
++        for node_id in parts[1:3]:
++            spec = nodes.get(node_id)
++            mentioned.add(spec[0] if spec else node_id)
++        return frozenset(mentioned)
++    if code == "cyclic_path":
++        node_ids = parts
++    elif code in {"unknown_source", "unknown_consumer"} or not parts:
++        return frozenset()
++    else:
++        node_ids = (parts[0],)
++    mentioned: set[str] = set()
++    for node_id in node_ids:
++        spec = nodes.get(node_id)
++        mentioned.add(spec[0] if spec else node_id)
++    return frozenset(mentioned)
++
++
++def _snapshot_channel(snapshot_entry: Mapping[str, Any]) -> str | None:
++    for field_name, value_repr in snapshot_entry.get("widget_values_sig", ()):
++        if str(field_name) not in {"widget_0", "name"}:
++            continue
++        try:
++            value = ast.literal_eval(str(value_repr))
++        except (SyntaxError, ValueError):
++            value = value_repr
++        if value is not None:
++            return str(value)
++    return None
++
++
++def _snapshot_semantic_graph(
++    snapshot: Mapping[str, Mapping[str, Any]],
++) -> tuple[dict[str, SemanticNode], list[SemanticLink]]:
++    nodes = {
++        str(uid): (
++            str(uid),
++            str(entry.get("class_type", "")),
++            _snapshot_channel(entry),
++        )
++        for uid, entry in snapshot.items()
++    }
++    links: list[SemanticLink] = []
++    for source_uid, entry in snapshot.items():
++        for source_output, target in entry.get("outgoing_edge_sig", ()):
++            target_uid, target_input = target
++            links.append(
++                (str(source_uid), str(source_output), str(target_uid), str(target_input))
++            )
++        for target_input, source in entry.get("incoming_edge_sig", ()):
++            incoming_source_uid, source_output = source
++            links.append(
++                (
++                    str(incoming_source_uid),
++                    str(source_output),
++                    str(source_uid),
++                    str(target_input),
++                )
++            )
++    # A partial snapshot deliberately omits some node records while retained
++    # signatures may still name those peers. They remain valid opaque semantic
++    # endpoints; only the live graph must resolve every graph-local node id.
++    for source_uid, _source_output, target_uid, _target_input in links:
++        nodes.setdefault(source_uid, (source_uid, "", None))
++        nodes.setdefault(target_uid, (target_uid, "", None))
++    return nodes, links
++
++
++def _snapshot_consumer_uid_aliases(
++    nodes: Mapping[str, SemanticNode],
++    validated_live_aliases: Mapping[str, str],
++) -> dict[str, str]:
++    """Return only snapshot aliases corroborated by live lowering provenance.
++
++    A clone-shaped UID is ordinary user data unless the live node carries a
++    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
++    matches it.  Requiring that validated alias *and* the exact UID in the
++    snapshot gives both sides independent evidence and prevents textual UID
++    shape alone from fabricating snapshot topology.
++    """
++    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
++    return {
++        str(uid): str(source_uid)
++        for uid, source_uid in validated_live_aliases.items()
++        if str(uid) in snapshot_uids
++    }
++
++
++def _workflow_semantic_graph(
++    current_ir: "VibeWorkflow",
++) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
++    nodes: dict[str, SemanticNode] = {}
++    consumer_uid_aliases: dict[str, str] = {}
++    for node_id, node in current_ir.nodes.items():
++        channel = None
++        if node.class_type in {"SetNode", "GetNode"}:
++            value = node.inputs.get("widget_0", node.widgets.get("widget_0"))
++            if value is None:
++                value = node.inputs.get("name")
++            if value is not None:
++                channel = str(value)
++        stable_uid = str(node.uid if node.uid else node_id)
++        nodes[str(node_id)] = (
++            stable_uid,
++            str(node.class_type),
++            channel,
++        )
++        lowering = node.metadata.get("vibecomfy.lowering")
++        if isinstance(lowering, Mapping):
++            source_uid = lowering.get("source_uid")
++            loop_uid = lowering.get("loop_uid")
++            iteration_index = lowering.get("iteration_index")
++            if (
++                isinstance(source_uid, str)
++                and isinstance(loop_uid, str)
++                and isinstance(iteration_index, int)
++                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
++            ):
++                consumer_uid_aliases[stable_uid] = source_uid
++    links = [
++        (str(edge.from_node), str(edge.from_output), str(edge.to_node), str(edge.to_input))
++        for edge in current_ir.edges
++    ]
++    return nodes, links, consumer_uid_aliases
++
+
+ def compute_field_delta(
+     snapshot: dict[str, Any],
+     current_ir: "VibeWorkflow",
+-) -> dict[str, dict[str, tuple]]:
++) -> dict[str, dict[str, Any]]:
+     """Compute field-level changes between a stored snapshot and the current IR.
+
+     Parameters
+     ----------
+     snapshot:
+         A ``{uid: NodeFieldSnapshot}`` dict as returned by
+         ``capture_ingest_snapshot``.  This is the *before* state.
+     current_ir:
+         The live ``VibeWorkflow`` to compare against.  This is the *after* state.
+
+     Returns
+     -------
+-    ``{uid: {field_name: (old_value, new_value)}}`` — only nodes and fields
+-    where something changed.  Nodes absent from *snapshot* are omitted.
++    ``{uid: {field_name: delta}}`` — only nodes and fields where something
++    changed. Scalar fields use ``(old_value, new_value)``; link changes use a
++    ``semantic_link_set`` record carrying canonical before/after sets and
++    resolution issues. Nodes absent from *snapshot* are omitted.
+     Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
+     omitted; callers that need to detect removals should diff snapshot keys against
+     the current IR's uid set directly.
+     """
+     # Build uid → node lookup for the current IR.
+-    uid_to_node = {(node.uid if node.uid else node_id): node for node_id, node in current_ir.nodes.items()}
++    uid_to_node = {
++        (node.uid if node.uid else node_id): node
++        for node_id, node in current_ir.nodes.items()
++    }
+
+     # Recompute current signatures inline to avoid a round-trip through capture.
+     nodes = current_ir.nodes
+-    edges = current_ir.edges
+     workflow_inputs = current_ir.inputs
+
+-    id_to_uid: dict[str, str] = {}
+-    for node_id, node in nodes.items():
+-        id_to_uid[node_id] = node.uid if node.uid else node_id
+-
+-    incoming: dict[str, list] = {node_id: [] for node_id in nodes}
+-    for edge in edges:
+-        if edge.to_node in incoming:
+-            source_uid = id_to_uid.get(edge.from_node, edge.from_node)
+-            incoming[edge.to_node].append((edge.to_input, (source_uid, edge.from_output)))
+-
+-    outgoing: dict[str, list] = {node_id: [] for node_id in nodes}
+-    for edge in edges:
+-        if edge.from_node in outgoing:
+-            target_uid = id_to_uid.get(edge.to_node, edge.to_node)
+-            outgoing[edge.from_node].append((edge.from_output, (target_uid, edge.to_input)))
+-
+     public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
+     for input_name, vibe_input in workflow_inputs.items():
+         if vibe_input.node_id in public_bindings:
+             public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
+
+-    delta: dict[str, dict[str, tuple]] = {}
++    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
++    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
++    # Snapshot aliasing requires corroboration from both representations: the
++    # exact clone UID must exist in the snapshot and the corresponding live
++    # node must carry validated lowering metadata.  The after graph may also
++    # contain newly lowered clones absent from the snapshot, so it retains the
++    # complete validated live alias map.
++    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
++    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
++        before_nodes,
++        before_links,
++        consumer_uid_aliases=before_aliases,
++    )
++    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
++        after_nodes,
++        after_links,
++        consumer_uid_aliases=after_aliases,
++    )
++
++    delta: dict[str, dict[str, Any]] = {}
+     for uid, old_snap in snapshot.items():
+         node = uid_to_node.get(uid)
+         if node is None:
+             # Node removed after snapshot — omit per spec (caller diffs keys directly).
+             continue
+
+         # Recompute the current signature for this node.
+         all_values = {**node.widgets, **node.inputs}
+         current: dict[str, Any] = {
+             "class_type": node.class_type,
+             "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
+-            "incoming_edge_sig": tuple(sorted(incoming.get(node.id, []))),
+-            "outgoing_edge_sig": tuple(sorted(outgoing.get(node.id, []))),
+             "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
+         }
+
+-        node_delta: dict[str, tuple] = {}
++        node_delta: dict[str, Any] = {}
+         for field_name in _SNAPSHOT_FIELDS:
+             old_val = old_snap[field_name]
+             new_val = current[field_name]
+             if old_val != new_val:
+                 node_delta[field_name] = (old_val, new_val)
+
++        uid_key = before_aliases.get(str(uid), str(uid))
++        before_incident = tuple(
++            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
++        )
++        after_incident = tuple(
++            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
++        )
++        # Resolution issues are attached only to the snapshot nodes actually
++        # involved (issue-named uids plus consumers of the failing edges), so
++        # a single ambiguous helper never fabricates a semantic-link delta on
++        # unrelated pins (B03 oracle finding 3 fan-out amplification).
++        before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
++        after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
++        if before_incident != after_incident or before_uid_issues or after_uid_issues:
++            node_delta["semantic_link_set"] = {
++                "before": before_incident,
++                "after": after_incident,
++                "before_resolution_issues": before_uid_issues,
++                "after_resolution_issues": after_uid_issues,
++            }
++
+         if node_delta:
+             delta[uid] = node_delta
+
+     return delta
++
++
++__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
+
+exec
+/bin/zsh -lc "nl -ba vibecomfy/porting/layout/delta.py | sed -n '1,260p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 0ms:
+     1	"""Field-level delta computation between an ingest snapshot and the current IR.
+     2
+     3	``compute_field_delta`` compares a stored ``_ingest_snapshot`` (captured at
+     4	ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
+     5	the live IR state of a ``VibeWorkflow``.
+     6
+     7	Nodes absent from *snapshot* (added after ingest) are omitted from the result —
+     8	downstream logic treats them as ``'snapshot-absent'``.
+     9	"""
+    10	from __future__ import annotations
+    11
+    12	import ast
+    13	from collections import defaultdict
+    14	from collections.abc import Iterable, Mapping
+    15	from typing import TYPE_CHECKING, Any
+    16
+    17	from vibecomfy.porting.lowering import clone_uid
+    18
+    19	if TYPE_CHECKING:
+    20	    from vibecomfy.workflow import VibeWorkflow
+    21
+    22	_SNAPSHOT_FIELDS = (
+    23	    "class_type",
+    24	    "widget_values_sig",
+    25	    "public_input_binding",
+    26	)
+    27
+    28	SemanticLink = tuple[str, str, str, str]
+    29	SemanticNode = tuple[str, str, str | None]
+    30	_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
+    31
+    32	# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
+    33	# a single terminal-source walk.  Every hop is memoized, so a healthy graph
+    34	# resolves each helper at most once; this cap is a fail-closed backstop so the
+    35	# semantic traversal is bounded for any input, however pathological.
+    36	_MAX_SEMANTIC_WALK = 10_000
+    37
+    38
+    39	def canonical_semantic_link_set(
+    40	    nodes: Mapping[str, SemanticNode],
+    41	    links: Iterable[SemanticLink],
+    42	    *,
+    43	    consumer_uid_aliases: Mapping[str, str] | None = None,
+    44	) -> tuple[tuple[SemanticLink, ...], tuple[str, ...]]:
+    45	    """Return a deduplicated semantic link set and deterministic resolution issues.
+    46
+    47	    ``nodes`` maps graph-local node ids to ``(stable_uid, class_type,
+    48	    broadcast_name)``. ``links`` preserves both endpoint ports as
+    49	    ``(source_id, source_output, consumer_id, consumer_input)``. Set/Get and
+    50	    Reroute plumbing is resolved to its terminal source; loop-cloned consumer
+    51	    UIDs are collapsed to the source consumer UID. Ambiguous, missing, orphaned,
+    52	    or cyclic paths are reported instead of being silently discarded.
+    53	    """
+    54	    semantic, issues, _attribution = _canonical_semantic_link_set(
+    55	        nodes,
+    56	        links,
+    57	        consumer_uid_aliases=consumer_uid_aliases,
+    58	    )
+    59	    return semantic, issues
+    60
+    61
+    62	def _canonical_semantic_link_set(
+    63	    nodes: Mapping[str, SemanticNode],
+    64	    links: Iterable[SemanticLink],
+    65	    *,
+    66	    consumer_uid_aliases: Mapping[str, str] | None = None,
+    67	) -> tuple[tuple[SemanticLink, ...], tuple[str, ...], dict[str, frozenset[str]]]:
+    68	    """Resolution core: returns ``(links, issues, issue_attribution)``.
+    69
+    70	    ``issue_attribution`` maps each canonical consumer uid to the resolution
+    71	    issues that involve it: issues recorded while resolving one of the
+    72	    consumer's inbound edges plus issues that name one of its graph-local
+    73	    ids.  ``compute_field_delta`` uses this map so a single global issue
+    74	    never fans out into a per-node delta on every snapshot node.
+    75	    """
+    76	    aliases = {
+    77	        str(uid): str(canonical)
+    78	        for uid, canonical in (consumer_uid_aliases or {}).items()
+    79	    }
+    80	    normalized_nodes = {
+    81	        str(node_id): (str(spec[0]), str(spec[1]), spec[2])
+    82	        for node_id, spec in nodes.items()
+    83	    }
+    84	    link_rows = sorted(
+    85	        {
+    86	            (str(source), str(source_output), str(consumer), str(consumer_input))
+    87	            for source, source_output, consumer, consumer_input in links
+    88	        }
+    89	    )
+    90	    issues: set[str] = set()
+    91	    # Ordered record of every issue as first detected, so a failing resolution
+    92	    # can attribute exactly the issues it added to the consuming edge.
+    93	    issue_log: list[str] = []
+    94	    # canonical consumer uid -> resolution issues that involve it.
+    95	    attribution: dict[str, set[str]] = defaultdict(set)
+    96
+    97	    def record_issue(issue: str) -> None:
+    98	        if issue in issues:
+    99	            return
+   100	        issues.add(issue)
+   101	        issue_log.append(issue)
+   102
+   103	    uids: dict[str, str] = {}
+   104	    for node_id, (uid, _class_type, _channel) in sorted(
+   105	        normalized_nodes.items(), key=lambda item: (item[1][0], item[0])
+   106	    ):
+   107	        prior_id = uids.get(uid)
+   108	        if prior_id is not None and prior_id != node_id:
+   109	            record_issue(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
+   110	        else:
+   111	            uids[uid] = node_id
+   112
+   113	    inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+   114	    for source, source_output, consumer, consumer_input in link_rows:
+   115	        if source not in normalized_nodes:
+   116	            record_issue(f"unknown_source:{source}")
+   117	            consumer_spec = normalized_nodes.get(consumer)
+   118	            if consumer_spec is not None:
+   119	                attribution[
+   120	                    aliases.get(str(consumer_spec[0]), str(consumer_spec[0]))
+   121	                ].add(f"unknown_source:{source}")
+   122	        if consumer not in normalized_nodes:
+   123	            record_issue(f"unknown_consumer:{consumer}")
+   124	        # Keep the helper endpoint's input identity until ambiguity has been
+   125	        # decided.  Two edges from the same source/output into different
+   126	        # helper inputs are still two distinct candidates and must fail closed.
+   127	        inbound[consumer].append((source, source_output, consumer_input))
+   128
+   129	    setters_by_channel: dict[str, list[str]] = defaultdict(list)
+   130	    for node_id, (_uid, class_type, channel) in normalized_nodes.items():
+   131	        if class_type == "SetNode" and channel:
+   132	            setters_by_channel[str(channel)].append(node_id)
+   133
+   134	    # Iterative terminal-source resolution with memoization.
+   135	    #
+   136	    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
+   137	    # SetNode-as-source passthrough) follows exactly one candidate or fails
+   138	    # closed, so the walk is a simple chain.  The result of every visited
+   139	    # (node_id, output_port) key is cached,
+   140	    # making the whole traversal linear in the helper graph and immune to
+   141	    # repeated fan-out re-walks.  Re-entering a key that is still on the
+   142	    # current path means the graph is cyclic: the walk terminates immediately
+   143	    # and the path is reported via ``cyclic_path:`` (fail closed).  The hard
+   144	    # ``_MAX_SEMANTIC_WALK`` hop cap guarantees bounded time even for
+   145	    # adversarial inputs, so every call returns a deterministic verdict.
+   146	    # ``(result, issues)`` where ``issues`` are the resolution issues recorded
+   147	    # while first resolving that key (replayed on memo hits so every consuming
+   148	    # edge of a failed key is attributed the same fail-closed diagnostics).
+   149	    memo: dict[tuple[str, str], tuple[tuple[str, str] | None, frozenset[str]]] = {}
+   150	    in_progress: set[tuple[str, str]] = set()
+   151
+   152	    def terminal_source(
+   153	        node_id: str,
+   154	        output_port: str,
+   155	    ) -> tuple[tuple[str, str] | None, frozenset[str]]:
+   156	        start = (node_id, output_port)
+   157	        if start in memo:
+   158	            return memo[start]
+   159	        path: list[tuple[str, str]] = []
+   160	        current = start
+   161	        result: tuple[str, str] | None = None
+   162	        issues_for_key: frozenset[str] = frozenset()
+   163	        walk_start = len(issue_log)
+   164	        while True:
+   165	            key = current
+   166	            if key in memo:
+   167	                result, issues_for_key = memo[key]
+   168	                break
+   169	            if key in in_progress:
+   170	                cycle_nodes = {
+   171	                    hop[0] for hop in path[path.index(key):]
+   172	                } | {key[0]}
+   173	                record_issue(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
+   174	                result = None
+   175	                break
+   176	            spec = normalized_nodes.get(key[0])
+   177	            if spec is None:
+   178	                record_issue(f"unknown_source:{key[0]}")
+   179	                result = None
+   180	                break
+   181	            uid, class_type, channel = spec
+   182	            if class_type not in _SEMANTIC_HELPERS:
+   183	                result = (uid, key[1])
+   184	                break
+   185	            if class_type == "Reroute":
+   186	                candidates = sorted(set(inbound.get(key[0], ())))
+   187	                if not candidates:
+   188	                    # A Reroute with no inbound terminal is opaque display
+   189	                    # plumbing: its outbound edge carries no resolvable source,
+   190	                    # so the helper degenerates to an opaque terminal at its
+   191	                    # own (uid, port).  This is a stable property of the graph,
+   192	                    # not a change — recording ``reroute_source_count:*:0``
+   193	                    # here fabricated a link delta on every downstream consumer
+   194	                    # of unchanged schema-less nodes (B03 rework6).  Two or
+   195	                    # more inbound candidates remain genuine ambiguity and fail
+   196	                    # closed below.
+   197	                    result = (uid, key[1])
+   198	                    break
+   199	                if len(candidates) != 1:
+   200	                    record_issue(f"reroute_source_count:{key[0]}:{len(candidates)}")
+   201	                    result = None
+   202	                    break
+   203	                next_node, next_port, _target_input = candidates[0]
+   204	            elif class_type == "GetNode":
+   205	                if not channel:
+   206	                    record_issue(f"broadcast_name_missing:{key[0]}")
+   207	                    result = None
+   208	                    break
+   209	                setters = sorted(set(setters_by_channel.get(str(channel), ())))
+   210	                if not setters:
+   211	                    # No SetNode backs this channel: the GetNode is an unbacked
+   212	                    # display device whose outbound value is opaque.  It
+   213	                    # degenerates to an opaque terminal at its own (uid, port)
+   214	                    # instead of fabricating ``broadcast_setter_count:*:0`` on
+   215	                    # unchanged consumers (B03 rework6).  Multiple setters for
+   216	                    # one channel remain genuine ambiguity and fail closed below.
+   217	                    result = (uid, key[1])
+   218	                    break
+   219	                if len(setters) != 1:
+   220	                    record_issue(
+   221	                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
+   222	                    )
+   223	                    result = None
+   224	                    break
+   225	                setter_id = setters[0]
+   226	                candidates = sorted(set(inbound.get(setter_id, ())))
+   227	                if not candidates:
+   228	                    # The channel's sole SetNode has no inbound terminal: the
+   229	                    # setter itself is the opaque value source.  Same degenerate
+   230	                    # rule as the source-less SetNode-as-source case below.
+   231	                    setter_uid = normalized_nodes[setter_id][0]
+   232	                    result = (setter_uid, key[1])
+   233	                    break
+   234	                if len(candidates) != 1:
+   235	                    record_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
+   236	                    result = None
+   237	                    break
+   238	                next_node, next_port, _target_input = candidates[0]
+   239	            else:  # SetNode used as a source resolves passthrough through its
+   240	                # unique inbound terminal, exactly as the compiler resolves the
+   241	                # same case (_compile/_resolve.py:172).  A source-less SetNode
+   242	                # (zero inbound) degenerates to an opaque terminal at its own
+   243	                # uid (B03 rework6); two or more inbound candidates are
+   244	                # genuinely ambiguous and fail closed below.
+   245	                candidates = sorted(set(inbound.get(key[0], ())))
+   246	                if not candidates:
+   247	                    result = (uid, key[1])
+   248	                    break
+   249	                if len(candidates) != 1:
+   250	                    record_issue(f"setnode_as_source:{key[0]}:{len(candidates)}")
+   251	                    result = None
+   252	                    break
+   253	                next_node, next_port, _target_input = candidates[0]
+   254	            in_progress.add(key)
+   255	            path.append(key)
+   256	            if len(path) > _MAX_SEMANTIC_WALK:
+   257	                record_issue(f"semantic_walk_limit:{key[0]}")
+   258	                result = None
+   259	                break
+   260	            current = (next_node, next_port)
+
+exec
+/bin/zsh -lc "nl -ba vibecomfy/porting/layout/delta.py | sed -n '261,620p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 0ms:
+   261	        if result is None:
+   262	            # A failure may have been replayed from a memoized key; either way
+   263	            # the issues that blocked this resolution belong to every consumer
+   264	            # of it, so the full set is cached on each visited key.
+   265	            issues_for_key = frozenset(issue_log[walk_start:]) | issues_for_key
+   266	        for visited_key in path:
+   267	            memo[visited_key] = (result, issues_for_key)
+   268	            in_progress.discard(visited_key)
+   269	        memo[start] = (result, issues_for_key)
+   270	        return result, issues_for_key
+   271
+   272	    semantic: set[SemanticLink] = set()
+   273	    for source, source_output, consumer, consumer_input in link_rows:
+   274	        consumer_spec = normalized_nodes.get(consumer)
+   275	        if consumer_spec is None:
+   276	            continue
+   277	        consumer_uid, consumer_class_type, _channel = consumer_spec
+   278	        if consumer_class_type in {"SetNode", "Reroute"}:
+   279	            continue
+   280	        consumer_key = aliases.get(consumer_uid, consumer_uid)
+   281	        if consumer_class_type == "GetNode":
+   282	            if consumer_input == "broadcast_out":
+   283	                # An edge entering a GetNode through its channel input is a
+   284	                # display edge: the compiler resolves the GetNode's outbound
+   285	                # through its channel and removes the helper-touching display
+   286	                # edge (_compile/_resolve.py:136). Resolving the channel here
+   287	                # means a resolvable chain never emits helper_input_unsupported;
+   288	                # genuinely unresolvable channels (missing name, non-unique
+   289	                # setter, non-unique setter inbound, cycles) still fail closed
+   290	                # with the specific issue recorded by the walk.
+   291	                _terminal, term_issues = terminal_source(consumer, source_output)
+   292	                attribution[consumer_key].update(term_issues)
+   293	                continue
+   294	            record_issue(f"helper_input_unsupported:{consumer}")
+   295	            attribution[consumer_key].add(f"helper_input_unsupported:{consumer}")
+   296	            continue
+   297	        terminal, term_issues = terminal_source(source, source_output)
+   298	        attribution[consumer_key].update(term_issues)
+   299	        if terminal is None:
+   300	            continue
+   301	        semantic.add(
+   302	            (
+   303	                terminal[0],
+   304	                terminal[1],
+   305	                aliases.get(consumer_uid, consumer_uid),
+   306	                consumer_input,
+   307	            )
+   308	        )
+   309
+   310	    # Named-node attribution: an issue that names a graph-local node also
+   311	    # belongs on that node's own uid, even when the failing walk was first
+   312	    # observed from a different consumer (memoized resolution).
+   313	    for issue in issues:
+   314	        for mentioned_uid in _issue_mentioned_uids(issue, normalized_nodes):
+   315	            attribution[mentioned_uid].add(issue)
+   316
+   317	    return (
+   318	        tuple(sorted(semantic)),
+   319	        tuple(sorted(issues)),
+   320	        {uid: frozenset(issue_set) for uid, issue_set in attribution.items()},
+   321	    )
+   322
+   323
+   324	def _issue_mentioned_uids(
+   325	    issue: str,
+   326	    nodes: Mapping[str, SemanticNode],
+   327	) -> frozenset[str]:
+   328	    """Map the graph-local node ids named by a resolution issue to stable uids.
+   329
+   330	    ``unknown_source``/``unknown_consumer`` name ghost ids absent from
+   331	    ``nodes`` by construction; they are attributed to the consuming edge at
+   332	    record time instead of here.
+   333	    """
+   334	    code, _, rest = issue.partition(":")
+   335	    parts = rest.split(":") if rest else []
+   336	    if code == "duplicate_uid" and len(parts) >= 3:
+   337	        # duplicate_uid:<uid>:<id_a>:<id_b>
+   338	        mentioned = {parts[0]}
+   339	        for node_id in parts[1:3]:
+   340	            spec = nodes.get(node_id)
+   341	            mentioned.add(spec[0] if spec else node_id)
+   342	        return frozenset(mentioned)
+   343	    if code == "cyclic_path":
+   344	        node_ids = parts
+   345	    elif code in {"unknown_source", "unknown_consumer"} or not parts:
+   346	        return frozenset()
+   347	    else:
+   348	        node_ids = (parts[0],)
+   349	    mentioned: set[str] = set()
+   350	    for node_id in node_ids:
+   351	        spec = nodes.get(node_id)
+   352	        mentioned.add(spec[0] if spec else node_id)
+   353	    return frozenset(mentioned)
+   354
+   355
+   356	def _snapshot_channel(snapshot_entry: Mapping[str, Any]) -> str | None:
+   357	    for field_name, value_repr in snapshot_entry.get("widget_values_sig", ()):
+   358	        if str(field_name) not in {"widget_0", "name"}:
+   359	            continue
+   360	        try:
+   361	            value = ast.literal_eval(str(value_repr))
+   362	        except (SyntaxError, ValueError):
+   363	            value = value_repr
+   364	        if value is not None:
+   365	            return str(value)
+   366	    return None
+   367
+   368
+   369	def _snapshot_semantic_graph(
+   370	    snapshot: Mapping[str, Mapping[str, Any]],
+   371	) -> tuple[dict[str, SemanticNode], list[SemanticLink]]:
+   372	    nodes = {
+   373	        str(uid): (
+   374	            str(uid),
+   375	            str(entry.get("class_type", "")),
+   376	            _snapshot_channel(entry),
+   377	        )
+   378	        for uid, entry in snapshot.items()
+   379	    }
+   380	    links: list[SemanticLink] = []
+   381	    for source_uid, entry in snapshot.items():
+   382	        for source_output, target in entry.get("outgoing_edge_sig", ()):
+   383	            target_uid, target_input = target
+   384	            links.append(
+   385	                (str(source_uid), str(source_output), str(target_uid), str(target_input))
+   386	            )
+   387	        for target_input, source in entry.get("incoming_edge_sig", ()):
+   388	            incoming_source_uid, source_output = source
+   389	            links.append(
+   390	                (
+   391	                    str(incoming_source_uid),
+   392	                    str(source_output),
+   393	                    str(source_uid),
+   394	                    str(target_input),
+   395	                )
+   396	            )
+   397	    # A partial snapshot deliberately omits some node records while retained
+   398	    # signatures may still name those peers. They remain valid opaque semantic
+   399	    # endpoints; only the live graph must resolve every graph-local node id.
+   400	    for source_uid, _source_output, target_uid, _target_input in links:
+   401	        nodes.setdefault(source_uid, (source_uid, "", None))
+   402	        nodes.setdefault(target_uid, (target_uid, "", None))
+   403	    return nodes, links
+   404
+   405
+   406	def _snapshot_consumer_uid_aliases(
+   407	    nodes: Mapping[str, SemanticNode],
+   408	    validated_live_aliases: Mapping[str, str],
+   409	) -> dict[str, str]:
+   410	    """Return only snapshot aliases corroborated by live lowering provenance.
+   411
+   412	    A clone-shaped UID is ordinary user data unless the live node carries a
+   413	    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
+   414	    matches it.  Requiring that validated alias *and* the exact UID in the
+   415	    snapshot gives both sides independent evidence and prevents textual UID
+   416	    shape alone from fabricating snapshot topology.
+   417	    """
+   418	    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
+   419	    return {
+   420	        str(uid): str(source_uid)
+   421	        for uid, source_uid in validated_live_aliases.items()
+   422	        if str(uid) in snapshot_uids
+   423	    }
+   424
+   425
+   426	def _workflow_semantic_graph(
+   427	    current_ir: "VibeWorkflow",
+   428	) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
+   429	    nodes: dict[str, SemanticNode] = {}
+   430	    consumer_uid_aliases: dict[str, str] = {}
+   431	    for node_id, node in current_ir.nodes.items():
+   432	        channel = None
+   433	        if node.class_type in {"SetNode", "GetNode"}:
+   434	            value = node.inputs.get("widget_0", node.widgets.get("widget_0"))
+   435	            if value is None:
+   436	                value = node.inputs.get("name")
+   437	            if value is not None:
+   438	                channel = str(value)
+   439	        stable_uid = str(node.uid if node.uid else node_id)
+   440	        nodes[str(node_id)] = (
+   441	            stable_uid,
+   442	            str(node.class_type),
+   443	            channel,
+   444	        )
+   445	        lowering = node.metadata.get("vibecomfy.lowering")
+   446	        if isinstance(lowering, Mapping):
+   447	            source_uid = lowering.get("source_uid")
+   448	            loop_uid = lowering.get("loop_uid")
+   449	            iteration_index = lowering.get("iteration_index")
+   450	            if (
+   451	                isinstance(source_uid, str)
+   452	                and isinstance(loop_uid, str)
+   453	                and isinstance(iteration_index, int)
+   454	                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
+   455	            ):
+   456	                consumer_uid_aliases[stable_uid] = source_uid
+   457	    links = [
+   458	        (str(edge.from_node), str(edge.from_output), str(edge.to_node), str(edge.to_input))
+   459	        for edge in current_ir.edges
+   460	    ]
+   461	    return nodes, links, consumer_uid_aliases
+   462
+   463
+   464	def compute_field_delta(
+   465	    snapshot: dict[str, Any],
+   466	    current_ir: "VibeWorkflow",
+   467	) -> dict[str, dict[str, Any]]:
+   468	    """Compute field-level changes between a stored snapshot and the current IR.
+   469
+   470	    Parameters
+   471	    ----------
+   472	    snapshot:
+   473	        A ``{uid: NodeFieldSnapshot}`` dict as returned by
+   474	        ``capture_ingest_snapshot``.  This is the *before* state.
+   475	    current_ir:
+   476	        The live ``VibeWorkflow`` to compare against.  This is the *after* state.
+   477
+   478	    Returns
+   479	    -------
+   480	    ``{uid: {field_name: delta}}`` — only nodes and fields where something
+   481	    changed. Scalar fields use ``(old_value, new_value)``; link changes use a
+   482	    ``semantic_link_set`` record carrying canonical before/after sets and
+   483	    resolution issues. Nodes absent from *snapshot* are omitted.
+   484	    Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
+   485	    omitted; callers that need to detect removals should diff snapshot keys against
+   486	    the current IR's uid set directly.
+   487	    """
+   488	    # Build uid → node lookup for the current IR.
+   489	    uid_to_node = {
+   490	        (node.uid if node.uid else node_id): node
+   491	        for node_id, node in current_ir.nodes.items()
+   492	    }
+   493
+   494	    # Recompute current signatures inline to avoid a round-trip through capture.
+   495	    nodes = current_ir.nodes
+   496	    workflow_inputs = current_ir.inputs
+   497
+   498	    public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
+   499	    for input_name, vibe_input in workflow_inputs.items():
+   500	        if vibe_input.node_id in public_bindings:
+   501	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
+   502
+   503	    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
+   504	    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
+   505	    # Snapshot aliasing requires corroboration from both representations: the
+   506	    # exact clone UID must exist in the snapshot and the corresponding live
+   507	    # node must carry validated lowering metadata.  The after graph may also
+   508	    # contain newly lowered clones absent from the snapshot, so it retains the
+   509	    # complete validated live alias map.
+   510	    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
+   511	    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
+   512	        before_nodes,
+   513	        before_links,
+   514	        consumer_uid_aliases=before_aliases,
+   515	    )
+   516	    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
+   517	        after_nodes,
+   518	        after_links,
+   519	        consumer_uid_aliases=after_aliases,
+   520	    )
+   521
+   522	    delta: dict[str, dict[str, Any]] = {}
+   523	    for uid, old_snap in snapshot.items():
+   524	        node = uid_to_node.get(uid)
+   525	        if node is None:
+   526	            # Node removed after snapshot — omit per spec (caller diffs keys directly).
+   527	            continue
+   528
+   529	        # Recompute the current signature for this node.
+   530	        all_values = {**node.widgets, **node.inputs}
+   531	        current: dict[str, Any] = {
+   532	            "class_type": node.class_type,
+   533	            "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
+   534	            "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
+   535	        }
+   536
+   537	        node_delta: dict[str, Any] = {}
+   538	        for field_name in _SNAPSHOT_FIELDS:
+   539	            old_val = old_snap[field_name]
+   540	            new_val = current[field_name]
+   541	            if old_val != new_val:
+   542	                node_delta[field_name] = (old_val, new_val)
+   543
+   544	        uid_key = before_aliases.get(str(uid), str(uid))
+   545	        before_incident = tuple(
+   546	            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
+   547	        )
+   548	        after_incident = tuple(
+   549	            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
+   550	        )
+   551	        # Resolution issues are attached only to the snapshot nodes actually
+   552	        # involved (issue-named uids plus consumers of the failing edges), so
+   553	        # a single ambiguous helper never fabricates a semantic-link delta on
+   554	        # unrelated pins (B03 oracle finding 3 fan-out amplification).
+   555	        before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
+   556	        after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
+   557	        if before_incident != after_incident or before_uid_issues or after_uid_issues:
+   558	            node_delta["semantic_link_set"] = {
+   559	                "before": before_incident,
+   560	                "after": after_incident,
+   561	                "before_resolution_issues": before_uid_issues,
+   562	                "after_resolution_issues": after_uid_issues,
+   563	            }
+   564
+   565	        if node_delta:
+   566	            delta[uid] = node_delta
+   567
+   568	    return delta
+   569
+   570
+   571	__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
+
+exec
+/bin/zsh -lc 'git diff --unified=20 e1bef3bf..e82d54bf -- vibecomfy/porting/lowering.py vibecomfy/porting/emit/ui.py vibecomfy/porting/refuse.py vibecomfy/porting/widget_shape_fence.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 diff --git a/vibecomfy/porting/emit/ui.py b/vibecomfy/porting/emit/ui.py
 index 2fa52899..f5562fc3 100644
 --- a/vibecomfy/porting/emit/ui.py
 +++ b/vibecomfy/porting/emit/ui.py
-@@ -1538,109 +1538,110 @@ def _widget_shape_evidence_summary(evidence: WidgetShapeEvidence) -> dict[str, A
-         "provider": evidence.provider,
-         "explicit_widget_overflow": evidence.explicit_widget_overflow,
-         "raw_widget_length_recovered": evidence.raw_widget_length_recovered,
-         "value_domain": evidence.value_domain,
-     }
-
-
- def _widget_shape_report_fields(verdict: Any) -> dict[str, Any]:
-     reasons = [_jsonable_widget_shape_value(reason) for reason in getattr(verdict, "reasons", ())]
-     fields: dict[str, Any] = {
-         "widget_shape_verdict": _jsonable_widget_shape_value(getattr(verdict, "decision", None)),
-     }
-     if reasons:
-         fields["widget_shape_reasons"] = reasons
-     if getattr(verdict, "pin_opaque", False) or getattr(verdict, "refuse", False):
-         details: dict[str, Any] = {
-             "reasons": reasons,
-             "evidence": _widget_shape_evidence_summary(verdict.evidence),
-         }
-         if getattr(verdict, "field_delta", None):
-             details["field_delta"] = _jsonable_widget_shape_value(verdict.field_delta)
-         if getattr(verdict, "link_delta", None):
-             details["link_delta"] = _jsonable_widget_shape_value(verdict.link_delta)
-         fields["widget_shape_details"] = details
-     return fields
-
-
- def _node_delta(
-     deltas: Mapping[str, Mapping[str, Any]],
-     node_id: str,
+@@ -1568,49 +1568,50 @@ def _node_delta(
      node: Any,
  ) -> Mapping[str, Any]:
      uid = getattr(node, "uid", "")
@@ -1757,71 +2672,11 @@ index 2fa52899..f5562fc3 100644
          "control_after_generate": p.get("control_after_generate"),
          "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
          "widget_length_check": p.get("widget_length_check"),
-         "value_domain": getattr(getattr(verdict, "evidence", None), "value_domain", None),
-         "has_raw_ui_payload": has_raw_ui_payload,
-     }
-     entry.update(_widget_shape_report_fields(verdict))
-     recovery = getattr(verdict, "recovery", None)
-     if getattr(verdict, "evidence", None) is not None and getattr(
-         verdict.evidence, "raw_widget_length_recovered", False
-     ):
-         recovery = "raw_widgets_values_length"
-     if recovery is not None:
-         entry["widget_shape_recovery"] = recovery
-     if p.get("widget_order_guesses"):
-         entry["widget_order_guesses"] = p["widget_order_guesses"]
-     if p["schema_less"]:
-         entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
-     elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
-         entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
-     return entry
-
-
- def _pinned_link_ref_refusal(
-     node_id: str,
-     class_type: str,
-     reason: str,
-     *,
-     details: Mapping[str, Any],
- ) -> None:
-     from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
-
-     typed_reason = (
 diff --git a/vibecomfy/porting/lowering.py b/vibecomfy/porting/lowering.py
 index 1cead444..adf42a1a 100644
 --- a/vibecomfy/porting/lowering.py
 +++ b/vibecomfy/porting/lowering.py
-@@ -267,170 +267,175 @@ def _normalize_count(
-                 detail={"count": count, "max": INTENT_LOOP_MAX_ITERATIONS},
-             )
-         ]
-     # count is missing or non-integer — check for "over"
-     return None, []
-
-
- def _node_sort_key(node_id: str) -> tuple[int, int | str, str]:
-     if node_id.isdigit():
-         return (0, int(node_id), node_id)
-     return (1, node_id, node_id)
-
-
- def _edge_sort_key(
-     edge: tuple[str, str, str, str] | "LoweringBoundaryInput" | "LoweringBoundaryOutput",
- ) -> tuple[tuple[int, int | str, str], str, tuple[int, int | str, str], str]:
-     if isinstance(edge, LoweringBoundaryOutput):
-         return (
-             _node_sort_key(edge.source_node_id),
-             edge.source_output,
-             _node_sort_key(edge.consumer_node_id),
-             edge.consumer_input,
-         )
-     if isinstance(edge, LoweringBoundaryInput):
-         return (
-             _node_sort_key(edge.source_node_id),
-             edge.source_output,
-             _node_sort_key(edge.target_node_id),
-             edge.target_input,
-         )
+@@ -297,62 +297,67 @@ def _edge_sort_key(
      source_node, source_output, target_node, target_input = edge
      return (
          _node_sort_key(source_node),
@@ -1891,13 +2746,7 @@ index 1cead444..adf42a1a 100644
          source_pos = source_ui.get("pos", [0, 0])
          source_size = source_ui.get("size")
      else:
-         source_pos = [0, 0]
-         source_size = None
-     try:
-         source_x = float(source_pos[0])
-         source_y = float(source_pos[1])
-     except (TypeError, IndexError, ValueError):
-         source_x, source_y = 0.0, 0.0
+@@ -366,41 +371,41 @@ def _clone_node(
      # Compute clone position: horizontal stride per iteration, same y.
      clone_pos = [source_x + HORIZONTAL_STRIDE * iteration_index, source_y]
      snapped_pos = snap_pos(clone_pos)
@@ -1940,1157 +2789,6 @@ index 1cead444..adf42a1a 100644
      target_fields: list[LoopTargetField] = []
      for edge in sorted(
          (candidate for candidate in workflow.edges if candidate.from_node == plan.loop_node_id),
-         key=lambda edge: _edge_sort_key((edge.from_node, edge.from_output, edge.to_node, edge.to_input)),
-     ):
-         if not _matches_variable_target(plan.variable, edge.to_input):
-             diagnostics.append(
-                 LoweringDiagnostic(
-                     code="unsupported_loop_target_field",
-                     message=(
-                         f"Loop variable {plan.variable!r} cannot be concretized into "
-                         f"field {edge.to_input!r}."
-                     ),
-                     loop_node_id=plan.loop_node_id,
-                     loop_uid=plan.loop_uid,
-                     detail={"target_node_id": edge.to_node, "target_field": edge.to_input},
-                 )
-             )
-             continue
-         target_fields.append(
-             LoopTargetField(source_node_id=edge.to_node, target_field=edge.to_input)
-         )
-     if diagnostics:
-         return None, diagnostics
-     return tuple(target_fields), diagnostics
-
-
- def _read_source_field_value(node: "VibeNode", field: str) -> Any:
-     if field in node.inputs:
-         return node.inputs[field]
-     if field in node.widgets:
-         return node.widgets[field]
-     return None
-
-exec
-/bin/zsh -lc 'rg -n "output_link_count_mismatch|input_link_count_mismatch|semantic_link_set|canonical_semantic|semantic.*link|parse_uid|clone_uid" vibecomfy tests/test_layout_delta.py tests/test_ui_emitter_widget_shape_verdict.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-tests/test_layout_delta.py:14:from vibecomfy.porting.lowering import clone_uid
-tests/test_layout_delta.py:62:    own snapshot must yield NO ``semantic_link_set`` deltas.
-tests/test_layout_delta.py:76:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_layout_delta.py:125:    semantic-link delta for every node and refused unrelated pinned nodes.
-tests/test_layout_delta.py:135:    surface as a canonical semantic-link delta on the downstream consumer."""
-tests/test_layout_delta.py:147:    semantic = delta["40"]["semantic_link_set"]
-tests/test_layout_delta.py:157:    the same source must surface as a canonical semantic-link delta."""
-tests/test_layout_delta.py:168:    semantic = delta["40"]["semantic_link_set"]
-tests/test_layout_delta.py:194:    semantic = delta["40"]["semantic_link_set"]
-tests/test_layout_delta.py:227:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_layout_delta.py:253:    semantic = delta[clone_uid("loop", "consumer", 0)]["semantic_link_set"]
-tests/test_layout_delta.py:277:    """Changing an incoming edge produces a canonical semantic-link delta."""
-tests/test_layout_delta.py:292:    semantic = delta["sampler-uid"]["semantic_link_set"]
-tests/test_ui_emitter_widget_shape_verdict.py:10:from vibecomfy.porting.layout.delta import canonical_semantic_link_set
-tests/test_ui_emitter_widget_shape_verdict.py:13:from vibecomfy.porting.lowering import clone_uid
-tests/test_ui_emitter_widget_shape_verdict.py:388:    Before the fix, ``canonical_semantic_link_set`` unconditionally reported
-tests/test_ui_emitter_widget_shape_verdict.py:390:    resolution issue attached a fabricated ``semantic_link_set`` delta to every
-tests/test_ui_emitter_widget_shape_verdict.py:881:def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:910:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_ui_emitter_widget_shape_verdict.py:930:    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
-tests/test_ui_emitter_widget_shape_verdict.py:942:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_ui_emitter_widget_shape_verdict.py:972:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_ui_emitter_widget_shape_verdict.py:1016:    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
-tests/test_ui_emitter_widget_shape_verdict.py:1042:        lowered_uid = clone_uid("loop", "consumer", iteration)
-tests/test_ui_emitter_widget_shape_verdict.py:1116:    nested, issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:1123:    flat, flat_issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:1171:    semantic, issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:1224:    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-tests/test_ui_emitter_widget_shape_verdict.py:1273:    first = canonical_semantic_link_set(nodes, links)
-tests/test_ui_emitter_widget_shape_verdict.py:1274:    second = canonical_semantic_link_set(nodes, reversed(links))
-tests/test_ui_emitter_widget_shape_verdict.py:1280:    semantic, issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:1302:    forward = canonical_semantic_link_set(nodes, [])
-tests/test_ui_emitter_widget_shape_verdict.py:1303:    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
-tests/test_ui_emitter_widget_shape_verdict.py:1324:    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-tests/test_ui_emitter_widget_shape_verdict.py:1350:    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-tests/test_ui_emitter_widget_shape_verdict.py:1361:    semantic, issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:1376:def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
-vibecomfy/identity/uid.py:31:def parse_uid(uid: str) -> tuple[str, str]:
-vibecomfy/porting/lowering.py:29:from vibecomfy.identity.uid import make_uid, parse_uid
-vibecomfy/porting/lowering.py:317:def clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
-vibecomfy/porting/lowering.py:319:    loop_scope, loop_local = parse_uid(loop_uid or "")
-vibecomfy/porting/lowering.py:320:    _, source_local = parse_uid(source_uid)
-vibecomfy/porting/lowering.py:326:_clone_uid = clone_uid
-vibecomfy/porting/lowering.py:343:    cloned_uid = clone_uid(loop_uid, source_uid, iteration_index)
-vibecomfy/identity/__init__.py:20:    parse_uid,
-vibecomfy/identity/__init__.py:28:    "parse_uid",
-vibecomfy/porting/layout/delta.py:17:from vibecomfy.porting.lowering import clone_uid
-vibecomfy/porting/layout/delta.py:39:def canonical_semantic_link_set(
-vibecomfy/porting/layout/delta.py:45:    """Return a deduplicated semantic link set and deterministic resolution issues.
-vibecomfy/porting/layout/delta.py:274:    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
-vibecomfy/porting/layout/delta.py:315:                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
-vibecomfy/porting/layout/delta.py:343:    ``semantic_link_set`` record carrying canonical before/after sets and
-vibecomfy/porting/layout/delta.py:372:    canonical_before, before_issues = canonical_semantic_link_set(
-vibecomfy/porting/layout/delta.py:377:    canonical_after, after_issues = canonical_semantic_link_set(
-vibecomfy/porting/layout/delta.py:413:            node_delta["semantic_link_set"] = {
-vibecomfy/porting/layout/delta.py:426:__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
-vibecomfy/porting/emit/ui.py:1588:    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
-vibecomfy/porting/emit/ui.py:1597:            "semantic_link_set",
-vibecomfy/porting/emit/ui.py:1655:            "output_link_count_mismatch",
-vibecomfy/porting/refuse.py:224:        "semantic_link_set",
-vibecomfy/porting/reorganise/orchestrate.py:14:from vibecomfy.identity.uid import parse_uid
-vibecomfy/porting/reorganise/orchestrate.py:1514:        scope_path, uid = parse_uid(key)
-vibecomfy/porting/reorganise/orchestrate.py:1576:    scopes = {parse_uid(str(node_key))[0] for node_key in node_keys}
-vibecomfy/porting/reorganise/orchestrate.py:1592:        node_scope, uid = parse_uid(str(node_key))
-vibecomfy/porting/widget_shape_fence.py:403:    semantic = link_delta.get("semantic_link_set")
-vibecomfy/comfy_nodes/agent/provider.py:377:        "when it is the same semantic control; if the linked override is "
-
-exec
-/bin/zsh -lc "nl -ba vibecomfy/porting/layout/delta.py | sed -n '1,470p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-     1	"""Field-level delta computation between an ingest snapshot and the current IR.
-     2
-     3	``compute_field_delta`` compares a stored ``_ingest_snapshot`` (captured at
-     4	ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
-     5	the live IR state of a ``VibeWorkflow``.
-     6
-     7	Nodes absent from *snapshot* (added after ingest) are omitted from the result —
-     8	downstream logic treats them as ``'snapshot-absent'``.
-     9	"""
-    10	from __future__ import annotations
-    11
-    12	import ast
-    13	from collections import defaultdict
-    14	from collections.abc import Iterable, Mapping
-    15	from typing import TYPE_CHECKING, Any
-    16
-    17	from vibecomfy.porting.lowering import clone_uid
-    18
-    19	if TYPE_CHECKING:
-    20	    from vibecomfy.workflow import VibeWorkflow
-    21
-    22	_SNAPSHOT_FIELDS = (
-    23	    "class_type",
-    24	    "widget_values_sig",
-    25	    "public_input_binding",
-    26	)
-    27
-    28	SemanticLink = tuple[str, str, str, str]
-    29	SemanticNode = tuple[str, str, str | None]
-    30	_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
-    31
-    32	# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
-    33	# a single terminal-source walk.  Every hop is memoized, so a healthy graph
-    34	# resolves each helper at most once; this cap is a fail-closed backstop so the
-    35	# semantic traversal is bounded for any input, however pathological.
-    36	_MAX_SEMANTIC_WALK = 10_000
-    37
-    38
-    39	def canonical_semantic_link_set(
-    40	    nodes: Mapping[str, SemanticNode],
-    41	    links: Iterable[SemanticLink],
-    42	    *,
-    43	    consumer_uid_aliases: Mapping[str, str] | None = None,
-    44	) -> tuple[tuple[SemanticLink, ...], tuple[str, ...]]:
-    45	    """Return a deduplicated semantic link set and deterministic resolution issues.
-    46
-    47	    ``nodes`` maps graph-local node ids to ``(stable_uid, class_type,
-    48	    broadcast_name)``. ``links`` preserves both endpoint ports as
-    49	    ``(source_id, source_output, consumer_id, consumer_input)``. Set/Get and
-    50	    Reroute plumbing is resolved to its terminal source; loop-cloned consumer
-    51	    UIDs are collapsed to the source consumer UID. Ambiguous, missing, orphaned,
-    52	    or cyclic paths are reported instead of being silently discarded.
-    53	    """
-    54	    aliases = {
-    55	        str(uid): str(canonical)
-    56	        for uid, canonical in (consumer_uid_aliases or {}).items()
-    57	    }
-    58	    normalized_nodes = {
-    59	        str(node_id): (str(spec[0]), str(spec[1]), spec[2])
-    60	        for node_id, spec in nodes.items()
-    61	    }
-    62	    link_rows = sorted(
-    63	        {
-    64	            (str(source), str(source_output), str(consumer), str(consumer_input))
-    65	            for source, source_output, consumer, consumer_input in links
-    66	        }
-    67	    )
-    68	    issues: set[str] = set()
-    69
-    70	    uids: dict[str, str] = {}
-    71	    for node_id, (uid, _class_type, _channel) in sorted(
-    72	        normalized_nodes.items(), key=lambda item: (item[1][0], item[0])
-    73	    ):
-    74	        prior_id = uids.get(uid)
-    75	        if prior_id is not None and prior_id != node_id:
-    76	            issues.add(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
-    77	        else:
-    78	            uids[uid] = node_id
-    79
-    80	    inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-    81	    for source, source_output, consumer, consumer_input in link_rows:
-    82	        if source not in normalized_nodes:
-    83	            issues.add(f"unknown_source:{source}")
-    84	        if consumer not in normalized_nodes:
-    85	            issues.add(f"unknown_consumer:{consumer}")
-    86	        # Keep the helper endpoint's input identity until ambiguity has been
-    87	        # decided.  Two edges from the same source/output into different
-    88	        # helper inputs are still two distinct candidates and must fail closed.
-    89	        inbound[consumer].append((source, source_output, consumer_input))
-    90
-    91	    setters_by_channel: dict[str, list[str]] = defaultdict(list)
-    92	    for node_id, (_uid, class_type, channel) in normalized_nodes.items():
-    93	        if class_type == "SetNode" and channel:
-    94	            setters_by_channel[str(channel)].append(node_id)
-    95
-    96	    # Iterative terminal-source resolution with memoization.
-    97	    #
-    98	    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
-    99	    # SetNode-as-source passthrough) follows exactly one candidate or fails
-   100	    # closed, so the walk is a simple chain.  The result of every visited
-   101	    # (node_id, output_port) key is cached,
-   102	    # making the whole traversal linear in the helper graph and immune to
-   103	    # repeated fan-out re-walks.  Re-entering a key that is still on the
-   104	    # current path means the graph is cyclic: the walk terminates immediately
-   105	    # and the path is reported via ``cyclic_path:`` (fail closed).  The hard
-   106	    # ``_MAX_SEMANTIC_WALK`` hop cap guarantees bounded time even for
-   107	    # adversarial inputs, so every call returns a deterministic verdict.
-   108	    memo: dict[tuple[str, str], tuple[str, str] | None] = {}
-   109	    in_progress: set[tuple[str, str]] = set()
-   110
-   111	    def terminal_source(
-   112	        node_id: str,
-   113	        output_port: str,
-   114	    ) -> tuple[str, str] | None:
-   115	        start = (node_id, output_port)
-   116	        if start in memo:
-   117	            return memo[start]
-   118	        path: list[tuple[str, str]] = []
-   119	        current = start
-   120	        result: tuple[str, str] | None = None
-   121	        while True:
-   122	            key = current
-   123	            if key in memo:
-   124	                result = memo[key]
-   125	                break
-   126	            if key in in_progress:
-   127	                cycle_nodes = {
-   128	                    hop[0] for hop in path[path.index(key):]
-   129	                } | {key[0]}
-   130	                issues.add(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
-   131	                result = None
-   132	                break
-   133	            spec = normalized_nodes.get(key[0])
-   134	            if spec is None:
-   135	                issues.add(f"unknown_source:{key[0]}")
-   136	                result = None
-   137	                break
-   138	            uid, class_type, channel = spec
-   139	            if class_type not in _SEMANTIC_HELPERS:
-   140	                result = (uid, key[1])
-   141	                break
-   142	            if class_type == "Reroute":
-   143	                candidates = sorted(set(inbound.get(key[0], ())))
-   144	                if len(candidates) != 1:
-   145	                    issues.add(f"reroute_source_count:{key[0]}:{len(candidates)}")
-   146	                    result = None
-   147	                    break
-   148	                next_node, next_port, _target_input = candidates[0]
-   149	            elif class_type == "GetNode":
-   150	                if not channel:
-   151	                    issues.add(f"broadcast_name_missing:{key[0]}")
-   152	                    result = None
-   153	                    break
-   154	                setters = sorted(set(setters_by_channel.get(str(channel), ())))
-   155	                if len(setters) != 1:
-   156	                    issues.add(
-   157	                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
-   158	                    )
-   159	                    result = None
-   160	                    break
-   161	                setter_id = setters[0]
-   162	                candidates = sorted(set(inbound.get(setter_id, ())))
-   163	                if len(candidates) != 1:
-   164	                    issues.add(f"broadcast_source_count:{setter_id}:{len(candidates)}")
-   165	                    result = None
-   166	                    break
-   167	                next_node, next_port, _target_input = candidates[0]
-   168	            else:  # SetNode used as a source resolves passthrough through its
-   169	                # unique inbound terminal, exactly as the compiler resolves the
-   170	                # same case (_compile/_resolve.py:172).  Zero or multiple
-   171	                # inbound candidates are genuinely ambiguous and fail closed.
-   172	                candidates = sorted(set(inbound.get(key[0], ())))
-   173	                if len(candidates) != 1:
-   174	                    issues.add(f"setnode_as_source:{key[0]}:{len(candidates)}")
-   175	                    result = None
-   176	                    break
-   177	                next_node, next_port, _target_input = candidates[0]
-   178	            in_progress.add(key)
-   179	            path.append(key)
-   180	            if len(path) > _MAX_SEMANTIC_WALK:
-   181	                issues.add(f"semantic_walk_limit:{key[0]}")
-   182	                result = None
-   183	                break
-   184	            current = (next_node, next_port)
-   185	        for visited_key in path:
-   186	            memo[visited_key] = result
-   187	            in_progress.discard(visited_key)
-   188	        memo[start] = result
-   189	        return result
-   190
-   191	    semantic: set[SemanticLink] = set()
-   192	    for source, source_output, consumer, consumer_input in link_rows:
-   193	        consumer_spec = normalized_nodes.get(consumer)
-   194	        if consumer_spec is None:
-   195	            continue
-   196	        consumer_uid, consumer_class_type, _channel = consumer_spec
-   197	        if consumer_class_type in {"SetNode", "Reroute"}:
-   198	            continue
-   199	        if consumer_class_type == "GetNode":
-   200	            issues.add(f"helper_input_unsupported:{consumer}")
-   201	            continue
-   202	        terminal = terminal_source(source, source_output)
-   203	        if terminal is None:
-   204	            continue
-   205	        semantic.add(
-   206	            (
-   207	                terminal[0],
-   208	                terminal[1],
-   209	                aliases.get(consumer_uid, consumer_uid),
-   210	                consumer_input,
-   211	            )
-   212	        )
-   213
-   214	    return tuple(sorted(semantic)), tuple(sorted(issues))
-   215
-   216
-   217	def _snapshot_channel(snapshot_entry: Mapping[str, Any]) -> str | None:
-   218	    for field_name, value_repr in snapshot_entry.get("widget_values_sig", ()):
-   219	        if str(field_name) not in {"widget_0", "name"}:
-   220	            continue
-   221	        try:
-   222	            value = ast.literal_eval(str(value_repr))
-   223	        except (SyntaxError, ValueError):
-   224	            value = value_repr
-   225	        if value is not None:
-   226	            return str(value)
-   227	    return None
-   228
-   229
-   230	def _snapshot_semantic_graph(
-   231	    snapshot: Mapping[str, Mapping[str, Any]],
-   232	) -> tuple[dict[str, SemanticNode], list[SemanticLink]]:
-   233	    nodes = {
-   234	        str(uid): (
-   235	            str(uid),
-   236	            str(entry.get("class_type", "")),
-   237	            _snapshot_channel(entry),
-   238	        )
-   239	        for uid, entry in snapshot.items()
-   240	    }
-   241	    links: list[SemanticLink] = []
-   242	    for source_uid, entry in snapshot.items():
-   243	        for source_output, target in entry.get("outgoing_edge_sig", ()):
-   244	            target_uid, target_input = target
-   245	            links.append(
-   246	                (str(source_uid), str(source_output), str(target_uid), str(target_input))
-   247	            )
-   248	        for target_input, source in entry.get("incoming_edge_sig", ()):
-   249	            incoming_source_uid, source_output = source
-   250	            links.append(
-   251	                (
-   252	                    str(incoming_source_uid),
-   253	                    str(source_output),
-   254	                    str(source_uid),
-   255	                    str(target_input),
-   256	                )
-   257	            )
-   258	    # A partial snapshot deliberately omits some node records while retained
-   259	    # signatures may still name those peers. They remain valid opaque semantic
-   260	    # endpoints; only the live graph must resolve every graph-local node id.
-   261	    for source_uid, _source_output, target_uid, _target_input in links:
-   262	        nodes.setdefault(source_uid, (source_uid, "", None))
-   263	        nodes.setdefault(target_uid, (target_uid, "", None))
-   264	    return nodes, links
-   265
-   266
-   267	def _snapshot_consumer_uid_aliases(
-   268	    nodes: Mapping[str, SemanticNode],
-   269	    validated_live_aliases: Mapping[str, str],
-   270	) -> dict[str, str]:
-   271	    """Return only snapshot aliases corroborated by live lowering provenance.
-   272
-   273	    A clone-shaped UID is ordinary user data unless the live node carries a
-   274	    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
-   275	    matches it.  Requiring that validated alias *and* the exact UID in the
-   276	    snapshot gives both sides independent evidence and prevents textual UID
-   277	    shape alone from fabricating snapshot topology.
-   278	    """
-   279	    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
-   280	    return {
-   281	        str(uid): str(source_uid)
-   282	        for uid, source_uid in validated_live_aliases.items()
-   283	        if str(uid) in snapshot_uids
-   284	    }
-   285
-   286
-   287	def _workflow_semantic_graph(
-   288	    current_ir: "VibeWorkflow",
-   289	) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
-   290	    nodes: dict[str, SemanticNode] = {}
-   291	    consumer_uid_aliases: dict[str, str] = {}
-   292	    for node_id, node in current_ir.nodes.items():
-   293	        channel = None
-   294	        if node.class_type in {"SetNode", "GetNode"}:
-   295	            value = node.inputs.get("widget_0", node.widgets.get("widget_0"))
-   296	            if value is None:
-   297	                value = node.inputs.get("name")
-   298	            if value is not None:
-   299	                channel = str(value)
-   300	        stable_uid = str(node.uid if node.uid else node_id)
-   301	        nodes[str(node_id)] = (
-   302	            stable_uid,
-   303	            str(node.class_type),
-   304	            channel,
-   305	        )
-   306	        lowering = node.metadata.get("vibecomfy.lowering")
-   307	        if isinstance(lowering, Mapping):
-   308	            source_uid = lowering.get("source_uid")
-   309	            loop_uid = lowering.get("loop_uid")
-   310	            iteration_index = lowering.get("iteration_index")
-   311	            if (
-   312	                isinstance(source_uid, str)
-   313	                and isinstance(loop_uid, str)
-   314	                and isinstance(iteration_index, int)
-   315	                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
-   316	            ):
-   317	                consumer_uid_aliases[stable_uid] = source_uid
-   318	    links = [
-   319	        (str(edge.from_node), str(edge.from_output), str(edge.to_node), str(edge.to_input))
-   320	        for edge in current_ir.edges
-   321	    ]
-   322	    return nodes, links, consumer_uid_aliases
-   323
-   324
-   325	def compute_field_delta(
-   326	    snapshot: dict[str, Any],
-   327	    current_ir: "VibeWorkflow",
-   328	) -> dict[str, dict[str, Any]]:
-   329	    """Compute field-level changes between a stored snapshot and the current IR.
-   330
-   331	    Parameters
-   332	    ----------
-   333	    snapshot:
-   334	        A ``{uid: NodeFieldSnapshot}`` dict as returned by
-   335	        ``capture_ingest_snapshot``.  This is the *before* state.
-   336	    current_ir:
-   337	        The live ``VibeWorkflow`` to compare against.  This is the *after* state.
-   338
-   339	    Returns
-   340	    -------
-   341	    ``{uid: {field_name: delta}}`` — only nodes and fields where something
-   342	    changed. Scalar fields use ``(old_value, new_value)``; link changes use a
-   343	    ``semantic_link_set`` record carrying canonical before/after sets and
-   344	    resolution issues. Nodes absent from *snapshot* are omitted.
-   345	    Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
-   346	    omitted; callers that need to detect removals should diff snapshot keys against
-   347	    the current IR's uid set directly.
-   348	    """
-   349	    # Build uid → node lookup for the current IR.
-   350	    uid_to_node = {
-   351	        (node.uid if node.uid else node_id): node
-   352	        for node_id, node in current_ir.nodes.items()
-   353	    }
-   354
-   355	    # Recompute current signatures inline to avoid a round-trip through capture.
-   356	    nodes = current_ir.nodes
-   357	    workflow_inputs = current_ir.inputs
-   358
-   359	    public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
-   360	    for input_name, vibe_input in workflow_inputs.items():
-   361	        if vibe_input.node_id in public_bindings:
-   362	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
-   363
-   364	    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
-   365	    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
-   366	    # Snapshot aliasing requires corroboration from both representations: the
-   367	    # exact clone UID must exist in the snapshot and the corresponding live
-   368	    # node must carry validated lowering metadata.  The after graph may also
-   369	    # contain newly lowered clones absent from the snapshot, so it retains the
-   370	    # complete validated live alias map.
-   371	    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
-   372	    canonical_before, before_issues = canonical_semantic_link_set(
-   373	        before_nodes,
-   374	        before_links,
-   375	        consumer_uid_aliases=before_aliases,
-   376	    )
-   377	    canonical_after, after_issues = canonical_semantic_link_set(
-   378	        after_nodes,
-   379	        after_links,
-   380	        consumer_uid_aliases=after_aliases,
-   381	    )
-   382
-   383	    delta: dict[str, dict[str, Any]] = {}
-   384	    for uid, old_snap in snapshot.items():
-   385	        node = uid_to_node.get(uid)
-   386	        if node is None:
-   387	            # Node removed after snapshot — omit per spec (caller diffs keys directly).
-   388	            continue
-   389
-   390	        # Recompute the current signature for this node.
-   391	        all_values = {**node.widgets, **node.inputs}
-   392	        current: dict[str, Any] = {
-   393	            "class_type": node.class_type,
-   394	            "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
-   395	            "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
-   396	        }
-   397
-   398	        node_delta: dict[str, Any] = {}
-   399	        for field_name in _SNAPSHOT_FIELDS:
-   400	            old_val = old_snap[field_name]
-   401	            new_val = current[field_name]
-   402	            if old_val != new_val:
-   403	                node_delta[field_name] = (old_val, new_val)
-   404
-   405	        uid_key = before_aliases.get(str(uid), str(uid))
-   406	        before_incident = tuple(
-   407	            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
-   408	        )
-   409	        after_incident = tuple(
-   410	            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
-   411	        )
-   412	        if before_incident != after_incident or before_issues or after_issues:
-   413	            node_delta["semantic_link_set"] = {
-   414	                "before": before_incident,
-   415	                "after": after_incident,
-   416	                "before_resolution_issues": before_issues,
-   417	                "after_resolution_issues": after_issues,
-   418	            }
-   419
-   420	        if node_delta:
-   421	            delta[uid] = node_delta
-   422
-   423	    return delta
-   424
-   425
-   426	__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
-
-exec
-/bin/zsh -lc "nl -ba vibecomfy/porting/widget_shape_fence.py | sed -n '330,470p'; nl -ba vibecomfy/porting/refuse.py | sed -n '130,245p'; nl -ba vibecomfy/porting/emit/ui.py | sed -n '1570,1680p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-   330	        return False
-   331	    if evidence.raw_widget_count is None:
-   332	        return False
-   333	    if int(evidence.raw_widget_count) != int(evidence.candidate_widget_count):
-   334	        return False
-   335	    if not _has_raw_widget_payload(raw_widget_payload, evidence):
-   336	        return False
-   337	    return True
-   338
-   339
-   340	def _observed_dynamic_widgets_recoverable(
-   341	    evidence: WidgetShapeEvidence,
-   342	    *,
-   343	    raw_widget_payload: Any,
-   344	    raw_ui_node: Mapping[str, Any] | None,
-   345	    has_widget_delta: bool,
-   346	    has_link_delta: bool,
-   347	    is_new_node: bool,
-   348	) -> bool:
-   349	    if is_new_node or has_widget_delta or has_link_delta:
-   350	        return False
-   351	    if _has_full_raw_ui_payload(raw_ui_node):
-   352	        return False
-   353	    if not evidence.has_dict_rows or evidence.overflow or evidence.schema_less:
-   354	        return False
-   355	    if evidence.raw_widget_count is None:
-   356	        return False
-   357	    if int(evidence.raw_widget_count) != int(evidence.candidate_widget_count):
-   358	        return False
-   359	    if (
-   360	        evidence.schema_widget_count is not None
-   361	        and int(evidence.schema_widget_count) != int(evidence.candidate_widget_count)
-   362	    ):
-   363	        return False
-   364	    if not _has_raw_widget_payload(raw_widget_payload, evidence):
-   365	        return False
-   366	    return True
-   367
-   368
-   369	def _has_full_raw_ui_payload(raw_ui_node: Mapping[str, Any] | None) -> bool:
-   370	    return bool(
-   371	        raw_ui_node
-   372	        and "id" in raw_ui_node
-   373	        and raw_ui_node.get("type") is not None
-   374	        and raw_ui_node.get("widgets_values") is not None
-   375	    )
-   376
-   377
-   378	def _has_raw_widget_payload(raw_widget_payload: Any, evidence: WidgetShapeEvidence) -> bool:
-   379	    if raw_widget_payload is None:
-   380	        return False
-   381	    length = getattr(raw_widget_payload, "length", None)
-   382	    if length is None and isinstance(raw_widget_payload, Mapping):
-   383	        length = raw_widget_payload.get("length")
-   384	    if length is None:
-   385	        return True
-   386	    return evidence.raw_widget_count is None or int(length) == int(evidence.raw_widget_count)
-   387
-   388
-   389	def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
-   390	    return any(
-   391	        field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
-   392	        for field in field_delta
-   393	    )
-   394
-   395
-   396	def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
-   397	    """Interpret the canonical semantic-set comparison supplied by the emitter.
-   398
-   399	    The fallback preserves compatibility for direct policy callers that still
-   400	    provide an opaque link-delta mapping. Resolution issues always fail closed,
-   401	    even when the successfully resolved portions of the two sets are equal.
-   402	    """
-   403	    semantic = link_delta.get("semantic_link_set")
-   404	    if not isinstance(semantic, Mapping):
-   405	        return bool(link_delta)
-   406	    return bool(
-   407	        semantic.get("before") != semantic.get("after")
-   408	        or semantic.get("before_resolution_issues")
-   409	        or semantic.get("after_resolution_issues")
-   410	    )
-   411
-   412
-   413	def _verdict(
-   414	    evidence: WidgetShapeEvidence,
-   415	    decision: WidgetShapeDecision,
-   416	    reasons: tuple[WidgetShapeReason, ...],
-   417	    *,
-   418	    raw_ui_node: Mapping[str, Any] | None,
-   419	    layout_entry: Mapping[str, Any] | None,
-   420	    field_delta: Mapping[str, Any],
-   421	    link_delta: Mapping[str, Any],
-   422	    recovery: str | None = None,
-   423	    use_schema_defaults: bool = False,
-   424	) -> WidgetShapeVerdict:
-   425	    return WidgetShapeVerdict(
-   426	        node_id=str(evidence.node_id),
-   427	        class_type=str(evidence.class_type),
-   428	        decision=decision,
-   429	        reasons=reasons,
-   430	        safe_to_regenerate=decision is WidgetShapeDecision.SAFE_TO_REGENERATE,
-   431	        pin_opaque=decision is WidgetShapeDecision.PIN_OPAQUE,
-   432	        refuse=decision is WidgetShapeDecision.REFUSE,
-   433	        evidence=evidence,
-   434	        raw_ui_node=raw_ui_node,
-   435	        layout_entry=layout_entry,
-   436	        field_delta=field_delta,
-   437	        link_delta=link_delta,
-   438	        recovery=recovery,
-   439	        use_schema_defaults=use_schema_defaults,
-   440	    )
-   441
-   442
-   443	__all__ = [
-   444	    "WidgetShapeDecision",
-   445	    "WidgetShapeReason",
-   446	    "WidgetShapeVerdict",
-   447	    "decide_widget_shape",
-   448	]
-   130	    return repr(value)
-   131
-   132
-   133	def _widget_shape_details(verdict: Any) -> dict[str, Any]:
-   134	    reasons = [_jsonable(reason) for reason in (_read_attr(verdict, "reasons", ()) or ())]
-   135	    evidence = _read_attr(verdict, "evidence")
-   136	    details: dict[str, Any] = {
-   137	        "decision": _jsonable(_read_attr(verdict, "decision")),
-   138	        "reasons": reasons,
-   139	        "safe_to_regenerate": bool(_read_attr(verdict, "safe_to_regenerate", False)),
-   140	        "pin_opaque": bool(_read_attr(verdict, "pin_opaque", False)),
-   141	        "refuse": bool(_read_attr(verdict, "refuse", True)),
-   142	        "evidence": _jsonable(_evidence_summary(evidence)),
-   143	    }
-   144	    field_delta = _read_attr(verdict, "field_delta", None)
-   145	    link_delta = _read_attr(verdict, "link_delta", None)
-   146	    if field_delta:
-   147	        details["field_delta"] = _jsonable(field_delta)
-   148	    if link_delta:
-   149	        details["link_delta"] = _jsonable(link_delta)
-   150	    return details
-   151
-   152
-   153	def _evidence_summary(evidence: Any) -> dict[str, Any]:
-   154	    if evidence is None:
-   155	        return {}
-   156	    fields = (
-   157	        "node_id",
-   158	        "class_type",
-   159	        "schema_less",
-   160	        "confidence",
-   161	        "raw_widget_count",
-   162	        "candidate_widget_count",
-   163	        "schema_widget_count",
-   164	        "raw_widget_shape",
-   165	        "has_dict_rows",
-   166	        "overflow",
-   167	        "provider",
-   168	    )
-   169	    return {field: _read_attr(evidence, field) for field in fields}
-   170
-   171
-   172	class EditorAheadError(Exception):
-   173	    """Raised when ``emit_ui_json`` detects editor-only uids in the prior store.
-   174
-   175	    An editor-only uid is one that exists in the prior store but is absent from
-   176	    the IR and was not authored by a prior VibeComfy emit (i.e. the node was
-   177	    added directly in the ComfyUI editor after the last VibeComfy export).
-   178
-   179	    Attributes
-   180	    ----------
-   181	    editor_only_uids:
-   182	        List of ``{uid, class_type}`` dicts for each editor-only uid detected,
-   183	        sorted by uid for deterministic output.
-   184	    """
-   185
-   186	    def __init__(self, editor_only_uids: list[dict[str, str]]):
-   187	        super().__init__(
-   188	            f"editor_ahead: {len(editor_only_uids)} uid(s) in the prior store "
-   189	            "were not authored by VibeComfy — use --force-drop to allow dropping them"
-   190	        )
-   191	        self.editor_only_uids = list(editor_only_uids)
-   192
-   193
-   194	def _uid_to_litegraph_id(ui_json: Mapping[str, Any]) -> dict[str, str]:
-   195	    """Build a ``{vibecomfy_uid: str(litegraph_id)}`` map from a UI JSON."""
-   196	    out: dict[str, str] = {}
-   197	    for node in ui_json.get("nodes", []) or []:
-   198	        if not isinstance(node, dict):
-   199	            continue
-   200	        props = node.get("properties") or {}
-   201	        uid = props.get("vibecomfy_uid")
-   202	        if uid:
-   203	            out[str(uid)] = str(node.get("id"))
-   204	    return out
-   205
-   206
-   207	def _api_node(api: Mapping[str, Any], node_id: str) -> Any:
-   208	    """Look up an api-node by id, tolerating int/str key drift."""
-   209	    if node_id in api:
-   210	        return api[node_id]
-   211	    if node_id.isdigit():
-   212	        as_int = int(node_id)
-   213	        if as_int in api:  # type: ignore[operator]
-   214	            return api[as_int]  # type: ignore[index]
-   215	    return None
-   216
-   217
-   218	# Snapshot field names whose changes flow into the API ``inputs`` axis.
-   219	_INPUT_AXIS_FIELDS = frozenset(
-   220	    {
-   221	        "widget_values_sig",
-   222	        "incoming_edge_sig",
-   223	        "outgoing_edge_sig",
-   224	        "semantic_link_set",
-   225	        "public_input_binding",
-   226	    }
-   227	)
-   228
-   229
-   230	def guard_emit(
-   231	    original_ui: Mapping[str, Any],
-   232	    candidate_ui: Mapping[str, Any],
-   233	    snapshot_delta: Mapping[str, Mapping[str, tuple]] | None,
-   234	    *,
-   235	    resolved_ops: Iterable[Any] | None = None,
-   236	) -> None:
-   237	    """Refusal-spine on APPLIED re-emit.
-   238
-   239	    Compares ``convert_ui_to_api(candidate_ui)`` against
-   240	    ``convert_ui_to_api(original_ui)`` over the *scope set* — nodes that are
-   241	    (a) uid-matched in both ``original_ui`` and ``candidate_ui`` AND (b) present
-   242	    in the original ingest snapshot.  Because the original UI IS the snapshot
-   243	    source by construction in the M5 preserve flow, condition (b) reduces to
-   244	    uid-presence in ``original_ui``.
-   245
-  1570	    uid = getattr(node, "uid", "")
-  1571	    if uid and uid in deltas:
-  1572	        return deltas[uid]
-  1573	    return deltas.get(node_id, {})
-  1574
-  1575
-  1576	def _split_widget_shape_deltas(
-  1577	    deltas: Mapping[str, Mapping[str, Any]],
-  1578	    node_id: str,
-  1579	    node: Any,
-  1580	) -> tuple[dict[str, Any], dict[str, Any]]:
-  1581	    delta = dict(_node_delta(deltas, node_id, node))
-  1582	    field_delta: dict[str, Any] = {}
-  1583	    link_delta: dict[str, Any] = {}
-  1584	    if "widget_values_sig" in delta:
-  1585	        field_delta["widgets_values"] = delta["widget_values_sig"]
-  1586	    if "public_input_binding" in delta:
-  1587	        field_delta["public_input_binding"] = delta["public_input_binding"]
-  1588	    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
-  1589	        if key in delta:
-  1590	            link_delta[key] = delta[key]
-  1591	    for key, value in delta.items():
-  1592	        if key not in {
-  1593	            "widget_values_sig",
-  1594	            "public_input_binding",
-  1595	            "incoming_edge_sig",
-  1596	            "outgoing_edge_sig",
-  1597	            "semantic_link_set",
-  1598	        }:
-  1599	            field_delta[key] = value
-  1600	    return field_delta, link_delta
-  1601
-  1602
-  1603	def _build_recovery_entry(
-  1604	    p: Mapping[str, Any],
-  1605	    verdict: Any,
-  1606	    *,
-  1607	    has_raw_ui_payload: bool,
-  1608	) -> dict[str, Any]:
-  1609	    entry: dict[str, Any] = {
-  1610	        "node_id": p["node_id"],
-  1611	        "class_type": p["class_type"],
-  1612	        "provider": p.get("provider"),
-  1613	        "confidence": p.get("confidence"),
-  1614	        "schema_less": p["schema_less"],
-  1615	        "control_after_generate": p.get("control_after_generate"),
-  1616	        "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
-  1617	        "widget_length_check": p.get("widget_length_check"),
-  1618	        "value_domain": getattr(getattr(verdict, "evidence", None), "value_domain", None),
-  1619	        "has_raw_ui_payload": has_raw_ui_payload,
-  1620	    }
-  1621	    entry.update(_widget_shape_report_fields(verdict))
-  1622	    recovery = getattr(verdict, "recovery", None)
-  1623	    if getattr(verdict, "evidence", None) is not None and getattr(
-  1624	        verdict.evidence, "raw_widget_length_recovered", False
-  1625	    ):
-  1626	        recovery = "raw_widgets_values_length"
-  1627	    if recovery is not None:
-  1628	        entry["widget_shape_recovery"] = recovery
-  1629	    if p.get("widget_order_guesses"):
-  1630	        entry["widget_order_guesses"] = p["widget_order_guesses"]
-  1631	    if p["schema_less"]:
-  1632	        entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
-  1633	    elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
-  1634	        entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
-  1635	    return entry
-  1636
-  1637
-  1638	def _pinned_link_ref_refusal(
-  1639	    node_id: str,
-  1640	    class_type: str,
-  1641	    reason: str,
-  1642	    *,
-  1643	    details: Mapping[str, Any],
-  1644	) -> None:
-  1645	    from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
-  1646
-  1647	    typed_reason = (
-  1648	        "pinned_link_id_mismatch"
-  1649	        if reason
-  1650	        in {
-  1651	            "unmappable_input_link",
-  1652	            "ambiguous_input_link",
-  1653	            "missing_raw_input_link",
-  1654	            "unmappable_output_links",
-  1655	            "output_link_count_mismatch",
-  1656	            "missing_raw_output_links",
-  1657	            "missing_raw_output_slot",
-  1658	        }
-  1659	        else "pinned_link_surface_changed"
-  1660	    )
-  1661
-  1662	    raise RefusedEmit(
-  1663	        f"Refusing to emit pinned raw UI node {node_id}: {typed_reason}",
-  1664	        diff={
-  1665	            str(node_id): {
-  1666	                "axis": "pinned_link_refs",
-  1667	                "node_id": str(node_id),
-  1668	                "class_type": class_type,
-  1669	                "reason": typed_reason,
-  1670	                "details": {**dict(details), "original_reason": reason},
-  1671	            }
-  1672	        },
-  1673	    )
-  1674
-  1675
-  1676	def _pinned_uid_refusal(
-  1677	    node_id: str,
-  1678	    class_type: str,
-  1679	    *,
-  1680	    axis: str,
-
-exec
-/bin/zsh -lc "git show e1bef3bf:vibecomfy/porting/widget_shape_fence.py | nl -ba | sed -n '330,450p'; git show e1bef3bf:vibecomfy/porting/emit/ui.py | nl -ba | sed -n '1570,1680p'; git show e1bef3bf:vibecomfy/porting/refuse.py | nl -ba | sed -n '190,235p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-   330	        return False
-   331	    if evidence.raw_widget_count is None:
-   332	        return False
-   333	    if int(evidence.raw_widget_count) != int(evidence.candidate_widget_count):
-   334	        return False
-   335	    if not _has_raw_widget_payload(raw_widget_payload, evidence):
-   336	        return False
-   337	    return True
-   338
-   339
-   340	def _observed_dynamic_widgets_recoverable(
-   341	    evidence: WidgetShapeEvidence,
-   342	    *,
-   343	    raw_widget_payload: Any,
-   344	    raw_ui_node: Mapping[str, Any] | None,
-   345	    has_widget_delta: bool,
-   346	    has_link_delta: bool,
-   347	    is_new_node: bool,
-   348	) -> bool:
-   349	    if is_new_node or has_widget_delta or has_link_delta:
-   350	        return False
-   351	    if _has_full_raw_ui_payload(raw_ui_node):
-   352	        return False
-   353	    if not evidence.has_dict_rows or evidence.overflow or evidence.schema_less:
-   354	        return False
-   355	    if evidence.raw_widget_count is None:
-   356	        return False
-   357	    if int(evidence.raw_widget_count) != int(evidence.candidate_widget_count):
-   358	        return False
-   359	    if (
-   360	        evidence.schema_widget_count is not None
-   361	        and int(evidence.schema_widget_count) != int(evidence.candidate_widget_count)
-   362	    ):
-   363	        return False
-   364	    if not _has_raw_widget_payload(raw_widget_payload, evidence):
-   365	        return False
-   366	    return True
-   367
-   368
-   369	def _has_full_raw_ui_payload(raw_ui_node: Mapping[str, Any] | None) -> bool:
-   370	    return bool(
-   371	        raw_ui_node
-   372	        and "id" in raw_ui_node
-   373	        and raw_ui_node.get("type") is not None
-   374	        and raw_ui_node.get("widgets_values") is not None
-   375	    )
-   376
-   377
-   378	def _has_raw_widget_payload(raw_widget_payload: Any, evidence: WidgetShapeEvidence) -> bool:
-   379	    if raw_widget_payload is None:
-   380	        return False
-   381	    length = getattr(raw_widget_payload, "length", None)
-   382	    if length is None and isinstance(raw_widget_payload, Mapping):
-   383	        length = raw_widget_payload.get("length")
-   384	    if length is None:
-   385	        return True
-   386	    return evidence.raw_widget_count is None or int(length) == int(evidence.raw_widget_count)
-   387
-   388
-   389	def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
-   390	    return any(
-   391	        field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
-   392	        for field in field_delta
-   393	    )
-   394
-   395
-   396	def _verdict(
-   397	    evidence: WidgetShapeEvidence,
-   398	    decision: WidgetShapeDecision,
-   399	    reasons: tuple[WidgetShapeReason, ...],
-   400	    *,
-   401	    raw_ui_node: Mapping[str, Any] | None,
-   402	    layout_entry: Mapping[str, Any] | None,
-   403	    field_delta: Mapping[str, Any],
-   404	    link_delta: Mapping[str, Any],
-   405	    recovery: str | None = None,
-   406	    use_schema_defaults: bool = False,
-   407	) -> WidgetShapeVerdict:
-   408	    return WidgetShapeVerdict(
-   409	        node_id=str(evidence.node_id),
-   410	        class_type=str(evidence.class_type),
-   411	        decision=decision,
-   412	        reasons=reasons,
-   413	        safe_to_regenerate=decision is WidgetShapeDecision.SAFE_TO_REGENERATE,
-   414	        pin_opaque=decision is WidgetShapeDecision.PIN_OPAQUE,
-   415	        refuse=decision is WidgetShapeDecision.REFUSE,
-   416	        evidence=evidence,
-   417	        raw_ui_node=raw_ui_node,
-   418	        layout_entry=layout_entry,
-   419	        field_delta=field_delta,
-   420	        link_delta=link_delta,
-   421	        recovery=recovery,
-   422	        use_schema_defaults=use_schema_defaults,
-   423	    )
-   424
-   425
-   426	__all__ = [
-   427	    "WidgetShapeDecision",
-   428	    "WidgetShapeReason",
-   429	    "WidgetShapeVerdict",
-   430	    "decide_widget_shape",
-   431	]
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-  1570	    uid = getattr(node, "uid", "")
-  1571	    if uid and uid in deltas:
-  1572	        return deltas[uid]
-  1573	    return deltas.get(node_id, {})
-  1574
-  1575
-  1576	def _split_widget_shape_deltas(
-  1577	    deltas: Mapping[str, Mapping[str, Any]],
-  1578	    node_id: str,
-  1579	    node: Any,
-  1580	) -> tuple[dict[str, Any], dict[str, Any]]:
-  1581	    delta = dict(_node_delta(deltas, node_id, node))
-  1582	    field_delta: dict[str, Any] = {}
-  1583	    link_delta: dict[str, Any] = {}
-  1584	    if "widget_values_sig" in delta:
-  1585	        field_delta["widgets_values"] = delta["widget_values_sig"]
-  1586	    if "public_input_binding" in delta:
-  1587	        field_delta["public_input_binding"] = delta["public_input_binding"]
-  1588	    for key in ("incoming_edge_sig", "outgoing_edge_sig"):
-  1589	        if key in delta:
-  1590	            link_delta[key] = delta[key]
-  1591	    for key, value in delta.items():
-  1592	        if key not in {
-  1593	            "widget_values_sig",
-  1594	            "public_input_binding",
-  1595	            "incoming_edge_sig",
-  1596	            "outgoing_edge_sig",
-  1597	        }:
-  1598	            field_delta[key] = value
-  1599	    return field_delta, link_delta
-  1600
-  1601
-  1602	def _build_recovery_entry(
-  1603	    p: Mapping[str, Any],
-  1604	    verdict: Any,
-  1605	    *,
-  1606	    has_raw_ui_payload: bool,
-  1607	) -> dict[str, Any]:
-  1608	    entry: dict[str, Any] = {
-  1609	        "node_id": p["node_id"],
-  1610	        "class_type": p["class_type"],
-  1611	        "provider": p.get("provider"),
-  1612	        "confidence": p.get("confidence"),
-  1613	        "schema_less": p["schema_less"],
-  1614	        "control_after_generate": p.get("control_after_generate"),
-  1615	        "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
-  1616	        "widget_length_check": p.get("widget_length_check"),
-  1617	        "value_domain": getattr(getattr(verdict, "evidence", None), "value_domain", None),
-  1618	        "has_raw_ui_payload": has_raw_ui_payload,
-  1619	    }
-  1620	    entry.update(_widget_shape_report_fields(verdict))
-  1621	    recovery = getattr(verdict, "recovery", None)
-  1622	    if getattr(verdict, "evidence", None) is not None and getattr(
-  1623	        verdict.evidence, "raw_widget_length_recovered", False
-  1624	    ):
-  1625	        recovery = "raw_widgets_values_length"
-  1626	    if recovery is not None:
-  1627	        entry["widget_shape_recovery"] = recovery
-  1628	    if p.get("widget_order_guesses"):
-  1629	        entry["widget_order_guesses"] = p["widget_order_guesses"]
-  1630	    if p["schema_less"]:
-  1631	        entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
-  1632	    elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
-  1633	        entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
-  1634	    return entry
-  1635
-  1636
-  1637	def _pinned_link_ref_refusal(
-  1638	    node_id: str,
-  1639	    class_type: str,
-  1640	    reason: str,
-  1641	    *,
-  1642	    details: Mapping[str, Any],
-  1643	) -> None:
-  1644	    from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
-  1645
-  1646	    typed_reason = (
-  1647	        "pinned_link_id_mismatch"
-  1648	        if reason
-  1649	        in {
-  1650	            "unmappable_input_link",
-  1651	            "ambiguous_input_link",
-  1652	            "missing_raw_input_link",
-  1653	            "unmappable_output_links",
-  1654	            "output_link_count_mismatch",
-  1655	            "missing_raw_output_links",
-  1656	            "missing_raw_output_slot",
-  1657	        }
-  1658	        else "pinned_link_surface_changed"
-  1659	    )
-  1660
-  1661	    raise RefusedEmit(
-  1662	        f"Refusing to emit pinned raw UI node {node_id}: {typed_reason}",
-  1663	        diff={
-  1664	            str(node_id): {
-  1665	                "axis": "pinned_link_refs",
-  1666	                "node_id": str(node_id),
-  1667	                "class_type": class_type,
-  1668	                "reason": typed_reason,
-  1669	                "details": {**dict(details), "original_reason": reason},
-  1670	            }
-  1671	        },
-  1672	    )
-  1673
-  1674
-  1675	def _pinned_uid_refusal(
-  1676	    node_id: str,
-  1677	    class_type: str,
-  1678	    *,
-  1679	    axis: str,
-  1680	    reason: str,
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-   190	        )
-   191	        self.editor_only_uids = list(editor_only_uids)
-   192
-   193
-   194	def _uid_to_litegraph_id(ui_json: Mapping[str, Any]) -> dict[str, str]:
-   195	    """Build a ``{vibecomfy_uid: str(litegraph_id)}`` map from a UI JSON."""
-   196	    out: dict[str, str] = {}
-   197	    for node in ui_json.get("nodes", []) or []:
-   198	        if not isinstance(node, dict):
-   199	            continue
-   200	        props = node.get("properties") or {}
-   201	        uid = props.get("vibecomfy_uid")
-   202	        if uid:
-   203	            out[str(uid)] = str(node.get("id"))
-   204	    return out
-   205
-   206
-   207	def _api_node(api: Mapping[str, Any], node_id: str) -> Any:
-   208	    """Look up an api-node by id, tolerating int/str key drift."""
-   209	    if node_id in api:
-   210	        return api[node_id]
-   211	    if node_id.isdigit():
-   212	        as_int = int(node_id)
-   213	        if as_int in api:  # type: ignore[operator]
-   214	            return api[as_int]  # type: ignore[index]
-   215	    return None
-   216
-   217
-   218	# Snapshot field names whose changes flow into the API ``inputs`` axis.
-   219	_INPUT_AXIS_FIELDS = frozenset(
-   220	    {
-   221	        "widget_values_sig",
-   222	        "incoming_edge_sig",
-   223	        "outgoing_edge_sig",
-   224	        "public_input_binding",
-   225	    }
-   226	)
-   227
-   228
-   229	def guard_emit(
-   230	    original_ui: Mapping[str, Any],
-   231	    candidate_ui: Mapping[str, Any],
-   232	    snapshot_delta: Mapping[str, Mapping[str, tuple]] | None,
-   233	    *,
-   234	    resolved_ops: Iterable[Any] | None = None,
-   235	) -> None:
-
-exec
-/bin/zsh -lc 'git diff --unified=20 e1bef3bf..59a5f16c -- vibecomfy/porting/refuse.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 diff --git a/vibecomfy/porting/refuse.py b/vibecomfy/porting/refuse.py
 index d3e5a53f..f41dcf6e 100644
 --- a/vibecomfy/porting/refuse.py
@@ -3137,26 +2835,11 @@ index d3e5a53f..f41dcf6e 100644
      in the original ingest snapshot.  Because the original UI IS the snapshot
      source by construction in the M5 preserve flow, condition (b) reduces to
      uid-presence in ``original_ui``.
-
-exec
-/bin/zsh -lc 'git diff --unified=30 e1bef3bf..59a5f16c -- vibecomfy/porting/widget_shape_fence.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 diff --git a/vibecomfy/porting/widget_shape_fence.py b/vibecomfy/porting/widget_shape_fence.py
 index e2218534..4082be11 100644
 --- a/vibecomfy/porting/widget_shape_fence.py
 +++ b/vibecomfy/porting/widget_shape_fence.py
-@@ -54,61 +54,61 @@ class WidgetShapeVerdict:
-     recovery: str | None = None
-     use_schema_defaults: bool = False
-
-
- def decide_widget_shape(
-     evidence: WidgetShapeEvidence,
-     *,
-     raw_widget_payloads: Mapping[str, Any] | None = None,
-     raw_payloads: Mapping[str, Mapping[str, Any]] | None = None,
-     layout_entries: Mapping[str, Mapping[str, Any]] | None = None,
+@@ -64,41 +64,41 @@ def decide_widget_shape(
      field_deltas: Mapping[str, Mapping[str, Any]] | None = None,
      link_deltas: Mapping[str, Mapping[str, Any]] | None = None,
      identity_matched: bool = False,
@@ -3199,27 +2882,7 @@ index e2218534..4082be11 100644
              WidgetShapeDecision.PIN_OPAQUE,
              carry_reasons,
              raw_ui_node=raw_ui_node,
-             layout_entry=layout_entry,
-             field_delta=field_delta,
-             link_delta=link_delta,
-             recovery="carry_forward_raw_ui",
-         )
-
-     malformed_new_raw_ui = (
-         is_new_node
-         and raw_ui_node is not None
-         and not _has_full_raw_ui_payload(raw_ui_node)
-@@ -366,60 +366,77 @@ def _observed_dynamic_widgets_recoverable(
-     return True
-
-
- def _has_full_raw_ui_payload(raw_ui_node: Mapping[str, Any] | None) -> bool:
-     return bool(
-         raw_ui_node
-         and "id" in raw_ui_node
-         and raw_ui_node.get("type") is not None
-         and raw_ui_node.get("widgets_values") is not None
-     )
+@@ -376,40 +376,57 @@ def _has_full_raw_ui_payload(raw_ui_node: Mapping[str, Any] | None) -> bool:
 
 
  def _has_raw_widget_payload(raw_widget_payload: Any, evidence: WidgetShapeEvidence) -> bool:
@@ -3277,354 +2940,986 @@ index e2218534..4082be11 100644
          safe_to_regenerate=decision is WidgetShapeDecision.SAFE_TO_REGENERATE,
          pin_opaque=decision is WidgetShapeDecision.PIN_OPAQUE,
          refuse=decision is WidgetShapeDecision.REFUSE,
-         evidence=evidence,
-         raw_ui_node=raw_ui_node,
-         layout_entry=layout_entry,
-         field_delta=field_delta,
-         link_delta=link_delta,
-         recovery=recovery,
-         use_schema_defaults=use_schema_defaults,
-     )
-
-
 
 exec
-/bin/zsh -lc "nl -ba vibecomfy/porting/layout/delta.py | sed -n '360,440p'; nl -ba vibecomfy/porting/widget_shape_fence.py | sed -n '1,180p'; nl -ba vibecomfy/porting/widget_shape_fence.py | sed -n '370,435p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "nl -ba vibecomfy/porting/layout/delta.py | sed -n '360,575p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
-   360	    for input_name, vibe_input in workflow_inputs.items():
-   361	        if vibe_input.node_id in public_bindings:
-   362	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
-   363
-   364	    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
-   365	    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
-   366	    # Snapshot aliasing requires corroboration from both representations: the
-   367	    # exact clone UID must exist in the snapshot and the corresponding live
-   368	    # node must carry validated lowering metadata.  The after graph may also
-   369	    # contain newly lowered clones absent from the snapshot, so it retains the
-   370	    # complete validated live alias map.
-   371	    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
-   372	    canonical_before, before_issues = canonical_semantic_link_set(
-   373	        before_nodes,
-   374	        before_links,
-   375	        consumer_uid_aliases=before_aliases,
-   376	    )
-   377	    canonical_after, after_issues = canonical_semantic_link_set(
-   378	        after_nodes,
-   379	        after_links,
-   380	        consumer_uid_aliases=after_aliases,
-   381	    )
-   382
-   383	    delta: dict[str, dict[str, Any]] = {}
-   384	    for uid, old_snap in snapshot.items():
-   385	        node = uid_to_node.get(uid)
-   386	        if node is None:
-   387	            # Node removed after snapshot — omit per spec (caller diffs keys directly).
-   388	            continue
-   389
-   390	        # Recompute the current signature for this node.
-   391	        all_values = {**node.widgets, **node.inputs}
-   392	        current: dict[str, Any] = {
-   393	            "class_type": node.class_type,
-   394	            "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
-   395	            "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
-   396	        }
-   397
-   398	        node_delta: dict[str, Any] = {}
-   399	        for field_name in _SNAPSHOT_FIELDS:
-   400	            old_val = old_snap[field_name]
-   401	            new_val = current[field_name]
-   402	            if old_val != new_val:
-   403	                node_delta[field_name] = (old_val, new_val)
+   360	        try:
+   361	            value = ast.literal_eval(str(value_repr))
+   362	        except (SyntaxError, ValueError):
+   363	            value = value_repr
+   364	        if value is not None:
+   365	            return str(value)
+   366	    return None
+   367
+   368
+   369	def _snapshot_semantic_graph(
+   370	    snapshot: Mapping[str, Mapping[str, Any]],
+   371	) -> tuple[dict[str, SemanticNode], list[SemanticLink]]:
+   372	    nodes = {
+   373	        str(uid): (
+   374	            str(uid),
+   375	            str(entry.get("class_type", "")),
+   376	            _snapshot_channel(entry),
+   377	        )
+   378	        for uid, entry in snapshot.items()
+   379	    }
+   380	    links: list[SemanticLink] = []
+   381	    for source_uid, entry in snapshot.items():
+   382	        for source_output, target in entry.get("outgoing_edge_sig", ()):
+   383	            target_uid, target_input = target
+   384	            links.append(
+   385	                (str(source_uid), str(source_output), str(target_uid), str(target_input))
+   386	            )
+   387	        for target_input, source in entry.get("incoming_edge_sig", ()):
+   388	            incoming_source_uid, source_output = source
+   389	            links.append(
+   390	                (
+   391	                    str(incoming_source_uid),
+   392	                    str(source_output),
+   393	                    str(source_uid),
+   394	                    str(target_input),
+   395	                )
+   396	            )
+   397	    # A partial snapshot deliberately omits some node records while retained
+   398	    # signatures may still name those peers. They remain valid opaque semantic
+   399	    # endpoints; only the live graph must resolve every graph-local node id.
+   400	    for source_uid, _source_output, target_uid, _target_input in links:
+   401	        nodes.setdefault(source_uid, (source_uid, "", None))
+   402	        nodes.setdefault(target_uid, (target_uid, "", None))
+   403	    return nodes, links
    404
-   405	        uid_key = before_aliases.get(str(uid), str(uid))
-   406	        before_incident = tuple(
-   407	            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
-   408	        )
-   409	        after_incident = tuple(
-   410	            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
-   411	        )
-   412	        if before_incident != after_incident or before_issues or after_issues:
-   413	            node_delta["semantic_link_set"] = {
-   414	                "before": before_incident,
-   415	                "after": after_incident,
-   416	                "before_resolution_issues": before_issues,
-   417	                "after_resolution_issues": after_issues,
-   418	            }
-   419
-   420	        if node_delta:
-   421	            delta[uid] = node_delta
-   422
-   423	    return delta
+   405
+   406	def _snapshot_consumer_uid_aliases(
+   407	    nodes: Mapping[str, SemanticNode],
+   408	    validated_live_aliases: Mapping[str, str],
+   409	) -> dict[str, str]:
+   410	    """Return only snapshot aliases corroborated by live lowering provenance.
+   411
+   412	    A clone-shaped UID is ordinary user data unless the live node carries a
+   413	    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
+   414	    matches it.  Requiring that validated alias *and* the exact UID in the
+   415	    snapshot gives both sides independent evidence and prevents textual UID
+   416	    shape alone from fabricating snapshot topology.
+   417	    """
+   418	    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
+   419	    return {
+   420	        str(uid): str(source_uid)
+   421	        for uid, source_uid in validated_live_aliases.items()
+   422	        if str(uid) in snapshot_uids
+   423	    }
    424
    425
-   426	__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
-     1	"""Deterministic widget-shape verdicts for UI emission.
-     2
-     3	This module is intentionally pure policy: callers provide all evidence gathered
-     4	from the IR, raw LiteGraph payloads, layout preservation, and edit deltas.  The
-     5	fence decides whether a node may regenerate widgets, must preserve the raw node
-     6	opaque, or must refuse emission.
-     7	"""
-     8	from __future__ import annotations
-     9
-    10	from dataclasses import dataclass, field
-    11	from enum import Enum
-    12	from typing import Any, Mapping
-    13
-    14	from vibecomfy.porting.emit.ui import WidgetShapeEvidence
-    15
-    16	_LOW_CONFIDENCE_THRESHOLD = 0.3
-    17	_WIDGET_FIELD_PREFIX = "widget_"
-    18	_WIDGET_FIELDS = frozenset({"widgets", "widgets_values", "raw_widgets", "_raw_widgets"})
-    19
-    20
-    21	class WidgetShapeDecision(str, Enum):
-    22	    SAFE_TO_REGENERATE = "safe_to_regenerate"
-    23	    PIN_OPAQUE = "pin_opaque"
-    24	    REFUSE = "refuse"
-    25
-    26
-    27	class WidgetShapeReason(str, Enum):
-    28	    SCHEMA_BACKED_STATIC = "schema_backed_static"
-    29	    OVERFLOW = "overflow"
-    30	    SCHEMA_LESS = "schema_less"
-    31	    LOW_CONFIDENCE_SCHEMA = "low_confidence_schema"
-    32	    DICT_ROW_DYNAMIC_WIDGETS = "dict_row_dynamic_widgets"
-    33	    MISSING_RAW_UI_PAYLOAD = "no_prior_ui_payload"
-    34	    MISSING_RAW_WIDGET_PAYLOAD = "missing_raw_widget_payload"
-    35	    MISSING_LAYOUT_ENTRY = "missing_layout_entry"
-    36	    WIDGET_DELTA = "widget_delta"
-    37	    LINK_DELTA = "link_delta"
-    38
-    39
-    40	@dataclass(frozen=True, slots=True)
-    41	class WidgetShapeVerdict:
-    42	    node_id: str
-    43	    class_type: str
-    44	    decision: WidgetShapeDecision
-    45	    reasons: tuple[WidgetShapeReason, ...]
-    46	    safe_to_regenerate: bool
-    47	    pin_opaque: bool
-    48	    refuse: bool
-    49	    evidence: WidgetShapeEvidence
-    50	    raw_ui_node: Mapping[str, Any] | None = None
-    51	    layout_entry: Mapping[str, Any] | None = None
-    52	    field_delta: Mapping[str, Any] = field(default_factory=dict)
-    53	    link_delta: Mapping[str, Any] = field(default_factory=dict)
-    54	    recovery: str | None = None
-    55	    use_schema_defaults: bool = False
-    56
-    57
-    58	def decide_widget_shape(
-    59	    evidence: WidgetShapeEvidence,
-    60	    *,
-    61	    raw_widget_payloads: Mapping[str, Any] | None = None,
-    62	    raw_payloads: Mapping[str, Mapping[str, Any]] | None = None,
-    63	    layout_entries: Mapping[str, Mapping[str, Any]] | None = None,
-    64	    field_deltas: Mapping[str, Mapping[str, Any]] | None = None,
-    65	    link_deltas: Mapping[str, Mapping[str, Any]] | None = None,
-    66	    identity_matched: bool = False,
-    67	    allow_schema_default_regenerate: bool = False,
-    68	    is_new_node: bool = False,
-    69	) -> WidgetShapeVerdict:
-    70	    """Classify one node's widget-shape handling.
-    71
-    72	    ``raw_payloads`` must contain the full raw LiteGraph node dict for a pin.
-    73	    ``raw_widget_payloads`` must contain the preserved widget evidence.  Layout,
-    74	    field, and link deltas are explicit inputs so the trust boundary is visible:
-    75	    dynamic nodes only pin when their raw UI payload is complete and unchanged.
-    76	    """
-    77	    node_id = str(evidence.node_id)
-    78	    raw_widget_payload = _lookup(raw_widget_payloads, node_id)
-    79	    raw_ui_node = _lookup(raw_payloads, node_id)
-    80	    layout_entry = _lookup(layout_entries, node_id)
-    81	    field_delta = dict(_lookup(field_deltas, node_id) or {})
-    82	    link_delta = dict(_lookup(link_deltas, node_id) or {})
-    83	    has_widget_delta = _has_widget_delta(field_delta)
-    84	    has_link_delta = _has_link_delta(link_delta)
-    85
-    86	    static_reasons = _static_refusal_reasons(evidence)
-    87
-    88	    # Collateral nodes (no widget delta, no link delta) with a complete
-    89	    # raw LiteGraph node dict can carry the payload forward even when
-    90	    # they have dynamic / overflow widget-shape problems.  Edited or
-    91	    # touched nodes (any delta) fall through to the stricter refusal
-    92	    # gates below.
-    93	    if (
-    94	        raw_ui_node is not None
-    95	        and _has_full_raw_ui_payload(raw_ui_node)
-    96	        and not has_widget_delta
-    97	        and not has_link_delta
-    98	    ):
-    99	        carry_reasons = static_reasons or (WidgetShapeReason.SCHEMA_BACKED_STATIC,)
-   100	        return _verdict(
-   101	            evidence,
-   102	            WidgetShapeDecision.PIN_OPAQUE,
-   103	            carry_reasons,
-   104	            raw_ui_node=raw_ui_node,
-   105	            layout_entry=layout_entry,
-   106	            field_delta=field_delta,
-   107	            link_delta=link_delta,
-   108	            recovery="carry_forward_raw_ui",
-   109	        )
-   110
-   111	    malformed_new_raw_ui = (
-   112	        is_new_node
-   113	        and raw_ui_node is not None
-   114	        and not _has_full_raw_ui_payload(raw_ui_node)
-   115	        # A new node with a partial ``_ui`` stub (inputs/outputs stripped at
-   116	        # ingest) is only "malformed" if it actually has a widget-shape problem
-   117	        # (``static_reasons``) or no regenerable widget payload. When the widget
-   118	        # shape is clean, regeneration rebuilds ``widgets_values`` from the IR,
-   119	        # so the partial stub is irrelevant — fall through to regenerate/emit.
-   120	        and (
-   121	            static_reasons
-   122	            or not _has_raw_widget_payload(raw_widget_payload, evidence)
-   123	        )
-   124	    )
-   125	    if malformed_new_raw_ui:
-   126	        refuse_reasons = list(static_reasons)
-   127	        refuse_reasons.append(WidgetShapeReason.MISSING_RAW_UI_PAYLOAD)
-   128	        if not _has_raw_widget_payload(raw_widget_payload, evidence):
-   129	            refuse_reasons.append(WidgetShapeReason.MISSING_RAW_WIDGET_PAYLOAD)
-   130	        if layout_entry is None:
-   131	            refuse_reasons.append(WidgetShapeReason.MISSING_LAYOUT_ENTRY)
-   132	        if has_widget_delta:
-   133	            refuse_reasons.append(WidgetShapeReason.WIDGET_DELTA)
-   134	        if has_link_delta:
-   135	            refuse_reasons.append(WidgetShapeReason.LINK_DELTA)
-   136	        return _verdict(
-   137	            evidence,
-   138	            WidgetShapeDecision.REFUSE,
-   139	            tuple(refuse_reasons),
-   140	            raw_ui_node=raw_ui_node,
-   141	            layout_entry=layout_entry,
-   142	            field_delta=field_delta,
-   143	            link_delta=link_delta,
-   144	        )
-   145
-   146	    benign_schema_default_overflow = (
-   147	        allow_schema_default_regenerate
-   148	        and not has_widget_delta
-   149	        and not has_link_delta
-   150	        and _schema_default_safe_static_reasons(static_reasons)
-   151	    )
-   152	    if benign_schema_default_overflow:
-   153	        return _verdict(
-   154	            evidence,
-   155	            WidgetShapeDecision.SAFE_TO_REGENERATE,
-   156	            (WidgetShapeReason.SCHEMA_BACKED_STATIC,),
-   157	            raw_ui_node=raw_ui_node,
-   158	            layout_entry=layout_entry,
-   159	            field_delta=field_delta,
-   160	            link_delta=link_delta,
-   161	            recovery="schema_default_regenerate",
-   162	            use_schema_defaults=True,
-   163	        )
-   164
-   165	    if _observed_static_overflow_recoverable(
-   166	        evidence,
-   167	        raw_widget_payload=raw_widget_payload,
-   168	        raw_ui_node=raw_ui_node,
-   169	        has_link_delta=has_link_delta,
-   170	        is_new_node=is_new_node,
-   171	    ):
-   172	        return _verdict(
-   173	            evidence,
-   174	            WidgetShapeDecision.SAFE_TO_REGENERATE,
-   175	            (WidgetShapeReason.OVERFLOW,),
-   176	            raw_ui_node=raw_ui_node,
-   177	            layout_entry=layout_entry,
-   178	            field_delta=field_delta,
-   179	            link_delta=link_delta,
-   180	            recovery="observed_widget_shape_regenerate",
-   370	    return bool(
-   371	        raw_ui_node
-   372	        and "id" in raw_ui_node
-   373	        and raw_ui_node.get("type") is not None
-   374	        and raw_ui_node.get("widgets_values") is not None
-   375	    )
-   376
-   377
-   378	def _has_raw_widget_payload(raw_widget_payload: Any, evidence: WidgetShapeEvidence) -> bool:
-   379	    if raw_widget_payload is None:
-   380	        return False
-   381	    length = getattr(raw_widget_payload, "length", None)
-   382	    if length is None and isinstance(raw_widget_payload, Mapping):
-   383	        length = raw_widget_payload.get("length")
-   384	    if length is None:
-   385	        return True
-   386	    return evidence.raw_widget_count is None or int(length) == int(evidence.raw_widget_count)
-   387
-   388
-   389	def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
-   390	    return any(
-   391	        field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
-   392	        for field in field_delta
-   393	    )
-   394
-   395
-   396	def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
-   397	    """Interpret the canonical semantic-set comparison supplied by the emitter.
-   398
-   399	    The fallback preserves compatibility for direct policy callers that still
-   400	    provide an opaque link-delta mapping. Resolution issues always fail closed,
-   401	    even when the successfully resolved portions of the two sets are equal.
-   402	    """
-   403	    semantic = link_delta.get("semantic_link_set")
-   404	    if not isinstance(semantic, Mapping):
-   405	        return bool(link_delta)
-   406	    return bool(
-   407	        semantic.get("before") != semantic.get("after")
-   408	        or semantic.get("before_resolution_issues")
-   409	        or semantic.get("after_resolution_issues")
-   410	    )
-   411
-   412
-   413	def _verdict(
-   414	    evidence: WidgetShapeEvidence,
-   415	    decision: WidgetShapeDecision,
-   416	    reasons: tuple[WidgetShapeReason, ...],
-   417	    *,
-   418	    raw_ui_node: Mapping[str, Any] | None,
-   419	    layout_entry: Mapping[str, Any] | None,
-   420	    field_delta: Mapping[str, Any],
-   421	    link_delta: Mapping[str, Any],
-   422	    recovery: str | None = None,
-   423	    use_schema_defaults: bool = False,
-   424	) -> WidgetShapeVerdict:
-   425	    return WidgetShapeVerdict(
-   426	        node_id=str(evidence.node_id),
-   427	        class_type=str(evidence.class_type),
-   428	        decision=decision,
-   429	        reasons=reasons,
-   430	        safe_to_regenerate=decision is WidgetShapeDecision.SAFE_TO_REGENERATE,
-   431	        pin_opaque=decision is WidgetShapeDecision.PIN_OPAQUE,
-   432	        refuse=decision is WidgetShapeDecision.REFUSE,
-   433	        evidence=evidence,
-   434	        raw_ui_node=raw_ui_node,
-   435	        layout_entry=layout_entry,
+   426	def _workflow_semantic_graph(
+   427	    current_ir: "VibeWorkflow",
+   428	) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
+   429	    nodes: dict[str, SemanticNode] = {}
+   430	    consumer_uid_aliases: dict[str, str] = {}
+   431	    for node_id, node in current_ir.nodes.items():
+   432	        channel = None
+   433	        if node.class_type in {"SetNode", "GetNode"}:
+   434	            value = node.inputs.get("widget_0", node.widgets.get("widget_0"))
+   435	            if value is None:
+   436	                value = node.inputs.get("name")
+   437	            if value is not None:
+   438	                channel = str(value)
+   439	        stable_uid = str(node.uid if node.uid else node_id)
+   440	        nodes[str(node_id)] = (
+   441	            stable_uid,
+   442	            str(node.class_type),
+   443	            channel,
+   444	        )
+   445	        lowering = node.metadata.get("vibecomfy.lowering")
+   446	        if isinstance(lowering, Mapping):
+   447	            source_uid = lowering.get("source_uid")
+   448	            loop_uid = lowering.get("loop_uid")
+   449	            iteration_index = lowering.get("iteration_index")
+   450	            if (
+   451	                isinstance(source_uid, str)
+   452	                and isinstance(loop_uid, str)
+   453	                and isinstance(iteration_index, int)
+   454	                and clone_uid(loop_uid, source_uid, iteration_index) == stable_uid
+   455	            ):
+   456	                consumer_uid_aliases[stable_uid] = source_uid
+   457	    links = [
+   458	        (str(edge.from_node), str(edge.from_output), str(edge.to_node), str(edge.to_input))
+   459	        for edge in current_ir.edges
+   460	    ]
+   461	    return nodes, links, consumer_uid_aliases
+   462
+   463
+   464	def compute_field_delta(
+   465	    snapshot: dict[str, Any],
+   466	    current_ir: "VibeWorkflow",
+   467	) -> dict[str, dict[str, Any]]:
+   468	    """Compute field-level changes between a stored snapshot and the current IR.
+   469
+   470	    Parameters
+   471	    ----------
+   472	    snapshot:
+   473	        A ``{uid: NodeFieldSnapshot}`` dict as returned by
+   474	        ``capture_ingest_snapshot``.  This is the *before* state.
+   475	    current_ir:
+   476	        The live ``VibeWorkflow`` to compare against.  This is the *after* state.
+   477
+   478	    Returns
+   479	    -------
+   480	    ``{uid: {field_name: delta}}`` — only nodes and fields where something
+   481	    changed. Scalar fields use ``(old_value, new_value)``; link changes use a
+   482	    ``semantic_link_set`` record carrying canonical before/after sets and
+   483	    resolution issues. Nodes absent from *snapshot* are omitted.
+   484	    Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
+   485	    omitted; callers that need to detect removals should diff snapshot keys against
+   486	    the current IR's uid set directly.
+   487	    """
+   488	    # Build uid → node lookup for the current IR.
+   489	    uid_to_node = {
+   490	        (node.uid if node.uid else node_id): node
+   491	        for node_id, node in current_ir.nodes.items()
+   492	    }
+   493
+   494	    # Recompute current signatures inline to avoid a round-trip through capture.
+   495	    nodes = current_ir.nodes
+   496	    workflow_inputs = current_ir.inputs
+   497
+   498	    public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
+   499	    for input_name, vibe_input in workflow_inputs.items():
+   500	        if vibe_input.node_id in public_bindings:
+   501	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
+   502
+   503	    after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
+   504	    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
+   505	    # Snapshot aliasing requires corroboration from both representations: the
+   506	    # exact clone UID must exist in the snapshot and the corresponding live
+   507	    # node must carry validated lowering metadata.  The after graph may also
+   508	    # contain newly lowered clones absent from the snapshot, so it retains the
+   509	    # complete validated live alias map.
+   510	    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
+   511	    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
+   512	        before_nodes,
+   513	        before_links,
+   514	        consumer_uid_aliases=before_aliases,
+   515	    )
+   516	    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
+   517	        after_nodes,
+   518	        after_links,
+   519	        consumer_uid_aliases=after_aliases,
+   520	    )
+   521
+   522	    delta: dict[str, dict[str, Any]] = {}
+   523	    for uid, old_snap in snapshot.items():
+   524	        node = uid_to_node.get(uid)
+   525	        if node is None:
+   526	            # Node removed after snapshot — omit per spec (caller diffs keys directly).
+   527	            continue
+   528
+   529	        # Recompute the current signature for this node.
+   530	        all_values = {**node.widgets, **node.inputs}
+   531	        current: dict[str, Any] = {
+   532	            "class_type": node.class_type,
+   533	            "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
+   534	            "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
+   535	        }
+   536
+   537	        node_delta: dict[str, Any] = {}
+   538	        for field_name in _SNAPSHOT_FIELDS:
+   539	            old_val = old_snap[field_name]
+   540	            new_val = current[field_name]
+   541	            if old_val != new_val:
+   542	                node_delta[field_name] = (old_val, new_val)
+   543
+   544	        uid_key = before_aliases.get(str(uid), str(uid))
+   545	        before_incident = tuple(
+   546	            link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
+   547	        )
+   548	        after_incident = tuple(
+   549	            link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
+   550	        )
+   551	        # Resolution issues are attached only to the snapshot nodes actually
+   552	        # involved (issue-named uids plus consumers of the failing edges), so
+   553	        # a single ambiguous helper never fabricates a semantic-link delta on
+   554	        # unrelated pins (B03 oracle finding 3 fan-out amplification).
+   555	        before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
+   556	        after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
+   557	        if before_incident != after_incident or before_uid_issues or after_uid_issues:
+   558	            node_delta["semantic_link_set"] = {
+   559	                "before": before_incident,
+   560	                "after": after_incident,
+   561	                "before_resolution_issues": before_uid_issues,
+   562	                "after_resolution_issues": after_uid_issues,
+   563	            }
+   564
+   565	        if node_delta:
+   566	            delta[uid] = node_delta
+   567
+   568	    return delta
+   569
+   570
+   571	__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
 
 exec
-/bin/zsh -lc "git diff --numstat e1bef3bf..59a5f16c -- ':"'!.oracle/checkins/batch-B03.md'"' ':"'!.oracle/briefs/*'"'; git diff --check e1bef3bf..59a5f16c; git diff --exit-code e1bef3bf..59a5f16c -- vibecomfy/identity/uid.py" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "rg -n '"'^def test_'"' tests/test_layout_delta.py tests/test_ui_emitter_widget_shape_verdict.py" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-11	5	tests/conftest.py
-208	3	tests/test_layout_delta.py
-659	0	tests/test_ui_emitter_widget_shape_verdict.py
-2	1	vibecomfy/porting/emit/ui.py
-349	27	vibecomfy/porting/layout/delta.py
-8	3	vibecomfy/porting/lowering.py
-1	0	vibecomfy/porting/refuse.py
-18	1	vibecomfy/porting/widget_shape_fence.py
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-
-codex
-The core path is now clear: raw incident-edge signatures were removed from field comparison, one canonical set is computed for each side, and the pin policy treats unequal sets or either side’s resolution issues as a link delta. I’m now stress-checking where that global canonical result is projected back onto individual pinned nodes, because that attribution step is the likeliest place for false accepts or false refusals.
 exec
-/bin/zsh -lc "nl -ba tests/test_layout_delta.py | sed -n '1,340p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "rg -n 'output_link_count_mismatch|input_link_count_mismatch|link_count_mismatch|incoming_edge_sig|outgoing_edge_sig|canonical_semantic_link_set|semantic_link_set' vibecomfy tests/test_layout_delta.py tests/test_ui_emitter_widget_shape_verdict.py" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+exec
+/bin/zsh -lc "rg -n 'parse_uid|def clone_uid|_clone_uid' vibecomfy/porting/lowering.py vibecomfy | head -100" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 30ms:
+tests/test_ui_emitter_widget_shape_verdict.py:10:from vibecomfy.porting.layout.delta import canonical_semantic_link_set, compute_field_delta
+tests/test_ui_emitter_widget_shape_verdict.py:388:    Before the fix, ``canonical_semantic_link_set`` unconditionally reported
+tests/test_ui_emitter_widget_shape_verdict.py:390:    resolution issue attached a fabricated ``semantic_link_set`` delta to every
+tests/test_ui_emitter_widget_shape_verdict.py:434:    ``semantic_link_set`` delta to every node, which added a ``link_delta``
+tests/test_ui_emitter_widget_shape_verdict.py:977:    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
+tests/test_ui_emitter_widget_shape_verdict.py:1063:    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
+tests/test_ui_emitter_widget_shape_verdict.py:1163:    nested, issues = canonical_semantic_link_set(
+tests/test_ui_emitter_widget_shape_verdict.py:1170:    flat, flat_issues = canonical_semantic_link_set(
+tests/test_ui_emitter_widget_shape_verdict.py:1218:    semantic, issues = canonical_semantic_link_set(
+tests/test_ui_emitter_widget_shape_verdict.py:1271:    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+tests/test_ui_emitter_widget_shape_verdict.py:1318:    first = canonical_semantic_link_set(nodes, links)
+tests/test_ui_emitter_widget_shape_verdict.py:1319:    second = canonical_semantic_link_set(nodes, reversed(links))
+tests/test_ui_emitter_widget_shape_verdict.py:1370:    first = canonical_semantic_link_set(nodes, links)
+tests/test_ui_emitter_widget_shape_verdict.py:1371:    second = canonical_semantic_link_set(nodes, reversed(links))
+tests/test_ui_emitter_widget_shape_verdict.py:1381:    semantic, issues = canonical_semantic_link_set(
+tests/test_ui_emitter_widget_shape_verdict.py:1403:    forward = canonical_semantic_link_set(nodes, [])
+tests/test_ui_emitter_widget_shape_verdict.py:1404:    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
+tests/test_ui_emitter_widget_shape_verdict.py:1425:    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+tests/test_ui_emitter_widget_shape_verdict.py:1438:    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+tests/test_ui_emitter_widget_shape_verdict.py:1460:    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+tests/test_ui_emitter_widget_shape_verdict.py:1466:    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+tests/test_ui_emitter_widget_shape_verdict.py:1476:    semantic, issues = canonical_semantic_link_set(
+tests/test_ui_emitter_widget_shape_verdict.py:1491:def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
+tests/test_layout_delta.py:62:    own snapshot must yield NO ``semantic_link_set`` deltas.
+tests/test_layout_delta.py:147:    semantic = delta["40"]["semantic_link_set"]
+tests/test_layout_delta.py:168:    semantic = delta["40"]["semantic_link_set"]
+tests/test_layout_delta.py:194:    semantic = delta["40"]["semantic_link_set"]
+tests/test_layout_delta.py:262:    semantic = delta["consumer"]["semantic_link_set"]
+tests/test_layout_delta.py:293:    semantic = delta["consumer"]["semantic_link_set"]
+tests/test_layout_delta.py:308:        for issue in delta["11"]["semantic_link_set"]["after_resolution_issues"]
+tests/test_layout_delta.py:312:        assert "semantic_link_set" not in delta.get(unrelated, {})
+tests/test_layout_delta.py:348:    ``semantic_link_set`` delta and refusing the unchanged schema-less
+tests/test_layout_delta.py:377:    semantic = delta["35"]["semantic_link_set"]
+tests/test_layout_delta.py:385:    assert delta["137"]["semantic_link_set"]["before"] == (("137", "0", "35", "frame_rate"),)
+tests/test_layout_delta.py:386:    assert delta["137"]["semantic_link_set"]["after"] == ()
+tests/test_layout_delta.py:389:        assert "semantic_link_set" not in delta.get(uid, {})
+tests/test_layout_delta.py:438:    semantic = delta[clone_uid("loop", "consumer", 0)]["semantic_link_set"]
+tests/test_layout_delta.py:477:    semantic = delta["sampler-uid"]["semantic_link_set"]
+vibecomfy/porting/refuse.py:222:        "incoming_edge_sig",
+vibecomfy/porting/refuse.py:223:        "outgoing_edge_sig",
+vibecomfy/porting/refuse.py:224:        "semantic_link_set",
+vibecomfy/porting/emit/ui.py:1588:    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
+vibecomfy/porting/emit/ui.py:1595:            "incoming_edge_sig",
+vibecomfy/porting/emit/ui.py:1596:            "outgoing_edge_sig",
+vibecomfy/porting/emit/ui.py:1597:            "semantic_link_set",
+vibecomfy/porting/emit/ui.py:1655:            "output_link_count_mismatch",
+vibecomfy/porting/layout/delta.py:39:def canonical_semantic_link_set(
+vibecomfy/porting/layout/delta.py:54:    semantic, issues, _attribution = _canonical_semantic_link_set(
+vibecomfy/porting/layout/delta.py:62:def _canonical_semantic_link_set(
+vibecomfy/porting/layout/delta.py:382:        for source_output, target in entry.get("outgoing_edge_sig", ()):
+vibecomfy/porting/layout/delta.py:387:        for target_input, source in entry.get("incoming_edge_sig", ()):
+vibecomfy/porting/layout/delta.py:482:    ``semantic_link_set`` record carrying canonical before/after sets and
+vibecomfy/porting/layout/delta.py:511:    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
+vibecomfy/porting/layout/delta.py:516:    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
+vibecomfy/porting/layout/delta.py:558:            node_delta["semantic_link_set"] = {
+vibecomfy/porting/layout/delta.py:571:__all__ = ["SemanticLink", "SemanticNode", "canonical_semantic_link_set", "compute_field_delta"]
+vibecomfy/porting/widget_shape_fence.py:403:    semantic = link_delta.get("semantic_link_set")
+vibecomfy/ingest/snapshot.py:30:    incoming_edge_sig: tuple
+vibecomfy/ingest/snapshot.py:32:    outgoing_edge_sig: tuple
+vibecomfy/ingest/snapshot.py:101:            "incoming_edge_sig": incoming_sig,
+vibecomfy/ingest/snapshot.py:102:            "outgoing_edge_sig": outgoing_sig,
+
+ succeeded in 20ms:
+vibecomfy/porting/lowering.py:29:from vibecomfy.identity.uid import make_uid, parse_uid
+vibecomfy/porting/lowering.py:317:def clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
+vibecomfy/porting/lowering.py:319:    loop_scope, loop_local = parse_uid(loop_uid or "")
+vibecomfy/porting/lowering.py:320:    _, source_local = parse_uid(source_uid)
+vibecomfy/porting/lowering.py:326:_clone_uid = clone_uid
+vibecomfy/porting/lowering.py:29:from vibecomfy.identity.uid import make_uid, parse_uid
+vibecomfy/porting/lowering.py:317:def clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
+vibecomfy/porting/lowering.py:319:    loop_scope, loop_local = parse_uid(loop_uid or "")
+vibecomfy/porting/lowering.py:320:    _, source_local = parse_uid(source_uid)
+vibecomfy/porting/lowering.py:326:_clone_uid = clone_uid
+vibecomfy/identity/uid.py:31:def parse_uid(uid: str) -> tuple[str, str]:
+vibecomfy/identity/__init__.py:20:    parse_uid,
+vibecomfy/identity/__init__.py:28:    "parse_uid",
+vibecomfy/porting/reorganise/orchestrate.py:14:from vibecomfy.identity.uid import parse_uid
+vibecomfy/porting/reorganise/orchestrate.py:1514:        scope_path, uid = parse_uid(key)
+vibecomfy/porting/reorganise/orchestrate.py:1576:    scopes = {parse_uid(str(node_key))[0] for node_key in node_keys}
+vibecomfy/porting/reorganise/orchestrate.py:1592:        node_scope, uid = parse_uid(str(node_key))
+
+exec
+/bin/zsh -lc "nl -ba vibecomfy/porting/emit/ui.py | sed -n '1615,1685p'; git blame -L 1645,1665 e82d54bf -- vibecomfy/porting/emit/ui.py" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 163ms:
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1645)     from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
+d6616fb3d vibecomfy/porting/ui_emitter.py (POM 2026-06-01 10:32:25 +0200 1646)
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1647)     typed_reason = (
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1648)         "pinned_link_id_mismatch"
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1649)         if reason
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1650)         in {
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1651)             "unmappable_input_link",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1652)             "ambiguous_input_link",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1653)             "missing_raw_input_link",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1654)             "unmappable_output_links",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1655)             "output_link_count_mismatch",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1656)             "missing_raw_output_links",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1657)             "missing_raw_output_slot",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1658)         }
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1659)         else "pinned_link_surface_changed"
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1660)     )
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1661)
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1662)     raise RefusedEmit(
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1663)         f"Refusing to emit pinned raw UI node {node_id}: {typed_reason}",
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1664)         diff={
+92dfdb8e1 vibecomfy/porting/ui_emitter.py (POM 2026-05-31 06:37:37 +0200 1665)             str(node_id): {
+
+exec
+/bin/zsh -lc "nl -ba tests/test_ui_emitter_widget_shape_verdict.py | sed -n '880,1525p'; nl -ba tests/test_layout_delta.py | sed -n '1,445p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
+   880	# B03 — canonical semantic pin comparison
+   881	# ---------------------------------------------------------------------------
+   882
+   883
+   884	def _semantic_pin_workflow() -> tuple[VibeWorkflow, dict[str, Any]]:
+   885	    raw_ui = _raw_connected_dynamic_ui()
+   886	    wf = _wf()
+   887	    wf.nodes["7"] = VibeNode(
+   888	        "7",
+   889	        "DynamicRows",
+   890	        uid="uid-dynamic",
+   891	        raw_widgets=_raw_widgets(),
+   892	    )
+   893	    return wf, raw_ui
+   894
+   895
+   896	def _emit_semantic_pin(wf: VibeWorkflow, raw_ui: dict[str, Any]) -> dict[str, Any]:
+   897	    with warnings.catch_warnings():
+   898	        warnings.simplefilter("ignore")
+   899	        return emit_ui_json(
+   900	            wf,
+   901	            schema_provider=_provider(),
+   902	            prior_store=store_from_ui_json(raw_ui),
+   903	            prior_ui_payload=raw_ui,
+   904	        )
+   905
+   906
+   907	def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
+   908	    wf, raw_ui = _semantic_pin_workflow()
+   909	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
+   910	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
+   911	    for node_id in range(20, 24):
+   912	        wf.nodes[str(node_id)] = VibeNode(str(node_id), "SaveImage", uid=f"consumer-{node_id}")
+   913	    wf.edges = [VibeEdge("7", "0", "10", "value")]
+   914	    wf.edges.extend(VibeEdge("11", "0", str(node_id), "images") for node_id in range(20, 24))
+   915	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+   916
+   917	    del wf.nodes["10"]
+   918	    del wf.nodes["11"]
+   919	    wf.edges = [VibeEdge("7", "0", str(node_id), "images") for node_id in range(20, 24)]
+   920
+   921	    emitted = _emit_semantic_pin(wf, raw_ui)
+   922	    assert next(node for node in emitted["nodes"] if node["id"] == 7)["widgets_values"] == [
+   923	        {"lora": "a"},
+   924	        {"lora": "b"},
+   925	    ]
+   926
+   927
+   928	def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
+   929	    wf, raw_ui = _semantic_pin_workflow()
+   930	    wf.nodes["8"] = VibeNode("8", "Reroute", uid="reroute")
+   931	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+   932	    wf.edges = [VibeEdge("7", "0", "8", ""), VibeEdge("8", "0", "9", "images")]
+   933	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+   934
+   935	    del wf.nodes["8"]
+   936	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+   937	    # Unrelated earlier-sorting edge changes the emitted numeric link id only.
+   938	    wf.nodes["1"] = VibeNode("1", "KSampler", uid="unrelated-source")
+   939	    wf.nodes["2"] = VibeNode("2", "SaveImage", uid="unrelated-consumer")
+   940	    wf.edges.insert(0, VibeEdge("1", "0", "2", "images"))
+   941
+   942	    emitted = _emit_semantic_pin(wf, raw_ui)
+   943	    pinned = next(node for node in emitted["nodes"] if node["id"] == 7)
+   944	    assert pinned["outputs"][0]["links"] == [2]
+   945
+   946
+   947	def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
+   948	    wf, raw_ui = _semantic_pin_workflow()
+   949	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+   950	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+   951	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+   952
+   953	    del wf.nodes["9"]
+   954	    wf.edges = []
+   955	    for iteration in range(3):
+   956	        node_id = str(20 + iteration)
+   957	        lowered_uid = clone_uid("loop", "consumer", iteration)
+   958	        wf.nodes[node_id] = VibeNode(
+   959	            node_id,
+   960	            "SaveImage",
+   961	            uid=lowered_uid,
+   962	            metadata={
+   963	                "vibecomfy.lowering": {
+   964	                    "source_uid": "consumer",
+   965	                    "loop_uid": "loop",
+   966	                    "iteration_index": iteration,
+   967	                }
+   968	            },
+   969	        )
+   970	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
+   971
+   972	    _emit_semantic_pin(wf, raw_ui)
+   973
+   974
+   975	def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
+   976	    """B03 finding 3: snapshot taken AFTER lowering on an UNCHANGED workflow
+   977	    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
+   978	    refused).
+   979
+   980	    The before set holds loop-clone consumer uids (``loop:iter0:consumer``,
+   981	    ``loop:iter1:consumer``) while the live set collapses them to
+   982	    ``consumer``; symmetric alias normalization makes the delta empty so the
+   983	    unchanged lowered workflow pins instead of refusing.
+   984	    """
+   985	    wf, raw_ui = _semantic_pin_workflow()
+   986	    wf.edges = []
+   987	    for iteration in range(2):
+   988	        node_id = str(20 + iteration)
+   989	        lowered_uid = clone_uid("loop", "consumer", iteration)
+   990	        wf.nodes[node_id] = VibeNode(
+   991	            node_id,
+   992	            "SaveImage",
+   993	            uid=lowered_uid,
+   994	            metadata={
+   995	                "vibecomfy.lowering": {
+   996	                    "source_uid": "consumer",
+   997	                    "loop_uid": "loop",
+   998	                    "iteration_index": iteration,
+   999	                }
+  1000	            },
+  1001	        )
+  1002	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
+  1003	    # Snapshot captured AFTER lowering; the workflow is UNCHANGED from here on.
+  1004	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1005
+  1006	    _emit_semantic_pin(wf, raw_ui)
+  1007
+  1008
+  1009	def test_pinned_semantic_one_of_two_lowered_clones_repointed_refuses() -> None:
+  1010	    """The canonical consumer target receives and refuses the global change."""
+  1011	    wf, raw_ui = _semantic_pin_workflow()
+  1012	    raw_ui["nodes"][0]["outputs"][0]["links"] = [101, 102]
+  1013	    raw_ui["links"] = [
+  1014	        [101, 7, 0, 20, 0, "IMAGE"],
+  1015	        [102, 7, 0, 21, 0, "IMAGE"],
+  1016	    ]
+  1017	    for iteration in range(2):
+  1018	        node_id = 20 + iteration
+  1019	        lowered_uid = clone_uid("loop", "consumer", iteration)
+  1020	        raw_ui["nodes"].append(
+  1021	            {
+  1022	                "id": node_id,
+  1023	                "type": "DynamicRows",
+  1024	                "pos": [400, iteration * 180],
+  1025	                "size": [300, 120],
+  1026	                "flags": {},
+  1027	                "order": iteration + 1,
+  1028	                "mode": 0,
+  1029	                "inputs": [{"name": "image", "type": "IMAGE", "link": 101 + iteration}],
+  1030	                "outputs": [],
+  1031	                "properties": {"vibecomfy_uid": lowered_uid},
+  1032	                "widgets_values": [{"lora": "a"}, {"lora": "b"}],
+  1033	            }
+  1034	        )
+  1035	        wf.nodes[str(node_id)] = VibeNode(
+  1036	            str(node_id),
+  1037	            "DynamicRows",
+  1038	            uid=lowered_uid,
+  1039	            raw_widgets=_raw_widgets(),
+  1040	            metadata={
+  1041	                "vibecomfy.lowering": {
+  1042	                    "source_uid": "consumer",
+  1043	                    "loop_uid": "loop",
+  1044	                    "iteration_index": iteration,
+  1045	                }
+  1046	            },
+  1047	        )
+  1048	        wf.edges.append(VibeEdge("7", "0", str(node_id), "image"))
+  1049	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1050
+  1051	    wf.nodes["8"] = VibeNode("8", "KSampler", uid="source-b")
+  1052	    wf.edges = [
+  1053	        edge
+  1054	        for edge in wf.edges
+  1055	        if not (edge.from_node == "7" and edge.to_node == "20")
+  1056	    ]
+  1057	    wf.edges.append(VibeEdge("8", "0", "20", "image"))
+  1058
+  1059	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1060	        warnings.simplefilter("ignore")
+  1061	        _emit_semantic_pin(wf, raw_ui)
+  1062
+  1063	    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
+  1064	    assert semantic["before"] == [["uid-dynamic", "0", "consumer", "image"]]
+  1065	    assert semantic["after"] == [
+  1066	        ["source-b", "0", "consumer", "image"],
+  1067	        ["uid-dynamic", "0", "consumer", "image"],
+  1068	    ]
+  1069
+  1070
+  1071	def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
+  1072	    """The corpus regression: one Set/Get route becomes N direct clone links."""
+  1073	    wf, raw_ui = _semantic_pin_workflow()
+  1074	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
+  1075	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
+  1076	    wf.nodes["12"] = VibeNode("12", "SaveImage", uid="consumer")
+  1077	    wf.edges = [
+  1078	        VibeEdge("7", "image", "10", "value"),
+  1079	        VibeEdge("11", "0", "12", "images"),
+  1080	    ]
+  1081	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1082
+  1083	    del wf.nodes["10"]
+  1084	    del wf.nodes["11"]
+  1085	    del wf.nodes["12"]
+  1086	    wf.edges = []
+  1087	    for iteration in range(4):
+  1088	        node_id = str(20 + iteration)
+  1089	        lowered_uid = clone_uid("loop", "consumer", iteration)
+  1090	        wf.nodes[node_id] = VibeNode(
+  1091	            node_id,
+  1092	            "SaveImage",
+  1093	            uid=lowered_uid,
+  1094	            metadata={
+  1095	                "vibecomfy.lowering": {
+  1096	                    "source_uid": "consumer",
+  1097	                    "loop_uid": "loop",
+  1098	                    "iteration_index": iteration,
+  1099	                }
+  1100	            },
+  1101	        )
+  1102	        wf.edges.append(VibeEdge("7", "image", node_id, "images"))
+  1103
+  1104	    _emit_semantic_pin(wf, raw_ui)
+  1105
+  1106
+  1107	def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
+  1108	    """Exercise an actual nested definition through the UI emitter."""
+  1109	    wf, raw_ui = _semantic_pin_workflow()
+  1110	    wf.metadata["definitions"] = {
+  1111	        "subgraphs": [
+  1112	            {
+  1113	                "id": "outer-subgraph",
+  1114	                "name": "Outer",
+  1115	                "nodes": [
+  1116	                    {
+  1117	                        "id": 101,
+  1118	                        "type": "inner-subgraph",
+  1119	                        "pos": [0, 0],
+  1120	                        "properties": {"vibecomfy_uid": "inner-instance"},
+  1121	                    }
+  1122	                ],
+  1123	                "links": [],
+  1124	                "definitions": {
+  1125	                    "subgraphs": [
+  1126	                        {
+  1127	                            "id": "inner-subgraph",
+  1128	                            "name": "Inner",
+  1129	                            "nodes": [
+  1130	                                {
+  1131	                                    "id": 201,
+  1132	                                    "type": "SaveImage",
+  1133	                                    "pos": [20, 20],
+  1134	                                    "properties": {"vibecomfy_uid": "consumer"},
+  1135	                                }
+  1136	                            ],
+  1137	                            "links": [],
+  1138	                        }
+  1139	                    ]
+  1140	                },
+  1141	            }
+  1142	        ]
+  1143	    }
+  1144	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1145
+  1146	    emitted = _emit_semantic_pin(wf, raw_ui)
+  1147
+  1148	    outer = emitted["definitions"]["subgraphs"][0]
+  1149	    assert outer["id"] == "outer-subgraph"
+  1150	    assert outer["nodes"][0]["type"] == "inner-subgraph"
+  1151	    inner = outer["definitions"]["subgraphs"][0]
+  1152	    assert inner["id"] == "inner-subgraph"
+  1153	    assert inner["nodes"][0]["properties"]["vibecomfy_uid"] == "consumer"
+  1154
+  1155
+  1156	def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
+  1157	    nodes = {
+  1158	        "source": ("outer:sg/inner:sg#source", "Producer", None),
+  1159	        "set": ("outer:sg/inner:sg#set", "SetNode", "BUS"),
+  1160	        "get": ("outer:sg/inner:sg#get", "GetNode", "BUS"),
+  1161	        "consumer": ("outer:sg/inner:sg#consumer", "Consumer", None),
+  1162	    }
+  1163	    nested, issues = canonical_semantic_link_set(
+  1164	        nodes,
+  1165	        [
+  1166	            ("source", "image", "set", "value"),
+  1167	            ("get", "0", "consumer", "images"),
+  1168	        ],
+  1169	    )
+  1170	    flat, flat_issues = canonical_semantic_link_set(
+  1171	        {"source": nodes["source"], "consumer": nodes["consumer"]},
+  1172	        [("source", "image", "consumer", "images")],
+  1173	    )
+  1174	    assert nested == flat == (
+  1175	        ("outer:sg/inner:sg#source", "image", "outer:sg/inner:sg#consumer", "images"),
+  1176	    )
+  1177	    assert issues == flat_issues == ()
+  1178
+  1179
+  1180	def test_pinned_semantic_concrete_checkpoint_multi_output_preserves_port_identity() -> None:
+  1181	    """A concrete checkpoint loader's MODEL and CLIP outputs stay distinct."""
+  1182	    wf, raw_ui = _semantic_pin_workflow()
+  1183	    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="checkpoint")
+  1184	    wf.nodes["9"] = VibeNode("9", "KSampler", uid="model-consumer")
+  1185	    wf.nodes["10"] = VibeNode("10", "CLIPTextEncode", uid="clip-consumer")
+  1186	    wf.edges = [
+  1187	        VibeEdge("1", "MODEL", "9", "model"),
+  1188	        VibeEdge("1", "CLIP", "10", "clip"),
+  1189	    ]
+  1190	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1191
+  1192	    provider = _Provider(
+  1193	        {
+  1194	            "CheckpointLoaderSimple": _schema(
+  1195	                "CheckpointLoaderSimple",
+  1196	                {"ckpt_name": InputSpec("STRING")},
+  1197	                [
+  1198	                    OutputSpec("MODEL", "MODEL"),
+  1199	                    OutputSpec("CLIP", "CLIP"),
+  1200	                    OutputSpec("VAE", "VAE"),
+  1201	                ],
+  1202	            ),
+  1203	            "KSampler": _schema("KSampler", {"model": InputSpec("MODEL")}),
+  1204	            "CLIPTextEncode": _schema(
+  1205	                "CLIPTextEncode", {"clip": InputSpec("CLIP")}
+  1206	            ),
+  1207	        }
+  1208	    )
+  1209	    with warnings.catch_warnings():
+  1210	        warnings.simplefilter("ignore")
+  1211	        emitted = emit_ui_json(
+  1212	            wf,
+  1213	            schema_provider=provider,
+  1214	            prior_store=store_from_ui_json(raw_ui),
+  1215	            prior_ui_payload=raw_ui,
+  1216	        )
+  1217	    assert {link[2] for link in emitted["links"] if link[1] == 1} == {0, 1}
+  1218	    semantic, issues = canonical_semantic_link_set(
+  1219	        {
+  1220	            "1": ("checkpoint", "CheckpointLoaderSimple", None),
+  1221	            "9": ("model-consumer", "KSampler", None),
+  1222	            "10": ("clip-consumer", "CLIPTextEncode", None),
+  1223	        },
+  1224	        [("1", "MODEL", "9", "model"), ("1", "CLIP", "10", "clip")],
+  1225	    )
+  1226	    assert semantic == (
+  1227	        ("checkpoint", "CLIP", "clip-consumer", "clip"),
+  1228	        ("checkpoint", "MODEL", "model-consumer", "model"),
+  1229	    )
+  1230	    assert issues == ()
+  1231
+  1232
+  1233	@pytest.mark.parametrize(
+  1234	    ("after_links", "expected_after"),
+  1235	    [
+  1236	        ([], []),
+  1237	        (
+  1238	            [
+  1239	                ("source", "model", "consumer", "images"),
+  1240	                ("source", "model", "other", "images"),
+  1241	            ],
+  1242	            [
+  1243	                ["source-uid", "model", "consumer-uid", "images"],
+  1244	                ["source-uid", "model", "other-uid", "images"],
+  1245	            ],
+  1246	        ),
+  1247	        ([("source", "model", "other", "images")], [["source-uid", "model", "other-uid", "images"]]),
+  1248	        ([("source", "model", "consumer", "mask")], [["source-uid", "model", "consumer-uid", "mask"]]),
+  1249	        ([("source", "clip", "consumer", "images")], [["source-uid", "clip", "consumer-uid", "images"]]),
+  1250	    ],
+  1251	    ids=["removed", "added", "repointed", "consumer_input_changed", "source_output_changed"],
+  1252	)
+  1253	def test_pinned_semantic_genuine_consumer_change_refuses(
+  1254	    after_links: list[tuple[str, str, str, str]],
+  1255	    expected_after: list[list[str]],
+  1256	) -> None:
+  1257	    wf, raw_ui = _semantic_pin_workflow()
+  1258	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer-uid")
+  1259	    wf.nodes["10"] = VibeNode("10", "SaveImage", uid="other-uid")
+  1260	    wf.nodes["7"].uid = "source-uid"
+  1261	    raw_ui["nodes"][0]["properties"]["vibecomfy_uid"] = "source-uid"
+  1262	    wf.edges = [VibeEdge("7", "model", "9", "images")]
+  1263	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1264	    id_for = {"source": "7", "consumer": "9", "other": "10"}
+  1265	    wf.edges = [VibeEdge(id_for[a], b, id_for[c], d) for a, b, c, d in after_links]
+  1266
+  1267	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1268	        warnings.simplefilter("ignore")
+  1269	        _emit_semantic_pin(wf, raw_ui)
+  1270
+  1271	    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1272	    assert link_delta["before"] == [["source-uid", "model", "consumer-uid", "images"]]
+  1273	    assert link_delta["after"] == expected_after
+  1274
+  1275
+  1276	@pytest.mark.parametrize(
+  1277	    ("nodes", "links", "issue_prefix"),
+  1278	    [
+  1279	        (
+  1280	            {
+  1281	                "r1": ("reroute-1", "Reroute", None),
+  1282	                "r2": ("reroute-2", "Reroute", None),
+  1283	                "c": ("consumer", "Consumer", None),
+  1284	            },
+  1285	            [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
+  1286	            "cyclic_path:",
+  1287	        ),
+  1288	        (
+  1289	            {
+  1290	                "s1": ("source-1", "Producer", None),
+  1291	                "s2": ("source-2", "Producer", None),
+  1292	                "r": ("reroute", "Reroute", None),
+  1293	                "c": ("consumer", "Consumer", None),
+  1294	            },
+  1295	            [
+  1296	                ("s1", "0", "r", ""),
+  1297	                ("s2", "0", "r", ""),
+  1298	                ("r", "0", "c", "input"),
+  1299	            ],
+  1300	            "reroute_source_count:r:2",
+  1301	        ),
+  1302	    ],
+  1303	    ids=["cyclic_reroute", "ambiguous_reroute"],
+  1304	)
+  1305	def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
+  1306	    nodes: dict[str, tuple[str, str, str | None]],
+  1307	    links: list[tuple[str, str, str, str]],
+  1308	    issue_prefix: str,
+  1309	) -> None:
+  1310	    """Genuinely ambiguous/cyclic helper paths fail closed deterministically.
+  1311
+  1312	    Multiple inbound candidates (``*:N`` with N >= 2) and cyclic traversal are
+  1313	    genuine ambiguity and must never resolve silently; the verdict is
+  1314	    deterministic regardless of link iteration order (B03 rework6 keeps this
+  1315	    fail-closed guarantee — only zero-candidate orphaned plumbing resolves to
+  1316	    opaque terminals, see ``test_pinned_semantic_orphaned_helpers_resolve``).
+  1317	    """
+  1318	    first = canonical_semantic_link_set(nodes, links)
+  1319	    second = canonical_semantic_link_set(nodes, reversed(links))
+  1320	    assert first == second
+  1321	    assert any(issue.startswith(issue_prefix) for issue in first[1])
+  1322
+  1323
+  1324	@pytest.mark.parametrize(
+  1325	    ("nodes", "links", "expected_terminal_uid"),
+  1326	    [
+  1327	        (
+  1328	            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
+  1329	            [("r", "0", "c", "input")],
+  1330	            "reroute",
+  1331	        ),
+  1332	        (
+  1333	            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
+  1334	            [("g", "0", "c", "input")],
+  1335	            "get",
+  1336	        ),
+  1337	        (
+  1338	            {"s": ("set", "SetNode", "LATENT"), "c": ("consumer", "Consumer", None)},
+  1339	            [("s", "0", "c", "input")],
+  1340	            "set",
+  1341	        ),
+  1342	        (
+  1343	            {
+  1344	                "g": ("get", "GetNode", "LATENT"),
+  1345	                "s": ("set", "SetNode", "LATENT"),
+  1346	                "c": ("consumer", "Consumer", None),
+  1347	            },
+  1348	            [("s", "0", "g", "broadcast_out"), ("g", "0", "c", "input")],
+  1349	            "set",
+  1350	        ),
+  1351	    ],
+  1352	    ids=["orphaned_reroute", "orphaned_broadcast", "orphaned_setnode_source", "setter_without_source"],
+  1353	)
+  1354	def test_pinned_semantic_orphaned_helpers_resolve_to_opaque_terminals(
+  1355	    nodes: dict[str, tuple[str, str, str | None]],
+  1356	    links: list[tuple[str, str, str, str]],
+  1357	    expected_terminal_uid: str,
+  1358	) -> None:
+  1359	    """Zero-candidate helpers resolve to their own opaque terminal.
+  1360
+  1361	    A dangling Reroute (no inbound), a GetNode whose channel has no SetNode,
+  1362	    a source-less SetNode, and a unique setter with no inbound are all stable
+  1363	    display-plumbing properties, NOT changes: recording ``*:0`` resolution
+  1364	    issues fabricated a ``link_delta`` on unchanged schema-less consumers
+  1365	    (B03 rework6).  They degenerate to an opaque terminal at the helper's own
+  1366	    uid so an unchanged workflow compares equal, while any real rewiring
+  1367	    (adding a source/setter) still changes the canonical terminal and is
+  1368	    detected.  The verdict is deterministic under link iteration order.
+  1369	    """
+  1370	    first = canonical_semantic_link_set(nodes, links)
+  1371	    second = canonical_semantic_link_set(nodes, reversed(links))
+  1372	    assert first == second
+  1373	    semantic, issues = first
+  1374	    assert issues == ()
+  1375	    assert semantic == (
+  1376	        (expected_terminal_uid, "0", "consumer", "input"),
+  1377	    )
+  1378
+  1379
+  1380	def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
+  1381	    semantic, issues = canonical_semantic_link_set(
+  1382	        {
+  1383	            "s": ("source", "Producer", None),
+  1384	            "r": ("reroute", "Reroute", None),
+  1385	            "c": ("consumer", "Consumer", None),
+  1386	        },
+  1387	        [
+  1388	            ("s", "image", "r", "input-a"),
+  1389	            ("s", "image", "r", "input-b"),
+  1390	            ("r", "0", "c", "images"),
+  1391	        ],
+  1392	    )
+  1393	    assert semantic == ()
+  1394	    assert issues == ("reroute_source_count:r:2",)
+  1395
+  1396
+  1397	def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
+  1398	    nodes = {
+  1399	        "z": ("duplicate", "Producer", None),
+  1400	        "a": ("duplicate", "Producer", None),
+  1401	        "m": ("duplicate", "Producer", None),
+  1402	    }
+  1403	    forward = canonical_semantic_link_set(nodes, [])
+  1404	    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
+  1405	    assert forward == reverse
+  1406	    assert forward[1] == (
+  1407	        "duplicate_uid:duplicate:a:m",
+  1408	        "duplicate_uid:duplicate:a:z",
+  1409	    )
+  1410
+  1411
+  1412	def test_pinned_semantic_orphaned_consumer_path_refuses_with_link_delta() -> None:
+  1413	    wf, raw_ui = _semantic_pin_workflow()
+  1414	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+  1415	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+  1416	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1417
+  1418	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
+  1419	    wf.edges = [VibeEdge("11", "0", "9", "images")]
+  1420
+  1421	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1422	        warnings.simplefilter("ignore")
+  1423	        _emit_semantic_pin(wf, raw_ui)
+  1424
+  1425	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1426	    assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
+  1427	    # B03 rework6: the orphaned GetNode is a zero-candidate helper, so it
+  1428	    # resolves to its own opaque terminal instead of fabricating a resolution
+  1429	    # issue — the refusal is driven by the canonical incident CHANGE on the
+  1430	    # pinned node's uid (its edge was repointed to the orphaned GetNode),
+  1431	    # which is the genuine difference.
+  1432	    assert semantic_delta["after"] == []
+  1433	    # B03 rework5: resolution issues are attributed to the nodes actually
+  1434	    # involved (the orphaned GetNode and its consumer), not fanned out to the
+  1435	    # unrelated pinned node.
+  1436	    assert semantic_delta["after_resolution_issues"] == []
+  1437	    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+  1438	    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+  1439	    assert consumer_issues == ()
+  1440
+  1441
+  1442	def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
+  1443	    wf, raw_ui = _semantic_pin_workflow()
+  1444	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+  1445	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+  1446	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1447
+  1448	    wf.nodes["11"] = VibeNode("11", "Reroute", uid="reroute-1")
+  1449	    wf.nodes["12"] = VibeNode("12", "Reroute", uid="reroute-2")
+  1450	    wf.edges = [
+  1451	        VibeEdge("11", "0", "12", ""),
+  1452	        VibeEdge("12", "0", "11", ""),
+  1453	        VibeEdge("11", "0", "9", "images"),
+  1454	    ]
+  1455
+  1456	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1457	        warnings.simplefilter("ignore")
+  1458	        _emit_semantic_pin(wf, raw_ui)
+  1459
+  1460	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1461	    assert semantic_delta["after"] == []
+  1462	    # B03 rework5: the cyclic-path issue belongs to the consumer actually fed
+  1463	    # by the cyclic Reroute chain, not to the unrelated pinned node.
+  1464	    assert semantic_delta["after_resolution_issues"] == []
+  1465	    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+  1466	    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+  1467	    assert len(consumer_issues) == 1
+  1468	    assert consumer_issues[0].startswith("cyclic_path:")
+  1469
+  1470
+  1471	def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
+  1472	    nodes = {
+  1473	        "s": ("source", "Producer", None),
+  1474	        "c": ("consumer", "Consumer", None),
+  1475	    }
+  1476	    semantic, issues = canonical_semantic_link_set(
+  1477	        nodes,
+  1478	        [
+  1479	            ("s", "model", "c", "input"),
+  1480	            ("s", "model", "c", "input"),
+  1481	            ("s", "clip", "c", "input"),
+  1482	        ],
+  1483	    )
+  1484	    assert semantic == (
+  1485	        ("source", "clip", "consumer", "input"),
+  1486	        ("source", "model", "consumer", "input"),
+  1487	    )
+  1488	    assert issues == ()
+  1489
+  1490
+  1491	def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
+  1492	    """Captured raw _ui may list extra stale output links; pin must emit the IR link set."""
+  1493	    # Reuse the connected DynamicRows fixture but put TWO stale links on the
+  1494	    # pinned node's output while the IR has only one outgoing edge.
+  1495	    raw_ui = _raw_connected_dynamic_ui()
+  1496	    raw_ui["nodes"][0]["outputs"][0]["links"] = [43, 999]
+  1497	    wf = _wf()
+  1498	    wf.nodes["7"] = VibeNode(
+  1499	        "7",
+  1500	        "DynamicRows",
+  1501	        uid="uid-dynamic",
+  1502	        raw_widgets=_raw_widgets(),
+  1503	    )
+  1504	    wf.nodes["1"] = VibeNode("1", "KSampler", widgets={"widget_0": 4})
+  1505	    wf.nodes["9"] = VibeNode("9", "SaveImage", widgets={"filename_prefix": "out"})
+  1506	    wf.edges.extend(
+  1507	        [
+  1508	            VibeEdge("1", "0", "7", "image"),
+  1509	            VibeEdge("7", "0", "9", "images"),
+  1510	        ]
+  1511	    )
+  1512
+  1513	    with warnings.catch_warnings():
+  1514	        warnings.simplefilter("ignore")
+  1515	        ui = emit_ui_json(
+  1516	            wf,
+  1517	            schema_provider=_provider(),
+  1518	            prior_store=store_from_ui_json(raw_ui),
+  1519	            prior_ui_payload=raw_ui,
+  1520	        )
+  1521
+  1522	    # Emit succeeded (no RefusedEmit) and the pinned output carries exactly the
+  1523	    # single remapped global link id, not the stale captured pair.
+  1524	    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
+  1525	    assert pinned["outputs"][0]["links"] == [2]
      1	"""Tests for vibecomfy.porting.layout.delta.compute_field_delta.
      2
      3	Covers: no-change, widget-edit, rewire (incoming edge change), added node
@@ -3831,1477 +4126,566 @@ exec
    204	    )
    205
    206
-   207	def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
-   208	    """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
-   209	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
-   210	    wf.nodes["1"] = VibeNode("1", "Producer", uid="source")
-   211	    wf.nodes["2"] = VibeNode(
-   212	        "2", "Consumer", uid="ordinary:iter0:consumer"
-   213	    )
-   214	    wf.edges = [VibeEdge("1", "image", "2", "images")]
-   215
-   216	    snap = capture_ingest_snapshot({}, wf)
-   217
-   218	    assert compute_field_delta(snap, wf) == {}
-   219
-   220
-   221	def test_one_of_two_lowered_clones_repointed_to_new_source_is_attributed():
-   222	    """A global canonical change must reach the aliased snapshot fence target."""
-   223	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
-   224	    wf.nodes["1"] = VibeNode("1", "Producer", uid="source-a")
-   225	    for iteration in range(2):
-   226	        node_id = str(20 + iteration)
-   227	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   228	        wf.nodes[node_id] = VibeNode(
-   229	            node_id,
-   230	            "Consumer",
-   231	            uid=lowered_uid,
-   232	            metadata={
-   233	                "vibecomfy.lowering": {
-   234	                    "source_uid": "consumer",
-   235	                    "loop_uid": "loop",
-   236	                    "iteration_index": iteration,
-   237	                }
-   238	            },
-   239	        )
-   240	        wf.edges.append(VibeEdge("1", "image", node_id, "images"))
-   241	    snap = capture_ingest_snapshot({}, wf)
-   242
-   243	    wf.nodes["2"] = VibeNode("2", "Producer", uid="source-b")
-   244	    wf.edges = [
-   245	        edge
-   246	        for edge in wf.edges
-   247	        if not (edge.from_node == "1" and edge.to_node == "20")
-   248	    ]
-   249	    wf.edges.append(VibeEdge("2", "image", "20", "images"))
-   250
-   251	    delta = compute_field_delta(snap, wf)
-   252
-   253	    semantic = delta[clone_uid("loop", "consumer", 0)]["semantic_link_set"]
-   254	    assert semantic["before"] == (("source-a", "image", "consumer", "images"),)
-   255	    assert semantic["after"] == (
-   256	        ("source-a", "image", "consumer", "images"),
-   257	        ("source-b", "image", "consumer", "images"),
-   258	    )
+   207	# ---------------------------------------------------------------------------
+   208	# GetNode input-chain display edges (B03 rework5: oracle blocking issue)
+   209	# ---------------------------------------------------------------------------
+   210
+   211	def _getnode_chain_wf() -> VibeWorkflow:
+   212	    """``source → SetNode → Reroute → GetNode → consumer`` with the channel
+   213	    display edge, mirroring tests/test_virtual_wire_round_trip.py:70."""
+   214	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+   215	    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="uid-dynamic")
+   216	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "LATENT"})
+   217	    wf.nodes["14"] = VibeNode("14", "Reroute", uid="14")
+   218	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="11", inputs={"widget_0": "LATENT"})
+   219	    wf.nodes["5"] = VibeNode("5", "KSampler", uid="consumer")
+   220	    wf.edges = [
+   221	        VibeEdge("1", "0", "10", "broadcast_in"),
+   222	        VibeEdge("10", "0", "14", "0"),
+   223	        VibeEdge("14", "0", "11", "broadcast_out"),
+   224	        VibeEdge("11", "0", "5", "model"),
+   225	    ]
+   226	    return wf
+   227
+   228
+   229	def test_unchanged_getnode_input_chain_produces_no_delta():
+   230	    """An unchanged ``source → SetNode → Reroute → GetNode → consumer`` chain
+   231	    resolves the GetNode display edge through its channel and yields NO delta
+   232	    and NO resolution issues (B03 oracle finding 3 regression).
+   233
+   234	    Before the fix, the edge entering the GetNode through ``broadcast_out``
+   235	    unconditionally emitted ``helper_input_unsupported``, which fabricated a
+   236	    semantic-link delta on every snapshot node and refused the unchanged
+   237	    workflow.
+   238	    """
+   239	    wf = _getnode_chain_wf()
+   240	    snap = capture_ingest_snapshot({}, wf)
+   241	    delta = compute_field_delta(snap, wf)
+   242	    assert delta == {}
+   243
+   244
+   245	def test_getnode_chain_source_change_detected():
+   246	    """Rewiring the channel's terminal source must surface as a canonical
+   247	    semantic-link delta on the downstream consumer, with no fabricated
+   248	    resolution issues."""
+   249	    wf = _getnode_chain_wf()
+   250	    snap = capture_ingest_snapshot({}, wf)
+   251
+   252	    wf.nodes["2"] = VibeNode("2", "CheckpointLoaderSimple", uid="uid-dynamic-b")
+   253	    wf.edges = [
+   254	        VibeEdge("2", "0", "10", "broadcast_in"),
+   255	        VibeEdge("10", "0", "14", "0"),
+   256	        VibeEdge("14", "0", "11", "broadcast_out"),
+   257	        VibeEdge("11", "0", "5", "model"),
+   258	    ]
    259
-   260
-   261	def test_widget_edit_detected():
-   262	    """Changing a widget value after snapshot produces a widget_values_sig delta."""
-   263	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
-   264	    snap = capture_ingest_snapshot({}, wf)
-   265
-   266	    # Mutate seed in the IR (post-ingest edit)
-   267	    wf.nodes["1"].inputs["seed"] = 999
+   260	    delta = compute_field_delta(snap, wf)
+   261	    assert "consumer" in delta
+   262	    semantic = delta["consumer"]["semantic_link_set"]
+   263	    assert semantic["before"] == (("uid-dynamic", "0", "consumer", "model"),)
+   264	    assert semantic["after"] == (("uid-dynamic-b", "0", "consumer", "model"),)
+   265	    assert semantic["before"] != semantic["after"]
+   266	    assert semantic["before_resolution_issues"] == ()
+   267	    assert semantic["after_resolution_issues"] == ()
    268
-   269	    delta = compute_field_delta(snap, wf)
-   270	    assert "sampler-uid" in delta
-   271	    assert "widget_values_sig" in delta["sampler-uid"]
-   272	    old_val, new_val = delta["sampler-uid"]["widget_values_sig"]
-   273	    assert old_val != new_val
-   274
-   275
-   276	def test_rewire_detected():
-   277	    """Changing an incoming edge produces a canonical semantic-link delta."""
-   278	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
-   279	    snap = capture_ingest_snapshot({}, wf)
-   280
-   281	    # Add a new node and rewire KSampler's latent_image to it
-   282	    new_node = VibeNode(id="3", class_type="EmptyLatentImage",
-   283	                        inputs={"width": 768, "height": 768, "batch_size": 1},
-   284	                        uid="latent-uid-b")
-   285	    wf.nodes["3"] = new_node
-   286	    # Remove the old edge and add a new one pointing to the new node
-   287	    wf.edges = [e for e in wf.edges if not (e.to_node == "1" and e.to_input == "latent_image")]
-   288	    wf.edges.append(VibeEdge(from_node="3", from_output="0", to_node="1", to_input="latent_image"))
-   289
-   290	    delta = compute_field_delta(snap, wf)
-   291	    assert "sampler-uid" in delta
-   292	    semantic = delta["sampler-uid"]["semantic_link_set"]
-   293	    assert semantic["before"] != semantic["after"]
-   294	    assert semantic["before_resolution_issues"] == ()
-   295	    assert semantic["after_resolution_issues"] == ()
-   296
-   297
-   298	def test_unmodified_node_absent_from_delta():
-   299	    """A node that was not edited should not appear in the delta."""
-   300	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
-   301	    snap = capture_ingest_snapshot({}, wf)
-   302	    # Only mutate KSampler
-   303	    wf.nodes["1"].inputs["seed"] = 9999
-   304
-   305	    delta = compute_field_delta(snap, wf)
-   306	    assert "sampler-uid" in delta
-   307	    # EmptyLatentImage was not touched
-   308	    assert "latent-uid" not in delta
-   309
-   310
-   311	def test_added_node_is_snapshot_absent_and_omitted():
-   312	    """A node added to the IR after snapshot is absent from snapshot → not in delta."""
-   313	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
-   314	    snap = capture_ingest_snapshot({}, wf)
-   315
-   316	    # Add a new node that was not present at ingest time
-   317	    wf.nodes["99"] = VibeNode(id="99", class_type="CLIPTextEncode",
-   318	                              inputs={"text": "hello"}, uid="new-clip-uid")
-   319
-   320	    delta = compute_field_delta(snap, wf)
-   321	    # New node is snapshot-absent → must be omitted
-   322	    assert "new-clip-uid" not in delta
-   323
-   324
-   325	def test_removed_node_omitted_from_delta():
-   326	    """A node removed from the IR after snapshot is omitted from delta.
-   327
-   328	    Callers that need to detect removals diff snapshot keys against the current
-   329	    IR uid set directly; compute_field_delta only reports changed fields for
-   330	    nodes present in both snapshot and current IR.
-   331	    """
-   332	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
-   333	    snap = capture_ingest_snapshot({}, wf)
-   334
-   335	    # Remove a node from the IR
-   336	    del wf.nodes["2"]
-   337	    wf.edges = [e for e in wf.edges if e.from_node != "2" and e.to_node != "2"]
-   338
-   339	    delta = compute_field_delta(snap, wf)
-   340	    # Removed node must not appear in delta
+   269
+   270	def test_ambiguous_getnode_channel_fails_closed_with_issue():
+   271	    """Two SetNodes feeding one GetNode's channel is genuinely ambiguous: it
+   272	    must fail closed with the ``broadcast_setter_count`` issue on the nodes
+   273	    actually involved (the GetNode and its consumer), and NO silent
+   274	    resolution — while unrelated nodes stay out of the delta."""
+   275	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+   276	    wf.nodes["1"] = VibeNode("1", "ProducerA", uid="1")
+   277	    wf.nodes["2"] = VibeNode("2", "ProducerB", uid="2")
+   278	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "LATENT"})
+   279	    wf.nodes["12"] = VibeNode("12", "SetNode", uid="12", inputs={"widget_0": "LATENT"})
+   280	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="11", inputs={"widget_0": "LATENT"})
+   281	    wf.nodes["5"] = VibeNode("5", "Consumer", uid="consumer")
+   282	    wf.edges = [
+   283	        VibeEdge("1", "0", "10", "broadcast_in"),
+   284	        VibeEdge("2", "0", "12", "broadcast_in"),
+   285	        VibeEdge("10", "0", "11", "broadcast_out"),
+   286	        VibeEdge("12", "0", "11", "broadcast_out"),
+   287	        VibeEdge("11", "0", "5", "images"),
+   288	    ]
+   289	    snap = capture_ingest_snapshot({}, wf)
+   290
+   291	    delta = compute_field_delta(snap, wf)
+   292	    assert "consumer" in delta
+   293	    semantic = delta["consumer"]["semantic_link_set"]
+   294	    assert semantic["before"] == ()
+   295	    assert semantic["after"] == ()
+   296	    assert any(
+   297	        issue.startswith("broadcast_setter_count:11:LATENT:2")
+   298	        for issue in semantic["before_resolution_issues"]
+   299	    )
+   300	    assert any(
+   301	        issue.startswith("broadcast_setter_count:11:LATENT:2")
+   302	        for issue in semantic["after_resolution_issues"]
+   303	    )
+   304	    # The ambiguous junction's own node carries the issue too...
+   305	    assert "11" in delta
+   306	    assert any(
+   307	        issue.startswith("broadcast_setter_count:11:LATENT:2")
+   308	        for issue in delta["11"]["semantic_link_set"]["after_resolution_issues"]
+   309	    )
+   310	    # ...and unrelated nodes are NOT fanned out.
+   311	    for unrelated in ("1", "2", "10", "12"):
+   312	        assert "semantic_link_set" not in delta.get(unrelated, {})
+   313
+   314
+   315	# ---------------------------------------------------------------------------
+   316	# Zero-candidate helper plumbing (B03 rework6: oracle regression)
+   317	# ---------------------------------------------------------------------------
+   318
+   319	def _orphaned_plumbing_wf() -> VibeWorkflow:
+   320	    """Mirrors the corpus pattern that refused at B03 HEAD: unbacked GetNode
+   321	    (no SetNode for its channel), dangling Reroute (no inbound), and a
+   322	    source-less SetNode-as-source all feeding real consumers.  These are
+   323	    stable display-plumbing properties of an unchanged workflow — the semantic
+   324	    resolution must degenerate them to opaque terminals instead of fabricating
+   325	    ``*:0`` resolution issues that refused schema-less dict-row consumers."""
+   326	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+   327	    wf.nodes["35"] = VibeNode("35", "VHS_VideoCombine", uid="35")
+   328	    wf.nodes["56"] = VibeNode("56", "VHS_VideoCombine", uid="56")
+   329	    wf.nodes["66"] = VibeNode("66", "ImageScale", uid="66")
+   330	    wf.nodes["40"] = VibeNode("40", "Consumer", uid="40")
+   331	    wf.nodes["137"] = VibeNode("137", "GetNode", uid="137", inputs={"name": "fps"})
+   332	    wf.nodes["158"] = VibeNode("158", "Reroute", uid="158")
+   333	    wf.nodes["601"] = VibeNode("601", "SetNode", uid="601", inputs={"name": "LATENT"})
+   334	    wf.edges = [
+   335	        VibeEdge("137", "0", "35", "frame_rate"),
+   336	        VibeEdge("158", "0", "66", "round_to_multiple"),
+   337	        VibeEdge("601", "0", "40", "samples"),
+   338	    ]
+   339	    return wf
+   340
+   341
+   342	def test_unchanged_orphaned_helper_plumbing_produces_no_delta():
+   343	    """An unchanged workflow with unbacked GetNode / dangling Reroute /
+   344	    source-less SetNode plumbing yields NO delta and NO resolution issues.
+   345
+   346	    Before the fix, each zero-candidate helper emitted ``*:0`` resolution
+   347	    issues that were attributed to the consumers, fabricating a
+   348	    ``semantic_link_set`` delta and refusing the unchanged schema-less
+   349	    VHS_VideoCombine pins (B03 rework6: 6 corpus files refused at HEAD).
+   350	    """
+   351	    wf = _orphaned_plumbing_wf()
+   352	    snap = capture_ingest_snapshot({}, wf)
+   353	    delta = compute_field_delta(snap, wf)
+   354	    assert delta == {}
+   355
+   356
+   357	def test_adding_setter_to_orphaned_getnode_channel_is_detected():
+   358	    """Backing an orphaned GetNode channel with a real SetNode changes the
+   359	    canonical terminal from the opaque GetNode uid to the setter's source —
+   360	    the downstream consumer must surface a semantic-link delta (fail closed
+   361	    on the genuine difference)."""
+   362	    wf = _orphaned_plumbing_wf()
+   363	    snap = capture_ingest_snapshot({}, wf)
+   364
+   365	    wf.nodes["1"] = VibeNode("1", "LoadImage", uid="load-image")
+   366	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "fps"})
+   367	    wf.edges = [
+   368	        VibeEdge("1", "0", "10", "broadcast_in"),
+   369	        VibeEdge("10", "0", "137", "broadcast_out"),
+   370	        VibeEdge("137", "0", "35", "frame_rate"),
+   371	        VibeEdge("158", "0", "66", "round_to_multiple"),
+   372	        VibeEdge("601", "0", "40", "samples"),
+   373	    ]
+   374
+   375	    delta = compute_field_delta(snap, wf)
+   376	    assert "35" in delta
+   377	    semantic = delta["35"]["semantic_link_set"]
+   378	    assert semantic["before"] == (("137", "0", "35", "frame_rate"),)
+   379	    assert semantic["after"] == (("load-image", "0", "35", "frame_rate"),)
+   380	    assert semantic["before"] != semantic["after"]
+   381	    assert semantic["before_resolution_issues"] == ()
+   382	    assert semantic["after_resolution_issues"] == ()
+   383	    # The GetNode's own incident changed too: it is no longer the opaque
+   384	    # terminal of the edge (the channel now resolves past it).
+   385	    assert delta["137"]["semantic_link_set"]["before"] == (("137", "0", "35", "frame_rate"),)
+   386	    assert delta["137"]["semantic_link_set"]["after"] == ()
+   387	    # Unrelated consumers of the other orphaned plumbing stay clean.
+   388	    for uid in ("56", "66", "40", "158", "601"):
+   389	        assert "semantic_link_set" not in delta.get(uid, {})
+   390
+   391
+   392	def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
+   393	    """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
+   394	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+   395	    wf.nodes["1"] = VibeNode("1", "Producer", uid="source")
+   396	    wf.nodes["2"] = VibeNode(
+   397	        "2", "Consumer", uid="ordinary:iter0:consumer"
+   398	    )
+   399	    wf.edges = [VibeEdge("1", "image", "2", "images")]
+   400
+   401	    snap = capture_ingest_snapshot({}, wf)
+   402
+   403	    assert compute_field_delta(snap, wf) == {}
+   404
+   405
+   406	def test_one_of_two_lowered_clones_repointed_to_new_source_is_attributed():
+   407	    """A global canonical change must reach the aliased snapshot fence target."""
+   408	    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+   409	    wf.nodes["1"] = VibeNode("1", "Producer", uid="source-a")
+   410	    for iteration in range(2):
+   411	        node_id = str(20 + iteration)
+   412	        lowered_uid = clone_uid("loop", "consumer", iteration)
+   413	        wf.nodes[node_id] = VibeNode(
+   414	            node_id,
+   415	            "Consumer",
+   416	            uid=lowered_uid,
+   417	            metadata={
+   418	                "vibecomfy.lowering": {
+   419	                    "source_uid": "consumer",
+   420	                    "loop_uid": "loop",
+   421	                    "iteration_index": iteration,
+   422	                }
+   423	            },
+   424	        )
+   425	        wf.edges.append(VibeEdge("1", "image", node_id, "images"))
+   426	    snap = capture_ingest_snapshot({}, wf)
+   427
+   428	    wf.nodes["2"] = VibeNode("2", "Producer", uid="source-b")
+   429	    wf.edges = [
+   430	        edge
+   431	        for edge in wf.edges
+   432	        if not (edge.from_node == "1" and edge.to_node == "20")
+   433	    ]
+   434	    wf.edges.append(VibeEdge("2", "image", "20", "images"))
+   435
+   436	    delta = compute_field_delta(snap, wf)
+   437
+   438	    semantic = delta[clone_uid("loop", "consumer", 0)]["semantic_link_set"]
+   439	    assert semantic["before"] == (("source-a", "image", "consumer", "images"),)
+   440	    assert semantic["after"] == (
+   441	        ("source-a", "image", "consumer", "images"),
+   442	        ("source-b", "image", "consumer", "images"),
+   443	    )
+   444
+   445
 
 exec
-/bin/zsh -lc "nl -ba tests/test_ui_emitter_widget_shape_verdict.py | sed -n '820,1425p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "rg -n 'subgraph|definitions' vibecomfy/ingest vibecomfy/porting tests/test_* | head -250" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
-   820	        )
-   821
-   822	    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
-   823	    link_ids = {link[0] for link in ui["links"]}
-   824	    assert pinned["inputs"][0]["link"] in link_ids
-   825	    assert set(pinned["outputs"][0]["links"]).issubset(link_ids)
-   826	    assert pinned["inputs"][0]["link"] == 1
-   827	    assert pinned["outputs"][0]["links"] == [2]
-   828	    assert "42" not in json.dumps(ui)
-   829	    assert "43" not in json.dumps(ui)
-   830
-   831
-   832	# ---------------------------------------------------------------------------
-   833	# B03 — canonical semantic pin comparison
-   834	# ---------------------------------------------------------------------------
-   835
-   836
-   837	def _semantic_pin_workflow() -> tuple[VibeWorkflow, dict[str, Any]]:
-   838	    raw_ui = _raw_connected_dynamic_ui()
-   839	    wf = _wf()
-   840	    wf.nodes["7"] = VibeNode(
-   841	        "7",
-   842	        "DynamicRows",
-   843	        uid="uid-dynamic",
-   844	        raw_widgets=_raw_widgets(),
-   845	    )
-   846	    return wf, raw_ui
-   847
-   848
-   849	def _emit_semantic_pin(wf: VibeWorkflow, raw_ui: dict[str, Any]) -> dict[str, Any]:
-   850	    with warnings.catch_warnings():
-   851	        warnings.simplefilter("ignore")
-   852	        return emit_ui_json(
-   853	            wf,
-   854	            schema_provider=_provider(),
-   855	            prior_store=store_from_ui_json(raw_ui),
-   856	            prior_ui_payload=raw_ui,
-   857	        )
-   858
-   859
-   860	def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
-   861	    wf, raw_ui = _semantic_pin_workflow()
-   862	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
-   863	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
-   864	    for node_id in range(20, 24):
-   865	        wf.nodes[str(node_id)] = VibeNode(str(node_id), "SaveImage", uid=f"consumer-{node_id}")
-   866	    wf.edges = [VibeEdge("7", "0", "10", "value")]
-   867	    wf.edges.extend(VibeEdge("11", "0", str(node_id), "images") for node_id in range(20, 24))
-   868	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   869
-   870	    del wf.nodes["10"]
-   871	    del wf.nodes["11"]
-   872	    wf.edges = [VibeEdge("7", "0", str(node_id), "images") for node_id in range(20, 24)]
-   873
-   874	    emitted = _emit_semantic_pin(wf, raw_ui)
-   875	    assert next(node for node in emitted["nodes"] if node["id"] == 7)["widgets_values"] == [
-   876	        {"lora": "a"},
-   877	        {"lora": "b"},
-   878	    ]
-   879
-   880
-   881	def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
-   882	    wf, raw_ui = _semantic_pin_workflow()
-   883	    wf.nodes["8"] = VibeNode("8", "Reroute", uid="reroute")
-   884	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-   885	    wf.edges = [VibeEdge("7", "0", "8", ""), VibeEdge("8", "0", "9", "images")]
-   886	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   887
-   888	    del wf.nodes["8"]
-   889	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-   890	    # Unrelated earlier-sorting edge changes the emitted numeric link id only.
-   891	    wf.nodes["1"] = VibeNode("1", "KSampler", uid="unrelated-source")
-   892	    wf.nodes["2"] = VibeNode("2", "SaveImage", uid="unrelated-consumer")
-   893	    wf.edges.insert(0, VibeEdge("1", "0", "2", "images"))
-   894
-   895	    emitted = _emit_semantic_pin(wf, raw_ui)
-   896	    pinned = next(node for node in emitted["nodes"] if node["id"] == 7)
-   897	    assert pinned["outputs"][0]["links"] == [2]
-   898
-   899
-   900	def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
-   901	    wf, raw_ui = _semantic_pin_workflow()
-   902	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-   903	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-   904	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   905
-   906	    del wf.nodes["9"]
-   907	    wf.edges = []
-   908	    for iteration in range(3):
-   909	        node_id = str(20 + iteration)
-   910	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   911	        wf.nodes[node_id] = VibeNode(
-   912	            node_id,
-   913	            "SaveImage",
-   914	            uid=lowered_uid,
-   915	            metadata={
-   916	                "vibecomfy.lowering": {
-   917	                    "source_uid": "consumer",
-   918	                    "loop_uid": "loop",
-   919	                    "iteration_index": iteration,
-   920	                }
-   921	            },
-   922	        )
-   923	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
-   924
-   925	    _emit_semantic_pin(wf, raw_ui)
-   926
-   927
-   928	def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
-   929	    """B03 finding 3: snapshot taken AFTER lowering on an UNCHANGED workflow
-   930	    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
-   931	    refused).
-   932
-   933	    The before set holds loop-clone consumer uids (``loop:iter0:consumer``,
-   934	    ``loop:iter1:consumer``) while the live set collapses them to
-   935	    ``consumer``; symmetric alias normalization makes the delta empty so the
-   936	    unchanged lowered workflow pins instead of refusing.
-   937	    """
-   938	    wf, raw_ui = _semantic_pin_workflow()
-   939	    wf.edges = []
-   940	    for iteration in range(2):
-   941	        node_id = str(20 + iteration)
-   942	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   943	        wf.nodes[node_id] = VibeNode(
-   944	            node_id,
-   945	            "SaveImage",
-   946	            uid=lowered_uid,
-   947	            metadata={
-   948	                "vibecomfy.lowering": {
-   949	                    "source_uid": "consumer",
-   950	                    "loop_uid": "loop",
-   951	                    "iteration_index": iteration,
-   952	                }
-   953	            },
-   954	        )
-   955	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
-   956	    # Snapshot captured AFTER lowering; the workflow is UNCHANGED from here on.
-   957	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   958
-   959	    _emit_semantic_pin(wf, raw_ui)
-   960
-   961
-   962	def test_pinned_semantic_one_of_two_lowered_clones_repointed_refuses() -> None:
-   963	    """The canonical consumer target receives and refuses the global change."""
-   964	    wf, raw_ui = _semantic_pin_workflow()
-   965	    raw_ui["nodes"][0]["outputs"][0]["links"] = [101, 102]
-   966	    raw_ui["links"] = [
-   967	        [101, 7, 0, 20, 0, "IMAGE"],
-   968	        [102, 7, 0, 21, 0, "IMAGE"],
-   969	    ]
-   970	    for iteration in range(2):
-   971	        node_id = 20 + iteration
-   972	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   973	        raw_ui["nodes"].append(
-   974	            {
-   975	                "id": node_id,
-   976	                "type": "DynamicRows",
-   977	                "pos": [400, iteration * 180],
-   978	                "size": [300, 120],
-   979	                "flags": {},
-   980	                "order": iteration + 1,
-   981	                "mode": 0,
-   982	                "inputs": [{"name": "image", "type": "IMAGE", "link": 101 + iteration}],
-   983	                "outputs": [],
-   984	                "properties": {"vibecomfy_uid": lowered_uid},
-   985	                "widgets_values": [{"lora": "a"}, {"lora": "b"}],
-   986	            }
-   987	        )
-   988	        wf.nodes[str(node_id)] = VibeNode(
-   989	            str(node_id),
-   990	            "DynamicRows",
-   991	            uid=lowered_uid,
-   992	            raw_widgets=_raw_widgets(),
-   993	            metadata={
-   994	                "vibecomfy.lowering": {
-   995	                    "source_uid": "consumer",
-   996	                    "loop_uid": "loop",
-   997	                    "iteration_index": iteration,
-   998	                }
-   999	            },
-  1000	        )
-  1001	        wf.edges.append(VibeEdge("7", "0", str(node_id), "image"))
-  1002	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1003
-  1004	    wf.nodes["8"] = VibeNode("8", "KSampler", uid="source-b")
-  1005	    wf.edges = [
-  1006	        edge
-  1007	        for edge in wf.edges
-  1008	        if not (edge.from_node == "7" and edge.to_node == "20")
-  1009	    ]
-  1010	    wf.edges.append(VibeEdge("8", "0", "20", "image"))
-  1011
-  1012	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1013	        warnings.simplefilter("ignore")
-  1014	        _emit_semantic_pin(wf, raw_ui)
-  1015
-  1016	    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
-  1017	    assert semantic["before"] == [["uid-dynamic", "0", "consumer", "image"]]
-  1018	    assert semantic["after"] == [
-  1019	        ["source-b", "0", "consumer", "image"],
-  1020	        ["uid-dynamic", "0", "consumer", "image"],
-  1021	    ]
-  1022
-  1023
-  1024	def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
-  1025	    """The corpus regression: one Set/Get route becomes N direct clone links."""
-  1026	    wf, raw_ui = _semantic_pin_workflow()
-  1027	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
-  1028	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
-  1029	    wf.nodes["12"] = VibeNode("12", "SaveImage", uid="consumer")
-  1030	    wf.edges = [
-  1031	        VibeEdge("7", "image", "10", "value"),
-  1032	        VibeEdge("11", "0", "12", "images"),
-  1033	    ]
-  1034	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1035
-  1036	    del wf.nodes["10"]
-  1037	    del wf.nodes["11"]
-  1038	    del wf.nodes["12"]
-  1039	    wf.edges = []
-  1040	    for iteration in range(4):
-  1041	        node_id = str(20 + iteration)
-  1042	        lowered_uid = clone_uid("loop", "consumer", iteration)
-  1043	        wf.nodes[node_id] = VibeNode(
-  1044	            node_id,
-  1045	            "SaveImage",
-  1046	            uid=lowered_uid,
-  1047	            metadata={
-  1048	                "vibecomfy.lowering": {
-  1049	                    "source_uid": "consumer",
-  1050	                    "loop_uid": "loop",
-  1051	                    "iteration_index": iteration,
-  1052	                }
-  1053	            },
-  1054	        )
-  1055	        wf.edges.append(VibeEdge("7", "image", node_id, "images"))
-  1056
-  1057	    _emit_semantic_pin(wf, raw_ui)
-  1058
-  1059
-  1060	def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
-  1061	    """Exercise an actual nested definition through the UI emitter."""
-  1062	    wf, raw_ui = _semantic_pin_workflow()
-  1063	    wf.metadata["definitions"] = {
-  1064	        "subgraphs": [
-  1065	            {
-  1066	                "id": "outer-subgraph",
-  1067	                "name": "Outer",
-  1068	                "nodes": [
-  1069	                    {
-  1070	                        "id": 101,
-  1071	                        "type": "inner-subgraph",
-  1072	                        "pos": [0, 0],
-  1073	                        "properties": {"vibecomfy_uid": "inner-instance"},
-  1074	                    }
-  1075	                ],
-  1076	                "links": [],
-  1077	                "definitions": {
-  1078	                    "subgraphs": [
-  1079	                        {
-  1080	                            "id": "inner-subgraph",
-  1081	                            "name": "Inner",
-  1082	                            "nodes": [
-  1083	                                {
-  1084	                                    "id": 201,
-  1085	                                    "type": "SaveImage",
-  1086	                                    "pos": [20, 20],
-  1087	                                    "properties": {"vibecomfy_uid": "consumer"},
-  1088	                                }
-  1089	                            ],
-  1090	                            "links": [],
-  1091	                        }
-  1092	                    ]
-  1093	                },
-  1094	            }
-  1095	        ]
-  1096	    }
-  1097	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1098
-  1099	    emitted = _emit_semantic_pin(wf, raw_ui)
-  1100
-  1101	    outer = emitted["definitions"]["subgraphs"][0]
-  1102	    assert outer["id"] == "outer-subgraph"
-  1103	    assert outer["nodes"][0]["type"] == "inner-subgraph"
-  1104	    inner = outer["definitions"]["subgraphs"][0]
-  1105	    assert inner["id"] == "inner-subgraph"
-  1106	    assert inner["nodes"][0]["properties"]["vibecomfy_uid"] == "consumer"
-  1107
-  1108
-  1109	def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
-  1110	    nodes = {
-  1111	        "source": ("outer:sg/inner:sg#source", "Producer", None),
-  1112	        "set": ("outer:sg/inner:sg#set", "SetNode", "BUS"),
-  1113	        "get": ("outer:sg/inner:sg#get", "GetNode", "BUS"),
-  1114	        "consumer": ("outer:sg/inner:sg#consumer", "Consumer", None),
-  1115	    }
-  1116	    nested, issues = canonical_semantic_link_set(
-  1117	        nodes,
-  1118	        [
-  1119	            ("source", "image", "set", "value"),
-  1120	            ("get", "0", "consumer", "images"),
-  1121	        ],
-  1122	    )
-  1123	    flat, flat_issues = canonical_semantic_link_set(
-  1124	        {"source": nodes["source"], "consumer": nodes["consumer"]},
-  1125	        [("source", "image", "consumer", "images")],
-  1126	    )
-  1127	    assert nested == flat == (
-  1128	        ("outer:sg/inner:sg#source", "image", "outer:sg/inner:sg#consumer", "images"),
-  1129	    )
-  1130	    assert issues == flat_issues == ()
-  1131
-  1132
-  1133	def test_pinned_semantic_concrete_checkpoint_multi_output_preserves_port_identity() -> None:
-  1134	    """A concrete checkpoint loader's MODEL and CLIP outputs stay distinct."""
-  1135	    wf, raw_ui = _semantic_pin_workflow()
-  1136	    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="checkpoint")
-  1137	    wf.nodes["9"] = VibeNode("9", "KSampler", uid="model-consumer")
-  1138	    wf.nodes["10"] = VibeNode("10", "CLIPTextEncode", uid="clip-consumer")
-  1139	    wf.edges = [
-  1140	        VibeEdge("1", "MODEL", "9", "model"),
-  1141	        VibeEdge("1", "CLIP", "10", "clip"),
-  1142	    ]
-  1143	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1144
-  1145	    provider = _Provider(
-  1146	        {
-  1147	            "CheckpointLoaderSimple": _schema(
-  1148	                "CheckpointLoaderSimple",
-  1149	                {"ckpt_name": InputSpec("STRING")},
-  1150	                [
-  1151	                    OutputSpec("MODEL", "MODEL"),
-  1152	                    OutputSpec("CLIP", "CLIP"),
-  1153	                    OutputSpec("VAE", "VAE"),
-  1154	                ],
-  1155	            ),
-  1156	            "KSampler": _schema("KSampler", {"model": InputSpec("MODEL")}),
-  1157	            "CLIPTextEncode": _schema(
-  1158	                "CLIPTextEncode", {"clip": InputSpec("CLIP")}
-  1159	            ),
-  1160	        }
-  1161	    )
-  1162	    with warnings.catch_warnings():
-  1163	        warnings.simplefilter("ignore")
-  1164	        emitted = emit_ui_json(
-  1165	            wf,
-  1166	            schema_provider=provider,
-  1167	            prior_store=store_from_ui_json(raw_ui),
-  1168	            prior_ui_payload=raw_ui,
-  1169	        )
-  1170	    assert {link[2] for link in emitted["links"] if link[1] == 1} == {0, 1}
-  1171	    semantic, issues = canonical_semantic_link_set(
-  1172	        {
-  1173	            "1": ("checkpoint", "CheckpointLoaderSimple", None),
-  1174	            "9": ("model-consumer", "KSampler", None),
-  1175	            "10": ("clip-consumer", "CLIPTextEncode", None),
-  1176	        },
-  1177	        [("1", "MODEL", "9", "model"), ("1", "CLIP", "10", "clip")],
-  1178	    )
-  1179	    assert semantic == (
-  1180	        ("checkpoint", "CLIP", "clip-consumer", "clip"),
-  1181	        ("checkpoint", "MODEL", "model-consumer", "model"),
-  1182	    )
-  1183	    assert issues == ()
-  1184
-  1185
-  1186	@pytest.mark.parametrize(
-  1187	    ("after_links", "expected_after"),
-  1188	    [
-  1189	        ([], []),
-  1190	        (
-  1191	            [
-  1192	                ("source", "model", "consumer", "images"),
-  1193	                ("source", "model", "other", "images"),
-  1194	            ],
-  1195	            [
-  1196	                ["source-uid", "model", "consumer-uid", "images"],
-  1197	                ["source-uid", "model", "other-uid", "images"],
-  1198	            ],
-  1199	        ),
-  1200	        ([("source", "model", "other", "images")], [["source-uid", "model", "other-uid", "images"]]),
-  1201	        ([("source", "model", "consumer", "mask")], [["source-uid", "model", "consumer-uid", "mask"]]),
-  1202	        ([("source", "clip", "consumer", "images")], [["source-uid", "clip", "consumer-uid", "images"]]),
-  1203	    ],
-  1204	    ids=["removed", "added", "repointed", "consumer_input_changed", "source_output_changed"],
-  1205	)
-  1206	def test_pinned_semantic_genuine_consumer_change_refuses(
-  1207	    after_links: list[tuple[str, str, str, str]],
-  1208	    expected_after: list[list[str]],
-  1209	) -> None:
-  1210	    wf, raw_ui = _semantic_pin_workflow()
-  1211	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer-uid")
-  1212	    wf.nodes["10"] = VibeNode("10", "SaveImage", uid="other-uid")
-  1213	    wf.nodes["7"].uid = "source-uid"
-  1214	    raw_ui["nodes"][0]["properties"]["vibecomfy_uid"] = "source-uid"
-  1215	    wf.edges = [VibeEdge("7", "model", "9", "images")]
-  1216	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1217	    id_for = {"source": "7", "consumer": "9", "other": "10"}
-  1218	    wf.edges = [VibeEdge(id_for[a], b, id_for[c], d) for a, b, c, d in after_links]
-  1219
-  1220	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1221	        warnings.simplefilter("ignore")
-  1222	        _emit_semantic_pin(wf, raw_ui)
-  1223
-  1224	    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1225	    assert link_delta["before"] == [["source-uid", "model", "consumer-uid", "images"]]
-  1226	    assert link_delta["after"] == expected_after
-  1227
-  1228
-  1229	@pytest.mark.parametrize(
-  1230	    ("nodes", "links", "issue_prefix"),
-  1231	    [
-  1232	        (
-  1233	            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
-  1234	            [("r", "0", "c", "input")],
-  1235	            "reroute_source_count:r:0",
-  1236	        ),
-  1237	        (
-  1238	            {
-  1239	                "r1": ("reroute-1", "Reroute", None),
-  1240	                "r2": ("reroute-2", "Reroute", None),
-  1241	                "c": ("consumer", "Consumer", None),
-  1242	            },
-  1243	            [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
-  1244	            "cyclic_path:",
-  1245	        ),
-  1246	        (
-  1247	            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
-  1248	            [("g", "0", "c", "input")],
-  1249	            "broadcast_setter_count:g:MISSING:0",
-  1250	        ),
-  1251	        (
-  1252	            {
-  1253	                "s1": ("source-1", "Producer", None),
-  1254	                "s2": ("source-2", "Producer", None),
-  1255	                "r": ("reroute", "Reroute", None),
-  1256	                "c": ("consumer", "Consumer", None),
-  1257	            },
-  1258	            [
-  1259	                ("s1", "0", "r", ""),
-  1260	                ("s2", "0", "r", ""),
-  1261	                ("r", "0", "c", "input"),
-  1262	            ],
-  1263	            "reroute_source_count:r:2",
-  1264	        ),
-  1265	    ],
-  1266	    ids=["orphaned_reroute", "cyclic_reroute", "orphaned_broadcast", "ambiguous_reroute"],
-  1267	)
-  1268	def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
-  1269	    nodes: dict[str, tuple[str, str, str | None]],
-  1270	    links: list[tuple[str, str, str, str]],
-  1271	    issue_prefix: str,
-  1272	) -> None:
-  1273	    first = canonical_semantic_link_set(nodes, links)
-  1274	    second = canonical_semantic_link_set(nodes, reversed(links))
-  1275	    assert first == second
-  1276	    assert any(issue.startswith(issue_prefix) for issue in first[1])
-  1277
-  1278
-  1279	def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
-  1280	    semantic, issues = canonical_semantic_link_set(
-  1281	        {
-  1282	            "s": ("source", "Producer", None),
-  1283	            "r": ("reroute", "Reroute", None),
-  1284	            "c": ("consumer", "Consumer", None),
-  1285	        },
-  1286	        [
-  1287	            ("s", "image", "r", "input-a"),
-  1288	            ("s", "image", "r", "input-b"),
-  1289	            ("r", "0", "c", "images"),
-  1290	        ],
-  1291	    )
-  1292	    assert semantic == ()
-  1293	    assert issues == ("reroute_source_count:r:2",)
-  1294
-  1295
-  1296	def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
-  1297	    nodes = {
-  1298	        "z": ("duplicate", "Producer", None),
-  1299	        "a": ("duplicate", "Producer", None),
-  1300	        "m": ("duplicate", "Producer", None),
-  1301	    }
-  1302	    forward = canonical_semantic_link_set(nodes, [])
-  1303	    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
-  1304	    assert forward == reverse
-  1305	    assert forward[1] == (
-  1306	        "duplicate_uid:duplicate:a:m",
-  1307	        "duplicate_uid:duplicate:a:z",
-  1308	    )
-  1309
-  1310
-  1311	def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
-  1312	    wf, raw_ui = _semantic_pin_workflow()
-  1313	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-  1314	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-  1315	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1316
-  1317	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
-  1318	    wf.edges = [VibeEdge("11", "0", "9", "images")]
-  1319
-  1320	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1321	        warnings.simplefilter("ignore")
-  1322	        _emit_semantic_pin(wf, raw_ui)
-  1323
-  1324	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1325	    assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
-  1326	    assert semantic_delta["after"] == []
-  1327	    assert semantic_delta["after_resolution_issues"] == [
-  1328	        "broadcast_setter_count:11:MISSING:0"
-  1329	    ]
-  1330
-  1331
-  1332	def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
-  1333	    wf, raw_ui = _semantic_pin_workflow()
-  1334	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-  1335	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-  1336	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1337
-  1338	    wf.nodes["11"] = VibeNode("11", "Reroute", uid="reroute-1")
-  1339	    wf.nodes["12"] = VibeNode("12", "Reroute", uid="reroute-2")
-  1340	    wf.edges = [
-  1341	        VibeEdge("11", "0", "12", ""),
-  1342	        VibeEdge("12", "0", "11", ""),
-  1343	        VibeEdge("11", "0", "9", "images"),
-  1344	    ]
-  1345
-  1346	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1347	        warnings.simplefilter("ignore")
-  1348	        _emit_semantic_pin(wf, raw_ui)
-  1349
-  1350	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1351	    assert semantic_delta["after"] == []
-  1352	    assert len(semantic_delta["after_resolution_issues"]) == 1
-  1353	    assert semantic_delta["after_resolution_issues"][0].startswith("cyclic_path:")
-  1354
-  1355
-  1356	def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
-  1357	    nodes = {
-  1358	        "s": ("source", "Producer", None),
-  1359	        "c": ("consumer", "Consumer", None),
-  1360	    }
-  1361	    semantic, issues = canonical_semantic_link_set(
-  1362	        nodes,
-  1363	        [
-  1364	            ("s", "model", "c", "input"),
-  1365	            ("s", "model", "c", "input"),
-  1366	            ("s", "clip", "c", "input"),
-  1367	        ],
-  1368	    )
-  1369	    assert semantic == (
-  1370	        ("source", "clip", "consumer", "input"),
-  1371	        ("source", "model", "consumer", "input"),
-  1372	    )
-  1373	    assert issues == ()
-  1374
-  1375
-  1376	def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
-  1377	    """Captured raw _ui may list extra stale output links; pin must emit the IR link set."""
-  1378	    # Reuse the connected DynamicRows fixture but put TWO stale links on the
-  1379	    # pinned node's output while the IR has only one outgoing edge.
-  1380	    raw_ui = _raw_connected_dynamic_ui()
-  1381	    raw_ui["nodes"][0]["outputs"][0]["links"] = [43, 999]
-  1382	    wf = _wf()
-  1383	    wf.nodes["7"] = VibeNode(
-  1384	        "7",
-  1385	        "DynamicRows",
-  1386	        uid="uid-dynamic",
-  1387	        raw_widgets=_raw_widgets(),
-  1388	    )
-  1389	    wf.nodes["1"] = VibeNode("1", "KSampler", widgets={"widget_0": 4})
-  1390	    wf.nodes["9"] = VibeNode("9", "SaveImage", widgets={"filename_prefix": "out"})
-  1391	    wf.edges.extend(
-  1392	        [
-  1393	            VibeEdge("1", "0", "7", "image"),
-  1394	            VibeEdge("7", "0", "9", "images"),
-  1395	        ]
-  1396	    )
-  1397
-  1398	    with warnings.catch_warnings():
-  1399	        warnings.simplefilter("ignore")
-  1400	        ui = emit_ui_json(
-  1401	            wf,
-  1402	            schema_provider=_provider(),
-  1403	            prior_store=store_from_ui_json(raw_ui),
-  1404	            prior_ui_payload=raw_ui,
-  1405	        )
-  1406
-  1407	    # Emit succeeded (no RefusedEmit) and the pinned output carries exactly the
-  1408	    # single remapped global link id, not the stale captured pair.
-  1409	    pinned = next(node for node in ui["nodes"] if node["id"] == 7)
-  1410	    assert pinned["outputs"][0]["links"] == [2]
-  1411	    assert "999" not in json.dumps(ui)
-  1412	    assert "43" not in json.dumps(ui)
-  1413
-  1414
-  1415	def test_isolated_pinned_node_drops_stale_raw_link_ref() -> None:
-  1416	    """Rich edges are authority: a captured input link with no IR edge is dropped."""
-  1417	    raw_ui = _raw_dynamic_ui()
-  1418	    raw_ui["nodes"][0]["inputs"] = [{"name": "image", "type": "IMAGE", "link": 42}]
-  1419	    wf = _wf()
-  1420	    wf.nodes["7"] = VibeNode(
-  1421	        "7",
-  1422	        "DynamicRows",
-  1423	        uid="uid-dynamic",
-  1424	        raw_widgets=_raw_widgets(),
-  1425	    )
+tests/test_agent_edit_artifact_replay.py:533:            scope_path="subgraph_a",
+tests/test_analysis.py:9:from vibecomfy.analysis import analyze, diff, downstream, path, subgraph, trace, unconnected, upstream, values
+tests/test_analysis.py:74:def test_subgraph_returns_new_workflow_without_mutating_source() -> None:
+tests/test_analysis.py:78:    result = subgraph(workflow, {"1", "3", "4"})
+tests/test_analysis.py:83:    assert [(edge.from_node, edge.to_node) for edge in subgraph(workflow, {"1", "3", "4"}).edges] == [
+tests/test_blocks.py:12:from vibecomfy.blocks.subgraph import opaque, ref
+tests/test_cli_debug_contract.py:233:def test_backend_debug_ownership_definitions_are_canonical() -> None:
+tests/test_cli_debug_contract.py:238:    definitions: dict[str, list[Path]] = {
+tests/test_cli_debug_contract.py:248:                definitions["DiagnosticRecord"].append(path)
+tests/test_cli_debug_contract.py:253:                definitions[node.name].append(path)
+tests/test_cli_debug_contract.py:255:    assert definitions["DiagnosticRecord"] == [CONTRACTS_PATH]
+tests/test_cli_debug_contract.py:256:    assert definitions["iter_turn_records"] == [SESSION_PATH]
+tests/test_cli_debug_contract.py:260:    assert definitions["_mutate_turn_state"] == [_TURN_STATE_MACHINE_PATH]
+tests/test_cli_affordances.py:44:def test_port_validate_call_reads_uuid_subgraph_schema(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+tests/test_cli_affordances.py:49:                "definitions": {
+tests/test_cli_affordances.py:50:                    "subgraphs": {
+tests/test_cli_affordances.py:51:                        "uuid-subgraph": {
+tests/test_cli_affordances.py:63:        argparse.Namespace(class_type="uuid-subgraph", kwargs='{"img": "x"}', workflow=str(workflow), json=True)
+tests/test_cli_affordances.py:68:    assert payload["schema_source"] == "workflow_subgraph"
+tests/test_codemod_hypothesis.py:7:optional definitions.subgraphs) via handwritten composite strategies.
+tests/test_codemod_hypothesis.py:186:    # Optionally add definitions.subgraphs (~20% of the time)
+tests/test_codemod_hypothesis.py:188:        subgraph_node_count = draw(st.integers(min_value=1, max_value=3))
+tests/test_codemod_hypothesis.py:189:        subgraph_nodes: dict[str, Any] = {}
+tests/test_codemod_hypothesis.py:190:        for i in range(subgraph_node_count):
+tests/test_codemod_hypothesis.py:191:            subgraph_nodes[str(i + 100)] = draw(_node_strategy())
+tests/test_codemod_hypothesis.py:192:        api["definitions"] = {"subgraphs": [{"nodes": subgraph_nodes, "name": "sub_1"}]}
+tests/test_codemod_hypothesis.py:328:def test_codemod_hypothesis_property_7_subgraph_materialization(api_json: dict[str, Any]) -> None:
+tests/test_codemod_hypothesis.py:329:    """Property 7: when definitions.subgraphs are present, subgraph definitions
+tests/test_codemod_hypothesis.py:332:    Only applies when the generated JSON includes definitions.subgraphs.
+tests/test_codemod_hypothesis.py:334:    has_subgraphs = (
+tests/test_codemod_hypothesis.py:335:        isinstance(api_json.get("definitions"), dict)
+tests/test_codemod_hypothesis.py:336:        and isinstance(api_json["definitions"].get("subgraphs"), list)
+tests/test_codemod_hypothesis.py:337:        and len(api_json["definitions"]["subgraphs"]) > 0
+tests/test_codemod_hypothesis.py:344:    if has_subgraphs:
+tests/test_codemod_hypothesis.py:346:        # subgraphs should be materialized as callable functions.
+tests/test_codemod_hypothesis.py:365:    Strips 'definitions' from the API dict before normalization because
+tests/test_codemod_hypothesis.py:367:    (with definitions) can be passed via raw_workflow to port_convert_workflow.
+tests/test_codemod_hypothesis.py:369:    # Build a clean API dict without definitions
+tests/test_codemod_hypothesis.py:372:        if k != "definitions" and isinstance(v, dict) and "class_type" in v
+vibecomfy/porting/lint.py:486:        "vibecomfy.blocks.subgraph",
+tests/test_comfy_nodes_agent_backend_spine.py:2377:def test_validate_stage_classifies_unsupported_subgraph_shapes_as_non_dag() -> None:
+tests/test_comfy_nodes_agent_backend_spine.py:2378:    workflow = VibeWorkflow("subgraph", WorkflowSource("subgraph"))
+tests/test_comfy_nodes_agent_backend_spine.py:2387:                        "subgraph_freshness_error",
+tests/test_comfy_nodes_agent_backend_spine.py:2390:                        detail={"subgraph_id": "sg-1"},
+tests/test_comfy_nodes_agent_backend_spine.py:2402:    assert any(issue["code"] == "subgraph_freshness_error" for issue in diagnostics.issues)
+tests/test_emitter_object_info_validation.py:24:UUID/subgraph instances, SetNode/GetNode/rgthree, ``@stub.json`` classes,
+tests/test_emitter_object_info_validation.py:54:# UUID v4 pattern for classifying subgraph instance nodes.
+tests/test_emitter_object_info_validation.py:84:    """Check if a class_type is a UUID v4 (subgraph instance node)."""
+tests/test_emitter_object_info_validation.py:144:            schema_less_reason = "uuid/subgraph-instance"
+tests/test_agentic_reorganise_layout.py:120:def test_reorganise_small_subgraph_wrapper_avoids_generated_groups() -> None:
+tests/test_cli_analyze.py:25:    assert "uuid_subgraph_instances" in payload
+tests/test_cli_reorganise.py:118:                "definitions": {"subgraphs": []},
+vibecomfy/porting/emitter.py:47:from vibecomfy.porting.emit.subgraph import *  # noqa: F403
+vibecomfy/porting/emitter.py:62:from vibecomfy.porting.emit.emit_subgraph import _safe_kwarg_name
+vibecomfy/porting/emitter.py:63:from vibecomfy.porting.emit.emit_subgraph import _ui_widget_values_by_name
+tests/test_layout_store.py:96:    for key in ("entries", "groups", "extra", "lastRerouteId", "definitions", "virtual_wires"):
+tests/test_layout_store.py:126:        "definitions": {"sub": {"nodes": []}},
+tests/test_layout_store.py:144:    assert store["definitions"] == {"sub": {"nodes": []}}
+tests/test_layout_store.py:171:    assert store["definitions"] == {}
+tests/test_layout_store.py:272:    for key in ("entries", "groups", "extra", "lastRerouteId", "definitions", "virtual_wires"):
+tests/test_layout_store.py:325:    scoped uid shape that ``make_uid`` produces for subgraph-inner nodes
+tests/test_layout_store.py:362:    for key in ("entries", "groups", "extra", "lastRerouteId", "definitions", "virtual_wires"):
+tests/test_layout_store.py:471:        "definitions": {},
+tests/test_layout_store.py:540:# T11: subgraph-inner scoped-uid assembly over metadata['definitions']
+tests/test_layout_store.py:549:    """Inner nodes of a captured subgraph definition land in the store keyed by
+tests/test_layout_store.py:559:    wf.metadata["definitions"] = {"subgraphs": [definition]}
+tests/test_layout_store.py:588:    wf.metadata["definitions"] = {"subgraphs": [definition]}
+tests/test_layout_store.py:599:    """Two definitions with colliding inner ids yield distinct scoped uids."""
+tests/test_layout_store.py:606:    wf.metadata["definitions"] = {"subgraphs": [d1, d2]}
+tests/test_layout_store.py:732:    """Python-authored workflow with no _ui and no definitions stores an empty but valid envelope."""
+vibecomfy/porting/provenance.py:92:    subgraph_id: str | None = None
+vibecomfy/porting/provenance.py:93:    subgraph_index: int | None = None
+vibecomfy/porting/provenance.py:135:    subgraph_ids = {
+vibecomfy/porting/provenance.py:136:        str(subgraph.get("id"))
+vibecomfy/porting/provenance.py:137:        for subgraph in _subgraphs(raw)
+vibecomfy/porting/provenance.py:138:        if isinstance(subgraph, Mapping) and subgraph.get("id") is not None
+vibecomfy/porting/provenance.py:142:        _records_from_nodes(raw.get("nodes"), scope="top_level", subgraph_ids=subgraph_ids)
+vibecomfy/porting/provenance.py:144:    for index, subgraph in enumerate(_subgraphs(raw)):
+vibecomfy/porting/provenance.py:145:        subgraph_id = str(subgraph.get("id")) if subgraph.get("id") is not None else None
+vibecomfy/porting/provenance.py:148:                subgraph.get("nodes"),
+vibecomfy/porting/provenance.py:149:                scope="subgraph",
+vibecomfy/porting/provenance.py:150:                subgraph_ids=subgraph_ids,
+vibecomfy/porting/provenance.py:151:                subgraph_id=subgraph_id,
+vibecomfy/porting/provenance.py:152:                subgraph_index=index,
+vibecomfy/porting/provenance.py:229:def _subgraphs(raw: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+vibecomfy/porting/provenance.py:230:    definitions = raw.get("definitions")
+vibecomfy/porting/provenance.py:231:    if not isinstance(definitions, Mapping):
+vibecomfy/porting/provenance.py:233:    subgraphs = definitions.get("subgraphs")
+vibecomfy/porting/provenance.py:234:    if not isinstance(subgraphs, list):
+vibecomfy/porting/provenance.py:236:    return [subgraph for subgraph in subgraphs if isinstance(subgraph, Mapping)]
+vibecomfy/porting/provenance.py:243:    subgraph_ids: set[str],
+vibecomfy/porting/provenance.py:244:    subgraph_id: str | None = None,
+vibecomfy/porting/provenance.py:245:    subgraph_index: int | None = None,
+vibecomfy/porting/provenance.py:261:        execution_looking = _is_execution_looking(class_type, subgraph_ids)
+vibecomfy/porting/provenance.py:270:                subgraph_id=subgraph_id,
+vibecomfy/porting/provenance.py:271:                subgraph_index=subgraph_index,
+vibecomfy/porting/provenance.py:402:def _is_execution_looking(class_type: str, subgraph_ids: Iterable[str]) -> bool:
+vibecomfy/porting/provenance.py:405:    return class_type not in set(subgraph_ids)
+vibecomfy/porting/emit/emit_kwargs.py:57:    "_edges_in_with_subgraph_external_refs",
+vibecomfy/porting/emit/emit_kwargs.py:161:    # v2.6.4 Fix 6: UUID class types (ComfyUI subgraphs) get a short, readable
+vibecomfy/porting/emit/emit_kwargs.py:164:    # `7b34ab90-36f9-45ba-a665-71d418f0df18` becomes `subgraph_7b34ab90`
+vibecomfy/porting/emit/emit_kwargs.py:168:        return f"subgraph_{short}"
+vibecomfy/porting/emit/emit_kwargs.py:615:def _edges_in_with_subgraph_external_refs(
+vibecomfy/porting/emit/emit_kwargs.py:620:    subgraphs: dict[str, Any] = prepared.get("subgraph_definitions") or {}
+vibecomfy/porting/emit/emit_kwargs.py:621:    if not subgraphs:
+vibecomfy/porting/emit/emit_kwargs.py:628:        subgraph = subgraphs.get(str(getattr(node, "class_type", "")))
+vibecomfy/porting/emit/emit_kwargs.py:629:        if subgraph is None:
+vibecomfy/porting/emit/emit_kwargs.py:631:        for port in subgraph.inputs:
+tests/test_executor_contracts.py:353:            ("subgraph_preview", True, True, "adapt"),
+tests/test_executor_contracts.py:354:            ("subgraph_preview", False, True, "revise"),
+tests/test_executor_contracts.py:355:            ("subgraph_preview", False, False, "clarify"),
+tests/test_executor_contracts.py:380:            "subgraph_preview",
+tests/test_executor_contracts.py:1046:            ("subgraph_preview", True, True, "adapt"),
+tests/test_executor_contracts.py:1047:            ("subgraph_preview", False, True, "revise"),
+tests/test_executor_contracts.py:1048:            ("subgraph_preview", False, False, "clarify"),
+tests/test_executor_contracts.py:1873:            intent="explain_graph", route="clarify", task="preview_subgraph",
+tests/test_executor_contracts.py:1880:        "preview_subgraph",
+tests/test_executor_contracts.py:1965:        "runtime subgraph preview",
+tests/test_executor_contracts.py:1968:            plan_summary="evaluate subgraph at runtime without mutating canvas",
+tests/test_executor_contracts.py:1969:            intent="explain_graph", route="clarify", task="preview_subgraph",
+tests/test_executor_contracts.py:1976:        "preview_subgraph",
+vibecomfy/porting/emit/subgraph.py:4:from vibecomfy.porting.emit.emit_ready import _subgraph_port_index_for_instance_field
+vibecomfy/porting/emit/subgraph.py:5:from vibecomfy.porting.emit.emit_subgraph import (
+vibecomfy/porting/emit/subgraph.py:10:    _apply_subgraph_names_to_prepared,
+vibecomfy/porting/emit/subgraph.py:11:    _build_subgraph_def,
+vibecomfy/porting/emit/subgraph.py:12:    _disambiguated_subgraph_slugs,
+vibecomfy/porting/emit/subgraph.py:13:    _emit_subgraph_call_statement,
+vibecomfy/porting/emit/subgraph.py:14:    _emit_subgraph_functions,
+vibecomfy/porting/emit/subgraph.py:15:    _short_subgraph_id_prefix,
+vibecomfy/porting/emit/subgraph.py:17:    _subgraph_call_kwargs,
+vibecomfy/porting/emit/subgraph.py:18:    _subgraph_default_args,
+vibecomfy/porting/emit/subgraph.py:19:    _subgraph_definitions_from_raw,
+vibecomfy/porting/emit/subgraph.py:20:    _subgraph_docstring,
+vibecomfy/porting/emit/subgraph.py:21:    _subgraph_emitted_node_id,
+vibecomfy/porting/emit/subgraph.py:22:    _subgraph_input_kwarg_name,
+vibecomfy/porting/emit/subgraph.py:23:    _subgraph_instance_port_candidate_names,
+vibecomfy/porting/emit/subgraph.py:24:    _subgraph_instance_widget_values,
+vibecomfy/porting/emit/subgraph.py:25:    _subgraph_node_id_required,
+vibecomfy/porting/emit/subgraph.py:26:    _subgraph_result_base,
+vibecomfy/porting/emit/subgraph.py:27:    _subgraph_return_expr,
+vibecomfy/porting/emit/subgraph.py:28:    _subgraph_signature,
+vibecomfy/porting/emit/subgraph.py:29:    _subgraph_topological_order,
+vibecomfy/porting/emit/subgraph.py:34:    slugify_subgraph_name,
+vibecomfy/porting/emit/subgraph.py:35:    subgraph_source_hash,
+vibecomfy/porting/emit/subgraph.py:42:    "_subgraph_port_index_for_instance_field",
+vibecomfy/porting/emit/subgraph.py:44:    "slugify_subgraph_name",
+vibecomfy/porting/emit/subgraph.py:46:    "_subgraph_input_kwarg_name",
+vibecomfy/porting/emit/subgraph.py:48:    "_subgraph_definitions_from_raw",
+vibecomfy/porting/emit/subgraph.py:49:    "_disambiguated_subgraph_slugs",
+vibecomfy/porting/emit/subgraph.py:50:    "_build_subgraph_def",
+vibecomfy/porting/emit/subgraph.py:51:    "subgraph_source_hash",
+vibecomfy/porting/emit/subgraph.py:52:    "_subgraph_default_args",
+vibecomfy/porting/emit/subgraph.py:54:    "_apply_subgraph_names_to_prepared",
+vibecomfy/porting/emit/subgraph.py:55:    "_subgraph_result_base",
+vibecomfy/porting/emit/subgraph.py:58:    "_emit_subgraph_functions",
+vibecomfy/porting/emit/subgraph.py:59:    "_subgraph_topological_order",
+vibecomfy/porting/emit/subgraph.py:60:    "_short_subgraph_id_prefix",
+vibecomfy/porting/emit/subgraph.py:61:    "_subgraph_emitted_node_id",
+vibecomfy/porting/emit/subgraph.py:62:    "_subgraph_node_id_required",
+vibecomfy/porting/emit/subgraph.py:63:    "_subgraph_signature",
+vibecomfy/porting/emit/subgraph.py:64:    "_subgraph_docstring",
+vibecomfy/porting/emit/subgraph.py:65:    "_emit_subgraph_call_statement",
+vibecomfy/porting/emit/subgraph.py:66:    "_subgraph_call_kwargs",
+vibecomfy/porting/emit/subgraph.py:67:    "_subgraph_instance_port_candidate_names",
+vibecomfy/porting/emit/subgraph.py:68:    "_subgraph_instance_widget_values",
+vibecomfy/porting/emit/subgraph.py:70:    "_subgraph_return_expr",
+vibecomfy/porting/emit/public_inputs.py:9:    _remap_public_inputs_for_materialized_subgraphs,
+vibecomfy/porting/emit/public_inputs.py:17:    "_remap_public_inputs_for_materialized_subgraphs",
+vibecomfy/porting/emit/emit_agent_edit.py:7:from vibecomfy.porting.emit.emit_subgraph import (
+vibecomfy/porting/emit/emit_agent_edit.py:8:    _apply_subgraph_names_to_prepared,
+vibecomfy/porting/emit/emit_agent_edit.py:9:    _emit_subgraph_functions,
+vibecomfy/porting/emit/emit_agent_edit.py:10:    _subgraph_definitions_from_raw,
+vibecomfy/porting/emit/emit_agent_edit.py:49:        subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=None)
+vibecomfy/porting/emit/emit_agent_edit.py:50:        if subgraph_definitions:
+vibecomfy/porting/emit/emit_agent_edit.py:51:            prepared["subgraph_definitions"] = subgraph_definitions
+vibecomfy/porting/emit/emit_agent_edit.py:52:            _apply_subgraph_names_to_prepared(prepared)
+vibecomfy/porting/emit/emit_agent_edit.py:54:    subgraph_lines = _emit_subgraph_functions(
+vibecomfy/porting/emit/emit_agent_edit.py:61:    if subgraph_lines:
+vibecomfy/porting/emit/emit_agent_edit.py:62:        lines.extend(["", *subgraph_lines])
+vibecomfy/porting/emit/signatures.py:17:READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND = "subgraph_input_unbound"
+tests/test_porting_corpus_schema_adapter.py:225:    for sg in (ui.get("definitions") or {}).get("subgraphs") or []:
+tests/test_model_assets.py:86:def test_extract_from_raw_workflow_recurses_nested_subgraphs() -> None:
+tests/test_model_assets.py:88:        "definitions": {
+tests/test_model_assets.py:89:            "subgraphs": [
+tests/test_model_assets.py:105:                    "definitions": {
+tests/test_model_assets.py:106:                        "subgraphs": [
+tests/test_model_assets.py:408:def test_real_flux2_subgraph_extracts_pre_policy_assets() -> None:
+vibecomfy/porting/emit/emit_prepare.py:33:    _edges_in_with_subgraph_external_refs,
+vibecomfy/porting/emit/emit_prepare.py:306:    ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
+tests/test_porting_edit_projection.py:125:def test_projection_renders_subgraph_scope_addresses() -> None:
+tests/test_porting_edit_projection.py:126:    result = render_edit_projection(_fixture("subgraphed_wan_i2v.json"), schema_provider=_SchemaProvider())
+tests/test_m1_contracts.py:312:    invalid = _authority(); invalid["scope"] = {"kind": "nested", "path": "definitions/x"}
+tests/test_comfy_nodes_agent_edit.py:18178:def test_route_blocks_apply_subgraph_preview() -> None:
+tests/test_comfy_nodes_agent_edit.py:18179:    """_route_blocks_apply returns False for subgraph_preview route."""
+tests/test_comfy_nodes_agent_edit.py:18181:    assert _route_blocks_apply("subgraph_preview") is False
+tests/test_porting_edit_apply.py:201:def _helper_subgraph_fixture() -> dict[str, object]:
+tests/test_porting_edit_apply.py:205:        "definitions": {
+tests/test_porting_edit_apply.py:206:            "subgraphs": [
+tests/test_porting_edit_apply.py:1671:def test_apply_delta_remove_link_updates_subgraph_dict_links_and_node_references() -> None:
+tests/test_porting_edit_apply.py:1672:    original = _fixture("subgraphed_wan_i2v.json")
+tests/test_porting_edit_apply.py:1674:    scope_path = next(scope.scope_path for scope in ledger.scopes.values() if scope.kind == "subgraph")
+tests/test_porting_edit_apply.py:1681:    subgraph = next(
+tests/test_porting_edit_apply.py:1683:        for scope in (result.candidate.get("definitions") or {}).get("subgraphs", [])
+tests/test_porting_edit_apply.py:1686:    node_105 = next(node for node in subgraph["nodes"] if node["id"] == 105)
+tests/test_porting_edit_apply.py:1687:    node_107 = next(node for node in subgraph["nodes"] if node["id"] == 107)
+tests/test_porting_edit_apply.py:1688:    assert all(link["id"] != 181 for link in subgraph["links"])
+tests/test_porting_edit_apply.py:1692:    assert scope_path  # stamped resolution context exists for the subgraph fixture
+tests/test_porting_edit_apply.py:1717:def test_apply_delta_remove_node_cascades_connected_subgraph_dict_links_and_reports_cleanup() -> None:
+tests/test_porting_edit_apply.py:1718:    original = _fixture("subgraphed_wan_i2v.json")
+tests/test_porting_edit_apply.py:1720:    scope_path = next(scope.scope_path for scope in ledger.scopes.values() if scope.kind == "subgraph")
+tests/test_porting_edit_apply.py:1727:    subgraph = next(
+tests/test_porting_edit_apply.py:1729:        for scope in (result.candidate.get("definitions") or {}).get("subgraphs", [])
+tests/test_porting_edit_apply.py:1732:    remaining_ids = {node["id"] for node in subgraph["nodes"]}
+tests/test_porting_edit_apply.py:1734:    assert all(link["id"] not in {189, 192} for link in subgraph["links"])
+tests/test_porting_edit_apply.py:1735:    node_127 = next(node for node in subgraph["nodes"] if node["id"] == 127)
+tests/test_porting_edit_apply.py:1736:    node_111 = next(node for node in subgraph["nodes"] if node["id"] == 111)
+tests/test_porting_edit_apply.py:1783:def test_apply_delta_remove_node_restitches_subgraph_reroute_passthrough() -> None:
+tests/test_porting_edit_apply.py:1784:    original = _helper_subgraph_fixture()
+tests/test_porting_edit_apply.py:1786:    scope_path = next(scope.scope_path for scope in ledger.scopes.values() if scope.kind == "subgraph")
+tests/test_porting_edit_apply.py:1793:    subgraph = result.candidate["definitions"]["subgraphs"][0]
+tests/test_porting_edit_apply.py:1794:    remaining_ids = {node["id"] for node in subgraph["nodes"]}
+tests/test_porting_edit_apply.py:1796:    assert subgraph["links"] == [
+tests/test_porting_edit_apply.py:1799:    source = next(node for node in subgraph["nodes"] if node["id"] == 1)
+tests/test_porting_edit_apply.py:1800:    consumer = next(node for node in subgraph["nodes"] if node["id"] == 3)
+tests/test_porting_edit_apply.py:1992:def test_apply_delta_upsert_link_handles_subgraph_dict_links_and_advances_counter() -> None:
+tests/test_porting_edit_apply.py:1993:    original = _helper_subgraph_fixture()
+tests/test_porting_edit_apply.py:1995:    scope_path = next(scope.scope_path for scope in ledger.scopes.values() if scope.kind == "subgraph")
+tests/test_porting_edit_apply.py:2010:    subgraph = result.candidate["definitions"]["subgraphs"][0]
+tests/test_porting_edit_apply.py:2011:    assert subgraph["state"]["lastLinkId"] == 102
+tests/test_porting_edit_apply.py:2012:    assert all(link["id"] != 101 for link in subgraph["links"])
+tests/test_porting_edit_apply.py:2015:        for link in subgraph["links"]
+tests/test_porting_edit_apply.py:2017:    source = next(node for node in subgraph["nodes"] if node["id"] == 1)
+tests/test_porting_edit_apply.py:2018:    consumer = next(node for node in subgraph["nodes"] if node["id"] == 3)
+vibecomfy/porting/emit/emit_ready.py:7:- _remap_public_inputs_for_materialized_subgraphs
+vibecomfy/porting/emit/emit_ready.py:8:- _subgraph_port_index_for_instance_field
+vibecomfy/porting/emit/emit_ready.py:80:    _edges_in_with_subgraph_external_refs,
+vibecomfy/porting/emit/emit_ready.py:84:from vibecomfy.porting.emit.emit_subgraph import (
+vibecomfy/porting/emit/emit_ready.py:86:    _subgraph_definitions_from_raw,
+vibecomfy/porting/emit/emit_ready.py:87:    _subgraph_emitted_node_id,
+vibecomfy/porting/emit/emit_ready.py:88:    _subgraph_node_id_required,
+vibecomfy/porting/emit/emit_ready.py:89:    _apply_subgraph_names_to_prepared,
+vibecomfy/porting/emit/emit_ready.py:90:    _emit_subgraph_call_statement,
+vibecomfy/porting/emit/emit_ready.py:91:    _emit_subgraph_functions,
+vibecomfy/porting/emit/emit_ready.py:92:    _short_subgraph_id_prefix,
+vibecomfy/porting/emit/emit_ready.py:93:    _subgraph_instance_port_candidate_names,
+vibecomfy/porting/emit/emit_ready.py:94:    _subgraph_return_expr,
+vibecomfy/porting/emit/emit_ready.py:383:def _subgraph_port_index_for_instance_field(node: Any, subgraph: _SubgraphDef, field: str) -> int | None:
+vibecomfy/porting/emit/emit_ready.py:384:    candidates = _subgraph_instance_port_candidate_names(node, subgraph)
+vibecomfy/porting/emit/emit_ready.py:392:# Remap public inputs through materialized subgraphs
+vibecomfy/porting/emit/emit_ready.py:395:def _remap_public_inputs_for_materialized_subgraphs(
 
 exec
-/bin/zsh -lc "rg -n '"'^def test_'"' tests/test_layout_delta.py tests/test_ui_emitter_widget_shape_verdict.py" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "sed -n '1,100p' vibecomfy/identity/uid.py; rg -n 'SetNode|GetNode|broadcast' vibecomfy/_compile vibecomfy/porting | head -200" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
-tests/test_layout_delta.py:52:def test_no_change_produces_empty_delta():
-tests/test_layout_delta.py:60:def test_no_mutation_loop_lowered_workflow_produces_empty_delta():
-tests/test_layout_delta.py:119:def test_unchanged_setnode_passthrough_source_produces_no_delta():
-tests/test_layout_delta.py:133:def test_setnode_passthrough_source_change_detected():
-tests/test_layout_delta.py:155:def test_setnode_passthrough_port_change_detected():
-tests/test_layout_delta.py:176:def test_ambiguous_setnode_source_fails_closed_with_issue():
-tests/test_layout_delta.py:207:def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
-tests/test_layout_delta.py:221:def test_one_of_two_lowered_clones_repointed_to_new_source_is_attributed():
-tests/test_layout_delta.py:261:def test_widget_edit_detected():
-tests/test_layout_delta.py:276:def test_rewire_detected():
-tests/test_layout_delta.py:298:def test_unmodified_node_absent_from_delta():
-tests/test_layout_delta.py:311:def test_added_node_is_snapshot_absent_and_omitted():
-tests/test_layout_delta.py:325:def test_removed_node_omitted_from_delta():
-tests/test_layout_delta.py:344:def test_snapshot_absent_node_omitted_matches_add_semantics():
-tests/test_layout_delta.py:366:def test_toposort_linear_chain_dependency_count_ordering():
-tests/test_layout_delta.py:378:def test_toposort_deterministic_ready_ordering():
-tests/test_layout_delta.py:390:def test_toposort_diamond_dependency_count():
-tests/test_layout_delta.py:404:def test_toposort_cycle_remainder_preserves_partial_order():
-tests/test_layout_delta.py:417:def test_toposort_cycle_with_non_cycle_prefix():
-tests/test_layout_delta.py:433:def test_toposort_deterministic_across_runs():
-tests/test_layout_delta.py:450:def test_toposort_reverse_edges_not_scanned():
-tests/test_ui_emitter_widget_shape_verdict.py:270:def test_power_lora_style_overflow_pins_from_full_raw_ui_payload() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:315:def test_recovery_entries_include_widget_shape_verdict_for_safe_nodes() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:328:def test_overflow_refuses_before_returning_envelope_and_reports_verdict() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:358:def test_pinned_dynamic_node_bypasses_widget_regeneration() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:384:def test_setnode_passthrough_does_not_fabricate_link_delta_on_pinned_node() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:427:def test_dynamic_node_without_prior_raw_ui_payload_refuses() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:448:def test_identity_matched_overflow_carries_forward_raw_ui() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:485:def test_schema_known_generated_node_uses_schema_defaults_and_marks_recovery() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:498:def test_schema_default_regeneration_preserves_ingested_positional_widget_values() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:536:def test_schema_known_generated_explicit_overflow_uses_schema_defaults_and_marks_recovery() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:557:def test_single_slot_object_info_generated_overflow_still_refuses() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:589:def test_existing_static_overflow_recovers_by_preserving_observed_raw_widget_slot() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:629:def test_primitive_int_control_after_generate_metadata_emits_second_ui_slot() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:651:def test_object_info_generated_without_raw_widget_order_uses_schema_defaults() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:672:def test_metadata_ui_dynamic_node_pins_without_external_prior_payload() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:694:def test_raw_widget_values_length_recovery_marker_is_reported() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:720:def test_prior_store_only_dynamic_node_refuses_without_full_raw_payload() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:740:def test_dynamic_node_widget_value_edit_refuses_instead_of_pinning() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:767:def test_dynamic_node_edge_touch_refuses_instead_of_pinning() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:795:def test_pinned_connected_node_rewrites_stale_local_link_refs_to_global_links() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:860:def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:881:def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:900:def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:928:def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:962:def test_pinned_semantic_one_of_two_lowered_clones_repointed_refuses() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1024:def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1060:def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1109:def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1133:def test_pinned_semantic_concrete_checkpoint_multi_output_preserves_port_identity() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1206:def test_pinned_semantic_genuine_consumer_change_refuses(
-tests/test_ui_emitter_widget_shape_verdict.py:1268:def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
-tests/test_ui_emitter_widget_shape_verdict.py:1279:def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1296:def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1311:def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1332:def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1356:def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1376:def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1415:def test_isolated_pinned_node_drops_stale_raw_link_ref() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1442:def test_collateral_overflow_pins_while_edited_ksampler_regenerates() -> None:
+"""uid helpers. Signatures are frozen; the M1.5 ':' delimiter defect is fixed
+for M2 (SD3, callers-3).
 
-exec
-/bin/zsh -lc "rg -n \"compute_field_delta\\(|_split_widget_shape_deltas\\(|field_deltas=|link_deltas=\" vibecomfy/porting tests/test_ui_emitter_widget_shape_verdict.py | head -200" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-vibecomfy/porting/layout/delta.py:325:def compute_field_delta(
-vibecomfy/porting/emit/ui.py:1576:def _split_widget_shape_deltas(
-vibecomfy/porting/emit/ui.py:2145:        _field_delta = compute_field_delta(_snapshot, wf) if _snapshot else {}
-vibecomfy/porting/emit/ui.py:2277:    _field_delta_by_uid = compute_field_delta(_snapshot, wf) if _snapshot else {}
-vibecomfy/porting/emit/ui.py:2327:        field_delta, link_delta = _split_widget_shape_deltas(_field_delta_by_uid, node_id, node)
-vibecomfy/porting/emit/ui.py:2346:            field_deltas={node_id: field_delta} if field_delta else {},
-vibecomfy/porting/emit/ui.py:2347:            link_deltas={node_id: link_delta} if link_delta else {},
-vibecomfy/porting/emit/ui.py:2729:        _delta = compute_field_delta(_snap, wf) if _snap else {}
+Identity is extrinsic only — NOT a content/WL hash and NOT uuid4.
 
-exec
-/bin/zsh -lc 'rg -n -i "canonical semantic|semantic pin|nested subgraph|loop-clon|reroute|Set/Get" .oracle/plan.md .oracle/findings .oracle/briefs/batch-B03*.md | head -300' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-.oracle/briefs/batch-B03.md:1:# MEGADO BATCH B03 [HARD] — Canonical semantic pin comparison
-.oracle/briefs/batch-B03.md:6:Pinned-opaque emission currently refuses on ANY link delta. Exploration verified: the pin gate is boolean on any link delta (`widget_shape_fence.py:93-109,249-250`: pin_opaque requires `not has_link_delta`); comparison is uid-keyed but multiset-counted (`layout/delta.py:64,70,88-90`), so 1↔N same-source fan-out = delta; the rewrite layer never refuses on count (`ui.py:1709-1806` stamps IR ids unconditionally; refusal strings at `ui.py:1646-1658` are dead). The known reproduction: Set/Get broadcast lowering expands 1 raw link → 4 lowered links, false-refusing pins (44/131 corpus nodes exposed). Reroute 1:1, loop-cloned consumer UIDs, and nested subgraphs also break pins.
-.oracle/briefs/batch-B03.md:12:1. **Add fixtures for**: flat Set/Get fan-out; 1:1 reroute lowering; loop-cloned consumer UIDs; nested subgraphs; multi-output nodes; genuine removed/repointed/orphaned consumers.
-.oracle/briefs/batch-B03.md:13:2. **Replace the raw UID-keyed multiset comparison with ONE canonical semantic-set helper**:
-.oracle/briefs/batch-B03.md:16:   - normalize reroutes to terminal endpoints;
-.oracle/briefs/batch-B03.md:17:   - normalize loop-cloned UIDs to their canonical consumer UID (use `parse_uid`/`clone_uid` at `lowering.py:317`).
-.oracle/briefs/batch-B03.md:33:.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_porting_ui_emitter.py -k 'pin or pinned or semantic or consumer or broadcast or reroute'
-.oracle/briefs/batch-B03.md:42:- Multiplicity-only Set/Get expansion passes.
-.oracle/briefs/batch-B03.md:43:- Equivalent reroute, loop-clone, link-renumbering, and nested lowering passes.
-.oracle/briefs/batch-B03.md:50:Return: helper location + signature, the canonical-set algorithm (dedupe/reroute/clone normalization), fixture names, diagnostics shape, pytest output. Do NOT commit.
-.oracle/briefs/batch-B03-rework.md:11:So the new canonical semantic-set traversal in `vibecomfy/porting/layout/delta.py` (the B03 helper) hangs on this scenario — most likely a non-terminating loop through reroute/cycle paths or a pathological expansion. The tasklist acceptance explicitly requires: "Unresolved/cyclic paths terminate deterministically and fail closed."
-.oracle/briefs/batch-B03-rework.md:17:   with faulthandler/pdb or add tracing to find where the traversal spins (which graph: reroute chain? broadcast fan-out? a cycle? a set/loop clone chain?).
-.oracle/briefs/batch-B03-rework.md:18:2. **Fix the traversal to terminate deterministically**: add explicit cycle/visited-set protection (terminate + fail closed on cycles), bound the fan-out walk, and make reroute-normalization terminate. The semantic helper must return a verdict for every input in bounded time.
-.oracle/briefs/batch-B03-rework.md:30:.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py -k 'semantic or pin or consumer or broadcast or reroute or loop or nested or multi_output'
-.oracle/briefs/batch-B03-rework2.md:1:# MEGADO B03 REWORK (oracle blocking issue) — symmetric loop-clone normalization
-.oracle/briefs/batch-B03-rework2.md:7:In `vibecomfy/porting/layout/delta.py`, the canonical semantic-link sets are computed asymmetrically: the BEFORE (snapshot) set is canonicalized WITHOUT loop-clone aliases, while the AFTER (live) set applies `after_aliases`. Result: an UNCHANGED already-lowered workflow fabricates a semantic link delta and may wrongly refuse a valid pin.
-.oracle/briefs/batch-B03-rework2.md:23:1. In `vibecomfy/porting/layout/delta.py` (`compute_field_delta` around `:334-339`): apply the SAME alias normalization to the before/snapshot set as the after/live set — normalize loop-clone UIDs (`clone_uid`/`parse_uid`/`make_uid` at `lowering.py:317`) on BOTH sides so an unchanged lowered workflow yields an EMPTY semantic delta. The before set must be canonicalized with its own aliases (aliases derivable from the snapshot graph, not the live graph).
-.oracle/briefs/batch-B03-rework4.md:22:Keep all existing behavior (dedupe, port identity, reroute resolution, clone alias corroboration, 10k-hop bound, sorted diagnostics). Do not revive `output_link_count_mismatch`.
-.oracle/briefs/batch-B03-rework3.md:1:# MEGADO B03 REWORK 3 [HARD] — canonical semantic-set defects (oracle issues 1–5)
-.oracle/briefs/batch-B03-rework3.md:15:5. **[test_ui_emitter_widget_shape_verdict.py:885] Fixture gaps.** The "nested subgraph" fixture is a scoped-UID helper unit test, not a real nested workflow. No concrete multi-output node fixture. Fix: add a REAL nested-subgraph fixture and a CONCRETE multi-output-node fixture (with output-port identity), plus the regressions from issues 1–3.
-.oracle/briefs/batch-B03-rework3.md:18:- Keep: multiplicity dedupe, terminal source/output + consumer/input identity, reroute/Set/Get resolution, fail-closed on unresolved/cyclic, 10k-hop termination bound, sorted diagnostics.
-.oracle/plan.md:164:## B03 — Canonical semantic pin comparison `[HARD]`
-.oracle/plan.md:169:   - flat Set/Get fan-out;
-.oracle/plan.md:170:   - 1:1 reroute lowering;
-.oracle/plan.md:171:   - loop-cloned consumer UIDs;
-.oracle/plan.md:172:   - nested subgraphs;
-.oracle/plan.md:175:2. Replace raw UID-keyed multiset comparison with one canonical semantic-set helper:
-.oracle/plan.md:178:   - normalize reroutes to terminal endpoints;
-.oracle/plan.md:179:   - normalize loop-cloned UIDs to their canonical consumer UID.
-.oracle/plan.md:187:- Multiplicity-only Set/Get expansion passes.
-.oracle/plan.md:188:- Equivalent reroute, loop-clone, link-renumbering, and nested lowering passes.
-.oracle/plan.md:312:6. Define ONE shared, concrete dynamic-port contract covering the verified node families (count-driven: `ImageConcatMulti` `image_N`, `LTXVImgToVideoInplaceKJ` `num_images.*`, `SimpleCalculator` `input_N`, `LTXVAddGuide` `guide_N`, `SimpleCalculatorKJ` payload vars, `in_N` fixed slots; helpers/proxies: `Reroute`, `GetNode`, `SetNode`, `PrimitiveNode`; dynamic `INPUT_TYPES` custom nodes) — a single predicate used by resolution, mutation, and projection (not a duplicated list at three sites). A port is valid iff present in `node["outputs"]`/`["inputs"]`, or the class matches the dynamic contract AND the schema-fallback slot is bounds-verified before link write.
-.oracle/findings/area-03-pinned-semantics.txt:7:5. **Reroute 1:1 also breaks pins** — passthrough rewrites source uid to terminal (`ui.py:561-566`); cycle-safe via visited, but even 1:1 changes sig.
-.oracle/findings/area-03-pinned-semantics.txt:9:7. **Nested subgraphs** resolve against top-level broadcast map (`subgraph_resolve.py:56-76`, `convert.py:257-292`) — same 1→N expansion inside them.
-.oracle/findings/area-03-pinned-semantics.txt:11:**Edge cases/unknowns**: muted/bypassed helpers still counted as broadcast sources (no emit-path handling; mode only stamped post-pin, `ui.py:2431`); whether captured `_ui` is display- or flat-mode (determines reroute case); orphaned GetNode edges dropped (`ui.py:530`) = genuine consumer loss, must stay refused; named-vs-slot `from_output` mismatch on multi-output nodes (`ui.py:1777-1782`).
-.oracle/findings/area-03-pinned-semantics.txt:13:**Suggested B03 comparison**: dedupe incoming sig per `(to_input,(source_uid,from_output))`; for outgoing, canonicalize cloned loop uids (`parse_uid`/`clone_uid`, `lowering.py:317`) then dedupe per `(from_output,(target_uid,to_input))`; also canonicalize reroute to terminal source. Relax multiplicity only; refuse when semantic consumer sets genuinely differ.
+Separators (SD3): the scope<->local separator is ``#`` and the scope-chain join
+is ``/`` — both deliberately distinct from the ``:`` that may appear inside an
+``sg_key`` (see ``vibecomfy.identity.scope``).  Flat uids (scope_path == "")
+remain byte-identical to M1.5 with NO migration.
+"""
 
-exec
-/bin/zsh -lc "nl -ba vibecomfy/ingest/snapshot.py | sed -n '1,260p'; rg -n \"definitions|subgraphs\" vibecomfy/ingest vibecomfy/workflow.py vibecomfy/porting/layout -g '*.py'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-     1	"""Ingest-time snapshot capture for uid-keyed field signatures.
-     2
-     3	Captures a frozen snapshot of each node's field state at ingest time so that
-     4	later delta computation can identify which fields changed (widget edits, rewires,
-     5	public-input rebindings) versus which nodes were added or had no snapshot taken.
-     6
-     7	``NodeFieldSnapshot`` is a TypedDict with all-tuple fields for stable comparison.
-     8	Tuples are sorted and canonicalized — no rank/positional ordering.
-     9	"""
-    10	from __future__ import annotations
-    11
-    12	from typing import TYPE_CHECKING, Any
-    13
-    14	if TYPE_CHECKING:
-    15	    from vibecomfy.workflow import VibeWorkflow
-    16
-    17	try:
-    18	    from typing import TypedDict
-    19	except ImportError:
-    20	    from typing_extensions import TypedDict  # type: ignore[no-redef]
-    21
-    22
-    23	class NodeFieldSnapshot(TypedDict):
-    24	    """Frozen field-level snapshot for a single IR node, keyed by uid."""
-    25
-    26	    class_type: str
-    27	    # Sorted tuple of (field_name, value_repr) — all non-link values (widgets + inputs)
-    28	    widget_values_sig: tuple
-    29	    # Sorted tuple of (to_input_field, (source_uid, source_output_slot))
-    30	    incoming_edge_sig: tuple
-    31	    # Sorted tuple of (from_output_slot, (target_uid, to_input_field))
-    32	    outgoing_edge_sig: tuple
-    33	    # Sorted tuple of (public_input_name, bound_field)
-    34	    public_input_binding: tuple
-    35
-    36
-    37	def capture_ingest_snapshot(
-    38	    raw_ui_or_api: dict[str, Any] | None,
-    39	    ir_workflow: "VibeWorkflow",
-    40	) -> dict[str, NodeFieldSnapshot]:
-    41	    """Capture a uid-keyed field snapshot of every node in *ir_workflow*.
-    42
-    43	    Arguments
-    44	    ---------
-    45	    raw_ui_or_api:
-    46	        The raw litegraph UI dict or ComfyUI API dict that was ingested to produce
-    47	        *ir_workflow*.  Currently unused; reserved for future cross-validation.
-    48	    ir_workflow:
-    49	        The fully-constructed IR workflow (all nodes AND edges already present).
-    50
-    51	    Returns
-    52	    -------
-    53	    ``{uid: NodeFieldSnapshot}`` — one entry per IR node, keyed by ``node.uid``.
-    54	    Nodes without a uid (``node.uid == ""``) use ``str(node.id)`` as a fallback key
-    55	    so they are still captured.
-    56	    """
-    57	    nodes = ir_workflow.nodes
-    58	    edges = ir_workflow.edges
-    59	    inputs = ir_workflow.inputs
-    60
-    61	    # Build id → uid map for resolving edge endpoints to stable keys.
-    62	    id_to_uid: dict[str, str] = {}
-    63	    for node_id, node in nodes.items():
-    64	        id_to_uid[node_id] = node.uid if node.uid else node_id
-    65
-    66	    # Incoming edges per node_id: [(to_input, (source_uid, source_slot))]
-    67	    incoming: dict[str, list] = {node_id: [] for node_id in nodes}
-    68	    for edge in edges:
-    69	        if edge.to_node in incoming:
-    70	            source_uid = id_to_uid.get(edge.from_node, edge.from_node)
-    71	            incoming[edge.to_node].append((edge.to_input, (source_uid, edge.from_output)))
-    72
-    73	    # Outgoing edges per node_id: [(from_output_slot, (target_uid, to_input))]
-    74	    outgoing: dict[str, list] = {node_id: [] for node_id in nodes}
-    75	    for edge in edges:
-    76	        if edge.from_node in outgoing:
-    77	            target_uid = id_to_uid.get(edge.to_node, edge.to_node)
-    78	            outgoing[edge.from_node].append((edge.from_output, (target_uid, edge.to_input)))
-    79
-    80	    # Public input bindings per node_id: [(input_name, field)]
-    81	    public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
-    82	    for input_name, vibe_input in inputs.items():
-    83	        if vibe_input.node_id in public_bindings:
-    84	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
-    85
-    86	    result: dict[str, NodeFieldSnapshot] = {}
-    87	    for node_id, node in nodes.items():
-    88	        uid_key = node.uid if node.uid else node_id
-    89
-    90	        # Combine non-link widget and input values into a sorted, canonicalized sig.
-    91	        all_values: dict[str, Any] = {**node.widgets, **node.inputs}
-    92	        widget_sig = tuple(sorted((k, repr(v)) for k, v in all_values.items()))
-    93
-    94	        incoming_sig = tuple(sorted(incoming.get(node_id, [])))
-    95	        outgoing_sig = tuple(sorted(outgoing.get(node_id, [])))
-    96	        binding_sig = tuple(sorted(public_bindings.get(node_id, [])))
-    97
-    98	        result[uid_key] = {
-    99	            "class_type": node.class_type,
-   100	            "widget_values_sig": widget_sig,
-   101	            "incoming_edge_sig": incoming_sig,
-   102	            "outgoing_edge_sig": outgoing_sig,
-   103	            "public_input_binding": binding_sig,
-   104	        }
-   105
-   106	    return result
-vibecomfy/porting/layout/reconcile.py:27:``definitions`` key is searched for an entry keyed by ``<subgraph_name>:<content_hash>``.
-vibecomfy/porting/layout/reconcile.py:30:  ``definitions[key]["inner_entries"]`` into ``matched`` using scoped UIDs of the form
-vibecomfy/porting/layout/reconcile.py:614:            List of group definitions from the prior save.
-vibecomfy/porting/layout/reconcile.py:617:        ``definitions``
-vibecomfy/porting/layout/reconcile.py:770:    # its inner node furniture in prior_store["definitions"].  Inner nodes are
-vibecomfy/porting/layout/reconcile.py:774:    defs: dict[str, Any] = prior_store.get("definitions", {})
-vibecomfy/porting/layout/groups.py:3:Phase 2 Step 5: :func:`build_subgraph_groups` reads subgraph definitions from
-vibecomfy/porting/layout/groups.py:4:``wf.metadata['definitions']['subgraphs']`` and produces a list of group dicts
-vibecomfy/porting/layout/groups.py:6:values.  Partial inner-uid matches are debug-logged; fully unmatched subgraphs
-vibecomfy/porting/layout/groups.py:31:    # UUID subgraphs — teal
-vibecomfy/porting/layout/groups.py:33:    # Video combine / output subgraphs — plum
-vibecomfy/porting/layout/groups.py:36:    # Audio subgraphs — olive
-vibecomfy/porting/layout/groups.py:38:    # Image-processing subgraphs — navy
-vibecomfy/porting/layout/groups.py:40:    # Misc / generic subgraphs — rust
-vibecomfy/porting/layout/groups.py:92:        Workflow object with ``wf.metadata['definitions']['subgraphs']``.
-vibecomfy/porting/layout/groups.py:101:    Empty list when no subgraphs are present or no nodes matched.
-vibecomfy/porting/layout/groups.py:107:    definitions = metadata.get("definitions")
-vibecomfy/porting/layout/groups.py:108:    if not isinstance(definitions, dict):
-vibecomfy/porting/layout/groups.py:111:    raw_subgraphs = definitions.get("subgraphs")
-vibecomfy/porting/layout/groups.py:112:    if not raw_subgraphs:
-vibecomfy/porting/layout/groups.py:115:    # Accept both dict-of-subgraphs and list-of-subgraphs shapes.
-vibecomfy/porting/layout/groups.py:116:    if isinstance(raw_subgraphs, dict):
-vibecomfy/porting/layout/groups.py:118:            item for item in raw_subgraphs.values() if isinstance(item, dict)
-vibecomfy/porting/layout/groups.py:120:    elif isinstance(raw_subgraphs, list):
-vibecomfy/porting/layout/groups.py:122:            item for item in raw_subgraphs if isinstance(item, dict)
+from __future__ import annotations
 
-exec
-/bin/zsh -lc "nl -ba tests/test_ui_emitter_widget_shape_verdict.py | sed -n '840,1065p'; nl -ba tests/test_ui_emitter_widget_shape_verdict.py | sed -n '1180,1380p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-   840	    wf.nodes["7"] = VibeNode(
-   841	        "7",
-   842	        "DynamicRows",
-   843	        uid="uid-dynamic",
-   844	        raw_widgets=_raw_widgets(),
-   845	    )
-   846	    return wf, raw_ui
-   847
-   848
-   849	def _emit_semantic_pin(wf: VibeWorkflow, raw_ui: dict[str, Any]) -> dict[str, Any]:
-   850	    with warnings.catch_warnings():
-   851	        warnings.simplefilter("ignore")
-   852	        return emit_ui_json(
-   853	            wf,
-   854	            schema_provider=_provider(),
-   855	            prior_store=store_from_ui_json(raw_ui),
-   856	            prior_ui_payload=raw_ui,
-   857	        )
-   858
-   859
-   860	def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
-   861	    wf, raw_ui = _semantic_pin_workflow()
-   862	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
-   863	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
-   864	    for node_id in range(20, 24):
-   865	        wf.nodes[str(node_id)] = VibeNode(str(node_id), "SaveImage", uid=f"consumer-{node_id}")
-   866	    wf.edges = [VibeEdge("7", "0", "10", "value")]
-   867	    wf.edges.extend(VibeEdge("11", "0", str(node_id), "images") for node_id in range(20, 24))
-   868	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   869
-   870	    del wf.nodes["10"]
-   871	    del wf.nodes["11"]
-   872	    wf.edges = [VibeEdge("7", "0", str(node_id), "images") for node_id in range(20, 24)]
-   873
-   874	    emitted = _emit_semantic_pin(wf, raw_ui)
-   875	    assert next(node for node in emitted["nodes"] if node["id"] == 7)["widgets_values"] == [
-   876	        {"lora": "a"},
-   877	        {"lora": "b"},
-   878	    ]
-   879
-   880
-   881	def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
-   882	    wf, raw_ui = _semantic_pin_workflow()
-   883	    wf.nodes["8"] = VibeNode("8", "Reroute", uid="reroute")
-   884	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-   885	    wf.edges = [VibeEdge("7", "0", "8", ""), VibeEdge("8", "0", "9", "images")]
-   886	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   887
-   888	    del wf.nodes["8"]
-   889	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-   890	    # Unrelated earlier-sorting edge changes the emitted numeric link id only.
-   891	    wf.nodes["1"] = VibeNode("1", "KSampler", uid="unrelated-source")
-   892	    wf.nodes["2"] = VibeNode("2", "SaveImage", uid="unrelated-consumer")
-   893	    wf.edges.insert(0, VibeEdge("1", "0", "2", "images"))
-   894
-   895	    emitted = _emit_semantic_pin(wf, raw_ui)
-   896	    pinned = next(node for node in emitted["nodes"] if node["id"] == 7)
-   897	    assert pinned["outputs"][0]["links"] == [2]
-   898
-   899
-   900	def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
-   901	    wf, raw_ui = _semantic_pin_workflow()
-   902	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-   903	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-   904	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   905
-   906	    del wf.nodes["9"]
-   907	    wf.edges = []
-   908	    for iteration in range(3):
-   909	        node_id = str(20 + iteration)
-   910	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   911	        wf.nodes[node_id] = VibeNode(
-   912	            node_id,
-   913	            "SaveImage",
-   914	            uid=lowered_uid,
-   915	            metadata={
-   916	                "vibecomfy.lowering": {
-   917	                    "source_uid": "consumer",
-   918	                    "loop_uid": "loop",
-   919	                    "iteration_index": iteration,
-   920	                }
-   921	            },
-   922	        )
-   923	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
-   924
-   925	    _emit_semantic_pin(wf, raw_ui)
-   926
-   927
-   928	def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
-   929	    """B03 finding 3: snapshot taken AFTER lowering on an UNCHANGED workflow
-   930	    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
-   931	    refused).
-   932
-   933	    The before set holds loop-clone consumer uids (``loop:iter0:consumer``,
-   934	    ``loop:iter1:consumer``) while the live set collapses them to
-   935	    ``consumer``; symmetric alias normalization makes the delta empty so the
-   936	    unchanged lowered workflow pins instead of refusing.
-   937	    """
-   938	    wf, raw_ui = _semantic_pin_workflow()
-   939	    wf.edges = []
-   940	    for iteration in range(2):
-   941	        node_id = str(20 + iteration)
-   942	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   943	        wf.nodes[node_id] = VibeNode(
-   944	            node_id,
-   945	            "SaveImage",
-   946	            uid=lowered_uid,
-   947	            metadata={
-   948	                "vibecomfy.lowering": {
-   949	                    "source_uid": "consumer",
-   950	                    "loop_uid": "loop",
-   951	                    "iteration_index": iteration,
-   952	                }
-   953	            },
-   954	        )
-   955	        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
-   956	    # Snapshot captured AFTER lowering; the workflow is UNCHANGED from here on.
-   957	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-   958
-   959	    _emit_semantic_pin(wf, raw_ui)
-   960
-   961
-   962	def test_pinned_semantic_one_of_two_lowered_clones_repointed_refuses() -> None:
-   963	    """The canonical consumer target receives and refuses the global change."""
-   964	    wf, raw_ui = _semantic_pin_workflow()
-   965	    raw_ui["nodes"][0]["outputs"][0]["links"] = [101, 102]
-   966	    raw_ui["links"] = [
-   967	        [101, 7, 0, 20, 0, "IMAGE"],
-   968	        [102, 7, 0, 21, 0, "IMAGE"],
-   969	    ]
-   970	    for iteration in range(2):
-   971	        node_id = 20 + iteration
-   972	        lowered_uid = clone_uid("loop", "consumer", iteration)
-   973	        raw_ui["nodes"].append(
-   974	            {
-   975	                "id": node_id,
-   976	                "type": "DynamicRows",
-   977	                "pos": [400, iteration * 180],
-   978	                "size": [300, 120],
-   979	                "flags": {},
-   980	                "order": iteration + 1,
-   981	                "mode": 0,
-   982	                "inputs": [{"name": "image", "type": "IMAGE", "link": 101 + iteration}],
-   983	                "outputs": [],
-   984	                "properties": {"vibecomfy_uid": lowered_uid},
-   985	                "widgets_values": [{"lora": "a"}, {"lora": "b"}],
-   986	            }
-   987	        )
-   988	        wf.nodes[str(node_id)] = VibeNode(
-   989	            str(node_id),
-   990	            "DynamicRows",
-   991	            uid=lowered_uid,
-   992	            raw_widgets=_raw_widgets(),
-   993	            metadata={
-   994	                "vibecomfy.lowering": {
-   995	                    "source_uid": "consumer",
-   996	                    "loop_uid": "loop",
-   997	                    "iteration_index": iteration,
-   998	                }
-   999	            },
-  1000	        )
-  1001	        wf.edges.append(VibeEdge("7", "0", str(node_id), "image"))
-  1002	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1003
-  1004	    wf.nodes["8"] = VibeNode("8", "KSampler", uid="source-b")
-  1005	    wf.edges = [
-  1006	        edge
-  1007	        for edge in wf.edges
-  1008	        if not (edge.from_node == "7" and edge.to_node == "20")
-  1009	    ]
-  1010	    wf.edges.append(VibeEdge("8", "0", "20", "image"))
-  1011
-  1012	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1013	        warnings.simplefilter("ignore")
-  1014	        _emit_semantic_pin(wf, raw_ui)
-  1015
-  1016	    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
-  1017	    assert semantic["before"] == [["uid-dynamic", "0", "consumer", "image"]]
-  1018	    assert semantic["after"] == [
-  1019	        ["source-b", "0", "consumer", "image"],
-  1020	        ["uid-dynamic", "0", "consumer", "image"],
-  1021	    ]
-  1022
-  1023
-  1024	def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
-  1025	    """The corpus regression: one Set/Get route becomes N direct clone links."""
-  1026	    wf, raw_ui = _semantic_pin_workflow()
-  1027	    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
-  1028	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
-  1029	    wf.nodes["12"] = VibeNode("12", "SaveImage", uid="consumer")
-  1030	    wf.edges = [
-  1031	        VibeEdge("7", "image", "10", "value"),
-  1032	        VibeEdge("11", "0", "12", "images"),
-  1033	    ]
-  1034	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1035
-  1036	    del wf.nodes["10"]
-  1037	    del wf.nodes["11"]
-  1038	    del wf.nodes["12"]
-  1039	    wf.edges = []
-  1040	    for iteration in range(4):
-  1041	        node_id = str(20 + iteration)
-  1042	        lowered_uid = clone_uid("loop", "consumer", iteration)
-  1043	        wf.nodes[node_id] = VibeNode(
-  1044	            node_id,
-  1045	            "SaveImage",
-  1046	            uid=lowered_uid,
-  1047	            metadata={
-  1048	                "vibecomfy.lowering": {
-  1049	                    "source_uid": "consumer",
-  1050	                    "loop_uid": "loop",
-  1051	                    "iteration_index": iteration,
-  1052	                }
-  1053	            },
-  1054	        )
-  1055	        wf.edges.append(VibeEdge("7", "image", node_id, "images"))
-  1056
-  1057	    _emit_semantic_pin(wf, raw_ui)
-  1058
-  1059
-  1060	def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
-  1061	    """Exercise an actual nested definition through the UI emitter."""
-  1062	    wf, raw_ui = _semantic_pin_workflow()
-  1063	    wf.metadata["definitions"] = {
-  1064	        "subgraphs": [
-  1065	            {
-  1180	        ("checkpoint", "CLIP", "clip-consumer", "clip"),
-  1181	        ("checkpoint", "MODEL", "model-consumer", "model"),
-  1182	    )
-  1183	    assert issues == ()
-  1184
-  1185
-  1186	@pytest.mark.parametrize(
-  1187	    ("after_links", "expected_after"),
-  1188	    [
-  1189	        ([], []),
-  1190	        (
-  1191	            [
-  1192	                ("source", "model", "consumer", "images"),
-  1193	                ("source", "model", "other", "images"),
-  1194	            ],
-  1195	            [
-  1196	                ["source-uid", "model", "consumer-uid", "images"],
-  1197	                ["source-uid", "model", "other-uid", "images"],
-  1198	            ],
-  1199	        ),
-  1200	        ([("source", "model", "other", "images")], [["source-uid", "model", "other-uid", "images"]]),
-  1201	        ([("source", "model", "consumer", "mask")], [["source-uid", "model", "consumer-uid", "mask"]]),
-  1202	        ([("source", "clip", "consumer", "images")], [["source-uid", "clip", "consumer-uid", "images"]]),
-  1203	    ],
-  1204	    ids=["removed", "added", "repointed", "consumer_input_changed", "source_output_changed"],
-  1205	)
-  1206	def test_pinned_semantic_genuine_consumer_change_refuses(
-  1207	    after_links: list[tuple[str, str, str, str]],
-  1208	    expected_after: list[list[str]],
-  1209	) -> None:
-  1210	    wf, raw_ui = _semantic_pin_workflow()
-  1211	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer-uid")
-  1212	    wf.nodes["10"] = VibeNode("10", "SaveImage", uid="other-uid")
-  1213	    wf.nodes["7"].uid = "source-uid"
-  1214	    raw_ui["nodes"][0]["properties"]["vibecomfy_uid"] = "source-uid"
-  1215	    wf.edges = [VibeEdge("7", "model", "9", "images")]
-  1216	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1217	    id_for = {"source": "7", "consumer": "9", "other": "10"}
-  1218	    wf.edges = [VibeEdge(id_for[a], b, id_for[c], d) for a, b, c, d in after_links]
-  1219
-  1220	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1221	        warnings.simplefilter("ignore")
-  1222	        _emit_semantic_pin(wf, raw_ui)
-  1223
-  1224	    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1225	    assert link_delta["before"] == [["source-uid", "model", "consumer-uid", "images"]]
-  1226	    assert link_delta["after"] == expected_after
-  1227
-  1228
-  1229	@pytest.mark.parametrize(
-  1230	    ("nodes", "links", "issue_prefix"),
-  1231	    [
-  1232	        (
-  1233	            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
-  1234	            [("r", "0", "c", "input")],
-  1235	            "reroute_source_count:r:0",
-  1236	        ),
-  1237	        (
-  1238	            {
-  1239	                "r1": ("reroute-1", "Reroute", None),
-  1240	                "r2": ("reroute-2", "Reroute", None),
-  1241	                "c": ("consumer", "Consumer", None),
-  1242	            },
-  1243	            [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
-  1244	            "cyclic_path:",
-  1245	        ),
-  1246	        (
-  1247	            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
-  1248	            [("g", "0", "c", "input")],
-  1249	            "broadcast_setter_count:g:MISSING:0",
-  1250	        ),
-  1251	        (
-  1252	            {
-  1253	                "s1": ("source-1", "Producer", None),
-  1254	                "s2": ("source-2", "Producer", None),
-  1255	                "r": ("reroute", "Reroute", None),
-  1256	                "c": ("consumer", "Consumer", None),
-  1257	            },
-  1258	            [
-  1259	                ("s1", "0", "r", ""),
-  1260	                ("s2", "0", "r", ""),
-  1261	                ("r", "0", "c", "input"),
-  1262	            ],
-  1263	            "reroute_source_count:r:2",
-  1264	        ),
-  1265	    ],
-  1266	    ids=["orphaned_reroute", "cyclic_reroute", "orphaned_broadcast", "ambiguous_reroute"],
-  1267	)
-  1268	def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
-  1269	    nodes: dict[str, tuple[str, str, str | None]],
-  1270	    links: list[tuple[str, str, str, str]],
-  1271	    issue_prefix: str,
-  1272	) -> None:
-  1273	    first = canonical_semantic_link_set(nodes, links)
-  1274	    second = canonical_semantic_link_set(nodes, reversed(links))
-  1275	    assert first == second
-  1276	    assert any(issue.startswith(issue_prefix) for issue in first[1])
-  1277
-  1278
-  1279	def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
-  1280	    semantic, issues = canonical_semantic_link_set(
-  1281	        {
-  1282	            "s": ("source", "Producer", None),
-  1283	            "r": ("reroute", "Reroute", None),
-  1284	            "c": ("consumer", "Consumer", None),
-  1285	        },
-  1286	        [
-  1287	            ("s", "image", "r", "input-a"),
-  1288	            ("s", "image", "r", "input-b"),
-  1289	            ("r", "0", "c", "images"),
-  1290	        ],
-  1291	    )
-  1292	    assert semantic == ()
-  1293	    assert issues == ("reroute_source_count:r:2",)
-  1294
-  1295
-  1296	def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
-  1297	    nodes = {
-  1298	        "z": ("duplicate", "Producer", None),
-  1299	        "a": ("duplicate", "Producer", None),
-  1300	        "m": ("duplicate", "Producer", None),
-  1301	    }
-  1302	    forward = canonical_semantic_link_set(nodes, [])
-  1303	    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
-  1304	    assert forward == reverse
-  1305	    assert forward[1] == (
-  1306	        "duplicate_uid:duplicate:a:m",
-  1307	        "duplicate_uid:duplicate:a:z",
-  1308	    )
-  1309
-  1310
-  1311	def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
-  1312	    wf, raw_ui = _semantic_pin_workflow()
-  1313	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-  1314	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-  1315	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1316
-  1317	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
-  1318	    wf.edges = [VibeEdge("11", "0", "9", "images")]
-  1319
-  1320	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1321	        warnings.simplefilter("ignore")
-  1322	        _emit_semantic_pin(wf, raw_ui)
-  1323
-  1324	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1325	    assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
-  1326	    assert semantic_delta["after"] == []
-  1327	    assert semantic_delta["after_resolution_issues"] == [
-  1328	        "broadcast_setter_count:11:MISSING:0"
-  1329	    ]
-  1330
-  1331
-  1332	def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
-  1333	    wf, raw_ui = _semantic_pin_workflow()
-  1334	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
-  1335	    wf.edges = [VibeEdge("7", "0", "9", "images")]
-  1336	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
-  1337
-  1338	    wf.nodes["11"] = VibeNode("11", "Reroute", uid="reroute-1")
-  1339	    wf.nodes["12"] = VibeNode("12", "Reroute", uid="reroute-2")
-  1340	    wf.edges = [
-  1341	        VibeEdge("11", "0", "12", ""),
-  1342	        VibeEdge("12", "0", "11", ""),
-  1343	        VibeEdge("11", "0", "9", "images"),
-  1344	    ]
-  1345
-  1346	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
-  1347	        warnings.simplefilter("ignore")
-  1348	        _emit_semantic_pin(wf, raw_ui)
-  1349
-  1350	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
-  1351	    assert semantic_delta["after"] == []
-  1352	    assert len(semantic_delta["after_resolution_issues"]) == 1
-  1353	    assert semantic_delta["after_resolution_issues"][0].startswith("cyclic_path:")
-  1354
-  1355
-  1356	def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
-  1357	    nodes = {
-  1358	        "s": ("source", "Producer", None),
-  1359	        "c": ("consumer", "Consumer", None),
-  1360	    }
-  1361	    semantic, issues = canonical_semantic_link_set(
-  1362	        nodes,
-  1363	        [
-  1364	            ("s", "model", "c", "input"),
-  1365	            ("s", "model", "c", "input"),
-  1366	            ("s", "clip", "c", "input"),
-  1367	        ],
-  1368	    )
-  1369	    assert semantic == (
-  1370	        ("source", "clip", "consumer", "input"),
-  1371	        ("source", "model", "consumer", "input"),
-  1372	    )
-  1373	    assert issues == ()
-  1374
-  1375
-  1376	def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
-  1377	    """Captured raw _ui may list extra stale output links; pin must emit the IR link set."""
-  1378	    # Reuse the connected DynamicRows fixture but put TWO stale links on the
-  1379	    # pinned node's output while the IR has only one outgoing edge.
-  1380	    raw_ui = _raw_connected_dynamic_ui()
+# Scope<->local separator and scope-chain join. Distinct from ':' (sg_key) so a
+# chained scope_path round-trips without the M1.5 first-colon partition defect.
+SCOPE_LOCAL_SEP = "#"
+SCOPE_CHAIN_JOIN = "/"
 
-exec
-/bin/zsh -lc "git log --format='%H %s' --reverse e1bef3bf..59a5f16c && git diff --name-status e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-e353e76832469580bdf9975151d89ce67abd3447 megado B03: canonical semantic pin comparison — dedupe multiplicity, normalize reroute/loop-clone UIDs, fail-closed on genuine consumer changes; traversal termination fix (pin test 45s->0.7s, cyclic/5000-hop stress green); 39 widget-verdict + 14 layout tests pass
-5ae0f66caa99b77376ebe7811d80b179ed41350d megado B03 rework2: symmetric loop-clone normalization — snapshot set canonicalized with its own aliases, unchanged lowered workflow yields empty semantic delta; no-mutation regression + stress green; 55 tests pass
-1e6b28c9f1732bfff9b410d4c5256546563d0d03 megado B03 rework3: snapshot aliases corroborated (no UID-shape inference), canonical incident attribution catches repointed clones, helper input-port identity preserved, deterministic duplicate diagnostics, real nested-subgraph + multi-output fixtures — 62 tests green
-59a5f16c8b65e3b3a8aded97e75bb9f446b04b74 megado B03 rework4: SetNode-as-source resolves via unique inbound terminal (compiler parity), fail-closed only on ambiguous/cyclic; corpus mismatches 340->29, 011c7ad9 clean, zero new refusals; 67 focused tests green
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-M	tests/conftest.py
-M	tests/test_layout_delta.py
-M	tests/test_ui_emitter_widget_shape_verdict.py
-M	vibecomfy/porting/emit/ui.py
-M	vibecomfy/porting/layout/delta.py
-M	vibecomfy/porting/lowering.py
-M	vibecomfy/porting/refuse.py
-M	vibecomfy/porting/widget_shape_fence.py
 
-exec
-/bin/zsh -lc "nl -ba vibecomfy/ingest/subgraph_resolve.py | sed -n '1,180p'; rg -n \"SetNode|GetNode|setter|broadcast\" vibecomfy -g '*.py' | head -200" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-nl: vibecomfy/ingest/subgraph_resolve.py: No such file or directory
+def make_uid(scope_path: str, local_uid: str) -> str:
+    """Compose a fully-qualified uid from a scope path and local uid.
+
+    Returns local_uid verbatim when scope_path is empty (flat uids unchanged),
+    else f"{scope_path}{SCOPE_LOCAL_SEP}{local_uid}".
+    """
+    if scope_path == "":
+        return local_uid
+    return f"{scope_path}{SCOPE_LOCAL_SEP}{local_uid}"
+
+
+def parse_uid(uid: str) -> tuple[str, str]:
+    """Inverse of make_uid. Returns (scope_path, local_uid).
+
+    Splits on the RIGHTMOST scope<->local separator so a chained scope_path
+    (joined with ``/``) survives intact.  Returns ("", uid) for a bare scalar
+    with no separator.
+    """
+    if SCOPE_LOCAL_SEP not in uid:
+        return ("", uid)
+    scope_path, _, local_uid = uid.rpartition(SCOPE_LOCAL_SEP)
+    return (scope_path, local_uid)
+
+
+def mint_local_uid(raw_ui_node: dict | None, fallback_id: str) -> str:
+    """Derive a local uid from a raw litegraph node dict.
+
+    Precedence:
+    1. str(properties["vibecomfy_uid"]) if present in raw node
+    2. str(raw_ui_node["id"]) — the litegraph integer node id
+    3. fallback_id
+    """
+    if raw_ui_node is None:
+        return fallback_id
+    properties = raw_ui_node.get("properties") or {}
+    vibecomfy_uid = properties.get("vibecomfy_uid")
+    if vibecomfy_uid is not None:
+        return str(vibecomfy_uid)
+    node_id = raw_ui_node.get("id")
+    if node_id is not None:
+        return str(node_id)
+    return fallback_id
 vibecomfy/porting/lint.py:407:        "GetNode",
 vibecomfy/porting/lint.py:408:        "SetNode",
-vibecomfy/runtime/prompt.py:64:            setter = getattr(provider, "_set_object_info", None)
-vibecomfy/runtime/prompt.py:65:            if callable(setter):
-vibecomfy/runtime/prompt.py:66:                setter(cached)
-vibecomfy/runtime/session.py:943:            setter = getattr(provider, "_set_object_info", None)
-vibecomfy/runtime/session.py:944:            if callable(setter):
-vibecomfy/runtime/session.py:945:                setter(cached)
-vibecomfy/demo_factory/deltas.py:3:Produces canonical edit ops (SetNodeFieldOp, AddNodeOp, RemoveNodeOp,
-vibecomfy/demo_factory/deltas.py:24:    SetNodeFieldOp,
-vibecomfy/demo_factory/deltas.py:105:) -> list[SetNodeFieldOp]:
-vibecomfy/demo_factory/deltas.py:106:    """Compare widgets between broken and golden nodes, produce SetNodeFieldOp for diffs."""
-vibecomfy/demo_factory/deltas.py:125:            # Field differs - create SetNodeFieldOp
-vibecomfy/demo_factory/deltas.py:131:            ops.append(SetNodeFieldOp(op="set_node_field", target=target, value=golden_val))
-vibecomfy/porting/provenance.py:15:        "GetNode",
-vibecomfy/porting/provenance.py:16:        "SetNode",
-vibecomfy/commands/port/_export.py:176:                    f"broadcast name={e.get('broadcast_name')!r} — "
-vibecomfy/commands/port/_export.py:177:                    f"no matching SetNode source"
-vibecomfy/node_packs/_defs.py:346:                "GetNode",
-vibecomfy/node_packs/_defs.py:350:                "SetNode",
-vibecomfy/commands/port/_register.py:122:        help="Emit GetNode/SetNode/Reroute as explicit wf.node(...) calls instead of resolving them.",
-vibecomfy/commands/port/_register.py:147:    export.add_argument("--no-virtual-wires", action="store_true", help="Omit SetNode/GetNode virtual wire resolution.")
 vibecomfy/_compile/_helpers.py:8:BROADCAST_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode"})
 vibecomfy/_compile/_helpers.py:37:def is_broadcast_helper_class_type(class_type: str) -> bool:
 vibecomfy/_compile/_helpers.py:66:    broadcast_sources = collect_broadcast_sources(nodes, edges)
@@ -5324,10 +4708,31 @@ vibecomfy/_compile/_helpers.py:181:    # as ``name=`` kwargs (e.g. ``_node(wf, '
 vibecomfy/_compile/_helpers.py:278:    "broadcast_name",
 vibecomfy/_compile/_helpers.py:279:    "collect_broadcast_sources",
 vibecomfy/_compile/_helpers.py:285:    "is_broadcast_helper_class_type",
+vibecomfy/porting/provenance.py:15:        "GetNode",
+vibecomfy/porting/provenance.py:16:        "SetNode",
 vibecomfy/_compile/_widgets.py:547:    # rgthree helper broadcast nodes: widget_0 holds the broadcast variable name.
 vibecomfy/_compile/_widgets.py:548:    # Source: rgthree-comfy node implementations (SetNode/GetNode store `name` as the
 vibecomfy/_compile/_widgets.py:552:    "GetNode": ["name"],
 vibecomfy/_compile/_widgets.py:553:    "SetNode": ["name"],
+vibecomfy/porting/convert.py:158:# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes whose
+vibecomfy/porting/convert.py:161:_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+vibecomfy/porting/convert.py:174:        broadcast_name,
+vibecomfy/porting/convert.py:186:            broadcast_name(node)
+vibecomfy/porting/convert.py:257:    # Collect broadcast sources *before* the top-level resolver strips
+vibecomfy/porting/convert.py:258:    # SetNode nodes.  Subgraph helpers (GetNode inside UUID subgraph
+vibecomfy/porting/convert.py:259:    # definitions) need the original top-level broadcast map to resolve
+vibecomfy/porting/convert.py:261:    # race between resolve_helpers (which deletes SetNode) and
+vibecomfy/porting/convert.py:262:    # resolve_subgraph_helpers (which needs SetNode broadcast data).
+vibecomfy/porting/convert.py:263:    from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
+vibecomfy/porting/convert.py:264:    _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
+vibecomfy/porting/convert.py:277:    # the pre-resolve broadcast snapshot.  Subgraph helpers reference
+vibecomfy/porting/convert.py:278:    # top-level SetNode broadcasts; if we resolve top-level helpers first,
+vibecomfy/porting/convert.py:279:    # SetNode nodes are deleted and the subgraph resolver finds nothing.
+vibecomfy/porting/convert.py:292:            _pre_resolve_broadcasts,
+vibecomfy/porting/convert.py:303:    # When keep_virtual_wires=True, skip resolution so GetNode/SetNode/Reroute
+vibecomfy/porting/edit/lint.py:68:    SetNodeFieldOp,
+vibecomfy/porting/edit/lint.py:754:    op: SetNodeFieldOp, op_index: int, index: LintIndex
+vibecomfy/porting/edit/lint.py:831:    return SetNodeFieldOp(op="set_node_field", target=target, value=op.value), None, "passed"
 vibecomfy/_compile/_resolve.py:12:    broadcast_name,
 vibecomfy/_compile/_resolve.py:13:    collect_broadcast_sources,
 vibecomfy/_compile/_resolve.py:64:        changed |= _phase_a_broadcasts(workflow, make_error)
@@ -5363,9 +4768,107 @@ vibecomfy/_compile/_resolve.py:291:        if source_id not in source_to_broadca
 vibecomfy/_compile/_resolve.py:292:            source_to_broadcast_name[source_id] = name
 vibecomfy/_compile/_resolve.py:306:        bname = source_to_broadcast_name.get(node_id)
 vibecomfy/_compile/_resolve.py:416:def _is_valid_broadcast_name(name: str, primitive_class_type: str) -> bool:
-vibecomfy/nodes/core.py:11725:    Generate broadcast-style digital human videos from a single photo and an audio file.
+vibecomfy/porting/subgraph_resolve.py:1:"""Resolve helpers within subgraph definitions using the top-level broadcast map.
+vibecomfy/porting/subgraph_resolve.py:46:    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
+vibecomfy/porting/subgraph_resolve.py:56:    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
+vibecomfy/porting/subgraph_resolve.py:67:    if pre_collected_broadcasts is not None:
+vibecomfy/porting/subgraph_resolve.py:68:        top_broadcasts = pre_collected_broadcasts
+vibecomfy/porting/subgraph_resolve.py:70:        from vibecomfy._compile._helpers import collect_broadcast_sources
+vibecomfy/porting/subgraph_resolve.py:71:        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
+vibecomfy/porting/subgraph_resolve.py:76:        _resolve_one(sg, top_broadcasts)
+vibecomfy/porting/subgraph_resolve.py:79:def _resolve_one(sg: dict, top_broadcasts: dict) -> None:
+vibecomfy/porting/subgraph_resolve.py:105:            if ct == "GetNode":
+vibecomfy/porting/subgraph_resolve.py:106:                changed |= _resolve_getnode(nodes_dict, nodes_list, links_list, nid, node, top_broadcasts)
+vibecomfy/porting/subgraph_resolve.py:128:    nid: str, node: dict, top_broadcasts: dict,
+vibecomfy/porting/subgraph_resolve.py:131:    if not name or str(name) not in top_broadcasts:
+vibecomfy/porting/subgraph_resolve.py:133:    source = top_broadcasts[str(name)]
+vibecomfy/porting/edit/_diff.py:14:    SetNodeFieldOp,
+vibecomfy/porting/edit/_diff.py:33:        if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/_diff.py:49:    def _summarize_set_node_field(self, op: SetNodeFieldOp) -> str:
+vibecomfy/porting/edit/_diff.py:195:        if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/_diff.py:245:    When *old_value* is supplied for a ``SetNodeFieldOp`` whose *field_path*
+vibecomfy/porting/edit/_diff.py:249:    if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/apply.py:30:    _helper_broadcast_name,
+vibecomfy/porting/edit/apply_resolve.py:6:from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+vibecomfy/porting/edit/apply_resolve.py:20:    if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/layout/delta.py:30:_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
+vibecomfy/porting/layout/delta.py:32:# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
+vibecomfy/porting/layout/delta.py:48:    broadcast_name)``. ``links`` preserves both endpoint ports as
+vibecomfy/porting/layout/delta.py:131:        if class_type == "SetNode" and channel:
+vibecomfy/porting/layout/delta.py:136:    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
+vibecomfy/porting/layout/delta.py:137:    # SetNode-as-source passthrough) follows exactly one candidate or fails
+vibecomfy/porting/layout/delta.py:204:            elif class_type == "GetNode":
+vibecomfy/porting/layout/delta.py:206:                    record_issue(f"broadcast_name_missing:{key[0]}")
+vibecomfy/porting/layout/delta.py:211:                    # No SetNode backs this channel: the GetNode is an unbacked
+vibecomfy/porting/layout/delta.py:214:                    # instead of fabricating ``broadcast_setter_count:*:0`` on
+vibecomfy/porting/layout/delta.py:221:                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
+vibecomfy/porting/layout/delta.py:228:                    # The channel's sole SetNode has no inbound terminal: the
+vibecomfy/porting/layout/delta.py:230:                    # rule as the source-less SetNode-as-source case below.
+vibecomfy/porting/layout/delta.py:235:                    record_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
+vibecomfy/porting/layout/delta.py:239:            else:  # SetNode used as a source resolves passthrough through its
+vibecomfy/porting/layout/delta.py:241:                # same case (_compile/_resolve.py:172).  A source-less SetNode
+vibecomfy/porting/layout/delta.py:278:        if consumer_class_type in {"SetNode", "Reroute"}:
+vibecomfy/porting/layout/delta.py:281:        if consumer_class_type == "GetNode":
+vibecomfy/porting/layout/delta.py:282:            if consumer_input == "broadcast_out":
+vibecomfy/porting/layout/delta.py:283:                # An edge entering a GetNode through its channel input is a
+vibecomfy/porting/layout/delta.py:284:                # display edge: the compiler resolves the GetNode's outbound
+vibecomfy/porting/layout/delta.py:433:        if node.class_type in {"SetNode", "GetNode"}:
+vibecomfy/porting/edit/apply_links.py:59:    name = _helper_broadcast_name(set_node)
+vibecomfy/porting/edit/apply_links.py:69:        if str(node.get("type") or node.get("class_type") or "") != "GetNode":
+vibecomfy/porting/edit/apply_links.py:71:        if _helper_broadcast_name(node) != name:
+vibecomfy/porting/edit/apply_links.py:93:    name = _helper_broadcast_name(node)
+vibecomfy/porting/edit/apply_links.py:103:        and str(candidate.get("type") or candidate.get("class_type") or "") == "SetNode"
+vibecomfy/porting/edit/apply_links.py:104:        and _helper_broadcast_name(candidate) == name
+vibecomfy/porting/edit/apply_links.py:110:                "GetNode remove_node passthrough requires exactly one matching SetNode source.",
+vibecomfy/porting/edit/apply_links.py:160:    if origin_class == "GetNode":
+vibecomfy/porting/edit/apply_links.py:162:    if origin_class == "SetNode":
+vibecomfy/porting/edit/apply_links.py:167:def _helper_broadcast_name(node: Mapping[str, Any]) -> str | None:
+vibecomfy/porting/layout/engine.py:117:    # Compute in-degree via id→uid-translated edge list (pre-broadcast).
+vibecomfy/porting/edit/apply_resolve_base.py:7:from .ops import LinkSourceRef, LinkTargetRef, NodeFieldTarget, NodeTarget, RemoveLinkOp, SetNodeFieldOp, UpsertLinkOp
+vibecomfy/porting/edit/apply_resolve_base.py:153:    if node_ref.class_type == "GetNode":
+vibecomfy/porting/edit/apply_resolve_base.py:168:    if node_ref.class_type == "SetNode":
+vibecomfy/porting/edit/apply_resolve_base.py:186:    op: SetNodeFieldOp,
+vibecomfy/porting/edit/apply_mutate.py:6:from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+vibecomfy/porting/edit/apply_mutate.py:21:    if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/cache/object_info/ComfyUI-LTXVideo@runpod-snapshot.json:3538:            "tooltip": "Mask indicating regions to replace with green. Single-frame masks are broadcast."
+vibecomfy/porting/edit/projection.py:19:HELPER_NODE_TYPES = frozenset({"Reroute", "GetNode", "SetNode", "Note", "MarkdownNote"})
+vibecomfy/porting/edit/_ir_utils.py:12:    SetNodeFieldOp,
+vibecomfy/porting/edit/_ir_utils.py:263:    if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/apply_gate.py:8:from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+vibecomfy/porting/edit/apply_gate.py:224:        if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/_session_types.py:99:                SetNodeFieldOp,
+vibecomfy/porting/edit/_session_types.py:109:                if isinstance(op, SetNodeFieldOp):
 vibecomfy/porting/emit/emit_prepare.py:47:_VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
 vibecomfy/porting/emit/emit_prepare.py:74:    # Exception: when keep_virtual_wires=True, GetNode/SetNode/Reroute are intentionally
+vibecomfy/porting/edit/ops.py:170:class SetNodeFieldOp:
+vibecomfy/porting/edit/ops.py:224:    SetNodeFieldOp
+vibecomfy/porting/edit/ops.py:472:        return SetNodeFieldOp(
+vibecomfy/porting/edit/ops.py:602:    if isinstance(parsed, SetNodeFieldOp):
+vibecomfy/porting/edit/ops.py:741:        if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/ops.py:834:    if isinstance(op, SetNodeFieldOp):
+vibecomfy/porting/edit/ops.py:1122:    "SetNodeFieldOp",
+vibecomfy/porting/edit/__init__.py:31:    "SetNodeFieldOp": "vibecomfy.porting.edit.ops",
+vibecomfy/porting/edit/session.py:24:    SetNodeFieldOp,
+vibecomfy/porting/edit/_parse_execute.py:20:    SetNodeFieldOp,
+vibecomfy/porting/edit/_parse_execute.py:429:        return SetNodeFieldOp(op="set_node_field", target=field_target, value=literal_value), ()
+vibecomfy/porting/cache/object_info/comfy_core@object_info_comfyui_0.24.0.1.json:34458:    "description": "Generate broadcast-style digital human videos from a single photo and an audio file.",
+vibecomfy/porting/reorganise/graph_facts.py:9:from vibecomfy._compile._helpers import collect_broadcast_sources
+vibecomfy/porting/reorganise/graph_facts.py:632:    if class_type in {"SetNode", "GetNode"}:
+vibecomfy/porting/reorganise/graph_facts.py:1072:    after_broadcast = _resolve_broadcast_edges(adapter, raw)
+vibecomfy/porting/reorganise/graph_facts.py:1073:    after_reroute = _resolve_reroute_edges(adapter, after_broadcast)
+vibecomfy/porting/reorganise/graph_facts.py:1086:    resolved to direct passthrough edges by the broadcast and reroute resolvers before
+vibecomfy/porting/reorganise/graph_facts.py:1103:def _resolve_broadcast_edges(adapter: _ScopeTopologyAdapter, edges: list[_RawEdge]) -> list[_RawEdge]:
+vibecomfy/porting/reorganise/graph_facts.py:1107:        if node.class_type in {"SetNode", "GetNode"}
+vibecomfy/porting/reorganise/graph_facts.py:1111:    sources = collect_broadcast_sources(adapter.workflow.nodes, adapter.workflow.edges)
+vibecomfy/porting/reorganise/graph_facts.py:1115:        if node.class_type != "GetNode":
+vibecomfy/porting/reorganise/orchestrate.py:1286:        if class_type == "SetNode":
+vibecomfy/porting/reorganise/orchestrate.py:1297:                        reason="SetNode is displayed beside the producer feeding its broadcast value.",
+vibecomfy/porting/reorganise/orchestrate.py:1301:        elif class_type == "GetNode":
+vibecomfy/porting/reorganise/orchestrate.py:1313:                        reason="GetNode is displayed beside the consumer it plugs into.",
+vibecomfy/porting/reorganise/orchestrate.py:1329:                        reason="Dangling GetNode has no consumer edge, so it is displayed beside the matching channel producer.",
+vibecomfy/porting/reorganise/orchestrate.py:1469:        if helper.class_type != "SetNode" or not helper.channel:
+vibecomfy/porting/reorganise/classify.py:467:    get / set      ``sidecar`` (virtual-wire helpers: ``SetNode``, ``GetNode``)
+vibecomfy/porting/reorganise/plan_types.py:217:    {"SetNode", "GetNode", "Reroute", "Note", "MarkdownNote"}
 vibecomfy/porting/emit/ui.py:26:use the litegraph OBJECT shape. ``SetNode``/``GetNode`` broadcast helpers are resolved
 vibecomfy/porting/emit/ui.py:27:into direct links via :func:`collect_broadcast_sources` and omitted from ``nodes``.
 vibecomfy/porting/emit/ui.py:68:    broadcast_name,
@@ -5381,1373 +4884,102 @@ vibecomfy/porting/emit/ui.py:489:    under a broadcast name; each ``GetNode`` re
 vibecomfy/porting/emit/ui.py:491:    rewire every ``GetNode``-origin edge to the captured real source, so a fan-out of N
 vibecomfy/porting/emit/ui.py:493:    ``GetNode`` reference drops its dangling edges.
 vibecomfy/porting/emit/ui.py:495:    Returns ``(effective_edges, broadcast_helper_ids, orphaned_get_ids)`` where
-vibecomfy/porting/emit/ui.py:496:    *orphaned_get_ids* are GetNode IDs whose broadcast name could not be resolved
-vibecomfy/porting/emit/ui.py:497:    to a SetNode source (used for the recovery report in display mode).  When the
-vibecomfy/porting/emit/ui.py:498:    IR carries no broadcast helpers (the common case) the original edge list is
-vibecomfy/porting/emit/ui.py:504:        if is_broadcast_helper_class_type(node.class_type)
-vibecomfy/porting/emit/ui.py:509:    sources = collect_broadcast_sources(wf.nodes, wf.edges)
-vibecomfy/porting/emit/ui.py:514:        if node.class_type != "GetNode":
-vibecomfy/porting/emit/ui.py:516:        name = broadcast_name(node)
-vibecomfy/porting/emit/ui.py:526:            continue  # edge into a SetNode/GetNode helper — not a runtime link
-vibecomfy/porting/emit/ui.py:530:                continue  # unresolved broadcast — drop the dangling edge
-vibecomfy/porting/emit/ui.py:2154:    # ── Resolve broadcast helpers (SetNode / GetNode) into direct edges ────
-vibecomfy/porting/emit/ui.py:2156:    # broadcast_ids: SetNode/GetNode node ids to drop from flat graph
-vibecomfy/porting/emit/ui.py:2157:    # orphaned_get_ids: GetNode ids whose broadcast name has no SetNode source
-vibecomfy/porting/emit/ui.py:2158:    effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
-vibecomfy/porting/emit/ui.py:2160:    # Collect the full set of virtual-wire node ids (broadcast + Reroute)
-vibecomfy/porting/emit/ui.py:2166:    virtual_wire_ids: set[str] = broadcast_ids | reroute_ids
-vibecomfy/porting/emit/ui.py:2182:        # First resolve broadcast indirection, then passthrough Reroutes
-vibecomfy/porting/emit/ui.py:2618:                name = broadcast_name(node) if node else None
-vibecomfy/porting/emit/ui.py:2621:                    "class_type": "GetNode",
-vibecomfy/porting/emit/ui.py:2626:                        f"orphaned virtual-wire: GetNode {gid} "
-vibecomfy/porting/emit/ui.py:2627:                        f"(broadcast name={name!r}) has no matching SetNode source — "
-vibecomfy/porting/emit/ui.py:2631:                    "broadcast_name": name,
-vibecomfy/porting/subgraph_resolve.py:1:"""Resolve helpers within subgraph definitions using the top-level broadcast map.
-vibecomfy/porting/subgraph_resolve.py:46:    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
-vibecomfy/porting/subgraph_resolve.py:56:    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
-vibecomfy/porting/subgraph_resolve.py:67:    if pre_collected_broadcasts is not None:
-vibecomfy/porting/subgraph_resolve.py:68:        top_broadcasts = pre_collected_broadcasts
-vibecomfy/porting/subgraph_resolve.py:70:        from vibecomfy._compile._helpers import collect_broadcast_sources
-vibecomfy/porting/subgraph_resolve.py:71:        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
-vibecomfy/porting/subgraph_resolve.py:76:        _resolve_one(sg, top_broadcasts)
-vibecomfy/porting/subgraph_resolve.py:79:def _resolve_one(sg: dict, top_broadcasts: dict) -> None:
-vibecomfy/porting/subgraph_resolve.py:105:            if ct == "GetNode":
-vibecomfy/porting/subgraph_resolve.py:106:                changed |= _resolve_getnode(nodes_dict, nodes_list, links_list, nid, node, top_broadcasts)
-vibecomfy/porting/subgraph_resolve.py:128:    nid: str, node: dict, top_broadcasts: dict,
-vibecomfy/porting/subgraph_resolve.py:131:    if not name or str(name) not in top_broadcasts:
-vibecomfy/porting/subgraph_resolve.py:133:    source = top_broadcasts[str(name)]
-vibecomfy/porting/reorganise/graph_facts.py:9:from vibecomfy._compile._helpers import collect_broadcast_sources
-vibecomfy/porting/reorganise/graph_facts.py:632:    if class_type in {"SetNode", "GetNode"}:
-vibecomfy/porting/reorganise/graph_facts.py:1072:    after_broadcast = _resolve_broadcast_edges(adapter, raw)
-vibecomfy/porting/reorganise/graph_facts.py:1073:    after_reroute = _resolve_reroute_edges(adapter, after_broadcast)
-vibecomfy/porting/reorganise/graph_facts.py:1086:    resolved to direct passthrough edges by the broadcast and reroute resolvers before
-vibecomfy/porting/reorganise/graph_facts.py:1103:def _resolve_broadcast_edges(adapter: _ScopeTopologyAdapter, edges: list[_RawEdge]) -> list[_RawEdge]:
-vibecomfy/porting/reorganise/graph_facts.py:1107:        if node.class_type in {"SetNode", "GetNode"}
-vibecomfy/porting/reorganise/graph_facts.py:1111:    sources = collect_broadcast_sources(adapter.workflow.nodes, adapter.workflow.edges)
-vibecomfy/porting/reorganise/graph_facts.py:1115:        if node.class_type != "GetNode":
-vibecomfy/porting/reorganise/plan_types.py:217:    {"SetNode", "GetNode", "Reroute", "Note", "MarkdownNote"}
-vibecomfy/porting/reorganise/classify.py:467:    get / set      ``sidecar`` (virtual-wire helpers: ``SetNode``, ``GetNode``)
-vibecomfy/porting/reorganise/orchestrate.py:1286:        if class_type == "SetNode":
-vibecomfy/porting/reorganise/orchestrate.py:1297:                        reason="SetNode is displayed beside the producer feeding its broadcast value.",
-vibecomfy/porting/reorganise/orchestrate.py:1301:        elif class_type == "GetNode":
-vibecomfy/porting/reorganise/orchestrate.py:1313:                        reason="GetNode is displayed beside the consumer it plugs into.",
-vibecomfy/porting/reorganise/orchestrate.py:1329:                        reason="Dangling GetNode has no consumer edge, so it is displayed beside the matching channel producer.",
-vibecomfy/porting/reorganise/orchestrate.py:1469:        if helper.class_type != "SetNode" or not helper.channel:
-vibecomfy/porting/reorganise/compile.py:4140:    wired through rgthree Set/Get broadcast channels rather than direct edges --
-vibecomfy/porting/reorganise/compile.py:4175:    # the section's nodes are only wired through broadcasts) is the degenerate
-vibecomfy/porting/convert.py:158:# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes whose
-vibecomfy/porting/convert.py:161:_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
-vibecomfy/porting/convert.py:174:        broadcast_name,
-vibecomfy/porting/convert.py:186:            broadcast_name(node)
-vibecomfy/porting/convert.py:257:    # Collect broadcast sources *before* the top-level resolver strips
-vibecomfy/porting/convert.py:258:    # SetNode nodes.  Subgraph helpers (GetNode inside UUID subgraph
-vibecomfy/porting/convert.py:259:    # definitions) need the original top-level broadcast map to resolve
-vibecomfy/porting/convert.py:261:    # race between resolve_helpers (which deletes SetNode) and
-vibecomfy/porting/convert.py:262:    # resolve_subgraph_helpers (which needs SetNode broadcast data).
-vibecomfy/porting/convert.py:263:    from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
-vibecomfy/porting/convert.py:264:    _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
-vibecomfy/porting/convert.py:277:    # the pre-resolve broadcast snapshot.  Subgraph helpers reference
-vibecomfy/porting/convert.py:278:    # top-level SetNode broadcasts; if we resolve top-level helpers first,
-vibecomfy/porting/convert.py:279:    # SetNode nodes are deleted and the subgraph resolver finds nothing.
-vibecomfy/porting/convert.py:292:            _pre_resolve_broadcasts,
-vibecomfy/porting/convert.py:303:    # When keep_virtual_wires=True, skip resolution so GetNode/SetNode/Reroute
-vibecomfy/porting/layout/delta.py:30:_SEMANTIC_HELPERS = frozenset({"SetNode", "GetNode", "Reroute"})
-vibecomfy/porting/layout/delta.py:32:# Hard bound on the number of helper hops (Reroute/GetNode/SetNode) resolved in
-vibecomfy/porting/layout/delta.py:48:    broadcast_name)``. ``links`` preserves both endpoint ports as
-vibecomfy/porting/layout/delta.py:91:    setters_by_channel: dict[str, list[str]] = defaultdict(list)
-vibecomfy/porting/layout/delta.py:93:        if class_type == "SetNode" and channel:
-vibecomfy/porting/layout/delta.py:94:            setters_by_channel[str(channel)].append(node_id)
-vibecomfy/porting/layout/delta.py:98:    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
-vibecomfy/porting/layout/delta.py:99:    # SetNode-as-source passthrough) follows exactly one candidate or fails
-vibecomfy/porting/layout/delta.py:149:            elif class_type == "GetNode":
-vibecomfy/porting/layout/delta.py:151:                    issues.add(f"broadcast_name_missing:{key[0]}")
-vibecomfy/porting/layout/delta.py:154:                setters = sorted(set(setters_by_channel.get(str(channel), ())))
-vibecomfy/porting/layout/delta.py:155:                if len(setters) != 1:
-vibecomfy/porting/layout/delta.py:157:                        f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
-vibecomfy/porting/layout/delta.py:161:                setter_id = setters[0]
-vibecomfy/porting/layout/delta.py:162:                candidates = sorted(set(inbound.get(setter_id, ())))
-vibecomfy/porting/layout/delta.py:164:                    issues.add(f"broadcast_source_count:{setter_id}:{len(candidates)}")
-vibecomfy/porting/layout/delta.py:168:            else:  # SetNode used as a source resolves passthrough through its
-vibecomfy/porting/layout/delta.py:197:        if consumer_class_type in {"SetNode", "Reroute"}:
-vibecomfy/porting/layout/delta.py:199:        if consumer_class_type == "GetNode":
-vibecomfy/porting/layout/delta.py:294:        if node.class_type in {"SetNode", "GetNode"}:
-vibecomfy/porting/layout/engine.py:117:    # Compute in-degree via id→uid-translated edge list (pre-broadcast).
-vibecomfy/porting/edit/lint.py:68:    SetNodeFieldOp,
-vibecomfy/porting/edit/lint.py:754:    op: SetNodeFieldOp, op_index: int, index: LintIndex
-vibecomfy/porting/edit/lint.py:831:    return SetNodeFieldOp(op="set_node_field", target=target, value=op.value), None, "passed"
-vibecomfy/porting/edit/apply.py:30:    _helper_broadcast_name,
-vibecomfy/porting/edit/apply_resolve_base.py:7:from .ops import LinkSourceRef, LinkTargetRef, NodeFieldTarget, NodeTarget, RemoveLinkOp, SetNodeFieldOp, UpsertLinkOp
-vibecomfy/porting/edit/apply_resolve_base.py:153:    if node_ref.class_type == "GetNode":
-vibecomfy/porting/edit/apply_resolve_base.py:168:    if node_ref.class_type == "SetNode":
-vibecomfy/porting/edit/apply_resolve_base.py:186:    op: SetNodeFieldOp,
 
 exec
-/bin/zsh -lc "git diff e1bef3bf..59a5f16c -- tests/conftest.py; nl -ba tests/conftest.py | sed -n '280,370p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc 'git show e82d54bf:.oracle/briefs/batch-B03.md; git show e82d54bf:.oracle/briefs/batch-B03-rework6.md' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-diff --git a/tests/conftest.py b/tests/conftest.py
-index bef383d1..cf96fa65 100644
---- a/tests/conftest.py
-+++ b/tests/conftest.py
-@@ -230,12 +230,18 @@ def _isolate_comfyui_import_state() -> None:
-     except Exception:
-         pass
-
--    try:
--        from vibecomfy.comfy_nodes.agent import edit as agent_edit
-+    # Only import the (heavy) ComfyUI agent when the test actually pulled the
-+    # ComfyUI stack in; otherwise there is nothing to isolate.  Importing
-+    # ``vibecomfy.comfy_nodes.agent`` transitively loads torch/comfy and can
-+    # take tens of seconds, which made single-test runs flaky against the
-+    # pytest-timeout budget even though the test itself never touched ComfyUI.
-+    if any(name == "comfy" or name.startswith("comfy.") for name in sys.modules):
-+        try:
-+            from vibecomfy.comfy_nodes.agent import edit as agent_edit
-
--        agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
--    except Exception:
--        pass
-+            agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
-+        except Exception:
-+            pass
-
-     for name in tuple(sys.modules):
-         if name in modules_before:
-   280
-   281	def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-   282	    config = session.config
-   283	    if not (config.getoption("--runpod") or config.getoption("--runpod-full")):
-   284	        return
-   285	    try:
-   286	        from tests.smoke import _runpod_helpers as _rh
-   287	    except Exception:
-   288	        return
-   289	    state = _rh.get_budget_state()
-   290	    budget = state.get("budget_usd")
-   291	    actual = float(state.get("actual_usd", 0.0))
-   292	    if budget is None:
-   293	        budget_str = "unset"
-   294	    else:
-   295	        budget_str = f"${float(budget):.2f}"
-   296	    reporter = config.pluginmanager.getplugin("terminalreporter")
-   297	    line = f"RunPod spend: ${actual:.2f} / {budget_str}"
-   298	    if reporter is not None:
-   299	        reporter.write_line(line)
-   300	    else:
-   301	        print(line)
-   302
-   303
-   304	def pytest_addoption(parser: pytest.Parser) -> None:
-   305	    parser.addoption(
-   306	        "--runpod",
-   307	        action="store_true",
-   308	        default=False,
-   309	        help="Run opt-in RunPod GPU smoke tests (provisions real pods; requires RUNPOD_API_KEY).",
-   310	    )
-   311	    parser.addoption(
-   312	        "--runpod-full",
-   313	        action="store_true",
-   314	        default=False,
-   315	        help="Run the opt-in production-resolution matrix (multi-pod; ~$5-10; requires RUNPOD_API_KEY).",
-   316	    )
-   317	    parser.addoption(
-   318	        "--known-failures-audit",
-   319	        action="store_true",
-   320	        default=False,
-   321	        help="Report entries in tests/quarantine/*.txt that no longer match any collected test ID.",
-   322	    )
-   323	    parser.addoption(
-   324	        "--run-live",
-   325	        action="store_true",
-   326	        default=False,
-   327	        help="Run opt-in live model/provider tests (calls real APIs; requires credentials).",
-   328	    )
-   329
-   330
-   331	def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-   332	    runpod_enabled = config.getoption("--runpod")
-   333	    runpod_full_enabled = config.getoption("--runpod-full")
-   334	    run_live_enabled = config.getoption("--run-live")
-   335	    allow_runpod = runpod_enabled or runpod_full_enabled
-   336	    allow_runpod_full = runpod_full_enabled
-   337	    selected: list[pytest.Item] = []
-   338	    deselected: list[pytest.Item] = []
-   339	    for item in items:
-   340	        if "runpod_full" in item.keywords and not allow_runpod_full:
-   341	            deselected.append(item)
-   342	        elif "runpod" in item.keywords and not allow_runpod:
-   343	            deselected.append(item)
-   344	        elif "live" in item.keywords and not run_live_enabled:
-   345	            deselected.append(item)
-   346	        else:
-   347	            selected.append(item)
-   348	    if deselected:
-   349	        config.hook.pytest_deselected(items=deselected)
-   350	        items[:] = selected
-   351
-   352	    if importlib.util.find_spec("pytest_rerunfailures") is None:
-   353	        warnings.warn(
-   354	            "pytest-rerunfailures not installed; runpod flake-retry markers skipped",
-   355	            stacklevel=2,
-   356	        )
-   357	        return
-   358	    flaky_marker = pytest.mark.flaky(reruns=1, reruns_delay=10)
-   359	    for item in items:
-   360	        if "runpod" in item.keywords or "runpod_full" in item.keywords:
-   361	            item.add_marker(flaky_marker)
-   362
-   363
-   364	def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config) -> None:
-   365	    """Exit non-zero only when there are NEW failures not in scoped quarantine files.
-   366
-   367	    Tests that are already in the by-design-red baseline are silently accepted.
-   368	    A rising set (test IDs not in the baseline) is the real regression signal.
-   369
-   370	    When ``--known-failures-audit`` is passed, also report STALE entries in
-
-exec
-/bin/zsh -lc 'git show 1e6b28c9:.oracle/checkins/batch-B03.md | tail -220' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-exec
-/bin/zsh -lc 'git show 5ae0f66c:.oracle/checkins/batch-B03.md | tail -180' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 16ms:
-tests/test_b02_rich_preservation.py::test_synthetic_projection_detects_corruption
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/scripts/check_b02_rich_preservation.py:235: UserWarning: emit_ui_json: schema-less node 3(VAEDecode); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(wf, **kwargs)
-
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_projection_detects_corruption
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 1(LoadImage); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(
-
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_projection_detects_corruption
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 2(KSampler); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(
-
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_envelope_groups_and_link_topology_survive
-tests/test_b02_rich_preservation.py::test_synthetic_projection_detects_corruption
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 3(VAEDecode); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-2 passed, 2 deselected, 22 warnings in 0.83s
-
-exec
-/bin/zsh -lc 'rg -n "multi.?output|output.*identity|source_output|consumer_input|nested|subgraph|fanout|repoint|orphan" tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-tests/test_ui_emitter_widget_shape_verdict.py:747:def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:849:def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:885:def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:892:    nested, issues = canonical_semantic_link_set(
-tests/test_ui_emitter_widget_shape_verdict.py:903:    assert nested == flat == (
-tests/test_ui_emitter_widget_shape_verdict.py:927:    ids=["removed", "added", "repointed", "consumer_input_changed", "source_output_changed"],
-tests/test_ui_emitter_widget_shape_verdict.py:989:    ids=["orphaned_reroute", "cyclic_reroute", "orphaned_broadcast", "ambiguous_reroute"],
-tests/test_ui_emitter_widget_shape_verdict.py:1002:def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
-tests/test_ui_emitter_widget_shape_verdict.py:1008:    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
-
-collab: Wait
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 python -c 'from vibecomfy.workflow import VibeWorkflow,VibeNode,VibeEdge,WorkflowSource; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.lowering import clone_uid; from vibecomfy.porting.layout.delta import compute_field_delta; w=VibeWorkflow(\"x\",WorkflowSource(\"x\")); w.nodes[\"a\"]=VibeNode(\"a\",\"Producer\",uid=\"A\"); w.nodes[\"b\"]=VibeNode(\"b\",\"Producer\",uid=\"B\");
-for i in range(2):
- n=str(i); u=clone_uid(\"loop\",\"consumer\",i); w.nodes[n]=VibeNode(n,\"Consumer\",uid=u,metadata={\"vibecomfy.lowering\":{\"source_uid\":\"consumer\",\"loop_uid\":\"loop\",\"iteration_index\":i}})
-w.edges=[VibeEdge(\"a\",\"out\",\"0\",\"in\"),VibeEdge(\"a\",\"out\",\"1\",\"in\")]; s=capture_ingest_snapshot({},w); w.edges=[VibeEdge(\"b\",\"out\",\"0\",\"in\"),VibeEdge(\"a\",\"out\",\"1\",\"in\")]; print(compute_field_delta(s,w))'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 646ms:
-{'B': {'semantic_link_set': {'before': (), 'after': (('B', 'out', 'consumer', 'in'),), 'before_resolution_issues': (), 'after_resolution_issues': ()}}}
-
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 python -c 'from vibecomfy.workflow import VibeWorkflow,VibeNode,VibeEdge,WorkflowSource; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.lowering import clone_uid; from vibecomfy.porting.layout.delta import compute_field_delta; w=VibeWorkflow(\"x\",WorkflowSource(\"x\")); w.nodes[\"a\"]=VibeNode(\"a\",\"Producer\",uid=\"A\");
-for i in range(2):
- n=str(i); u=clone_uid(\"loop\",\"consumer\",i); w.nodes[n]=VibeNode(n,\"Consumer\",uid=u,metadata={\"vibecomfy.lowering\":{\"source_uid\":\"consumer\",\"loop_uid\":\"loop\",\"iteration_index\":i}})
-w.edges=[VibeEdge(\"a\",\"out\",\"0\",\"in\"),VibeEdge(\"a\",\"out\",\"1\",\"in\")]; s=capture_ingest_snapshot({},w); w.nodes[\"b\"]=VibeNode(\"b\",\"Producer\",uid=\"B\"); w.edges=[VibeEdge(\"b\",\"out\",\"0\",\"in\"),VibeEdge(\"a\",\"out\",\"1\",\"in\")]; print(compute_field_delta(s,w))'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 666ms:
-{}
-
-collab: Wait
-collab: Wait
-exec
-/bin/zsh -lc 'git diff --unified=30 e1bef3bf..5ae0f66c -- tests/conftest.py; git diff --check e1bef3bf..5ae0f66c >/dev/null; echo diff_check_exit:$?; git diff --name-only e1bef3bf..5ae0f66c -- vibecomfy tests' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 46ms:
-diff_check_exit:0
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-tests/conftest.py
-tests/test_layout_delta.py
-tests/test_ui_emitter_widget_shape_verdict.py
-vibecomfy/porting/emit/ui.py
-vibecomfy/porting/layout/delta.py
-vibecomfy/porting/lowering.py
-vibecomfy/porting/refuse.py
-vibecomfy/porting/widget_shape_fence.py
-
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 pytest -s -p no:cacheprovider -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py -k 'semantic or pin or consumer or broadcast or reroute or loop or nested or multi_output'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 2005ms:
-...........................
-=============================== warnings summary ===============================
-../../../.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121
-  /Users/peteromalley/.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121: UserWarning: pytest-rerunfailures not installed; runpod flake-retry markers skipped
-    res = hook_impl.function(*args)
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-27 passed, 13 deselected, 1 warning in 0.61s
-
-codex
-B03 CHECKPOINT VERDICT: FAIL — core wiring and termination are sound, but clone normalization can both falsely refuse unchanged graphs and miss genuine topology changes.
-
-1. Canonical helper — FAIL
-
-One canonical helper exists at [delta.py:41](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:41). It deduplicates multiplicity, retains terminal source/output and consumer/input ports, resolves reroute/Set/Get paths, and uses `clone_uid` with `parse_uid`/`make_uid`.
-
-However:
-
-- Snapshot aliases are inferred solely from the textual `*:iterN:*` UID pattern at [delta.py:264](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:264), while live aliases require validated lowering metadata.
-- Helper inbound indexing discards the helper’s input port at [delta.py:80](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:80). Two distinct inbound helper edges with identical source/output collapse into one candidate and incorrectly resolve without ambiguity.
-
-2. Pin-fence consumption — PASS
-
-`compute_field_delta` produces `semantic_link_set`; [ui.py:1576](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1576) routes it to the link delta; [widget_shape_fence.py:401](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:401) compares canonical before/after sets and resolution issues.
-
-Raw edge signatures are no longer produced. `output_link_count_mismatch` remains only in pre-existing compatibility handling; no count-based refusal was revived.
-
-3. Genuine-difference-only refusal — FAIL
-
-Two independent reproductions violate this requirement:
-
-- An unchanged ordinary consumer UID `ordinary:iter0:consumer`, with no lowering metadata, produces a fabricated delta because only the snapshot side structurally aliases it to `consumer`.
-- Snapshot: two valid loop clones both consume source A. After: one clone is repointed to newly added source B while the other remains on A. The global canonical set changes, but `compute_field_delta(...)` returns `{}`. Per-node incident slicing at [delta.py:408](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:408) uses unaliased snapshot UIDs and loses the change.
-
-4. Termination — PASS, with one secondary determinism defect
-
-The iterative visited set, memoization, and 10,000-hop cap at [delta.py:104](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:104) terminate cyclic/unresolved paths and fail closed. Executor stress evidence is credible and focused tests pass.
-
-Duplicate-UID diagnostics remain insertion-order-dependent at [delta.py:72](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:72); reversing a three-node mapping can change which duplicate pairs are reported.
-
-5. Fixture coverage — PARTIAL
-
-Covered: flat fan-out, reroute/link renumbering, loop clones, scoped nested UIDs, removed/added/repointed endpoints, changed source/consumer ports, orphaned helpers, and cycles.
-
-Missing or insufficient:
-
-- The “nested subgraph” fixture at [test_ui_emitter_widget_shape_verdict.py:885](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:885) is a scoped-UID helper unit test, not an actual nested workflow/subgraph fixture.
-- No concrete multi-output node fixture; only synthetic output-port labels.
-- No clone-pattern collision or one-clone-repoint regression, which allowed the blocking defects above.
-
-6. Multi-output identity/B02 — PARTIAL PASS
-
-Source-output and consumer-input identity remain in canonical tuples, and port-change cases pass.
-
-Independent B02 verification:
-
-- Two synthetic preservation tests passed.
-- The two corpus tests did not complete within the checkpoint run; the full slice was interrupted after 162 seconds amid an OpenMP `/tmp` warning and excessive warning output.
-- Executor evidence reports all 4 B02 tests green; no direct B03 regression was observed.
-
-7. Scope — PASS
-
-`git diff --check e1bef3bf..5ae0f66c` exits cleanly. Product/test changes are confined to the five B03 integration files, lowering export, two focused test files, and the justified `conftest.py` import-performance fix. Remaining additions are B03 oracle artifacts.
-
-8. Focused verification — PASS
-
-- Widget-shape plus layout-delta suites: `55 passed` in `1.22s`.
-- Requested keyword slice: `27 passed, 13 deselected` in `0.61s`.
-- Quarantined parity baselines were not run.
-
-Issue list requiring rework:
-
-- [delta.py:264](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:264): do not infer snapshot lowering aliases from UID shape alone. Persist lowering provenance or require independently validated/corroborated aliases. Add an ordinary clone-shaped UID regression.
-- [delta.py:408](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:408): attribute incident links using canonical aliases and ensure every global semantic difference reaches a snapshot-present fence target. Add the one-clone-to-new-source repoint regression.
-- [delta.py:80](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:80): preserve helper target-input identity during ambiguity detection; distinct inbound helper endpoints must fail closed.
-- [delta.py:72](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:72): make duplicate-UID diagnostics independent of mapping insertion order.
-- [test_ui_emitter_widget_shape_verdict.py:885](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:885): add real nested-subgraph and concrete multi-output-node fixtures.
-tokens used
-188,243
-B03 CHECKPOINT VERDICT: FAIL — core wiring and termination are sound, but clone normalization can both falsely refuse unchanged graphs and miss genuine topology changes.
-
-1. Canonical helper — FAIL
-
-One canonical helper exists at [delta.py:41](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:41). It deduplicates multiplicity, retains terminal source/output and consumer/input ports, resolves reroute/Set/Get paths, and uses `clone_uid` with `parse_uid`/`make_uid`.
-
-However:
-
-- Snapshot aliases are inferred solely from the textual `*:iterN:*` UID pattern at [delta.py:264](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:264), while live aliases require validated lowering metadata.
-- Helper inbound indexing discards the helper’s input port at [delta.py:80](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:80). Two distinct inbound helper edges with identical source/output collapse into one candidate and incorrectly resolve without ambiguity.
-
-2. Pin-fence consumption — PASS
-
-`compute_field_delta` produces `semantic_link_set`; [ui.py:1576](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1576) routes it to the link delta; [widget_shape_fence.py:401](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:401) compares canonical before/after sets and resolution issues.
-
-Raw edge signatures are no longer produced. `output_link_count_mismatch` remains only in pre-existing compatibility handling; no count-based refusal was revived.
-
-3. Genuine-difference-only refusal — FAIL
-
-Two independent reproductions violate this requirement:
-
-- An unchanged ordinary consumer UID `ordinary:iter0:consumer`, with no lowering metadata, produces a fabricated delta because only the snapshot side structurally aliases it to `consumer`.
-- Snapshot: two valid loop clones both consume source A. After: one clone is repointed to newly added source B while the other remains on A. The global canonical set changes, but `compute_field_delta(...)` returns `{}`. Per-node incident slicing at [delta.py:408](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:408) uses unaliased snapshot UIDs and loses the change.
-
-4. Termination — PASS, with one secondary determinism defect
-
-The iterative visited set, memoization, and 10,000-hop cap at [delta.py:104](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:104) terminate cyclic/unresolved paths and fail closed. Executor stress evidence is credible and focused tests pass.
-
-Duplicate-UID diagnostics remain insertion-order-dependent at [delta.py:72](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:72); reversing a three-node mapping can change which duplicate pairs are reported.
-
-5. Fixture coverage — PARTIAL
-
-Covered: flat fan-out, reroute/link renumbering, loop clones, scoped nested UIDs, removed/added/repointed endpoints, changed source/consumer ports, orphaned helpers, and cycles.
-
-Missing or insufficient:
-
-- The “nested subgraph” fixture at [test_ui_emitter_widget_shape_verdict.py:885](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:885) is a scoped-UID helper unit test, not an actual nested workflow/subgraph fixture.
-- No concrete multi-output node fixture; only synthetic output-port labels.
-- No clone-pattern collision or one-clone-repoint regression, which allowed the blocking defects above.
-
-6. Multi-output identity/B02 — PARTIAL PASS
-
-Source-output and consumer-input identity remain in canonical tuples, and port-change cases pass.
-
-Independent B02 verification:
-
-- Two synthetic preservation tests passed.
-- The two corpus tests did not complete within the checkpoint run; the full slice was interrupted after 162 seconds amid an OpenMP `/tmp` warning and excessive warning output.
-- Executor evidence reports all 4 B02 tests green; no direct B03 regression was observed.
-
-7. Scope — PASS
-
-`git diff --check e1bef3bf..5ae0f66c` exits cleanly. Product/test changes are confined to the five B03 integration files, lowering export, two focused test files, and the justified `conftest.py` import-performance fix. Remaining additions are B03 oracle artifacts.
-
-8. Focused verification — PASS
-
-- Widget-shape plus layout-delta suites: `55 passed` in `1.22s`.
-- Requested keyword slice: `27 passed, 13 deselected` in `0.61s`.
-- Quarantined parity baselines were not run.
-
-Issue list requiring rework:
-
-- [delta.py:264](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:264): do not infer snapshot lowering aliases from UID shape alone. Persist lowering provenance or require independently validated/corroborated aliases. Add an ordinary clone-shaped UID regression.
-- [delta.py:408](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:408): attribute incident links using canonical aliases and ensure every global semantic difference reaches a snapshot-present fence target. Add the one-clone-to-new-source repoint regression.
-- [delta.py:80](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:80): preserve helper target-input identity during ambiguity detection; distinct inbound helper endpoints must fail closed.
-- [delta.py:72](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:72): make duplicate-UID diagnostics independent of mapping insertion order.
-- [test_ui_emitter_widget_shape_verdict.py:885](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:885): add real nested-subgraph and concrete multi-output-node fixtures.
-
- succeeded in 8ms:
-    67	    missing_models: list[str] = field(default_factory=list)
-    68	    missing_nodes: list[str] = field(default_factory=list)
-    69	    unsupported: list[str] = field(default_factory=list)
-    70
-
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 python -c '
-from vibecomfy.workflow import VibeWorkflow,VibeNode,VibeEdge,WorkflowSource
-from vibecomfy.ingest.snapshot import capture_ingest_snapshot
-from vibecomfy.porting.lowering import clone_uid
-from vibecomfy.porting.layout.delta import compute_field_delta
-w=VibeWorkflow(\"x\",WorkflowSource(\"x\"))
-w.nodes[\"1\"]=VibeNode(\"1\",\"Producer\",uid=\"source\")
-for i in range(2):
- n=str(10+i); u=clone_uid(\"loop\",\"consumer\",i); w.nodes[n]=VibeNode(n,\"SaveImage\",uid=u,metadata={\"vibecomfy.lowering\":{\"source_uid\":\"consumer\",\"loop_uid\":\"loop\",\"iteration_index\":i}}); w.edges.append(VibeEdge(\"1\",\"image\",n,\"images\"))
-s=capture_ingest_snapshot({},w)
-d=compute_field_delta(s,w)
-print(d)
-assert d=={}, d
-'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- exited 1 in 1218ms:
-{'source': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter0:consumer', 'images'), ('source', 'image', 'loop:iter1:consumer', 'images')), 'after': (('source', 'image', 'consumer', 'images'),), 'before_resolution_issues': (), 'after_resolution_issues': ()}}, 'loop:iter0:consumer': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter0:consumer', 'images'),), 'after': (), 'before_resolution_issues': (), 'after_resolution_issues': ()}}, 'loop:iter1:consumer': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter1:consumer', 'images'),), 'after': (), 'before_resolution_issues': (), 'after_resolution_issues': ()}}}
-Traceback (most recent call last):
-  File "<string>", line 13, in <module>
-AssertionError: {'source': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter0:consumer', 'images'), ('source', 'image', 'loop:iter1:consumer', 'images')), 'after': (('source', 'image', 'consumer', 'images'),), 'before_resolution_issues': (), 'after_resolution_issues': ()}}, 'loop:iter0:consumer': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter0:consumer', 'images'),), 'after': (), 'before_resolution_issues': (), 'after_resolution_issues': ()}}, 'loop:iter1:consumer': {'semantic_link_set': {'before': (('source', 'image', 'loop:iter1:consumer', 'images'),), 'after': (), 'before_resolution_issues': (), 'after_resolution_issues': ()}}}
-
-exec
-/bin/zsh -lc 'git status --short --branch && git diff --check e1bef3bf..e353e768' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 37ms:
-codex
-B03 CHECKPOINT VERDICT: FAIL — loop-clone normalization is asymmetric, so an unchanged already-lowered workflow fabricates a semantic link delta and may wrongly refuse a valid pin.
-
-1. Canonical helper — PASS with one blocking integration defect
-
-`canonical_semantic_link_set` is the sole new topology canonicalizer at [delta.py:39](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39). It:
-
-- Deduplicates multiplicity.
-- Preserves `(source_uid, source_output, consumer_uid, consumer_input)`.
-- Resolves reroute and Set/Get plumbing iteratively.
-- Validates loop aliases with the shared `clone_uid`; that helper uses `parse_uid`/`make_uid` at [lowering.py:317](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317).
-
-However, clone aliases are applied only to the after graph, not the snapshot graph.
-
-2. Pin-fence consumption — PASS
-
-Canonical sets are computed in `compute_field_delta`, routed as `semantic_link_set` through [ui.py:1576](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1576), and compared by [widget_shape_fence.py:396](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396).
-
-`output_link_count_mismatch` remains only in pre-existing compatibility mapping. `git diff -G output_link_count_mismatch e1bef3bf..e353e768` is empty; it was not revived.
-
-3. Genuine-difference-only refusal — FAIL
-
-At [delta.py:334](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:334), the before set is canonicalized without aliases. Lines 335–339 apply `after_aliases` only to the live graph.
-
-Independent no-mutation reproduction:
-
-```text
-before:
-  source/image -> loop:iter0:consumer/images
-  source/image -> loop:iter1:consumer/images
-after:
-  source/image -> consumer/images
+# MEGADO BATCH B03 [HARD] — Canonical semantic pin comparison
+
+Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). This is a [HARD] task — you are the executor (GPT-5.6 Sol, workspace-write). You may modify files and run tests. Skip formatters/linters/full suites; run focused tests only.
+
+## Context
+Pinned-opaque emission currently refuses on ANY link delta. Exploration verified: the pin gate is boolean on any link delta (`widget_shape_fence.py:93-109,249-250`: pin_opaque requires `not has_link_delta`); comparison is uid-keyed but multiset-counted (`layout/delta.py:64,70,88-90`), so 1↔N same-source fan-out = delta; the rewrite layer never refuses on count (`ui.py:1709-1806` stamps IR ids unconditionally; refusal strings at `ui.py:1646-1658` are dead). The known reproduction: Set/Get broadcast lowering expands 1 raw link → 4 lowered links, false-refusing pins (44/131 corpus nodes exposed). Reroute 1:1, loop-cloned consumer UIDs, and nested subgraphs also break pins.
+
+B02/elegance are DONE and on the branch: `VibeWorkflow` IR is the canonical lossless representation with stable UIDs (`properties.vibecomfy_uid`).
+
+## Tasks (from .oracle/tasklist.md B03)
+
+1. **Add fixtures for**: flat Set/Get fan-out; 1:1 reroute lowering; loop-cloned consumer UIDs; nested subgraphs; multi-output nodes; genuine removed/repointed/orphaned consumers.
+2. **Replace the raw UID-keyed multiset comparison with ONE canonical semantic-set helper**:
+   - preserve input/output port identity;
+   - dedupe multiplicity;
+   - normalize reroutes to terminal endpoints;
+   - normalize loop-cloned UIDs to their canonical consumer UID (use `parse_uid`/`clone_uid` at `lowering.py:317`).
+3. **Feed the canonical before/after sets into the pin fence** (`widget_shape_fence.py`).
+4. **Refuse when semantic sets genuinely differ** or endpoint resolution is ambiguous/unresolved.
+5. **Preserve canonical before/after sets in diagnostics**.
+6. **Do NOT revive dead link-count refusal strings or construct a second topology abstraction.**
+
+## Key files
+- `vibecomfy/porting/emit/ui.py` (pin emission `:1709-1806`, refusal strings `:1646-1658`)
+- `vibecomfy/porting/layout/delta.py` (comparison `:64,70,88-90`)
+- `vibecomfy/porting/emit/widget_shape_fence.py` (`:93-109,249-250`)
+- `vibecomfy/porting/lowering.py` (`:317` clone_uid, `:865-907` loop lowering)
+- `vibecomfy/porting/subgraph_resolve.py` (`:56-76`), `vibecomfy/porting/convert.py` (`:257-292`)
+- tests: `tests/test_ui_emitter_widget_shape_verdict.py`, `tests/test_porting_ui_emitter.py`, `tests/test_ui_emitter_parity.py`, `tests/test_b02_rich_preservation.py`
+
+## Verification (run, retain output)
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_porting_ui_emitter.py -k 'pin or pinned or semantic or consumer or broadcast or reroute'
 ```
-
-The workflow was unchanged after `capture_ingest_snapshot`, yet `compute_field_delta` returned `semantic_link_set` deltas for the source and both consumers. A pinned dynamic source can therefore refuse despite no genuine semantic change.
-
-4. Termination — PASS
-
-The traversal has an in-progress visited set, memoization, sorted diagnostics, and a 10,000-hop bound at [delta.py:91](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:91).
-
-Independent stress results:
-
-- 5,000-hop chain: correct terminal.
-- 5,000-node ring: deterministic fail-closed `cyclic_path:`.
-- Broadcast over a 5,000-hop chain: correct.
-- Dual setters: deterministic `broadcast_setter_count`.
-- Reversed link order: identical results.
-
-5. Fixtures — PARTIAL
-
-Fixtures cover fan-out, reroute/link renumbering, original-consumer-to-loop-clones, nested scoped UIDs, topology changes, unresolved/cyclic paths, multiplicity, and port identity.
-
-The missing regression is an unchanged workflow whose ingest snapshot already contains valid loop-cloned consumers. That omission allowed the blocking defect above.
-
-6. Multi-output/B02 — PARTIAL PASS
-
-Source-output and consumer-input identity are retained and exercised by port-change fixtures.
-
-The B02 suite could not be completed reliably in this read-only environment because native OpenMP/temp-file handling failed under `/tmp`; executor evidence reports 4/4 green, and the B02 test file is unchanged.
-
-7. Scope — PASS
-
-`git diff --check e1bef3bf..e353e768` is clean. Production changes are limited to the five B03 files, plus focused tests and the `conftest.py` import-performance fix. The two added `.oracle/briefs` are batch artifacts.
-
-8. Focused verification — PASS
-
-- Widget-shape verdict: 39 passed.
-- Layout delta: 14 passed.
-- Combined: 53 passed in 1.19s.
-- Keyword slice independently reported: 27 passed, 26 deselected.
-- Quarantined emitter-parity baselines were skipped as instructed.
-
-Issue requiring rework:
-
-- [vibecomfy/porting/layout/delta.py:334](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:334): canonicalize valid loop-clone aliases symmetrically for snapshot and live semantic sets. Add a regression that captures an already-lowered graph, performs no mutation, and requires `compute_field_delta(...) == {}` plus successful pinned emission. Preserve fail-closed behavior for invalid metadata and genuine removal/repointing.
-tokens used
-213,921
-B03 CHECKPOINT VERDICT: FAIL — loop-clone normalization is asymmetric, so an unchanged already-lowered workflow fabricates a semantic link delta and may wrongly refuse a valid pin.
-
-1. Canonical helper — PASS with one blocking integration defect
-
-`canonical_semantic_link_set` is the sole new topology canonicalizer at [delta.py:39](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39). It:
-
-- Deduplicates multiplicity.
-- Preserves `(source_uid, source_output, consumer_uid, consumer_input)`.
-- Resolves reroute and Set/Get plumbing iteratively.
-- Validates loop aliases with the shared `clone_uid`; that helper uses `parse_uid`/`make_uid` at [lowering.py:317](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317).
-
-However, clone aliases are applied only to the after graph, not the snapshot graph.
-
-2. Pin-fence consumption — PASS
-
-Canonical sets are computed in `compute_field_delta`, routed as `semantic_link_set` through [ui.py:1576](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1576), and compared by [widget_shape_fence.py:396](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396).
-
-`output_link_count_mismatch` remains only in pre-existing compatibility mapping. `git diff -G output_link_count_mismatch e1bef3bf..e353e768` is empty; it was not revived.
-
-3. Genuine-difference-only refusal — FAIL
-
-At [delta.py:334](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:334), the before set is canonicalized without aliases. Lines 335–339 apply `after_aliases` only to the live graph.
-
-Independent no-mutation reproduction:
-
-```text
-before:
-  source/image -> loop:iter0:consumer/images
-  source/image -> loop:iter1:consumer/images
-after:
-  source/image -> consumer/images
+Plus the full files:
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_porting_ui_emitter.py tests/test_ui_emitter_parity.py tests/test_b02_rich_preservation.py
 ```
+Expected exit 0 (the rerunfailures plugin binds a socket and cannot run here).
 
-The workflow was unchanged after `capture_ingest_snapshot`, yet `compute_field_delta` returned `semantic_link_set` deltas for the source and both consumers. A pinned dynamic source can therefore refuse despite no genuine semantic change.
+## Acceptance
+- Multiplicity-only Set/Get expansion passes.
+- Equivalent reroute, loop-clone, link-renumbering, and nested lowering passes.
+- Added, removed, repointed, orphaned, or output-port-changed consumers refuse.
+- Unresolved/cyclic paths terminate deterministically and fail closed.
+- Multi-output identity is preserved.
+- B02 preservation tests remain green (test_b02_rich_preservation.py must still pass 4/4).
 
-4. Termination — PASS
-
-The traversal has an in-progress visited set, memoization, sorted diagnostics, and a 10,000-hop bound at [delta.py:91](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:91).
-
-Independent stress results:
-
-- 5,000-hop chain: correct terminal.
-- 5,000-node ring: deterministic fail-closed `cyclic_path:`.
-- Broadcast over a 5,000-hop chain: correct.
-- Dual setters: deterministic `broadcast_setter_count`.
-- Reversed link order: identical results.
-
-5. Fixtures — PARTIAL
-
-Fixtures cover fan-out, reroute/link renumbering, original-consumer-to-loop-clones, nested scoped UIDs, topology changes, unresolved/cyclic paths, multiplicity, and port identity.
-
-The missing regression is an unchanged workflow whose ingest snapshot already contains valid loop-cloned consumers. That omission allowed the blocking defect above.
-
-6. Multi-output/B02 — PARTIAL PASS
-
-Source-output and consumer-input identity are retained and exercised by port-change fixtures.
-
-The B02 suite could not be completed reliably in this read-only environment because native OpenMP/temp-file handling failed under `/tmp`; executor evidence reports 4/4 green, and the B02 test file is unchanged.
-
-7. Scope — PASS
-
-`git diff --check e1bef3bf..e353e768` is clean. Production changes are limited to the five B03 files, plus focused tests and the `conftest.py` import-performance fix. The two added `.oracle/briefs` are batch artifacts.
-
-8. Focused verification — PASS
-
-- Widget-shape verdict: 39 passed.
-- Layout delta: 14 passed.
-- Combined: 53 passed in 1.19s.
-- Keyword slice independently reported: 27 passed, 26 deselected.
-- Quarantined emitter-parity baselines were skipped as instructed.
-
-Issue requiring rework:
-
-- [vibecomfy/porting/layout/delta.py:334](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:334): canonicalize valid loop-clone aliases symmetrically for snapshot and live semantic sets. Add a regression that captures an already-lowered graph, performs no mutation, and requires `compute_field_delta(...) == {}` plus successful pinned emission. Preserve fail-closed behavior for invalid metadata and genuine removal/repointing.
-
-exec
-/bin/zsh -lc "nl -ba vibecomfy/_compile/_helpers.py | sed -n '130,200p'; nl -ba vibecomfy/_compile/_resolve.py | sed -n '95,195p'; nl -ba vibecomfy/porting/emit/ui.py | sed -n '470,575p'; nl -ba vibecomfy/porting/subgraph_resolve.py | sed -n '1,180p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-   130	                    detail={"broadcast": name, "source": broadcast_sources[name]},
-   131	                )
-   132	            )
-   133	            continue
-   134	        diagnostics.append(
-   135	            HelperDiagnostic(
-   136	                code="helper_broadcast_unresolved",
-   137	                message=f"{class_type} node {node_id} references unresolved broadcast {name!r}.",
-   138	                node_id=str(node_id),
-   139	                class_type=class_type,
-   140	                detail={"broadcast": name},
-   141	            )
-   142	        )
-   143	    return diagnostics
-   144
-   145
-   146	def collect_broadcast_sources(nodes: Mapping[str, Any], edges: Sequence[Any]) -> dict[str, list[Any]]:
-   147	    sources: dict[str, list[Any]] = {}
-   148	    edge_sources_by_target: dict[str, list[Any]] = {}
-   149	    for edge in edges:
-   150	        target_node = nodes.get(str(_edge_attr(edge, "to_node")))
-   151	        if target_node is None or _node_class_type(target_node) != "SetNode":
-   152	            continue
-   153	        if _edge_attr(edge, "to_input") == "widget_0":
-   154	            continue
-   155	        from_output = _edge_attr(edge, "from_output")
-   156	        try:
-   157	            output_slot = int(from_output)
-   158	        except (TypeError, ValueError):
-   159	            output_slot = 0
-   160	        edge_sources_by_target[str(_edge_attr(edge, "to_node"))] = [str(_edge_attr(edge, "from_node")), output_slot]
-   161
-   162	    for node_id, node in nodes.items():
-   163	        if _node_class_type(node) != "SetNode":
-   164	            continue
-   165	        name = broadcast_name(node)
-   166	        if not name:
-   167	            continue
-   168	        direct_source = first_link_input(_compile_helper_inputs(node))
-   169	        if direct_source is not None:
-   170	            sources[name] = direct_source
-   171	        elif str(node_id) in edge_sources_by_target:
-   172	            sources[name] = edge_sources_by_target[str(node_id)]
-   173	    return sources
-   174
-   175
-   176	def broadcast_name(node: Any) -> str | None:
-   177	    inputs = _node_inputs(node)
-   178	    widgets = _node_widgets(node)
-   179	    name = inputs.get("widget_0", widgets.get("widget_0"))
-   180	    # Fall back to ``name`` — the emitter writes SetNode/GetNode channel names
-   181	    # as ``name=`` kwargs (e.g. ``_node(wf, 'SetNode', ..., name='LATENT')``).
-   182	    if name is None:
-   183	        name = inputs.get("name")
-   184	    if name is None:
-   185	        return None
-   186	    return str(name)
-   187
-   188
-   189	def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
-   190	    for key, value in inputs.items():
-   191	        if key == "widget_0":
-   192	            continue
-   193	        if is_api_link(value):
-   194	            return [str(value[0]), int(value[1])]
-   195	    return None
-   196
-   197
-   198	def is_api_link(value: Any) -> bool:
-   199	    if not isinstance(value, list) or len(value) != 2:
-   200	        return False
-    95	        for edge in workflow.edges
-    96	        if edge.from_node not in resolved_ids and edge.to_node not in resolved_ids
-    97	    ]
-    98
-    99	    return ResolveDiagnostics(diagnostics=diagnostics)
-   100
-   101
-   102	def resolve_compile_edge_source(
-   103	    edge: Any,
-   104	    nodes: Mapping[str, Any],
-   105	    broadcast_sources: Mapping[str, list[Any]],
-   106	) -> list[Any] | None:
-   107	    source_node = nodes.get(str(edge.from_node))
-   108	    if source_node is None:
-   109	        return [str(edge.from_node), int(edge.from_output)]
-   110	    if source_node.class_type in {"GetNode", "SetNode"}:
-   111	        name = broadcast_name(source_node)
-   112	        if name is None:
-   113	            return None
-   114	        return broadcast_sources.get(name)
-   115	    if is_helper_class_type(source_node.class_type):
-   116	        return None
-   117	    return [str(edge.from_node), int(edge.from_output)]
-   118
-   119
-   120	def resolve_compile_link_value(
-   121	    value: Any,
-   122	    nodes: Mapping[str, Any],
-   123	    broadcast_sources: Mapping[str, list[Any]],
-   124	) -> Any:
-   125	    if not is_api_link(value):
-   126	        return value
-   127	    source_node = nodes.get(str(value[0]))
-   128	    if source_node is None or source_node.class_type not in {"GetNode", "SetNode"}:
-   129	        return value
-   130	    name = broadcast_name(source_node)
-   131	    if name is None:
-   132	        return value
-   133	    return broadcast_sources.get(name, value)
-   134
-   135
-   136	def _phase_a_broadcasts(workflow: Any, make_error: ErrorFactory) -> bool:
-   137	    get_node_ids = frozenset(
-   138	        nid for nid, node in workflow.nodes.items() if node.class_type == "GetNode"
-   139	    )
-   140	    set_node_ids = frozenset(
-   141	        nid for nid, node in workflow.nodes.items() if node.class_type == "SetNode"
-   142	    )
-   143	    if not get_node_ids and not set_node_ids:
-   144	        return False
-   145
-   146	    broadcast_sources = collect_broadcast_sources(workflow.nodes, workflow.edges)
-   147	    changed = False
-   148
-   149	    for edge in _sorted_edges(workflow.edges):
-   150	        if edge.from_node in get_node_ids:
-   151	            node = workflow.nodes[edge.from_node]
-   152	            name = broadcast_name(node)
-   153	            if not name:
-   154	                raise make_error(
-   155	                    HelperResolveErrorSpec(
-   156	                        f"GetNode {edge.from_node!r} has no broadcast name",
-   157	                        next_action=f"check node {edge.from_node} (GetNode)",
-   158	                    )
-   159	                )
-   160	            if name not in broadcast_sources:
-   161	                raise make_error(
-   162	                    HelperResolveErrorSpec(
-   163	                        f"GetNode {edge.from_node!r} references unresolved broadcast {name!r}; "
-   164	                        "no matching SetNode found",
-   165	                        next_action=f"check node {edge.from_node} (GetNode)",
-   166	                    )
-   167	                )
-   168	            source = broadcast_sources[name]
-   169	            edge.from_node = str(source[0])
-   170	            edge.from_output = str(source[1])
-   171	            changed = True
-   172	        elif edge.from_node in set_node_ids:
-   173	            node = workflow.nodes[edge.from_node]
-   174	            name = broadcast_name(node)
-   175	            if not name or name not in broadcast_sources:
-   176	                continue
-   177	            source = broadcast_sources[name]
-   178	            edge.from_node = str(source[0])
-   179	            edge.from_output = str(source[1])
-   180	            changed = True
-   181
-   182	    return changed
-   183
-   184
-   185	def _phase_b_passthroughs(workflow: Any, make_error: ErrorFactory) -> bool:
-   186	    passthrough_ids = frozenset(
-   187	        nid
-   188	        for nid, node in workflow.nodes.items()
-   189	        if node.class_type in PASSTHROUGH_HELPER_CLASS_TYPES
-   190	    )
-   191	    if not passthrough_ids:
-   192	        return False
-   193
-   194	    inbound: dict[str, list[Any]] = {}
-   195	    for edge in workflow.edges:
-   470	        remap[node_id] = nxt
-   471	        used.add(nxt)
-   472	        nxt += 1
-   473	    return remap
-   474
-   475
-   476	# ── Virtual-wire classification ────────────────────────────────────────────
-   477	# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes
-   478	# whose stable channel name (not the edge) is the routing key.
-   479	_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
-   480
-   481
-   482	def _resolve_broadcast_edges(
-   483	    wf: Any,
-   484	) -> tuple[list[Any], set[str], set[str]]:
-   485	    """Resolve SetNode/GetNode broadcast indirection into direct edges.
-   486
-   487	    Reuses :func:`collect_broadcast_sources` (porting/helpers.py) — the broadcast
-   488	    resolution is NOT reimplemented here.  A ``SetNode`` captures the value on its input
-   489	    under a broadcast name; each ``GetNode`` re-emits that name to one or more consumers
-   490	    (one source → many links).  For the litegraph envelope we drop the helper nodes and
-   491	    rewire every ``GetNode``-origin edge to the captured real source, so a fan-out of N
-   492	    consumers becomes N direct links.  Edges feeding a helper are dropped; an unresolved
-   493	    ``GetNode`` reference drops its dangling edges.
-   494
-   495	    Returns ``(effective_edges, broadcast_helper_ids, orphaned_get_ids)`` where
-   496	    *orphaned_get_ids* are GetNode IDs whose broadcast name could not be resolved
-   497	    to a SetNode source (used for the recovery report in display mode).  When the
-   498	    IR carries no broadcast helpers (the common case) the original edge list is
-   499	    returned unchanged, so emission stays byte-identical.
-   500	    """
-   501	    helper_ids = {
-   502	        node_id
-   503	        for node_id, node in wf.nodes.items()
-   504	        if is_broadcast_helper_class_type(node.class_type)
-   505	    }
-   506	    if not helper_ids:
-   507	        return list(wf.edges), helper_ids, set()
-   508
-   509	    sources = collect_broadcast_sources(wf.nodes, wf.edges)
-   510	    get_source: dict[str, tuple[str, str]] = {}
-   511	    orphaned: set[str] = set()
-   512	    for node_id in helper_ids:
-   513	        node = wf.nodes[node_id]
-   514	        if node.class_type != "GetNode":
-   515	            continue
-   516	        name = broadcast_name(node)
-   517	        src = sources.get(name) if name else None
-   518	        if src is not None:
-   519	            get_source[node_id] = (str(src[0]), str(src[1]))
-   520	        else:
-   521	            orphaned.add(node_id)
-   522
-   523	    effective: list[Any] = []
-   524	    for edge in wf.edges:
-   525	        if edge.to_node in helper_ids:
-   526	            continue  # edge into a SetNode/GetNode helper — not a runtime link
-   527	        if edge.from_node in helper_ids:
-   528	            redirect = get_source.get(edge.from_node)
-   529	            if redirect is None:
-   530	                continue  # unresolved broadcast — drop the dangling edge
-   531	            effective.append(VibeEdge(redirect[0], redirect[1], edge.to_node, edge.to_input))
-   532	        else:
-   533	            effective.append(edge)
-   534	    return effective, helper_ids, orphaned
-   535
-   536
-   537	def _resolve_reroute_edges(
-   538	    edges: list[Any],
-   539	    nodes: dict[str, Any],
-   540	) -> list[Any]:
-   541	    """Passthrough Reroute nodes: A→Reroute→B becomes A→B (transitive chains).
-   542
-   543	    Returns a new edge list where every edge that originates from a Reroute is
-   544	    rewritten to originate from the terminal non-Reroute source, and edges into
-   545	    Reroutes are dropped.  When no Reroute nodes exist the list is returned
-   546	    unchanged.
-   547	    """
-   548	    reroute_ids = {nid for nid, n in nodes.items() if n.class_type == "Reroute"}
-   549	    if not reroute_ids:
-   550	        return list(edges)
-   551
-   552	    # Build inbound map: reroute_id → [(from_node, from_output), ...]
-   553	    inbound: dict[str, list[tuple[str, str]]] = {}
-   554	    for edge in edges:
-   555	        if edge.to_node in reroute_ids:
-   556	            inbound.setdefault(edge.to_node, []).append(
-   557	                (edge.from_node, edge.from_output)
-   558	            )
-   559
-   560	    # Recursive terminal-source lookup (follows Reroute chains transitively)
-   561	    def _terminal(nid: str, visited: frozenset[str]) -> tuple[str, str] | None:
-   562	        if nid in visited:
-   563	            return None
-   564	        ins = inbound.get(nid, [])
-   565	        if not ins:
-   566	            return None
-   567	        src_id, src_out = ins[0]
-   568	        if src_id in reroute_ids:
-   569	            return _terminal(src_id, visited | {nid})
-   570	        return (src_id, src_out)
-   571
-   572	    result: list[Any] = []
-   573	    for edge in edges:
-   574	        if edge.from_node in reroute_ids:
-   575	            terminal = _terminal(edge.from_node, frozenset())
-     1	"""Resolve helpers within subgraph definitions using the top-level broadcast map.
-     2
-     3	Mutates raw_workflow subgraph definitions in place by processing their
-     4	list-format nodes and dict-format links.
-     5	"""
-     6
-     7	from __future__ import annotations
-     8
-     9	from typing import Any
-    10
-    11
-    12	def _link_origin_id(link: Any) -> str:
-    13	    if isinstance(link, dict):
-    14	        return str(link.get("origin_id", ""))
-    15	    return str(link[1])
-    16
-    17
-    18	def _link_origin_slot(link: Any) -> int:
-    19	    if isinstance(link, dict):
-    20	        return int(link.get("origin_slot", 0))
-    21	    return int(link[2])
-    22
-    23
-    24	def _link_target_id(link: Any) -> str:
-    25	    if isinstance(link, dict):
-    26	        return str(link.get("target_id", ""))
-    27	    return str(link[3])
-    28
-    29
-    30	def _link_target_slot(link: Any) -> int:
-    31	    if isinstance(link, dict):
-    32	        return int(link.get("target_slot", 0))
-    33	    return int(link[4])
-    34
-    35
-    36	def _set_link_origin(link: Any, node_id: str, slot: int) -> None:
-    37	    if isinstance(link, dict):
-    38	        link["origin_id"] = int(node_id) if node_id.isdigit() else node_id
-    39	        link["origin_slot"] = slot
-    40	    else:
-    41	        link[1] = int(node_id) if node_id.isdigit() else node_id
-    42	        link[2] = slot
-    43
-    44
-    45	RESOLVABLE = frozenset({
-    46	    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
-    47	    "PrimitiveBoolean", "PrimitiveInt", "PrimitiveFloat",
-    48	    "PrimitiveString", "PrimitiveStringMultiline",
-    49	})
-    50
-    51
-    52	def resolve_subgraph_helpers(
-    53	    raw_workflow: dict[str, Any] | None,
-    54	    top_level_nodes: dict[str, Any],
-    55	    top_level_edges: list[Any],
-    56	    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
-    57	) -> None:
-    58	    if not raw_workflow:
-    59	        return
-    60	    defs = raw_workflow.get("definitions")
-    61	    if not isinstance(defs, dict):
-    62	        return
-    63	    subgraphs = defs.get("subgraphs")
-    64	    if not isinstance(subgraphs, list):
-    65	        return
-    66
-    67	    if pre_collected_broadcasts is not None:
-    68	        top_broadcasts = pre_collected_broadcasts
-    69	    else:
-    70	        from vibecomfy._compile._helpers import collect_broadcast_sources
-    71	        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
-    72
-    73	    for sg in subgraphs:
-    74	        if not isinstance(sg, dict):
-    75	            continue
-    76	        _resolve_one(sg, top_broadcasts)
-    77
-    78
-    79	def _resolve_one(sg: dict, top_broadcasts: dict) -> None:
-    80	    nodes_list = sg.get("nodes")
-    81	    if not isinstance(nodes_list, list):
-    82	        return
-    83	    links_list = sg.get("links")
-    84	    if not isinstance(links_list, list):
-    85	        links_list = []
-    86
-    87	    # Build lookup dict for nodes
-    88	    nodes_dict: dict[str, dict] = {}
-    89	    for n in nodes_list:
-    90	        if isinstance(n, dict) and "id" in n:
-    91	            nodes_dict[str(n["id"])] = n
-    92
-    93	    # Fixed-point resolution
-    94	    for _ in range(100):
-    95	        changed = False
-    96	        helper_ids = [
-    97	            str(n["id"]) for n in nodes_list
-    98	            if isinstance(n, dict) and n.get("type") in RESOLVABLE
-    99	        ]
-   100	        for nid in helper_ids:
-   101	            node = nodes_dict.get(nid)
-   102	            if node is None:
-   103	                continue
-   104	            ct = node.get("type", "")
-   105	            if ct == "GetNode":
-   106	                changed |= _resolve_getnode(nodes_dict, nodes_list, links_list, nid, node, top_broadcasts)
-   107	            elif ct in ("Reroute", "PrimitiveNode"):
-   108	                changed |= _resolve_passthrough(nodes_dict, nodes_list, links_list, nid, node)
-   109	            elif ct.startswith("Primitive"):
-   110	                changed |= _resolve_primitive(nodes_dict, nodes_list, links_list, nid, node)
-   111	        if not changed:
-   112	            break
-   113
-   114	    # Sync back
-   115	    sg["nodes"] = nodes_list
-   116	    sg["links"] = links_list
-   117
-   118
-   119	def _get_widget(n: dict, idx: int = 0) -> Any:
-   120	    wv = n.get("widgets_values", [])
-   121	    if isinstance(wv, list) and idx < len(wv):
-   122	        return wv[idx]
-   123	    return None
-   124
-   125
-   126	def _resolve_getnode(
-   127	    nodes_dict: dict, nodes_list: list, links_list: list,
-   128	    nid: str, node: dict, top_broadcasts: dict,
-   129	) -> bool:
-   130	    name = _get_widget(node, 0)
-   131	    if not name or str(name) not in top_broadcasts:
-   132	        return False
-   133	    source = top_broadcasts[str(name)]
-   134	    sid, sslot = str(source[0]), int(source[1])
-   135
-   136	    outbound = [l for l in links_list if _link_origin_id(l) == nid]
-   137	    for link in outbound:
-   138	        _set_link_origin(link, sid, sslot)
-   139
-   140	    nodes_dict.pop(nid, None)
-   141	    nodes_list[:] = [n for n in nodes_list if str(n.get("id", "")) != nid]
-   142	    return True
-   143
-   144
-   145	def _resolve_passthrough(
-   146	    nodes_dict: dict, nodes_list: list, links_list: list,
-   147	    nid: str, node: dict,
-   148	) -> bool:
-   149	    inbound = [l for l in links_list if _link_target_id(l) == nid]
-   150	    if not inbound:
-   151	        return False
-   152
-   153	    sid = _link_origin_id(inbound[0])
-   154	    sslot = _link_origin_slot(inbound[0])
-   155
-   156	    outbound = [l for l in links_list if _link_origin_id(l) == nid]
-   157	    for link in outbound:
-   158	        _set_link_origin(link, sid, sslot)
-   159
-   160	    nodes_dict.pop(nid, None)
-   161	    nodes_list[:] = [n for n in nodes_list if str(n.get("id", "")) != nid]
-   162	    links_list[:] = [l for l in links_list if _link_target_id(l) != nid]
-   163	    return True
-   164
-   165
-   166	def _resolve_primitive(
-   167	    nodes_dict: dict, nodes_list: list, links_list: list,
-   168	    nid: str, node: dict,
-   169	) -> bool:
-   170	    nodes_dict.pop(nid, None)
-   171	    nodes_list[:] = [n for n in nodes_list if str(n.get("id", "")) != nid]
-   172	    links_list[:] = [l for l in links_list if _link_origin_id(l) != nid and _link_target_id(l) != nid]
-   173	    return True
-
-exec
-/bin/zsh -lc 'git show 59a5f16c:.oracle/checkins/batch-B03.md | tail -260' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-exec
-/bin/zsh -lc "git diff -G 'output_link_count_mismatch|input_link_count_mismatch' --unified=5 e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'; git diff -G 'semantic_link_set|canonical_semantic_link_set' --name-only e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
+## Report
+Return: helper location + signature, the canonical-set algorithm (dedupe/reroute/clone normalization), fixture names, diagnostics shape, pytest output. Do NOT commit.
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-   152	            name = broadcast_name(node)
-   153	            if not name:
-   154	                raise make_error(
-   155	                    HelperResolveErrorSpec(
-   156	                        f"GetNode {edge.from_node!r} has no broadcast name",
-   157	                        next_action=f"check node {edge.from_node} (GetNode)",
-   158	                    )
-   159	                )
-   160	            if name not in broadcast_sources:
-   161	                raise make_error(
-   162	                    HelperResolveErrorSpec(
-   163	                        f"GetNode {edge.from_node!r} references unresolved broadcast {name!r}; "
-   164	                        "no matching SetNode found",
-   165	                        next_action=f"check node {edge.from_node} (GetNode)",
-   166	                    )
-   167	                )
-   168	            source = broadcast_sources[name]
-   169	            edge.from_node = str(source[0])
-   170	            edge.from_output = str(source[1])
-   171	            changed = True
-   172	        elif edge.from_node in set_node_ids:
-   173	            node = workflow.nodes[edge.from_node]
-   174	            name = broadcast_name(node)
-   175	            if not name or name not in broadcast_sources:
-   176	                continue
-   177	            source = broadcast_sources[name]
-   178	            edge.from_node = str(source[0])
-   179	            edge.from_output = str(source[1])
-   180	            changed = True
-   181
-   182	    return changed
-   183
-   184
-   185	def _phase_b_passthroughs(workflow: Any, make_error: ErrorFactory) -> bool:
-   186	    passthrough_ids = frozenset(
-   187	        nid
-   188	        for nid, node in workflow.nodes.items()
-   189	        if node.class_type in PASSTHROUGH_HELPER_CLASS_TYPES
-   190	    )
-   191	    if not passthrough_ids:
-   192	        return False
-   193
-   194	    inbound: dict[str, list[Any]] = {}
-   195	    for edge in workflow.edges:
-   196	        inbound.setdefault(edge.to_node, []).append(edge)
-   197
-   198	    changed = False
-   199	    folded_edges: list[Any] = []
-   200	    for edge in _sorted_edges(workflow.edges):
-   201	        if edge.from_node not in passthrough_ids:
-   202	            continue
-   203	        terminal = _resolve_passthrough_terminal(workflow, edge.from_node, inbound, visited=set())
-   204	        if terminal is None:
-   205	            node = workflow.nodes[edge.from_node]
-   206	            if node.class_type == "PrimitiveNode":
-   207	                _fold_primitive_node_literal(workflow, edge, node)
-   208	                folded_edges.append(edge)
-   209	                changed = True
-   210	                continue
-   211	            raise make_error(
-   212	                HelperResolveErrorSpec(
-   213	                    f"Passthrough node {edge.from_node!r} ({node.class_type}) "
-   214	                    "has no resolvable inbound source (dangling passthrough)",
-   215	                    next_action=f"check node {edge.from_node} ({node.class_type})",
-   216	                )
-   217	            )
-   218	        edge.from_node = terminal[0]
-   219	        edge.from_output = terminal[1]
-   220	        changed = True
-   221
-   222	    if folded_edges:
-   223	        workflow.edges = [edge for edge in workflow.edges if edge not in folded_edges]
-   224
-   225	    return changed
-   226
-   227
-   228	def _resolve_passthrough_terminal(
-   229	    workflow: Any,
-   230	    node_id: str,
+# MEGADO B03 REWORK 6 (oracle-adjacent regression) — VHS schema-less pin false refusal
 
-exec
-/bin/zsh -lc "git show e1bef3bf:vibecomfy/porting/layout/delta.py | nl -ba | sed -n '1,150p'; git show e1bef3bf:tests/test_b02_rich_preservation.py | shasum; shasum tests/test_b02_rich_preservation.py; git diff --exit-code e1bef3bf..1e6b28c9 -- tests/test_b02_rich_preservation.py scripts/check_b02_rich_preservation.py; git status --short" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 898ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-     1	"""Field-level delta computation between an ingest snapshot and the current IR.
-     2
-     3	``compute_field_delta`` compares a stored ``_ingest_snapshot`` (captured at
-     4	ingest time by ``vibecomfy.ingest.snapshot.capture_ingest_snapshot``) against
-     5	the live IR state of a ``VibeWorkflow``.
-     6
-     7	Nodes absent from *snapshot* (added after ingest) are omitted from the result —
-     8	downstream logic treats them as ``'snapshot-absent'``.
-     9	"""
-    10	from __future__ import annotations
-    11
-    12	from typing import TYPE_CHECKING, Any
-    13
-    14	if TYPE_CHECKING:
-    15	    from vibecomfy.workflow import VibeWorkflow
-    16
-    17	_SNAPSHOT_FIELDS = (
-    18	    "class_type",
-    19	    "widget_values_sig",
-    20	    "incoming_edge_sig",
-    21	    "outgoing_edge_sig",
-    22	    "public_input_binding",
-    23	)
-    24
-    25
-    26	def compute_field_delta(
-    27	    snapshot: dict[str, Any],
-    28	    current_ir: "VibeWorkflow",
-    29	) -> dict[str, dict[str, tuple]]:
-    30	    """Compute field-level changes between a stored snapshot and the current IR.
-    31
-    32	    Parameters
-    33	    ----------
-    34	    snapshot:
-    35	        A ``{uid: NodeFieldSnapshot}`` dict as returned by
-    36	        ``capture_ingest_snapshot``.  This is the *before* state.
-    37	    current_ir:
-    38	        The live ``VibeWorkflow`` to compare against.  This is the *after* state.
-    39
-    40	    Returns
-    41	    -------
-    42	    ``{uid: {field_name: (old_value, new_value)}}`` — only nodes and fields
-    43	    where something changed.  Nodes absent from *snapshot* are omitted.
-    44	    Nodes in *snapshot* but absent from *current_ir* (removed nodes) are also
-    45	    omitted; callers that need to detect removals should diff snapshot keys against
-    46	    the current IR's uid set directly.
-    47	    """
-    48	    # Build uid → node lookup for the current IR.
-    49	    uid_to_node = {(node.uid if node.uid else node_id): node for node_id, node in current_ir.nodes.items()}
-    50
-    51	    # Recompute current signatures inline to avoid a round-trip through capture.
-    52	    nodes = current_ir.nodes
-    53	    edges = current_ir.edges
-    54	    workflow_inputs = current_ir.inputs
-    55
-    56	    id_to_uid: dict[str, str] = {}
-    57	    for node_id, node in nodes.items():
-    58	        id_to_uid[node_id] = node.uid if node.uid else node_id
-    59
-    60	    incoming: dict[str, list] = {node_id: [] for node_id in nodes}
-    61	    for edge in edges:
-    62	        if edge.to_node in incoming:
-    63	            source_uid = id_to_uid.get(edge.from_node, edge.from_node)
-    64	            incoming[edge.to_node].append((edge.to_input, (source_uid, edge.from_output)))
-    65
-    66	    outgoing: dict[str, list] = {node_id: [] for node_id in nodes}
-    67	    for edge in edges:
-    68	        if edge.from_node in outgoing:
-    69	            target_uid = id_to_uid.get(edge.to_node, edge.to_node)
-    70	            outgoing[edge.from_node].append((edge.from_output, (target_uid, edge.to_input)))
-    71
-    72	    public_bindings: dict[str, list] = {node_id: [] for node_id in nodes}
-    73	    for input_name, vibe_input in workflow_inputs.items():
-    74	        if vibe_input.node_id in public_bindings:
-    75	            public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
-    76
-    77	    delta: dict[str, dict[str, tuple]] = {}
-    78	    for uid, old_snap in snapshot.items():
-    79	        node = uid_to_node.get(uid)
-    80	        if node is None:
-    81	            # Node removed after snapshot — omit per spec (caller diffs keys directly).
-    82	            continue
-    83
-    84	        # Recompute the current signature for this node.
-    85	        all_values = {**node.widgets, **node.inputs}
-    86	        current: dict[str, Any] = {
-    87	            "class_type": node.class_type,
-    88	            "widget_values_sig": tuple(sorted((k, repr(v)) for k, v in all_values.items())),
-    89	            "incoming_edge_sig": tuple(sorted(incoming.get(node.id, []))),
-    90	            "outgoing_edge_sig": tuple(sorted(outgoing.get(node.id, []))),
-    91	            "public_input_binding": tuple(sorted(public_bindings.get(node.id, []))),
-    92	        }
-    93
-    94	        node_delta: dict[str, tuple] = {}
-    95	        for field_name in _SNAPSHOT_FIELDS:
-    96	            old_val = old_snap[field_name]
-    97	            new_val = current[field_name]
-    98	            if old_val != new_val:
-    99	                node_delta[field_name] = (old_val, new_val)
-   100
-   101	        if node_delta:
-   102	            delta[uid] = node_delta
-   103
-   104	    return delta
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-c367db5d70a598af5c2ed394a1f506892133a31e  -
-c367db5d70a598af5c2ed394a1f506892133a31e  tests/test_b02_rich_preservation.py
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
- M .oracle/checkins/batch-B03.md
+Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). Python: `.venv/bin/python`. You have file/web/terminal tools. Skip formatters/linters/full suites; run focused tests only. B03 is in the tree at `59a5f16c` + rework-5 working-tree changes (uncommitted) — fix on top, do not revert.
+
+## The regression (orchestrator-verified)
+
+B02 preservation (`tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches`) went from **4/4 PASS at pre-B03 base `e1bef3bf`** to 6 corpus files refused at HEAD: `2cedcc6c5431dd67`, `5b2141b686cd7192`, `63a23af8786ffa44`, `be037bf05bec284e`, `c958ee58b616d95a`, `e9f5972f924aaa1c`.
+
+Per-file diagnosis (`2cedcc6c5431dd67`): 4 nodes (35, 56, 131, 143, all `VHS_VideoCombine`) refuse with reasons `['schema_less', 'dict_row_dynamic_widgets', 'link_delta']`. At base the same file passed (mismatches=[], pin_opaque=51). The `link_delta` reason is NEW from B03 — the semantic-set comparison fabricates a delta for these schema-less dict-row nodes whose topology did NOT change, which blocks `_observed_dynamic_widgets_recoverable` (requires `not has_link_delta`).
+
+These VHS nodes are schema-less (no object-info schema) with dynamic dict-row widgets — exactly the class that must be preserved via observed-shape recovery when unchanged.
+
+## What to investigate and fix
+
+1. Reproduce: `.venv/bin/python -m pytest -p no:rerunfailures -q "tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches"` (slow ~6-7 min; or run the checker directly on `external_workflows/corpus/2cedcc6c5431dd67.json` via `scripts/check_b02_rich_preservation.py check_envelope`).
+2. Find WHY the semantic link sets differ for these unchanged VHS nodes: compute `compute_field_delta` before/after for `2cedcc6c5431dd67` and dump `semantic_link_set` — is `before != after`, or is it `before_resolution_issues`/`after_resolution_issues` non-empty (a Set/Get/reroute ambiguity on these nodes' connections)?
+3. Fix at the root:
+   - If resolution issues are fabricated for these nodes' plumbing, resolve them (consistent with reworks 4+5: passthrough Set/Get channels, terminal resolution, fail closed only on genuine ambiguity).
+   - If the sets genuinely differ for unchanged topology, fix the canonicalization (snapshot vs live alias symmetry etc.).
+   - The target: for `2cedcc6c5431dd67`, `5b2141b686cd7192`, `63a23af8786ffa44`, `be037bf05bec284e`, `c958ee58b616d95a`, `e9f5972f924aaa1c` the pin check must emit with ZERO mismatches, exactly as at base.
+4. Keep all prior B03 guarantees: multiplicity dedupe, port identity, reroute/channel resolution, clone alias corroboration, 10k-hop bound, deterministic diagnostics, fail-closed on genuine differences/ambiguity, `output_link_count_mismatch` not revived.
+
+## Verification (run, retain output)
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py
+```
+Then (slow):
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_b02_rich_preservation.py
+```
+Expected 4/4 (0 corpus mismatches), matching the pre-B03 base.
+
+## Report
+Return: root cause (which axis differed, file:line), the fix, per-file mismatch counts before/after, focused + B02 pytest output. Do NOT commit.
 
 codex
-B03 CHECKPOINT VERDICT: FAIL — valid direct `SetNode` outputs are misclassified as unresolved, causing unchanged workflows to refuse and breaking B02 preservation.
-
-1. Canonical helper — Mostly correct. There is one topology helper, [`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39). It deduplicates links, preserves both ports, resolves reroutes, and validates clone aliases using [`clone_uid()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317), which uses `parse_uid`. No second topology abstraction was added.
-
-2. Pin-fence wiring — Pass. Before/after canonical sets originate at [`compute_field_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:365), flow through [`ui.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588), and are compared by [`_has_link_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396). `output_link_count_mismatch` was not changed or revived; blame confirms it predates B03.
-
-3. Refusal correctness — Fail. [`delta.py:167`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:167) unconditionally emits `setnode_as_source` whenever a `SetNode` has an outbound edge. A real corpus case has one unambiguous inbound and outbound path:
-
-   `36:2 → SetNode 37:LATENT → 40:samples`
-
-   This is resolvable passthrough topology; the compiler already resolves the same case at [`_compile/_resolve.py:172`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/_compile/_resolve.py:172). Instead, B03 returns empty semantics plus `setnode_as_source:37`. Because resolution issues are attached to every node at [`delta.py:405`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:405), all 114 nodes receive a fabricated delta and an unrelated pinned node refuses.
-
-4. Termination — Pass. Independently reproduced:
-
-   - 5,000-hop reroute chain: 138.1 ms, correct terminal
-   - 5,000-node ring: 84.5 ms, deterministic `cyclic_path`
-   - broadcast over 5,000 reroutes: 68.8 ms, correct terminal
-   - two-setter ambiguity: deterministic `broadcast_setter_count`
-   - reversed node/link order produced identical results
-
-5. Fixtures — Mostly pass. The 62-test focused suite covers fan-out, reroutes, loop clones, removed/repointed/orphaned consumers, port changes, scoped nested semantics, real nested-definition emission, and a concrete multi-output node. It lacks a valid direct-`SetNode`-output regression, which allowed the blocking defect through.
-
-6. Multi-output/B02 — Multi-output identity passes. B02 does not: [`test_b02_rich_preservation.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:59) produced `3 passed, 1 failed`, with 340 mismatches including 308 emission refusals. For corpus file `011c7ad91694b8c4.json`, current B03 refuses; bypassing only B03’s delta computation makes that envelope complete with zero mismatches. The B02 test and checker are byte-identical to the baseline SHA.
-
-7. Scope — Pass. `git diff --check e1bef3bf..1e6b28c9` is clean. Product/test changes are confined to the expected B03 files and `conftest.py`; other changes are Megado artifacts. The pre-existing dirty `.oracle/checkins/batch-B03.md` was untouched.
-
-8. Focused verification — `62 passed, 6 warnings in 13.26s`. Quarantined parity suites were intentionally skipped. B02 result was `1 failed, 3 passed in 156.08s`.
-
-Issue requiring rework:
-
-- [`vibecomfy/porting/layout/delta.py:167`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:167): resolve a `SetNode` used as a source through its unique inbound terminal, just as the compiler does. Fail closed only for zero/multiple inbound candidates or cyclic/unresolved traversal. Add unchanged/equivalent, changed-source, and changed-port direct-`SetNode` regressions, then require both focused suites and B02 4/4 to pass.
-tokens used
-200,527
-B03 CHECKPOINT VERDICT: FAIL — valid direct `SetNode` outputs are misclassified as unresolved, causing unchanged workflows to refuse and breaking B02 preservation.
-
-1. Canonical helper — Mostly correct. There is one topology helper, [`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39). It deduplicates links, preserves both ports, resolves reroutes, and validates clone aliases using [`clone_uid()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317), which uses `parse_uid`. No second topology abstraction was added.
-
-2. Pin-fence wiring — Pass. Before/after canonical sets originate at [`compute_field_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:365), flow through [`ui.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588), and are compared by [`_has_link_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396). `output_link_count_mismatch` was not changed or revived; blame confirms it predates B03.
-
-3. Refusal correctness — Fail. [`delta.py:167`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:167) unconditionally emits `setnode_as_source` whenever a `SetNode` has an outbound edge. A real corpus case has one unambiguous inbound and outbound path:
-
-   `36:2 → SetNode 37:LATENT → 40:samples`
-
-   This is resolvable passthrough topology; the compiler already resolves the same case at [`_compile/_resolve.py:172`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/_compile/_resolve.py:172). Instead, B03 returns empty semantics plus `setnode_as_source:37`. Because resolution issues are attached to every node at [`delta.py:405`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:405), all 114 nodes receive a fabricated delta and an unrelated pinned node refuses.
-
-4. Termination — Pass. Independently reproduced:
-
-   - 5,000-hop reroute chain: 138.1 ms, correct terminal
-   - 5,000-node ring: 84.5 ms, deterministic `cyclic_path`
-   - broadcast over 5,000 reroutes: 68.8 ms, correct terminal
-   - two-setter ambiguity: deterministic `broadcast_setter_count`
-   - reversed node/link order produced identical results
-
-5. Fixtures — Mostly pass. The 62-test focused suite covers fan-out, reroutes, loop clones, removed/repointed/orphaned consumers, port changes, scoped nested semantics, real nested-definition emission, and a concrete multi-output node. It lacks a valid direct-`SetNode`-output regression, which allowed the blocking defect through.
-
-6. Multi-output/B02 — Multi-output identity passes. B02 does not: [`test_b02_rich_preservation.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:59) produced `3 passed, 1 failed`, with 340 mismatches including 308 emission refusals. For corpus file `011c7ad91694b8c4.json`, current B03 refuses; bypassing only B03’s delta computation makes that envelope complete with zero mismatches. The B02 test and checker are byte-identical to the baseline SHA.
-
-7. Scope — Pass. `git diff --check e1bef3bf..1e6b28c9` is clean. Product/test changes are confined to the expected B03 files and `conftest.py`; other changes are Megado artifacts. The pre-existing dirty `.oracle/checkins/batch-B03.md` was untouched.
-
-8. Focused verification — `62 passed, 6 warnings in 13.26s`. Quarantined parity suites were intentionally skipped. B02 result was `1 failed, 3 passed in 156.08s`.
-
-Issue requiring rework:
-
-- [`vibecomfy/porting/layout/delta.py:167`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:167): resolve a `SetNode` used as a source through its unique inbound terminal, just as the compiler does. Fail closed only for zero/multiple inbound candidates or cyclic/unresolved traversal. Add unchanged/equivalent, changed-source, and changed-port direct-`SetNode` regressions, then require both focused suites and B02 4/4 to pass.
-
- succeeded in 0ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-tests/test_layout_delta.py
-tests/test_ui_emitter_widget_shape_verdict.py
-vibecomfy/porting/emit/ui.py
-vibecomfy/porting/layout/delta.py
-vibecomfy/porting/refuse.py
-vibecomfy/porting/widget_shape_fence.py
-
+Static review confirms the fence now reads only `semantic_link_set` and fails closed on unequal sets or attributed resolution issues; the legacy link-count string is unchanged pre-B03 dead code (blame dates it to the old emitter). I’m now running the focused suites with bytecode/cache writes disabled, then the slow B02 preservation suite if the environment permits.
 exec
 /bin/zsh -lc 'PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:rerunfailures -p no:cacheprovider -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- exited 1 in 332ms:
+ exited 1 in 322ms:
 Traceback (most recent call last):
   File "<frozen runpy>", line 198, in _run_module_as_main
   File "<frozen runpy>", line 88, in _run_code
@@ -6827,14 +5059,14 @@ Traceback (most recent call last):
 FileNotFoundError: [Errno 2] No usable temporary directory found in ['/var/folders/_w/b3tthv192m77c760dbyzvk200000gn/T/', '/tmp', '/var/tmp', '/usr/tmp', '/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle']
 
 codex
-The first pytest invocation was blocked before collection because pytest’s capture layer requires a writable temporary file. I’m retrying the same focused suites with capture disabled (`-s`) and cache disabled, which keeps the workspace read-only and avoids that temp-file dependency.
+Pytest is blocked from creating its capture tempfile under this read-only profile, not by the code. I’ll retry without pytest capture (`-s`) and with cache/bytecode disabled; this often permits purely in-memory tests even when `/tmp` is unavailable.
 exec
 /bin/zsh -lc 'PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -s -p no:rerunfailures -p no:cacheprovider -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 12173ms:
-.............OMP: Warning #179: Function Can't set size of /tmp file failed:
+ succeeded in 11909ms:
+..............OMP: Warning #179: Function Can't set size of /tmp file failed:
 [32m[INFO][0m Set vram state to: NORMAL_VRAM
-objc[25759]: Class AVFFrameReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x11e55c3a8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1381a43a8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
-objc[25759]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x11e55c3f8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1381a43f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+objc[5943]: Class AVFFrameReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x11ea003a8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1361b03a8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+objc[5943]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x11ea003f8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1361b03f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
 [32m[INFO][0m PromptServer imported; registering VibeComfy routes.
 [32m[INFO][0m vibecomfy agent routes module loaded and all routes registered.
 [32m[INFO][0m VibeComfy routes registered successfully.
@@ -6852,11 +5084,11 @@ objc[25759]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: other-uid
 .[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: other-uid
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: other-uid
-.......[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-dynamic
+.........[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-dynamic
 .[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-dynamic
 ...[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-dynamic
 .[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-ksampler, uid-overflow
-......................
+...........................
 =============================== warnings summary ===============================
 tests/conftest.py:358
   /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/conftest.py:358: PytestUnknownMarkWarning: Unknown pytest.mark.flaky - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
@@ -6887,291 +5119,433 @@ tests/test_ui_emitter_widget_shape_verdict.py::test_primitive_int_control_after_
   <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-67 passed, 6 warnings in 9.84s
+75 passed, 6 warnings in 9.56s
 
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -s -p no:rerunfailures -p no:cacheprovider -q tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py -k 'semantic or pin or consumer or broadcast or reroute or loop or nested or multi_output'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 1143ms:
-...................................
-=============================== warnings summary ===============================
-tests/conftest.py:358
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/conftest.py:358: PytestUnknownMarkWarning: Unknown pytest.mark.flaky - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
-    flaky_marker = pytest.mark.flaky(reruns=1, reruns_delay=10)
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-35 passed, 32 deselected, 1 warning in 0.51s
-
-codex
-Both focused suites are green: 67/67, and the requested semantic/pin keyword slice is 35/35. I’m running the slower B02 preservation suite now; after that I’ll complete the scope audit and reconcile the independent critique.
 exec
 /bin/zsh -lc 'PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -s -p no:rerunfailures -p no:cacheprovider -q tests/test_b02_rich_preservation.py' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-codex
-The B02 corpus check is still progressing normally; it is warning-heavy but has not surfaced a failure. While it runs, the static audit confirms the dead `output_link_count_mismatch` text was not changed by B03—it remains only in pre-existing compatibility code.
 exec
-/bin/zsh -lc "nl -ba tests/test_virtual_wire_round_trip.py | sed -n '1,150p'; nl -ba vibecomfy/_compile/_resolve.py | sed -n '45,105p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+/bin/zsh -lc "nl -ba tests/test_ui_emitter_widget_shape_verdict.py | sed -n '1270,1495p'; nl -ba tests/test_layout_delta.py | sed -n '445,550p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 44ms:
+  1270
+  1271	    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1272	    assert link_delta["before"] == [["source-uid", "model", "consumer-uid", "images"]]
+  1273	    assert link_delta["after"] == expected_after
+  1274
+  1275
+  1276	@pytest.mark.parametrize(
+  1277	    ("nodes", "links", "issue_prefix"),
+  1278	    [
+  1279	        (
+  1280	            {
+  1281	                "r1": ("reroute-1", "Reroute", None),
+  1282	                "r2": ("reroute-2", "Reroute", None),
+  1283	                "c": ("consumer", "Consumer", None),
+  1284	            },
+  1285	            [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
+  1286	            "cyclic_path:",
+  1287	        ),
+  1288	        (
+  1289	            {
+  1290	                "s1": ("source-1", "Producer", None),
+  1291	                "s2": ("source-2", "Producer", None),
+  1292	                "r": ("reroute", "Reroute", None),
+  1293	                "c": ("consumer", "Consumer", None),
+  1294	            },
+  1295	            [
+  1296	                ("s1", "0", "r", ""),
+  1297	                ("s2", "0", "r", ""),
+  1298	                ("r", "0", "c", "input"),
+  1299	            ],
+  1300	            "reroute_source_count:r:2",
+  1301	        ),
+  1302	    ],
+  1303	    ids=["cyclic_reroute", "ambiguous_reroute"],
+  1304	)
+  1305	def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
+  1306	    nodes: dict[str, tuple[str, str, str | None]],
+  1307	    links: list[tuple[str, str, str, str]],
+  1308	    issue_prefix: str,
+  1309	) -> None:
+  1310	    """Genuinely ambiguous/cyclic helper paths fail closed deterministically.
+  1311
+  1312	    Multiple inbound candidates (``*:N`` with N >= 2) and cyclic traversal are
+  1313	    genuine ambiguity and must never resolve silently; the verdict is
+  1314	    deterministic regardless of link iteration order (B03 rework6 keeps this
+  1315	    fail-closed guarantee — only zero-candidate orphaned plumbing resolves to
+  1316	    opaque terminals, see ``test_pinned_semantic_orphaned_helpers_resolve``).
+  1317	    """
+  1318	    first = canonical_semantic_link_set(nodes, links)
+  1319	    second = canonical_semantic_link_set(nodes, reversed(links))
+  1320	    assert first == second
+  1321	    assert any(issue.startswith(issue_prefix) for issue in first[1])
+  1322
+  1323
+  1324	@pytest.mark.parametrize(
+  1325	    ("nodes", "links", "expected_terminal_uid"),
+  1326	    [
+  1327	        (
+  1328	            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
+  1329	            [("r", "0", "c", "input")],
+  1330	            "reroute",
+  1331	        ),
+  1332	        (
+  1333	            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
+  1334	            [("g", "0", "c", "input")],
+  1335	            "get",
+  1336	        ),
+  1337	        (
+  1338	            {"s": ("set", "SetNode", "LATENT"), "c": ("consumer", "Consumer", None)},
+  1339	            [("s", "0", "c", "input")],
+  1340	            "set",
+  1341	        ),
+  1342	        (
+  1343	            {
+  1344	                "g": ("get", "GetNode", "LATENT"),
+  1345	                "s": ("set", "SetNode", "LATENT"),
+  1346	                "c": ("consumer", "Consumer", None),
+  1347	            },
+  1348	            [("s", "0", "g", "broadcast_out"), ("g", "0", "c", "input")],
+  1349	            "set",
+  1350	        ),
+  1351	    ],
+  1352	    ids=["orphaned_reroute", "orphaned_broadcast", "orphaned_setnode_source", "setter_without_source"],
+  1353	)
+  1354	def test_pinned_semantic_orphaned_helpers_resolve_to_opaque_terminals(
+  1355	    nodes: dict[str, tuple[str, str, str | None]],
+  1356	    links: list[tuple[str, str, str, str]],
+  1357	    expected_terminal_uid: str,
+  1358	) -> None:
+  1359	    """Zero-candidate helpers resolve to their own opaque terminal.
+  1360
+  1361	    A dangling Reroute (no inbound), a GetNode whose channel has no SetNode,
+  1362	    a source-less SetNode, and a unique setter with no inbound are all stable
+  1363	    display-plumbing properties, NOT changes: recording ``*:0`` resolution
+  1364	    issues fabricated a ``link_delta`` on unchanged schema-less consumers
+  1365	    (B03 rework6).  They degenerate to an opaque terminal at the helper's own
+  1366	    uid so an unchanged workflow compares equal, while any real rewiring
+  1367	    (adding a source/setter) still changes the canonical terminal and is
+  1368	    detected.  The verdict is deterministic under link iteration order.
+  1369	    """
+  1370	    first = canonical_semantic_link_set(nodes, links)
+  1371	    second = canonical_semantic_link_set(nodes, reversed(links))
+  1372	    assert first == second
+  1373	    semantic, issues = first
+  1374	    assert issues == ()
+  1375	    assert semantic == (
+  1376	        (expected_terminal_uid, "0", "consumer", "input"),
+  1377	    )
+  1378
+  1379
+  1380	def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
+  1381	    semantic, issues = canonical_semantic_link_set(
+  1382	        {
+  1383	            "s": ("source", "Producer", None),
+  1384	            "r": ("reroute", "Reroute", None),
+  1385	            "c": ("consumer", "Consumer", None),
+  1386	        },
+  1387	        [
+  1388	            ("s", "image", "r", "input-a"),
+  1389	            ("s", "image", "r", "input-b"),
+  1390	            ("r", "0", "c", "images"),
+  1391	        ],
+  1392	    )
+  1393	    assert semantic == ()
+  1394	    assert issues == ("reroute_source_count:r:2",)
+  1395
+  1396
+  1397	def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
+  1398	    nodes = {
+  1399	        "z": ("duplicate", "Producer", None),
+  1400	        "a": ("duplicate", "Producer", None),
+  1401	        "m": ("duplicate", "Producer", None),
+  1402	    }
+  1403	    forward = canonical_semantic_link_set(nodes, [])
+  1404	    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
+  1405	    assert forward == reverse
+  1406	    assert forward[1] == (
+  1407	        "duplicate_uid:duplicate:a:m",
+  1408	        "duplicate_uid:duplicate:a:z",
+  1409	    )
+  1410
+  1411
+  1412	def test_pinned_semantic_orphaned_consumer_path_refuses_with_link_delta() -> None:
+  1413	    wf, raw_ui = _semantic_pin_workflow()
+  1414	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+  1415	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+  1416	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1417
+  1418	    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
+  1419	    wf.edges = [VibeEdge("11", "0", "9", "images")]
+  1420
+  1421	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1422	        warnings.simplefilter("ignore")
+  1423	        _emit_semantic_pin(wf, raw_ui)
+  1424
+  1425	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1426	    assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
+  1427	    # B03 rework6: the orphaned GetNode is a zero-candidate helper, so it
+  1428	    # resolves to its own opaque terminal instead of fabricating a resolution
+  1429	    # issue — the refusal is driven by the canonical incident CHANGE on the
+  1430	    # pinned node's uid (its edge was repointed to the orphaned GetNode),
+  1431	    # which is the genuine difference.
+  1432	    assert semantic_delta["after"] == []
+  1433	    # B03 rework5: resolution issues are attributed to the nodes actually
+  1434	    # involved (the orphaned GetNode and its consumer), not fanned out to the
+  1435	    # unrelated pinned node.
+  1436	    assert semantic_delta["after_resolution_issues"] == []
+  1437	    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+  1438	    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+  1439	    assert consumer_issues == ()
+  1440
+  1441
+  1442	def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
+  1443	    wf, raw_ui = _semantic_pin_workflow()
+  1444	    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+  1445	    wf.edges = [VibeEdge("7", "0", "9", "images")]
+  1446	    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+  1447
+  1448	    wf.nodes["11"] = VibeNode("11", "Reroute", uid="reroute-1")
+  1449	    wf.nodes["12"] = VibeNode("12", "Reroute", uid="reroute-2")
+  1450	    wf.edges = [
+  1451	        VibeEdge("11", "0", "12", ""),
+  1452	        VibeEdge("12", "0", "11", ""),
+  1453	        VibeEdge("11", "0", "9", "images"),
+  1454	    ]
+  1455
+  1456	    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+  1457	        warnings.simplefilter("ignore")
+  1458	        _emit_semantic_pin(wf, raw_ui)
+  1459
+  1460	    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+  1461	    assert semantic_delta["after"] == []
+  1462	    # B03 rework5: the cyclic-path issue belongs to the consumer actually fed
+  1463	    # by the cyclic Reroute chain, not to the unrelated pinned node.
+  1464	    assert semantic_delta["after_resolution_issues"] == []
+  1465	    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+  1466	    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+  1467	    assert len(consumer_issues) == 1
+  1468	    assert consumer_issues[0].startswith("cyclic_path:")
+  1469
+  1470
+  1471	def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
+  1472	    nodes = {
+  1473	        "s": ("source", "Producer", None),
+  1474	        "c": ("consumer", "Consumer", None),
+  1475	    }
+  1476	    semantic, issues = canonical_semantic_link_set(
+  1477	        nodes,
+  1478	        [
+  1479	            ("s", "model", "c", "input"),
+  1480	            ("s", "model", "c", "input"),
+  1481	            ("s", "clip", "c", "input"),
+  1482	        ],
+  1483	    )
+  1484	    assert semantic == (
+  1485	        ("source", "clip", "consumer", "input"),
+  1486	        ("source", "model", "consumer", "input"),
+  1487	    )
+  1488	    assert issues == ()
+  1489
+  1490
+  1491	def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:
+  1492	    """Captured raw _ui may list extra stale output links; pin must emit the IR link set."""
+  1493	    # Reuse the connected DynamicRows fixture but put TWO stale links on the
+  1494	    # pinned node's output while the IR has only one outgoing edge.
+  1495	    raw_ui = _raw_connected_dynamic_ui()
+   445
+   446	def test_widget_edit_detected():
+   447	    """Changing a widget value after snapshot produces a widget_values_sig delta."""
+   448	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   449	    snap = capture_ingest_snapshot({}, wf)
+   450
+   451	    # Mutate seed in the IR (post-ingest edit)
+   452	    wf.nodes["1"].inputs["seed"] = 999
+   453
+   454	    delta = compute_field_delta(snap, wf)
+   455	    assert "sampler-uid" in delta
+   456	    assert "widget_values_sig" in delta["sampler-uid"]
+   457	    old_val, new_val = delta["sampler-uid"]["widget_values_sig"]
+   458	    assert old_val != new_val
+   459
+   460
+   461	def test_rewire_detected():
+   462	    """Changing an incoming edge produces a canonical semantic-link delta."""
+   463	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   464	    snap = capture_ingest_snapshot({}, wf)
+   465
+   466	    # Add a new node and rewire KSampler's latent_image to it
+   467	    new_node = VibeNode(id="3", class_type="EmptyLatentImage",
+   468	                        inputs={"width": 768, "height": 768, "batch_size": 1},
+   469	                        uid="latent-uid-b")
+   470	    wf.nodes["3"] = new_node
+   471	    # Remove the old edge and add a new one pointing to the new node
+   472	    wf.edges = [e for e in wf.edges if not (e.to_node == "1" and e.to_input == "latent_image")]
+   473	    wf.edges.append(VibeEdge(from_node="3", from_output="0", to_node="1", to_input="latent_image"))
+   474
+   475	    delta = compute_field_delta(snap, wf)
+   476	    assert "sampler-uid" in delta
+   477	    semantic = delta["sampler-uid"]["semantic_link_set"]
+   478	    assert semantic["before"] != semantic["after"]
+   479	    assert semantic["before_resolution_issues"] == ()
+   480	    assert semantic["after_resolution_issues"] == ()
+   481
+   482
+   483	def test_unmodified_node_absent_from_delta():
+   484	    """A node that was not edited should not appear in the delta."""
+   485	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   486	    snap = capture_ingest_snapshot({}, wf)
+   487	    # Only mutate KSampler
+   488	    wf.nodes["1"].inputs["seed"] = 9999
+   489
+   490	    delta = compute_field_delta(snap, wf)
+   491	    assert "sampler-uid" in delta
+   492	    # EmptyLatentImage was not touched
+   493	    assert "latent-uid" not in delta
+   494
+   495
+   496	def test_added_node_is_snapshot_absent_and_omitted():
+   497	    """A node added to the IR after snapshot is absent from snapshot → not in delta."""
+   498	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   499	    snap = capture_ingest_snapshot({}, wf)
+   500
+   501	    # Add a new node that was not present at ingest time
+   502	    wf.nodes["99"] = VibeNode(id="99", class_type="CLIPTextEncode",
+   503	                              inputs={"text": "hello"}, uid="new-clip-uid")
+   504
+   505	    delta = compute_field_delta(snap, wf)
+   506	    # New node is snapshot-absent → must be omitted
+   507	    assert "new-clip-uid" not in delta
+   508
+   509
+   510	def test_removed_node_omitted_from_delta():
+   511	    """A node removed from the IR after snapshot is omitted from delta.
+   512
+   513	    Callers that need to detect removals diff snapshot keys against the current
+   514	    IR uid set directly; compute_field_delta only reports changed fields for
+   515	    nodes present in both snapshot and current IR.
+   516	    """
+   517	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   518	    snap = capture_ingest_snapshot({}, wf)
+   519
+   520	    # Remove a node from the IR
+   521	    del wf.nodes["2"]
+   522	    wf.edges = [e for e in wf.edges if e.from_node != "2" and e.to_node != "2"]
+   523
+   524	    delta = compute_field_delta(snap, wf)
+   525	    # Removed node must not appear in delta
+   526	    assert "latent-uid" not in delta
+   527
+   528
+   529	def test_snapshot_absent_node_omitted_matches_add_semantics():
+   530	    """Snapshot-absent nodes (in IR but not snapshot) are excluded from delta."""
+   531	    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+   532	    # Take snapshot of only one node by building a partial snapshot manually
+   533	    snap_only_sampler = {
+   534	        uid: entry
+   535	        for uid, entry in wf.metadata["_ingest_snapshot"].items()
+   536	        if uid == "sampler-uid"
+   537	    }
+   538
+   539	    # latent-uid is absent from snap_only_sampler but present in wf → snapshot-absent
+   540	    delta = compute_field_delta(snap_only_sampler, wf)
+   541	    assert "latent-uid" not in delta
+   542	    # sampler-uid was not modified → also not in delta
+   543	    assert "sampler-uid" not in delta
+   544
+   545
+   546	# ---------------------------------------------------------------------------
+   547	# Batch-placement toposort tests (T12: dependency counts + reverse edges)
+   548	# ---------------------------------------------------------------------------
+   549
+   550
+
+exec
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c \"from vibecomfy.workflow import VibeWorkflow,WorkflowSource,VibeNode,VibeEdge; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.layout.delta import compute_field_delta; wf=VibeWorkflow('wf',WorkflowSource('wf',None,'test')); wf.nodes['1']=VibeNode('1','Producer',uid='source'); snap=capture_ingest_snapshot({},wf); wf.edges=[VibeEdge('1','0','ghost','input')]; print(compute_field_delta(snap,wf))\"" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 490ms:
+{}
+
+exec
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c \"from vibecomfy.workflow import VibeWorkflow,WorkflowSource,VibeNode,VibeEdge; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.layout.delta import compute_field_delta; wf=VibeWorkflow('wf',WorkflowSource('wf',None,'test')); wf.nodes['2']=VibeNode('2','Consumer',uid='consumer'); snap=capture_ingest_snapshot({},wf); wf.edges=[VibeEdge('ghost','0','2','input')]; print(compute_field_delta(snap,wf))\"" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 476ms:
+{'consumer': {'semantic_link_set': {'before': (), 'after': (), 'before_resolution_issues': (), 'after_resolution_issues': ('unknown_source:ghost',)}}}
+
+exec
+/bin/zsh -lc "rg -n '5000|semantic_walk_limit|cyclic_path' tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py .oracle/briefs/batch-B03* | head -100; git diff --numstat e1bef3bf..e82d54bf -- ':"'!.oracle/**'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 58ms:
+11	5	tests/conftest.py
+393	3	tests/test_layout_delta.py
+774	0	tests/test_ui_emitter_widget_shape_verdict.py
+2	1	vibecomfy/porting/emit/ui.py
+494	27	vibecomfy/porting/layout/delta.py
+8	3	vibecomfy/porting/lowering.py
+1	0	vibecomfy/porting/refuse.py
+18	1	vibecomfy/porting/widget_shape_fence.py
+
+exec
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c \"import time; from vibecomfy.porting.layout.delta import canonical_semantic_link_set as f; n=5000; nodes={'s':('source','Producer',None),'c':('consumer','Consumer',None),**{f'r{i}':(f'reroute-{i}','Reroute',None) for i in range(n)}}; links=[('s','out','r0','in')]+[(f'r{i}','0',f'r{i+1}','in') for i in range(n-1)]+[(f'r{n-1}','0','c','input')]; t=time.perf_counter(); a=f(nodes,links); print('chain',round((time.perf_counter()-t)*1000,1),a[0],a[1]); ring_nodes={'c':('consumer','Consumer',None),**{f'r{i}':(f'reroute-{i}','Reroute',None) for i in range(n)}}; ring_links=[(f'r{i}','0',f'r{(i+1)%n}','in') for i in range(n)]+[('r0','0','c','input')]; t=time.perf_counter(); b=f(ring_nodes,ring_links); print('ring',round((time.perf_counter()-t)*1000,1),len(b[0]),b[1][0][:30],len(b[1][0]))\"" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 409ms:
+chain 33.0 (('source', 'out', 'consumer', 'input'),) ()
+ring 44.8 0 cyclic_path:r0:r1:r10:r100:r10 28901
+
+codex
+The focused suites pass locally: 75 tests in 9.56s. I also independently reproduced the executor’s stress claims: a 5,000-hop chain resolves correctly in 33 ms, and a 5,000-node reroute ring terminates fail-closed in 44.8 ms with a deterministic `cyclic_path:` issue.
+
+Adversarial probing has found one uncovered fail-closed gap: adding an edge from a valid existing source to a nonexistent consumer yields `compute_field_delta(...) == {}`. The helper records `unknown_consumer`, but the per-node diagnostic layer does not attribute that issue to the source, so the pin fence never sees it. I’m checking whether any later emitter guard reliably catches this before deciding the verdict.
+exec
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c \"from tests.test_ui_emitter_widget_shape_verdict import _semantic_pin_workflow,_emit_semantic_pin; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.workflow import VibeEdge; wf,raw=_semantic_pin_workflow(); wf.metadata['_ingest_snapshot']=capture_ingest_snapshot({},wf); wf.edges=[VibeEdge('7','0','ghost','images')]; import traceback; exec(\\\"try:\\n print('EMITTED',_emit_semantic_pin(wf,raw))\\nexcept Exception as e:\\n print(type(e).__name__,str(e)); print(getattr(e,'diff',None))\\\")\"" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 442ms:
+compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: uid-dynamic
+KeyError 'ghost'
+None
+
+exec
+/bin/zsh -lc "nl -ba vibecomfy/ingest/snapshot.py | sed -n '45,125p'; nl -ba vibecomfy/porting/layout/store.py | sed -n '520,640p' 2>/dev/null || true; rg -n 'compute_field_delta\\(' vibecomfy | head -50" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
+ succeeded in 31ms:
+vibecomfy/porting/emit/ui.py:2145:        _field_delta = compute_field_delta(_snapshot, wf) if _snapshot else {}
+vibecomfy/porting/emit/ui.py:2277:    _field_delta_by_uid = compute_field_delta(_snapshot, wf) if _snapshot else {}
+vibecomfy/porting/emit/ui.py:2729:        _delta = compute_field_delta(_snap, wf) if _snap else {}
+vibecomfy/porting/layout/delta.py:464:def compute_field_delta(
+
+2026-08-13T20:22:16.302229Z ERROR codex_core::tools::router: error=timeout_ms must be at least 10000
+collab: Wait
+exec
+/bin/zsh -lc "nl -ba vibecomfy/porting/emit/ui.py | sed -n '2560,2585p'; git status --short --branch" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
  succeeded in 0ms:
-     1	"""M6 T10 — Virtual-wire round-trip: default convert vs --keep-virtual-wires.
-     2
-     3	Builds a synthetic in-memory VibeWorkflow with one model-loader node,
-     4	two GetNode/SetNode pairs, and a Reroute node, wired in a small but
-     5	realistic shape.  Two test paths:
-     6
-     7	  (A) Default convert (keep_virtual_wires=False): ``port_convert_workflow``
-     8	      resolves helpers; the generated .py contains no explicit GetNode/SetNode/
-     9	      Reroute calls.  Reload + emit --to ui; assert virtual-wire furniture
-    10	      appears in the emitted JSON nodes list (preserved via the layout store).
-    11
-    12	  (B) ``--keep-virtual-wires``: same workflow, ``keep_virtual_wires=True``.
-    13	      Assert the generated .py contains explicit ``wf.node("GetNode"…)``
-    14	      literals.  Reload + emit --to ui; assert the emitted UI JSON is
-    15	      canonically byte-equivalent to path A's output.  The IR-level round-trip
-    16	      is invariant to the Python representation.
-    17
-    18	Runs in the default offline suite (no marker).
-    19	"""
-    20
-    21	from __future__ import annotations
-    22
-    23	import json
-    24	from pathlib import Path
-    25
-    26	import pytest
-    27
-    28	from vibecomfy.porting.convert import _capture_virtual_wires, port_convert_workflow
-    29	from vibecomfy.porting.layout_store import read_store, write_layout
-    30	from vibecomfy.porting.emit.ui import emit_ui_json
-    31	from vibecomfy.scratchpad_loader import load_scratchpad
-    32	from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
-    33
-    34	# ---------------------------------------------------------------------------
-    35	# Synthetic virtual-wire fixture
-    36	# ---------------------------------------------------------------------------
-    37
-    38	_VW_TYPES = frozenset({"GetNode", "SetNode", "Reroute"})
-    39
-    40
-    41	def _make_roundtrip_wf() -> VibeWorkflow:
-    42	    """Build a synthetic workflow with model loader + 2 GetNode/SetNode pairs + Reroute.
-    43
-    44	    Topology::
-    45
-    46	        CLS ─► SetNode(LATENT) ─► Reroute ─► GetNode(LATENT) ─► KSampler ─► SaveImage
-    47	        CLS ─► SetNode(IMAGE)  ─► GetNode(IMAGE) ─► KSampler.latent_image
-    48	    """
-    49	    wf = VibeWorkflow(
-    50	        "vw-roundtrip",
-    51	        WorkflowSource("vw-roundtrip", path="test/vw_roundtrip.json", source_type="raw_json"),
-    52	    )
-    53
-    54	    # ── Regular nodes ────────────────────────────────────────────────────
-    55	    _add_node(wf, "1", "CheckpointLoaderSimple", pos=[100, 200], size=[300, 100],
-    56	              inputs={"ckpt_name": "model.safetensors"})
-    57	    _add_node(wf, "5", "KSampler", pos=[1100, 200], size=[300, 100],
-    58	              inputs={"seed": 42, "steps": 20, "cfg": 7.0, "sampler_name": "euler",
-    59	                      "scheduler": "normal", "denoise": 1.0})
-    60	    _add_node(wf, "6", "SaveImage", pos=[1400, 200], size=[300, 100],
-    61	              inputs={"filename_prefix": "out/vw"})
-    62
-    63	    # ── Virtual wire nodes ───────────────────────────────────────────────
-    64	    _add_vw_node(wf, "10", "SetNode", channel="LATENT",  pos=[400, 150], size=[200, 58])
-    65	    _add_vw_node(wf, "11", "GetNode", channel="LATENT",  pos=[900, 150], size=[200, 58])
-    66	    _add_vw_node(wf, "12", "SetNode", channel="IMAGE",   pos=[400, 300], size=[200, 58])
-    67	    _add_vw_node(wf, "13", "GetNode", channel="IMAGE",   pos=[700, 300], size=[200, 58])
-    68	    _add_vw_node(wf, "14", "Reroute",                    pos=[650, 150], size=[75, 26])
-    69
-    70	    # ── Edges (all use slot "0" for simplicity) ──────────────────────────
-    71	    # LATENT broadcast pair with Reroute inline:
-    72	    #   CLS(0) → SetNode(LATENT)(broadcast_in) → SetNode(0) → Reroute(0) → Reroute(0) → GetNode(LATENT)(broadcast_out) → GetNode(0) → KSampler.model
-    73	    wf.edges.append(VibeEdge("1",  "0", "10", "broadcast_in"))
-    74	    wf.edges.append(VibeEdge("10", "0", "14", "0"))
-    75	    wf.edges.append(VibeEdge("14", "0", "11", "broadcast_out"))
-    76	    wf.edges.append(VibeEdge("11", "0", "5",  "model"))
-    77
-    78	    # IMAGE broadcast pair (live path):
-    79	    #   CLS(0) → SetNode(IMAGE)(broadcast_in) → SetNode(0) → GetNode(IMAGE)(broadcast_out) → GetNode(0) → KSampler.latent_image
-    80	    wf.edges.append(VibeEdge("1",  "0", "12", "broadcast_in"))
-    81	    wf.edges.append(VibeEdge("12", "0", "13", "broadcast_out"))
-    82	    wf.edges.append(VibeEdge("13", "0", "5",  "latent_image"))
-    83
-    84	    # KSampler(0) → SaveImage.images
-    85	    wf.edges.append(VibeEdge("5", "0", "6", "images"))
-    86
-    87	    return wf
-    88
-    89
-    90	def _add_node(
-    91	    wf: VibeWorkflow,
-    92	    node_id: str,
-    93	    class_type: str,
-    94	    *,
-    95	    pos=None,
-    96	    size=None,
-    97	    inputs=None,
-    98	) -> VibeNode:
-    99	    ui: dict = {}
-   100	    if pos is not None:
-   101	        ui["pos"] = pos
-   102	    if size is not None:
-   103	        ui["size"] = size
-   104	    n = VibeNode(node_id, class_type, inputs=dict(inputs or {}), metadata={"_ui": ui} if ui else {})
-   105	    n.uid = node_id
-   106	    wf.nodes[node_id] = n
-   107	    return n
-   108
-   109
-   110	def _add_vw_node(
-   111	    wf: VibeWorkflow,
-   112	    node_id: str,
-   113	    class_type: str,
-   114	    *,
-   115	    channel: str | None = None,
-   116	    pos=None,
-   117	    size=None,
-   118	) -> VibeNode:
-   119	    # broadcast_name() reads from node.inputs['widget_0'] (not metadata).
-   120	    vw_inputs: dict = {}
-   121	    if channel:
-   122	        vw_inputs["widget_0"] = channel
-   123	    ui: dict = {"type": class_type}
-   124	    if pos is not None:
-   125	        ui["pos"] = pos
-   126	    if size is not None:
-   127	        ui["size"] = size
-   128	    n = VibeNode(node_id, class_type, inputs=vw_inputs, metadata={"_ui": ui})
-   129	    n.uid = node_id
-   130	    wf.nodes[node_id] = n
-   131	    return n
-   132
-   133
-   134	# ---------------------------------------------------------------------------
-   135	# Canonicalisation helper
-   136	# ---------------------------------------------------------------------------
-   137
-   138
-   139	def _canonical_json(obj: dict) -> str:
-   140	    """Produce a canonical JSON string: sorted keys, consistent numeric formatting.
-   141
-   142	    Link and node IDs are implementation details that can differ between
-   143	    convert paths.  We zero them out so the comparison reflects structural
-   144	    equivalence, not ID-sequence drift.
-   145	    """
-   146	    # Deep-copy so we don't mutate the original.
-   147	    import copy
-   148	    norm = copy.deepcopy(obj)
-   149	    _zero_link_ids(norm)
-   150	    _zero_node_ids(norm)
-    45	def resolve_helpers(
-    46	    workflow: Any,
-    47	    registered_inputs: MutableMapping[str, tuple[str, str]],
-    48	    *,
-    49	    primitive_value_extractor: PrimitiveValueExtractor | None = None,
-    50	    error_factory: ErrorFactory | None = None,
-    51	) -> ResolveDiagnostics:
-    52	    """Eliminate conversion-resolvable helper nodes from a workflow-like IR.
-    53
-    54	    The graph traversal and edge-rewrite semantics live here because they are
-    55	    independent of Python-template emission.  Callers inject conversion-specific
-    56	    primitive coercion and exception types when needed.
-    57	    """
-    58	    diagnostics: list[HelperDiagnostic] = []
-    59	    make_error = error_factory or (lambda spec: HelperResolveError(spec))
-    60	    extract_primitive_value = primitive_value_extractor or _extract_raw_primitive_value
-    61
-    62	    for _ in range(10_000):
-    63	        changed = False
-    64	        changed |= _phase_a_broadcasts(workflow, make_error)
-    65	        changed |= _phase_b_passthroughs(workflow, make_error)
-    66	        changed |= _phase_c_value_primitives(
-    67	            workflow,
-    68	            registered_inputs,
-    69	            diagnostics,
-    70	            extract_primitive_value,
-    71	            make_error,
-    72	        )
-    73	        if not changed:
-    74	            break
-    75
-    76	    for edge in workflow.edges:
-    77	        node = workflow.nodes.get(edge.from_node)
-    78	        if node is not None and node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
-    79	            raise make_error(
-    80	                HelperResolveErrorSpec(
-    81	                    f"Helper node {edge.from_node!r} ({node.class_type}) could not be fully resolved",
-    82	                    next_action=f"check node {edge.from_node} ({node.class_type})",
-    83	                )
-    84	            )
-    85
-    86	    resolved_ids = frozenset(
-    87	        nid
-    88	        for nid, node in workflow.nodes.items()
-    89	        if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
-    90	    )
-    91	    for nid in resolved_ids:
-    92	        workflow.nodes.pop(nid)
-    93	    workflow.edges = [
-    94	        edge
-    95	        for edge in workflow.edges
-    96	        if edge.from_node not in resolved_ids and edge.to_node not in resolved_ids
-    97	    ]
-    98
-    99	    return ResolveDiagnostics(diagnostics=diagnostics)
-   100
-   101
-   102	def resolve_compile_edge_source(
-   103	    edge: Any,
-   104	    nodes: Mapping[str, Any],
-   105	    broadcast_sources: Mapping[str, list[Any]],
+  2560	        if from_exec_io is not None:
+  2561	            try:
+  2562	                candidate_slot = int(edge.from_output.split("_", 1)[1]) if edge.from_output.startswith("out_") else int(edge.from_output)
+  2563	            except (TypeError, ValueError):
+  2564	                candidate_slot = from_slot
+  2565	            if 0 <= candidate_slot < len(from_exec_io["outputs"]):
+  2566	                from_slot = candidate_slot
+  2567	                socket_type = from_exec_io["outputs"][candidate_slot][1]
+  2568	        # to_slot = index of this input in the to-node's physical input array.
+  2569	        to_exec_io = _exec_io_for_node(wf.nodes[edge.to_node]) if edge.to_node in wf.nodes else None
+  2570	        if to_exec_io is not None and edge.to_input.startswith("in_"):
+  2571	            try:
+  2572	                to_slot = int(edge.to_input.split("_", 1)[1])
+  2573	            except ValueError:
+  2574	                to_slot = 0
+  2575	        else:
+  2576	            target_schema = schema_cache.get(wf.nodes[edge.to_node].class_type)
+  2577	            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema)
+  2578	            to_slot = next(
+  2579	                (
+  2580	                    i
+  2581	                    for i, e in enumerate(incoming_sorted)
+  2582	                    if e.to_input == edge.to_input
+  2583	                    and e.from_node == edge.from_node
+  2584	                    and e.from_output == edge.from_output
+  2585	                ),
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+## oracle-run
+ M .oracle/checkins/batch-B03.md
 
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from vibecomfy.porting.layout.delta import canonical_semantic_link_set; nodes={\"1\":(\"source\",\"Producer\",None),\"10\":(\"set\",\"SetNode\",\"BUS\"),\"12\":(\"reroute\",\"Reroute\",None),\"11\":(\"get\",\"GetNode\",\"BUS\"),\"20\":(\"consumer\",\"Consumer\",None)}; links=[(\"1\",\"0\",\"10\",\"value\"),(\"10\",\"0\",\"12\",\"\"),(\"12\",\"0\",\"11\",\"value\"),(\"11\",\"0\",\"20\",\"model\")]; print(canonical_semantic_link_set(nodes,links))'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-exec
-/bin/zsh -lc "rg -n \"helper_input_unsupported|GetNode.*input|to_node.*GetNode|connected.*Get\" tests vibecomfy -g '*.py'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 41ms:
-tests/test_cli_doctor_contract_validate.py:117:    workflow.nodes["1"] = VibeNode(id="1", class_type="GetNode", inputs={"widget_0": "missing"})
-tests/test_workflow_core.py:667:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "reference_image"})
-tests/test_workflow_core.py:681:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "reference_image"})
-tests/test_workflow_core.py:698:    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"})
-tests/test_workflow_core.py:748:    workflow.nodes["2"] = VibeNode("2", "GetNode", inputs={"widget_0": "missing_image"})
-tests/test_workflow_core.py:774:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "first"})
-tests/test_workflow_core.py:776:    workflow.nodes["5"] = VibeNode("5", "GetNode", inputs={"widget_0": "second"})
-tests/test_workflow_core.py:809:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "first"})
-tests/test_workflow_core.py:811:    workflow.nodes["5"] = VibeNode("5", "GetNode", inputs={"widget_0": "second"})
-tests/test_workflow_core.py:824:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "first"})
-tests/test_workflow_core.py:959:    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"})
-tests/test_workflow_core.py:982:    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "bus"})
-tests/test_workflow_core.py:1001:    workflow.nodes["5"] = VibeNode("5", "GetNode", inputs={"widget_0": "bus"})
-tests/test_workflow_core.py:1020:    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "loose_bus"})
-tests/test_workflow_core.py:1037:    workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "bus"})
-tests/test_workflow_core.py:1055:    workflow.nodes["2"] = VibeNode("2", "GetNode", inputs={"widget_0": "bus"})
-tests/test_workflow_core.py:1091:    workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "bus"})
-tests/test_helper_resolve.py:504:# ─── Determinism ─────────────────────────────────────────────────────────────\n\n\nclass TestDeterminism:\n    def test_resolve_same_fixture_twice_identical_ir(self) -> None:\n        \"\"\"Resolving the same fixture twice produces identical IR (nodes, edges, inputs).\"\"\"\n        def _build() -> VibeWorkflow:\n            return _wf(\n                (\"0\", \"SourceNode\", {}),\n                (\"1\", \"SetNode\", {\"widget_0\": \"data\"}),\n                (\"2\", \"GetNode\", {\"widget_0\": \"data\"}),\n                (\"3\", \"Reroute\", {}),\n                (\"4\", \"ConsumerNode\", {}),\n                edges=[\n                    (\"0\", \"0\", \"1\", \"DATA\"),\n                    (\"2\", \"0\", \"3\", \"\"),\n                    (\"3\", \"0\", \"4\", \"inp\"),\n                ],\n            )\n\n        ri1: dict[str, tuple[str, str]] = {}\n        wf1 = _build()\n        resolve_helpers(wf1, ri1)\n\n        ri2: dict[str, tuple[str, str]] = {}\n        wf2 = _build()\n        resolve_helpers(wf2, ri2)\n\n        # Registered inputs identical.\n        assert ri1 == ri2\n\n        # Same surviving node IDs.\n        assert set(wf1.nodes.keys()) == set(wf2.nodes.keys())\n\n        # Same node content (class_type, inputs, widgets).\n        for nid in wf1.nodes:\n            n1 = wf1.nodes[nid]\n            n2 = wf2.nodes[nid]\n            assert n1.class_type == n2.class_type\n            assert n1.inputs == n2.inputs\n            assert n1.widgets == n2.widgets\n\n        # Same edge set (order-independent comparison).\n        def _edge_key(e: VibeEdge) -> tuple[str, str, str, str]:\n            return (e.from_node, e.from_output, e.to_node, e.to_input)\n\n        edges1 = sorted(wf1.edges, key=_edge_key)\n        edges2 = sorted(wf2.edges, key=_edge_key)\n        assert [_edge_key(e) for e in edges1] == [_edge_key(e) for e in edges2]\n\n        # Same workflow inputs.\n        assert set(wf1.inputs.keys()) == set(wf2.inputs.keys())\n\n    def test_oracle_resolve_twice_full_ir_identical(self) -> None:\n        \"\"\"Two independent resolves of the runexx oracle produce identical full IR.\"\"\"\n        from tests.test_helper_resolve import TestRunexxOracle\n\n        ri1: dict[str, tuple[str, str]] = {}\n        wf1 = TestRunexxOracle()._build_oracle_wf()\n        resolve_helpers(wf1, ri1)\n\n        ri2: dict[str, tuple[str, str]] = {}\n        wf2 = TestRunexxOracle()._build_oracle_wf()\n        resolve_helpers(wf2, ri2)\n\n        # Registered inputs identical.\n        assert ri1 == ri2\n\n        # Same surviving node IDs.\n        assert set(wf1.nodes.keys()) == set(wf2.nodes.keys())\n\n        # Same node content.\n        for nid in wf1.nodes:\n            n1 = wf1.nodes[nid]\n            n2 = wf2.nodes[nid]\n            assert n1.class_type == n2.class_type\n            assert n1.inputs == n2.inputs\n            assert n1.widgets == n2.widgets\n\n        # Same edge set.\n        def _edge_key(e: VibeEdge) -> tuple[str, str, str, str]:\n            return (e.from_node, e.from_output, e.to_node, e.to_input)\n\n        edges1 = sorted(wf1.edges, key=_edge_key)\n        edges2 = sorted(wf2.edges, key=_edge_key)\n        assert [_edge_key(e) for e in edges1] == [_edge_key(e) for e in edges2]\n\n        # Same workflow inputs.\n        assert set(wf1.inputs.keys()) == set(wf2.inputs.keys())\n\n\n# ─── Edge and node cleanup ───────────────────────────────────────────────────
-tests/support/corpus_schema.py:359:        # (for GetNode, output = input type)
-tests/test_reorganise_compile.py:2903:    """A weakly-connected section (e.g. prompt nodes wired through Set/Get
-
- succeeded in 139ms:
-((('source', '0', 'consumer', 'model'),), ('helper_input_unsupported:11',))
-
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from vibecomfy.workflow import VibeWorkflow,VibeNode,VibeEdge,WorkflowSource; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.layout.delta import compute_field_delta; w=VibeWorkflow(\"x\",WorkflowSource(\"x\",None,\"test\")); specs={\"1\":(\"Producer\",None),\"10\":(\"SetNode\",\"BUS\"),\"14\":(\"Reroute\",None),\"11\":(\"GetNode\",\"BUS\"),\"20\":(\"Consumer\",None)}; [w.nodes.__setitem__(n,VibeNode(n,c,uid=n,inputs=({\"widget_0\":ch} if ch else {}))) for n,(c,ch) in specs.items()]; w.edges=[VibeEdge(\"1\",\"0\",\"10\",\"broadcast_in\"),VibeEdge(\"10\",\"0\",\"14\",\"0\"),VibeEdge(\"14\",\"0\",\"11\",\"broadcast_out\"),VibeEdge(\"11\",\"0\",\"20\",\"model\")]; s=capture_ingest_snapshot({},w); print(compute_field_delta(s,w))'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 273ms:
-{'1': {'semantic_link_set': {'before': (('1', '0', '20', 'model'),), 'after': (('1', '0', '20', 'model'),), 'before_resolution_issues': ('helper_input_unsupported:11',), 'after_resolution_issues': ('helper_input_unsupported:11',)}}, '10': {'semantic_link_set': {'before': (), 'after': (), 'before_resolution_issues': ('helper_input_unsupported:11',), 'after_resolution_issues': ('helper_input_unsupported:11',)}}, '14': {'semantic_link_set': {'before': (), 'after': (), 'before_resolution_issues': ('helper_input_unsupported:11',), 'after_resolution_issues': ('helper_input_unsupported:11',)}}, '11': {'semantic_link_set': {'before': (), 'after': (), 'before_resolution_issues': ('helper_input_unsupported:11',), 'after_resolution_issues': ('helper_input_unsupported:11',)}}, '20': {'semantic_link_set': {'before': (('1', '0', '20', 'model'),), 'after': (('1', '0', '20', 'model'),), 'before_resolution_issues': ('helper_input_unsupported:11',), 'after_resolution_issues': ('helper_input_unsupported:11',)}}}
-
-codex
-The adversarial pass found and I independently reproduced a blocking false refusal: an unchanged, supported connected virtual-wire graph (`SetNode → Reroute → GetNode`) produces equal canonical sets but `helper_input_unsupported` issues on both sides, so every snapshot node receives a semantic delta. This violates the “genuine difference or ambiguous/unresolved only” criterion; the final verdict will be FAIL.
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'import warnings; from tests.test_ui_emitter_widget_shape_verdict import _semantic_pin_workflow,_emit_semantic_pin; from vibecomfy.workflow import VibeNode,VibeEdge; from vibecomfy.ingest.snapshot import capture_ingest_snapshot; from vibecomfy.porting.refuse import RefusedEmit; w,raw=_semantic_pin_workflow(); w.nodes[\"10\"]=VibeNode(\"10\",\"SetNode\",uid=\"set\",widgets={\"widget_0\":\"BUS\"}); w.nodes[\"14\"]=VibeNode(\"14\",\"Reroute\",uid=\"reroute\"); w.nodes[\"11\"]=VibeNode(\"11\",\"GetNode\",uid=\"get\",widgets={\"widget_0\":\"BUS\"}); w.nodes[\"20\"]=VibeNode(\"20\",\"SaveImage\",uid=\"consumer\"); w.edges=[VibeEdge(\"7\",\"0\",\"10\",\"broadcast_in\"),VibeEdge(\"10\",\"0\",\"14\",\"0\"),VibeEdge(\"14\",\"0\",\"11\",\"broadcast_out\"),VibeEdge(\"11\",\"0\",\"20\",\"images\")]; w.metadata[\"_ingest_snapshot\"]=capture_ingest_snapshot({},w);
-try:
- _emit_semantic_pin(w,raw); print(\"UNEXPECTED_PASS\")
-except RefusedEmit as e:
- print(\"REFUSED\",e.diff[\"7\"][\"details\"][\"link_delta\"][\"semantic_link_set\"])'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 788ms:
-REFUSED {'before': [['uid-dynamic', '0', 'consumer', 'images']], 'after': [['uid-dynamic', '0', 'consumer', 'images']], 'before_resolution_issues': ['helper_input_unsupported:get'], 'after_resolution_issues': ['helper_input_unsupported:11']}
-
- exited 1 in 293696ms:
+ succeeded in 379664ms:
 OMP: Warning #179: Function Can't set size of /tmp file failed:
 [32m[INFO][0m Set vram state to: NORMAL_VRAM
-objc[26644]: Class AVFFrameReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x1312c43a8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x14a5103a8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
-objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x1312c43f8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x14a5103f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+objc[5996]: Class AVFFrameReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x1350dc3a8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1457383a8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+objc[5996]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x1350dc3f8) and /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv/lib/python3.11/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x1457383f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
 [32m[INFO][0m PromptServer imported; registering VibeComfy routes.
 [32m[INFO][0m vibecomfy agent routes module loaded and all routes registered.
 [32m[INFO][0m VibeComfy routes registered successfully.
@@ -7367,6 +5741,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 190, 191, 193
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 190, 191, 193
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 190, 191, 193
+[1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 450, 451, 452, 455, 472, 551, 574, 577, 582, 588, 589, 595, 596, 601, 603, 610, 611, 667, 672
+[1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 450, 451, 452, 455, 472, 551, 574, 577, 582, 588, 589, 595, 596, 601, 603, 610, 611, 667, 672
 [1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 450, 451, 452, 455, 472, 551, 574, 577, 582, 588, 589, 595, 596, 601, 603, 610, 611, 667, 672
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1686
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1686
@@ -7744,6 +6120,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 10 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 39, 42, 44, 45, 51, 67, 80
 [1m[33m[WARNING][0m compute_layers: 10 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 39, 42, 44, 45, 51, 67, 80
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135
+[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135
+[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 20, 29, 30, 51, 53, 75, 77
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 20, 29, 30, 51, 53, 75, 77
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 20, 29, 30, 51, 53, 75, 77
@@ -8021,6 +6399,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 320, 321, 322, 323, 324
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 320, 321, 322, 323, 324
 [1m[33m[WARNING][0m compute_layers: 52 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 609, 612, 613, 639, 647, 650, 651, 652, 653, 654, 655, 681, 690, 706, 746, 762, 763, 765, 766, 767, 768, 769, 770, 771, 776, 781, 785, 799, 800, 801, 812, 813, 818, 819, 820, 821, 822, 823, 824, 825, 871, 872, 873, 892, 907, 915, 923
+[1m[33m[WARNING][0m compute_layers: 52 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 609, 612, 613, 639, 647, 650, 651, 652, 653, 654, 655, 681, 690, 706, 746, 762, 763, 765, 766, 767, 768, 769, 770, 771, 776, 781, 785, 799, 800, 801, 812, 813, 818, 819, 820, 821, 822, 823, 824, 825, 871, 872, 873, 892, 907, 915, 923
+[1m[33m[WARNING][0m compute_layers: 52 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 609, 612, 613, 639, 647, 650, 651, 652, 653, 654, 655, 681, 690, 706, 746, 762, 763, 765, 766, 767, 768, 769, 770, 771, 776, 781, 785, 799, 800, 801, 812, 813, 818, 819, 820, 821, 822, 823, 824, 825, 871, 872, 873, 892, 907, 915, 923
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 42
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 42
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 42
@@ -8130,6 +6510,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 13 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 223, 236, 237, 238, 242, 243, 244, 294, 295, 296, 317, 318, 333
 [1m[33m[WARNING][0m compute_layers: 13 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 223, 236, 237, 238, 242, 243, 244, 294, 295, 296, 317, 318, 333
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 139, 140, 147, 148, 149, 150, 153
+[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 139, 140, 147, 148, 149, 150, 153
+[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 139, 140, 147, 148, 149, 150, 153
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 8825
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 8825
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 8825
@@ -8190,6 +6572,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 90
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 90
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13, 90
+[1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 150, 161, 162, 163, 164, 212, 272, 273, 310, 312, 485, 506
+[1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 150, 161, 162, 163, 164, 212, 272, 273, 310, 312, 485, 506
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 150, 161, 162, 163, 164, 212, 272, 273, 310, 312, 485, 506
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 5227, 5245, 5246, 5247, 5248
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 5227, 5245, 5246, 5247, 5248
@@ -8263,6 +6647,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 9 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 71, 85, 86, 87, 88, 89, 90, 92, 93
 [1m[33m[WARNING][0m compute_layers: 9 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 71, 85, 86, 87, 88, 89, 90, 92, 93
 [1m[33m[WARNING][0m compute_layers: 9 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 71, 85, 86, 87, 88, 89, 90, 92, 93
+[1m[33m[WARNING][0m compute_layers: 132 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1132, 1133, 1159, 1164, 1190, 1199, 1200, 1201, 1202, 1204, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2668, 2669, 2670
+[1m[33m[WARNING][0m compute_layers: 132 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1132, 1133, 1159, 1164, 1190, 1199, 1200, 1201, 1202, 1204, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2668, 2669, 2670
 [1m[33m[WARNING][0m compute_layers: 132 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1132, 1133, 1159, 1164, 1190, 1199, 1200, 1201, 1202, 1204, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2668, 2669, 2670
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4997, 4999
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4997, 4999
@@ -8345,6 +6731,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 156, 177
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 156, 177
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 156, 177
+[1m[33m[WARNING][0m compute_layers: 10 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4120, 6518, 6801, 6816, 6841, 6842, 6955, 6966, 6976, 7049
+[1m[33m[WARNING][0m compute_layers: 10 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4120, 6518, 6801, 6816, 6841, 6842, 6955, 6966, 6976, 7049
 [1m[33m[WARNING][0m compute_layers: 10 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4120, 6518, 6801, 6816, 6841, 6842, 6955, 6966, 6976, 7049
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 5271, 5272, 5273, 5274
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 5271, 5272, 5273, 5274
@@ -8560,6 +6948,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 80
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 80
 [1m[33m[WARNING][0m compute_layers: 164 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1133, 1190, 1199, 1200, 1201, 1202, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2669, 2670, 2676, 2692, 2751, 2752, 2753, 2754, 2755, 2756, 2757, 2758, 2759, 2760, 2761, 2762, 2763, 2764, 2765, 2766, 2767, 2768, 2769, 2771, 2772, 2773, 2774, 2775, 2776, 2777, 2778, 2779, 2783, 2804, 2805, 2808, 2809, 2810, 2811
+[1m[33m[WARNING][0m compute_layers: 164 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1133, 1190, 1199, 1200, 1201, 1202, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2669, 2670, 2676, 2692, 2751, 2752, 2753, 2754, 2755, 2756, 2757, 2758, 2759, 2760, 2761, 2762, 2763, 2764, 2765, 2766, 2767, 2768, 2769, 2771, 2772, 2773, 2774, 2775, 2776, 2777, 2778, 2779, 2783, 2804, 2805, 2808, 2809, 2810, 2811
+[1m[33m[WARNING][0m compute_layers: 164 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 563, 564, 568, 569, 647, 690, 706, 746, 776, 785, 800, 801, 812, 818, 819, 820, 821, 822, 823, 824, 825, 842, 843, 871, 872, 873, 907, 1021, 1022, 1023, 1026, 1048, 1114, 1115, 1116, 1117, 1133, 1190, 1199, 1200, 1201, 1202, 1228, 1229, 1239, 1240, 1241, 1242, 1245, 1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1261, 1263, 1264, 1265, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1411, 1456, 1461, 1462, 1481, 1486, 1487, 1581, 1582, 1583, 1597, 1637, 1638, 1640, 1641, 1657, 1666, 1671, 1676, 1683, 1684, 1685, 1686, 1687, 1688, 1757, 1758, 1759, 1760, 1771, 1773, 1858, 1870, 1893, 1987, 2555, 2556, 2557, 2558, 2559, 2560, 2561, 2563, 2600, 2602, 2622, 2623, 2624, 2632, 2669, 2670, 2676, 2692, 2751, 2752, 2753, 2754, 2755, 2756, 2757, 2758, 2759, 2760, 2761, 2762, 2763, 2764, 2765, 2766, 2767, 2768, 2769, 2771, 2772, 2773, 2774, 2775, 2776, 2777, 2778, 2779, 2783, 2804, 2805, 2808, 2809, 2810, 2811
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 329, 330, 337
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 329, 330, 337
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 329, 330, 337
@@ -8630,6 +7020,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 167, 169, 170, 171, 173, 174, 175
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 167, 169, 170, 171, 173, 174, 175
 [1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
+[1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
+[1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 375, 585, 750
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 375, 585, 750
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 375, 585, 750
@@ -8684,6 +7076,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 79
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 79
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 79
+[1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 39, 42, 44, 45, 52, 120, 147, 182, 272
+[1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 39, 42, 44, 45, 52, 120, 147, 182, 272
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 39, 42, 44, 45, 52, 120, 147, 182, 272
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 123, 126, 129
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 123, 126, 129
@@ -8959,6 +7353,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 9 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 36, 39, 42, 44, 120, 182, 225, 236
 [1m[33m[WARNING][0m compute_layers: 9 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 36, 39, 42, 44, 120, 182, 225, 236
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
 [1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 14213, 16222, 16277, 18226, 18318, 18435, 18438, 18760, 18762, 18955, 18959
 [1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 14213, 16222, 16277, 18226, 18318, 18435, 18438, 18760, 18762, 18955, 18959
 [1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 14213, 16222, 16277, 18226, 18318, 18435, 18438, 18760, 18762, 18955, 18959
@@ -9124,6 +7520,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 20 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1206, 1764, 1774, 1884, 1896, 1898, 1908, 1921, 1945, 1947, 1948, 1949, 1950, 1951, 1962, 1983, 2001, 2007, 2008, 2023
 [1m[33m[WARNING][0m compute_layers: 20 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1206, 1764, 1774, 1884, 1896, 1898, 1908, 1921, 1945, 1947, 1948, 1949, 1950, 1951, 1962, 1983, 2001, 2007, 2008, 2023
 [1m[33m[WARNING][0m compute_layers: 20 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1206, 1764, 1774, 1884, 1896, 1898, 1908, 1921, 1945, 1947, 1948, 1949, 1950, 1951, 1962, 1983, 2001, 2007, 2008, 2023
+[1m[33m[WARNING][0m compute_layers: 100 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 14, 15, 16, 17, 18, 19, 22, 23, 24, 26, 32, 45, 46, 48, 59, 60, 85, 86, 88, 90, 122, 123, 130, 190, 191, 203, 204, 256, 346, 350, 360, 415, 448, 457, 460, 461, 462, 463, 466, 467, 468, 470, 471, 476, 543, 544, 545, 546, 554, 557, 569, 570, 571, 601, 602, 640, 655, 659, 663, 665, 679, 685, 699, 700, 727, 738, 740, 741, 742, 743, 744, 1136, 1159, 1160, 1161, 1162, 1163, 1165, 1166, 1167, 1176, 1177, 1178, 1180, 1216, 1294, 1296, 1418, 1422, 1431, 1441, 1442, 1443, 1444, 1445, 1446, 1516, 1518, 1521
+[1m[33m[WARNING][0m compute_layers: 100 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 14, 15, 16, 17, 18, 19, 22, 23, 24, 26, 32, 45, 46, 48, 59, 60, 85, 86, 88, 90, 122, 123, 130, 190, 191, 203, 204, 256, 346, 350, 360, 415, 448, 457, 460, 461, 462, 463, 466, 467, 468, 470, 471, 476, 543, 544, 545, 546, 554, 557, 569, 570, 571, 601, 602, 640, 655, 659, 663, 665, 679, 685, 699, 700, 727, 738, 740, 741, 742, 743, 744, 1136, 1159, 1160, 1161, 1162, 1163, 1165, 1166, 1167, 1176, 1177, 1178, 1180, 1216, 1294, 1296, 1418, 1422, 1431, 1441, 1442, 1443, 1444, 1445, 1446, 1516, 1518, 1521
 [1m[33m[WARNING][0m compute_layers: 100 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 14, 15, 16, 17, 18, 19, 22, 23, 24, 26, 32, 45, 46, 48, 59, 60, 85, 86, 88, 90, 122, 123, 130, 190, 191, 203, 204, 256, 346, 350, 360, 415, 448, 457, 460, 461, 462, 463, 466, 467, 468, 470, 471, 476, 543, 544, 545, 546, 554, 557, 569, 570, 571, 601, 602, 640, 655, 659, 663, 665, 679, 685, 699, 700, 727, 738, 740, 741, 742, 743, 744, 1136, 1159, 1160, 1161, 1162, 1163, 1165, 1166, 1167, 1176, 1177, 1178, 1180, 1216, 1294, 1296, 1418, 1422, 1431, 1441, 1442, 1443, 1444, 1445, 1446, 1516, 1518, 1521
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 111, 116, 189, 204, 264
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 111, 116, 189, 204, 264
@@ -9315,6 +7713,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 76
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 76
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 257, 414, 601, 1020, 1065, 1067, 1207, 1375
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 178, 180, 184, 185, 186, 187
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 178, 180, 184, 185, 186, 187
 [1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 178, 180, 184, 185, 186, 187
@@ -9420,6 +7820,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 94, 103, 104, 202, 205
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 94, 103, 104, 202, 205
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 94, 103, 104, 202, 205
+[1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 428, 449, 457, 492, 508, 511, 512, 514, 535, 536, 559
+[1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 428, 449, 457, 492, 508, 511, 512, 514, 535, 536, 559
 [1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 428, 449, 457, 492, 508, 511, 512, 514, 535, 536, 559
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 125, 159, 186
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 125, 159, 186
@@ -9887,6 +8289,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 11
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 11
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 132, 187, 479, 480
+[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 132, 187, 479, 480
+[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 132, 187, 479, 480
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 120, 146, 155, 156, 168, 193, 402, 407, 422, 423, 439
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 120, 146, 155, 156, 168, 193, 402, 407, 422, 423, 439
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 120, 146, 155, 156, 168, 193, 402, 407, 422, 423, 439
@@ -9987,6 +8391,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 184, 186, 201, 219, 223
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 184, 186, 201, 219, 223
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135, 288
+[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135, 288
+[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 135, 288
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 53, 54, 81
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 53, 54, 81
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 53, 54, 81
@@ -10074,6 +8480,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4, 5, 6
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4, 5, 6
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4, 5, 6
+[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56, 58, 59, 67
+[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56, 58, 59, 67
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56, 58, 59, 67
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4995, 4997, 5023, 5024, 5025
 [1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 4995, 4997, 5023, 5024, 5025
@@ -10168,6 +8576,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 209, 233
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 209, 233
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 209, 233
+[1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
+[1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
 [1m[33m[WARNING][0m compute_layers: 14 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 36, 42, 44, 45, 105, 106, 107, 110, 111, 112, 113, 114, 115
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13706, 13722, 13749
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 13706, 13722, 13749
@@ -10731,6 +9141,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 74, 77, 87, 89
 [1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 74, 77, 87, 89
 [1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 152, 165, 166, 167, 205, 215
+[1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 152, 165, 166, 167, 205, 215
+[1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 152, 165, 166, 167, 205, 215
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 229
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 229
 [1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 175, 229
@@ -10957,6 +9369,8 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 96
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 96
 [1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1128, 1447, 1543, 1841, 1851, 2328, 2655, 3278
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1128, 1447, 1543, 1841, 1851, 2328, 2655, 3278
+[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1128, 1447, 1543, 1841, 1851, 2328, 2655, 3278
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 116, 118, 120, 121, 122, 128, 129, 130, 131, 132, 133
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 116, 118, 120, 121, 122, 128, 129, 130, 131, 132, 133
 [1m[33m[WARNING][0m compute_layers: 12 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 115, 116, 118, 120, 121, 122, 128, 129, 130, 131, 132, 133
@@ -11169,85 +9583,62 @@ objc[26644]: Class AVFAudioReceiver is implemented in both /Users/peteromalley/D
 [1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 44, 105, 111
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 37
 [1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 37
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 37
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 116, 117, 118
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 116, 117, 118
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 116, 117, 118
-[1m[33m[WARNING][0m compute_layers: 28 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 134, 135, 368, 376, 5943, 5976, 5977, 5978, 5983, 5984, 5985, 5986, 5987, 5988, 5989, 5990, 5991, 5992, 5993, 5994, 5995, 5996, 5997, 5998, 5999, 6011, 6017, 6019
-[1m[33m[WARNING][0m compute_layers: 28 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 134, 135, 368, 376, 5943, 5976, 5977, 5978, 5983, 5984, 5985, 5986, 5987, 5988, 5989, 5990, 5991, 5992, 5993, 5994, 5995, 5996, 5997, 5998, 5999, 6011, 6017, 6019
-[1m[33m[WARNING][0m compute_layers: 28 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 134, 135, 368, 376, 5943, 5976, 5977, 5978, 5983, 5984, 5985, 5986, 5987, 5988, 5989, 5990, 5991, 5992, 5993, 5994, 5995, 5996, 5997, 5998, 5999, 6011, 6017, 6019
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 533
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 533
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 533
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 84, 99, 110, 111
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 84, 99, 110, 111
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 84, 99, 110, 111
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 3
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 3
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 3
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 640
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 640
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 640
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 293, 294, 297
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 293, 294, 297
-[1m[33m[WARNING][0m compute_layers: 3 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 293, 294, 297
-[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 278, 217:488, 217:491, 217:492
-[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 278, 217:488, 217:491, 217:492
-[1m[33m[WARNING][0m compute_layers: 4 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 278, 217:488, 217:491, 217:492
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 40, 56
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 40, 56
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 40, 56
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 81, 82, 83, 91, 92, 93, 94
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 81, 82, 83, 91, 92, 93, 94
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 81, 82, 83, 91, 92, 93, 94
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 96, 97, 99, 112, 113
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 96, 97, 99, 112, 113
-[1m[33m[WARNING][0m compute_layers: 5 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 96, 97, 99, 112, 113
-[1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 447, 448, 450, 451, 452, 453, 454, 455, 456
-[1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 447, 448, 450, 451, 452, 453, 454, 455, 456
-[1m[33m[WARNING][0m compute_layers: 11 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 445, 446, 447, 448, 450, 451, 452, 453, 454, 455, 456
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 42, 44, 45, 51
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 42, 44, 45, 51
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 33, 35, 36, 42, 44, 45, 51
-[1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 175, 177, 183, 187, 189, 190, 193, 194, 199, 200, 201, 204, 205, 206, 207, 208, 209, 221, 222, 225
-[1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 175, 177, 183, 187, 189, 190, 193, 194, 199, 200, 201, 204, 205, 206, 207, 208, 209, 221, 222, 225
-[1m[33m[WARNING][0m compute_layers: 21 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 2, 175, 177, 183, 187, 189, 190, 193, 194, 199, 200, 201, 204, 205, 206, 207, 208, 209, 221, 222, 225
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 53
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 53
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 52, 53
-[1m[33m[WARNING][0m compute_layers: 19 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 570, 571, 572, 574, 575, 576, 577, 579, 581, 582, 586, 587, 731, 739, 741, 742, 754, 777, 786
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 51
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 51
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 51
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56
-[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 56
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 38
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 38
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 38
-[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 36, 42, 44, 120, 182, 225, 236
-[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 36, 42, 44, 120, 182, 225, 236
-[1m[33m[WARNING][0m compute_layers: 8 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 35, 36, 42, 44, 120, 182, 225, 236
-[1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 34, 56, 57, 58, 62, 66
-[1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 34, 56, 57, 58, 62, 66
-[1m[33m[WARNING][0m compute_layers: 6 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 34, 56, 57, 58, 62, 66
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 103, 272
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 103, 272
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 103, 272
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 95, 96, 174, 204, 205, 218, 220
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 95, 96, 174, 204, 205, 218, 220
-[1m[33m[WARNING][0m compute_layers: 7 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 95, 96, 174, 204, 205, 218, 220
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 110, 112
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 110, 112
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 110, 112
-[1m[33m[WARNING][0m compute_layers: 46 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 33, 39, 77, 116, 117, 118, 141, 142, 143, 166, 167, 168, 191, 192, 193, 216, 217, 218, 241, 242, 243, 266, 267, 268, 291, 292, 293, 316, 317, 318, 341, 342, 343, 366, 367, 368, 391, 392, 393, 416, 417, 418, 441, 442, 443
-[1m[33m[WARNING][0m compute_layers: 46 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 33, 39, 77, 116, 117, 118, 141, 142, 143, 166, 167, 168, 191, 192, 193, 216, 217, 218, 241, 242, 243, 266, 267, 268, 291, 292, 293, 316, 317, 318, 341, 342, 343, 366, 367, 368, 391, 392, 393, 416, 417, 418, 441, 442, 443
-[1m[33m[WARNING][0m compute_layers: 46 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 28, 33, 39, 77, 116, 117, 118, 141, 142, 143, 166, 167, 168, 191, 192, 193, 216, 217, 218, 241, 242, 243, 266, 267, 268, 291, 292, 293, 316, 317, 318, 341, 342, 343, 366, 367, 368, 391, 392, 393, 416, 417, 418, 441, 442, 443
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1, 6
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached by SCC/longest-path walk; assigned layer 0: 1, 6
-[1m[33m[WARNING][0m compute_layers: 2 uid(s) not reached b
-... 47276908 bytes omitted ...
--fail.
+[1m[33m[WARNING][0m compute_layers: 1 uid(s) not reached by SCC/longes
+... 48616411 bytes omitted ...
+tion_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 282(KSamplerSelect); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 350(HunyuanVideoLoraLoader); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 351(Label (rgthree)); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 354(VAEEncode); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 355(LeapfusionHunyuanI2VPatcher); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 358(ModelSamplingSD3); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 364(GetLatentRangeFromBatch); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 367(SamplerCustom); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 368(EmptyHunyuanLatentVideo); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 369(ConditioningZeroOut); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 370(FluxGuidance); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 372(Label (rgthree)); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 374(MultiFloatNodeAID); emitting best-effort slots. Pass strict=True to hard-fail.
+    return emit_ui_json(
+
+tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
+  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 375(CM_FloatToInt); emitting best-effort slots. Pass strict=True to hard-fail.
     return emit_ui_json(
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
@@ -14589,11 +12980,6 @@ tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatch
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/scripts/check_b02_rich_preservation.py:235: UserWarning: emit_ui_json: schema-less node 193(ImageScale); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(wf, **kwargs)
-
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
   /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/scripts/check_b02_rich_preservation.py:235: UserWarning: emit_ui_json: schema-less node 198(ImageConcatMulti); emitting best-effort slots. Pass strict=True to hard-fail.
     return emit_ui_json(wf, **kwargs)
 
@@ -14627,10 +13013,6 @@ tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatch
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
   /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 192(Display Any (rgthree)); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(
-
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 193(ImageScale); emitting best-effort slots. Pass strict=True to hard-fail.
     return emit_ui_json(
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
@@ -15005,11 +13387,6 @@ tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatch
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/scripts/check_b02_rich_preservation.py:235: UserWarning: emit_ui_json: schema-less node 76(VAEDecode); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(wf, **kwargs)
-
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
   /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/scripts/check_b02_rich_preservation.py:235: UserWarning: emit_ui_json: schema-less node 78(LTXVAudioVAEDecode); emitting best-effort slots. Pass strict=True to hard-fail.
     return emit_ui_json(wf, **kwargs)
 
@@ -15120,10 +13497,6 @@ tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatch
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
   /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 75(ClownOptions_ExtraOptions_Beta); emitting best-effort slots. Pass strict=True to hard-fail.
-    return emit_ui_json(
-
-tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-  /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/comfy_nodes/agent/graph_normalization.py:57: UserWarning: emit_ui_json: schema-less node 76(VAEDecode); emitting best-effort slots. Pass strict=True to hard-fail.
     return emit_ui_json(
 
 tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
@@ -17141,584 +15514,51 @@ tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatch
     return emit_ui_json(
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== NEW FAILURES (not quarantined) ========================
-  NEW FAIL: tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches
-1 new failure(s) detected — add a scoped tests/quarantine/*.txt entry only if intentional.
-=========================== short test summary info ============================
-FAILED tests/test_b02_rich_preservation.py::test_corpus_rich_preservation_zero_mismatches - AssertionError: workflows=2838 mismatches=29 (emit_refused=27, rich->canonical.widgets_values=1, rich->ir2.widgets_values=1) uidless=0 refused_files=27
-    07823db4c3effe4b.json [emit_refused] node='281': expected "'emission must succeed'" got "'schema_less'"
-    18550e4b76c9a9f9.json [emit_refused] node='178': expected "'emission must succeed'" got "'schema_less'"
-    268fe99aa2d9874a.json [emit_refused] node='16': expected "'emission must succeed'" got "'schema_less'"
-    2cedcc6c5431dd67.json [emit_refused] node='35': expected "'emission must succeed'" got "'schema_less'"
-    2fe4b56e8c764e21.json [emit_refused] node='80': expected "'emission must succeed'" got "'schema_less'"
-    33da2a1a495352ec.json [emit_refused] node='16': expected "'emission must succeed'" got "'schema_less'"
-    370da9b08c0e6446.json [emit_refused] node='6911': expected "'emission must succeed'" got "'schema_less'"
-    41734e3bf39a3150.json [emit_refused] node='16': expected "'emission must succeed'" got "'schema_less'"
-    45e73e211d62829d.json [emit_refused] node='30': expected "'emission must succeed'" got "'schema_less'"
-    47c091b2f503cab4.json [emit_refused] node='139': expected "'emission must succeed'" got "'schema_less'"
-    54c16fc288f9b31b.json [emit_refused] node='582': expected "'emission must succeed'" got "'schema_less'"
-    5b2141b686cd7192.json [emit_refused] node='29': expected "'emission must succeed'" got "'schema_less'"
-    63a23af8786ffa44.json [emit_refused] node='582': expected "'emission must succeed'" got "'schema_less'"
-    6853bcad10e4957e.json [emit_refused] node='409': expected "'emission must succeed'" got "'schema_less'"
-    7de1d829ee11ccb4.json [emit_refused] node='292': expected "'emission must succeed'" got "'schema_less'"
-    83d1ff926cb21002.json [emit_refused] node='178': expected "'emission must succeed'" got "'schema_less'"
-    884c2916bd68eb31.json [emit_refused] node='30': expected "'emission must succeed'" got "'schema_less'"
-    8c7d50d588b3ce6a.json [emit_refused] node='30': expected "'emission must succeed'" got "'schema_less'"
-    a671054ccecf8ed8.json [emit_refused] node='10': expected "'emission must succeed'" got "'schema_less'"
-    b0e3da96b783bfcc.json [emit_refused] node='1644': expected "'emission must succeed'" got "'schema_less'"
-    be037bf05bec284e.json [emit_refused] node='53': expected "'emission must succeed'" got "'schema_less'"
-    c958ee58b616d95a.json [emit_refused] node='453': expected "'emission must succeed'" got "'schema_less'"
-    caecb5d44471daf0.json [emit_refused] node='139': expected "'emission must succeed'" got "'schema_less'"
-    d10c39b84510727f.json [emit_refused] node='60': expected "'emission must succeed'" got "'schema_less'"
-    e0a73155ad74602d.json [emit_refused] node='30': expected "'emission must succeed'" got "'schema_less'"
-    ... and 4 more
-assert 29 == 0
-1 failed, 3 passed, 392331 warnings in 260.46s (0:04:20)
+4 passed, 408852 warnings in 372.41s (0:06:12)
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 
 codex
-The slow B02 preservation suite also fails independently at current HEAD: 3 passed / 1 failed, with 29 corpus mismatches (27 emission refusals). That contradicts the supplied 4/4 evidence and means acceptance item 6 is not green in this checkout; I’m checking whether those refusals are the same connected-Get defect before finalizing.
-exec
-/bin/zsh -lc 'rg -n "def .*corpus|emit_refused|argparse|corpus_root|workflow_path|paths" scripts/check_b02_rich_preservation.py tests/test_b02_rich_preservation.py | head -240' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-tests/test_b02_rich_preservation.py:32:def _corpus_summary() -> dict[str, Any]:
-tests/test_b02_rich_preservation.py:59:def test_corpus_rich_preservation_zero_mismatches() -> None:
-tests/test_b02_rich_preservation.py:67:def test_corpus_zero_uidless_emissions() -> None:
-scripts/check_b02_rich_preservation.py:45:import argparse
-scripts/check_b02_rich_preservation.py:270:        return fail("emit_refused", node_id, "emission must succeed", reason)
-scripts/check_b02_rich_preservation.py:301:        return fail("emit_refused", node_id, "emission must succeed", reason)
-scripts/check_b02_rich_preservation.py:477:def iter_corpus(corpus_dir: str | Path):
-scripts/check_b02_rich_preservation.py:490:def check_corpus(corpus_dir: str | Path = "external_workflows/corpus") -> dict[str, Any]:
-scripts/check_b02_rich_preservation.py:537:            if axis == "emit_refused":
-scripts/check_b02_rich_preservation.py:565:    parser = argparse.ArgumentParser(description=__doc__)
+B03 CHECKPOINT VERDICT: FAIL — Canonicalization is broadly correct, but an unknown consumer endpoint escapes semantic diagnostics and crashes later with a bare `KeyError`.
 
-exec
-/bin/zsh -lc "nl -ba tests/test_b02_rich_preservation.py | sed -n '1,180p'; nl -ba scripts/check_b02_rich_preservation.py | sed -n '180,290p'; nl -ba scripts/check_b02_rich_preservation.py | sed -n '620,780p'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-     1	"""B02-C4 — corpus-wide rich-preservation proof tests.
-     2
-     3	Executes :mod:`scripts.check_b02_rich_preservation` over the ENTIRE
-     4	``external_workflows/corpus`` (every serialized-Vibe envelope) and asserts the
-     5	preservation proof holds: zero projection mismatches and zero uid-less
-     6	emissions.  The corpus is traversed exactly once per test session via
-     7	module-scoped caching.  No environment-variable skip: the proof either holds or
-     8	it fails with a precise per-file/per-axis report.
-     9
-    10	A synthetic rich envelope with nonempty groups and real link/edge topology
-    11	proves the groups and semantic link projections survive the pipeline and that
-    12	the checker's projections are not vacuous (a corrupted copy is detected).
-    13	"""
-    14
-    15	from __future__ import annotations
-    16
-    17	import functools
-    18	from copy import deepcopy
-    19	from typing import Any
-    20
-    21	import pytest
-    22
-    23	from scripts import check_b02_rich_preservation as b02
-    24
-    25
-    26	# ---------------------------------------------------------------------------
-    27	# Corpus-wide proof (module-scoped cache: traverse the corpus exactly once)
-    28	# ---------------------------------------------------------------------------
-    29
-    30
-    31	@functools.lru_cache(maxsize=1)
-    32	def _corpus_summary() -> dict[str, Any]:
-    33	    return b02.check_corpus()
-    34
-    35
-    36	def _failure_digest(summary: dict[str, Any], limit: int = 25) -> str:
-    37	    by_axis = ", ".join(
-    38	        f"{axis}={count}"
-    39	        for axis, count in sorted(summary["mismatches_by_axis"].items())
-    40	    )
-    41	    rows = "\n".join(
-    42	        f"  {row[0]} [{row[1]}] node={row[2]}: expected {row[3]!r} got {row[4]!r}"
-    43	        for row in summary["mismatch_rows"][:limit]
-    44	    )
-    45	    more = (
-    46	        f"\n  ... and {len(summary['mismatch_rows']) - limit} more"
-    47	        if len(summary["mismatch_rows"]) > limit
-    48	        else ""
-    49	    )
-    50	    return (
-    51	        f"workflows={summary['workflows']} "
-    52	        f"mismatches={summary['mismatch_count']} ({by_axis}) "
-    53	        f"uidless={summary['uidless']} refused_files={len(summary['refused_files'])}\n"
-    54	        f"{rows}{more}"
-    55	    )
-    56
-    57
-    58	@pytest.mark.timeout(900)
-    59	def test_corpus_rich_preservation_zero_mismatches() -> None:
-    60	    """The entire corpus round-trips rich→IR→canonical→re-ingest→re-emit with
-    61	    zero projection mismatches on every asserted axis."""
-    62	    summary = _corpus_summary()
-    63	    assert summary["mismatch_count"] == 0, _failure_digest(summary)
-    64
-    65
-    66	@pytest.mark.timeout(900)
-    67	def test_corpus_zero_uidless_emissions() -> None:
-    68	    """No emitted canonical node may carry a blank/missing properties.vibecomfy_uid."""
-    69	    summary = _corpus_summary()
-    70	    assert summary["uidless"] == 0, _failure_digest(summary)
-    71
-    72
-    73	# ---------------------------------------------------------------------------
-    74	# Synthetic envelope — non-vacuous projection proof
-    75	# ---------------------------------------------------------------------------
-    76
-    77
-    78	def _raw_ui_node(
-    79	    node_id: int,
-    80	    class_type: str,
-    81	    *,
-    82	    widgets_values: list[Any],
-    83	    inputs: list[dict[str, Any]],
-    84	    outputs: list[dict[str, Any]],
-    85	) -> dict[str, Any]:
-    86	    return {
-    87	        "id": node_id,
-    88	        "type": class_type,
-    89	        "pos": [0.0, 0.0],
-    90	        "size": [300.0, 100.0],
-    91	        "flags": {},
-    92	        "order": node_id - 1,
-    93	        "mode": 4,
-    94	        "inputs": inputs,
-    95	        "outputs": outputs,
-    96	        "properties": {"Node name for S&R": class_type},
-    97	        "widgets_values": widgets_values,
-    98	    }
-    99
-   100
-   101	def _synthetic_envelope() -> dict[str, Any]:
-   102	    """A small but complete serialized-Vibe envelope: 3 nodes, 2 edges, 2 groups.
-   103
-   104	    Node ids/edges deliberately mirror a real graph (LoadImage → KSampler →
-   105	    VAEDecode) with nonempty widgets_values and full raw ``_ui`` payloads so the
-   106	    canonicalization exercises the pin path, link renumbering, and groups
-   107	    carry-forward.
-   108	    """
-   109	    return {
-   110	        "id": "synthetic-1",
-   111	        "vibecomfy_format_version": "1.0",
-   112	        "source": {"id": "synthetic-1", "path": None, "source_type": "api", "provenance": {}},
-   113	        "metadata": {"external_workflow": False},
-   114	        "requirements": {
-   115	            "models": [],
-   116	            "custom_nodes": [],
-   117	            "missing_models": [],
-   118	            "missing_nodes": [],
-   119	            "unsupported": [],
-   120	        },
-   121	        "strict_types": False,
-   122	        "inputs": {},
-   123	        "outputs": [
-   124	            {
-   125	                "node_id": "3",
-   126	                "output_type": "VAEDecode",
-   127	                "name": "IMAGE",
-   128	                "artifact_kind": "image",
-   129	            }
-   130	        ],
-   131	        "nodes": {
-   132	            "1": {
-   133	                "id": "1",
-   134	                "class_type": "LoadImage",
-   135	                "uid": "uid-1",
-   136	                "pack": None,
-   137	                "inputs": {},
-   138	                "widgets": {},
-   139	                "raw_widgets": {
-   140	                    "values": ["img.png", "image"],
-   141	                    "shape": "list",
-   142	                    "source": "ui.widgets_values",
-   143	                    "has_dict_rows": False,
-   144	                    "length": 2,
-   145	                },
-   146	                "metadata": {
-   147	                    "_ui": _raw_ui_node(
-   148	                        1,
-   149	                        "LoadImage",
-   150	                        widgets_values=["img.png", "image"],
-   151	                        inputs=[],
-   152	                        outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [999], "slot_index": 0}],
-   153	                    )
-   154	                },
-   155	            },
-   156	            "2": {
-   157	                "id": "2",
-   158	                "class_type": "KSampler",
-   159	                "uid": "uid-2",
-   160	                "pack": None,
-   161	                "inputs": {},
-   162	                "widgets": {},
-   163	                "raw_widgets": {
-   164	                    "values": [42, "fixed", 20, 8, 1, "randomize"],
-   165	                    "shape": "list",
-   166	                    "source": "ui.widgets_values",
-   167	                    "has_dict_rows": False,
-   168	                    "length": 6,
-   169	                },
-   170	                "metadata": {
-   171	                    "_ui": _raw_ui_node(
-   172	                        2,
-   173	                        "KSampler",
-   174	                        widgets_values=[42, "fixed", 20, 8, 1, "randomize"],
-   175	                        inputs=[{"name": "model", "type": "MODEL", "link": 999}],
-   176	                        outputs=[{"name": "LATENT", "type": "LATENT", "links": [998], "slot_index": 0}],
-   177	                    )
-   178	                },
-   179	            },
-   180	            "3": {
-   180	    return {
-   181	        node.get("id"): canonical_node_projection(node)
-   182	        for node in canonical.get("nodes", [])
-   183	    }
-   184
-   185
-   186	def canonical_link_topology(canonical: dict[str, Any]) -> set[tuple[int, int, int, int]]:
-   187	    """Canonical link projection: endpoint + slot topology, link ids/types excluded."""
-   188	    return {
-   189	        (int(link[1]), int(link[2]), int(link[3]), int(link[4]))
-   190	        for link in canonical.get("links", [])
-   191	    }
-   192
-   193
-   194	def canonical_semantic_edges(canonical: dict[str, Any]) -> set[tuple[str, str, str, str]]:
-   195	    """Recover ``(from_node, from_output, to_node, to_input)`` tuples from the
-   196	    canonical envelope by resolving each link's target input name through the
-   197	    to-node's emitted ``inputs`` entries (link id → name)."""
-   198	    link_to_input: dict[int, tuple[str, int]] = {}
-   199	    for node in canonical.get("nodes", []):
-   200	        for input_entry in node.get("inputs") or []:
-   201	            link_id = input_entry.get("link")
-   202	            if link_id is not None:
-   203	                link_to_input[int(link_id)] = (str(input_entry.get("name", "")), int(node["id"]))
-   204	    tuples: set[tuple[str, str, str, str]] = set()
-   205	    for link in canonical.get("links", []):
-   206	        name, _ = link_to_input.get(int(link[0]), ("", int(link[3])))
-   207	        tuples.add((str(link[1]), str(link[2]), str(link[3]), name))
-   208	    return tuples
-   209
-   210
-   211	def _canonical_id_of(rich_node_id: str) -> Any:
-   212	    """Rich node id → canonical litegraph node id (numeric ids become integers)."""
-   213	    return int(rich_node_id) if rich_node_id.isdigit() else rich_node_id
-   214
-   215
-   216	def _record(result: dict[str, Any], axis: str, node: Any, expected: Any, actual: Any) -> None:
-   217	    result["mismatches"].append((axis, node, expected, actual))
-   218
-   219
-   220	def _truncate(value: Any, limit: int = 400) -> str:
-   221	    text = repr(value)
-   222	    return text if len(text) <= limit else text[:limit] + f"...<{len(text)} bytes>"
-   223
-   224
-   225	# ---------------------------------------------------------------------------
-   226	# Per-envelope check
-   227	# ---------------------------------------------------------------------------
-   228
-   229
-   230	def _emit(wf: Any, **kwargs: Any) -> dict[str, Any]:
-   231	    """emit_ui_json wrapper: schema-less nodes warn per node; those expected
-   232	    warnings are suppressed (exceptions are NOT swallowed)."""
-   233	    with warnings.catch_warnings():
-   234	        warnings.filterwarnings("ignore", message=_SCHEMA_LESS_WARNING)
-   235	        return emit_ui_json(wf, **kwargs)
-   236
-   237
-   238	def check_envelope(raw: dict[str, Any]) -> dict[str, Any]:
-   239	    """Run the full preservation pipeline over one rich envelope.
-   240
-   241	    Returns a per-file result dict with counts and a ``mismatches`` list of
-   242	    ``(axis, node, expected, actual)`` rows.  A pipeline refusal/exception is
-   243	    recorded as a mismatch row and the remaining axes are skipped — the file
-   244	    cannot be preserved, which is itself the finding.
-   245	    """
-   246	    result: dict[str, Any] = {
-   247	        "file": None,
-   248	        "rich_nodes": len(raw.get("nodes", {})),
-   249	        "rich_edges": len(raw.get("edges", [])),
-   250	        "canonical_nodes": 0,
-   251	        "canonical_links": 0,
-   252	        "groups": 0,
-   253	        "pin_opaque": 0,
-   254	        "uidless": 0,
-   255	        "mismatches": [],
-   256	    }
-   257
-   258	    def fail(axis: str, node: Any, expected: Any, actual: Any) -> dict[str, Any]:
-   259	        _record(result, axis, node, expected, actual)
-   260	        return result
-   261
-   262	    ir1 = convert_to_vibe_format(raw)
-   263
-   264	    # ── pin evidence: emit directly with recovery_report + the rich groups ──
-   265	    recovery_report: list[dict[str, Any]] = []
-   266	    try:
-   267	        pin_envelope = _emit(ir1, recovery_report=recovery_report, groups=raw.get("groups"))
-   268	    except RefusedEmit as exc:
-   269	        node_id, reason = _refusal_detail(exc)
-   270	        return fail("emit_refused", node_id, "emission must succeed", reason)
-   271	    except Exception as exc:  # noqa: BLE001 — recorded, never swallowed
-   272	        return fail("exception", None, "emission must succeed", f"{type(exc).__name__}: {exc}")
-   273
-   274	    emitted_uids = {
-   275	        node.get("properties", {}).get("vibecomfy_uid")
-   276	        for node in pin_envelope.get("nodes", [])
-   277	    }
-   278	    for entry in recovery_report:
-   279	        if entry.get("widget_shape_verdict") != "pin_opaque":
-   280	            continue
-   281	        result["pin_opaque"] += 1
-   282	        entry_node_id = str(entry.get("node_id"))
-   283	        decoded_uid = ir1.nodes[entry_node_id].uid if entry_node_id in ir1.nodes else None
-   284	        if decoded_uid not in emitted_uids:
-   285	            _record(
-   286	                result,
-   287	                "pin.uid_missing",
-   288	                entry_node_id,
-   289	                f"emitted node with properties.vibecomfy_uid == {decoded_uid!r}",
-   290	                "no such emitted node",
+1. Canonical helper: PASS. [`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39) is the single public abstraction backed by one internal core. It deduplicates complete four-field link tuples, preserving source-output and consumer-input identity. Reroutes and Set/Get helpers resolve to terminal sources. Loop aliases require validated lowering metadata and a `clone_uid()` round trip at [`delta.py:445`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:445); `clone_uid()` itself uses `parse_uid()` at [`lowering.py:317`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317). No second topology model was introduced.
 
-exec
-/bin/zsh -lc "rg -l '\"type\"\\s*:\\s*\"GetNode\"|\"class_type\"\\s*:\\s*\"GetNode\"' external_workflows/corpus | wc -l; rg -n '\"type\"\\s*:\\s*\"GetNode\"|\"class_type\"\\s*:\\s*\"GetNode\"' external_workflows/corpus/07823db4c3effe4b.json | head" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-exec
-/bin/zsh -lc "git status --short --branch; git diff --check e1bef3bf..59a5f16c; git diff --name-only e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 33ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-tests/conftest.py
-tests/test_layout_delta.py
-tests/test_ui_emitter_widget_shape_verdict.py
-vibecomfy/porting/emit/ui.py
-vibecomfy/porting/layout/delta.py
-vibecomfy/porting/lowering.py
-vibecomfy/porting/refuse.py
-vibecomfy/porting/widget_shape_fence.py
+2. Pin fence: PASS. [`ui.py:1588`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588) routes `semantic_link_set` into link evidence, and [`widget_shape_fence.py:397`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:397) evaluates canonical before/after sets and resolution issues. The legacy `output_link_count_mismatch` string is unchanged pre-B03 dead rewrite code, not revived by this diff.
 
- succeeded in 339ms:
-     759
+3. Refusal correctness: FAIL. Unequal semantic sets and attributed ambiguous/cyclic/unknown-source issues refuse correctly. However, [`delta.py:122`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:122) records `unknown_consumer`, while [`delta.py:345`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:345) deliberately gives it no UID attribution. The global `_after_issues` result is discarded at [`delta.py:516`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:516). Reproduction: snapshot an existing source, then add `VibeEdge("1", "0", "ghost", "input")`; the canonical helper reports `unknown_consumer:ghost`, but `compute_field_delta()` returns `{}`. Emission then raises bare `KeyError("ghost")` at [`ui.py:2576`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:2576), rather than failing closed through `RefusedEmit`.
 
-exec
-/bin/zsh -lc 'rg -n "5000|5_000|semantic_walk_limit|cyclic_path" tests/test_ui_emitter_widget_shape_verdict.py tests/test_layout_delta.py .oracle/briefs/batch-B03-rework*.md | head -120' in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 0ms:
-tests/test_ui_emitter_widget_shape_verdict.py:1244:            "cyclic_path:",
-tests/test_ui_emitter_widget_shape_verdict.py:1353:    assert semantic_delta["after_resolution_issues"][0].startswith("cyclic_path:")
-.oracle/briefs/batch-B03-rework2.md:33:Expected exit 0, including the new no-mutation loop regression. Also re-run the stress checks (5000-hop chain / 5000-node ring fail-closed / fan-out) to confirm no termination regression.
-.oracle/briefs/batch-B03-rework3.md:26:Expected exit 0. Also stress: 5000-hop chain / 5000-node ring fail-closed / fan-out / determinism across reversed link order.
+4. Termination: PASS for covered paths. Traversal is iterative, memoized, cycle-detecting, and capped at 10,000 hops at [`delta.py:134`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:134). Independent stress results: 5,000-hop chain resolved correctly in 33 ms; 5,000-node ring terminated in 44.8 ms with `cyclic_path:`. Reversed-order determinism tests pass.
 
-exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'import time; from vibecomfy.porting.layout.delta import canonical_semantic_link_set; n=5000; nodes={\"s\":(\"source\",\"Producer\",None),\"c\":(\"consumer\",\"Consumer\",None)}; nodes.update({f\"r{i}\":(f\"rr{i}\",\"Reroute\",None) for i in range(n)}); chain=[(\"s\",\"out\",\"r0\",\"\")]+[(f\"r{i}\",\"0\",f\"r{i+1}\",\"\") for i in range(n-1)]+[(f\"r{n-1}\",\"0\",\"c\",\"in\")]; t=time.perf_counter(); a=canonical_semantic_link_set(nodes,chain); print(\"chain_ms\",round((time.perf_counter()-t)*1000,1),a[0],a[1]); ring=[(f\"r{i}\",\"0\",f\"r{(i+1)%n}\",\"\") for i in range(n)]+[(\"r0\",\"0\",\"c\",\"in\")]; t=time.perf_counter(); b=canonical_semantic_link_set({k:v for k,v in nodes.items() if k"'!="s"},ring); print("ring_ms",round((time.perf_counter()-t)*1000,1),len(b[0]),b[1][0][:40],len(b[1]))'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
-exec
-/bin/zsh -lc "git diff --shortstat e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'; git diff --check e1bef3bf..59a5f16c; git diff -G 'output_link_count_mismatch|input_link_count_mismatch' --name-only e1bef3bf..59a5f16c -- . ':"'!.oracle/**'"'" in /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle
- succeeded in 101ms:
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
-git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+5. Fixtures: PASS. Coverage includes flat Set/Get fan-out, reroute/link renumbering, validated loop clones and repointed clones, real nested definitions plus scoped nested UIDs, concrete multi-output nodes, removed/added/repointed/input-port/output-port changes, orphaned helpers, ambiguity, and cycles in [`test_ui_emitter_widget_shape_verdict.py:907`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:907). The missing-consumer case above is the uncovered endpoint-resolution hole.
 
- succeeded in 686ms:
-chain_ms 97.7 (('source', 'out', 'consumer', 'in'),) ()
-ring_ms 139.6 0 cyclic_path:r0:r1:r10:r100:r1000:r1001:r 1
+6. Multi-output/B02: PASS. MODEL versus CLIP output identity is asserted at [`test_ui_emitter_widget_shape_verdict.py:1180`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1180). `tests/test_b02_rich_preservation.py`: **4 passed** in 372.41s.
 
-codex
-B03 CHECKPOINT VERDICT: FAIL — valid connected Set/Get plumbing is falsely marked unresolved, causing unchanged pinned workflows to refuse.
+7. Scope/cleanliness: PASS. Production changes are limited to the stated B03 porting files; tests are limited to the two B03 files plus the justified `conftest.py` import optimization. Additional `.oracle` files are batch provenance. `git diff --check e1bef3bf..e82d54bf` is clean. The existing local modification to `.oracle/checkins/batch-B03.md` was not touched.
 
-1. Canonical helper — PASS
+8. Verification: focused suites passed: **75 passed in 9.56s** using `-s -p no:rerunfailures -p no:cacheprovider` because the read-only environment could not create pytest capture tempfiles. B02 preservation passed **4/4**. Quarantined parity baselines were not rerun.
 
-[`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39) is the single semantic topology helper. It:
+Issue requiring rework:
 
-- Deduplicates exact-link multiplicity.
-- Preserves source-output and consumer-input identity.
-- Resolves Reroute/GetNode/SetNode chains to terminal sources.
-- Validates clone aliases through [`clone_uid()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317), which uses `parse_uid`.
-- Uses sorted inputs/outputs and deterministic diagnostics.
-
-No competing topology abstraction was introduced.
-
-2. Pin-fence consumption — PASS
-
-Canonical before/after sets are computed in [`compute_field_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:364), forwarded as `semantic_link_set` by [`ui.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588), and interpreted by [`_has_link_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396).
-
-`output_link_count_mismatch` remains only in pre-existing raw-link compatibility code at `ui.py:1655`; the B03 diff did not revive or change it.
-
-3. Genuine-difference-only refusal — FAIL
-
-[`delta.py:199-201`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:199) emits `helper_input_unsupported` for every edge entering a `GetNode`.
-
-However, the repository explicitly supports this connected display topology in [`test_virtual_wire_round_trip.py:70`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_virtual_wire_round_trip.py:70):
-
-```text
-source → SetNode → Reroute → GetNode → consumer
-```
-
-The compiler resolves the GetNode’s outbound through its channel and removes helper-touching display edges at [`_compile/_resolve.py:136`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/_compile/_resolve.py:136).
-
-Independent unchanged-workflow reproduction:
-
-```text
-before == after:
-  uid-dynamic:0 → consumer:images
-
-before_resolution_issues: helper_input_unsupported:get
-after_resolution_issues:  helper_input_unsupported:11
-result: RefusedEmit
-```
-
-Thus a valid, unchanged pin refuses solely because of fabricated resolution issues. [`delta.py:412`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:412) also attaches any global issue to every snapshot node.
-
-4. Termination — PASS
-
-The iterative traversal has memoization, an in-progress visited set, and a 10,000-hop bound at [`delta.py:108`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:108).
-
-Independent stress:
-
-- 5,000-hop reroute chain: correct terminal, 97.7 ms.
-- 5,000-node ring: one deterministic `cyclic_path:` issue, 139.6 ms.
-- Reversed-link-order tests pass.
-
-5. Fixture coverage — PARTIAL/FAIL
-
-Covered: flat fan-out, 1:1 reroute lowering, loop-clone normalization and repointing, genuine removed/added/repointed/orphaned consumers, port changes, cycles, ambiguity, and concrete multi-output identity.
-
-Missing:
-
-- An unchanged connected `SetNode → GetNode` fixture, directly and through a Reroute. This omission allowed the blocker.
-- The “real nested” fixture at [`test_ui_emitter_widget_shape_verdict.py:1060`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1060) contains no nested links or lowering. The scoped-UID test at line 1109 is a synthetic direct helper call, so equivalent nested lowering is not demonstrated end-to-end.
-
-6. Multi-output/B02 — FAIL overall
-
-Multi-output identity itself passes: canonical tuples retain both ports, and the concrete CheckpointLoader fixture distinguishes MODEL and CLIP outputs.
-
-Independent B02 run did not match the supplied evidence:
-
-```text
-3 passed, 1 failed in 260.46s
-2838 workflows, 29 mismatches
-27 emit_refused, 2 widgets_values mismatches
-```
-
-The failure is [`test_b02_rich_preservation.py:63`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:63). The 29 residual mismatches may include pre-existing corpus/environment behavior, so they do not alone prove a B03 regression, but the required “B02 4/4 green” acceptance is not satisfied at this HEAD.
-
-7. Scope — PASS
-
-Product/test changes are limited to the expected eight B03 files, including the justified `conftest.py` performance fence. Remaining changed paths in the commit range are B03 oracle artifacts.
-
-`git diff --check e1bef3bf..59a5f16c` is clean. I made no file changes; the pre-existing dirty `.oracle/checkins/batch-B03.md` remains untouched.
-
-8. Focused verification — PASS, but insufficient to cover blocker
-
-- Widget-shape plus layout-delta suites: `67 passed`.
-- Requested semantic/pin keyword slice: `35 passed, 32 deselected`.
-- 5,000-node stress checks passed.
-- Quarantined parity suites were skipped as requested.
-- B02: `3 passed, 1 failed`.
-
-Issue list requiring rework:
-
-- [`vibecomfy/porting/layout/delta.py:199`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:199): treat edges entering `GetNode` as non-semantic helper/display plumbing, not `helper_input_unsupported`. Preserve fail-closed handling for missing or ambiguous channel setters. Add unchanged and equivalent-lowered pinned regressions with direct and rerouted Set→Get connections.
-- [`tests/test_ui_emitter_widget_shape_verdict.py:1060`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1060): add a nested fixture that actually contains links and undergoes semantic lowering/comparison.
-- [`tests/test_b02_rich_preservation.py:63`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:63): reconcile the claimed 4/4 result with the reproducible 29-mismatch run, then require 4/4 before re-gating.
+- [`vibecomfy/porting/layout/delta.py:122`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:122): attribute `unknown_consumer` to the known source UID, or propagate global unresolved issues through a centrally enforced typed refusal so even fully ghost endpoints cannot escape. Add known-source→missing-consumer and fully missing-endpoint fixtures asserting `semantic_link_set` diagnostics and `RefusedEmit`, never `{}` followed by `KeyError`.
 tokens used
-382,747
-B03 CHECKPOINT VERDICT: FAIL — valid connected Set/Get plumbing is falsely marked unresolved, causing unchanged pinned workflows to refuse.
+287,644
+B03 CHECKPOINT VERDICT: FAIL — Canonicalization is broadly correct, but an unknown consumer endpoint escapes semantic diagnostics and crashes later with a bare `KeyError`.
 
-1. Canonical helper — PASS
+1. Canonical helper: PASS. [`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39) is the single public abstraction backed by one internal core. It deduplicates complete four-field link tuples, preserving source-output and consumer-input identity. Reroutes and Set/Get helpers resolve to terminal sources. Loop aliases require validated lowering metadata and a `clone_uid()` round trip at [`delta.py:445`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:445); `clone_uid()` itself uses `parse_uid()` at [`lowering.py:317`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317). No second topology model was introduced.
 
-[`canonical_semantic_link_set()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:39) is the single semantic topology helper. It:
+2. Pin fence: PASS. [`ui.py:1588`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588) routes `semantic_link_set` into link evidence, and [`widget_shape_fence.py:397`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:397) evaluates canonical before/after sets and resolution issues. The legacy `output_link_count_mismatch` string is unchanged pre-B03 dead rewrite code, not revived by this diff.
 
-- Deduplicates exact-link multiplicity.
-- Preserves source-output and consumer-input identity.
-- Resolves Reroute/GetNode/SetNode chains to terminal sources.
-- Validates clone aliases through [`clone_uid()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/lowering.py:317), which uses `parse_uid`.
-- Uses sorted inputs/outputs and deterministic diagnostics.
+3. Refusal correctness: FAIL. Unequal semantic sets and attributed ambiguous/cyclic/unknown-source issues refuse correctly. However, [`delta.py:122`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:122) records `unknown_consumer`, while [`delta.py:345`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:345) deliberately gives it no UID attribution. The global `_after_issues` result is discarded at [`delta.py:516`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:516). Reproduction: snapshot an existing source, then add `VibeEdge("1", "0", "ghost", "input")`; the canonical helper reports `unknown_consumer:ghost`, but `compute_field_delta()` returns `{}`. Emission then raises bare `KeyError("ghost")` at [`ui.py:2576`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:2576), rather than failing closed through `RefusedEmit`.
 
-No competing topology abstraction was introduced.
+4. Termination: PASS for covered paths. Traversal is iterative, memoized, cycle-detecting, and capped at 10,000 hops at [`delta.py:134`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:134). Independent stress results: 5,000-hop chain resolved correctly in 33 ms; 5,000-node ring terminated in 44.8 ms with `cyclic_path:`. Reversed-order determinism tests pass.
 
-2. Pin-fence consumption — PASS
+5. Fixtures: PASS. Coverage includes flat Set/Get fan-out, reroute/link renumbering, validated loop clones and repointed clones, real nested definitions plus scoped nested UIDs, concrete multi-output nodes, removed/added/repointed/input-port/output-port changes, orphaned helpers, ambiguity, and cycles in [`test_ui_emitter_widget_shape_verdict.py:907`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:907). The missing-consumer case above is the uncovered endpoint-resolution hole.
 
-Canonical before/after sets are computed in [`compute_field_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:364), forwarded as `semantic_link_set` by [`ui.py`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/emit/ui.py:1588), and interpreted by [`_has_link_delta()`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/widget_shape_fence.py:396).
+6. Multi-output/B02: PASS. MODEL versus CLIP output identity is asserted at [`test_ui_emitter_widget_shape_verdict.py:1180`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1180). `tests/test_b02_rich_preservation.py`: **4 passed** in 372.41s.
 
-`output_link_count_mismatch` remains only in pre-existing raw-link compatibility code at `ui.py:1655`; the B03 diff did not revive or change it.
+7. Scope/cleanliness: PASS. Production changes are limited to the stated B03 porting files; tests are limited to the two B03 files plus the justified `conftest.py` import optimization. Additional `.oracle` files are batch provenance. `git diff --check e1bef3bf..e82d54bf` is clean. The existing local modification to `.oracle/checkins/batch-B03.md` was not touched.
 
-3. Genuine-difference-only refusal — FAIL
+8. Verification: focused suites passed: **75 passed in 9.56s** using `-s -p no:rerunfailures -p no:cacheprovider` because the read-only environment could not create pytest capture tempfiles. B02 preservation passed **4/4**. Quarantined parity baselines were not rerun.
 
-[`delta.py:199-201`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:199) emits `helper_input_unsupported` for every edge entering a `GetNode`.
+Issue requiring rework:
 
-However, the repository explicitly supports this connected display topology in [`test_virtual_wire_round_trip.py:70`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_virtual_wire_round_trip.py:70):
-
-```text
-source → SetNode → Reroute → GetNode → consumer
-```
-
-The compiler resolves the GetNode’s outbound through its channel and removes helper-touching display edges at [`_compile/_resolve.py:136`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/_compile/_resolve.py:136).
-
-Independent unchanged-workflow reproduction:
-
-```text
-before == after:
-  uid-dynamic:0 → consumer:images
-
-before_resolution_issues: helper_input_unsupported:get
-after_resolution_issues:  helper_input_unsupported:11
-result: RefusedEmit
-```
-
-Thus a valid, unchanged pin refuses solely because of fabricated resolution issues. [`delta.py:412`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:412) also attaches any global issue to every snapshot node.
-
-4. Termination — PASS
-
-The iterative traversal has memoization, an in-progress visited set, and a 10,000-hop bound at [`delta.py:108`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:108).
-
-Independent stress:
-
-- 5,000-hop reroute chain: correct terminal, 97.7 ms.
-- 5,000-node ring: one deterministic `cyclic_path:` issue, 139.6 ms.
-- Reversed-link-order tests pass.
-
-5. Fixture coverage — PARTIAL/FAIL
-
-Covered: flat fan-out, 1:1 reroute lowering, loop-clone normalization and repointing, genuine removed/added/repointed/orphaned consumers, port changes, cycles, ambiguity, and concrete multi-output identity.
-
-Missing:
-
-- An unchanged connected `SetNode → GetNode` fixture, directly and through a Reroute. This omission allowed the blocker.
-- The “real nested” fixture at [`test_ui_emitter_widget_shape_verdict.py:1060`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1060) contains no nested links or lowering. The scoped-UID test at line 1109 is a synthetic direct helper call, so equivalent nested lowering is not demonstrated end-to-end.
-
-6. Multi-output/B02 — FAIL overall
-
-Multi-output identity itself passes: canonical tuples retain both ports, and the concrete CheckpointLoader fixture distinguishes MODEL and CLIP outputs.
-
-Independent B02 run did not match the supplied evidence:
-
-```text
-3 passed, 1 failed in 260.46s
-2838 workflows, 29 mismatches
-27 emit_refused, 2 widgets_values mismatches
-```
-
-The failure is [`test_b02_rich_preservation.py:63`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:63). The 29 residual mismatches may include pre-existing corpus/environment behavior, so they do not alone prove a B03 regression, but the required “B02 4/4 green” acceptance is not satisfied at this HEAD.
-
-7. Scope — PASS
-
-Product/test changes are limited to the expected eight B03 files, including the justified `conftest.py` performance fence. Remaining changed paths in the commit range are B03 oracle artifacts.
-
-`git diff --check e1bef3bf..59a5f16c` is clean. I made no file changes; the pre-existing dirty `.oracle/checkins/batch-B03.md` remains untouched.
-
-8. Focused verification — PASS, but insufficient to cover blocker
-
-- Widget-shape plus layout-delta suites: `67 passed`.
-- Requested semantic/pin keyword slice: `35 passed, 32 deselected`.
-- 5,000-node stress checks passed.
-- Quarantined parity suites were skipped as requested.
-- B02: `3 passed, 1 failed`.
-
-Issue list requiring rework:
-
-- [`vibecomfy/porting/layout/delta.py:199`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:199): treat edges entering `GetNode` as non-semantic helper/display plumbing, not `helper_input_unsupported`. Preserve fail-closed handling for missing or ambiguous channel setters. Add unchanged and equivalent-lowered pinned regressions with direct and rerouted Set→Get connections.
-- [`tests/test_ui_emitter_widget_shape_verdict.py:1060`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_ui_emitter_widget_shape_verdict.py:1060): add a nested fixture that actually contains links and undergoes semantic lowering/comparison.
-- [`tests/test_b02_rich_preservation.py:63`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/tests/test_b02_rich_preservation.py:63): reconcile the claimed 4/4 result with the reproducible 29-mismatch run, then require 4/4 before re-gating.
+- [`vibecomfy/porting/layout/delta.py:122`](/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/vibecomfy/porting/layout/delta.py:122): attribute `unknown_consumer` to the known source UID, or propagate global unresolved issues through a centrally enforced typed refusal so even fully ghost endpoints cannot escape. Add known-source→missing-consumer and fully missing-endpoint fixtures asserting `semantic_link_set` diagnostics and `RefusedEmit`, never `{}` followed by `KeyError`.

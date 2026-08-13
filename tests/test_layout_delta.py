@@ -389,6 +389,68 @@ def test_adding_setter_to_orphaned_getnode_channel_is_detected():
         assert "semantic_link_set" not in delta.get(uid, {})
 
 
+# ---------------------------------------------------------------------------
+# Ghost endpoints (B03 rework7: oracle blocking issue)
+# ---------------------------------------------------------------------------
+
+def test_known_source_to_ghost_consumer_edge_carries_attributed_issue():
+    """A known source → missing-consumer edge must attribute ``unknown_consumer``
+    to the source's uid so the issue lands on a snapshot-present fence target.
+
+    Before the fix the issue was recorded globally but never attributed, and
+    the global ``_after_issues`` result was discarded, so the semantic delta
+    came back ``{}`` and the pin fence saw nothing (B03 oracle finding 3).
+    """
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "Producer", uid="source")
+    snap = capture_ingest_snapshot({}, wf)
+
+    # Edit after snapshot: known source "1" gains an edge to a ghost consumer.
+    wf.edges = [VibeEdge("1", "0", "ghost", "input")]
+
+    delta = compute_field_delta(snap, wf)
+    assert "source" in delta
+    semantic = delta["source"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ("unknown_consumer:ghost",)
+    # The issue is attributed, so it must NOT fan out as a global issue.
+    assert semantic["global_before_resolution_issues"] == ()
+    assert semantic["global_after_resolution_issues"] == ()
+
+
+def test_fully_ghost_endpoint_edge_surfaces_global_issue():
+    """An edge whose endpoints are BOTH missing has no per-uid attribution
+    target; the delta must still surface the unresolved global issues on every
+    snapshot-present fence target instead of returning ``{}``.
+
+    The pin fence reads these global issues via ``_has_link_delta`` and refuses
+    with a typed ``RefusedEmit`` — never an empty ``{}`` followed by a bare
+    ``KeyError`` when the emitter tries to resolve the ghost consumer (B03
+    rework7).
+    """
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "Producer", uid="source")
+    snap = capture_ingest_snapshot({}, wf)
+
+    # Edit after snapshot: a fully ghost edge — neither endpoint is a node.
+    wf.edges = [VibeEdge("ghost-a", "0", "ghost-b", "input")]
+
+    delta = compute_field_delta(snap, wf)
+    assert "source" in delta
+    semantic = delta["source"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
+    assert semantic["global_before_resolution_issues"] == ()
+    assert semantic["global_after_resolution_issues"] == (
+        "unknown_consumer:ghost-b",
+        "unknown_source:ghost-a",
+    )
+
+
 def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
     """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
     wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))

@@ -1468,6 +1468,59 @@ def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
     assert consumer_issues[0].startswith("cyclic_path:")
 
 
+def test_pinned_semantic_ghost_consumer_edge_refuses_with_link_delta() -> None:
+    """B03 rework7: a known source → missing-consumer edge must refuse via the
+    pin fence (the ``unknown_consumer`` issue is attributed to the known source
+    uid, which IS a snapshot-present fence target).
+
+    Before the fix the issue was discarded with the global ``_after_issues``,
+    the semantic delta came back ``{}``, the fence saw nothing, and the emitter
+    crashed with a bare ``KeyError`` on the ghost consumer's missing id remap.
+    """
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    # Edit after snapshot: the pinned DynamicRows node gains an edge to a ghost
+    # consumer. The source endpoint IS known, so the issue lands on this
+    # snapshot-present fence target.
+    wf.edges = [VibeEdge("7", "0", "ghost", "images")]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["before"] == []
+    assert semantic_delta["after"] == []
+    assert "unknown_consumer:ghost" in semantic_delta["after_resolution_issues"]
+
+
+def test_pinned_semantic_fully_ghost_edge_refuses_with_link_delta() -> None:
+    """B03 rework7: an edge whose endpoints are BOTH missing has no per-uid
+    attribution target, so the unresolved global issues ride on every
+    snapshot-present fence target and the pin fence refuses with a typed
+    ``RefusedEmit`` — never an empty ``{}`` followed by a bare ``KeyError``.
+    """
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    # Edit after snapshot: a fully ghost edge — neither endpoint is a node.
+    wf.edges = [VibeEdge("ghost-a", "0", "ghost-b", "images")]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["before"] == []
+    assert semantic_delta["after"] == []
+    assert semantic_delta["after_resolution_issues"] == []
+    assert semantic_delta["global_after_resolution_issues"] == [
+        "unknown_consumer:ghost-b",
+        "unknown_source:ghost-a",
+    ]
+
+
 def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
     nodes = {
         "s": ("source", "Producer", None),

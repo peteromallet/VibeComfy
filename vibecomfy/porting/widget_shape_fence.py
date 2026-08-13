@@ -399,6 +399,11 @@ def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
     The fallback preserves compatibility for direct policy callers that still
     provide an opaque link-delta mapping. Resolution issues always fail closed,
     even when the successfully resolved portions of the two sets are equal.
+    Unattributed *global* resolution issues (e.g. a fully ghost edge whose
+    endpoints are both missing) also fail closed: they ride on every
+    snapshot-present fence target, so any widget-shape blocker anywhere in the
+    graph refuses the emit with a typed ``RefusedEmit`` instead of a bare
+    ``KeyError`` downstream (B03 rework7).
     """
     semantic = link_delta.get("semantic_link_set")
     if not isinstance(semantic, Mapping):
@@ -407,6 +412,8 @@ def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
         semantic.get("before") != semantic.get("after")
         or semantic.get("before_resolution_issues")
         or semantic.get("after_resolution_issues")
+        or semantic.get("global_before_resolution_issues")
+        or semantic.get("global_after_resolution_issues")
     )
 
 
