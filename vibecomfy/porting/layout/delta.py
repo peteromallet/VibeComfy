@@ -10,12 +10,10 @@ downstream logic treats them as ``'snapshot-absent'``.
 from __future__ import annotations
 
 import ast
-import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from vibecomfy.identity.uid import make_uid, parse_uid
 from vibecomfy.porting.lowering import clone_uid
 
 if TYPE_CHECKING:
@@ -70,20 +68,25 @@ def canonical_semantic_link_set(
     issues: set[str] = set()
 
     uids: dict[str, str] = {}
-    for node_id, (uid, _class_type, _channel) in normalized_nodes.items():
+    for node_id, (uid, _class_type, _channel) in sorted(
+        normalized_nodes.items(), key=lambda item: (item[1][0], item[0])
+    ):
         prior_id = uids.get(uid)
         if prior_id is not None and prior_id != node_id:
             issues.add(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
         else:
             uids[uid] = node_id
 
-    inbound: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for source, source_output, consumer, _consumer_input in link_rows:
+    inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for source, source_output, consumer, consumer_input in link_rows:
         if source not in normalized_nodes:
             issues.add(f"unknown_source:{source}")
         if consumer not in normalized_nodes:
             issues.add(f"unknown_consumer:{consumer}")
-        inbound[consumer].append((source, source_output))
+        # Keep the helper endpoint's input identity until ambiguity has been
+        # decided.  Two edges from the same source/output into different
+        # helper inputs are still two distinct candidates and must fail closed.
+        inbound[consumer].append((source, source_output, consumer_input))
 
     setters_by_channel: dict[str, list[str]] = defaultdict(list)
     for node_id, (_uid, class_type, channel) in normalized_nodes.items():
@@ -141,7 +144,7 @@ def canonical_semantic_link_set(
                     issues.add(f"reroute_source_count:{key[0]}:{len(candidates)}")
                     result = None
                     break
-                next_node, next_port = candidates[0]
+                next_node, next_port, _target_input = candidates[0]
             elif class_type == "GetNode":
                 if not channel:
                     issues.add(f"broadcast_name_missing:{key[0]}")
@@ -160,7 +163,7 @@ def canonical_semantic_link_set(
                     issues.add(f"broadcast_source_count:{setter_id}:{len(candidates)}")
                     result = None
                     break
-                next_node, next_port = candidates[0]
+                next_node, next_port, _target_input = candidates[0]
             else:  # SetNode used as a source is not resolvable.
                 issues.add(f"setnode_as_source:{key[0]}")
                 result = None
@@ -254,39 +257,24 @@ def _snapshot_semantic_graph(
     return nodes, links
 
 
-# Local-part shape produced by ``clone_uid`` (lowering.py:317):
-# ``{loop_local}:iter{N}:{source_local}``.  Iteration indices are non-negative
-# integers; ``source_local`` is captured greedily so a nested clone uid
-# (``outer:iter0:inner``) round-trips as the source of the inner clone.
-_LOOP_CLONE_LOCAL_RE = re.compile(r"^(?P<loop>[^:]+):iter(?P<iteration>\d+):(?P<source>.+)$")
-
-
 def _snapshot_consumer_uid_aliases(
     nodes: Mapping[str, SemanticNode],
+    validated_live_aliases: Mapping[str, str],
 ) -> dict[str, str]:
-    """Recover loop-clone consumer aliases from a snapshot graph alone.
+    """Return only snapshot aliases corroborated by live lowering provenance.
 
-    ``NodeFieldSnapshot`` records do not persist ``vibecomfy.lowering``
-    metadata, so the snapshot side cannot reuse the live graph's
-    metadata-derived aliases.  Instead the inverse of ``clone_uid`` is applied
-    structurally: any uid whose local part has the clone shape
-    ``{loop}:iter{N}:{source}`` is collapsed to ``make_uid(scope, source)`` —
-    the same canonical uid the live side derives from ``source_uid`` metadata.
-    This keeps an already-lowered workflow comparing equal to its own snapshot
-    (no fabricated ``semantic_link_set`` delta), while genuine consumer changes
-    still fail closed.
+    A clone-shaped UID is ordinary user data unless the live node carries a
+    validated ``vibecomfy.lowering`` record whose ``clone_uid`` round-trip
+    matches it.  Requiring that validated alias *and* the exact UID in the
+    snapshot gives both sides independent evidence and prevents textual UID
+    shape alone from fabricating snapshot topology.
     """
-    aliases: dict[str, str] = {}
-    for uid, _spec in nodes.items():
-        scope, local = parse_uid(str(uid))
-        match = _LOOP_CLONE_LOCAL_RE.match(local)
-        if match is None:
-            continue
-        source_local = match.group("source")
-        if not source_local:
-            continue
-        aliases[str(uid)] = make_uid(scope, source_local)
-    return aliases
+    snapshot_uids = {str(spec[0]) for spec in nodes.values()}
+    return {
+        str(uid): str(source_uid)
+        for uid, source_uid in validated_live_aliases.items()
+        if str(uid) in snapshot_uids
+    }
 
 
 def _workflow_semantic_graph(
@@ -366,12 +354,14 @@ def compute_field_delta(
         if vibe_input.node_id in public_bindings:
             public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
 
-    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
-    # The before set is canonicalized with aliases derived from the snapshot
-    # graph itself (structural clone-uid recovery) — never from the live graph —
-    # so an already-lowered workflow compares equal to its own snapshot.
-    before_aliases = _snapshot_consumer_uid_aliases(before_nodes)
     after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
+    before_nodes, before_links = _snapshot_semantic_graph(snapshot)
+    # Snapshot aliasing requires corroboration from both representations: the
+    # exact clone UID must exist in the snapshot and the corresponding live
+    # node must carry validated lowering metadata.  The after graph may also
+    # contain newly lowered clones absent from the snapshot, so it retains the
+    # complete validated live alias map.
+    before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
     canonical_before, before_issues = canonical_semantic_link_set(
         before_nodes,
         before_links,
@@ -405,7 +395,7 @@ def compute_field_delta(
             if old_val != new_val:
                 node_delta[field_name] = (old_val, new_val)
 
-        uid_key = str(uid)
+        uid_key = before_aliases.get(str(uid), str(uid))
         before_incident = tuple(
             link for link in canonical_before if link[0] == uid_key or link[2] == uid_key
         )

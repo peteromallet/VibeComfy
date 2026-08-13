@@ -846,6 +846,68 @@ def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
     _emit_semantic_pin(wf, raw_ui)
 
 
+def test_pinned_semantic_one_of_two_lowered_clones_repointed_refuses() -> None:
+    """The canonical consumer target receives and refuses the global change."""
+    wf, raw_ui = _semantic_pin_workflow()
+    raw_ui["nodes"][0]["outputs"][0]["links"] = [101, 102]
+    raw_ui["links"] = [
+        [101, 7, 0, 20, 0, "IMAGE"],
+        [102, 7, 0, 21, 0, "IMAGE"],
+    ]
+    for iteration in range(2):
+        node_id = 20 + iteration
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        raw_ui["nodes"].append(
+            {
+                "id": node_id,
+                "type": "DynamicRows",
+                "pos": [400, iteration * 180],
+                "size": [300, 120],
+                "flags": {},
+                "order": iteration + 1,
+                "mode": 0,
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 101 + iteration}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": lowered_uid},
+                "widgets_values": [{"lora": "a"}, {"lora": "b"}],
+            }
+        )
+        wf.nodes[str(node_id)] = VibeNode(
+            str(node_id),
+            "DynamicRows",
+            uid=lowered_uid,
+            raw_widgets=_raw_widgets(),
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("7", "0", str(node_id), "image"))
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["8"] = VibeNode("8", "KSampler", uid="source-b")
+    wf.edges = [
+        edge
+        for edge in wf.edges
+        if not (edge.from_node == "7" and edge.to_node == "20")
+    ]
+    wf.edges.append(VibeEdge("8", "0", "20", "image"))
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic = exc_info.value.diff["20"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic["before"] == [["uid-dynamic", "0", "consumer", "image"]]
+    assert semantic["after"] == [
+        ["source-b", "0", "consumer", "image"],
+        ["uid-dynamic", "0", "consumer", "image"],
+    ]
+
+
 def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
     """The corpus regression: one Set/Get route becomes N direct clone links."""
     wf, raw_ui = _semantic_pin_workflow()
@@ -882,6 +944,55 @@ def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -
     _emit_semantic_pin(wf, raw_ui)
 
 
+def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
+    """Exercise an actual nested definition through the UI emitter."""
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.metadata["definitions"] = {
+        "subgraphs": [
+            {
+                "id": "outer-subgraph",
+                "name": "Outer",
+                "nodes": [
+                    {
+                        "id": 101,
+                        "type": "inner-subgraph",
+                        "pos": [0, 0],
+                        "properties": {"vibecomfy_uid": "inner-instance"},
+                    }
+                ],
+                "links": [],
+                "definitions": {
+                    "subgraphs": [
+                        {
+                            "id": "inner-subgraph",
+                            "name": "Inner",
+                            "nodes": [
+                                {
+                                    "id": 201,
+                                    "type": "SaveImage",
+                                    "pos": [20, 20],
+                                    "properties": {"vibecomfy_uid": "consumer"},
+                                }
+                            ],
+                            "links": [],
+                        }
+                    ]
+                },
+            }
+        ]
+    }
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    emitted = _emit_semantic_pin(wf, raw_ui)
+
+    outer = emitted["definitions"]["subgraphs"][0]
+    assert outer["id"] == "outer-subgraph"
+    assert outer["nodes"][0]["type"] == "inner-subgraph"
+    inner = outer["definitions"]["subgraphs"][0]
+    assert inner["id"] == "inner-subgraph"
+    assert inner["nodes"][0]["properties"]["vibecomfy_uid"] == "consumer"
+
+
 def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
     nodes = {
         "source": ("outer:sg/inner:sg#source", "Producer", None),
@@ -904,6 +1015,59 @@ def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
         ("outer:sg/inner:sg#source", "image", "outer:sg/inner:sg#consumer", "images"),
     )
     assert issues == flat_issues == ()
+
+
+def test_pinned_semantic_concrete_checkpoint_multi_output_preserves_port_identity() -> None:
+    """A concrete checkpoint loader's MODEL and CLIP outputs stay distinct."""
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="checkpoint")
+    wf.nodes["9"] = VibeNode("9", "KSampler", uid="model-consumer")
+    wf.nodes["10"] = VibeNode("10", "CLIPTextEncode", uid="clip-consumer")
+    wf.edges = [
+        VibeEdge("1", "MODEL", "9", "model"),
+        VibeEdge("1", "CLIP", "10", "clip"),
+    ]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    provider = _Provider(
+        {
+            "CheckpointLoaderSimple": _schema(
+                "CheckpointLoaderSimple",
+                {"ckpt_name": InputSpec("STRING")},
+                [
+                    OutputSpec("MODEL", "MODEL"),
+                    OutputSpec("CLIP", "CLIP"),
+                    OutputSpec("VAE", "VAE"),
+                ],
+            ),
+            "KSampler": _schema("KSampler", {"model": InputSpec("MODEL")}),
+            "CLIPTextEncode": _schema(
+                "CLIPTextEncode", {"clip": InputSpec("CLIP")}
+            ),
+        }
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(
+            wf,
+            schema_provider=provider,
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+        )
+    assert {link[2] for link in emitted["links"] if link[1] == 1} == {0, 1}
+    semantic, issues = canonical_semantic_link_set(
+        {
+            "1": ("checkpoint", "CheckpointLoaderSimple", None),
+            "9": ("model-consumer", "KSampler", None),
+            "10": ("clip-consumer", "CLIPTextEncode", None),
+        },
+        [("1", "MODEL", "9", "model"), ("1", "CLIP", "10", "clip")],
+    )
+    assert semantic == (
+        ("checkpoint", "CLIP", "clip-consumer", "clip"),
+        ("checkpoint", "MODEL", "model-consumer", "model"),
+    )
+    assert issues == ()
 
 
 @pytest.mark.parametrize(
@@ -997,6 +1161,38 @@ def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
     second = canonical_semantic_link_set(nodes, reversed(links))
     assert first == second
     assert any(issue.startswith(issue_prefix) for issue in first[1])
+
+
+def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
+    semantic, issues = canonical_semantic_link_set(
+        {
+            "s": ("source", "Producer", None),
+            "r": ("reroute", "Reroute", None),
+            "c": ("consumer", "Consumer", None),
+        },
+        [
+            ("s", "image", "r", "input-a"),
+            ("s", "image", "r", "input-b"),
+            ("r", "0", "c", "images"),
+        ],
+    )
+    assert semantic == ()
+    assert issues == ("reroute_source_count:r:2",)
+
+
+def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> None:
+    nodes = {
+        "z": ("duplicate", "Producer", None),
+        "a": ("duplicate", "Producer", None),
+        "m": ("duplicate", "Producer", None),
+    }
+    forward = canonical_semantic_link_set(nodes, [])
+    reverse = canonical_semantic_link_set(dict(reversed(tuple(nodes.items()))), [])
+    assert forward == reverse
+    assert forward[1] == (
+        "duplicate_uid:duplicate:a:m",
+        "duplicate_uid:duplicate:a:z",
+    )
 
 
 def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:

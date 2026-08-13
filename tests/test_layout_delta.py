@@ -65,7 +65,8 @@ def test_no_mutation_loop_lowered_workflow_produces_empty_delta():
     ``source/image -> loop:iter0:consumer/images`` and
     ``source/image -> loop:iter1:consumer/images``; the live set collapses both
     clones to ``source/image -> consumer/images``.  The before set must be
-    canonicalized with its own (structurally derived) loop-clone aliases so the
+    canonicalized with loop-clone aliases corroborated by validated live
+    lowering metadata so the
     unchanged workflow compares equal and produces an empty delta.
     """
     wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
@@ -91,6 +92,60 @@ def test_no_mutation_loop_lowered_workflow_produces_empty_delta():
     snap = capture_ingest_snapshot({}, wf)
     delta = compute_field_delta(snap, wf)
     assert delta == {}
+
+
+def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
+    """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "Producer", uid="source")
+    wf.nodes["2"] = VibeNode(
+        "2", "Consumer", uid="ordinary:iter0:consumer"
+    )
+    wf.edges = [VibeEdge("1", "image", "2", "images")]
+
+    snap = capture_ingest_snapshot({}, wf)
+
+    assert compute_field_delta(snap, wf) == {}
+
+
+def test_one_of_two_lowered_clones_repointed_to_new_source_is_attributed():
+    """A global canonical change must reach the aliased snapshot fence target."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "Producer", uid="source-a")
+    for iteration in range(2):
+        node_id = str(20 + iteration)
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        wf.nodes[node_id] = VibeNode(
+            node_id,
+            "Consumer",
+            uid=lowered_uid,
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("1", "image", node_id, "images"))
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["2"] = VibeNode("2", "Producer", uid="source-b")
+    wf.edges = [
+        edge
+        for edge in wf.edges
+        if not (edge.from_node == "1" and edge.to_node == "20")
+    ]
+    wf.edges.append(VibeEdge("2", "image", "20", "images"))
+
+    delta = compute_field_delta(snap, wf)
+
+    semantic = delta[clone_uid("loop", "consumer", 0)]["semantic_link_set"]
+    assert semantic["before"] == (("source-a", "image", "consumer", "images"),)
+    assert semantic["after"] == (
+        ("source-a", "image", "consumer", "images"),
+        ("source-b", "image", "consumer", "images"),
+    )
 
 
 def test_widget_edit_detected():
