@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.agent.artifacts import _execute_research_sources, synthesize_headless_artifacts
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
@@ -377,6 +379,73 @@ def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path)
     assert "sig-secret" not in persisted
     assert "top-secret" not in persisted
     assert "url-secret" not in persisted
+
+
+@pytest.fixture
+def json_quoted_secret_raw_preview() -> str:
+    """raw_response_preview embedding oracle finding 5 JSON-quoted secrets."""
+    return (
+        '{"api_key":"sk-secret",'
+        '"authorization":"Basic dXNlcjpwYXNz",'
+        '"token":"tok-secret"}'
+    )
+
+
+def test_model_attempt_artifact_redacts_json_quoted_secrets(
+    tmp_path: Path, json_quoted_secret_raw_preview: str
+) -> None:
+    """Oracle finding 5 durable: model_attempts.json must not persist JSON-quoted secrets."""
+    output_dir = tmp_path / "out"
+    result = ExecutorResult.success(
+        report=Report(
+            model_attempts=(
+                {
+                    "phase": "classify",
+                    "attempt": 1,
+                    "outcome": "failure",
+                    "failure_type": "malformed_json",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "hermes",
+                    "provider": "openrouter",
+                    "transport": "openrouter",
+                    "endpoint": "https://openrouter.ai/api/v1",
+                    "finish_reason": "unknown",
+                    "token_usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 0,
+                        "total_tokens": 1,
+                    },
+                    "raw_response_preview": json_quoted_secret_raw_preview,
+                },
+            )
+        ),
+        reply="ok",
+    )
+
+    manifest = synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=result,
+        response={"ok": True},
+        output_dir=output_dir,
+        status="success",
+    )
+
+    assert "model_attempts.json" in manifest["manifest"]
+    attempts = _read_json(output_dir / "model_attempts.json")["attempts"]
+    preview = attempts[0]["raw_response_preview"]
+    assert "sk-secret" not in preview
+    assert "Basic dXNlcjpwYXNz" not in preview
+    assert "tok-secret" not in preview
+    assert preview.count("<redacted>") == 3
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in output_dir.iterdir()
+        if path.is_file()
+    )
+    assert "sk-secret" not in persisted
+    assert "Basic dXNlcjpwYXNz" not in persisted
+    assert "tok-secret" not in persisted
 
 
 def test_turn_artifact_secrets_in_ordinary_fields_are_redacted(tmp_path: Path) -> None:

@@ -53,6 +53,19 @@ _MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE = re.compile(
     r"(?im)\bauthorization\s*:\s*[^\r\n]*"
 )
 _MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+# Oracle finding 5: failure previews can embed the secret as a JSON-quoted
+# value (``{"api_key": "sk-..."}``), which the unquoted assignment and
+# authorization-header patterns cannot see.  Match quoted sensitive fields in
+# BOTH ``"key": "value"`` and ``'key': 'value'`` styles; the value is matched
+# best-effort so malformed/truncated JSON never crashes the redactor.
+_MODEL_ATTEMPT_JSON_QUOTED_SECRET_RE = re.compile(
+    r"""(?ix)
+    (["'])                                    # key quote (double or single)
+    (api[_-]?key|authorization|auth|token|access[_-]?token|refresh[_-]?token)
+    \1\s*:\s*                                 # closing key quote, colon
+    (["'])(?:(?!\3)[^"'\r])*(\3)?             # quoted value (may be truncated)
+    """
+)
 
 
 def normalize_model_endpoint(value: Any) -> str:
@@ -84,12 +97,26 @@ def normalize_model_endpoint(value: Any) -> str:
     return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
 
 
+def _redact_json_quoted_secret(match: re.Match[str]) -> str:
+    """Collapse a quoted sensitive JSON field to ``"key": "<redacted>"``.
+
+    The key's original casing and quote style are preserved so the preview
+    keeps its JSON-ish shape; only the value is replaced.
+    """
+    key_quote = match.group(1)
+    value_quote = match.group(3)
+    return f"{key_quote}{match.group(2)}{key_quote}: {value_quote}<redacted>{value_quote}"
+
+
 def redact_model_preview(value: Any, *, limit: int = _MODEL_ATTEMPT_PREVIEW_LIMIT) -> str | None:
     """Return a bounded failure preview with credentials and URL queries removed."""
     if not isinstance(value, str):
         return None
+    redacted = _MODEL_ATTEMPT_JSON_QUOTED_SECRET_RE.sub(
+        _redact_json_quoted_secret, value
+    )
     redacted = _MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE.sub(
-        "Authorization: <redacted>", value
+        "Authorization: <redacted>", redacted
     )
     normalized = " ".join(redacted.strip().split())
     if not normalized:

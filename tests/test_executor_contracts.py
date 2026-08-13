@@ -676,6 +676,63 @@ class TestModelAttemptEvidence:
         assert scheme not in preview
         assert credential not in preview
 
+    @pytest.fixture
+    def json_quoted_secret_preview(self) -> str:
+        """Failure preview embedding the three oracle finding 5 JSON-quoted secrets."""
+        return (
+            '{"api_key":"sk-secret",'
+            '"authorization":"Basic dXNlcjpwYXNz",'
+            '"token":"tok-secret"}'
+        )
+
+    def test_preview_redacts_json_quoted_sensitive_fields(
+        self, json_quoted_secret_preview: str
+    ) -> None:
+        preview = redact_model_preview(json_quoted_secret_preview)
+
+        assert preview is not None
+        assert "sk-secret" not in preview
+        assert "Basic dXNlcjpwYXNz" not in preview
+        assert "tok-secret" not in preview
+        assert preview.count("<redacted>") == 3
+
+    @pytest.mark.parametrize("quote", ['"', "'"])
+    def test_preview_redacts_single_and_double_quoted_json_fields(
+        self, quote: str
+    ) -> None:
+        preview = redact_model_preview(
+            f"{quote}api_key{quote}:{quote}sk-secret{quote} "
+            f"{quote}Authorization{quote}: {quote}Basic dXNlcjpwYXNz{quote} "
+            f"{quote}refresh_token{quote}:{quote}tok-secret{quote}"
+        )
+
+        assert "sk-secret" not in preview
+        assert "Basic dXNlcjpwYXNz" not in preview
+        assert "tok-secret" not in preview
+        assert preview.count("<redacted>") == 3
+
+    def test_preview_json_redaction_never_crashes_on_malformed_json(self) -> None:
+        preview = redact_model_preview('{broken "api_key": "sk-secret" trailing')
+
+        assert preview is not None
+        assert "sk-secret" not in preview
+        assert "<redacted>" in preview
+
+    def test_evidence_to_dict_redacts_json_quoted_sensitive_fields(
+        self, json_quoted_secret_preview: str
+    ) -> None:
+        payload = ModelAttemptEvidence(
+            phase="classify",
+            outcome="failure",
+            failure_type="malformed_json",
+            raw_response_preview=json_quoted_secret_preview,
+        ).to_dict()
+
+        assert "sk-secret" not in payload["raw_response_preview"]
+        assert "Basic dXNlcjpwYXNz" not in payload["raw_response_preview"]
+        assert "tok-secret" not in payload["raw_response_preview"]
+        assert payload["raw_response_preview"].count("<redacted>") == 3
+
 
 class TestReport:
     def test_default(self) -> None:

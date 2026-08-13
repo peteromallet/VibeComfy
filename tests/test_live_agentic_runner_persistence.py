@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.live_agentic_harness.runner import (
     _is_retryable_infra_summary,
     _persist_run_summary,
@@ -11,6 +13,7 @@ from tests.live_agentic_harness.runner import (
     _provider_infra_failure_class,
     run_tag,
 )
+from vibecomfy.executor.contracts import coerce_model_attempts
 
 
 def _summary(tmp_path: Path, scenario_id: str, *, ok: bool) -> dict:
@@ -491,3 +494,81 @@ def test_retryability_is_derived_from_canonical_typed_evidence() -> None:
     assert _is_retryable_infra_summary(summary) is True
     assert summary["failure_class"] == "infra_empty_response"
     assert summary["retryable_infra"] is True
+
+
+@pytest.fixture
+def leaky_canonical_attempt() -> dict:
+    """Canonical failed attempt whose preview embeds oracle finding 5 JSON secrets.
+
+    The canonical shape is exactly what the executor emits (``coerce_model_attempts``
+    applies ``ModelAttemptEvidence`` redaction), so a persisted agentic summary must
+    never reintroduce the raw secrets.
+    """
+    attempts = coerce_model_attempts(
+        (
+            {
+                **_failed_attempt("provider_failure"),
+                "raw_response_preview": (
+                    '{"api_key":"sk-secret",'
+                    '"authorization":"Basic dXNlcjpwYXNz",'
+                    '"token":"tok-secret"}'
+                ),
+            },
+        )
+    )
+    return attempts[0]
+
+
+def test_persisted_agentic_summary_redacts_json_quoted_secrets(
+    tmp_path: Path,
+    monkeypatch,
+    leaky_canonical_attempt: dict,
+) -> None:  # noqa: ANN001
+    """Oracle finding 5 durable: agentic_summary.json keeps JSON-quoted secrets out."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "json-quoted-secrets.json"
+    scenario_path.write_text(
+        json.dumps({"id": "json-quoted-secrets", "query": "do it"}),
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "json-quoted-secrets", ok=False)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "json-quoted-secrets")
+        payload["error"] = "provider rejected"
+        payload["model_attempts"] = [leaky_canonical_attempt]
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=0,
+        progress_every=0,
+    )
+
+    persisted_path = (
+        tmp_path / "out" / "tag" / "json-quoted-secrets" / "agentic_summary.json"
+    )
+    assert persisted_path.exists()
+    persisted = persisted_path.read_text(encoding="utf-8")
+    assert "sk-secret" not in persisted
+    assert "Basic dXNlcjpwYXNz" not in persisted
+    assert "tok-secret" not in persisted
+    summary = json.loads(persisted)
+    # model_attempts is persisted both top-level and inside the attempt record;
+    # every occurrence must carry the fully redacted preview.
+    for attempt in [summary["model_attempts"][0], summary["attempts"][0]["model_attempts"][0]]:
+        preview = attempt["raw_response_preview"]
+        assert preview.count("<redacted>") == 3
+        assert "sk-secret" not in preview
+        assert "Basic dXNlcjpwYXNz" not in preview
+        assert "tok-secret" not in preview
