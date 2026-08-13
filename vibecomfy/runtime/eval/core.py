@@ -248,10 +248,7 @@ def _build_preview_subgraph(
     preview_node = VibeNode(
         id=preview_id,
         class_type=preview.class_type,
-        inputs=(
-            {preview.output_input_slot: [nid, 0]}
-            | (preview.extra_inputs or {})
-        ),
+        inputs=dict(preview.extra_inputs or {}),
     )
     sub_nodes[preview_id] = preview_node
     sub_edges.append(
@@ -303,10 +300,7 @@ def _build_latent_preview_subgraph(
     decode_node = VibeNode(
         id=decode_id,
         class_type="VAEDecode",
-        inputs={
-            "samples": [nid, 0],
-            "vae": [vae_node_id, 0],
-        },
+        inputs={},
     )
     sub_nodes[decode_id] = decode_node
     sub_edges.append(
@@ -321,7 +315,7 @@ def _build_latent_preview_subgraph(
     preview_node = VibeNode(
         id=preview_id,
         class_type="PreviewImage",
-        inputs={"images": [decode_id, 0]},
+        inputs={},
     )
     sub_nodes[preview_id] = preview_node
     sub_edges.append(

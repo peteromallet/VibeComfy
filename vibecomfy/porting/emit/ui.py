@@ -80,7 +80,7 @@ from vibecomfy.contracts.intent_nodes import (
 from vibecomfy.identity.uid import mint_local_uid
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
-from vibecomfy.workflow import VibeEdge, VibeNode
+from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode
 
 # Documented default control_after_generate mode when none is retained in metadata.
 _CONTROL_AFTER_GENERATE_DEFAULT = "fixed"
@@ -250,18 +250,17 @@ def _resolve_furniture(
     node: Any,
     layout_entry: dict | None,
 ) -> dict[str, Any]:
-    """Resolve furniture (flags, color, bgcolor, mode, properties, title) from sidecar or metadata.
+    """Resolve display furniture while taking mode only from the IR node.
 
     This is a SEPARATE path from the pos/size geometry chain
     (:func:`_captured_geometry`).  Precedence:
 
-    1. Sidecar entry (``layout_entry``) — the authoritative source when a
-       ``.layout.json`` sidecar exists.
-    2. ``node.metadata['_ui']`` — the raw litegraph node dict captured during
-       ingest (the direct-ingest / comfy-gate fallback).
-    3. Legacy ``node.metadata['mode']`` copy, then the first-class
-       ``node.mode`` field (the same authority compile reads).
-    4. Fixed defaults (``flags={}``, ``mode=0``, ``color=None``, ``bgcolor=None``,
+    1. Sidecar entry (``layout_entry``) for flags, colors, properties, and title.
+    2. ``node.metadata['_ui']`` for those same fields when no sidecar exists.
+    3. :func:`vibecomfy.workflow._get_node_mode` for mode.  This is the exact
+       authority used by compilation, including its single legacy ``_ui.mode``
+       fallback.
+    4. Fixed defaults (``flags={}``, ``color=None``, ``bgcolor=None``,
        ``properties={}``, ``title=None``).
 
     Returns a dict with keys ``flags``, ``color``, ``bgcolor``, ``mode``,
@@ -272,7 +271,6 @@ def _resolve_furniture(
         flags = layout_entry.get("flags")
         color = layout_entry.get("color")
         bgcolor = layout_entry.get("bgcolor")
-        mode = layout_entry.get("mode")
         properties = layout_entry.get("properties")
         title = layout_entry.get("title")
     else:
@@ -282,39 +280,18 @@ def _resolve_furniture(
             flags = _ui.get("flags")
             color = _ui.get("color")
             bgcolor = _ui.get("bgcolor")
-            mode = _ui.get("mode")
             properties = _ui.get("properties")
             title = _ui.get("title")
         else:
             flags = None
             color = None
             bgcolor = None
-            mode = None
             properties = None
             title = None
-
-    # Source 2.5: legacy ingest furniture fallback.  Old envelopes may carry a
-    # top-level metadata["mode"] copy; re-emit it.  Only an int is accepted —
-    # sidecar (source 1) still wins over this fallback.
-    if mode is None:
-        _meta_mode = getattr(node, "metadata", {}).get("mode")
-        if isinstance(_meta_mode, int):
-            mode = _meta_mode
-
-    # Source 2.75: the first-class VibeNode.mode field (the same authority
-    # compile's _get_node_mode reads).  Ingest and envelope decode populate it
-    # from _ui.mode and leave _ui.mode in place, so sources 2/2.5 normally win;
-    # this only fires for hand-built nodes that set the field directly.
-    if mode is None:
-        _field_mode = getattr(node, "mode", 0)
-        if isinstance(_field_mode, int):
-            mode = _field_mode
 
     # Source 3: fixed defaults
     if not isinstance(flags, dict):
         flags = {}
-    if mode is None or not isinstance(mode, int):
-        mode = 0
     if not isinstance(properties, dict):
         properties = {}
     # title stays None for absent/default — the caller decides whether to emit it
@@ -323,7 +300,7 @@ def _resolve_furniture(
         "flags": flags,
         "color": color,
         "bgcolor": bgcolor,
-        "mode": mode,
+        "mode": _get_node_mode(node),
         "properties": properties,
         "title": title,
     }
@@ -471,6 +448,68 @@ def _build_id_remap(order_list: list[str]) -> dict[str, int]:
         used.add(nxt)
         nxt += 1
     return remap
+
+
+def _remap_ir_groups(
+    wf: Any,
+    order_list: list[str],
+    id_remap: Mapping[str, int],
+) -> list[dict[str, Any]]:
+    """Deep-copy IR groups and resolve live members to LiteGraph integer ids.
+
+    Group membership may have been captured at different boundaries, so each
+    live node contributes aliases for its workflow mapping key, ``node.id``,
+    stable uid, and captured ``_ui.id``.  Numeric aliases accept either their
+    integer or decimal-string form.  Ambiguous aliases and stale members are
+    omitted instead of emitting a dangling reference.
+    """
+    candidates: dict[tuple[str, Any], set[int]] = defaultdict(set)
+
+    def add_alias(value: Any, emitted_id: int) -> None:
+        if isinstance(value, bool):
+            return
+        if isinstance(value, int):
+            candidates[("int", value)].add(emitted_id)
+            candidates[("str", str(value))].add(emitted_id)
+        elif isinstance(value, str) and value:
+            candidates[("str", value)].add(emitted_id)
+            if value.isdigit():
+                candidates[("int", int(value))].add(emitted_id)
+
+    for workflow_node_id in order_list:
+        node = wf.nodes[workflow_node_id]
+        emitted_id = id_remap[workflow_node_id]
+        add_alias(workflow_node_id, emitted_id)
+        add_alias(getattr(node, "id", None), emitted_id)
+        add_alias(getattr(node, "uid", None), emitted_id)
+        raw_ui = getattr(node, "metadata", {}).get("_ui")
+        if isinstance(raw_ui, dict):
+            add_alias(raw_ui.get("id"), emitted_id)
+
+    aliases = {key: next(iter(ids)) for key, ids in candidates.items() if len(ids) == 1}
+    remapped: list[dict[str, Any]] = []
+    for raw_group in deepcopy(getattr(wf, "groups", [])):
+        group = dict(raw_group)
+        members = group.get("nodes")
+        if isinstance(members, list):
+            resolved: list[int] = []
+            for member in members:
+                if isinstance(member, bool):
+                    continue
+                key = (
+                    ("int", member)
+                    if isinstance(member, int)
+                    else ("str", member)
+                    if isinstance(member, str)
+                    else None
+                )
+                if key is not None and key in aliases:
+                    resolved.append(aliases[key])
+            group["nodes"] = resolved
+        elif "nodes" in group:
+            group["nodes"] = []
+        remapped.append(group)
+    return remapped
 
 
 # ── Virtual-wire classification ────────────────────────────────────────────
@@ -2014,7 +2053,6 @@ def emit_ui_json(
     prior_path: str | None = None,
     include_main_positions: bool = False,
     include_virtual_wires: bool = True,
-    groups: list[dict[str, Any]] | None = None,
     extra: dict[str, Any] | None = None,
     definitions: dict[str, Any] | None = None,
     change_report_out: list | None = None,
@@ -2050,11 +2088,6 @@ def emit_ui_json(
             ``provider``, ``confidence``, ``schema_less``.  This is the
             **authoritative** record of which schema tier supplied each node's
             output/input resolution.
-        groups: Optional graph-level groups list.  Overrides the IR's own
-            ``wf.groups`` (first-class on ``VibeWorkflow``, populated by the
-            envelope/UI importers).  When omitted, ``wf.groups`` is emitted as
-            the top-level ``groups`` array (``[]`` when unset).  Pass an
-            explicit list (e.g. from a ``.layout.json`` sidecar) to override.
         extra: Optional ``extra`` dict (canvas drag/scale state under ``extra.ds``).
             When provided, merged with the ``vibecomfy`` breadcrumb; otherwise
             only the breadcrumb is emitted.
@@ -2426,14 +2459,14 @@ def emit_ui_json(
                 outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
             )
             # The pinned raw copy comes from raw UI evidence and may lack mode;
-            # stamp the resolved furniture mode (sidecar > _ui.mode >
-            # metadata.mode > node.mode field > 0) onto the emitted node.
+            # stamp the same IR-authoritative mode used by compilation.
             pinned["mode"] = _resolve_furniture(node, matched_entries.get(key))["mode"]
             nodes.append(pinned)
             continue
         matched_entry = matched_entries.get(key)
         # T9b: reconcile-driven merge.
-        #   matched → verbatim pos/size/mode/flags/color/properties/group/title from the entry.
+        #   matched → verbatim pos/size/flags/color/properties/group/title from the entry;
+        #             mode remains IR-authoritative.
         #   else    → engine_positions (already incorporates anchors / pinning), else _stub.
         if matched_entry is not None:
             geometry = (
@@ -2663,19 +2696,15 @@ def emit_ui_json(
     if include_main_positions and "ds" not in merged_extra:
         merged_extra["ds"] = dict(_DEFAULT_DS)
 
-    # --- groups: merge caller-passed groups with engine-generated subgraph groups ---
-    #   Order: caller-passed groups first, then engine_groups (suppressing duplicates
-    #   whose ``title`` matches a caller-passed group title).  All groups are
+    # --- groups: merge remapped IR groups with engine-generated subgraph groups ---
+    #   Order: IR groups first, then engine_groups (suppressing duplicates whose
+    #   ``title`` matches an IR group title).  All groups are
     #   canonicalized when ``include_main_positions=True``.
-    #   groups= is an override: when omitted, the IR's own ``wf.groups`` is used
-    #   (deep-copied so geometry canonicalization can never mutate the IR).
-    caller_groups: list[dict[str, Any]] = (
-        list(groups) if groups is not None else deepcopy(getattr(wf, "groups", []))
-    )
-    caller_titles: set[str] = {g.get("title", "") for g in caller_groups if g.get("title")}
-    emitted_groups: list[dict[str, Any]] = list(caller_groups)
+    ir_groups = _remap_ir_groups(wf, order_list, id_remap)
+    ir_titles: set[str] = {g.get("title", "") for g in ir_groups if g.get("title")}
+    emitted_groups: list[dict[str, Any]] = list(ir_groups)
     for eg in engine_groups:
-        if eg.get("title", "") not in caller_titles:
+        if eg.get("title", "") not in ir_titles:
             emitted_groups.append(eg)
     if include_main_positions and emitted_groups:
         _canonicalize_group_geometry(emitted_groups)

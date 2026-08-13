@@ -12,7 +12,7 @@ from vibecomfy.schema.validate import (
     sanitize_api_against_schema,
     validate_api_against_schema,
 )
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 class FakeSchemaProvider:
@@ -180,6 +180,7 @@ def test_sanitize_preserves_ltx_dynamic_image_slots() -> None:
 def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
     provider = FakeSchemaProvider(
         {
+            "ImageSource": _schema("ImageSource", {}),
             "LTXVImgToVideoInplaceKJ": _schema(
                 "LTXVImgToVideoInplaceKJ",
                 {"num_images": InputSpec("INT"), "latent": InputSpec("LATENT"), "vae": InputSpec("VAE")},
@@ -187,18 +188,24 @@ def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
         }
     )
     workflow = _workflow(
+        VibeNode("1", "ImageSource"),
+        VibeNode("2", "ImageSource"),
         VibeNode(
             "210",
             "LTXVImgToVideoInplaceKJ",
             inputs={
                 "num_images": "2",
-                "num_images.image_1": ["1", 0],
                 "num_images.index_1": 0,
                 "num_images.strength_1": 1.0,
-                "num_images.image_2": ["2", 0],
                 "num_images.index_2": -1,
             },
         )
+    )
+    workflow.edges.extend(
+        [
+            VibeEdge("1", "0", "210", "num_images.image_1"),
+            VibeEdge("2", "0", "210", "num_images.image_2"),
+        ]
     )
 
     report = workflow.validate(schema_provider=provider)
@@ -244,6 +251,7 @@ def test_sanitize_preserves_simple_calculator_autogrow_variables() -> None:
 def test_simple_calculator_autogrow_variables_validate_required_fields() -> None:
     provider = FakeSchemaProvider(
         {
+            "ValueSource": _schema("ValueSource", {}),
             "SimpleCalculatorKJ": _schema(
                 "SimpleCalculatorKJ",
                 {"expression": InputSpec("STRING"), "variables": InputSpec("COMFY_AUTOGROW_V3")},
@@ -251,8 +259,10 @@ def test_simple_calculator_autogrow_variables_validate_required_fields() -> None
         }
     )
     workflow = _workflow(
-        VibeNode("2077", "SimpleCalculatorKJ", inputs={"expression": "a", "variables": "a,b", "a": ["2078", 0]})
+        VibeNode("2077", "SimpleCalculatorKJ", inputs={"expression": "a", "variables": "a,b"}),
+        VibeNode("2078", "ValueSource"),
     )
+    workflow.edges.append(VibeEdge("2078", "0", "2077", "a"))
 
     report = workflow.validate(schema_provider=provider)
 
@@ -327,8 +337,15 @@ def test_skip_list_suppresses_unknown_and_value_issues_only() -> None:
 
 
 def test_range_enum_skipped_when_value_is_api_link() -> None:
-    provider = FakeSchemaProvider({"ChoiceNode": _schema("ChoiceNode", {"mode": InputSpec("INT", min=10, choices=[10])})})
-    report = _workflow(VibeNode("1", "ChoiceNode", inputs={"mode": ["3", 0]})).validate(schema_provider=provider)
+    provider = FakeSchemaProvider(
+        {
+            "ChoiceNode": _schema("ChoiceNode", {"mode": InputSpec("INT", min=10, choices=[10])}),
+            "ValueSource": _schema("ValueSource", {}),
+        }
+    )
+    workflow = _workflow(VibeNode("1", "ChoiceNode"), VibeNode("3", "ValueSource"))
+    workflow.edges.append(VibeEdge("3", "0", "1", "mode"))
+    report = workflow.validate(schema_provider=provider)
 
     assert report.ok
     assert report.issues == []

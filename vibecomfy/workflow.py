@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from vibecomfy._compile import _resolve as helper_resolve
 from vibecomfy._compile import _widgets as widget_aliases
 from vibecomfy._compile import _helpers as workflow_helpers
+from vibecomfy._compile._graph import is_canonical_api_link
 from vibecomfy.errors import VibeComfyError
 from vibecomfy.handles import Handle
 
@@ -258,6 +259,7 @@ class VibeWorkflow:
         Transport stamps such as ``workflow_id`` are applied by callers after
         this, not here.
         """
+        _raise_embedded_api_links(self, surface="envelope serialization")
         plain = _to_plain(self)
         plain["vibecomfy_format_version"] = FORMAT_VERSION
         return plain
@@ -694,14 +696,25 @@ class VibeWorkflow:
                 issues.append(ValidationIssue("missing_edge_source", f"Missing source node {edge.from_node}."))
             if edge.to_node not in self.nodes:
                 issues.append(ValidationIssue("missing_edge_target", f"Missing target node {edge.to_node}."))
+        embedded_links = _embedded_api_link_details(self)
+        for detail in embedded_links:
+            issues.append(
+                ValidationIssue(
+                    "embedded_api_link",
+                    _embedded_api_link_message(detail, surface="validation"),
+                    severity="error",
+                    detail=detail,
+                )
+            )
         api: dict[str, Any] | None = None
-        try:
-            api = self.compile(backend="api")
-        except Exception as exc:
-            detail: dict[str, Any] = {}
-            if isinstance(exc, WorkflowCompileError):
-                detail = {"compile_code": exc.code, **exc.detail}
-            issues.append(ValidationIssue("api_compile_failed", str(exc), severity="error", detail=detail))
+        if not embedded_links:
+            try:
+                api = self.compile(backend="api")
+            except Exception as exc:
+                detail: dict[str, Any] = {}
+                if isinstance(exc, WorkflowCompileError):
+                    detail = {"compile_code": exc.code, **exc.detail}
+                issues.append(ValidationIssue("api_compile_failed", str(exc), severity="error", detail=detail))
         if schema_provider is not None:
             from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 
@@ -732,6 +745,7 @@ class VibeWorkflow:
         ]
 
     def compile(self, backend: str = "api") -> dict[str, Any]:
+        _raise_embedded_api_links(self, surface=f"{backend} compilation")
         if backend == "graphbuilder":
             return self._compile_graphbuilder()
         if backend != "api":
@@ -1040,6 +1054,71 @@ def _compile_node_inputs(node: VibeNode) -> dict[str, Any]:
         for key, value in inputs.items()
         if not _is_ui_only_prompt_input(key, value)
     }
+
+
+def _embedded_api_link_details(workflow: VibeWorkflow) -> list[dict[str, Any]]:
+    """Describe canonical API links illegally embedded in IR node inputs."""
+    details: list[dict[str, Any]] = []
+    edges_by_target: dict[tuple[str, str], list[list[Any]]] = {}
+    for edge in workflow.edges:
+        key = (str(edge.to_node), str(edge.to_input))
+        try:
+            output_slot: Any = int(edge.from_output)
+        except (TypeError, ValueError):
+            output_slot = str(edge.from_output)
+        edges_by_target.setdefault(key, []).append([str(edge.from_node), output_slot])
+
+    for node_id, node in workflow.nodes.items():
+        for input_name, value in node.inputs.items():
+            if not is_canonical_api_link(value):
+                continue
+            embedded_source = [str(value[0]), int(value[1])]
+            edge_sources = edges_by_target.get((str(node_id), str(input_name)), [])
+            if not edge_sources:
+                collision = "none"
+            elif all(source == embedded_source for source in edge_sources):
+                collision = "identical"
+            else:
+                collision = "conflicting"
+            details.append(
+                {
+                    "node_id": str(node_id),
+                    "input_name": str(input_name),
+                    "embedded_source": embedded_source,
+                    "edge_sources": edge_sources,
+                    "edge_collision": collision,
+                }
+            )
+    return details
+
+
+def _embedded_api_link_message(detail: dict[str, Any], *, surface: str) -> str:
+    collision = detail["edge_collision"]
+    collision_text = ""
+    if collision != "none":
+        collision_text = f"; the socket also has {collision} VibeEdge connectivity"
+    return (
+        f"{surface} rejected node {detail['node_id']!r} input "
+        f"{detail['input_name']!r}: embedded Comfy API link "
+        f"{detail['embedded_source']!r}{collision_text}. "
+        "VibeEdge is the sole IR connectivity authority."
+    )
+
+
+def _raise_embedded_api_links(workflow: VibeWorkflow, *, surface: str) -> None:
+    details = _embedded_api_link_details(workflow)
+    if not details:
+        return
+    detail = details[0]
+    raise WorkflowCompileError(
+        "embedded_api_link",
+        _embedded_api_link_message(detail, surface=surface),
+        detail=detail,
+        next_action=(
+            "Normalize raw workflows with from_api()/from_ui(), or replace the embedded "
+            "pair with a VibeEdge before continuing."
+        ),
+    )
 
 
 def _normalize_input_aliases(aliases: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
@@ -1451,10 +1530,6 @@ def _resolve_link_value(
     broadcast_sources: dict[str, list[Any]],
 ) -> Any:
     return helper_resolve.resolve_compile_link_value(value, nodes, broadcast_sources)
-
-
-def _is_api_link(value: Any) -> bool:
-    return workflow_helpers.is_api_link(value)
 
 
 def _apply_positional_widget_aliases(inputs: dict[str, Any], node: VibeNode) -> None:

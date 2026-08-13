@@ -2058,9 +2058,9 @@ def test_widget_order_matches_object_info_for_covered_class() -> None:
 
 
 def test_furniture_from_sidecar_entry_roundtrip() -> None:
-    """Sidecar path: a layout entry with groups/colors/collapsed/mode is emitted faithfully."""
+    """Sidecar furniture is preserved while mode remains IR-authoritative."""
     wf = _wf("sidecar-test")
-    node = VibeNode("1", "SidecarNode")
+    node = VibeNode("1", "SidecarNode", mode=2)
     node.uid = "uid-aa"
     wf.nodes["1"] = node
 
@@ -2071,7 +2071,7 @@ def test_furniture_from_sidecar_entry_roundtrip() -> None:
         "flags": {"collapsed": True},
         "color": "#332",
         "bgcolor": "#553",
-        "mode": 2,
+        "mode": 4,
         "properties": {"Node name for S&R": "SidecarNode", "custom": "val"},
     }
     result = emit_ui_json(wf, layout={"uid-aa": layout_entry})
@@ -2133,7 +2133,7 @@ def test_furniture_absent_fields_fallback_to_defaults() -> None:
 
 
 def test_furniture_mode_defaults_to_zero_for_non_int() -> None:
-    """Non-int mode values (None, string, float) are defaulted to 0."""
+    """Non-int sidecar mode values cannot override the IR's mode authority."""
     wf = _wf("bad-mode")
     node = VibeNode("1", "BadMode")
     node.uid = "uid-bm"
@@ -2155,8 +2155,8 @@ def test_furniture_mode_defaults_to_zero_for_non_int() -> None:
     assert result2["nodes"][0]["mode"] == 0
 
 
-def test_furniture_groups_from_param() -> None:
-    """groups= param populates the top-level groups array."""
+def test_furniture_groups_from_ir() -> None:
+    """The first-class IR groups field populates the top-level groups array."""
     wf = _wf("gtest")
     wf.nodes["1"] = VibeNode("1", "N1")
 
@@ -2164,10 +2164,12 @@ def test_furniture_groups_from_param() -> None:
         {"title": "Group A", "bounding": [0, 0, 400, 300], "color": "#3f3"},
         {"title": "Group B", "bounding": [500, 0, 400, 300], "color": "#33f"},
     ]
-    result = emit_ui_json(wf, groups=groups)
+    wf.groups = groups
+    result = emit_ui_json(wf)
     assert result["groups"] == groups
 
     # Default: empty list
+    wf.groups = []
     result2 = emit_ui_json(wf)
     assert result2["groups"] == []
 
@@ -2205,8 +2207,73 @@ def test_furniture_sidecar_takes_precedence_over_metadata_ui() -> None:
     assert emitted["flags"] == {"collapsed": True}, "sidecar flags should win"
     assert emitted["color"] == "#sc", "sidecar color should win"
     assert emitted["bgcolor"] == "#scbg", "sidecar bgcolor should win"
-    assert emitted["mode"] == 2, "sidecar mode should win"
+    assert emitted["mode"] == 4, "IR/_ui mode authority should beat sidecar mode"
     assert emitted["properties"]["from"] == "sidecar", "sidecar properties should win"
+
+
+@pytest.mark.parametrize(
+    ("mode", "sidecar_mode", "metadata_mode", "compiled"),
+    [(0, 2, 4, True), (2, 4, 0, False), (4, 0, 2, False)],
+)
+def test_emit_and_compile_share_mode_authority_despite_conflicts(
+    mode: int,
+    sidecar_mode: int,
+    metadata_mode: int,
+    compiled: bool,
+) -> None:
+    wf = _wf(f"mode-authority-{mode}")
+    node = VibeNode(
+        "1",
+        "LoadImage",
+        uid="uid-mode",
+        mode=mode,
+        metadata={"mode": metadata_mode},
+    )
+    wf.nodes["1"] = node
+    layout_entry = {
+        "pos": [0, 0],
+        "size": [100, 100],
+        "mode": sidecar_mode,
+    }
+
+    emitted = emit_ui_json(wf, layout={"uid-mode": layout_entry})
+
+    assert emitted["nodes"][0]["mode"] == mode
+    assert ("1" in wf.compile("api")) is compiled
+
+
+def test_ir_group_members_remap_all_live_aliases_and_omit_stale_members() -> None:
+    wf = _wf("group-members")
+    wf.nodes["author_a"] = VibeNode(
+        "41",
+        "NodeA",
+        uid="uid-a",
+        metadata={"_ui": {"id": 141}},
+    )
+    wf.nodes["author_b"] = VibeNode(
+        "author_b",
+        "NodeB",
+        uid="uid-b",
+        metadata={"_ui": {"id": "142"}},
+    )
+    wf.groups = [
+        {
+            "title": "Aliases",
+            "color": "#123456",
+            "nodes": ["author_a", 41, "uid-a", 141, "uid-b", "142", "stale", 999],
+        }
+    ]
+
+    emitted = emit_ui_json(wf)
+
+    assert emitted["groups"] == [
+        {
+            "title": "Aliases",
+            "color": "#123456",
+            "nodes": [1, 1, 1, 1, 2, 2],
+        }
+    ]
+    assert wf.groups[0]["nodes"][-2:] == ["stale", 999], "emission must not mutate IR"
 
 
 # ---------------------------------------------------------------------------
@@ -2249,12 +2316,13 @@ def test_node_captured_with_mode_4_reemits_mode_4() -> None:
 def test_node_captured_with_mode_2_reemits_mode_2() -> None:
     """T10: A node captured with mode 2 (muted) re-emits mode 2.
 
-    Captures mode 2 via the sidecar (layout=) path and confirms it
-    survives the full emit round-trip.
+    Captures mode 2 on the IR node and confirms a conflicting sidecar cannot
+    override it during the full emit round-trip.
     """
     wf = _wf("mode2-roundtrip")
     node = VibeNode("1", "SaveImage")
     node.uid = "uid-mode2"
+    node.mode = 2
     wf.nodes["1"] = node
 
     sidecar_entry = {
@@ -2263,7 +2331,7 @@ def test_node_captured_with_mode_2_reemits_mode_2() -> None:
         "flags": {},
         "color": None,
         "bgcolor": None,
-        "mode": 2,
+        "mode": 4,
         "properties": {},
     }
 
@@ -2717,7 +2785,8 @@ def test_main_positions_groups_with_canonicalized_geometry() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = emit_ui_json(wf, groups=groups, include_main_positions=True)
+        wf.groups = groups
+        result = emit_ui_json(wf, include_main_positions=True)
 
     assert len(result["groups"]) == 1
     assert result["groups"][0]["bounding"] == [10.56, 20.44, 300.0, 401.0], (
@@ -2976,9 +3045,10 @@ def test_reconcile_called_with_full_envelope(monkeypatch) -> None:
 
 
 def test_preserve_merge_matched_verbatim_new_anchored() -> None:
-    """A uid-matched node carries pos/size/mode/flags/color/properties verbatim
-    from the prior_store entry; a new (uidless) wired neighbor is anchored to
-    the matched node via computed_anchors and placed by the layout engine.
+    """A matched node carries sidecar geometry/furniture except IR-owned mode.
+
+    A new (uidless) wired neighbor is anchored to the matched node via
+    computed_anchors and placed by the layout engine.
     """
     wf = _wf()
     a = VibeNode("1", "LoadImage")
@@ -3008,10 +3078,10 @@ def test_preserve_merge_matched_verbatim_new_anchored() -> None:
 
     by_uid = {n["properties"].get("vibecomfy_uid"): n for n in result["nodes"]}
     matched_node = by_uid["uid-a"]
-    # Verbatim pos/size/mode/flags from the prior_store entry.
+    # Geometry and display furniture come from the prior store; mode does not.
     assert matched_node["pos"] == [123.0, 456.0]
     assert matched_node["size"] == [222.0, 111.0]
-    assert matched_node["mode"] == 2
+    assert matched_node["mode"] == 0
     assert matched_node["flags"] == {"collapsed": True}
     assert matched_node["color"] == "#abc"
     assert matched_node["bgcolor"] == "#def"

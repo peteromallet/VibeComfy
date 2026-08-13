@@ -4,6 +4,8 @@ import copy
 import re
 from typing import Any
 
+from vibecomfy._compile._graph import is_canonical_api_link
+
 from vibecomfy.metadata import MODEL_FILE_EXTENSIONS
 from vibecomfy.model_assets import _subdir_for_model_reference
 from vibecomfy.schema.provider import SchemaProvider, schema_for, schema_registry_empty
@@ -712,12 +714,7 @@ def _is_boolean_literal(value: Any) -> bool:
 
 
 def _is_api_link(value: Any) -> bool:
-    return (
-        isinstance(value, (list, tuple))
-        and len(value) == 2
-        and isinstance(value[0], str)
-        and isinstance(value[1], int)
-    )
+    return is_canonical_api_link(value)
 
 
 def _truncate(value: Any, n: int = 120) -> str:

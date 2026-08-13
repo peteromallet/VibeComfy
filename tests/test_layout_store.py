@@ -119,8 +119,9 @@ def test_envelope_full_round_trip(tmp_path: Path):
     )
     n.uid = "1"
     wf.nodes["1"] = n
+    wf.groups = [{"title": "g1", "bounding": [0, 0, 50, 50]}]
     wf.metadata["_layout"] = {
-        "groups": [{"title": "g1", "bounding": [0, 0, 50, 50]}],
+        "groups": [{"title": "stale-metadata-group"}],
         "extra": {"ds": {"scale": 1.5, "offset": [3, 4]}},
         "lastRerouteId": 7,
         "definitions": {"sub": {"nodes": []}},
@@ -628,8 +629,8 @@ def _load_with_furniture(corpus_path: str, tmp_path: Path, tmp_suffix: str = "wf
     source = load_port_source(corpus_path)
     wf = source.workflow
     raw = source.raw_workflow or {}
-    # Populate graph-level sections into metadata so write_layout can read them.
-    wf.metadata["groups"] = raw.get("groups", [])
+    # Groups are first-class IR state; other graph-level sections use metadata.
+    wf.groups = raw.get("groups", [])
     wf.metadata["extra"] = raw.get("extra", {})
     if "lastRerouteId" in raw:
         wf.metadata["lastRerouteId"] = raw["lastRerouteId"]

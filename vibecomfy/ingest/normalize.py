@@ -6,7 +6,7 @@ from typing import Any
 
 import warnings
 
-from vibecomfy._compile._graph import is_api_link
+from vibecomfy._compile._graph import is_canonical_api_link
 from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
 # vibecomfy.exec class type: mirrored as a literal to avoid a module-level import of
 # vibecomfy.comfy_nodes.exec_node, which would re-execute comfy_nodes/__init__ (route
@@ -32,6 +32,8 @@ from vibecomfy.workflow import (
     VibeWorkflow,
     WorkflowRequirements,
     WorkflowSource,
+    _embedded_api_link_details,
+    _embedded_api_link_message,
 )
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
@@ -633,6 +635,15 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         )
 
     # ── top-level inputs / outputs ─────────────────────────────────────────
+    embedded_links = _embedded_api_link_details(workflow)
+    if embedded_links:
+        raise ValueError(
+            "embedded_api_link: "
+            + _embedded_api_link_message(
+                embedded_links[0], surface="serialized vibe envelope decode"
+            )
+        )
+
     inputs_raw = raw.get("inputs")
     if not isinstance(inputs_raw, dict):
         raise ValueError("serialized vibe envelope 'inputs' must be a mapping")
@@ -854,13 +865,7 @@ def _from_api_impl(
         widgets: dict[str, Any] = {}
         class_type = str(node.get("class_type", "Unknown"))
         for key, value in raw_inputs.items():
-            if input_provenance.get(key) != "widget" and is_api_link(
-                value,
-                allow_tuple=False,
-                require_string_node_id=False,
-                require_numeric_node_id=True,
-                require_int_slot=False,
-            ):
+            if input_provenance.get(key) != "widget" and is_canonical_api_link(value):
                 continue
             if key.startswith("widget_") or _is_exec_widget_key(class_type, key):
                 widgets[key] = value
@@ -956,13 +961,7 @@ def _from_api_impl(
         if not isinstance(input_provenance, dict):
             input_provenance = {}
         for name, value in dict(node.get("inputs", {})).items():
-            if input_provenance.get(name) != "widget" and is_api_link(
-                value,
-                allow_tuple=False,
-                require_string_node_id=False,
-                require_numeric_node_id=True,
-                require_int_slot=False,
-            ):
+            if input_provenance.get(name) != "widget" and is_canonical_api_link(value):
                 workflow.edges.append(VibeEdge(str(value[0]), str(value[1]), str(node_id), name))
 
     workflow.requirements = _infer_requirements(workflow)

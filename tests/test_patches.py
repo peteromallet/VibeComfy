@@ -13,7 +13,7 @@ from vibecomfy.patches.ltx_lowvram import COMFY_CONFIGURATION, FP8_CHECKPOINT, S
 from vibecomfy.patches.requirements import ensure_custom_nodes
 from vibecomfy.patches.seed import seed
 from vibecomfy.patches.types import Patch
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 def test_patch_contract_documents_decoration_not_handle_construction() -> None:
@@ -161,6 +161,8 @@ def test_ltx_lowvram_rewrites_supported_graph() -> None:
     assert positive.nodes["4010"].widgets == {}
     assert positive.nodes["3940"].class_type == "LowVRAMCheckpointLoader"
     assert positive.nodes["3940"].inputs["ckpt_name"] == FP8_CHECKPOINT
+    assert "dependencies" not in positive.nodes["3940"].inputs
+    assert VibeEdge("4960", "0", "3940", "dependencies") in positive.edges
     assert "ComfyUI-LTXVideo" in positive.requirements.custom_nodes
     assert "ComfyUI-KJNodes" in positive.requirements.custom_nodes
 
@@ -232,6 +234,7 @@ def test_ltx_lowvram_generated_ready_template_applies_before_metadata_policy() -
 def _supported_ltx_workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("ltx", WorkflowSource("ltx"))
     workflow.add_node("LTXVScheduler")
+    workflow.nodes["4960"] = VibeNode(id="4960", class_type="LTXAVTextEncoderLoader")
     workflow.nodes["4010"] = VibeNode(id="4010", class_type="LTXVAudioVAELoader", inputs={"ckpt_name": SOURCE_CHECKPOINT})
     workflow.nodes["3940"] = VibeNode(id="3940", class_type="CheckpointLoaderSimple", inputs={"ckpt_name": SOURCE_CHECKPOINT})
     return workflow

@@ -756,7 +756,8 @@ def test_vibe_rich_ingest_is_idempotent() -> None:
     wf2 = from_api(api2)
     assert len(wf2.nodes) == 15 and len(wf2.edges) == 10
 
-    ui2 = emit_ui_json(wf2, schema_provider=None, groups=deepcopy(ui1.get("groups")))
+    wf2.groups = deepcopy(ui1.get("groups"))
+    ui2 = emit_ui_json(wf2, schema_provider=None)
 
     assert _ui_projection(ui1) == _ui_projection(ui2)
 

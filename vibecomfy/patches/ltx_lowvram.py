@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from vibecomfy.patches.requirements import ensure_custom_nodes
 from vibecomfy.patches.types import Patch
-from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow import VibeEdge, VibeWorkflow
 
 
 FP8_CHECKPOINT = "ltx-2.3-22b-dev-fp8.safetensors"
@@ -53,8 +53,24 @@ def apply(workflow: VibeWorkflow) -> VibeWorkflow:
     if CHECKPOINT_LOADER_ID in workflow.nodes:
         node = workflow.nodes[CHECKPOINT_LOADER_ID]
         node.class_type = "LowVRAMCheckpointLoader"
-        node.inputs = {"ckpt_name": FP8_CHECKPOINT, "dependencies": ["4960", 0]}
+        node.inputs = {"ckpt_name": FP8_CHECKPOINT}
         node.widgets = {}
+        workflow.edges = [
+            edge
+            for edge in workflow.edges
+            if not (
+                str(edge.to_node) == CHECKPOINT_LOADER_ID
+                and edge.to_input == "dependencies"
+            )
+        ]
+        workflow.edges.append(
+            VibeEdge(
+                from_node="4960",
+                from_output="0",
+                to_node=CHECKPOINT_LOADER_ID,
+                to_input="dependencies",
+            )
+        )
 
     _ensure_current_ltx_schema_defaults(workflow)
 

@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -173,8 +174,9 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
 
     Per-uid node geometry is captured from each node's ``metadata['_ui']``.
     Nodes with an empty uid or no captured ``pos`` are skipped (M1.5 behavior).
-    Graph-level sections are read from ``wf.metadata`` when present and otherwise
-    serialized as empty/absent. Returns the sidecar path written.
+    Groups are serialized from the first-class ``wf.groups`` field.  Other
+    graph-level sections are read from ``wf.metadata`` when present and
+    otherwise serialized as empty/absent. Returns the sidecar path written.
     """
     entries: dict[str, dict] = {}
     for node in wf.nodes.values():
@@ -218,7 +220,7 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
         "vibecomfy_version": _vibecomfy_version(),
         "schema_hash": _schema_hash(),
         "entries": entries,
-        "groups": _section("groups", []) or [],
+        "groups": deepcopy(wf.groups),
         "extra": extra,
         "lastRerouteId": _section("lastRerouteId", None),
         "definitions": _section("definitions", {}) or {},

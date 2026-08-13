@@ -51,6 +51,12 @@ def test_api_workflow_converts_to_vibe_workflow() -> None:
     workflow = from_api(raw, workflow_id="sample")
 
     assert workflow.id == "sample"
+    assert "positive" not in workflow.nodes["2"].inputs
+    assert "images" not in workflow.nodes["3"].inputs
+    assert workflow.edges == [
+        VibeEdge("1", "0", "2", "positive"),
+        VibeEdge("2", "0", "3", "images"),
+    ]
     assert workflow.validate().ok
     assert "prompt" in workflow.inputs
     workflow.set_prompt("new").set_seed(42).set_steps(8)
@@ -62,6 +68,117 @@ def test_api_workflow_converts_to_vibe_workflow() -> None:
     assert workflow.export_to_json(format="api") == api
     with pytest.raises(ValueError, match="Unsupported workflow JSON export format"):
         workflow.export_to_json(format="ui")
+
+
+def test_edge_only_connectivity_compiles_without_mutating_ir_and_round_trips() -> None:
+    workflow = VibeWorkflow("edge-only", WorkflowSource("edge-only"))
+    workflow.nodes["1"] = VibeNode("1", "Source", uid="uid-1")
+    workflow.nodes["2"] = VibeNode(
+        "2",
+        "Sink",
+        inputs={
+            "literal_pair": [640, 480],
+            "label_pair": ["alpha", 0],
+            "boolean_pair": ["1", False],
+        },
+        uid="uid-2",
+    )
+    workflow.edges.append(VibeEdge("1", "0", "2", "image"))
+    before = workflow.copy()
+
+    expected = {
+        "1": {"class_type": "Source", "inputs": {}},
+        "2": {
+            "class_type": "Sink",
+            "inputs": {
+                "literal_pair": [640, 480],
+                "label_pair": ["alpha", 0],
+                "boolean_pair": ["1", False],
+                "image": ["1", 0],
+            },
+        },
+    }
+    assert workflow.compile("api") == expected
+    assert workflow == before
+
+    envelope = workflow.to_envelope()
+    assert envelope["nodes"]["2"]["inputs"] == {
+        "literal_pair": [640, 480],
+        "label_pair": ["alpha", 0],
+        "boolean_pair": ["1", False],
+    }
+    restored = from_envelope(envelope)
+    assert restored.compile("api") == expected
+
+
+def test_from_api_preserves_noncanonical_two_item_literal_lists() -> None:
+    literals = {
+        "dimensions": [640, 480],
+        "label_and_index": ["alpha", 0],
+        "boolean_slot": ["1", False],
+    }
+
+    workflow = from_api({"1": {"class_type": "LiteralNode", "inputs": literals}})
+
+    assert workflow.nodes["1"].inputs == literals
+    assert workflow.edges == []
+    assert workflow.compile("api")["1"]["inputs"] == literals
+
+
+def test_raw_api_link_input_fails_validation_serialization_and_compile() -> None:
+    workflow = VibeWorkflow("raw-link", WorkflowSource("raw-link"))
+    workflow.nodes["1"] = VibeNode("1", "Source", uid="uid-1")
+    workflow.nodes["2"] = VibeNode(
+        "2", "Sink", inputs={"image": ["1", 0]}, uid="uid-2"
+    )
+
+    report = workflow.validate()
+    assert not report.ok
+    issue = next(issue for issue in report.issues if issue.code == "embedded_api_link")
+    assert issue.detail["edge_collision"] == "none"
+
+    for operation in (workflow.to_envelope, lambda: workflow.compile("api")):
+        with pytest.raises(WorkflowCompileError) as exc_info:
+            operation()
+        assert exc_info.value.code == "embedded_api_link"
+        assert exc_info.value.detail["edge_collision"] == "none"
+
+
+@pytest.mark.parametrize(
+    ("edge", "expected_collision"),
+    [
+        (VibeEdge("1", "0", "2", "image"), "identical"),
+        (VibeEdge("3", "1", "2", "image"), "conflicting"),
+    ],
+)
+def test_raw_api_link_edge_collisions_fail_explicitly_without_mutation(
+    edge: VibeEdge, expected_collision: str
+) -> None:
+    workflow = VibeWorkflow("collision", WorkflowSource("collision"))
+    workflow.nodes["1"] = VibeNode("1", "Source")
+    workflow.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["1", 0]})
+    workflow.nodes["3"] = VibeNode("3", "OtherSource")
+    workflow.edges.append(edge)
+    before = workflow.copy()
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        workflow.compile("api")
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["edge_collision"] == expected_collision
+    assert workflow == before
+
+
+def test_envelope_decode_rejects_embedded_api_links_even_with_matching_edge() -> None:
+    workflow = VibeWorkflow("decode", WorkflowSource("decode"))
+    workflow.nodes["1"] = VibeNode("1", "Source", uid="uid-1")
+    workflow.nodes["2"] = VibeNode("2", "Sink", uid="uid-2")
+    workflow.edges.append(VibeEdge("1", "0", "2", "image"))
+    envelope = workflow.to_envelope()
+    envelope["nodes"]["2"]["inputs"]["image"] = ["1", 0]
+
+    with pytest.raises(ValueError, match="embedded_api_link.*identical VibeEdge"):
+        from_envelope(envelope)
 
 
 def test_export_to_json_api_is_compile_api_for_ready_template() -> None:
@@ -253,7 +370,7 @@ def test_set_input_rejects_stale_missing_target_field_after_node_replacement() -
     workflow.nodes["1"] = VibeNode(
         "1",
         "PreviewImage",
-        inputs={"images": ["2", 0]},
+        inputs={"images": "placeholder"},
         widgets={"preview": False},
     )
 
@@ -338,7 +455,7 @@ def test_workflow_copy_deep_copies_mutable_state_and_preserves_original() -> Non
     workflow.nodes["2"] = VibeNode(
         "2",
         "SaveImage",
-        inputs={"images": ["1", 0], "filename_prefix": "orig"},
+        inputs={"filename_prefix": "orig"},
         metadata={"tags": ["sink"]},
         uid="uid-2",
     )
@@ -432,8 +549,9 @@ def test_copy_is_derived_and_preserves_mode_and_groups_deeply() -> None:
         "1", "KSampler", inputs={"seed": 1}, uid="uid-1", mode=4
     )
     workflow.nodes["2"] = VibeNode(
-        "2", "SaveImage", inputs={"images": ["1", 0]}, uid="uid-2", mode=0
+        "2", "SaveImage", uid="uid-2", mode=0
     )
+    workflow.edges.append(VibeEdge("1", "0", "2", "images"))
     workflow.groups = [
         {"title": "input-group", "nodes": [1, 2], "color": "#3f789e"},
     ]
@@ -464,8 +582,9 @@ def test_node_mode_and_groups_survive_envelope_round_trip() -> None:
         "1", "LoadImage", inputs={"image": "a.png"}, uid="uid-1", mode=4
     )
     wf.nodes["2"] = VibeNode(
-        "2", "PreviewImage", inputs={"images": ["1", 0]}, uid="uid-2", mode=2
+        "2", "PreviewImage", uid="uid-2", mode=2
     )
+    wf.edges.append(VibeEdge("1", "0", "2", "images"))
     wf.groups = [
         {"title": "g1", "nodes": [1, 2], "color": "#112233"},
         {"title": "g2", "bounding": [0, 0, 100, 100]},
@@ -516,6 +635,8 @@ def test_ui_workflow_normalizes_to_api() -> None:
         "CLIPTextEncode",
         "SaveImage",
     ]
+    assert "images" not in via_named.nodes["2"].inputs
+    assert via_named.edges == [VibeEdge("1", "0", "2", "images")]
 
 
 def test_empty_workflow_shapes_are_valid_authoring_inputs() -> None:
@@ -568,11 +689,11 @@ def test_explicit_inputs_override_imported_widget_values_at_compile_time() -> No
 
 def test_compile_drops_video_preview_ui_payloads() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["2"] = VibeNode("2", "Source")
     workflow.nodes["1"] = VibeNode(
         "1",
         "VHS_VideoCombine",
         inputs={
-            "images": ["2", 0],
             "videopreview": {
                 "hidden": False,
                 "params": {"filename": "preview.mp4"},
@@ -580,6 +701,7 @@ def test_compile_drops_video_preview_ui_payloads() -> None:
             },
         },
     )
+    workflow.edges.append(VibeEdge("2", "0", "1", "images"))
 
     api = workflow.compile("api")
 
@@ -589,14 +711,20 @@ def test_compile_drops_video_preview_ui_payloads() -> None:
 
 def test_compile_drops_null_prompt_inputs() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["2"] = VibeNode("2", "Source")
+    workflow.nodes["3"] = VibeNode("3", "Source")
     workflow.nodes["1"] = VibeNode(
         "1",
         "ImageConcatMulti",
         inputs={
-            "image_1": ["2", 0],
-            "image_2": ["3", 0],
             "widget_3": None,
         },
+    )
+    workflow.edges.extend(
+        [
+            VibeEdge("2", "0", "1", "image_1"),
+            VibeEdge("3", "0", "1", "image_2"),
+        ]
     )
 
     api = workflow.compile("api")
@@ -608,7 +736,9 @@ def test_compile_drops_null_prompt_inputs() -> None:
 def test_compile_drops_note_nodes_from_api_prompt() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "Note", inputs={"widget_0": "editor-only note"})
-    workflow.nodes["2"] = VibeNode("2", "SaveImage", inputs={"images": ["3", 0]})
+    workflow.nodes["2"] = VibeNode("2", "SaveImage")
+    workflow.nodes["3"] = VibeNode("3", "Source")
+    workflow.edges.append(VibeEdge("3", "0", "2", "images"))
 
     api = workflow.compile("api")
 
@@ -619,7 +749,9 @@ def test_compile_drops_note_nodes_from_api_prompt() -> None:
 def test_compile_drops_markdown_note_nodes_from_api_prompt() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "MarkdownNote", inputs={"widget_0": "editor-only note"})
-    workflow.nodes["2"] = VibeNode("2", "SaveImage", inputs={"images": ["3", 0]})
+    workflow.nodes["2"] = VibeNode("2", "SaveImage")
+    workflow.nodes["3"] = VibeNode("3", "Source")
+    workflow.edges.append(VibeEdge("3", "0", "2", "images"))
 
     api = workflow.compile("api")
 
@@ -661,10 +793,11 @@ def test_compile_rewrites_set_get_nodes_to_direct_links() -> None:
     workflow.nodes["2"] = VibeNode(
         "2",
         "SetNode",
-        inputs={"IMAGE": ["1", 0], "widget_0": "reference_image"},
+        inputs={"widget_0": "reference_image"},
     )
     workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "reference_image"})
     workflow.nodes["4"] = VibeNode("4", "SaveImage", inputs={})
+    workflow.connect("1.0", "2.IMAGE")
     workflow.connect("3.0", "4.images")
 
     api = workflow.compile("api")
@@ -678,8 +811,9 @@ def test_compile_rewrites_edge_fed_set_get_nodes_to_direct_links() -> None:
     workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "reference.png"})
     workflow.nodes["2"] = VibeNode("2", "SetNode", inputs={"widget_0": "reference_image"})
     workflow.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "reference_image"})
-    workflow.nodes["4"] = VibeNode("4", "SaveImage", inputs={"images": ["3", 0]})
+    workflow.nodes["4"] = VibeNode("4", "SaveImage")
     workflow.connect("1.0", "2.IMAGE")
+    workflow.connect("3.0", "4.images")
 
     api = workflow.compile("api")
 
@@ -877,8 +1011,10 @@ def test_compile_raises_for_stripped_intent_edge_without_target_literal_input() 
 
 def test_compile_keeps_non_intent_vibecomfy_nodes_in_api_output() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
-    workflow.nodes["1"] = VibeNode("1", "vibecomfy.exec", inputs={"in_0": ["9", 0], "source": "return 1"})
+    workflow.nodes["1"] = VibeNode("1", "vibecomfy.exec", inputs={"source": "return 1"})
     workflow.nodes["2"] = VibeNode("2", "vibecomfy.loop")
+    workflow.nodes["9"] = VibeNode("9", "Source")
+    workflow.edges.append(VibeEdge("9", "0", "1", "in_0"))
 
     compiled = workflow.compile("api")
 
@@ -956,8 +1092,9 @@ def test_runtime_views_strip_helper_nodes_without_changing_compile_rewrite() -> 
     workflow.nodes["2"] = VibeNode("2", "LoadImage", inputs={"image": "reference.png"})
     workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "reference_image"})
     workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "reference_image"})
-    workflow.nodes["5"] = VibeNode("5", "SaveImage", inputs={"images": ["4", 0]})
+    workflow.nodes["5"] = VibeNode("5", "SaveImage")
     workflow.connect("2.0", "3.IMAGE")
+    workflow.connect("4.0", "5.images")
 
     api = workflow.compile("api")
     diagnostics = workflow.helper_diagnostics()
@@ -1018,7 +1155,8 @@ def test_compile_strips_standalone_helpers_silently() -> None:
     workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "loose_bus"})
     workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "loose_bus"})
     workflow.nodes["5"] = VibeNode("5", "LoadImage", inputs={"image": "reference.png"})
-    workflow.nodes["6"] = VibeNode("6", "SaveImage", inputs={"images": ["5", 0]})
+    workflow.nodes["6"] = VibeNode("6", "SaveImage")
+    workflow.connect("5.0", "6.images")
 
     api = workflow.compile("api")
     report = workflow.validate(schema_provider=None)
@@ -1211,8 +1349,6 @@ def test_wan_video_sampler_aliases_skip_seed_control_widget() -> None:
         "1",
         "WanVideoSampler",
         inputs={
-            "model": ["2", 0],
-            "image_embeds": ["3", 0],
             "widget_0": 6,
             "widget_1": 1,
             "widget_2": 8,
@@ -1228,6 +1364,14 @@ def test_wan_video_sampler_aliases_skip_seed_control_widget() -> None:
             "widget_12": 10,
             "widget_13": "",
         },
+    )
+    workflow.nodes["2"] = VibeNode("2", "ModelSource")
+    workflow.nodes["3"] = VibeNode("3", "ImageEmbedsSource")
+    workflow.edges.extend(
+        [
+            VibeEdge("2", "0", "1", "model"),
+            VibeEdge("3", "0", "1", "image_embeds"),
+        ]
     )
 
     api = workflow.compile("api")

@@ -160,7 +160,7 @@ def test_virtual_wire_round_trip_vace_corpus(tmp_path: Path):
     vw = _capture_virtual_wires(wf)
     wf.metadata["virtual_wires"] = vw
     raw = source.raw_workflow or {}
-    wf.metadata["groups"] = raw.get("groups", [])
+    wf.groups = raw.get("groups", [])
     wf.metadata["extra"] = raw.get("extra", {})
 
     py_path = tmp_path / "vace.py"
@@ -226,7 +226,7 @@ def test_coord_canonicalization_no_float_drift(tmp_path: Path):
     )
     wf = source.workflow
     raw = source.raw_workflow or {}
-    wf.metadata["groups"] = raw.get("groups", [])
+    wf.groups = raw.get("groups", [])
     wf.metadata["extra"] = raw.get("extra", {})
 
     py_path_1 = tmp_path / "first.py"
