@@ -219,16 +219,25 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
 
             # ── legacy marker-matched query_output path ──────────────
             query_output = str(detail.get("query_output") or "").strip()
-            if not query_output:
-                continue
-            relevant = any(
-                marker in query_output
-                for marker in (
-                    "Concrete workflow pattern found",
-                    "github_workflow_json",
-                    "source_workflow_path",
-                    "No node signature found",
-                    "Registry check",
+            # B03: any research() statement carries its query into memory —
+            # including message-kind results and community paragraphs.  This is
+            # prompt memory so the agent can judge relevance and iterate; it is
+            # not a latch and never a stop decision.
+            relevant = bool(detail.get("research_query")) or (
+                bool(query_output)
+                and any(
+                    marker in query_output
+                    for marker in (
+                        "Concrete workflow pattern found",
+                        "github_workflow_json",
+                        "source_workflow_path",
+                        "No node signature found",
+                        "Registry check",
+                        "hivemind_message",
+                        "hivemind_distillation",
+                        "community_summary",
+                        "No community discussion found",
+                    )
                 )
             ) or bool(detail.get("resolver_candidates"))
             if not relevant:
@@ -238,9 +247,28 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
             source_text = f" sources={tuple(sources)!r}" if isinstance(sources, (list, tuple)) else ""
             header = f"turn {turn_number}: {query or statement.get('source') or 'query'}{source_text}"
             records.append(f"- {header}\n{_format_query_output(query_output, max_chars=1000)}")
+    # B03: echo classify search_directions once at the top of the memory block so
+    # later turns still see candidate terms (the Research brief itself is
+    # turn-0 only).  Prompt-visible, never executed — the model may ignore them
+    # or invent better ones.  The header only rides on actual prior-turn
+    # records; with no records there is no memory block (the brief already
+    # showed the directions on turn 0).
     if not records:
         return ""
-    return "\n\n".join(records[-max_items:])
+    brief = getattr(state, "executor_research_brief", None)
+    directions = (
+        brief.get("search_directions") if isinstance(brief, Mapping) else None
+    )
+    header = ""
+    if isinstance(directions, (list, tuple)) and directions:
+        shown = ", ".join(str(d) for d in directions[:5] if str(d).strip())
+        if shown:
+            header = (
+                "Candidate search terms (optional; you may use these or invent "
+                f"better ones): {shown}\n\n"
+            )
+    body = "\n\n".join(records[-max_items:])
+    return (header + body).strip()
 
 
 def _summarize_precedent_packet(

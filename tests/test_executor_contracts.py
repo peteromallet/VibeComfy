@@ -1168,6 +1168,68 @@ class TestBuildReplyMessages:
         assert "Adaptation plan (reference context - not a winner)" in user
         assert "UsableWF" in user
 
+    def test_research_message_sources_cite_author_channel(self) -> None:
+        msgs = build_reply_messages(
+            "ltx",
+            research_sources=(
+                {
+                    "source": "hivemind_message",
+                    "author": "alice",
+                    "channel": "ltx_chatter",
+                    "title": "LTX 2.5 is great",
+                    "description": "LTX 2.5 handles fast previews really well.",
+                },
+            ),
+        )
+        content = msgs[1]["content"]
+        assert "Research sources:" in content
+        assert "alice in #ltx_chatter" in content
+        # Message citations carry author/channel, not a bare title line.
+        assert "LTX 2.5 is great" not in content
+
+    def test_research_distillation_sources_cite_title_status_confidence(self) -> None:
+        msgs = build_reply_messages(
+            "ltx",
+            research_sources=(
+                {
+                    "source": "hivemind_distillation",
+                    "title": "LTX 2.5 distillation",
+                    "distillation_status": "approved",
+                    "confidence": 0.9,
+                    # Author/channel must never leak into distillation citations.
+                    "author": "someone",
+                    "channel": "spy-channel",
+                },
+            ),
+        )
+        content = msgs[1]["content"]
+        assert "LTX 2.5 distillation (approved/0.9)" in content
+        assert "someone" not in content
+        assert "spy-channel" not in content
+
+    def test_research_distillation_defaults_pending_status(self) -> None:
+        msgs = build_reply_messages(
+            "ltx",
+            research_sources=(
+                {
+                    "source": "hivemind_distillation",
+                    "title": "Draft distillation",
+                },
+            ),
+        )
+        content = msgs[1]["content"]
+        assert "Draft distillation (pending)" in content
+
+    def test_research_route_reply_instruction(self) -> None:
+        msgs = build_reply_messages("ltx")
+        system = msgs[0]["content"]
+        assert 'For route="research", lead with the community findings' in system
+        assert "no edit was made" in system
+        assert "Do not claim community consensus" in system
+        assert "never invent" in system
+        assert "title/status/confidence" in system
+        assert "authors, channels, titles, or quotes" in system
+
 
 # ── Response parsers ─────────────────────────────────────────────────────────
 

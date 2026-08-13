@@ -64,20 +64,54 @@ from .contracts import (
     warning_detail_from_exception,
 )
 from . import provenance
+from .hivemind_clients import (
+    HivemindClient,
+    HivemindError,
+    _DEFAULT_EXTERNAL_LIMIT,
+    _DEFAULT_HIVEMIND_KEY,
+    _DEFAULT_HIVEMIND_URL,
+    _HIVEMIND_FALLBACK_STOPWORDS,
+    _HIVEMIND_SEMANTIC_FAMILY_TERMS,
+    _HIVEMIND_SEMANTIC_TASK_TERMS,
+    _QUERY_TOKEN_RE,
+    _SEARCH_STOPWORDS,
+    _coerce_tasks,
+    _default_hivemind_client,
+    _default_hivemind_messages_client,
+    _dedupe_hivemind_rows,
+    _excerpt,
+    _first_text,
+    _hivemind_get_table,
+    _hivemind_ilike_query,
+    _hivemind_phrase_ilike_query,
+    _hivemind_search_terms,
+    _hivemind_semantic_filters,
+    _parse_json_response,
+    _query_tokens,
+    _rank_hivemind_rows,
+    _run_hivemind_messages_research,
+    _semantic_alias_matches,
+    _workflow_semantics,
+    _workflow_semantics_text,
+    format_community_summary,
+)
 
 LOGGER = logging.getLogger(__name__)
 
 # ── Conservative external-search defaults ────────────────────────────────────
 
-_DEFAULT_HIVEMIND_URL = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1/external_resources"
-_DEFAULT_HIVEMIND_KEY = "sb_publishable_O38oPBafrBoFrpi_rlWJvA_UJrulFsx"
 _DEFAULT_HIVEMIND_TIMEOUT = 5.0  # seconds
 _DEFAULT_WEB_SEARCH_URL = "https://duckduckgo.com/html/"
 _DEFAULT_GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
 _DEFAULT_BRAVE_SEARCH_URL = "https://search.brave.com/search"
 _DEFAULT_WEB_CACHE_ROOT = Path(os.environ.get("VIBECOMFY_WEB_SEARCH_CACHE", "~/.cache/vibecomfy/web_search")).expanduser()
 _DEFAULT_WEB_SEARCH_TIMEOUT = 5.0  # seconds
-_DEFAULT_EXTERNAL_LIMIT = 10
+
+# Brave rate-limit backoff: one retry after 0.8s on HTTP 429, then a
+# 15-minute skip sentinel so the client stops hitting a refusing endpoint.
+_BRAVE_RETRY_DELAY_SECONDS = 0.8
+_BRAVE_SKIP_WINDOW_SECONDS = 15 * 60  # 15 minutes
+_BRAVE_SKIP_UNTIL: float | None = None  # monotonic deadline; module-global
 
 # ── Per-tier freshness TTLs (SD1) ─────────────────────────────────────────────
 # Each tier carries a maximum age before cached results are marked stale.
@@ -106,6 +140,8 @@ _TIER_TTL_MAP: dict[str, int] = {
     "git": _DEFAULT_GITHUB_TTL,
     "hivemind": _DEFAULT_HIVEMIND_TTL,
     "hivemind_workflow": _DEFAULT_HIVEMIND_TTL,
+    "hivemind_message": _DEFAULT_HIVEMIND_TTL,
+    "hivemind_distillation": _DEFAULT_HIVEMIND_TTL,
     "civitai": _DEFAULT_CIVITAI_TTL,
     "external_workflow": _DEFAULT_CIVITAI_TTL,  # external workflows share Civitai TTL
     "live_runtime_schema": _DEFAULT_LIVE_RUNTIME_TTL,
@@ -135,113 +171,11 @@ WORKFLOW_RESEARCH_GUIDANCE = (
 )
 
 # A Hivemind client is any callable (query: str, timeout: float) → dict.
-HivemindClient = Callable[[str, float], dict[str, Any]]
 WebSearchClient = Callable[[str, float], dict[str, Any]]
 RegistryResolver = Callable[[str], MissingNodeResolution]
 
 _USE_DEFAULT = object()
 
-_QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]*")
-_SEARCH_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "build",
-    "can",
-    "create",
-    "for",
-    "generate",
-    "graph",
-    "happen",
-    "happening",
-    "how",
-    "image",
-    "in",
-    "is",
-    "make",
-    "of",
-    "on",
-    "please",
-    "show",
-    "the",
-    "this",
-    "to",
-    "video",
-    "what",
-    "whats",
-    "with",
-}
-
-# Extra words to drop when degrading a Hivemind query after a statement-timeout.
-# These are generic classifier/task words that widen the ILIKE search without
-# improving recall and can push the Supabase/PostgREST query over the statement
-# timeout (HTTP 500 with Postgres SQLSTATE 57014).
-_HIVEMIND_FALLBACK_STOPWORDS = {
-    "research",
-    "goal",
-    "find",
-    "finding",
-    "working",
-    "work",
-    "include",
-    "including",
-    "required",
-    "requires",
-    "custom",
-    "nodes",
-    "node",
-    "checkpoint",
-    "checkpoints",
-    "model",
-    "models",
-    "loader",
-    "loaders",
-    "latent",
-    "sampling",
-    "setup",
-    "setups",
-    "frame",
-    "frames",
-    "generate",
-    "generating",
-    "generation",
-    "needed",
-    "using",
-    "use",
-    "used",
-    # Action verbs that describe the edit intent but carry no workflow identity.
-    "switch",
-    "switching",
-    "switches",
-    "change",
-    "changing",
-    "convert",
-    "converting",
-    "make",
-    "making",
-    "apply",
-    "applying",
-    "set",
-    "setting",
-    "add",
-    "adding",
-    "remove",
-    "removing",
-    "replace",
-    "replacing",
-    # Generic domain words that are cheap for local search but expensive/noisy
-    # for a degraded Hivemind keyword query.
-    "workflow",
-    "workflows",
-    "comfy",
-    "comfyui",
-    "video",
-    "videos",
-    "image",
-    "images",
-    "audio",
-}
 
 _PATTERN_NODE_TERMS: dict[str, tuple[str, ...]] = {
     "vace": ("vace",),
@@ -272,31 +206,7 @@ _FAMILY_EVIDENCE_TERMS: dict[str, tuple[str, ...]] = {
     "cogvideo": ("cogvideo", "cog video"),
 }
 
-_HIVEMIND_SEMANTIC_FAMILY_TERMS: dict[str, tuple[str, ...]] = {
-    "wan": ("wan", "wanvideo", "wan2", "wan_2", "wan 2", "wan2_1", "wan2.1", "wan2_2", "wan2.2"),
-    "ltx": ("ltx", "ltxv", "lightricks"),
-    "hotshot": ("hotshot", "hotshotxl", "hotshot xl"),
-    "animatediff": ("animatediff", "animate diff"),
-    "sdxl": ("sdxl", "sd_xl", "sd xl", "stable diffusion xl"),
-    "sd3": ("sd3", "stable diffusion 3"),
-    "flux": ("flux", "flux1", "flux.1"),
-    "qwen": ("qwen",),
-    "hunyuan": ("hunyuan", "hyvideo", "hunyuanvideo"),
-    "cogvideo": ("cogvideo", "cog video"),
-}
 
-_HIVEMIND_SEMANTIC_TASK_TERMS: dict[str, tuple[str, ...]] = {
-    "image_to_video": ("image_to_video", "image-to-video", "image to video", "img2vid", "i2v"),
-    "text_to_video": ("text_to_video", "text-to-video", "text to video", "txt2vid", "t2v"),
-    "video_to_video": ("video_to_video", "video-to-video", "video to video", "vid2vid", "v2v"),
-    "audio_to_video": ("audio_to_video", "audio-to-video", "audio to video"),
-    "image_to_image": ("image_to_image", "image-to-image", "image to image", "img2img", "i2i"),
-    "text_to_image": ("text_to_image", "text-to-image", "text to image", "txt2img", "t2i"),
-    "controlnet": ("controlnet", "control net"),
-    "compositing": ("composite", "compositing"),
-    "inpainting": ("inpaint", "inpainting"),
-    "upscale": ("upscale", "upscaler", "upscaling"),
-}
 
 _ANCHOR_ROLE_PRIORITY = ("lora", "model", "sampler", "latent", "conditioning", "exit")
 _REGISTRY_QUERY_STOPWORDS = {
@@ -321,13 +231,23 @@ _REGISTRY_QUERY_STOPWORDS = {
 # ── Hivemind error (non-fatal) ───────────────────────────────────────────────
 
 
-class HivemindError(Exception):
-    """Non-fatal Hivemind error — caught by the research runner and converted
-    to a warning rather than propagating as an exception."""
-
 
 class WebSearchError(Exception):
     """Non-fatal web-search error converted to a warning by ``research()``."""
+
+
+class WebSearchHTTPError(WebSearchError):
+    """Web-search HTTP failure carrying the response status code.
+
+    Subclasses :class:`WebSearchError` so existing callers keep treating it
+    as a non-fatal warning.  ``status_code`` lets the default client apply a
+    small reliability policy (429 retry-once, 403 skip sentinel) without
+    adding providers or touching any other research tier.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class RegistrySearchError(Exception):
@@ -407,6 +327,31 @@ def _build_summary(sources: tuple[dict[str, Any], ...]) -> str:
         if any(str(source.get("source", "")).startswith(("hivemind", "web", "comfy-registry", "git")) for source in sources)
         else "local"
     )
+    community_sources = [
+        source
+        for source in sources
+        if source.get("source") in {"hivemind_message", "hivemind_distillation"}
+    ]
+    if community_sources:
+        community_names = ", ".join(
+            str(source.get("class_type") or source.get("title") or "untitled")
+            for source in community_sources[:3]
+        )
+        if len(community_sources) > 3:
+            community_names += f", and {len(community_sources) - 3} more"
+        channels = sorted(
+            {
+                str(source.get("channel") or "")
+                for source in community_sources
+                if source.get("channel")
+            }
+        )
+        if channels:
+            return (
+                f"Found {len(community_sources)} community result(s): {community_names}. "
+                f"Channels: {', '.join(channels)}."
+            )
+        return f"Found {len(community_sources)} community result(s): {community_names}."
     workflow_sources = sorted(
         (
             source
@@ -445,130 +390,8 @@ def _build_summary(sources: tuple[dict[str, Any], ...]) -> str:
     return f"Found {n} {result_scope} result(s): {names}"
 
 
-# ── Default direct-HTTP Hivemind client ──────────────────────────────────────
 
 
-def _default_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
-    """Default direct-HTTP Hivemind client backed by Supabase/PostgREST.
-
-    Searches the public ``external_resources`` table's ``title`` and ``body``
-    columns using case-insensitive pattern matches (``ilike``), restricted to
-    workflow resources.  ``external_resources`` is where the anonymous
-    ``contribute-resource`` edge function writes VibeComfy external workflows;
-    the old ``unified_feed`` table only indexes Discord chat messages, so
-    workflow searches against it never returned results.
-
-    The ``title`` and ``body`` columns in ``external_resources`` are plain text,
-    not ``tsvector``, so Postgres full-text search (``fts``) matches nothing
-    there.  We instead OR ``*term*`` ilike patterns across both columns.  With
-    the small external-resources table and a tight ``limit`` this stays fast;
-    it also avoids the leading-wildcard ``ilike`` statement timeouts that hit
-    the much larger ``unified_feed`` table.
-
-    Query handling balances precision and recall.  A bounded phrase query runs
-    first for multi-token requests, then a broader token-OR query fills out the
-    candidate pool.  This matters because PostgREST applies ``limit`` before
-    local ranking: using only the broad query can omit an exact title from the
-    returned page when a common token (for example ``Style``) has many matches.
-
-    Raises :class:`HivemindError` on any HTTP-level or timeout failure so the
-    caller can convert it to a warning.
-    """
-    terms = _hivemind_search_terms(query)
-    semantic_filters = _hivemind_semantic_filters(query)
-    if not terms and not semantic_filters:
-        return {"results": []}
-
-    def _search(search_terms: list[str]) -> dict[str, Any]:
-        rows: list[Any] = []
-        phrase_query = _hivemind_phrase_ilike_query(query)
-        if phrase_query:
-            params = {
-                "select": "*",
-                "or": phrase_query,
-                "kind": "eq.workflow",
-                "limit": str(_DEFAULT_EXTERNAL_LIMIT),
-            }
-            parsed = _hivemind_get(params, timeout=timeout)
-            if isinstance(parsed, dict):
-                return parsed
-            rows.extend(parsed if isinstance(parsed, list) else [])
-
-        ilike_query = _hivemind_ilike_query(search_terms)
-        if ilike_query:
-            params = {
-                "select": "*",
-                "or": ilike_query,
-                "kind": "eq.workflow",
-                "limit": str(_DEFAULT_EXTERNAL_LIMIT * 3),
-            }
-            parsed = _hivemind_get(params, timeout=timeout)
-            if isinstance(parsed, dict):
-                return parsed
-            rows.extend(parsed if isinstance(parsed, list) else [])
-
-        for semantic_filter in semantic_filters:
-            params = {
-                "select": "*",
-                "kind": "eq.workflow",
-                "metadata": f"cs.{json.dumps(semantic_filter, separators=(',', ':'))}",
-                "limit": str(_DEFAULT_EXTERNAL_LIMIT * 2),
-            }
-            parsed = _hivemind_get(params, timeout=timeout)
-            rows.extend(parsed if isinstance(parsed, list) else [])
-
-        return {"results": _rank_hivemind_rows(_dedupe_hivemind_rows(rows), query)[:_DEFAULT_EXTERNAL_LIMIT]}
-
-    try:
-        return _search(terms)
-    except TimeoutError as exc:
-        raise HivemindError(f"Hivemind request timed out after {timeout}s") from exc
-    except urllib.error.URLError as exc:
-        raise HivemindError(f"Hivemind HTTP error: {exc}") from exc
-    except ValueError as exc:
-        raise HivemindError(f"Hivemind returned invalid JSON: {exc}") from exc
-
-
-def _hivemind_get(params: dict[str, str], *, timeout: float) -> Any:
-    url = f"{_DEFAULT_HIVEMIND_URL}?{urlencode(params)}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "apikey": _DEFAULT_HIVEMIND_KEY,
-            "Authorization": f"Bearer {_DEFAULT_HIVEMIND_KEY}",
-        },
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
-            return _parse_json_response(body)
-    except urllib.error.HTTPError as exc:
-        body = exc.read(800).decode("utf-8", errors="replace")
-        raise HivemindError(
-            f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})"
-        ) from exc
-
-
-def _dedupe_hivemind_rows(rows: list[Any]) -> list[Any]:
-    deduped: list[Any] = []
-    seen: set[str] = set()
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        key = str(row.get("id") or f"{row.get('source')}:{row.get('external_id')}:{row.get('title')}")
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(row)
-    return deduped
-
-
-def _parse_json_response(body: str) -> Any:
-    import json
-
-    return json.loads(body)
 
 
 def _search_terms(query: str, *, max_terms: int = 8) -> list[str]:
@@ -603,46 +426,6 @@ def _search_terms(query: str, *, max_terms: int = 8) -> list[str]:
     return deduped
 
 
-def _hivemind_search_terms(query: str, *, max_terms: int = 8) -> list[str]:
-    """Return Hivemind-oriented search terms for *query*.
-
-    Drops generic domain words (``video``, ``generation``, ``workflow``,
-    ``comfyui``) in addition to common stopwords so the ``ilike`` query focuses
-    on distinctive tokens such as ``Hotshot``, ``Wan``, ``LTX`` or ``VACE``.
-    If nothing specific remains, fall back to the raw tokens so the query still
-    returns results for very generic questions.
-    """
-    raw_tokens = _query_tokens(query)
-    if not raw_tokens:
-        return []
-    stop = _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
-    tokens = [t for t in raw_tokens if t.casefold() not in stop]
-    # Pure numbers like ``16`` are almost never distinctive enough to narrow
-    # Hivemind results; they tend to match many frame-count widgets and drown
-    # out the real named target (e.g. ``Hotshot``).
-    tokens = [t for t in tokens if not t.isdigit()]
-    if not tokens:
-        tokens = [t for t in raw_tokens if not t.isdigit()]
-    if not tokens:
-        tokens = raw_tokens
-
-    terms: list[str] = []
-    for size in (3, 2):
-        for i in range(0, max(0, len(tokens) - size + 1)):
-            terms.append(" ".join(tokens[i : i + size]))
-    terms.extend(tokens)
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for term in terms:
-        key = term.casefold()
-        if key not in seen:
-            deduped.append(term)
-            seen.add(key)
-        if len(deduped) >= max_terms:
-            break
-    return deduped
-
 
 def _hivemind_fts_query(search_terms: list[str]) -> str | None:
     """Build a PostgREST ``fts`` query string from a list of search terms.
@@ -673,209 +456,15 @@ def _hivemind_fts_query(search_terms: list[str]) -> str | None:
     return "|".join(tokens[:8])
 
 
-def _hivemind_ilike_query(search_terms: list[str]) -> str | None:
-    """Build a PostgREST ``ilike`` OR query string for title/body search.
-
-    Each term becomes ``title.ilike.*<term>*`` and ``body.ilike.*<term>*``;
-    all patterns are ORed together.  Terms are sanitized to alphanumerics plus
-    a few safe punctuation characters to avoid breaking the PostgREST syntax.
-    """
-    patterns: list[str] = []
-    seen: set[str] = set()
-    for term in search_terms:
-        for raw in term.split():
-            token = re.sub(r"[^A-Za-z0-9_-]", "", raw)
-            if not token:
-                continue
-            key = token.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            patterns.append(f"title.ilike.*{token}*")
-            patterns.append(f"body.ilike.*{token}*")
-    if not patterns:
-        return None
-    return "(" + ",".join(patterns[:16]) + ")"
 
 
-def _hivemind_phrase_ilike_query(query: str) -> str | None:
-    """Build a bounded high-precision title/body phrase query.
-
-    The broad Hivemind query deliberately ORs individual tokens for recall.
-    Since PostgREST limits that result set before Python can rank it, first
-    fetching a multi-token phrase prevents a highly specific title from being
-    crowded out by rows that match only one common token.
-    """
-    tokens = [
-        token
-        for token in _query_tokens(query)
-        if token.casefold() not in _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
-        and not token.isdigit()
-    ]
-    if len(tokens) < 2:
-        return None
-    phrase = " ".join(tokens[:8])
-    return f"(title.ilike.*{phrase}*,body.ilike.*{phrase}*)"
 
 
-def _hivemind_semantic_filters(query: str) -> list[dict[str, Any]]:
-    """Return JSONB containment filters for recognizable workflow semantics."""
-    text = query.casefold()
-    filters: list[dict[str, Any]] = []
-    for family, aliases in _HIVEMIND_SEMANTIC_FAMILY_TERMS.items():
-        if any(_semantic_alias_matches(text, alias) for alias in aliases):
-            filters.append({"workflow_semantics": {"model_families": [family]}})
-    for task, aliases in _HIVEMIND_SEMANTIC_TASK_TERMS.items():
-        if any(_semantic_alias_matches(text, alias) for alias in aliases):
-            filters.append({"workflow_semantics": {"task_type": task}})
-    return filters[:6]
 
 
-def _semantic_alias_matches(text: str, alias: str) -> bool:
-    alias_low = alias.casefold()
-    if re.search(r"[^a-z0-9]", alias_low):
-        return alias_low in text
-    return re.search(rf"(?<![a-z0-9]){re.escape(alias_low)}(?![a-z0-9])", text) is not None
 
 
-def _query_tokens(query: str) -> list[str]:
-    return [m.group(0) for m in _QUERY_TOKEN_RE.finditer(query)]
 
-
-def _rank_hivemind_rows(rows: list[Any], query: str) -> list[dict[str, Any]]:
-    # Score both multi-word phrases and individual tokens so that rows returned
-    # by an OR-style full-text query still get credit for partial matches.
-    # Use the same domain-stopword filtering as the Hivemind query builder so
-    # intent words like ``switch`` do not outrank the actual named target.
-    phrase_terms = _hivemind_search_terms(query, max_terms=12)
-    token_terms = [
-        t for t in _query_tokens(query)
-        if t.casefold() not in _SEARCH_STOPWORDS | _HIVEMIND_FALLBACK_STOPWORDS
-        and len(t) > 1
-    ]
-    query_terms = list(dict.fromkeys(phrase_terms + token_terms))
-
-    # Pre-compute how many rows each term matches so rare, specific terms
-    # (e.g. ``hotshot``) outweigh common domain words (``video``,
-    # ``generation``).
-    term_doc_counts: dict[str, int] = {}
-    row_haystacks: list[tuple[int, str, str, dict[str, Any]]] = []
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            continue
-        title = _first_text(row, "title", "name", "class_type")
-        body = _first_text(row, "body", "description", "content", "text")
-        haystack = f"{title}\n{body}\n{_workflow_semantics_text(row)}".casefold()
-        row_haystacks.append((index, title, haystack, row))
-        for term in query_terms:
-            needle = term.casefold()
-            if needle and needle in haystack:
-                term_doc_counts[needle] = term_doc_counts.get(needle, 0) + 1
-
-    scored: list[tuple[int, int, dict[str, Any]]] = []
-    for index, title, haystack, row in row_haystacks:
-        score = 0
-        reasons: list[str] = []
-        if row.get("kind") == "workflow":
-            score += 25
-            reasons.append("hivemind:workflow resource")
-        semantics = _workflow_semantics(row)
-        gates = semantics.get("promotion_gates") if isinstance(semantics.get("promotion_gates"), dict) else {}
-        if gates.get("parseable_workflow") is True:
-            score += 40
-            reasons.append("hivemind:parseable workflow")
-        if gates.get("has_rich_nodes") is True:
-            score += 30
-            reasons.append("hivemind:rich nodes available")
-        if semantics.get("task_type") in _HIVEMIND_SEMANTIC_TASK_TERMS:
-            score += 10
-        seen_reasons: set[str] = set()
-        url = str(row.get("url") or row.get("source_url") or "").casefold()
-        filename = url.rsplit("/", 1)[-1] if "/" in url else url
-        for term in query_terms:
-            needle = term.casefold()
-            if not needle or needle not in haystack:
-                continue
-            is_phrase = " " in term
-            in_title = needle in title.casefold()
-            in_url = needle in url
-            in_filename = needle in filename
-            doc_count = term_doc_counts.get(needle, 1)
-            # Rare terms score far more than common domain words.
-            base_score = 300 if is_phrase else 200
-            term_score = max(60, base_score // doc_count)
-            if in_title:
-                term_score += 100
-            if in_url:
-                term_score += 150
-            if in_filename:
-                term_score += 100
-            score += term_score
-            if in_title:
-                location = "title"
-            elif in_filename:
-                location = "filename"
-            elif in_url:
-                location = "url"
-            else:
-                location = "body"
-            reason = f"hivemind:{location} matched {term!r}"
-            if reason not in seen_reasons:
-                seen_reasons.add(reason)
-                reasons.append(reason)
-        if score <= 0:
-            continue
-        ranked = dict(row)
-        ranked["score"] = max(int(row.get("score", 0) or 0), score)
-        ranked["reasons"] = reasons or list(row.get("reasons", []) or [])
-        scored.append((ranked["score"], -index, ranked))
-    scored.sort(reverse=True)
-    return [row for _, _, row in scored]
-
-
-def _first_text(item: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = item.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def _workflow_semantics(item: dict[str, Any]) -> dict[str, Any]:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    semantics = metadata.get("workflow_semantics")
-    return semantics if isinstance(semantics, dict) else {}
-
-
-def _workflow_semantics_text(item: dict[str, Any]) -> str:
-    semantics = _workflow_semantics(item)
-    values: list[str] = []
-    for key in ("media_type", "task_type"):
-        value = semantics.get(key)
-        if isinstance(value, str):
-            values.append(value)
-    for key in ("model_families", "searchable_aliases", "node_types", "custom_nodes", "models"):
-        value = semantics.get(key)
-        if isinstance(value, list):
-            values.extend(str(item) for item in value if item is not None)
-    return " ".join(values)
-
-
-def _coerce_tasks(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(v) for v in value if v is not None]
-    if isinstance(value, tuple):
-        return [str(v) for v in value if v is not None]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
-
-
-def _excerpt(text: str, *, limit: int = 500) -> str:
-    text = " ".join(text.split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
 
 
 def _domain(url: str) -> str | None:
@@ -1264,6 +853,11 @@ def _brave_search(query: str, timeout: float) -> list[dict[str, str]]:
             html = resp.read().decode("utf-8", errors="replace")
     except TimeoutError as exc:
         raise WebSearchError(f"brave search timed out after {timeout}s") from exc
+    except urllib.error.HTTPError as exc:
+        raise WebSearchHTTPError(
+            f"brave search HTTP error {exc.code}: {exc.reason}",
+            status_code=exc.code,
+        ) from exc
     except urllib.error.URLError as exc:
         raise WebSearchError(f"brave search HTTP error: {exc}") from exc
 
@@ -1298,6 +892,45 @@ def _brave_search(query: str, timeout: float) -> list[dict[str, str]]:
             break
     results.sort(key=lambda item: (-_external_workflow_result_score(item), item["url"]))
     return results[:_DEFAULT_EXTERNAL_LIMIT]
+
+
+def _brave_skip_active() -> bool:
+    """True while the Brave 15-minute skip sentinel is installed."""
+    deadline = _BRAVE_SKIP_UNTIL
+    return deadline is not None and time.monotonic() < deadline
+
+
+def _install_brave_skip_sentinel() -> None:
+    """Install the 15-minute window during which Brave is not contacted."""
+    global _BRAVE_SKIP_UNTIL
+    _BRAVE_SKIP_UNTIL = time.monotonic() + _BRAVE_SKIP_WINDOW_SECONDS
+
+
+def _brave_search_with_backoff(query: str, timeout: float) -> list[dict[str, str]]:
+    """Brave search with one 0.8s retry on HTTP 429 and a skip sentinel.
+
+    A live HTTP 429 is retried exactly once after
+    ``_BRAVE_RETRY_DELAY_SECONDS``; if the retry still fails, a 15-minute
+    skip sentinel is installed so the default client stops contacting Brave
+    for that window.  A first-time HTTP 403 (Brave blocking us) also installs
+    the sentinel without a pointless retry.  Non-HTTP failures (timeouts,
+    DNS) propagate as plain warnings and never install the sentinel.
+    """
+    if _brave_skip_active():
+        raise WebSearchError("brave search skipped: rate-limit sentinel active")
+    try:
+        return _brave_search(query, timeout)
+    except WebSearchHTTPError as exc:
+        if exc.status_code == 429:
+            time.sleep(_BRAVE_RETRY_DELAY_SECONDS)
+            try:
+                return _brave_search(query, timeout)
+            except WebSearchHTTPError:
+                _install_brave_skip_sentinel()
+                raise
+        if exc.status_code == 403:
+            _install_brave_skip_sentinel()
+        raise
 
 
 def _external_workflow_result_score(item: Mapping[str, str]) -> int:
@@ -1373,40 +1006,53 @@ def _filter_web_results_by_named_anchor(
 
 def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
     """Best-effort public web-search evidence using DuckDuckGo HTML + GitHub."""
+    cached_entry = _read_web_search_cache_entry(query)
     cached = _read_web_search_cache(query)
     results: list[dict[str, str]] = []
     warnings: list[str] = []
-    try:
-        results.extend(_duckduckgo_search(query, timeout))
-    except WebSearchError as exc:
-        warnings.append(str(exc))
-    try:
-        results.extend(_github_repository_search(query, timeout))
-    except WebSearchError as exc:
-        warnings.append(str(exc))
-    if not results:
+    skipped_negative = False
+    if cached_entry is not None and cached_entry.get("negative") and not cached:
+        # Fresh negative cache entry: the exact query recently returned no
+        # results, so skip redundant live requests until ``expires_at``.
+        # Expired entries fall through and are retried live.
+        warnings.append("web search: using cached negative result; no live search")
+        skipped_negative = True
+    else:
         try:
-            results.extend(_brave_search(query, timeout))
+            results.extend(_duckduckgo_search(query, timeout))
         except WebSearchError as exc:
             warnings.append(str(exc))
-    if results:
-        _write_web_search_cache(query, results[:_DEFAULT_EXTERNAL_LIMIT])
-        if cached:
-            seen_keys = {
-                str(item.get("url") or item.get("title") or "").casefold()
-                for item in results
-            }
-            for cached_item in cached:
-                key = str(cached_item.get("url") or cached_item.get("title") or "").casefold()
-                if key and key in seen_keys:
-                    continue
-                if key:
-                    seen_keys.add(key)
-                results.append(cached_item)
-            results.sort(key=lambda item: (-_external_workflow_result_score(item), str(item.get("url") or "")))
-    elif cached:
-        warnings.append("web search: using cached results after live search returned no results")
-        results.extend(cached)
+        try:
+            results.extend(_github_repository_search(query, timeout))
+        except WebSearchError as exc:
+            warnings.append(str(exc))
+        if not results:
+            try:
+                results.extend(_brave_search_with_backoff(query, timeout))
+            except WebSearchError as exc:
+                warnings.append(str(exc))
+        if results:
+            _write_web_search_cache(query, results[:_DEFAULT_EXTERNAL_LIMIT])
+            if cached:
+                seen_keys = {
+                    str(item.get("url") or item.get("title") or "").casefold()
+                    for item in results
+                }
+                for cached_item in cached:
+                    key = str(cached_item.get("url") or cached_item.get("title") or "").casefold()
+                    if key and key in seen_keys:
+                        continue
+                    if key:
+                        seen_keys.add(key)
+                    results.append(cached_item)
+                results.sort(key=lambda item: (-_external_workflow_result_score(item), str(item.get("url") or "")))
+        elif cached:
+            warnings.append("web search: using cached results after live search returned no results")
+            results.extend(cached)
+        else:
+            # Store the negative outcome so the next call within the TTL
+            # window skips redundant live requests entirely.
+            _write_web_search_cache(query, [])
     if results:
         filtered_results, dropped = _filter_web_results_by_named_anchor(query, results)
         if dropped:
@@ -1414,7 +1060,7 @@ def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
                 f"web search: dropped {dropped} generic result(s) that did not mention the named target"
             )
         results = filtered_results
-    if not results and warnings:
+    if not results and warnings and not skipped_negative:
         raise WebSearchError("; ".join(warnings))
     return {"results": results[:_DEFAULT_EXTERNAL_LIMIT], "warnings": warnings}
 
@@ -1480,12 +1126,37 @@ def _read_web_search_cache(query: str) -> list[dict[str, str]]:
     return merged_results[:_DEFAULT_EXTERNAL_LIMIT]
 
 
+def _read_web_search_cache_entry(query: str) -> dict[str, Any] | None:
+    """Return the raw cache payload for *query* when present and unexpired.
+
+    Returns ``None`` when the entry is missing, malformed, or past its
+    ``expires_at`` so callers retry live.  Legacy entries without an
+    ``expires_at`` are treated as fresh (pre-B06 behavior).
+    """
+    path = _web_search_cache_path(query)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    expires_at = payload.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.time() > expires_at:
+        return None
+    return payload
+
+
 def _read_web_search_cache_path(path: Path) -> list[dict[str, str]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
-    items = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return []
+    expires_at = payload.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.time() > expires_at:
+        return []
+    items = payload.get("results")
     if not isinstance(items, list):
         return []
     results: list[dict[str, str]] = []
@@ -1504,7 +1175,16 @@ def _write_web_search_cache(query: str, results: list[dict[str, str]]) -> None:
     try:
         _DEFAULT_WEB_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
         _web_search_cache_path(query).write_text(
-            json.dumps({"query": query, "results": results}, sort_keys=True, indent=2),
+            json.dumps(
+                {
+                    "query": query,
+                    "expires_at": time.time() + _DEFAULT_WEB_SEARCH_TTL,
+                    "negative": not results,
+                    "results": results,
+                },
+                sort_keys=True,
+                indent=2,
+            ),
             encoding="utf-8",
         )
     except Exception:
@@ -2347,6 +2027,8 @@ def _source_tier_for_source(source: Mapping[str, Any]) -> str:
     tier_map: dict[str, str] = {
         "hivemind_workflow": "hivemind_workflow",
         "hivemind": "hivemind",
+        "hivemind_message": "hivemind_message",
+        "hivemind_distillation": "hivemind_distillation",
         "external_workflow": "external_workflow",
         "comfy-registry": "comfy-registry",
         "github": "github",
@@ -6221,6 +5903,8 @@ def research(
     web_search_client: WebSearchClient | None | object = _USE_DEFAULT,
     web_search_timeout: float = _DEFAULT_WEB_SEARCH_TIMEOUT,
     local_limit: int = 10,
+    sources: tuple[str, ...] | None = None,
+    hivemind_messages_client: HivemindClient | None | object = _USE_DEFAULT,
 ) -> ResearchResult:
     """Execute the full research phase: local corpus + external fallback.
 
@@ -6254,7 +5938,20 @@ def research(
     web_search_timeout:
         Timeout in seconds for the web-search fallback.
     local_limit:
-        Maximum number of top-scoring local results to include.
+        Maximum number of top-scoring local results to include.  Forced to 0
+        when an explicit ``sources`` tuple omits ``"workflows"``.
+    sources:
+        Optional explicit tier tuple (``"workflows"`` / ``"registry"`` /
+        ``"messages"`` / ``"web"``).  ``None`` is the legacy public API:
+        today's default tiers run and the messages tier stays OFF.  A non-None
+        tuple runs ONLY the listed tiers (no union with defaults) and nulls
+        unlisted default injectables.
+    hivemind_messages_client:
+        Injectable community-messages client callable
+        ``(query: str, timeout: float) → dict`` with ``{"results": [...]}``.
+        By default, uses ``_default_hivemind_messages_client``.  Only consulted
+        when the messages tier is enabled; ``VIBECOMFY_MESSAGES_RESEARCH=0``
+        skips it with a warning.  Pass ``None`` to skip the tier.
 
     Returns
     -------
@@ -6262,6 +5959,24 @@ def research(
         Deterministic, local-corpus-first results with compactly normalized
         sources and non-fatal Hivemind warnings.
     """
+    # ── Tier gating from explicit sources= (B02) ────────────────────────────
+    # ``sources is None`` keeps today's legacy defaults (workflows/web/registry/
+    # local on, messages off).  A non-None tuple runs ONLY the listed tiers —
+    # never a union with defaults.  ``local_limit`` is forced to 0 when the
+    # local/workflows tier is not listed.
+    source_set = set(sources) if sources is not None else None
+    run_workflows = source_set is None or "workflows" in source_set
+    run_messages = source_set is not None and "messages" in source_set
+    run_web = source_set is None or "web" in source_set
+    run_registry = source_set is None or "registry" in source_set
+
+    messages_enabled = (
+        run_messages
+        and os.environ.get("VIBECOMFY_MESSAGES_RESEARCH", "1") != "0"
+    )
+    if source_set is not None and "workflows" not in source_set:
+        local_limit = 0
+
     # ── Phase 1: deterministic local corpus (best-effort) ─────────────────
     #
     # The external tiers below are intentionally independent of the local
@@ -6288,19 +6003,35 @@ def research(
 
     # ── Phase 2: injectable Hivemind (non-fatal on any failure) ───────────
     resolved_hivemind_client: HivemindClient | None
-    if hivemind_client is _USE_DEFAULT:
+    if not run_workflows:
+        resolved_hivemind_client = None
+    elif hivemind_client is _USE_DEFAULT:
         resolved_hivemind_client = _default_hivemind_client
     else:
         resolved_hivemind_client = hivemind_client  # type: ignore[assignment]
 
+    resolved_messages_client: HivemindClient | None
+    if not messages_enabled:
+        resolved_messages_client = None
+    elif hivemind_messages_client is _USE_DEFAULT:
+        resolved_messages_client = _default_hivemind_messages_client
+    else:
+        resolved_messages_client = hivemind_messages_client  # type: ignore[assignment]
+    if run_messages and not messages_enabled:
+        warnings.append("messages tier disabled")
+
     resolved_web_client: WebSearchClient | None
-    if web_search_client is _USE_DEFAULT:
+    if not run_web:
+        resolved_web_client = None
+    elif web_search_client is _USE_DEFAULT:
         resolved_web_client = _default_web_search_client
     else:
         resolved_web_client = web_search_client  # type: ignore[assignment]
 
     resolved_registry_resolver: RegistryResolver | None
-    if registry_resolver is _USE_DEFAULT:
+    if not run_registry:
+        resolved_registry_resolver = None
+    elif registry_resolver is _USE_DEFAULT:
         resolved_registry_resolver = resolve_missing_nodes
     else:
         resolved_registry_resolver = registry_resolver  # type: ignore[assignment]
@@ -6322,6 +6053,36 @@ def research(
             # produced and decide how much weight to give it.
             for hs in hivemind_sources:
                 sources.append(hs)
+
+    # ── Phase 2b: community messages tier (B02) ───────────────────────────
+    # A separate normalize-only runner on the injectable messages client.
+    # One call, one query string; no workflow-JSON fetching. Non-fatal.
+    message_sources: tuple[dict[str, Any], ...] = ()
+    messages_tier_ran = resolved_messages_client is not None and hivemind_timeout > 0
+    if resolved_messages_client is not None and hivemind_timeout > 0:
+        try:
+            message_sources = _run_hivemind_messages_research(
+                query, client=resolved_messages_client, timeout=hivemind_timeout
+            )
+        except HivemindError as exc:
+            warnings.append(f"hivemind messages: {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
+        except Exception as exc:
+            warnings.append(f"hivemind messages (unexpected): {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
+        else:
+            for ms in message_sources:
+                sources.append(ms)
+
+    # ── community display paragraph (B03) ─────────────────────────────────
+    # Extractive, display-only.  Assigned whenever the messages tier ran —
+    # including the literal "No community discussion found ..." sentence when
+    # it produced nothing (or errored).  Never a score / strength / latch.
+    community_summary = (
+        format_community_summary(message_sources, query=query)
+        if messages_tier_ran
+        else ""
+    )
 
     # ── Phase 3: read-only Comfy Registry / Manager missing-node evidence ─
     if resolved_registry_resolver is not None:
@@ -6532,6 +6293,7 @@ def research(
         sources=tuple(sources),
         warnings=tuple(list(warnings) + precedent_warnings),
         warning_details=tuple(warning_details),
+        community_summary=community_summary,
         precedent_slices=precedent_slices,
         adaptation_plan=adaptation_plan,
         precedent_packet=precedent_packet,
@@ -6552,7 +6314,9 @@ __all__ = [
     "_build_selected_precedent",
     "_build_precedent_slices",
     "_default_hivemind_client",
+    "_default_hivemind_messages_client",
     "_default_web_search_client",
+    "format_community_summary",
     "research",
     "run_local_research",
 ]

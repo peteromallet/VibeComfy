@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from vibecomfy.porting.edit._resolve import (
+    _ResolveMixin,
     _format_research_query_output,
     _format_schema_input_hint,
     _format_workflow_schema_hints,
@@ -589,13 +590,18 @@ class TestResearchFollowupGuidance:
         assert "Registry check" in guidance
         assert "not to invent a workflow pattern" in guidance
 
-    def test_no_matching_sources_returns_empty(self) -> None:
-        """When no source set matches, returns empty string."""
+    def test_messages_in_play_returns_static_followup_even_without_sources(self) -> None:
+        """B03: messages-in-play emits the static messages followup even when
+        no matching sources exist — the wording never switches on hit count or
+        any strength helper."""
         result = _FakeResult("Test.", ())
         guidance = _research_followup_guidance(
             "test query", ("messages",), result
         )
-        assert guidance == ""
+        assert guidance != ""
+        assert "thin or off-topic" in guidance
+        assert "call done()" in guidance
+        assert "Workflow-first" not in guidance
 
     def test_no_winner_or_recommendation_language(self) -> None:
         """Followup guidance must not use winner/recommendation language."""
@@ -779,13 +785,570 @@ class TestHasUrlOnlyWebLeads:
         assert _has_url_only_web_leads(result) is False
 
 
+# ── _resolve_query_statement research tier wiring (B02) ───────────────────────
+
+
+class TestResolveResearchStatementSources:
+    """research() resolution passes the resolved sources tuple + split clients.
+
+    Omitted ``sources=`` still resolves to ``("workflows",)`` in this batch
+    (the research-route omit default lands in B03).  Explicit tuples null
+    unlisted tiers; invalid explicit sources keep the existing diagnostic.
+    """
+
+    def _resolve(self, code: str, monkeypatch: pytest.MonkeyPatch):
+        import ast
+        import importlib
+
+        from vibecomfy.executor.contracts import ResearchResult
+
+        calls: list[dict[str, Any]] = []
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            calls.append({"query": query, **kwargs})
+            return ResearchResult(summary="Summary.", sources=())
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "research", fake_research)
+
+        tree = ast.parse(code)
+        assert isinstance(tree.body[0], ast.Expr)
+        assert isinstance(tree.body[0].value, ast.Call)
+
+        resolver = _ResolveMixin()
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+        return result, calls
+
+    def test_omitted_sources_resolve_to_workflows_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("Hotshot XL ComfyUI 16 frames")', monkeypatch)
+
+        assert result.ok is True
+        assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
+        assert calls[0]["sources"] == ("workflows",)
+        assert calls[0]["local_limit"] == 5
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is None
+        assert result.detail["research_sources"] == ("workflows",)
+        assert result.detail["requested_research_sources"] == ("workflows",)
+
+    def test_messages_source_uses_messages_client_and_nulls_workflow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("MiniMax H3", sources=["messages"])', monkeypatch)
+
+        assert result.ok is True
+        assert calls[0]["query"] == "MiniMax H3"
+        assert calls[0]["sources"] == ("messages",)
+        assert calls[0]["local_limit"] == 0
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is not None
+        assert calls[0]["web_search_client"] is None
+        assert result.detail["research_sources"] == ("messages",)
+
+    def test_messages_web_combination_sets_both_clients(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("LTX 2.5", sources=["messages", "web"])', monkeypatch
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "web")
+        assert calls[0]["local_limit"] == 0
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is not None
+        assert calls[0]["web_search_client"] is not None
+        assert result.detail["research_sources"] == ("messages", "web")
+
+    def test_workflows_web_keeps_workflow_client_and_nulls_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("Hotshot XL", sources=["workflows", "web"])', monkeypatch
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("workflows", "web")
+        assert calls[0]["local_limit"] == 5
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is not None
+        assert result.detail["research_sources"] == ("workflows", "web")
+
+    def test_invalid_explicit_sources_diagnostic_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("q", sources=["bogus"])', monkeypatch)
+
+        assert result.ok is False
+        assert calls == []  # research() is never invoked for invalid sources
+        codes = [d.code for d in result.diagnostics]
+        assert "unsupported_research_source" in codes
+
+
+# ── B03 research-route omit default ──────────────────────────────────────────
+
+
+class TestResolveResearchOmitDefault:
+    """Omitted sources= (None / () / []) on a research-only session resolve to
+    ("messages", "web"); adapt/revise omission stays ("workflows",); explicit
+    non-empty sources= wins with NO union.  Classify source_preferences stay
+    prompt-visible and are never read here.
+    """
+
+    def _resolve(
+        self,
+        code: str,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        research_only: bool = False,
+        brief: dict[str, Any] | None = None,
+    ):
+        import ast
+        import importlib
+
+        from vibecomfy.executor.contracts import ResearchResult
+
+        calls: list[dict[str, Any]] = []
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            calls.append({"query": query, **kwargs})
+            return ResearchResult(summary="Summary.", sources=())
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "research", fake_research)
+
+        tree = ast.parse(code)
+        assert isinstance(tree.body[0], ast.Expr)
+        assert isinstance(tree.body[0].value, ast.Call)
+
+        resolver = _ResolveMixin()
+        resolver.research_only = research_only
+        if brief is not None:
+            resolver.executor_research_brief = brief
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+        return result, calls
+
+    def test_resolve_omitted_sources_research_only_defaults_to_messages_web(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("MiniMax H3")', monkeypatch, research_only=True
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "web")
+        assert calls[0]["local_limit"] == 0
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is not None
+        assert calls[0]["web_search_client"] is not None
+        assert result.detail["requested_research_sources"] == ("messages", "web")
+
+    def test_resolve_empty_sources_list_is_omit_not_no_tiers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("LTX 2.5", sources=[])', monkeypatch, research_only=True
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "web")
+
+    def test_resolve_omitted_sources_adapt_defaults_to_workflows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("Hotshot XL ComfyUI 16 frames")', monkeypatch)
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("workflows",)
+        assert calls[0]["local_limit"] == 5
+        assert calls[0]["hivemind_messages_client"] is None
+
+    def test_resolve_omitted_sources_ignores_distilled_faster_brief_workflows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Brief source_preferences are prompt-visible only — omit still resolves
+        # to ("messages", "web") on the research route regardless of the brief.
+        brief = {
+            "source_preferences": ["workflows", "messages", "web"],
+            "research_goal": "Find distilled or faster ways to run the workflow.",
+        }
+        result, calls = self._resolve(
+            'research("distilled faster")', monkeypatch, research_only=True, brief=brief
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "web")
+
+    def test_resolve_explicit_web_sources_not_unioned_with_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("Hotshot XL", sources=["web"])', monkeypatch, research_only=True
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("web",)
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is not None
+
+    def test_resolve_explicit_workflows_not_unioned_with_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("KSampler", sources=["workflows"])', monkeypatch, research_only=True
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("workflows",)
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is None
+
+    def test_resolve_omitted_research_only_requests_web_client_without_http(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+
+        def fake_web_client(query: str, timeout: float) -> dict[str, Any]:
+            return {"results": []}
+
+        monkeypatch.setattr(research_module, "_default_web_search_client", fake_web_client)
+        result, calls = self._resolve(
+            'research("MiniMax H3")', monkeypatch, research_only=True
+        )
+
+        assert result.ok is True
+        # research() is monkeypatched to a fake, so no live web HTTP runs; the
+        # resolver must still hand the web tier the default callable.
+        assert calls[0]["web_search_client"] is fake_web_client
+        assert calls[0]["hivemind_messages_client"] is not None
+
+    def test_resolve_messages_and_workflows_sets_both_clients(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("MiniMax H3", sources=["messages", "workflows"])',
+            monkeypatch,
+            research_only=True,
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "workflows")
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is not None
+
+    def test_resolve_attaches_structured_detail_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import ast
+        import importlib
+
+        from vibecomfy.executor.contracts import ResearchResult
+
+        message_source = {
+            "source": "hivemind_message",
+            "class_type": "MiniMax H3 is amazing",
+            "author": "alice",
+            "channel": "minimax_h3_chatter",
+            "hivemind_id": "9007199254740993",
+            "description": "loving the new model",
+            "_retrieval_time": "2026-08-13T00:00:00Z",
+            "_content_hash": "abc",
+            "score": 5,
+        }
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            return ResearchResult(
+                summary="Found community evidence.",
+                sources=(message_source,),
+                community_summary='alice in #minimax_h3_chatter: loving the new model',
+            )
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "research", fake_research)
+
+        tree = ast.parse('research("MiniMax H3")')
+        resolver = _ResolveMixin()
+        resolver.research_only = True
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+
+        assert result.ok is True
+        assert result.detail["community_summary"] == (
+            "alice in #minimax_h3_chatter: loving the new model"
+        )
+        assert result.detail["research_summary"] == "Found community evidence."
+        sources = result.detail["research_result_sources"]
+        assert len(sources) == 1
+        assert sources[0]["source"] == "hivemind_message"
+        assert sources[0]["author"] == "alice"
+        assert sources[0]["channel"] == "minimax_h3_chatter"
+        # underscore audit keys are dropped except the three public stamp keys;
+        # non-underscore keys (score, author, ...) stay (display metadata)
+        assert "_content_hash" not in sources[0]
+        assert "_query_transform_trace" not in sources[0]
+        assert sources[0]["score"] == 5
+        assert sources[0]["_retrieval_time"] == "2026-08-13T00:00:00Z"
+        assert "evidence_card" not in result.detail
+
+
+# ── B03 query_output formatting (community_summary + 12-cap) ─────────────────
+
+
+def _message_source(
+    index: int,
+    *,
+    author: str = "alice",
+    channel: str = "ltx_chatter",
+) -> dict[str, Any]:
+    return {
+        "source": "hivemind_message",
+        "class_type": f"LTX 2.5 message {index}",
+        "author": author,
+        "channel": channel,
+        "hivemind_id": str(index),
+        "description": f"community message body {index}",
+        "kind": "message",
+    }
+
+
+class TestFormatResearchQueryOutputB03:
+    def test_prints_community_summary_and_author_channel(self) -> None:
+        sources = tuple(_message_source(i) for i in range(1, 13))
+        result = _FakeResult(
+            summary="Summary line.",
+            sources=sources,
+            community_summary='alice in #ltx_chatter: LTX 2.5 message 1',
+        )
+
+        output = _format_research_query_output(result)
+
+        assert "Summary line." in output
+        assert "alice in #ltx_chatter" in output
+        assert "alice" in output
+        assert "ltx_chatter" in output
+        # 12-cap (not today's 8): all 12 message fixtures appear
+        assert "LTX 2.5 message 12" in output
+        assert sum(1 for i in range(1, 13) if f"LTX 2.5 message {i}" in output) == 12
+        # No evidence-card / strength language
+        assert "[evidence]" not in output
+        assert "strength=" not in output
+
+    def test_non_message_sources_keep_8_cap(self) -> None:
+        # 10 sources across 10 distinct kinds → first 5 + 3 unique-kind fill = 8
+        kinds = [
+            "web", "github", "git", "hivemind", "hivemind_workflow",
+            "comfy-registry", "ready_template", "source_workflow", "curated",
+            "external_workflow",
+        ]
+        sources = tuple(
+            {
+                "source": kind,
+                "title": f"result {kind}",
+                "url": f"https://example.com/{kind}",
+            }
+            for kind in kinds
+        )
+        result = _FakeResult(summary="", sources=sources)
+
+        output = _format_research_query_output(result)
+
+        assert sum(1 for kind in kinds if f"result {kind}" in output) == 8
+        assert "result external_workflow" not in output
+
+    def test_distillation_status_in_descriptor(self) -> None:
+        sources = (
+            {
+                "source": "hivemind_distillation",
+                "class_type": "LTX 2.5 reception",
+                "title": "LTX 2.5 reception",
+                "distillation_status": "approved",
+                "hivemind_id": "dist-1",
+                "description": "summary",
+            },
+        )
+        result = _FakeResult(summary="", sources=sources, community_summary="")
+
+        output = _format_research_query_output(result)
+
+        assert "LTX 2.5 reception" in output
+        assert "approved" in output
+
+    def test_empty_messages_sentence_is_printed(self) -> None:
+        result = _FakeResult(
+            summary="",
+            sources=(),
+            community_summary='No community discussion found for "LTX 2.5".',
+        )
+
+        output = _format_research_query_output(result)
+
+        assert 'No community discussion found for "LTX 2.5".' in output
+
+
+# ── B03 followup guidance routing ─────────────────────────────────────────────
+
+
+class TestResearchFollowupGuidanceB03:
+    def test_messages_tells_model_to_judge_and_done(self) -> None:
+        result = _FakeResult(summary="", sources=())
+        guidance = _research_followup_guidance(
+            "MiniMax H3", ("messages",), result
+        )
+
+        assert "thin or off-topic" in guidance
+        assert "call done()" in guidance
+        assert "search_directions" in guidance
+        assert "Do not invent quotes" in guidance
+
+    def test_messages_web_url_only_does_not_ask_for_workflow_json(self) -> None:
+        result = _FakeResult(
+            summary="",
+            sources=({"source": "web", "title": "LTX page", "url": "https://example.com"},),
+        )
+        guidance = _research_followup_guidance(
+            "LTX 2.5", ("messages", "web"), result
+        )
+
+        assert "workflow JSON" not in guidance
+        assert "Workflow-first" not in guidance
+        assert "thin or off-topic" in guidance
+
+    def test_web_only_still_emits_external_workflow_check(self) -> None:
+        result = _FakeResult(
+            summary="",
+            sources=({"source": "web", "title": "LTX page", "url": "https://example.com"},),
+        )
+        guidance = _research_followup_guidance("LTX 2.5", ("web",), result)
+
+        assert "External workflow check" in guidance
+        assert "workflow JSON" in guidance
+
+    def test_messages_only_does_not_emit_workflow_first_check(self) -> None:
+        result = _FakeResult(summary="", sources=())
+        guidance = _research_followup_guidance("MiniMax H3", ("messages",), result)
+
+        assert "Workflow-first" not in guidance
+        assert "Registry check" not in guidance
+        assert "External workflow check" not in guidance
+
+    def test_workflows_still_emits_workflow_first_check(self) -> None:
+        result = _FakeResult(summary="", sources=())
+        guidance = _research_followup_guidance("KSampler", ("workflows",), result)
+
+        assert "Workflow-first check" in guidance
+
+
+# ── B03 research fold helpers (edit_batch_repl.py) ───────────────────────────
+
+
+class TestFoldResearchStatement:
+    def test_fold_research_statement_unions_sources_by_id(self) -> None:
+        from types import SimpleNamespace
+
+        from vibecomfy.comfy_nodes.agent.edit_batch_repl import (
+            _dedupe_sources_by_id,
+            _fold_research_statement,
+        )
+
+        first = {
+            "research_result_sources": [
+                _message_source(1, author="alice"),
+                _message_source(2, author="bob"),
+            ],
+            "community_summary": "first paragraph",
+            "research_summary": "first summary",
+        }
+        second = {
+            "research_result_sources": [
+                _message_source(1, author="alice2"),  # same id → first-seen wins
+                _message_source(3, author="carol"),
+            ],
+            "community_summary": "second paragraph",
+            "research_summary": "second summary",
+        }
+
+        state = SimpleNamespace(
+            collected_research_sources=(),
+            collected_community_summary="",
+            collected_research_summary="",
+        )
+        _fold_research_statement(state, first)
+        _fold_research_statement(state, second)
+
+        sources = state.collected_research_sources
+        assert len(sources) == 3
+        assert [s["hivemind_id"] for s in sources] == ["1", "2", "3"]
+        # first-seen wins on sources
+        assert sources[0]["author"] == "alice"
+        # last-write-wins on paragraphs
+        assert state.collected_community_summary == "second paragraph"
+        assert state.collected_research_summary == "second summary"
+
+    def test_dedupe_sources_by_id_keeps_first_seen(self) -> None:
+        from vibecomfy.comfy_nodes.agent.edit_batch_repl import _dedupe_sources_by_id
+
+        merged = _dedupe_sources_by_id(
+            (_message_source(1, author="alice"),),
+            (_message_source(1, author="alice2"), _message_source(4, author="dana")),
+        )
+
+        assert len(merged) == 2
+        assert merged[0]["author"] == "alice"
+        assert merged[1]["author"] == "dana"
+
+    def test_fold_ignores_statements_without_research_fields(self) -> None:
+        from types import SimpleNamespace
+
+        from vibecomfy.comfy_nodes.agent.edit_batch_repl import _fold_research_statement
+
+        state = SimpleNamespace(
+            collected_research_sources=(),
+            collected_community_summary="",
+            collected_research_summary="",
+        )
+        _fold_research_statement(state, {"query": "search", "query_output": "No node signature found"})
+
+        assert state.collected_research_sources == ()
+        assert state.collected_community_summary == ""
+        assert state.collected_research_summary == ""
+
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 
 class _FakeResult:
     """Minimal ResearchResult-like object for testing output formatting."""
 
-    def __init__(self, summary: str, sources: tuple, warnings: tuple = ()):
+    def __init__(
+        self,
+        summary: str,
+        sources: tuple,
+        warnings: tuple = (),
+        community_summary: str = "",
+    ):
         self.summary = summary
         self.sources = sources
         self.warnings = warnings
+        self.community_summary = community_summary

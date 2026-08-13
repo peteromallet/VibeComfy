@@ -1671,7 +1671,7 @@ def _research_brief_from_plan(
                 "avoid": [
                     "generic searches for the raw sentence",
                     "stopword-only searches such as there way run",
-                    "treating Discord snippets as authoritative without workflow evidence",
+                    "inventing community consensus that the sources do not support",
                 ],
                 "known_graph_context": plan.known_graph_context
                 or "Attached graph may be absent; infer only broad workflow family from the request.",
@@ -1700,8 +1700,13 @@ def _run_reply(
 
     Converts provider exceptions through ``classify_failure``.
     """
+    # B04: the research route's answer is the community display paragraph.
+    # Prefer ResearchResult.community_summary over summary when non-empty
+    # (summary stays the fallback for legacy prefetched research).
     research_summary: str | None = (
-        research_result.summary if research_result else None
+        research_result.community_summary
+        if research_result is not None and research_result.community_summary
+        else (research_result.summary if research_result else None)
     )
     implementation_message: str | None = (
         implementation_result.message if implementation_result else None
@@ -1829,6 +1834,44 @@ def _run_reply(
             failure_envelope=failure,
             model_response=_model_response_artifact(failure),
         ) from exc
+
+
+def _research_result_from_findings(
+    implementation_result: ImplementationResult,
+) -> ResearchResult | None:
+    """Hoist durable ``research_findings`` into a :class:`ResearchResult`.
+
+    B04: the research route's implement phase is the agentic batch REPL; the
+    durable response carries the collected community evidence under
+    ``research_findings`` (summary, community_summary, sources, warnings).
+    This is transport-only evidence carry — no ranking, no strength, no latch,
+    and never a stop decision.
+
+    Returns ``None`` when the durable response has no ``research_findings``
+    (legacy/fake implement responses) so ``report.research`` stays ``None``.
+    """
+    durable = implementation_result.durable_response
+    if not isinstance(durable, Mapping):
+        return None
+    findings = durable.get("research_findings")
+    if not isinstance(findings, Mapping):
+        return None
+    sources = tuple(
+        dict(source)
+        for source in (findings.get("sources") or ())
+        if isinstance(source, Mapping)
+    )
+    warnings = tuple(
+        str(warning)
+        for warning in (findings.get("warnings") or ())
+        if warning is not None
+    )
+    return ResearchResult(
+        summary=str(findings.get("summary") or ""),
+        community_summary=str(findings.get("community_summary") or ""),
+        sources=sources,
+        warnings=warnings,
+    )
 
 
 # ── internal error wrapper ───────────────────────────────────────────────────
@@ -2268,6 +2311,15 @@ def run_executor(
                     client_id=client_id,
                     additive=additive,
                 )
+                # B04: hoist durable research findings onto report.research
+                # for the research route (agent-judgment evidence carry; NOT
+                # a latch and never a stop decision).
+                if _canonical_route_for_plan(plan) == "research":
+                    hoisted_research = _research_result_from_findings(
+                        implementation_result
+                    )
+                    if hoisted_research is not None:
+                        research_result = hoisted_research
                 span.update(
                     graph_returned=implementation_result.graph is not None,
                     message_preview=short_text(implementation_result.message),
@@ -2313,7 +2365,10 @@ def run_executor(
         ):
             effective_graph = implementation_result.graph
             result_graph = implementation_result.graph
-        elif _implementation_result_is_terminal_no_candidate(implementation_result):
+        elif (
+            _implementation_result_is_terminal_no_candidate(implementation_result)
+            and _canonical_route_for_plan(plan) != "research"
+        ):
             report = _build_report(
                 plan=plan,
                 research=research_result,
@@ -2335,6 +2390,14 @@ def run_executor(
                 graph=None,
                 reply=reply_text,
             ))
+        elif _canonical_route_for_plan(plan) == "research":
+            # B04: every successful research-route implement is terminal
+            # no-candidate by design (no graph edit), but the user answer is
+            # the hoisted community findings — NOT the narrator line.  Fall
+            # through to _run_reply with no graph context so the reply model
+            # writes the informational answer.
+            effective_graph = None
+            result_graph = None
     else:
         _emit_executor_phase_event(
             request,
