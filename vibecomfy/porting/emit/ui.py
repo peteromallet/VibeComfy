@@ -80,7 +80,7 @@ from vibecomfy.contracts.intent_nodes import (
 from vibecomfy.identity.uid import mint_local_uid
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
-from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode
+from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode, _raise_embedded_api_links
 
 # Documented default control_after_generate mode when none is retained in metadata.
 _CONTROL_AFTER_GENERATE_DEFAULT = "fixed"
@@ -2108,6 +2108,8 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
+    _raise_embedded_api_links(wf, surface="UI serialization")
+
     # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
     # virtual_wires}); reconcile() is called once at top and the result exposed to
     # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still

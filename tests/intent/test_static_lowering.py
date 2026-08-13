@@ -93,10 +93,6 @@ def _make_ksample_node(node_id: str) -> VibeNode:
             "sampler_name": "euler",
             "scheduler": "normal",
             "denoise": 1.0,
-            "model": ["4", 0],
-            "positive": ["5", 0],
-            "negative": ["6", 0],
-            "latent_image": ["7", 0],
         },
     )
 
@@ -105,7 +101,7 @@ def _make_clip_text_node(node_id: str, *, text: str = "prompt") -> VibeNode:
     return VibeNode(
         id=node_id,
         class_type="CLIPTextEncode",
-        inputs={"text": text, "clip": ["99", 0]},
+        inputs={"text": text},
     )
 
 

@@ -19,12 +19,13 @@ def _tiny_recipe(tmp_path: Path) -> Path:
     p = tmp_path / "tiny_recipe.py"
     p.write_text(
         """
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 def build():
     wf = VibeWorkflow(id='tiny', source=WorkflowSource(id='tiny'))
     wf.nodes['1'] = VibeNode(id='1', class_type='CheckpointLoaderSimple', inputs={'ckpt_name': 'x.safetensors'})
-    wf.nodes['2'] = VibeNode(id='2', class_type='SaveImage', inputs={'images': ['1', 0], 'filename_prefix': 'out'})
+    wf.nodes['2'] = VibeNode(id='2', class_type='SaveImage', inputs={'filename_prefix': 'out'})
+    wf.edges.append(VibeEdge(from_node='1', from_output=0, to_node='2', to_input='images'))
     return wf
 """.lstrip(),
         encoding='utf-8',

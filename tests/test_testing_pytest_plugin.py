@@ -5,12 +5,13 @@ from __future__ import annotations
 def test_plugin_collects_test_workflow_file(pytester):
     pytester.makepyfile(
         test_workflow_demo="""
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 def test_compiles_cleanly():
     wf = VibeWorkflow(id='plugin-demo', source=WorkflowSource(id='plugin-demo'))
     wf.nodes['1'] = VibeNode(id='1', class_type='CheckpointLoaderSimple', inputs={'ckpt_name': 'x.safetensors'})
-    wf.nodes['2'] = VibeNode(id='2', class_type='SaveImage', inputs={'images': ['1', 0], 'filename_prefix': 'out'})
+    wf.nodes['2'] = VibeNode(id='2', class_type='SaveImage', inputs={'filename_prefix': 'out'})
+    wf.edges.append(VibeEdge(from_node='1', from_output=0, to_node='2', to_input='images'))
     return wf
 """
     )

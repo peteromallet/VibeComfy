@@ -9,10 +9,19 @@ from typing import Any
 
 import pytest
 
+from vibecomfy._compile._graph import is_canonical_api_link
+from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import (
+    RawWidgetPayload,
+    VibeEdge,
+    VibeNode,
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowSource,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +140,139 @@ def test_numeric_from_output_resolves_directly() -> None:
     link = result["links"][0]
     assert link[2] == 0  # from_slot
     assert link[5] == "IMAGE"  # socket type from OutputSpec
+
+
+def test_emit_ui_json_rejects_embedded_api_link_without_edge() -> None:
+    wf = _wf("raw-link")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["1", 0]})
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["edge_collision"] == "none"
+
+
+def test_emit_ui_json_rejects_embedded_subgraph_boundary_link() -> None:
+    wf = _wf("boundary-link")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["-10", 0]})
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["embedded_source"] == ["-10", 0]
+
+
+@pytest.mark.parametrize(
+    ("edge", "expected_collision"),
+    [
+        (VibeEdge("1", "0", "2", "image"), "identical"),
+        (VibeEdge("3", "1", "2", "image"), "conflicting"),
+    ],
+)
+def test_emit_ui_json_rejects_embedded_api_link_edge_collision(
+    edge: VibeEdge, expected_collision: str
+) -> None:
+    wf = _wf("raw-link-collision")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["1", 0]})
+    wf.nodes["3"] = VibeNode("3", "OtherSource")
+    wf.edges.append(edge)
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["edge_collision"] == expected_collision
+
+
+def test_emit_ui_json_preserves_edge_only_connectivity() -> None:
+    wf = _wf("edge-only")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink")
+    wf.edges.append(VibeEdge("1", "0", "2", "image"))
+
+    result = emit_ui_json(wf)
+
+    assert result["links"] == [[1, 1, 0, 2, 0, ""]]
+    sink = next(node for node in result["nodes"] if node["id"] == 2)
+    assert sink["inputs"] == [{"name": "image", "type": "UNKNOWN", "link": 1}]
+
+
+def test_subgraph_boundary_connectivity_uses_edges_not_node_inputs() -> None:
+    subgraph = _build_subgraph_def(
+        {
+            "id": "sg-boundary",
+            "name": "Boundary",
+            "inputs": [{"name": "switch", "type": "BOOLEAN", "linkIds": [1]}],
+            "outputs": [{"name": "out", "type": "BOOLEAN"}],
+            "nodes": [
+                {
+                    "id": 10,
+                    "type": "LazySwitchKJ",
+                    "inputs": [
+                        {"name": "switch", "link": 1},
+                        {"name": "external", "link": 2},
+                    ],
+                    "outputs": [{"name": "out"}],
+                    "widgets_values": [],
+                }
+            ],
+            "links": [
+                {
+                    "id": 1,
+                    "origin_id": -10,
+                    "origin_slot": 0,
+                    "target_id": 10,
+                    "target_slot": 0,
+                    "type": "BOOLEAN",
+                },
+                {
+                    "id": 2,
+                    "origin_id": 99,
+                    "origin_slot": 0,
+                    "target_id": 10,
+                    "target_slot": 1,
+                    "type": "BOOLEAN",
+                },
+                {
+                    "id": 3,
+                    "origin_id": 10,
+                    "origin_slot": 0,
+                    "target_id": -20,
+                    "target_slot": 0,
+                    "type": "BOOLEAN",
+                },
+            ],
+        },
+        slug="boundary",
+        source_path=None,
+    )
+
+    assert all(
+        not is_canonical_api_link(value)
+        for node in subgraph.nodes.values()
+        for value in node.inputs.values()
+    )
+    assert subgraph.edges_in["10"] == [
+        VibeEdge("-10", "0", "10", "switch"),
+        VibeEdge("-10", "1", "10", "external"),
+    ]
+    assert subgraph.input_refs == {
+        ("10", "switch"): "switch",
+        ("10", "external"): "external",
+    }
+    source = "\n".join(
+        _emit_subgraph_functions(
+            {"subgraph_definitions": {subgraph.id: subgraph}},
+            diagnostics=[],
+            constant_map={},
+        )
+    )
+    assert "external=external" in source
+    assert "switch=switch" in source
 
 
 # ---------------------------------------------------------------------------

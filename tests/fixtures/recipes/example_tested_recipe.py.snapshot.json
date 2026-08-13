@@ -8,11 +8,11 @@
   "2": {
     "class_type": "SaveImage",
     "inputs": {
+      "filename_prefix": "out/example_tested",
       "images": [
         "1",
         0
-      ],
-      "filename_prefix": "out/example_tested"
+      ]
     }
   }
 }

@@ -314,9 +314,10 @@ def test_mode2_mute_compile_parity():
         n = VibeNode("1", "KSampler", inputs={"seed": 42, "steps": 20}, metadata=metadata)
         n.uid = "mute-node"
         wf.nodes["1"] = n
-        n2 = VibeNode("2", "SaveImage", inputs={"images": ["1", 0]}, metadata={})
+        n2 = VibeNode("2", "SaveImage", metadata={})
         n2.uid = "save-node"
         wf.nodes["2"] = n2
+        wf.edges.append(VibeEdge("1", "0", "2", "images"))
         return wf
 
     wf_normal = _build_wf_with_mode(None)

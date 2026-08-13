@@ -290,7 +290,6 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
         widgets: dict[str, Any] = {}
         for key, value in raw_inputs.items():
             if _is_any_link(value) and str(value[0]) == "-10":
-                static_inputs[str(key)] = value
                 continue
             if _is_any_link(value):
                 continue
@@ -321,6 +320,9 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
             if from_node == "-10":
                 if 0 <= from_slot < len(input_ports):
                     input_refs[(str(node_id), str(key))] = input_ports[from_slot].name
+                    edges_in.setdefault(str(node_id), []).append(
+                        _Edge(from_node, str(from_slot), str(node_id), str(key))
+                    )
             else:
                 if str(node_id) not in nodes:
                     continue
@@ -337,7 +339,9 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
                             external_ref=(from_node, from_slot),
                         )
                     )
-                    nodes[str(node_id)].inputs[str(key)] = ["-10", len(input_ports) - 1]
+                    edges_in.setdefault(str(node_id), []).append(
+                        _Edge("-10", str(len(input_ports) - 1), str(node_id), str(key))
+                    )
                     input_refs[(str(node_id), str(key))] = input_name
                     continue
                 edge = _Edge(from_node, str(from_slot), str(node_id), str(key))

@@ -26,6 +26,7 @@ def test_is_api_link_accepts_legacy_numeric_and_string_list_links() -> None:
 
 def test_canonical_api_link_requires_json_string_id_and_integer_slot() -> None:
     assert is_canonical_api_link(["1", 0])
+    assert is_canonical_api_link(["-10", 0])
     assert not is_canonical_api_link([1, 0])
     assert not is_canonical_api_link(["1", "0"])
     assert not is_canonical_api_link(["1", False])

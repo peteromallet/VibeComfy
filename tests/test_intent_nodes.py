@@ -23,7 +23,7 @@ from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import NodeSchema, schema_for
 from vibecomfy.schema.validate import sanitize_api_against_schema, validate_api_against_schema
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 def _metadata(properties: dict[str, object]) -> dict[str, object]:
@@ -790,11 +790,11 @@ def test_exec_node_survives_compile_api() -> None:
     workflow.nodes["10"] = VibeNode(
         "10",
         "vibecomfy.exec",
-        inputs={"in_0": ["20", 0], "source": "return 42"},
+        inputs={"source": "return 42"},
         widgets={"io": {}},
     )
     workflow.nodes["20"] = VibeNode("20", "CheckpointLoaderSimple", inputs={"ckpt_name": "model.safetensors"})
-    workflow.edges = []
+    workflow.edges.append(VibeEdge("20", "0", "10", "in_0"))
 
     compiled = workflow.compile("api")
 

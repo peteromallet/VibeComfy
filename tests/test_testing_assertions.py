@@ -18,7 +18,7 @@ from vibecomfy.workflow import VibeEdge, VibeNode
 def _basic_wf():
     wf = make_workflow_factory()(id="basic")
     wf.nodes["1"] = VibeNode(id="1", class_type="CheckpointLoaderSimple", inputs={"ckpt_name": "x.safetensors"})
-    wf.nodes["2"] = VibeNode(id="2", class_type="SaveImage", inputs={"images": ["1", 0], "filename_prefix": "out"})
+    wf.nodes["2"] = VibeNode(id="2", class_type="SaveImage", inputs={"filename_prefix": "out"})
     wf.edges.append(VibeEdge(from_node="1", from_output=0, to_node="2", to_input="images"))
     return wf
 
