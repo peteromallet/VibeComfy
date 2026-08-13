@@ -581,3 +581,217 @@ def test_persisted_agentic_summary_redacts_json_quoted_secrets(
         assert "sk-secret" not in preview
         assert "Basic dXNlcjpwYXNz" not in preview
         assert "tok-secret" not in preview
+
+
+# ── B07-lite: explicit transport selector plumbing ──────────────────────────
+
+
+def test_transport_flag_and_pinned_child_env_survive_subprocess_isolation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Sense-check 1+2: the explicit selector reaches the child command line and
+    the child environment is pinned so ambient credentials cannot win."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "transport.json"
+    scenario_path.write_text(
+        json.dumps({"id": "transport", "query": "do it"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("VIBECOMFY_FORCE_MODEL", "openrouter:deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-native-ambient")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        captured["cmd"] = list(cmd)
+        captured["env"] = dict(kwargs.get("env") or {})
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "transport", ok=True)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "transport")
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=0,
+        progress_every=0,
+        transport="native",
+    )
+
+    # CLI -> child: the selector is on the child command line.
+    assert captured["cmd"][captured["cmd"].index("--transport") + 1] == "native"
+    # Child environment: ambient transport-selecting keys are pinned away...
+    assert "VIBECOMFY_OPENROUTER_BASE_URL" not in captured["env"]
+    assert "VIBECOMFY_TRANSPORT" not in captured["env"]
+    assert "VIBECOMFY_FORCE_MODEL" not in captured["env"]
+    # ...but credential keys are preserved (they supply keys, not transport).
+    assert captured["env"]["OPENROUTER_API_KEY"] == "sk-or-ambient"
+    assert captured["env"]["DEEPSEEK_API_KEY"] == "sk-native-ambient"
+    # The run configuration records the selection.
+    assert summary["transport"] == "native"
+    assert summary["scenarios"][0]["transport"] == "native"
+    persisted = json.loads(
+        (tmp_path / "out" / "tag" / "run_summary.json").read_text(encoding="utf-8")
+    )
+    assert persisted["transport"] == "native"
+
+
+def test_transport_omitted_leaves_ambient_env_untouched_and_records_none(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "no-transport.json"
+    scenario_path.write_text(
+        json.dumps({"id": "no-transport", "query": "do it"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        captured["cmd"] = list(cmd)
+        captured["env"] = dict(kwargs.get("env") or {})
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "no-transport", ok=True)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "no-transport")
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=0,
+        progress_every=0,
+    )
+
+    assert "--transport" not in captured["cmd"]
+    # No explicit selector: the operator's deliberate pin passes through.
+    assert captured["env"]["VIBECOMFY_TRANSPORT"] == "native"
+    assert summary["transport"] is None
+    assert summary["scenarios"][0]["transport"] is None
+
+
+def test_observed_transport_provenance_passthrough_matches_selection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """B01 provenance is consumed verbatim: the runner never rewrites the
+    observed transport and never introduces a second metadata format."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "observed-transport.json"
+    scenario_path.write_text(
+        json.dumps({"id": "observed-transport", "query": "do it"}),
+        encoding="utf-8",
+    )
+
+    native_attempt = _failed_attempt("empty_response", completion_tokens=0)
+    native_attempt.update(
+        {
+            "provider": "deepseek",
+            "transport": "native",
+            "endpoint": "https://api.deepseek.com/v1",
+            "resolved_model": "deepseek-v4-pro",
+        }
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "observed-transport", ok=False)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "observed-transport")
+        payload["error"] = "empty response"
+        payload["model_attempts"] = [native_attempt]
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        per_scenario_timeout=1,
+        infra_retries=1,
+        progress_every=0,
+        transport="native",
+    )
+
+    scenario = summary["scenarios"][0]
+    # Observed B01 attempt provenance: transport/endpoint exactly as the child
+    # observed them — no rewriting, no parallel format.
+    observed = scenario["attempts"][0]["model_attempts"][0]
+    assert observed["transport"] == "native"
+    assert observed["endpoint"] == "https://api.deepseek.com/v1"
+    assert observed["failure_type"] == "empty_response"
+    assert scenario["failure_class"] == "infra_empty_response"
+    # Selection and observation agree.
+    assert scenario["transport"] == "native"
+    assert observed["transport"] == scenario["transport"]
+
+
+def test_run_single_forwards_transport_selector_to_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    from tests.live_agentic_harness.runner import run_single
+
+    scenario_path = tmp_path / "single.json"
+    scenario_path.write_text(
+        json.dumps({"id": "single", "query": "do it"}),
+        encoding="utf-8",
+    )
+    calls: dict = {}
+
+    def fake_headless(scenario, *, output_base, tag, transport=None):  # noqa: ANN001, ANN202, ARG001
+        calls["transport"] = transport
+        return {
+            "scenario_id": "single",
+            "status": "success",
+            "ok": True,
+            "output_dir": str(tmp_path / "out" / tag / "single"),
+            "deepseek_usage": {},
+            "model_attempts": [],
+        }
+
+    def fake_guard(output_dir, *, scenario=None):  # noqa: ANN001, ANN202, ARG001
+        return {
+            "live_agentic_success": True,
+            "score_class": "pass",
+            "assessment": {"passed": True, "issues": []},
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.adapter.run_headless_scenario", fake_headless
+    )
+    monkeypatch.setattr("tests.live_agentic_harness.guard.guard_output_dir", fake_guard)
+
+    summary = run_single(
+        str(scenario_path), "tag", tmp_path / "out", None, transport="openrouter"
+    )
+
+    assert calls["transport"] == "openrouter"
+    assert summary["transport"] == "openrouter"

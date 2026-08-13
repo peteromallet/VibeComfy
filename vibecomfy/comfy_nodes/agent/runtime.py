@@ -80,9 +80,28 @@ _MODEL_ATTEMPT_CAPTURE: contextvars.ContextVar[list[dict[str, Any]] | None] = co
 )
 
 _CANONICAL_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_NATIVE_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 _OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "2048"))
+
+# Environment keys that select transport/endpoint/model routing.  These may be
+# pinned explicitly by an operator or the live-agentic harness, but they must
+# never be hydrated from the ambient ~/.hermes/.env credential file: a stored
+# key is a credential, not a transport selector.  OPENROUTER_API_KEY /
+# DEEPSEEK_API_KEY are deliberately NOT listed.
+_TRANSPORT_SELECTING_ENV_KEYS = frozenset(
+    {
+        "VIBECOMFY_OPENROUTER_BASE_URL",
+        "VIBECOMFY_TRANSPORT",
+        "VIBECOMFY_OPENROUTER_MODEL",
+        "VIBECOMFY_FORCE_MODEL",
+        "VIBECOMFY_AGENT_MODEL",
+        "VIBECOMFY_HERMES_API_KEY",
+        "VIBECOMFY_ARNOLD_MODEL",
+        "VIBECOMFY_ARNOLD_BASE_URL",
+    }
+)
 
 # Arnold/Hermes (Claude etc.) default model when a non-browser-key route is used.
 _ARNOLD_MODEL = os.getenv("VIBECOMFY_ARNOLD_MODEL", "anthropic/claude-opus-4.6")
@@ -196,11 +215,16 @@ def _read_env_file(path: Path = _HERMES_ENV_PATH) -> dict[str, str]:
 def _load_env_file_into_environ(path: Path = _HERMES_ENV_PATH) -> None:
     """Best-effort: hydrate os.environ from ~/.hermes/.env without overwriting.
 
-    The browser credential route writes ``OPENROUTER_API_KEY=...`` here, so a
+    The browser credential route writes ``OPENROUTER_API_KEY=*** here, so a
     ComfyUI process started without the key in its environment still picks it up.
+
+    Credentials hydrate; transport-selecting keys never do.  A value stored in
+    the credential file is a key, not a transport decision — the explicit
+    ``VIBECOMFY_TRANSPORT`` / base-URL pin (or the canonical default) is the
+    only authority, so an ambient file cannot silently switch transports.
     """
     for key, value in _read_env_file(path).items():
-        if key and key not in os.environ:
+        if key and key not in os.environ and key not in _TRANSPORT_SELECTING_ENV_KEYS:
             os.environ[key] = value
 
 
@@ -214,7 +238,12 @@ def _resolve_openrouter_key() -> str | None:
     # exist; prefer the OpenRouter-shaped key over stale generic sk-* entries.
     file_values = _read_env_file()
     for key, value in file_values.items():
-        if key and value and key not in os.environ:
+        if (
+            key
+            and value
+            and key not in os.environ
+            and key not in _TRANSPORT_SELECTING_ENV_KEYS
+        ):
             os.environ[key] = value
     file_keys = [
         value.strip()
@@ -410,18 +439,51 @@ def _normalize_native_deepseek_model(model: str) -> str:
     return stripped
 
 
+def _explicit_transport() -> str | None:
+    """Return the explicit ``VIBECOMFY_TRANSPORT`` pin, or ``None``.
+
+    Only an explicit pin (set by the live-agentic harness selector or by an
+    operator) is honored.  Ambience — inherited base URLs, stored credentials,
+    credential presence — never selects transport.
+    """
+    value = os.getenv("VIBECOMFY_TRANSPORT", "").strip().lower()
+    if value in {"openrouter", "native"}:
+        return value
+    return None
+
+
 def _base_url_for_route(route: str | None) -> str:
-    """Pin explicit OpenRouter turns to OpenRouter's canonical API endpoint."""
+    """Resolve the hermes endpoint from the explicit transport pin first.
+
+    An explicit ``VIBECOMFY_TRANSPORT`` pin is AUTHORITATIVE: when set, every
+    profile phase resolves to the pinned transport's endpoint.  The route-level
+    OpenRouter default applies only when no pin is set, so a route contract can
+    never displace an explicit selection (and ambient credentials/base URLs can
+    never silently switch an operator's pinned transport).
+    """
+    transport = _explicit_transport()
+    if transport == "native":
+        return _NATIVE_DEEPSEEK_BASE_URL
+    if transport == "openrouter":
+        return _CANONICAL_OPENROUTER_BASE_URL
     if (route or "").strip().lower() == "openrouter":
         return _CANONICAL_OPENROUTER_BASE_URL
     return _OPENROUTER_BASE_URL
 
 
 def _is_native_deepseek_endpoint(base_url: str | None = None) -> bool:
+    if _explicit_transport() == "native":
+        return True
     return "deepseek.com" in (base_url or _OPENROUTER_BASE_URL or "").lower()
 
 
 def _hermes_credential_for(route: str | None, model: str | None) -> str | None:
+    # A pinned native transport is authoritative over the route-level OpenRouter
+    # default: prefer DEEPSEEK_API_KEY directly so a stale OpenRouter ``sk-or-*``
+    # pool key can't win — _resolve_openrouter_key() force-prefers any sk-or-*
+    # entry it finds in ~/.hermes/.env.
+    if _explicit_transport() == "native" and os.getenv("DEEPSEEK_API_KEY"):
+        return os.getenv("DEEPSEEK_API_KEY")
     if (route or "").strip().lower() == "openrouter":
         return _resolve_openrouter_key()
     # Explicit per-process override (e.g. pointing the hermes backend at a

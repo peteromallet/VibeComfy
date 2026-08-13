@@ -869,7 +869,14 @@ def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
             browser_api_key_allowed=False,
             guidance=_ARNOLD_GUIDANCE,
         )
-    if requested in {"openrouter", "deepseek"}:
+    if requested in {"openrouter", "deepseek", "hermes"}:
+        # ``hermes`` is the profile agent for the default executor profile; it
+        # is the Hermes adapter configured for an OpenRouter-shaped backend and
+        # normalizes exactly like the runtime's ``_normalize_route("hermes")``.
+        # Keeping its normalized route OpenRouter means readiness/metadata are
+        # truthful, while ``_runtime_dispatch_route`` still preserves the
+        # ``hermes`` spelling so an explicit VIBECOMFY_TRANSPORT pin (native /
+        # openrouter) controls the actual endpoint.
         return AgentRouteDescriptor(
             requested_route=requested,
             normalized_route="openrouter",
@@ -938,8 +945,11 @@ def _runtime_dispatch_route(route_descriptor: AgentRouteDescriptor, selected_rou
     # is the transport contract that pins endpoint and credential resolution.
     if requested == "openrouter":
         return "openrouter"
-    if requested == "deepseek":
-        return "deepseek"
+    if requested in {"deepseek", "hermes"}:
+        # Preserve the spelling so the runtime's transport pin (VIBECOMFY_TRANSPORT
+        # or the configured base URL) — not the normalized route — decides the
+        # endpoint for these hermes-backed routes.
+        return requested
     return selected_route
 
 

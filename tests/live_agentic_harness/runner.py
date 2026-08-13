@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -34,12 +35,34 @@ from .failure_analysis import (
     recommendations_for_run,
 )
 from .scenario_manifest import discover_manifest_scenarios
+from .adapter import _TRANSPORT_SELECTING_ENV_KEYS
 
 DEFAULT_MAX_WORKERS = 12
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 REPO = Path(__file__).resolve().parents[2]
+
+
+def _pinned_child_env(transport: str | None) -> dict[str, str]:
+    """Return the child environment with transport-selecting keys pinned.
+
+    With an explicit ``--transport`` the child must not inherit ANY ambient
+    transport-selecting variable (base URL, model force-overs, endpoint pins):
+    the explicit selector is the only authority and the adapter re-establishes
+    the pinned values from it.  Credential keys (OPENROUTER_API_KEY /
+    DEEPSEEK_API_KEY) are preserved — they supply keys, they do not select
+    transport.  Without an explicit selector the parent environment is passed
+    through untouched so an operator's deliberate ``VIBECOMFY_TRANSPORT`` pin
+    still applies.
+    """
+    if transport is None:
+        return dict(os.environ)
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key not in _TRANSPORT_SELECTING_ENV_KEYS
+    }
 
 def _scenario_paths(
     scenarios_dir: Path,
@@ -328,6 +351,7 @@ def _build_run_summary(
     *,
     total_scenarios: int,
     complete: bool,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     passed = sum(1 for summary in summaries if summary["guard"].get("live_agentic_success") is True)
     failed = len(summaries) - passed
@@ -361,6 +385,7 @@ def _build_run_summary(
     )
     return {
         "tag": tag,
+        "transport": transport,
         "scenario_count": len(summaries),
         "total_scenarios": total_scenarios,
         "completed": len(summaries),
@@ -390,6 +415,7 @@ def _persist_run_summary(
     *,
     total_scenarios: int,
     complete: bool,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     summaries = [r for r in results if r]
     summary = _build_run_summary(
@@ -397,6 +423,7 @@ def _persist_run_summary(
         summaries,
         total_scenarios=total_scenarios,
         complete=complete,
+        transport=transport,
     )
     run_dir = _run_dir_for(output_base, tag)
     if complete:
@@ -463,7 +490,13 @@ def _run_failure_analysis_from_summary(
     return result
 
 
-def run_single(scenario_path: str, tag: str, output_base: Any, out_file: Path | None) -> dict[str, Any]:
+def run_single(
+    scenario_path: str,
+    tag: str,
+    output_base: Any,
+    out_file: Path | None,
+    transport: str | None = None,
+) -> dict[str, Any]:
     """Run ONE scenario in-process; write its summary JSON to *out_file* if given.
 
     This is the entry point invoked by the per-scenario subprocess in parallel mode.
@@ -474,7 +507,10 @@ def run_single(scenario_path: str, tag: str, output_base: Any, out_file: Path | 
     path = Path(scenario_path)
     scenario = _load_scenario(path)
     scenario.setdefault("id", path.stem)
-    summary = run_headless_scenario(scenario, output_base=output_base, tag=tag)
+    summary = run_headless_scenario(
+        scenario, output_base=output_base, tag=tag, transport=transport
+    )
+    summary.setdefault("transport", transport)
     summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
@@ -494,9 +530,16 @@ def run_tag(
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     infra_retries: int = DEFAULT_INFRA_RETRIES,
     manifest_path: Path | None = None,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     """Run every scenario under *scenarios_dir* CONCURRENTLY — each in its own
-    subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*."""
+    subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*.
+
+    *transport* (``"openrouter"`` / ``"native"`` / ``None``) is forwarded
+    explicitly onto every child command line and the child environment is
+    pinned against ambient transport-selecting variables, so the selector
+    survives subprocess isolation into every profile phase.
+    """
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
     paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
@@ -508,6 +551,7 @@ def run_tag(
         def record_result(idx: int, summary: dict[str, Any]) -> None:
             results[idx] = summary
             results[idx].setdefault("scenario_id", paths[idx].stem)
+            results[idx].setdefault("transport", transport)
             _persist_scenario_summary(results[idx], output_base, tag)
             with lock:
                 completed = sum(1 for r in results if r)
@@ -517,6 +561,7 @@ def run_tag(
                     output_base,
                     total_scenarios=len(paths),
                     complete=False,
+                    transport=transport,
                 )
                 if progress_every > 0 and (
                     completed == len(paths) or completed % progress_every == 0
@@ -548,11 +593,14 @@ def run_tag(
                     ]
                     if output_base is not None:
                         cmd += ["--output-base", str(output_base)]
+                    if transport is not None:
+                        cmd += ["--transport", transport]
+                    child_env = _pinned_child_env(transport)
                     started = time.monotonic()
                     try:
                         proc = subprocess.run(
                             cmd, cwd=str(REPO), capture_output=True, text=True,
-                            timeout=per_scenario_timeout,
+                            timeout=per_scenario_timeout, env=child_env,
                         )
                         elapsed_s = time.monotonic() - started
                         if out_file.exists():
@@ -668,6 +716,7 @@ def run_tag(
         output_base,
         total_scenarios=len(paths),
         complete=True,
+        transport=transport,
     )
 
 
@@ -726,6 +775,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "retry subprocess-level infrastructure failures this many times "
             f"(default {DEFAULT_INFRA_RETRIES}; semantic guard failures are not retried)"
+        ),
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("openrouter", "native"),
+        default=None,
+        help=(
+            "Explicit model-call transport for every profile phase "
+            "(classify/research/implement/reply). When set, ambient "
+            "credentials/base URLs can never select the transport; the child "
+            "environment is pinned and this flag is forwarded to every "
+            "subprocess. Default: the deterministic harness default (native), "
+            "never an ambient credential."
         ),
     )
     parser.add_argument(
@@ -825,7 +887,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.single:
         out_file = Path(args.single_out) if args.single_out else None
         ob = Path(args.output_base) if args.output_base else None
-        summary = run_single(args.single, args.tag, ob, out_file)
+        summary = run_single(args.single, args.tag, ob, out_file, transport=args.transport)
         # Compact one-line stdout for liveness; the real payload is in --single-out.
         print(json.dumps({"scenario_id": summary.get("scenario_id"),
                           "ok": summary["guard"]["live_agentic_success"]}))
@@ -841,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         progress_every=args.progress_every,
         infra_retries=args.infra_retries,
         manifest_path=Path(args.manifest) if args.manifest else None,
+        transport=args.transport,
     )
     if args.prepare_failure_analysis or args.analyze_failures or args.recommend_fixes:
         run_summary_path = _run_dir_for(output_base, summary["tag"]) / "run_summary.json"
