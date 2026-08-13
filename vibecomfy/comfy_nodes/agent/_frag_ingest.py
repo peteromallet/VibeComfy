@@ -78,13 +78,16 @@ def _stale_rebaseline_recovery_issue(
 
 
 def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import convert_to_vibe_format, from_ui
     from vibecomfy.porting.layout_store import store_from_ui_json
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
     original_ui_ref = write_json_artifact(state.original_ui_path, state.graph)
-    state.workflow = convert_to_vibe_format(state.graph, schema_provider=state.schema_provider)
+    if isinstance(state.graph.get("nodes"), list):
+        state.workflow = from_ui(state.graph, schema_provider=state.schema_provider)
+    else:
+        state.workflow = convert_to_vibe_format(state.graph, schema_provider=state.schema_provider)
     state.prior_store = store_from_ui_json(state.graph)
     # Phase 1 (concrete-tree migration, docs/agent-edit/concrete-tree.md): give the
     # user's original graph stable identity so the delta-scope guard (guard_emit)

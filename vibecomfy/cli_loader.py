@@ -4,7 +4,7 @@ from pathlib import Path
 
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape, normalize_to_api
+from vibecomfy.ingest.normalize import _named_import
 from vibecomfy.registry.ready import ready_template_ids, workflow_from_ready
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import VibeWorkflow
@@ -35,12 +35,7 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
 
         schema_provider = get_schema_provider("auto")
         raw = load_workflow_json(path)
-        if detect_workflow_shape(raw) == "vibe":
-            # Serialized rich Vibe envelope: decode it directly and losslessly.
-            # Do not compile-then-reingest — that throws the rich node set away.
-            return convert_to_vibe_format(raw, source_path=path, schema_provider=schema_provider)
-        api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
-        return convert_to_vibe_format(api, source_path=path, schema_provider=schema_provider)
+        return _named_import(raw, source_path=path, schema_provider=schema_provider)
     raise FileNotFoundError(path)
 
 

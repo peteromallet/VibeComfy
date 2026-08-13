@@ -39,6 +39,13 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
+    """Private dispatcher helper. Not part of the public ingest API.
+
+    Callers that know their input should use :func:`from_envelope`,
+    :func:`from_ui`, or :func:`from_api`. This remains for
+    :func:`convert_to_vibe_format`, :func:`normalize_to_api`, and a few
+    internal tags that still need a shape label.
+    """
     if "prompt" in raw and isinstance(raw["prompt"], dict):
         return detect_workflow_shape(raw["prompt"])
     # ``compiled_api`` is optional execution evidence.  A versioned rich
@@ -91,7 +98,22 @@ def normalize_to_api(
         return api
     if shape != "ui":
         raise ValueError(f"Unsupported workflow shape: {shape}")
+    return _ui_graph_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
 
+
+def _ui_graph_to_api(
+    raw: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> dict[str, Any]:
+    """LiteGraph list-nodes → Comfy prompt dict. Does not sniff shape."""
     if use_comfy_converter:
         try:
             from comfy.component_model.workflow_convert import convert_ui_to_api
@@ -106,7 +128,7 @@ def normalize_to_api(
                     "normalize_to_api(): live ComfyUI compatibility check failed "
                     f"({compatibility.reason_code}); falling back to the offline "
                     "normalizer because comfy_converter_strict=False.",
-                    stacklevel=2,
+                    stacklevel=3,
                 )
                 return _normalize_ui_to_api(raw, schema_provider=schema_provider)
             try:
@@ -118,7 +140,7 @@ def normalize_to_api(
                     "normalize_to_api(): ComfyUI convert_ui_to_api raised; "
                     "falling back to the offline normalizer because "
                     "comfy_converter_strict=False.",
-                    stacklevel=2,
+                    stacklevel=3,
                 )
             else:
                 _enforce_exec_source_limits(converted, surface="ui.converter")
@@ -667,15 +689,50 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     return workflow
 
 
-def convert_to_vibe_format(
+def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
+    """Fail-closed lossless decode of a serialized Vibe envelope.
+
+    The rich ``nodes`` mapping and ``edges`` list are the only structural
+    authority. ``compiled_api`` is ignored. Same decoder as
+    :meth:`VibeWorkflow.from_envelope`.
+    """
+    return VibeWorkflow.from_envelope(raw)
+
+
+def from_ui(
+    raw: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> VibeWorkflow:
+    """Ingest a LiteGraph list-nodes graph into a :class:`VibeWorkflow`."""
+    api = _ui_graph_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
+    return from_api(
+        api,
+        source_path=source_path,
+        workflow_id=workflow_id,
+        schema_provider=schema_provider,
+    )
+
+
+def from_api(
     api_workflow: dict[str, Any],
     *,
     source_path: str | None = None,
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
+    """Ingest a Comfy prompt dict into a :class:`VibeWorkflow`."""
     with untrusted_scope():
-        return _convert_to_vibe_format_impl(
+        return _from_api_impl(
             api_workflow,
             source_path=source_path,
             workflow_id=workflow_id,
@@ -683,33 +740,95 @@ def convert_to_vibe_format(
         )
 
 
-def _convert_to_vibe_format_impl(
+def _is_vibe_envelope(raw: dict[str, Any]) -> bool:
+    """True when *raw* is a versioned (or compiled_api-bearing) rich envelope."""
+    return isinstance(raw.get("nodes"), dict) and (
+        "vibecomfy_format_version" in raw
+        or isinstance(raw.get("compiled_api"), dict)
+    )
+
+
+def _named_import(
+    raw: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> VibeWorkflow:
+    """Happy-path import: envelope, then UI, then API. Never ``compile()`` to reach IR."""
+    if _is_vibe_envelope(raw):
+        return from_envelope(raw)
+    if isinstance(raw.get("nodes"), list):
+        return from_ui(
+            raw,
+            source_path=source_path,
+            workflow_id=workflow_id,
+            schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
+            comfy_converter_strict=comfy_converter_strict,
+        )
+    api = normalize_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
+    return from_api(
+        api,
+        source_path=source_path,
+        workflow_id=workflow_id,
+        schema_provider=schema_provider,
+    )
+
+
+def convert_to_vibe_format(
     api_workflow: dict[str, Any],
     *,
     source_path: str | None = None,
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
-    """Ingest a raw workflow dict (api/ui/vibe shapes) into a ``VibeWorkflow``.
+    """Deprecated dispatcher around :func:`from_envelope`, :func:`from_ui`, and :func:`from_api`.
 
-    Serialized rich Vibe envelopes (shape ``"vibe"``) are decoded directly and
-    losslessly by :meth:`VibeWorkflow.from_envelope` — the rich ``nodes``
-    mapping is the only authority for which nodes exist.  API and UI shapes
-    keep the existing compile-path ingest (``normalize_to_api`` → node
-    extraction).
+    Prefer the named importer that matches the input. This helper still sniffs
+    via the private :func:`detect_workflow_shape` so existing callers keep
+    today's ui/api/vibe behavior.
     """
-    if detect_workflow_shape(api_workflow) == "vibe":
-        # Serialized rich Vibe envelope: decode it directly and losslessly. The
-        # rich ``nodes`` mapping is the only authority for which nodes exist;
-        # ``compiled_api`` (and the api-derived path below) is never consulted
-        # for the rich node set.
-        return VibeWorkflow.from_envelope(api_workflow)
-    if detect_workflow_shape(api_workflow) != "api":
-        api_workflow = normalize_to_api(
+    with untrusted_scope():
+        shape = detect_workflow_shape(api_workflow)
+        if shape == "vibe":
+            return from_envelope(api_workflow)
+        if shape == "ui":
+            return from_ui(
+                api_workflow,
+                source_path=source_path,
+                workflow_id=workflow_id,
+                schema_provider=schema_provider,
+            )
+        if shape != "api":
+            api_workflow = normalize_to_api(
+                api_workflow,
+                schema_provider=schema_provider,
+                comfy_converter_strict=True,
+            )
+        return _from_api_impl(
             api_workflow,
+            source_path=source_path,
+            workflow_id=workflow_id,
             schema_provider=schema_provider,
-            comfy_converter_strict=True,
         )
+
+
+def _from_api_impl(
+    api_workflow: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+) -> VibeWorkflow:
+    """Ingest a Comfy prompt dict. Caller holds :func:`untrusted_scope`."""
     _enforce_exec_source_limits(api_workflow, surface="api.ingest")
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),

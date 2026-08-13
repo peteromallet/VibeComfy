@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape, normalize_to_api
+from vibecomfy.ingest.normalize import _named_import
 from vibecomfy.workflow import VibeWorkflow
 
 if TYPE_CHECKING:
@@ -20,12 +20,7 @@ from vibecomfy.scratchpad_loader import load_scratchpad
 
 def workflow_from_file(path: str, *, schema_provider: SchemaProvider | None = None) -> VibeWorkflow:
     raw = load_workflow_json(path)
-    if detect_workflow_shape(raw) == "vibe":
-        # Serialized rich Vibe envelope: decode directly and losslessly. Do not
-        # compile-then-reingest — that throws the rich node set away.
-        return convert_to_vibe_format(raw, source_path=path, schema_provider=schema_provider)
-    api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
-    return convert_to_vibe_format(api, source_path=path, schema_provider=schema_provider)
+    return _named_import(raw, source_path=path, schema_provider=schema_provider)
 
 
 def workflow_from_id(workflow_id: str, *, schema_provider: SchemaProvider | None = None) -> VibeWorkflow:
@@ -50,17 +45,12 @@ def workflow_from_id(workflow_id: str, *, schema_provider: SchemaProvider | None
     if not match:
         raise KeyError(f"Workflow not found: {workflow_id}")
     raw = load_workflow_json(match["path"])
-    if detect_workflow_shape(raw) == "vibe":
-        # Serialized rich Vibe envelope: decode directly and losslessly. Do not
-        # compile-then-reingest — that throws the rich node set away.
-        return convert_to_vibe_format(
-            raw,
-            source_path=match["path"],
-            workflow_id=match["id"],
-            schema_provider=schema_provider,
-        )
-    api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
-    return convert_to_vibe_format(api, source_path=match["path"], workflow_id=match["id"], schema_provider=schema_provider)
+    return _named_import(
+        raw,
+        source_path=match["path"],
+        workflow_id=match["id"],
+        schema_provider=schema_provider,
+    )
 
 
 workflow_from_template = workflow_from_id  # back-compat alias documented by the agent skill.

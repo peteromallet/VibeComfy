@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import convert_to_vibe_format, from_api, from_ui, normalize_to_api
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
@@ -1007,3 +1007,36 @@ def test_named_from_envelope_preserves_90a1d5() -> None:
     assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
     assert len(wf.compile("api")) == 2
     assert set(wf.compile("api")) == {"3", "17"}
+
+
+def _ir_projection(workflow) -> dict:
+    return {
+        "ids": sorted(workflow.nodes),
+        "classes": {nid: node.class_type for nid, node in workflow.nodes.items()},
+        "uids": {nid: node.uid for nid, node in workflow.nodes.items()},
+        "inputs": {nid: node.inputs for nid, node in workflow.nodes.items()},
+        "widgets": {nid: node.widgets for nid, node in workflow.nodes.items()},
+        "edges": [
+            (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+            for edge in workflow.edges
+        ],
+    }
+
+
+def test_from_ui_matches_convert_on_ui_fixture() -> None:
+    raw = json.loads(
+        (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert _ir_projection(from_ui(raw)) == _ir_projection(convert_to_vibe_format(raw))
+
+
+def test_from_api_matches_convert_on_api_from_ui_fixture() -> None:
+    raw = json.loads(
+        (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    api = normalize_to_api(raw, use_comfy_converter=False)
+    assert _ir_projection(from_api(api)) == _ir_projection(convert_to_vibe_format(api))
