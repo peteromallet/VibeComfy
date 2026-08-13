@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 
 _PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "text_judge.prompt.md"
+_REFUSAL_PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "refusal_judge.prompt.md"
 
 
 def _load_prompt() -> str:
@@ -39,10 +40,39 @@ def _load_prompt() -> str:
     )
 
 
-def _parse_verdict(raw: str) -> dict[str, Any]:
-    """Parse the judge's JSON response into a normalized dict."""
-    text = raw.strip()
-    # Some models wrap JSON in markdown fences; strip them.
+def _load_refusal_prompt() -> str:
+    if _REFUSAL_PROMPT_PATH.is_file():
+        return _REFUSAL_PROMPT_PATH.read_text(encoding="utf-8")
+    # Fallback rubric if the canonical prompt is missing.
+    return (
+        "You are a precise evaluator for ComfyUI workflow edits. A model was asked\n"
+        "to perform an edit but refused and left the workflow graph unchanged, citing\n"
+        "a reason. You must determine whether that refusal is GROUNDED (the model\n"
+        "could not honestly satisfy the intent) or fabricated/unsupported (the model\n"
+        "dodged an edit it could have made).\n\n"
+        "Evaluate the refusal against exactly four binary criteria:\n"
+        "- supported_blocker: the refusal cites a real, supported blocker (for\n"
+        "  example, a node class genuinely absent from the installed schema, or a\n"
+        "  genuine ambiguity in the request) rather than a made-up constraint.\n"
+        "- no_representable_edit: no representable edit to the given workflow could\n"
+        "  satisfy the intent, so refusing was the only honest option.\n"
+        "- specific_next_action: the refusal states a concrete next action that\n"
+        "  would unblock the edit (for example, installing a named custom node, or\n"
+        "  answering a named clarifying question).\n"
+        "- no_fabricated_inability: the refusal does not falsely claim an inability\n"
+        "  (for example, claiming a node is unavailable when the schema contains it,\n"
+        "  or claiming the request is ambiguous when it is concrete).\n\n"
+        "Respond with a JSON object and nothing else:\n"
+        '{"pass_": true | false, "criteria": {"supported_blocker": true | false, '
+        '"no_representable_edit": true | false, "specific_next_action": true | false, '
+        '"no_fabricated_inability": true | false}, "rationale": "<one or two sentences>"}\n'
+        "`pass_` must be true if and only if all four criteria are true."
+    )
+
+
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown fences some models wrap JSON responses in."""
+    text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
         if lines[0].startswith("```"):
@@ -50,13 +80,35 @@ def _parse_verdict(raw: str) -> dict[str, Any]:
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
-    parsed = json.loads(text)
+    return text
+
+
+def _parse_verdict(raw: str) -> dict[str, Any]:
+    """Parse the judge's JSON response into a normalized dict."""
+    parsed = json.loads(_strip_code_fences(raw))
     criteria = parsed.get("criteria") or {}
     normalized_criteria = {
         "correct_node_targeted": bool(criteria.get("correct_node_targeted")),
         "correct_parameter_changed": bool(criteria.get("correct_parameter_changed")),
         "value_semantically_matches_intent": bool(criteria.get("value_semantically_matches_intent")),
         "no_orphaned_wiring": bool(criteria.get("no_orphaned_wiring")),
+    }
+    return {
+        "pass_": bool(parsed.get("pass_")),
+        "criteria": normalized_criteria,
+        "rationale": str(parsed.get("rationale", "")),
+    }
+
+
+def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
+    """Parse the grounded-refusal judge's JSON response into a normalized dict."""
+    parsed = json.loads(_strip_code_fences(raw))
+    criteria = parsed.get("criteria") or {}
+    normalized_criteria = {
+        "supported_blocker": bool(criteria.get("supported_blocker")),
+        "no_representable_edit": bool(criteria.get("no_representable_edit")),
+        "specific_next_action": bool(criteria.get("specific_next_action")),
+        "no_fabricated_inability": bool(criteria.get("no_fabricated_inability")),
     }
     return {
         "pass_": bool(parsed.get("pass_")),
@@ -360,6 +412,107 @@ def judge_edit_intent(
 
     try:
         verdict = _parse_verdict(raw)
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        return {
+            "pass_": None,
+            "error": f"could not parse judge response: {exc}",
+            "raw": raw[:500],
+        }
+
+    verdict["metadata"] = {
+        "route": route,
+        "model": model,
+        "elapsed_ms": response.get("_profiling", {}).get("elapsed_ms"),
+    }
+    return verdict
+
+
+def judge_grounded_refusal(
+    output_dir: Path | str,
+    scenario: Mapping[str, Any],
+    *,
+    route: str = "deepseek",
+    model: str = "deepseek-v4-pro",
+) -> dict[str, Any]:
+    """Run the DeepSeek grounded-refusal judge for a desired edit scenario.
+
+    A desired edit may pass on an allowlisted refusal label ONLY when this judge
+    confirms the refusal is grounded: the cited blocker is real and supported,
+    no representable edit could satisfy the intent, the refusal states a
+    specific next action, and it does not fabricate an inability.
+
+    Returns a dict with ``pass_``, ``criteria``, ``rationale``, and ``metadata``.
+    If required artifacts are missing or the model call fails, ``pass_`` is None
+    and ``error`` describes why — callers MUST fail closed on that outcome.
+    """
+    output_dir = Path(output_dir)
+    query = str(scenario.get("query", "")).strip()
+    if not query:
+        return {"pass_": None, "error": "scenario has no query"}
+
+    # The refusal envelope is read from the run's response.json: outcome kind,
+    # message, gates, route, evidence.  Only the structured envelope is scored;
+    # prose never gates.
+    response_path = output_dir / "response.json"
+    refusal: dict[str, Any] = {}
+    if response_path.is_file():
+        try:
+            response = json.loads(response_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            response = None
+        if isinstance(response, Mapping):
+            refusal = {
+                "outcome": response.get("outcome"),
+                "message": response.get("message"),
+                "no_candidate_reason": response.get("no_candidate_reason"),
+                "route": response.get("route"),
+                "gates": response.get("gates"),
+                "evidence": response.get("evidence"),
+                "graph_unchanged": response.get("graph_unchanged"),
+            }
+    if not isinstance(refusal.get("outcome"), Mapping):
+        return {"pass_": None, "error": "response.json is missing a refusal outcome"}
+
+    system_prompt = _load_refusal_prompt()
+    implementation_payload = _load_implementation_payload(output_dir)
+    schema_context = _schema_context_from_payload(implementation_payload) or {}
+    if schema_context:
+        system_prompt = (
+            system_prompt.rstrip()
+            + "\n\n## Schema evidence\n"
+            "When schema_context is provided, use it to verify whether a cited "
+            "blocker is real. A 'requires_custom_nodes' refusal is fabricated if "
+            "the needed node class actually exists in compiled_api. Do not guess "
+            "from node names when compiled_api is available."
+        )
+    desired = scenario.get("desired")
+    payload: dict[str, Any] = {"nl_intent": query, "refusal": refusal}
+    if desired:
+        payload["desired_outcome"] = desired
+    if schema_context:
+        payload["schema_context"] = schema_context
+    user_content = json.dumps(payload, indent=2)
+
+    try:
+        response = run_model_turn(
+            "evaluate whether a workflow-edit refusal is grounded",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            route=route,
+            model=model,
+            response_contract="json",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"pass_": None, "error": f"model call failed: {exc}"}
+
+    raw = response.get("content") or ""
+    if not raw:
+        return {"pass_": None, "error": "model returned empty content"}
+
+    try:
+        verdict = _parse_refusal_verdict(raw)
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return {
             "pass_": None,

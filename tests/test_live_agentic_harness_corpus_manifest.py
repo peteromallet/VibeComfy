@@ -75,8 +75,16 @@ def test_d13_no_change_reconciliation_and_rubric_contract() -> None:
 
     desired_edits = [s for s in scenarios if s.get("desired")]
     assert desired_edits
-    assert all(s["assessment"]["expect_graph_changed"] is True for s in desired_edits)
-    assert all(not s["assessment"].get("skip_intent_judge") for s in desired_edits)
+    for scenario in desired_edits:
+        assessment = scenario["assessment"]
+        # A desired edit is an active acceptance rubric: it must expect a graph
+        # change and must never be configured so a refusal can skip the judge.
+        assert assessment["expect_graph_changed"] is True, scenario["id"]
+        # skip_intent_judge would let an allowlisted refusal bypass ALL judging
+        # (both the edit-intent judge and the grounded-refusal gate) — invalid.
+        assert assessment.get("skip_intent_judge") is not True, (
+            f"{scenario['id']}: skip_intent_judge would let a refusal skip the judge"
+        )
 
 
 def test_runner_rejects_unmanifested_descriptor_before_execution(tmp_path: Path) -> None:

@@ -26,7 +26,7 @@ from typing import Any, Mapping
 
 from vibecomfy.executor.graph_facts import GraphFieldTarget, compare_effective_field
 
-from .intent_judge import judge_edit_intent
+from .intent_judge import judge_edit_intent, judge_grounded_refusal
 
 _ERROR_SEVERITIES = {"error", "fatal"}
 
@@ -809,44 +809,90 @@ def assess_live_output_dir(
         # LLM intent judge: score the candidate edit against the query when the
         # scenario expects a graph change.  This runs by default; set
         # ``assessment.skip_intent_judge: true`` in the scenario to disable it.
+        # A DESIRED edit must never pass on an allowlisted refusal label
+        # without an active grounded-refusal judge: the judge runs and must
+        # confirm the refusal is grounded (supported blocker, no representable
+        # edit, specific next action, no fabricated inability), and it FAILS
+        # CLOSED when the judge is unavailable.  graph_unchanged=false plus a
+        # refusal label is never a safe refusal (safe_refusal_accepted requires
+        # graph_unchanged=true), so it is still scored by the structural guards
+        # and — for desired scenarios — fails closed without a judge verdict.
+        # Non-desired edit-or-refuse scenarios keep the historical bypass.
         if (
             expect_graph_changed
-            and not safe_refusal_accepted
             and not scenario.get("assessment", {}).get("skip_intent_judge")
         ):
-            verdict = judge_edit_intent(output_dir, scenario)
-            if verdict.get("pass_") is False:
-                issues.append(
-                    {
-                        "check": "intent_judge",
-                        "severity": "error",
-                        "detail": (
-                            f"LLM intent judge failed: {verdict.get('rationale', 'no rationale')} "
-                            f"criteria={verdict.get('criteria')}"
-                        ),
-                    }
-                )
-            elif verdict.get("pass_") is True:
-                issues.append(
-                    {
-                        "check": "intent_judge",
-                        "severity": "info",
-                        "detail": (
-                            f"LLM intent judge passed: {verdict.get('rationale', 'no rationale')} "
-                            f"criteria={verdict.get('criteria')}"
-                        ),
-                    }
-                )
-            else:
-                issues.append(
-                    {
-                        "check": "intent_judge",
-                        # A desired block is an active acceptance rubric, not
-                        # optional context. Fail closed if its judge is absent.
-                        "severity": "error" if scenario.get("desired") else "warning",
-                        "detail": f"LLM intent judge could not run: {verdict.get('error')}",
-                    }
-                )
+            if safe_refusal_accepted and scenario.get("desired"):
+                verdict = judge_grounded_refusal(output_dir, scenario)
+                if verdict.get("pass_") is False:
+                    issues.append(
+                        {
+                            "check": "grounded_refusal",
+                            "severity": "error",
+                            "detail": (
+                                f"Refusal not grounded: {verdict.get('rationale', 'no rationale')} "
+                                f"criteria={verdict.get('criteria')}"
+                            ),
+                        }
+                    )
+                elif verdict.get("pass_") is True:
+                    issues.append(
+                        {
+                            "check": "grounded_refusal",
+                            "severity": "info",
+                            "detail": (
+                                f"Grounded refusal confirmed: {verdict.get('rationale', 'no rationale')} "
+                                f"criteria={verdict.get('criteria')}"
+                            ),
+                        }
+                    )
+                else:
+                    issues.append(
+                        {
+                            "check": "grounded_refusal",
+                            # A desired block is an active acceptance rubric;
+                            # an absent grounded-refusal judge fails closed.
+                            "severity": "error",
+                            "detail": (
+                                "Grounded-refusal judge could not run: "
+                                f"{verdict.get('error')}"
+                            ),
+                        }
+                    )
+            elif not safe_refusal_accepted:
+                verdict = judge_edit_intent(output_dir, scenario)
+                if verdict.get("pass_") is False:
+                    issues.append(
+                        {
+                            "check": "intent_judge",
+                            "severity": "error",
+                            "detail": (
+                                f"LLM intent judge failed: {verdict.get('rationale', 'no rationale')} "
+                                f"criteria={verdict.get('criteria')}"
+                            ),
+                        }
+                    )
+                elif verdict.get("pass_") is True:
+                    issues.append(
+                        {
+                            "check": "intent_judge",
+                            "severity": "info",
+                            "detail": (
+                                f"LLM intent judge passed: {verdict.get('rationale', 'no rationale')} "
+                                f"criteria={verdict.get('criteria')}"
+                            ),
+                        }
+                    )
+                else:
+                    issues.append(
+                        {
+                            "check": "intent_judge",
+                            # A desired block is an active acceptance rubric, not
+                            # optional context. Fail closed if its judge is absent.
+                            "severity": "error" if scenario.get("desired") else "warning",
+                            "detail": f"LLM intent judge could not run: {verdict.get('error')}",
+                        }
+                    )
 
         # Any hard diagnostic anywhere in the response envelope.
         for msg in _collect_hard_diagnostics(response):

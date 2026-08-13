@@ -66,6 +66,67 @@ def _write_ui_pair(output_dir: Path, original: dict, candidate: dict) -> None:
     (output_dir / "candidate.ui.json").write_text(json.dumps(candidate), encoding="utf-8")
 
 
+def _write_safe_refusal_response(
+    output_dir: Path,
+    *,
+    kind: str = "requires_custom_nodes",
+    graph_unchanged: bool = True,
+) -> None:
+    response: dict[str, object] = {
+        "ok": True,
+        "graph_unchanged": graph_unchanged,
+        "outcome": {"kind": kind},
+        "gates": {
+            "ir_validate_ok": False,
+            "lower_ok": False,
+            "python_load_ok": False,
+            "queue_validate_ok": False,
+            "state_match_ok": True,
+            "ui_emit_ok": False,
+            "ui_fidelity_ok": False,
+            "ui_load_safe_ok": False,
+        },
+        "message": "No schema-backed replacement node was found.",
+    }
+    if graph_unchanged:
+        response["no_candidate_reason"] = "no_changes"
+    (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+
+def _desired_edit_scenario(scenario_id: str, kind: str = "requires_custom_nodes") -> dict:
+    return {
+        "id": scenario_id,
+        "query": "set seed to 42",
+        "assessment": {
+            "expect_graph_changed": True,
+            "allow_safe_refusal_outcome_kinds": ["clarify", kind],
+        },
+        "desired": {
+            "outcome": "the seed parameter is 42",
+            "quality": "only the intended seed changes",
+            "alternatives_ok": False,
+        },
+    }
+
+
+def _grounded_refusal_verdict(*, grounded: bool) -> dict:
+    criteria = {
+        "supported_blocker": grounded,
+        "no_representable_edit": grounded,
+        "specific_next_action": grounded,
+        "no_fabricated_inability": grounded,
+    }
+    return {
+        "pass_": grounded,
+        "criteria": criteria,
+        "rationale": (
+            "blocker is real and the refusal names a concrete next action"
+            if grounded
+            else "fabricated inability: the cited node class exists in compiled_api"
+        ),
+    }
+
+
 def _effective_target_scenario() -> dict:
     return {
         "id": "effective-edit",
@@ -330,6 +391,132 @@ def test_agentic_guard_allows_safe_refusal_as_alternative_to_expected_edit(tmp_p
     assert assessment["expect_graph_changed"] is True
     assert assessment["allow_safe_refusal_outcome_kinds"] == ["clarify", "requires_custom_nodes"]
     assert {issue["check"] for issue in assessment["issues"]} == {"safe_refusal"}
+
+
+def test_desired_edit_rejects_safe_refusal_when_grounded_judge_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """D13 finding 5, fail-closed: a desired edit may not pass on an
+    allowlisted refusal label when the grounded-refusal judge cannot run."""
+    output_dir = tmp_path / "desired-refusal-judge-unavailable"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-refusal-judge-unavailable"),
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
+def test_desired_edit_rejects_fabricated_safe_refusal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """D13 finding 5: a fabricated/unsupported requires_custom_nodes refusal
+    (judge: not grounded) must fail a desired edit."""
+    output_dir = tmp_path / "desired-refusal-fabricated"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=False),
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-refusal-fabricated"),
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
+def test_desired_edit_accepts_grounded_safe_refusal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """D13 finding 5, positive control: a genuine grounded refusal (judge:
+    grounded) may still pass a desired edit."""
+    output_dir = tmp_path / "desired-refusal-grounded"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: _grounded_refusal_verdict(grounded=True),
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-refusal-grounded"),
+    )
+
+    assert verdict["live_agentic_success"] is True
+    assessment = verdict["assessment"]
+    assert assessment["passed"] is True
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "info"
+        for issue in assessment["issues"]
+    )
+
+
+def test_desired_edit_refusal_label_with_graph_change_fails_closed_without_verdict(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """D13 finding 5: graph_unchanged=false plus a refusal label is never a
+    safe refusal; without any grounded judge verdict a desired edit fails
+    closed (structural guards + fail-closed intent judge)."""
+    output_dir = tmp_path / "desired-refusal-graph-changed"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir, graph_unchanged=False)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_edit_intent",
+        lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-refusal-graph-changed"),
+    )
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "intent_judge" in error_checks, verdict["assessment"]["issues"]
+    assert {"outcome_kind", "landed_operation_count", "gates"} <= error_checks
 
 
 def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(tmp_path: Path) -> None:
