@@ -626,6 +626,93 @@ def test_desired_edit_fails_closed_when_intent_judge_is_unavailable(
     )
 
 
+def test_desired_edit_fails_closed_on_fabricated_intent_judge_pass(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """D13 rework: the assessor consumes the DERIVED intent-judge verdict
+    (assessor.py intent_judge branch).  A fabricated pass_=true with a false
+    criterion must fail the desired edit instead of passing it."""
+    output_dir = tmp_path / "desired-fabricated-intent-pass"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_successful_candidate(output_dir)
+    _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1}]})
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"status": "success"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        lambda *args, **kwargs: {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "correct_node_targeted": True,
+                        "correct_parameter_changed": False,
+                        "value_semantically_matches_intent": True,
+                        "no_orphaned_wiring": True,
+                    },
+                    "rationale": "fabricated pass",
+                }
+            )
+        },
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-fabricated-intent-pass"),
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "intent_judge" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
+def test_desired_edit_fails_closed_on_fabricated_grounded_refusal_pass(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """D13 rework: the assessor consumes the DERIVED grounded-refusal verdict
+    (assessor.py grounded_refusal branch).  A fabricated pass_=true with a
+    false criterion must fail the desired edit instead of passing it."""
+    output_dir = tmp_path / "desired-fabricated-refusal-pass"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_safe_refusal_response(output_dir)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"message": "The graph is unchanged."}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        lambda *args, **kwargs: {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "supported_blocker": True,
+                        "no_representable_edit": True,
+                        "specific_next_action": True,
+                        "no_fabricated_inability": False,
+                    },
+                    "rationale": "fabricated grounded refusal",
+                }
+            )
+        },
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario=_desired_edit_scenario("desired-fabricated-refusal-pass"),
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
+
+
 def test_agentic_guard_rejects_oversized_model_request(tmp_path: Path) -> None:
     output_dir = tmp_path / "oversized-model-request"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)

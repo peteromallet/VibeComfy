@@ -83,38 +83,86 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
-def _parse_verdict(raw: str) -> dict[str, Any]:
-    """Parse the judge's JSON response into a normalized dict."""
-    parsed = json.loads(_strip_code_fences(raw))
-    criteria = parsed.get("criteria") or {}
-    normalized_criteria = {
-        "correct_node_targeted": bool(criteria.get("correct_node_targeted")),
-        "correct_parameter_changed": bool(criteria.get("correct_parameter_changed")),
-        "value_semantically_matches_intent": bool(criteria.get("value_semantically_matches_intent")),
-        "no_orphaned_wiring": bool(criteria.get("no_orphaned_wiring")),
-    }
+_EDIT_CRITERION_KEYS = (
+    "correct_node_targeted",
+    "correct_parameter_changed",
+    "value_semantically_matches_intent",
+    "no_orphaned_wiring",
+)
+
+_REFUSAL_CRITERION_KEYS = (
+    "supported_blocker",
+    "no_representable_edit",
+    "specific_next_action",
+    "no_fabricated_inability",
+)
+
+
+def _strict_boolean(value: Any) -> bool | None:
+    """Return *value* iff it is an explicit JSON boolean (Python ``bool``).
+
+    JSON ``true``/``false`` decode to Python ``bool``.  Anything else —
+    including the strings ``"true"``/``"false"`` — is malformed and returns
+    None so callers fail closed instead of coercing with ``bool()``.
+    """
+    if type(value) is bool:
+        return value
+    return None
+
+
+def _derive_verdict(parsed: Any, criterion_keys: tuple[str, ...]) -> dict[str, Any]:
+    """Normalize a parsed judge response, deriving ``pass_`` from the criteria.
+
+    The model's self-declared ``pass_`` is never trusted: the verdict is True
+    only when the response is a JSON object whose ``pass_`` is an explicit
+    boolean and every required criterion is an explicit ``true`` boolean.  Any
+    criterion that is false, missing, or not a strict boolean (including the
+    strings ``"false"``/``"true"``), any non-boolean or absent ``pass_``, and
+    any non-object response fail the verdict closed — malformed output is a
+    fail, never a pass.  Only genuinely unparsable JSON (json.loads raising
+    in the caller) stays undetermined (``pass_`` None).
+    """
+    if not isinstance(parsed, dict):
+        return {"pass_": False, "criteria": {}, "rationale": ""}
+    self_declared = _strict_boolean(parsed.get("pass_"))
+    criteria_raw = parsed.get("criteria")
+    criteria: dict[str, Any] = {}
+    if isinstance(criteria_raw, dict):
+        for key in criterion_keys:
+            value = _strict_boolean(criteria_raw.get(key))
+            if value is not None:
+                criteria[key] = value
+    all_criteria_pass = all(criteria.get(key) is True for key in criterion_keys)
     return {
-        "pass_": bool(parsed.get("pass_")),
-        "criteria": normalized_criteria,
+        "pass_": self_declared is not None and all_criteria_pass,
+        "criteria": criteria,
         "rationale": str(parsed.get("rationale", "")),
     }
+
+
+def _parse_verdict(raw: str) -> dict[str, Any]:
+    """Parse the judge's JSON response into a normalized dict.
+
+    ``pass_`` is derived from the criteria (fail closed), never from the
+    model's self-declared ``pass_``: it is True iff every required criterion
+    is an explicit JSON boolean ``true`` and ``pass_`` itself is an explicit
+    boolean.  String-typed booleans, missing criteria, false criteria, and
+    contradictory self-declarations all fail closed.
+    """
+    parsed = json.loads(_strip_code_fences(raw))
+    return _derive_verdict(parsed, _EDIT_CRITERION_KEYS)
 
 
 def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
-    """Parse the grounded-refusal judge's JSON response into a normalized dict."""
+    """Parse the grounded-refusal judge's JSON response into a normalized dict.
+
+    Same fail-closed contract as :func:`_parse_verdict`: the verdict is
+    derived from the four refusal criteria (supported blocker, no
+    representable edit, specific next action, no fabricated inability), not
+    from the model's self-declared ``pass_``.
+    """
     parsed = json.loads(_strip_code_fences(raw))
-    criteria = parsed.get("criteria") or {}
-    normalized_criteria = {
-        "supported_blocker": bool(criteria.get("supported_blocker")),
-        "no_representable_edit": bool(criteria.get("no_representable_edit")),
-        "specific_next_action": bool(criteria.get("specific_next_action")),
-        "no_fabricated_inability": bool(criteria.get("no_fabricated_inability")),
-    }
-    return {
-        "pass_": bool(parsed.get("pass_")),
-        "criteria": normalized_criteria,
-        "rationale": str(parsed.get("rationale", "")),
-    }
+    return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS)
 
 
 def _load_implementation_payload(output_dir: Path) -> dict[str, Any] | None:
