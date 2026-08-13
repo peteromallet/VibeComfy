@@ -132,6 +132,14 @@ Tasks:
 
 5. Make `write_layout()` serialize `wf.groups`, not `wf.metadata["groups"]`.
 
+6. Make `VibeEdge` the sole IR representation and authority for connectivity. *(oracle-approved addition, checkpoint 2)*
+
+   - Migrate all package-owned low-level construction that stores Comfy API link pairs in `VibeNode.inputs` to construct `VibeEdge` objects instead; update affected tests and fixtures.
+   - Keep `from_api()` and `from_ui()` as normalization boundaries: incoming API link pairs become edges and are absent from `node.inputs`.
+   - Outside those ingestion boundaries, fail closed with a targeted error when an API-link-shaped value remains in `VibeNode.inputs` during envelope decode, validation, serialization, or compilation. Compilation must not mutate the IR or silently choose between embedded-input and edge authority.
+   - Use the canonical API-link predicate narrowly so ordinary two-element literal lists are not rejected.
+   - Test raw-link-only inputs and raw-link-plus-edge collisions with both identical and conflicting sources, plus unchanged compiled output for canonical edge-only workflows.
+
 Acceptance gate:
 
 - Compile and emit agree for modes 0/2/4 despite conflicting sidecar or metadata values.
@@ -140,6 +148,9 @@ Acceptance gate:
 - Sidecar-only, `--from`, conflict, breadcrumb, `--fresh`, removed-node, and nonnumeric-node-ID cases pass.
 - `port convert` writes reconciled groups onto `wf.groups`.
 - No `emit_ui_json(..., groups=...)` calls or signature remain.
+- No package-owned low-level `VibeNode` construction stores API link pairs in `inputs`, and no serialized envelope contains them.
+- Raw-link/edge collisions fail explicitly rather than compiling with implicit edge-wins precedence.
+- Canonical `from_api()`/`from_ui()` ingestion and edge-only compile round trips remain unchanged.
 - Focused port, emitter, layout, CLI, and B02 tests pass.
 
 ## Batch C — First-class geometry `[XHARD]`
@@ -193,12 +204,20 @@ Tasks:
 
 3. Make `copy()` handle bound workflows by supplying a deepcopy memo that maps the active `contextvars.Token` to `None`. Every clone must be unbound.
 
+4. Make unseeded counter-generated UID minting collision-safe for deserialized or otherwise pre-populated workflows. *(oracle-approved addition, checkpoint 2)*
+
+   - Before an unseeded mint, reconcile `_uid_counter` with existing flat auto-minted `n<positive-integer>` UIDs and choose the next unoccupied `n<N>`.
+   - Preserve imported UIDs verbatim and keep the counter monotonic.
+   - Do not introduce a parallel UID registry or expand this task into seeded `id:...` identity redesign or global duplicate-import validation.
+
 Acceptance gate:
 
 - Bound and unbound copies succeed and have token `None`.
 - Constructor, repr, equality, and envelope omit the field.
 - Enter/exit, eager binding, finalize, nesting rejection, exception cleanup, and async isolation pass.
 - No context token leaks into serialization.
+- After decoding an envelope containing `uid="n1"`, including a sparse higher `n<N>` case, newly added nodes receive distinct UIDs beyond the imported auto-minted range.
+- Repeated mints and copies remain monotonic; nonmatching imported UIDs remain unchanged.
 
 ## Checkpoint structure
 
