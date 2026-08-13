@@ -356,7 +356,7 @@ def _node_without_mode() -> dict:
 
 
 def test_mode_captured_from_pure_python_path() -> None:
-    """Pure-Python path: mode:4 lands in metadata['mode'] (via full _ui)."""
+    """Pure-Python path: mode:4 lands on the first-class VibeNode.mode field."""
     raw_ui = {
         "nodes": [
             {
@@ -372,16 +372,22 @@ def test_mode_captured_from_pure_python_path() -> None:
     from vibecomfy.ingest.normalize import normalize_to_api
     api = normalize_to_api(raw_ui, use_comfy_converter=False)
     wf = convert_to_vibe_format(api)
-    assert wf.nodes["1"].metadata.get("mode") == 4
+    assert wf.nodes["1"].mode == 4
+    # _ui.mode is left in place so emit_ui_json furniture stays intact.
+    assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
+    # No duplicate furniture copy is written on new ingests.
+    assert "mode" not in wf.nodes["1"].metadata
 
 
 def test_mode_captured_from_comfy_converter_path() -> None:
-    """Comfy-converter path: mode:4 in _merge_slim_ui lands in metadata['mode']."""
+    """Comfy-converter path: mode:4 in _merge_slim_ui lands on VibeNode.mode."""
     # Simulate the result of convert_ui_to_api + _merge_slim_ui by providing
     # an API-format node that already has a slim _ui with mode set.
     api_node = _node_with_mode(mode=4)
     wf = convert_to_vibe_format({"1": api_node})
-    assert wf.nodes["1"].metadata.get("mode") == 4
+    assert wf.nodes["1"].mode == 4
+    assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
+    assert "mode" not in wf.nodes["1"].metadata
 
 
 def test_flags_color_bgcolor_captured() -> None:
@@ -393,9 +399,10 @@ def test_flags_color_bgcolor_captured() -> None:
     assert wf.nodes["1"].metadata.get("bgcolor") == "#000000"
 
 
-def test_mode_absent_leaves_metadata_unset() -> None:
-    """Nodes with no mode field do not get a metadata['mode'] key."""
+def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
+    """Nodes with no mode field get mode 0 and no metadata['mode'] key."""
     wf = convert_to_vibe_format({"1": _node_without_mode()})
+    assert wf.nodes["1"].mode == 0
     assert "mode" not in wf.nodes["1"].metadata
 
 
@@ -404,23 +411,31 @@ def test_mode_does_not_enter_inputs_or_widgets() -> None:
     api_node = _node_with_mode(mode=4)
     wf = convert_to_vibe_format({"1": api_node})
     node = wf.nodes["1"]
+    assert node.mode == 4
     assert "mode" not in node.inputs
     assert "mode" not in node.widgets
 
 
-def test_compile_api_byte_identical_with_and_without_mode() -> None:
-    """compile('api') output is identical regardless of mode in metadata."""
-    api_with_mode = _node_with_mode(mode=4)
-    api_without_mode = _node_without_mode()
+def test_compile_api_honors_ingest_captured_mode() -> None:
+    """mode is first-class: ingest-captured mode=4 bypasses the node at compile.
 
-    wf_with = convert_to_vibe_format({"1": api_with_mode})
-    wf_without = convert_to_vibe_format({"1": api_without_mode})
-
+    The pre-P10 decoupling (captured mode never tripping compile) existed only
+    because mode was not a schema field.  The field is now the compile signal:
+    a mode=4 node is dropped/bypassed, while mode=0 compiles identically to
+    an absent mode.
+    """
     import json
-    compiled_with = json.dumps(wf_with.compile(), sort_keys=True)
-    compiled_without = json.dumps(wf_without.compile(), sort_keys=True)
-    assert compiled_with == compiled_without, (
-        "compile('api') output must not change when mode is present in metadata"
+
+    wf_bypassed = convert_to_vibe_format({"1": _node_with_mode(mode=4)})
+    wf_zero = convert_to_vibe_format({"1": _node_with_mode(mode=0)})
+    wf_absent = convert_to_vibe_format({"1": _node_without_mode()})
+
+    assert "1" not in wf_bypassed.compile("api"), "mode=4 node must be bypassed"
+
+    compiled_zero = json.dumps(wf_zero.compile(), sort_keys=True)
+    compiled_absent = json.dumps(wf_absent.compile(), sort_keys=True)
+    assert compiled_zero == compiled_absent, (
+        "compile('api') output must be identical for mode=0 vs absent mode"
     )
 
 
@@ -658,7 +673,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
     assert len(set(uids)) == 15, "uids must all be distinct"
     assert all(isinstance(uid, str) and uid.strip() for uid in uids)
 
-    modes = Counter(node.metadata.get("mode") for node in wf.nodes.values())
+    modes = Counter(node.mode for node in wf.nodes.values())
     assert dict(modes) == {4: 9, 0: 6}
 
     assert wf.nodes["10"].class_type == "TripoRefineNode"
@@ -920,12 +935,15 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     assert len(wf.edges) == 1
     assert wf.nodes["1"].uid == "uid-loader"
     assert wf.nodes["1"].inputs["ckpt_name"] == "model.safetensors"
+    assert wf.nodes["1"].mode == 0
+    assert wf.nodes["2"].mode == 4
     assert wf.nodes["2"].metadata["mode"] == 4
     assert wf.nodes["2"].metadata["_ui"]["mode"] == 4
     assert wf.outputs[0].node_id == "2"
     written = wf.to_envelope()
     assert "compiled_api" not in written
     assert written["nodes"]["1"]["uid"] == "uid-loader"
+    assert written["nodes"]["2"]["mode"] == 4
     assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
 
 

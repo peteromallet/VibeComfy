@@ -259,7 +259,9 @@ def _resolve_furniture(
        ``.layout.json`` sidecar exists.
     2. ``node.metadata['_ui']`` — the raw litegraph node dict captured during
        ingest (the direct-ingest / comfy-gate fallback).
-    3. Fixed defaults (``flags={}``, ``mode=0``, ``color=None``, ``bgcolor=None``,
+    3. Legacy ``node.metadata['mode']`` copy, then the first-class
+       ``node.mode`` field (the same authority compile reads).
+    4. Fixed defaults (``flags={}``, ``mode=0``, ``color=None``, ``bgcolor=None``,
        ``properties={}``, ``title=None``).
 
     Returns a dict with keys ``flags``, ``color``, ``bgcolor``, ``mode``,
@@ -291,14 +293,22 @@ def _resolve_furniture(
             properties = None
             title = None
 
-    # Source 2.5: ingest furniture fallback.  Ingest pops the captured mode off
-    # _ui (normalize.py) so compile's _get_node_mode never treats it as a live
-    # mute/bypass signal, but keeps the top-level copy for re-emit.  Only an
-    # int is accepted — sidecar (source 1) still wins over this fallback.
+    # Source 2.5: legacy ingest furniture fallback.  Old envelopes may carry a
+    # top-level metadata["mode"] copy; re-emit it.  Only an int is accepted —
+    # sidecar (source 1) still wins over this fallback.
     if mode is None:
         _meta_mode = getattr(node, "metadata", {}).get("mode")
         if isinstance(_meta_mode, int):
             mode = _meta_mode
+
+    # Source 2.75: the first-class VibeNode.mode field (the same authority
+    # compile's _get_node_mode reads).  Ingest and envelope decode populate it
+    # from _ui.mode and leave _ui.mode in place, so sources 2/2.5 normally win;
+    # this only fires for hand-built nodes that set the field directly.
+    if mode is None:
+        _field_mode = getattr(node, "mode", 0)
+        if isinstance(_field_mode, int):
+            mode = _field_mode
 
     # Source 3: fixed defaults
     if not isinstance(flags, dict):
@@ -2040,9 +2050,11 @@ def emit_ui_json(
             ``provider``, ``confidence``, ``schema_less``.  This is the
             **authoritative** record of which schema tier supplied each node's
             output/input resolution.
-        groups: Optional graph-level groups list.  When provided (e.g. from a
-            ``.layout.json`` sidecar), emitted directly as the top-level
-            ``groups`` array; otherwise ``[]``.
+        groups: Optional graph-level groups list.  Overrides the IR's own
+            ``wf.groups`` (first-class on ``VibeWorkflow``, populated by the
+            envelope/UI importers).  When omitted, ``wf.groups`` is emitted as
+            the top-level ``groups`` array (``[]`` when unset).  Pass an
+            explicit list (e.g. from a ``.layout.json`` sidecar) to override.
         extra: Optional ``extra`` dict (canvas drag/scale state under ``extra.ds``).
             When provided, merged with the ``vibecomfy`` breadcrumb; otherwise
             only the breadcrumb is emitted.
@@ -2413,9 +2425,9 @@ def emit_ui_json(
                 incoming_link_ids_by_input=incoming_link_ids_by_input,
                 outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
             )
-            # Ingest pops the furniture mode off _ui (normalize.py), so a pinned
-            # raw copy would otherwise re-emit without it; stamp the resolved
-            # furniture mode (sidecar > metadata.mode) onto the emitted node.
+            # The pinned raw copy comes from raw UI evidence and may lack mode;
+            # stamp the resolved furniture mode (sidecar > _ui.mode >
+            # metadata.mode > node.mode field > 0) onto the emitted node.
             pinned["mode"] = _resolve_furniture(node, matched_entries.get(key))["mode"]
             nodes.append(pinned)
             continue
@@ -2655,7 +2667,11 @@ def emit_ui_json(
     #   Order: caller-passed groups first, then engine_groups (suppressing duplicates
     #   whose ``title`` matches a caller-passed group title).  All groups are
     #   canonicalized when ``include_main_positions=True``.
-    caller_groups: list[dict[str, Any]] = list(groups) if groups is not None else []
+    #   groups= is an override: when omitted, the IR's own ``wf.groups`` is used
+    #   (deep-copied so geometry canonicalization can never mutate the IR).
+    caller_groups: list[dict[str, Any]] = (
+        list(groups) if groups is not None else deepcopy(getattr(wf, "groups", []))
+    )
     caller_titles: set[str] = {g.get("title", "") for g in caller_groups if g.get("title")}
     emitted_groups: list[dict[str, Any]] = list(caller_groups)
     for eg in engine_groups:

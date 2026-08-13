@@ -401,6 +401,34 @@ def _vibe_string_list(value: Any, label: str) -> list[str]:
     return list(value)
 
 
+def _vibe_groups(value: Any) -> list[dict[str, Any]]:
+    """Decode the serialized graph-level ``groups`` field: ``None`` → ``[]``.
+
+    Fail-closed like the rest of the envelope decoder: when present, ``groups``
+    must be a list of group objects (LiteGraph ``{title, bounding, ...}``
+    dicts).  Old envelopes without the key decode to an empty list.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError("serialized vibe envelope 'groups' must be a list of group objects")
+    return deepcopy(value)
+
+
+def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
+    """First-class mode value for a node: ``_ui.mode`` then legacy
+    ``metadata["mode"]``, else 0.  Only ints are accepted."""
+    ui = metadata.get("_ui")
+    if isinstance(ui, dict):
+        ui_mode = ui.get("mode", 0)
+        if isinstance(ui_mode, int):
+            return ui_mode
+    meta_mode = metadata.get("mode")
+    if isinstance(meta_mode, int):
+        return meta_mode
+    return 0
+
+
 def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     """Implementation of :meth:`VibeWorkflow.from_envelope`.
 
@@ -481,12 +509,15 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     if not isinstance(strict_types, bool):
         raise ValueError("strict_types must be a boolean")
 
+    groups = _vibe_groups(raw.get("groups"))
+
     workflow = VibeWorkflow(
         id=workflow_id,
         source=source,
         requirements=requirements,
         metadata=deepcopy(metadata_raw) if isinstance(metadata_raw, dict) else {},
         strict_types=strict_types,
+        groups=groups,
     )
 
     # ── nodes ──────────────────────────────────────────────────────────────
@@ -554,6 +585,14 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         # decoded node is tagged untrusted_source. Unconditional set — never
         # `setdefault` — so hostile JSON cannot pre-declare itself trusted.
         node_metadata[PROVENANCE_KEY] = "untrusted_source"
+        # Mode is first-class: prefer the serialized node-level ``mode`` field
+        # (written by to_envelope's dataclass walk), falling back to the legacy
+        # ``_ui.mode`` / ``metadata["mode"]`` locations for old envelopes.
+        # ``_ui`` stays verbatim so the emitter's furniture keeps re-emitting it.
+        entry_mode = entry.get("mode")
+        node_mode = (
+            entry_mode if isinstance(entry_mode, int) else _node_mode_from_metadata(node_metadata)
+        )
         workflow.nodes[node_id] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -563,6 +602,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             metadata=node_metadata,
             uid=uid,
             raw_widgets=raw_widget_payload,
+            mode=node_mode,
         )
 
     # ── edges ──────────────────────────────────────────────────────────────
@@ -715,12 +755,17 @@ def from_ui(
         use_comfy_converter=use_comfy_converter,
         comfy_converter_strict=comfy_converter_strict,
     )
-    return from_api(
+    workflow = from_api(
         api,
         source_path=source_path,
         workflow_id=workflow_id,
         schema_provider=schema_provider,
     )
+    # Graph-level LiteGraph groups are first-class on the IR.  The API dict
+    # produced by the converter drops them, so carry them across from the raw
+    # graph here (fail-closed: a non-list groups is rejected).
+    workflow.groups = _vibe_groups(raw.get("groups"))
+    return workflow
 
 
 def from_api(
@@ -890,26 +935,24 @@ def _from_api_impl(
         control_value = _capture_control_after_generate(node, class_type)
         if control_value is not None:
             metadata.setdefault("control_after_generate", control_value)
-        # ── retain mode/flags/color/bgcolor from _ui into top-level metadata ──
+        # ── retain flags/color/bgcolor from _ui into top-level metadata ──
         # Both paths: pure-Python path stores the full raw node in _ui (line 99);
         # comfy-converter path stores a slim _ui enriched by _merge_slim_ui.
         # Captured as metadata DATA only — never enters inputs/widgets (K3 invariant).
+        # mode is first-class on VibeNode (the compile mute/bypass signal): the
+        # field is populated below from `_ui.mode` (fallback metadata["mode"]) and
+        # `_ui.mode` is LEFT IN PLACE so emit_ui_json's furniture keeps re-emitting
+        # it.  No duplicate metadata["mode"] is written on new ingests.
         _ui_raw = metadata.get("_ui")
         if isinstance(_ui_raw, dict):
-            # The _ui dict is a shallow alias of the input API node's _ui
-            # (pure-Python path); deepcopy before mutating so the caller's
-            # node dict is never corrupted by the mode pop below.
+            # The _ui dict may alias the input API node's _ui (pure-Python path);
+            # deepcopy so the caller's node dict is never corrupted.
             # Only assign when a real _ui was present — do not invent {}.
             _ui_node = deepcopy(_ui_raw)
             metadata["_ui"] = _ui_node
-            for _vis_field in ("mode", "flags", "color", "bgcolor"):
+            for _vis_field in ("flags", "color", "bgcolor"):
                 if _vis_field in _ui_node:
                     metadata.setdefault(_vis_field, _ui_node[_vis_field])
-            # Ingest furniture mode is NOT the compile mute/bypass signal — live
-            # _ui.mode set on the IR node is (workflow._get_node_mode). Pop the
-            # furniture copy so a captured mode can never trip compile bypass/mute;
-            # metadata['mode'] (copied above) still feeds the emitter's furniture.
-            _ui_node.pop("mode", None)
         # ── enrich node metadata from schema ──
         output_names = _schema_output_names(schema_provider, class_type)
         if output_names:
@@ -937,6 +980,7 @@ def _from_api_impl(
             metadata=metadata,
             uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
             raw_widgets=raw_widgets,
+            mode=_node_mode_from_metadata(metadata),
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:
