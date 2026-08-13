@@ -384,10 +384,10 @@ def test_compile_api_byte_identical_uid_pos_not_in_inputs(
     """
     flat_json, _ = _setup_roundtrip_fixture(tmp_path, monkeypatch)
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     raw = json.loads(flat_json.read_text(encoding="utf-8"))
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     api = wf.compile("api")
 

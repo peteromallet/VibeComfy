@@ -6,7 +6,7 @@ Generates small valid ComfyUI workflow JSON (API format, 1-12 nodes, DAG links,
 mixed scalar/dict inputs, known alias-backed classes, unknown custom classes,
 optional definitions.subgraphs) via handwritten composite strategies.
 
-CRITICAL (FLAG-002): Generated JSON is normalized through ``convert_to_vibe_format``
+CRITICAL (FLAG-002): Generated JSON is normalized through ``from_api``
 before calling ``port_convert_workflow`` — the function signature requires a
 VibeWorkflow, not a raw dict.
 """
@@ -20,7 +20,7 @@ from typing import Any
 from hypothesis import HealthCheck, given, settings, strategies as st
 import importlib.util
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.porting.widgets.aliases import COMPILE_WIDGET_ALIAS_CLASS_TYPES
 from vibecomfy.workflow import VibeWorkflow
@@ -80,7 +80,7 @@ def _class_type_strategy(draw: st.DrawFn) -> str:
 def _widget_value_strategy(draw: st.DrawFn) -> Any:
     """Generate a scalar value that can appear in node inputs.
 
-    Deliberately avoids list shapes because `convert_to_vibe_format` interprets
+    Deliberately avoids list shapes because `from_api` interprets
     [int, int] lists as edge links.
     """
     return draw(
@@ -360,10 +360,10 @@ def _normalize_json_to_vibeworkflow(
     *,
     workflow_id: str = "hypothesis",
 ) -> VibeWorkflow:
-    """Normalize API JSON through convert_to_vibe_format (FLAG-002).
+    """Normalize API JSON through from_api (FLAG-002).
 
     Strips 'definitions' from the API dict before normalization because
-    convert_to_vibe_format expects pure API node dicts. The raw workflow
+    from_api expects pure API node dicts. The raw workflow
     (with definitions) can be passed via raw_workflow to port_convert_workflow.
     """
     # Build a clean API dict without definitions
@@ -371,4 +371,4 @@ def _normalize_json_to_vibeworkflow(
         k: v for k, v in api_json.items()
         if k != "definitions" and isinstance(v, dict) and "class_type" in v
     }
-    return convert_to_vibe_format(clean_api, workflow_id=workflow_id)
+    return from_api(clean_api, workflow_id=workflow_id)

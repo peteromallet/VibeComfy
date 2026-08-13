@@ -4,7 +4,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.handles import Handle
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.workflow import VibeOutput, VibeWorkflow, WorkflowSource
@@ -19,7 +19,7 @@ def build_api_ready_workflow(
     requirements: Mapping[str, list[Any]] | None = None,
 ) -> VibeWorkflow:
     metadata = dict(ready_metadata)
-    workflow = convert_to_vibe_format(
+    workflow = from_api(
         api_workflow,
         source_path=source_path,
         workflow_id=workflow_id or metadata.get("ready_template") or Path(source_path).stem,

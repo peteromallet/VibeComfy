@@ -71,7 +71,7 @@ source_string = session.render()
 **Internal pipeline:**
 
 1. Re-ingest `working_ui` into `self.ledger`.
-2. Convert `working_ui` → `normalize_to_api(…, use_comfy_converter=False)` → `convert_to_vibe_format(…)`.
+2. Convert `working_ui` → `normalize_to_api(…, use_comfy_converter=False)` → `from_api(…)`.
 3. Call `emit_agent_edit_python(workflow, …, variable_name_locks=name_by_uid, strict_variable_name_locks=…)`.
 4. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
 5. Seed (first call) or validate (later calls) the lock tables.

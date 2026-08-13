@@ -1,6 +1,6 @@
 """Emit a VibeWorkflow IR back to a litegraph (ComfyUI editor) JSON envelope.
 
-This is the inverse direction of ingest: ``convert_to_vibe_format`` reads litegraph
+This is the inverse direction of ingest: ``from_ui`` reads litegraph
 JSON into the ``VibeWorkflow`` IR; :func:`emit_ui_json` renders an IR back out to the
 litegraph shape that the ComfyUI web editor loads. It is a NEW standalone function and
 deliberately NOT a ``VibeWorkflow.compile`` backend — ``compile("api")`` must stay

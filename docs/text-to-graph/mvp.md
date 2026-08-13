@@ -71,7 +71,7 @@ The backend-owned pipeline is:
 
 ```text
 UI JSON
-  -> convert_to_vibe_format()
+  -> from_ui()
   -> port_convert_workflow()
   -> generated scratchpad Python
   -> Arnold resolves route/model/credentials and edits complete Python file

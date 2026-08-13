@@ -12,7 +12,6 @@ import pytest
 
 from vibecomfy.ingest.index import index_workflows
 from vibecomfy.ingest.normalize import (
-    convert_to_vibe_format,
     from_api,
     from_envelope,
     from_ui,
@@ -126,7 +125,7 @@ def test_api_workflow_import_preserves_schema_output_names() -> None:
             ),
         }
     )
-    workflow = convert_to_vibe_format(
+    workflow = from_api(
         {
             "1": {"class_type": "GuideNode", "inputs": {}},
             "2": {"class_type": "SinkNode", "inputs": {"latent": ["1", 2]}},
@@ -148,7 +147,7 @@ def test_prompt_override_does_not_bind_conditioning_inputs() -> None:
         "3": {"class_type": "SaveImage", "inputs": {"images": ["2", 0]}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="conditioning")
+    workflow = from_api(raw, workflow_id="conditioning")
 
     assert workflow.inputs["prompt"].node_id == "1"
     workflow.set_prompt("new")
@@ -512,10 +511,10 @@ def test_ui_workflow_normalizes_to_api() -> None:
     assert api["1"]["class_type"] == "CLIPTextEncode"
     assert api["2"]["inputs"]["images"] == ["1", 0]
     via_named = from_ui(raw)
-    via_convert = convert_to_vibe_format(raw)
-    assert set(via_named.nodes) == set(via_convert.nodes)
+    assert set(via_named.nodes) == {"1", "2"}
     assert [node.class_type for node in via_named.nodes.values()] == [
-        node.class_type for node in via_convert.nodes.values()
+        "CLIPTextEncode",
+        "SaveImage",
     ]
 
 
@@ -1724,18 +1723,37 @@ def _ir_projection(workflow) -> dict:
     }
 
 
-def test_from_api_matches_convert_to_vibe_format() -> None:
+def test_from_api_matches_fixture_invariants() -> None:
+    """from_api decodes an API dict with stable IDs, classes, inputs, and edges."""
     raw = {
         "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "old"}},
         "2": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 4, "positive": ["1", 0]}},
         "3": {"class_type": "SaveImage", "inputs": {"images": ["2", 0]}},
     }
-    assert _ir_projection(from_api(raw, workflow_id="sample")) == _ir_projection(
-        convert_to_vibe_format(raw, workflow_id="sample")
-    )
+    wf = from_api(raw, workflow_id="sample")
+    assert _ir_projection(wf) == {
+        "ids": ["1", "2", "3"],
+        "classes": {
+            "1": "CLIPTextEncode",
+            "2": "KSampler",
+            "3": "SaveImage",
+        },
+        "uids": {"1": "1", "2": "2", "3": "3"},
+        "inputs": {
+            "1": {"text": "old"},
+            "2": {"seed": 1, "steps": 4},
+            "3": {},
+        },
+        "widgets": {"1": {}, "2": {}, "3": {}},
+        "edges": [
+            ("1", "0", "2", "positive"),
+            ("2", "0", "3", "images"),
+        ],
+    }
 
 
-def test_from_ui_matches_convert_to_vibe_format() -> None:
+def test_from_ui_matches_fixture_invariants() -> None:
+    """from_ui decodes litegraph with stable IDs, classes, inputs, and edges."""
     raw = {
         "nodes": [
             {"id": 1, "type": "CLIPTextEncode", "widgets_values": ["hello"], "inputs": []},
@@ -1743,25 +1761,37 @@ def test_from_ui_matches_convert_to_vibe_format() -> None:
         ],
         "links": [[1, 1, 0, 2, 0, "IMAGE"]],
     }
-    assert _ir_projection(from_ui(raw)) == _ir_projection(convert_to_vibe_format(raw))
+    wf = from_ui(raw)
+    assert _ir_projection(wf) == {
+        "ids": ["1", "2"],
+        "classes": {"1": "CLIPTextEncode", "2": "SaveImage"},
+        "uids": {"1": "1", "2": "2"},
+        "inputs": {"1": {"text": "hello"}, "2": {}},
+        "widgets": {"1": {}, "2": {}},
+        "edges": [("1", "0", "2", "images")],
+    }
 
 
-def test_named_importers_match_todays_paths_on_fixtures() -> None:
-    """from_ui / from_api / from_envelope match today's convert/class doors."""
+def test_named_importers_match_fixture_invariants() -> None:
+    """from_ui / from_api / from_envelope decode fixtures with stable invariants."""
     ui_path = Path("tests/fixtures/reorganise/simple_text_to_image.json")
     ui_raw = json.loads(ui_path.read_text(encoding="utf-8"))
-    assert _ir_projection(from_ui(ui_raw)) == _ir_projection(convert_to_vibe_format(ui_raw))
+    from_ui_wf = from_ui(ui_raw)
+    assert from_ui_wf.nodes
+    assert all(node.uid for node in from_ui_wf.nodes.values())
 
     api = normalize_to_api(ui_raw, use_comfy_converter=False)
-    assert _ir_projection(from_api(api)) == _ir_projection(convert_to_vibe_format(api))
+    from_api_wf = from_api(api)
+    assert set(from_api_wf.nodes) == set(from_ui_wf.nodes)
+    assert {
+        nid: node.class_type for nid, node in from_api_wf.nodes.items()
+    } == {nid: node.class_type for nid, node in from_ui_wf.nodes.items()}
 
     envelope_path = Path("external_workflows/corpus/90a1d5ff9044902e.json")
     envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
     via_named = from_envelope(envelope)
     via_class = VibeWorkflow.from_envelope(envelope)
-    via_convert = convert_to_vibe_format(envelope)
     assert _ir_projection(via_named) == _ir_projection(via_class)
-    assert _ir_projection(via_named) == _ir_projection(via_convert)
     assert len(via_named.nodes) == 15
     assert len(via_named.compile("api")) == 2
 
@@ -1774,6 +1804,14 @@ def test_detect_workflow_shape_is_not_a_public_ingest_export() -> None:
     assert "from_ui" in ingest.__all__
     assert "from_api" in ingest.__all__
     assert not hasattr(ingest, "detect_workflow_shape")
+
+
+def test_convert_to_vibe_format_is_not_a_public_ingest_export() -> None:
+    """The public dispatcher is deleted; only the named importers remain."""
+    import vibecomfy.ingest as ingest
+
+    assert "convert_to_vibe_format" not in ingest.__all__
+    assert not hasattr(ingest, "convert_to_vibe_format")
 
 
 def test_agent_edit_ingest_uses_nodes_is_list_not_shape_sniff() -> None:

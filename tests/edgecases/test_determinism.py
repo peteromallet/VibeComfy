@@ -8,7 +8,6 @@ identical outputs (text and API hash).
 
 import hashlib
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

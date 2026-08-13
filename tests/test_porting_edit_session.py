@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, normalize_to_api
 from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
@@ -56,12 +56,12 @@ def _wf_from_raw_ui(raw: dict[str, Any]) -> VibeWorkflow:
     """Convert raw LiteGraph UI JSON to VibeWorkflow via the existing path.
 
     The conversion chain is:
-        raw UI JSON -> normalize_to_api -> convert_to_vibe_format -> VibeWorkflow
+        raw UI JSON -> normalize_to_api -> from_api -> VibeWorkflow
 
     Uses `use_comfy_converter=False` so the test stays offline and deterministic.
     """
     api = normalize_to_api(deepcopy(raw), use_comfy_converter=False)
-    return convert_to_vibe_format(api)
+    return from_api(api)
 
 
 def _load_flat_fixture_raw() -> dict[str, Any]:

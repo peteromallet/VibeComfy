@@ -1145,7 +1145,7 @@ def _node_kwargs(
     schema_set = set(schema)
 
     # Per-node widget alias metadata populated by the schema provider during
-    # convert_to_vibe_format.  Prefer this over the static WIDGET_SCHEMA so
+    # from_api.  Prefer this over the static WIDGET_SCHEMA so
     # that schema-source evidence wins - the static table is only a fallback.
     node_metadata: dict[str, Any] = getattr(node, "metadata", None) or {}
     input_aliases: list[str | None] | None = None

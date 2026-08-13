@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, normalize_to_api
 from vibecomfy.porting.layout.reconcile import (
     ReconcileResult,
     _subgraph_content_hash,
@@ -98,7 +98,7 @@ def test_widget_edit_node_still_matched():
     The uid exists in both the store and the current workflow, so it must appear
     in ReconcileResult.matched regardless of edit status.
     """
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     # Simulate a post-save widget edit: change the seed
@@ -114,7 +114,7 @@ def test_widget_edit_node_still_matched():
 
 def test_widget_edit_furniture_carried_verbatim():
     """The matched entry carries VERBATIM furniture from the store, not the current IR pos."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     # Simulate post-save widget edit
@@ -134,7 +134,7 @@ def test_widget_edit_furniture_carried_verbatim():
 
 def test_rewire_node_still_matched():
     """A node that had its incoming edge changed after the last save is still uid-matched."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     # Simulate a post-save rewire: add a new latent node and redirect sampler's input
@@ -157,7 +157,7 @@ def test_rewire_node_still_matched():
 
 def test_node_deletion_appears_in_removed():
     """A node that was deleted from the IR after the last save appears in removed."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     # Simulate post-save node deletion
@@ -173,7 +173,7 @@ def test_node_deletion_appears_in_removed():
 
 def test_new_node_appears_in_new():
     """A node added to the IR after the last save appears in new."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     # Store only knows about sampler-uid, not latent-uid
     store = _make_store("sampler-uid")
 
@@ -186,7 +186,7 @@ def test_new_node_appears_in_new():
 
 def test_empty_store_all_nodes_are_new():
     """Against an empty store every current uid is reported as new."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store()
 
     result = reconcile(wf, store)
@@ -199,7 +199,7 @@ def test_empty_store_all_nodes_are_new():
 
 def test_fully_matched_store():
     """When every store uid is present in current_wf, matched covers all and new/removed are empty."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     result = reconcile(wf, store)
@@ -212,7 +212,7 @@ def test_fully_matched_store():
 
 def test_unmatched_legacy_equals_removed_in_stage1():
     """In stage 1 (uid-exact only), unmatched_legacy is identical to removed."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid", "ghost-uid")
 
     result = reconcile(wf, store)
@@ -222,7 +222,7 @@ def test_unmatched_legacy_equals_removed_in_stage1():
 
 def test_virtual_wire_degraded_when_endpoint_removed():
     """Virtual wires whose source or target uid is in removed are placed in degraded_virtual_wires."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     vw_good = {"source": "sampler-uid", "target": "latent-uid"}
     vw_bad = {"source": "sampler-uid", "target": "ghost-uid"}
     store = _make_store("sampler-uid", "latent-uid", "ghost-uid",
@@ -236,7 +236,7 @@ def test_virtual_wire_degraded_when_endpoint_removed():
 
 def test_virtual_wire_source_removed_degrades():
     """A virtual wire whose source uid was deleted is also degraded."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     del wf.nodes["2"]
     wf.edges = [e for e in wf.edges if e.from_node != "2" and e.to_node != "2"]
 
@@ -250,7 +250,7 @@ def test_virtual_wire_source_removed_degrades():
 
 def test_reconcile_does_not_mutate_store():
     """reconcile must not modify the prior_store entries dict."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
     original_pos = list(store["entries"]["sampler-uid"]["pos"])
 
@@ -263,7 +263,7 @@ def test_reconcile_does_not_mutate_store():
 
 
 def test_result_is_reconcile_result_instance():
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid")
     assert isinstance(reconcile(wf, store), ReconcileResult)
 
@@ -424,7 +424,7 @@ def test_legacy_hash_differs_on_widget_change():
 
 def test_bridge_mint_does_not_overwrite_uid_bearing_nodes():
     """Stage 2 must not touch nodes that already have a uid."""
-    wf = convert_to_vibe_format(_two_node_api())
+    wf = from_api(_two_node_api())
     store = _make_store("sampler-uid", "latent-uid")
 
     result = reconcile(wf, store)
@@ -870,7 +870,7 @@ def _load_two_node_wf() -> VibeWorkflow:
             },
         },
     }
-    return convert_to_vibe_format(api)
+    return from_api(api)
 
 
 def test_music_video_monster_subgraph_definitions_hit():
@@ -888,7 +888,7 @@ def test_music_video_monster_subgraph_definitions_hit():
     # Offline normalization preserves the UUID subgraph container nodes — the
     # live ComfyUI converter expands them, which would defeat stage 4 matching.
     api = normalize_to_api(data, use_comfy_converter=False)
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
 
     # Build synthetic definitions store with 10 entries (6 real + 4 synthetic extras).
     definitions: dict = {}
@@ -953,7 +953,7 @@ def test_music_video_monster_subgraph_definitions_miss():
     # Offline normalization preserves the UUID subgraph container nodes — the
     # live ComfyUI converter expands them, which would defeat stage 4 matching.
     api = normalize_to_api(data, use_comfy_converter=False)
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
 
     stale_hash = "0000000000000000"
     definitions = {}

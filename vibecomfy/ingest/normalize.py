@@ -43,8 +43,8 @@ def detect_workflow_shape(raw: dict[str, Any]) -> str:
 
     Callers that know their input should use :func:`from_envelope`,
     :func:`from_ui`, or :func:`from_api`. This remains for
-    :func:`convert_to_vibe_format`, :func:`normalize_to_api`, and a few
-    internal tags that still need a shape label.
+    :func:`normalize_to_api` and a few internal tags that still need a shape
+    label.
     """
     if "prompt" in raw and isinstance(raw["prompt"], dict):
         return detect_workflow_shape(raw["prompt"])
@@ -828,44 +828,6 @@ def _named_import(
     )
 
 
-def convert_to_vibe_format(
-    api_workflow: dict[str, Any],
-    *,
-    source_path: str | None = None,
-    workflow_id: str | None = None,
-    schema_provider: SchemaProvider | None = None,
-) -> VibeWorkflow:
-    """Deprecated dispatcher around :func:`from_envelope`, :func:`from_ui`, and :func:`from_api`.
-
-    Prefer the named importer that matches the input. This helper still sniffs
-    via the private :func:`detect_workflow_shape` so existing callers keep
-    today's ui/api/vibe behavior.
-    """
-    with untrusted_scope():
-        shape = detect_workflow_shape(api_workflow)
-        if shape == "vibe":
-            return from_envelope(api_workflow)
-        if shape == "ui":
-            return from_ui(
-                api_workflow,
-                source_path=source_path,
-                workflow_id=workflow_id,
-                schema_provider=schema_provider,
-            )
-        if shape != "api":
-            api_workflow = normalize_to_api(
-                api_workflow,
-                schema_provider=schema_provider,
-                comfy_converter_strict=True,
-            )
-        return _from_api_impl(
-            api_workflow,
-            source_path=source_path,
-            workflow_id=workflow_id,
-            schema_provider=schema_provider,
-        )
-
-
 def _from_api_impl(
     api_workflow: dict[str, Any],
     *,
@@ -1090,9 +1052,9 @@ _CONTROL_AFTER_GENERATE_VALUES: frozenset[str] = frozenset(
 def _capture_control_after_generate(node: dict[str, Any], class_type: str) -> str | None:
     """Recover a node's ``control_after_generate`` value, if present.
 
-    Looks in two places, both available at ``convert_to_vibe_format`` time and both
-    examined BEFORE the ``_schema_input_names`` None-strip (:185) can discard the
-    value during ``_normalize_ui_to_api``:
+    Looks in two places, both available at named-importer (``from_api`` /
+    ``from_ui``) time and both examined BEFORE the ``_schema_input_names``
+    None-strip (:185) can discard the value during ``_normalize_ui_to_api``:
 
     1. A named ``control_after_generate`` input (e.g. api-format prompts, or schemas
        like ``RandomNoise`` that name the position).

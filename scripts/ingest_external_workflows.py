@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, from_envelope, normalize_to_api
 from vibecomfy.testing.canonical import canonical_form
 from vibecomfy.workflow import VIBECOMFY_FORMAT_VERSION, VibeWorkflow
 
@@ -252,7 +252,7 @@ def _convert_and_save(
     source_workflow_sha256 = identity["source_workflow_sha256"]
     class_multiset = identity["node_class_multiset"]
 
-    workflow = convert_to_vibe_format(
+    workflow = from_api(
         api_workflow,
         source_path=str(raw_path),
         workflow_id=source_file_sha256[:16],

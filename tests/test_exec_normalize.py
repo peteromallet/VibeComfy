@@ -8,7 +8,7 @@ from vibecomfy.comfy_backend import ComfyCompatibility
 from vibecomfy.ingest.normalize import (
     EXEC_SOURCE_MAX_BYTES,
     EXEC_SOURCE_MAX_TOTAL_BYTES,
-    convert_to_vibe_format,
+    from_api,
     normalize_to_api,
 )
 
@@ -51,7 +51,7 @@ def _api_exec_node(source: str, *, include_ui: bool = True) -> dict[str, object]
 
 def test_exec_ui_normalize_routes_source_and_io_to_widgets_and_derives_metadata() -> None:
     api = normalize_to_api(_ui_exec_node("return {'image': image}"), use_comfy_converter=False)
-    workflow = convert_to_vibe_format(api)
+    workflow = from_api(api)
 
     node = workflow.nodes["1"]
     assert node.inputs == {}
@@ -61,7 +61,7 @@ def test_exec_ui_normalize_routes_source_and_io_to_widgets_and_derives_metadata(
 
 
 def test_exec_api_reload_rebuilds_only_derived_io_metadata_from_widget_value() -> None:
-    workflow = convert_to_vibe_format({"1": _api_exec_node("return {'image': image}")})
+    workflow = from_api({"1": _api_exec_node("return {'image': image}")})
 
     node = workflow.nodes["1"]
     assert "source" not in node.inputs
@@ -96,17 +96,17 @@ def test_exec_converter_output_path_enforces_limits_and_rebuilds_metadata() -> N
     ), patch("vibecomfy.ingest.normalize.check_comfy_compatibility", return_value=compatible):
         api = normalize_to_api(_ui_exec_node("return {'image': image}"))
 
-    workflow = convert_to_vibe_format(api)
+    workflow = from_api(api)
     assert workflow.nodes["1"].metadata["_ui"]["properties"]["vibecomfy"]["io"] == _exec_io()
 
 
 def test_exec_source_per_node_limit_allows_exact_boundary() -> None:
-    convert_to_vibe_format({"1": _api_exec_node("x" * EXEC_SOURCE_MAX_BYTES, include_ui=False)})
+    from_api({"1": _api_exec_node("x" * EXEC_SOURCE_MAX_BYTES, include_ui=False)})
 
 
 def test_exec_source_per_node_limit_rejects_over_boundary() -> None:
     with pytest.raises(ValueError, match=f"exceeds {EXEC_SOURCE_MAX_BYTES} bytes"):
-        convert_to_vibe_format({"1": _api_exec_node("x" * (EXEC_SOURCE_MAX_BYTES + 1), include_ui=False)})
+        from_api({"1": _api_exec_node("x" * (EXEC_SOURCE_MAX_BYTES + 1), include_ui=False)})
 
 
 def test_exec_source_total_limit_rejects_aggregate_overflow() -> None:
@@ -115,4 +115,4 @@ def test_exec_source_total_limit_rejects_aggregate_overflow() -> None:
     api = {str(index): _api_exec_node(per_node, include_ui=False) for index in range(1, node_count + 1)}
 
     with pytest.raises(ValueError, match=f"total exceeds {EXEC_SOURCE_MAX_TOTAL_BYTES} bytes"):
-        convert_to_vibe_format(api)
+        from_api(api)

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.parity import compile_equivalent
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
@@ -314,7 +314,7 @@ def test_independent_readback_corpus() -> None:
         if not isinstance(raw.get("nodes"), list):
             continue
 
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.schema import InputSpec, LocalSchemaProvider, NodeSchema
 from vibecomfy.schema.validate import (
     SCHEMA_VALIDATION_SKIP_CLASSES,
@@ -349,7 +349,7 @@ def test_snapshot_api_workflows_validate_against_permissive_local_schema(snapsho
     index_path = tmp_path / "node_index.json"
     index_path.write_text(json.dumps(list(rows.values())), encoding="utf-8")
     provider = LocalSchemaProvider(index_path)
-    workflow = convert_to_vibe_format(api, workflow_id=snapshot.stem, schema_provider=provider)
+    workflow = from_api(api, workflow_id=snapshot.stem, schema_provider=provider)
 
     report = workflow.validate(schema_provider=provider)
 

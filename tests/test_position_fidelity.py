@@ -754,7 +754,7 @@ def test_duplicate_safety_twin_randomnoise():
     import json as _json
     import os as _os
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.layout.reconcile import legacy_hash
 
     corpus_path = _os.path.join(
@@ -768,7 +768,7 @@ def test_duplicate_safety_twin_randomnoise():
     with open(corpus_path) as fh:
         raw = _json.load(fh)
 
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     # ── Add two twin RandomNoise nodes ──
     rn1 = wf.add_node("RandomNoise")
@@ -978,7 +978,7 @@ def test_editor_roundtrip_pixel_for_pixel():
 
     1. Load ``z_image.json`` from the workflow corpus.
     2. Deep-copy the raw JSON and perturb the SaveImage node's position.
-    3. ``convert_to_vibe_format`` (mints uids, captures ``_ui`` metadata).
+    3. ``from_ui`` (mints uids, captures ``_ui`` metadata).
     4. Build a ``before_vector`` (layout_vector-compatible dict) from the
        captured ``_ui`` entries, and a ``prior_store`` envelope for the emitter.
     5. ``emit_ui_json(wf, prior_store=store)`` — the preserve path.
@@ -991,7 +991,7 @@ def test_editor_roundtrip_pixel_for_pixel():
     import json as _json
     import os as _os
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+    from vibecomfy.ingest.normalize import from_api, normalize_to_api
     from vibecomfy.porting.layout.layout_vector import layout_drift, layout_vector
 
     # ── 1. Load corpus fixture ──
@@ -1031,7 +1031,7 @@ def test_editor_roundtrip_pixel_for_pixel():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         api_format = normalize_to_api(edited, use_comfy_converter=False)
-        wf = convert_to_vibe_format(api_format)
+        wf = from_api(api_format)
 
     # ── 4. Build before_vector (layout_vector format) and prior_store entries ──
     entries: dict[str, dict] = {}

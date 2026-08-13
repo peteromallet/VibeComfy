@@ -97,7 +97,7 @@ def _handle_roundtrip(
     All engine imports are lazy so this function is importable without ComfyUI or torch.
     Call from tests directly; the aiohttp wrapper below delegates to this.
     """
-    from vibecomfy.ingest.normalize import convert_to_vibe_format  # noqa: PLC0415
+    from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
     from vibecomfy.porting.layout import evaluate_felt_delta  # noqa: PLC0415
     from vibecomfy.porting.emit.ui import emit_ui_json  # noqa: PLC0415
     from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
@@ -107,7 +107,7 @@ def _handle_roundtrip(
             schema_provider = get_schema_provider("local")
         recovery_report: list = []
         change_report_out: list = []
-        wf = convert_to_vibe_format(payload["graph"])
+        wf = from_ui(payload["graph"])
         emitted_ui = emit_ui_json(
             wf,
             schema_provider=schema_provider,
@@ -222,11 +222,11 @@ def _convert_demo_api_graph_to_ui(api_graph: Mapping[str, Any]) -> dict[str, Any
     explicitly marking the layout as generated rather than source-authored.
     """
     try:
-        from vibecomfy.ingest.normalize import convert_to_vibe_format  # noqa: PLC0415
+        from vibecomfy.ingest.normalize import from_api  # noqa: PLC0415
         from vibecomfy.porting.emit.ui import emit_ui_json  # noqa: PLC0415
         from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 
-        workflow = convert_to_vibe_format(dict(api_graph))
+        workflow = from_api(dict(api_graph))
         ui_graph = emit_ui_json(workflow, schema_provider=get_schema_provider("local"))
     except Exception:
         return None

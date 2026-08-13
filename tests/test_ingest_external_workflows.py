@@ -25,7 +25,7 @@ def _load_90a1d5() -> dict:
 
 def test_vibe_workflow_to_dict_omits_compiled_api() -> None:
     """New envelopes are the serialized IR: version + rich nodes, no sidecar."""
-    workflow = ingest.convert_to_vibe_format(_load_90a1d5())
+    workflow = ingest.from_envelope(_load_90a1d5())
     envelope = workflow.to_envelope()
 
     assert envelope["vibecomfy_format_version"] == FORMAT_VERSION
@@ -44,7 +44,7 @@ def test_vibe_workflow_to_dict_omits_compiled_api() -> None:
 
 def test_ingest_helper_is_to_envelope() -> None:
     """The ingest script writer is a one-line wrap of to_envelope, not a twin."""
-    workflow = ingest.convert_to_vibe_format(_load_90a1d5())
+    workflow = ingest.from_envelope(_load_90a1d5())
     assert ingest._vibe_workflow_to_dict(workflow) == workflow.to_envelope()
 
 

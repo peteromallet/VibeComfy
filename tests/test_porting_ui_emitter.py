@@ -502,7 +502,7 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
     to wf.compile('api') for every UI-shaped official corpus workflow."""
     import glob
 
-    from vibecomfy.ingest.normalize import _normalize_ui_to_api, convert_to_vibe_format
+    from vibecomfy.ingest.normalize import _normalize_ui_to_api, from_ui
     from vibecomfy.porting.parity import compile_equivalent
 
     paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
@@ -512,7 +512,7 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
             raw = json.load(handle)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ui = emit_ui_json(wf)
@@ -543,7 +543,7 @@ def test_corpus_compile_api_byte_identity() -> None:
     import hashlib as _hashlib
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     corpus_root = Path("ready_templates/sources")
     exclude = {
@@ -566,7 +566,7 @@ def test_corpus_compile_api_byte_identity() -> None:
         # Only process UI-shaped workflows (nodes is a list)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
 
         # First compile: baseline.  Some custom-node workflows carry orphaned
         # broadcast edges that fail compile(); these are pre-existing and not
@@ -636,7 +636,7 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
     """
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.workflow import _get_node_mode
 
     corpus_root = Path("ready_templates/sources")
@@ -661,7 +661,7 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
             raw = json.load(fh)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
 
         # Determine if ALL nodes are mode==0
         all_mode0 = True
@@ -891,12 +891,12 @@ def _local_provider():
 def test_offline_parity_gate_green_on_starter_set(path: str) -> None:
     """compile_equivalent(_normalize_ui_to_api(emit_ui_json(wf)), compile('api')) — never
     imports ComfyUI — is green for a >=5 starter set spanning image/video/edit."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open(path) as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
     assert ok, f"{path}: {diffs[:5]}"
 
@@ -907,12 +907,12 @@ def test_offline_parity_never_imports_comfy() -> None:
     around offline_emitter_normalizer_self_consistency_check and assert it still runs green."""
     import builtins
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open("ready_templates/sources/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     provider = _local_provider()
 
     real_import = builtins.__import__
@@ -993,12 +993,12 @@ def test_structural_validate_skips_schema_less_and_records() -> None:
 
 @pytest.mark.parametrize("path", _STARTER_SET)
 def test_structural_validate_green_on_starter_set(path: str) -> None:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import structural_validate
 
     with open(path) as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     provider = _local_provider()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1022,7 +1022,7 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
         pytest.skip("comfy release smoke gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
     comfy_convert = _require_comfy_import()
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     fixture_path = (
         Path(__file__).parent / "fixtures" / "walking_skeleton" / "flat.json"
@@ -1034,7 +1034,7 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
         str(node["id"]): node["pos"] for node in raw["nodes"]
     }
 
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ui = emit_ui_json(wf, schema_provider=_local_provider())
@@ -1168,7 +1168,7 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
 
     comfy_convert = _require_comfy_import()
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.ingest.normalize import normalize_to_api
     from vibecomfy.testing.canonical import canonical_equal
 
@@ -1222,7 +1222,7 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
             if not isinstance(raw.get("nodes"), list):
                 continue
 
-            wf = convert_to_vibe_format(raw)
+            wf = from_ui(raw)
 
             # Build the schema provider once per workflow
             provider = get_schema_provider("local")
@@ -1508,12 +1508,12 @@ def _check_canonical_input_names(
 
 
 def test_default_output_path_from_source_name() -> None:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import default_output_path
 
     with open("ready_templates/sources/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw, source_path="ready_templates/sources/official/video/wan_t2v.json")
+    wf = from_ui(raw, source_path="ready_templates/sources/official/video/wan_t2v.json")
     assert default_output_path(wf).as_posix() == "out/ui_export/wan_t2v.json"
 
 
@@ -1583,11 +1583,11 @@ def test_flat_ksampler_does_not_raise_on_emit(tmp_path) -> None:
     """
     import json as _json
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     report: list[dict] = []
     with warnings.catch_warnings():
@@ -1683,11 +1683,11 @@ def test_every_nonempty_uid_node_emits_vibecomfy_uid_property() -> None:
     """Every node with a non-empty uid carries properties['vibecomfy_uid']."""
     import json as _json
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1738,12 +1738,12 @@ def test_nodes_absent_from_layout_fall_back_to_stub() -> None:
 
 def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
     """When layout is empty {} but node has _ui metadata, captured geometry is used."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     import json as _json
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     # All nodes should have _ui with captured pos/size from ingest
     with warnings.catch_warnings():
@@ -1977,7 +1977,7 @@ def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
     import json as _json
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     baseline_path = Path("out/emit_survey_baseline.json")
     if not baseline_path.is_file():
@@ -1997,7 +1997,7 @@ def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
             continue
         with open(abs_path) as fh:
             raw = _json.load(fh)
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
         report: list[dict] = []
         try:
             with warnings.catch_warnings():

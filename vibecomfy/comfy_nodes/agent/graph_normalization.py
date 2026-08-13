@@ -50,10 +50,10 @@ def normalize_agent_edit_graph(
     ):
         raise ValueError("nodes must contain only node objects")
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_envelope
     from vibecomfy.porting.emit.ui import emit_ui_json
 
-    workflow = convert_to_vibe_format(graph, schema_provider=schema_provider)
+    workflow = from_envelope(graph)
     return emit_ui_json(
         workflow,
         schema_provider=schema_provider,

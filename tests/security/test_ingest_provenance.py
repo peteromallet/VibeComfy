@@ -5,7 +5,7 @@ Synthetic in-test ComfyUI API JSON; no dependency on ready_templates/sources/.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.security.gate import requesting_provenance
 from vibecomfy.security.provenance import PROVENANCE_KEY
 
@@ -23,7 +23,7 @@ def _synthetic_api_workflow() -> dict:
 
 
 def test_every_node_tagged_untrusted_source():
-    wf = convert_to_vibe_format(_synthetic_api_workflow(), workflow_id="t")
+    wf = from_api(_synthetic_api_workflow(), workflow_id="t")
     assert wf.nodes, "expected at least one ingested node"
     for node in wf.nodes.values():
         assert node.metadata.get(PROVENANCE_KEY) == "untrusted_source", (
@@ -36,7 +36,7 @@ def test_schema_derived_metadata_untouched():
     # Schema-derived fields are only set when a schema_provider supplies them.
     # Without a provider, those keys must not appear; tagging provenance must
     # not invent them.
-    wf = convert_to_vibe_format(_synthetic_api_workflow(), workflow_id="t")
+    wf = from_api(_synthetic_api_workflow(), workflow_id="t")
     for node in wf.nodes.values():
         for forbidden in ("output_names", "output_types", "input_aliases", "schema_source"):
             assert forbidden not in node.metadata, (
@@ -47,9 +47,9 @@ def test_schema_derived_metadata_untouched():
 
 def test_requesting_provenance_restored_after_call():
     assert requesting_provenance.get() == "agent_authored"
-    convert_to_vibe_format(_synthetic_api_workflow(), workflow_id="t")
+    from_api(_synthetic_api_workflow(), workflow_id="t")
     assert requesting_provenance.get() == "agent_authored", (
-        "requesting_provenance ContextVar leaked out of convert_to_vibe_format"
+        "requesting_provenance ContextVar leaked out of from_api"
     )
 
 
@@ -73,7 +73,7 @@ def test_requesting_provenance_restored_even_on_exception():
     _norm._from_api_impl = _raise  # type: ignore[assignment]
     try:
         with pytest.raises(_Boom):
-            convert_to_vibe_format({}, workflow_id="t")
+            from_api({}, workflow_id="t")
         assert requesting_provenance.get() == "agent_authored"
     finally:
         _norm._from_api_impl = original  # type: ignore[assignment]

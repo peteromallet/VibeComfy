@@ -6,7 +6,6 @@ Tests nodes that produce multiple outputs (e.g., KSampler produces
 LATENT, but multi-output nodes might produce IMAGE + MASK).
 """
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

@@ -61,7 +61,7 @@ def test_response_envelope_shape(flat_fixture, schema_provider):
 
 # ---------------------------------------------------------------------------
 # (b) Unmodified round-trip produces non-empty preserved
-# Tested via the direct engine path (convert_to_vibe_format → emit_ui_json)
+# Tested via the direct engine path (from_ui → emit_ui_json)
 # with a prior_store built from the first emission.  The route itself does not
 # accept a prior_store; this test validates the underlying engine capability.
 # ---------------------------------------------------------------------------
@@ -69,12 +69,12 @@ def test_response_envelope_shape(flat_fixture, schema_provider):
 
 def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
     """Engine round-trip with prior_store: preserved is non-empty."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.layout_store import store_from_ui_json
     from vibecomfy.porting.emit.ui import emit_ui_json
 
     # Pass 1: initial emit stamps vibecomfy_uid into every node's properties.
-    wf1 = convert_to_vibe_format(flat_fixture)
+    wf1 = from_ui(flat_fixture)
     emitted1 = emit_ui_json(wf1, schema_provider=schema_provider)
 
     # Build the prior store that tracks every uid from pass 1.
@@ -82,7 +82,7 @@ def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
     assert prior_store.get("entries"), "prior_store must have entries after first emit"
 
     # Pass 2: re-convert the emitted output and re-emit with the prior store.
-    wf2 = convert_to_vibe_format(emitted1)
+    wf2 = from_ui(emitted1)
     change_report_out: list = []
     emit_ui_json(
         wf2,
@@ -135,7 +135,7 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
     (not byte-for-byte — per gate flag correctness-6/issue_hints-3).
     """
     from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
 
     # Route path
@@ -146,7 +146,7 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
     route_graph = route_result["graph"]
 
     # Direct engine path — mirrors what the route does internally
-    wf = convert_to_vibe_format(flat_fixture)
+    wf = from_ui(flat_fixture)
     direct_graph = emit_ui_json(
         wf,
         schema_provider=schema_provider,
@@ -239,7 +239,7 @@ def test_failure_response_accept_preserves_nested_recovery() -> None:
 
 def test_exec_roundtrip_preserves_source_and_io() -> None:
     """Round-trip through the engine preserves source and io widget values."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
@@ -254,7 +254,7 @@ def test_exec_roundtrip_preserves_source_and_io() -> None:
         }
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     schema_provider = get_schema_provider("local")
     emitted = emit_ui_json(wf, schema_provider=schema_provider)
 
@@ -279,7 +279,7 @@ def test_exec_roundtrip_preserves_source_and_io() -> None:
 
 def test_exec_roundtrip_preserves_linked_in_references() -> None:
     """Exec round-trip preserves linked in_N references from upstream nodes."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
@@ -294,7 +294,7 @@ def test_exec_roundtrip_preserves_linked_in_references() -> None:
         },
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     schema_provider = get_schema_provider("local")
     emitted = emit_ui_json(wf, schema_provider=schema_provider)
 
@@ -313,7 +313,7 @@ def test_exec_roundtrip_preserves_linked_in_references() -> None:
 
 def test_exec_roundtrip_preserves_downstream_out_references() -> None:
     """Exec round-trip preserves downstream out_N links to consumer nodes."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
@@ -331,7 +331,7 @@ def test_exec_roundtrip_preserves_downstream_out_references() -> None:
         },
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     schema_provider = get_schema_provider("local")
     emitted = emit_ui_json(wf, schema_provider=schema_provider)
 
@@ -350,7 +350,7 @@ def test_exec_roundtrip_preserves_downstream_out_references() -> None:
 
 def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
     """Exec node in the emitted UI graph preserves only declared dynamic sockets."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
@@ -369,7 +369,7 @@ def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
         },
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     schema_provider = get_schema_provider("local")
     emitted = emit_ui_json(wf, schema_provider=schema_provider)
 
@@ -390,7 +390,7 @@ def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
 
 def test_exec_emit_ignores_generic_builtin_port_pool_when_io_declares_shape() -> None:
     """Schema-backed exec emit uses dynamic io, not the runtime node's 16-slot pool."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 
@@ -424,7 +424,7 @@ def test_exec_emit_ignores_generic_builtin_port_pool_when_io_declares_shape() ->
         },
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     emitted = emit_ui_json(wf, schema_provider=GenericExecProvider())
     exec_node = next(n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec")
     in_link = next(link[0] for link in emitted["links"] if link[3] == exec_node["id"])
@@ -442,7 +442,7 @@ def test_exec_emit_ignores_generic_builtin_port_pool_when_io_declares_shape() ->
 
 def test_exec_emit_rebuilds_raw_ui_generic_port_pool_from_widgets_io() -> None:
     """Refresh path does not pin a stale raw exec UI payload with 16 generic outputs."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 
@@ -488,7 +488,7 @@ def test_exec_emit_rebuilds_raw_ui_generic_port_pool_from_widgets_io() -> None:
         "links": [[1, 2, 0, 1, 0, "IMAGE"], [2, 1, 0, 3, 0, "IMAGE"]],
     }
 
-    wf = convert_to_vibe_format(raw_ui)
+    wf = from_ui(raw_ui)
     emitted = emit_ui_json(wf, schema_provider=GenericExecProvider())
     exec_node = next(n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec")
     in_link = next(link[0] for link in emitted["links"] if link[3] == exec_node["id"])
@@ -503,7 +503,7 @@ def test_exec_emit_rebuilds_raw_ui_generic_port_pool_from_widgets_io() -> None:
 
 def test_exec_api_reload_without_ui_metadata_restores_derived_io() -> None:
     """API-shape reload without _ui metadata restores properties.vibecomfy.io from the io widget."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
 
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
     source = "return {'image': image}"
@@ -520,7 +520,7 @@ def test_exec_api_reload_without_ui_metadata_restores_derived_io() -> None:
         }
     }
 
-    workflow = convert_to_vibe_format(api)
+    workflow = from_api(api)
 
     node = workflow.nodes["1"]
     # Widget values are authoritative
@@ -532,7 +532,7 @@ def test_exec_api_reload_without_ui_metadata_restores_derived_io() -> None:
 
 def test_exec_compile_preserves_linked_in_references() -> None:
     """Compile/reload preserves linked in_N references in the workflow edge model."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
 
     source = "return {'image': image}"
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
@@ -549,7 +549,7 @@ def test_exec_compile_preserves_linked_in_references() -> None:
         },
     }
 
-    workflow = convert_to_vibe_format(api)
+    workflow = from_api(api)
 
     # Verify linked in_0 from LoadImage
     in_edges = [e for e in workflow.edges if e.to_node == "2" and e.to_input == "in_0"]
@@ -564,7 +564,7 @@ def test_exec_compile_preserves_linked_in_references() -> None:
 
 def test_exec_roundtrip_preserves_links_across_nodes() -> None:
     """Full round-trip preserves all link topology including exec in/out slots."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
@@ -583,7 +583,7 @@ def test_exec_roundtrip_preserves_links_across_nodes() -> None:
         },
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     schema_provider = get_schema_provider("local")
     emitted = emit_ui_json(wf, schema_provider=schema_provider)
 

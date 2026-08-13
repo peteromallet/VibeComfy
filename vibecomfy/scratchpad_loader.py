@@ -80,7 +80,7 @@ async def main():
 
 def render_scratchpad_from_dict(api_workflow: dict[str, Any], *, schema_provider: SchemaProvider | None = None) -> str:
     provider_arg = ', schema_provider=get_schema_provider("auto")' if schema_provider is not None else ""
-    return f'''from vibecomfy.ingest.normalize import convert_to_vibe_format
+    return f'''from vibecomfy.ingest import from_api
 from vibecomfy.runtime import run
 from vibecomfy.schema import get_schema_provider
 
@@ -89,7 +89,7 @@ API_WORKFLOW = {api_workflow!r}
 
 
 def build():
-    workflow = convert_to_vibe_format(API_WORKFLOW{provider_arg})
+    workflow = from_api(API_WORKFLOW{provider_arg})
     # Edit this file with VibeWorkflow methods, for example:
     # workflow.set_prompt("a cinematic robot painter")
     # workflow.set_seed(123)

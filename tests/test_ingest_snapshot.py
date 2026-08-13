@@ -5,7 +5,7 @@ public_input_binding, and the _ingest_snapshot stash on VibeWorkflow.metadata.
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 
 
@@ -57,21 +57,21 @@ def _api_with_widget() -> dict:
 # ---------------------------------------------------------------------------
 
 def test_snapshot_keyed_by_uid():
-    wf = convert_to_vibe_format(_simple_api())
+    wf = from_api(_simple_api())
     snap = capture_ingest_snapshot({}, wf)
     assert "load-uid" in snap
     assert "save-uid" in snap
 
 
 def test_snapshot_class_type_recorded():
-    wf = convert_to_vibe_format(_simple_api())
+    wf = from_api(_simple_api())
     snap = capture_ingest_snapshot({}, wf)
     assert snap["load-uid"]["class_type"] == "LoadImage"
     assert snap["save-uid"]["class_type"] == "SaveImage"
 
 
 def test_snapshot_widget_values_sig_captures_non_link_inputs():
-    wf = convert_to_vibe_format(_api_with_widget())
+    wf = from_api(_api_with_widget())
     snap = capture_ingest_snapshot({}, wf)
     sig = snap["ksampler-uid"]["widget_values_sig"]
     # Should be a sorted tuple of (field, repr(value)) pairs
@@ -83,7 +83,7 @@ def test_snapshot_widget_values_sig_captures_non_link_inputs():
 
 
 def test_snapshot_incoming_edge_sig_captured():
-    wf = convert_to_vibe_format(_simple_api())
+    wf = from_api(_simple_api())
     snap = capture_ingest_snapshot({}, wf)
     # SaveImage receives an incoming edge from LoadImage
     incoming = snap["save-uid"]["incoming_edge_sig"]
@@ -95,7 +95,7 @@ def test_snapshot_incoming_edge_sig_captured():
 
 
 def test_snapshot_outgoing_edge_sig_captured():
-    wf = convert_to_vibe_format(_simple_api())
+    wf = from_api(_simple_api())
     snap = capture_ingest_snapshot({}, wf)
     # LoadImage has one outgoing edge to SaveImage
     outgoing = snap["load-uid"]["outgoing_edge_sig"]
@@ -114,15 +114,15 @@ def test_snapshot_no_edges_produces_empty_sigs():
             "_ui": {"id": 1, "pos": [0, 0], "size": [200, 100], "properties": {"vibecomfy_uid": "solo-uid"}},
         },
     })
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     snap = capture_ingest_snapshot({}, wf)
     assert snap["solo-uid"]["incoming_edge_sig"] == ()
     assert snap["solo-uid"]["outgoing_edge_sig"] == ()
 
 
 def test_snapshot_stashed_on_workflow_metadata():
-    """_ingest_snapshot is stored on the workflow metadata after convert_to_vibe_format."""
-    wf = convert_to_vibe_format(_simple_api())
+    """_ingest_snapshot is stored on the workflow metadata after from_api."""
+    wf = from_api(_simple_api())
     assert "_ingest_snapshot" in wf.metadata
     snap = wf.metadata["_ingest_snapshot"]
     assert "load-uid" in snap
@@ -131,7 +131,7 @@ def test_snapshot_stashed_on_workflow_metadata():
 
 def test_snapshot_survives_ir_mutation():
     """_ingest_snapshot captures the state AT INGEST TIME; later mutations don't alter it."""
-    wf = convert_to_vibe_format(_api_with_widget())
+    wf = from_api(_api_with_widget())
     snap_before = dict(wf.metadata["_ingest_snapshot"])
     # Mutate a widget value in the IR
     wf.nodes["1"].widgets["seed"] = 999

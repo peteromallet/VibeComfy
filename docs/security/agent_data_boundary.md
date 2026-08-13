@@ -33,7 +33,7 @@ The four values are:
 
 | Value | Meaning | Set by |
 |---|---|---|
-| `untrusted_source` | Came from external graph text (JSON import, another agent's scratchpad, raw ComfyUI JSON). | `convert_to_vibe_format`, scratchpad/ready loaders under untrusted scope |
+| `untrusted_source` | Came from external graph text (JSON import, another agent's scratchpad, raw ComfyUI JSON). | `from_api` / `from_ui` / `from_envelope`, scratchpad/ready loaders under untrusted scope |
 | `agent_authored` | Created programmatically by the local agent at edit time (`wf.add_node(…)` in a recipe or deliberate edit). | `VibeWorkflow.add_node` default, `node()`, `add_block_node()` |
 | `agent_generated` | Came from model-generated Python that passed the restricted generated-loader scan. It is allowed to execute headless, but must not be silently promoted to `user_confirmed`. | `vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad()` only |
 | `user_confirmed` | Originally `untrusted_source` but explicitly approved through the gate confirmation prompt. | `provenance.confirm(node)` (idempotent on already-trusted) |

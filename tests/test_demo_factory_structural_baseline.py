@@ -21,7 +21,7 @@ from vibecomfy.demo_factory.run_campaign import (
     _multinode_spec,
     _remove_subgraph_fault,
 )
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, normalize_to_api
 
 
 def _connected_graph(
@@ -412,7 +412,7 @@ def test_widget_shaped_literal_does_not_manufacture_runtime_edge(
 
     result = structural_check_graph(graph)
     normalized = normalize_to_api(graph, use_comfy_converter=False)
-    workflow = convert_to_vibe_format(normalized)
+    workflow = from_api(normalized)
 
     assert result["passed"] is True
     assert result["warnings"][0]["detail"]["structural_reason"] == (

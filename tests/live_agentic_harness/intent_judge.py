@@ -88,9 +88,9 @@ def _schema_context_from_payload(payload: Mapping[str, Any] | None) -> dict[str,
         # IR (compile("api") is a function, not stored data). Only a graph the
         # decoder accepts yields context; anything else stays context-free.
         try:
-            from vibecomfy.ingest.normalize import convert_to_vibe_format
+            from vibecomfy.ingest.normalize import from_envelope
 
-            compiled_api = convert_to_vibe_format(dict(graph)).compile("api")
+            compiled_api = from_envelope(dict(graph)).compile("api")
         except Exception:
             return None
     context: dict[str, Any] = {"compiled_api": compiled_api}
