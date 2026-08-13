@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlsplit, urlunsplit
 
 from vibecomfy.executor.contracts import normalize_model_endpoint, redact_model_preview
 
@@ -32,6 +34,22 @@ _MODEL_ARTIFACT_NAMES = frozenset({
     "model_request.json",
     "model_response.json",
 })
+_SENSITIVE_URL_QUERY_PARTS = frozenset({
+    "api_key",
+    "apikey",
+    "api-key",
+    "auth",
+    "authorization",
+    "key",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+})
+_URL_QUERY_CREDENTIAL_SUBSTRINGS = ("token", "secret", "api_key", "apikey", "api-key")
+_AUTHORIZATION_HEADER_RE = re.compile(r"(?im)\bauthorization\s*:\s*[^\r\n]*")
+_EMBEDDED_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 
 def _safe_write(path: Path, data: Any) -> None:
@@ -59,14 +77,89 @@ def _is_sensitive_key(key: str) -> bool:
     return any(part in lower for part in _SENSITIVE_KEY_PARTS)
 
 
-def _redact(value: Any, *, parent_key: str = "") -> Any:
-    """Return a JSON-safe copy with credential-like values redacted."""
-    if _is_sensitive_key(parent_key) and isinstance(value, str):
+def _is_credential_like_url_param(name: str) -> bool:
+    lower = name.lower()
+    if lower in _SENSITIVE_URL_QUERY_PARTS:
+        return True
+    return any(part in lower for part in _URL_QUERY_CREDENTIAL_SUBSTRINGS)
+
+
+def _redact_url_credentials(url: str) -> str:
+    """Redact userinfo and credential-like query params inside a URL string.
+
+    Only credential material is touched: userinfo is replaced wholesale and
+    query parameter VALUES whose names look credential-like (token/key/sig/
+    signature/api_key/apikey/secret + auth headers carried as query params)
+    become ``<redacted>``. Every other part of the URL is preserved byte for
+    byte (oracle finding 5).
+    """
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return url
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return url
+    netloc = parsed.netloc
+    if parsed.username is not None:
+        host = parsed.hostname or ""
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+        netloc = f"<redacted>@{host}"
+    query = parsed.query
+    if query:
+        parts = query.split("&")
+        redacted_parts: list[str] = []
+        query_changed = False
+        for part in parts:
+            name, sep, _value = part.partition("=")
+            if sep and _is_credential_like_url_param(name):
+                redacted_parts.append(f"{name}=<redacted>")
+                query_changed = True
+            else:
+                redacted_parts.append(part)
+        if query_changed:
+            query = "&".join(redacted_parts)
+    if netloc == parsed.netloc and query == parsed.query:
+        return url
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, parsed.fragment))
+
+
+def _redact_embedded_secrets(value: str) -> str:
+    """Redact authorization headers and credential-bearing URLs in ANY string.
+
+    Ordinary leaves (``content``, ``message``, ``error``, ``url``, ...) can
+    persist credentials inside prose, so every string is scanned: full
+    ``Authorization: <scheme> <credential>`` header values (every scheme) are
+    replaced, and credential-like URL query params / userinfo are redacted.
+    Everything else is left untouched.
+    """
+    redacted = _AUTHORIZATION_HEADER_RE.sub("Authorization: <redacted>", value)
+    redacted = _EMBEDDED_URL_RE.sub(
+        lambda match: _redact_url_credentials(match.group(0)), redacted
+    )
+    return redacted
+
+
+def _redact_string(value: str, *, parent_key: str) -> str:
+    if _is_sensitive_key(parent_key):
         return "<redacted>"
-    if parent_key.lower() == "endpoint" and isinstance(value, str):
+    if parent_key.lower() == "endpoint":
         return normalize_model_endpoint(value)
-    if parent_key.lower() == "raw_response_preview" and isinstance(value, str):
-        return redact_model_preview(value)
+    if parent_key.lower() == "raw_response_preview":
+        return redact_model_preview(value) or ""
+    return _redact_embedded_secrets(value)
+
+
+def _redact(value: Any, *, parent_key: str = "") -> Any:
+    """Return a JSON-safe copy with credential-like values redacted.
+
+    Walks the artifact recursively and sanitizes EVERY persisted string leaf:
+    values under sensitive keys are replaced wholesale, ``endpoint`` and
+    ``raw_response_preview`` use their canonical redactors, and ordinary fields
+    are scanned for embedded authorization headers and credential-bearing URLs.
+    """
+    if isinstance(value, str):
+        return _redact_string(value, parent_key=parent_key)
     if isinstance(value, Mapping):
         redacted: dict[str, Any] = {}
         for key, item in value.items():

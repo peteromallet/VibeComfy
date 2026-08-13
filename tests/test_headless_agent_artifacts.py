@@ -377,3 +377,92 @@ def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path)
     assert "sig-secret" not in persisted
     assert "top-secret" not in persisted
     assert "url-secret" not in persisted
+
+
+def test_turn_artifact_secrets_in_ordinary_fields_are_redacted(tmp_path: Path) -> None:
+    """Oracle finding 5: parsed JSON artifacts with secrets in ordinary leaves.
+
+    A durable turn artifact persisting ``Authorization`` headers or
+    credential-bearing URLs under ordinary keys (``content``, ``url``,
+    ``message``, ``error``) must come out fully redacted.
+    """
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "leaky"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    (turn_dir / "request.json").write_text(
+        json.dumps(
+            {
+                "content": "Authorization: Basic dXNlcjpwYXNz",
+                "url": "https://example.test/v1?token=url-secret&sig=abc123",
+                "message": "retry with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9",
+                "error": "call https://api.example.test/v2?api_key=sk-live-123",
+                "safe": "plain text without secrets",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "out"
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
+        output_dir=output_dir,
+        status="error",
+    )
+
+    copied = _read_json(output_dir / "request.json")
+    assert copied["content"] == "Authorization: <redacted>"
+    assert copied["url"] == "https://example.test/v1?token=<redacted>&sig=<redacted>"
+    assert copied["message"] == "retry with Authorization: <redacted>"
+    assert copied["error"] == "call https://api.example.test/v2?api_key=<redacted>"
+    assert copied["safe"] == "plain text without secrets"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert "dXNlcjpwYXNz" not in persisted
+    assert "url-secret" not in persisted
+    assert "abc123" not in persisted
+    assert "eyJhbGciOiJIUzI1NiJ9" not in persisted
+    assert "sk-live-123" not in persisted
+
+
+def test_synthesized_response_secrets_in_ordinary_fields_are_redacted(tmp_path: Path) -> None:
+    """Oracle finding 5: synthesized response with secrets in ordinary leaves.
+
+    The response/request payloads synthesized by ``synthesize_headless_artifacts``
+    must redact authorization headers and credential-bearing URLs even when they
+    arrive under ordinary ``content``/``url``/``error`` fields.
+    """
+    output_dir = tmp_path / "out"
+    synthesize_headless_artifacts(
+        request={"query": "test", "url": "https://api.example.test/v1?apikey=req-secret"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={
+            "ok": False,
+            "reply": "auth failed",
+            "content": (
+                "see https://api.example.test/v1?token=url-secret "
+                "then Authorization: Bearer live-token"
+            ),
+            "error": "Authorization: ApiKey live-abcdef",
+        },
+        output_dir=output_dir,
+        status="error",
+    )
+
+    response_json = _read_json(output_dir / "response.json")
+    assert response_json["reply"] == "auth failed"
+    assert response_json["content"] == (
+        "see https://api.example.test/v1?token=<redacted> then Authorization: <redacted>"
+    )
+    assert response_json["error"] == "Authorization: <redacted>"
+    request_json = _read_json(output_dir / "request.json")
+    assert request_json["url"] == "https://api.example.test/v1?apikey=<redacted>"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert "req-secret" not in persisted
+    assert "url-secret" not in persisted
+    assert "live-token" not in persisted
+    assert "live-abcdef" not in persisted

@@ -256,20 +256,64 @@ def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
             )
 
 
+def _clear_stale_retryable_infra_markers(summary: dict[str, Any]) -> None:
+    """Drop inherited retryable-infra markers the canonical evidence no longer supports.
+
+    ``failure_class``/``retryable_infra`` are authoritative ONLY while they are
+    re-derived from the canonical ``model_attempts`` evidence on the same
+    summary. A summary that previously persisted ``infra_empty_response`` (from
+    an earlier attempt or a resumed run) must not keep claiming retryability
+    when the typed evidence is now, say, ``malformed_json`` (oracle finding 4).
+    """
+    stale_retryable = (
+        summary.get("failure_class") == "infra_empty_response"
+        or summary.get("retryable_infra") is True
+    )
+    if summary.get("failure_class") == "infra_empty_response":
+        del summary["failure_class"]
+    if summary.get("retryable_infra") is True:
+        summary["retryable_infra"] = False
+    if stale_retryable and summary.get("score_class") == "infra_blocked":
+        del summary["score_class"]
+    guard = summary.get("guard")
+    if isinstance(guard, dict):
+        if guard.get("failure_class") == "infra_empty_response":
+            del guard["failure_class"]
+        if stale_retryable and guard.get("score_class") == "infra_blocked":
+            del guard["score_class"]
+
+
 def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive infra classification from canonical typed evidence only.
+
+    Never trusts inherited ``failure_class``/``retryable_infra`` flags: when the
+    canonical ``model_attempts`` evidence supports an infra class the summary is
+    marked; otherwise stale retryable-infra markers are cleared so persisted
+    summaries cannot mislead later decisions.
+    """
+    if summary.get("guard", {}).get("live_agentic_success") is True:
+        _clear_stale_retryable_infra_markers(summary)
+        return summary
     failure_class = _provider_infra_failure_class(summary)
-    if failure_class is not None and summary.get("guard", {}).get("live_agentic_success") is not True:
+    if failure_class is not None:
         _mark_summary_as_infra(summary, failure_class)
+    else:
+        _clear_stale_retryable_infra_markers(summary)
     return summary
 
 
 def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
+    """Decide retryability from the CANONICAL typed evidence on every call.
+
+    The decision is the latest failed ``model_attempts`` entry's failure type
+    plus the observed completion tokens — never the inherited
+    ``failure_class``/``retryable_infra`` flags, which can be stale from an
+    earlier attempt. A succeeded scenario is never retried.
+    """
     _classify_retryable_infra_summary(summary)
-    return (
-        summary.get("failure_class") == "infra_empty_response"
-        and summary.get("retryable_infra") is True
-        and _summary_completion_tokens(summary) == 0
-    )
+    if summary.get("guard", {}).get("live_agentic_success") is True:
+        return False
+    return _provider_infra_failure_class(summary) == "infra_empty_response"
 
 
 def _build_run_summary(

@@ -5,8 +5,10 @@ import subprocess
 from pathlib import Path
 
 from tests.live_agentic_harness.runner import (
+    _is_retryable_infra_summary,
     _persist_run_summary,
     _persist_scenario_summary,
+    _provider_infra_failure_class,
     run_tag,
 )
 
@@ -451,3 +453,41 @@ def test_runner_timeout_preserves_scenario_graph_change_expectation(
     assert scenario["guard"]["assessment"]["expect_graph_changed"] is False
     assert scenario["failure_class"] == "infra_timeout"
     assert summary["infra_failures"] == 1
+
+
+def test_retryability_ignores_stale_infra_flags_when_evidence_is_malformed() -> None:
+    """Oracle finding 4: persisted failure_class/retryable_infra must never drive retry.
+
+    Canonical ``malformed_json`` evidence with zero tokens is NOT retryable even
+    when the summary inherited ``failure_class=infra_empty_response`` and
+    ``retryable_infra=True`` from an earlier attempt.
+    """
+    summary = _summary(Path("/tmp"), "conflicting-flags", ok=False)
+    summary["model_attempts"] = [_failed_attempt("malformed_json", completion_tokens=0)]
+    summary["failure_class"] = "infra_empty_response"
+    summary["retryable_infra"] = True
+    summary["score_class"] = "infra_blocked"
+    summary["guard"]["failure_class"] = "infra_empty_response"
+    summary["guard"]["score_class"] = "infra_blocked"
+
+    assert _provider_infra_failure_class(summary) is None
+    assert _is_retryable_infra_summary(summary) is False
+    # The inherited markers were cleared, never trusted.
+    assert summary.get("failure_class") is None
+    assert summary.get("retryable_infra") is False
+    assert summary.get("score_class") is None
+    assert summary["guard"].get("failure_class") is None
+    assert summary["guard"].get("score_class") is None
+
+
+def test_retryability_is_derived_from_canonical_typed_evidence() -> None:
+    """Canonical empty_response + observed zero tokens is retryable regardless of flags."""
+    summary = _summary(Path("/tmp"), "canonical-empty", ok=False)
+    summary["model_attempts"] = [_failed_attempt("empty_response", completion_tokens=0)]
+    summary["failure_class"] = "product_or_assessment_failure"  # stale conflicting flag
+    summary["retryable_infra"] = False  # stale conflicting flag
+
+    assert _provider_infra_failure_class(summary) == "infra_empty_response"
+    assert _is_retryable_infra_summary(summary) is True
+    assert summary["failure_class"] == "infra_empty_response"
+    assert summary["retryable_infra"] is True
