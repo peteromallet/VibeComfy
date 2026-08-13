@@ -11,7 +11,8 @@ import copy
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 from vibecomfy.porting.layout.delta import compute_field_delta
-from vibecomfy.workflow import VibeEdge, VibeNode
+from vibecomfy.porting.lowering import clone_uid
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +52,42 @@ def _api_ksampler_to_saveimage() -> dict:
 def test_no_change_produces_empty_delta():
     """Identical snapshot and IR → empty delta."""
     wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    snap = capture_ingest_snapshot({}, wf)
+    delta = compute_field_delta(snap, wf)
+    assert delta == {}
+
+
+def test_no_mutation_loop_lowered_workflow_produces_empty_delta():
+    """B03 finding 3 oracle: an already-lowered loop workflow compared to its
+    own snapshot must yield NO ``semantic_link_set`` deltas.
+
+    Before (snapshot of the lowered graph) holds the loop-clone consumer uids
+    ``source/image -> loop:iter0:consumer/images`` and
+    ``source/image -> loop:iter1:consumer/images``; the live set collapses both
+    clones to ``source/image -> consumer/images``.  The before set must be
+    canonicalized with its own (structurally derived) loop-clone aliases so the
+    unchanged workflow compares equal and produces an empty delta.
+    """
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["7"] = VibeNode("7", "DynamicRows", uid="source")
+    for iteration in range(2):
+        node_id = str(20 + iteration)
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        wf.nodes[node_id] = VibeNode(
+            node_id,
+            "SaveImage",
+            uid=lowered_uid,
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("7", "image", node_id, "images"))
+
+    # Snapshot captured AFTER lowering; the workflow is then left UNCHANGED.
     snap = capture_ingest_snapshot({}, wf)
     delta = compute_field_delta(snap, wf)
     assert delta == {}

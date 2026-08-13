@@ -812,6 +812,40 @@ def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
     _emit_semantic_pin(wf, raw_ui)
 
 
+def test_pinned_semantic_unchanged_lowered_loop_pins() -> None:
+    """B03 finding 3: snapshot taken AFTER lowering on an UNCHANGED workflow
+    must not fabricate a ``semantic_link_set`` delta (the valid pin is not
+    refused).
+
+    The before set holds loop-clone consumer uids (``loop:iter0:consumer``,
+    ``loop:iter1:consumer``) while the live set collapses them to
+    ``consumer``; symmetric alias normalization makes the delta empty so the
+    unchanged lowered workflow pins instead of refusing.
+    """
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.edges = []
+    for iteration in range(2):
+        node_id = str(20 + iteration)
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        wf.nodes[node_id] = VibeNode(
+            node_id,
+            "SaveImage",
+            uid=lowered_uid,
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
+    # Snapshot captured AFTER lowering; the workflow is UNCHANGED from here on.
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    _emit_semantic_pin(wf, raw_ui)
+
+
 def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
     """The corpus regression: one Set/Get route becomes N direct clone links."""
     wf, raw_ui = _semantic_pin_workflow()

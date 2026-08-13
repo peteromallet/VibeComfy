@@ -10,10 +10,12 @@ downstream logic treats them as ``'snapshot-absent'``.
 from __future__ import annotations
 
 import ast
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from vibecomfy.identity.uid import make_uid, parse_uid
 from vibecomfy.porting.lowering import clone_uid
 
 if TYPE_CHECKING:
@@ -252,6 +254,41 @@ def _snapshot_semantic_graph(
     return nodes, links
 
 
+# Local-part shape produced by ``clone_uid`` (lowering.py:317):
+# ``{loop_local}:iter{N}:{source_local}``.  Iteration indices are non-negative
+# integers; ``source_local`` is captured greedily so a nested clone uid
+# (``outer:iter0:inner``) round-trips as the source of the inner clone.
+_LOOP_CLONE_LOCAL_RE = re.compile(r"^(?P<loop>[^:]+):iter(?P<iteration>\d+):(?P<source>.+)$")
+
+
+def _snapshot_consumer_uid_aliases(
+    nodes: Mapping[str, SemanticNode],
+) -> dict[str, str]:
+    """Recover loop-clone consumer aliases from a snapshot graph alone.
+
+    ``NodeFieldSnapshot`` records do not persist ``vibecomfy.lowering``
+    metadata, so the snapshot side cannot reuse the live graph's
+    metadata-derived aliases.  Instead the inverse of ``clone_uid`` is applied
+    structurally: any uid whose local part has the clone shape
+    ``{loop}:iter{N}:{source}`` is collapsed to ``make_uid(scope, source)`` —
+    the same canonical uid the live side derives from ``source_uid`` metadata.
+    This keeps an already-lowered workflow comparing equal to its own snapshot
+    (no fabricated ``semantic_link_set`` delta), while genuine consumer changes
+    still fail closed.
+    """
+    aliases: dict[str, str] = {}
+    for uid, _spec in nodes.items():
+        scope, local = parse_uid(str(uid))
+        match = _LOOP_CLONE_LOCAL_RE.match(local)
+        if match is None:
+            continue
+        source_local = match.group("source")
+        if not source_local:
+            continue
+        aliases[str(uid)] = make_uid(scope, source_local)
+    return aliases
+
+
 def _workflow_semantic_graph(
     current_ir: "VibeWorkflow",
 ) -> tuple[dict[str, SemanticNode], list[SemanticLink], dict[str, str]]:
@@ -330,8 +367,16 @@ def compute_field_delta(
             public_bindings[vibe_input.node_id].append((input_name, vibe_input.field))
 
     before_nodes, before_links = _snapshot_semantic_graph(snapshot)
+    # The before set is canonicalized with aliases derived from the snapshot
+    # graph itself (structural clone-uid recovery) — never from the live graph —
+    # so an already-lowered workflow compares equal to its own snapshot.
+    before_aliases = _snapshot_consumer_uid_aliases(before_nodes)
     after_nodes, after_links, after_aliases = _workflow_semantic_graph(current_ir)
-    canonical_before, before_issues = canonical_semantic_link_set(before_nodes, before_links)
+    canonical_before, before_issues = canonical_semantic_link_set(
+        before_nodes,
+        before_links,
+        consumer_uid_aliases=before_aliases,
+    )
     canonical_after, after_issues = canonical_semantic_link_set(
         after_nodes,
         after_links,
