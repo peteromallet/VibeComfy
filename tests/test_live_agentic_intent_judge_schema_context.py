@@ -175,3 +175,104 @@ def test_intent_judge_labels_static_widget_removal_and_preserved_dynamic_input(
     assert removals[0]["preserved_dynamic_inputs"] is True
     assert removals[0]["linked_inputs_post"][0]["source"]["class_type"] == "Florence2Run"
     assert "static widget" in messages[0]["content"]
+
+
+def test_intent_judge_recomputes_schema_context_for_sidecar_less_envelope(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """A rich envelope without compiled_api still yields schema context (P3).
+
+    The execution view is derived by compiling the IR (compile("api") is a
+    function, not stored data); the schema_context key is preserved.
+    """
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    original.write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    candidate.write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "artifacts": {
+                    "original_ui": str(original),
+                    "candidate_ui": str(candidate),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "implementation_payload.json").write_text(
+        json.dumps(
+            {
+                "graph": {
+                    "vibecomfy_format_version": "1.0",
+                    "id": "sidecar-less",
+                    "nodes": {
+                        "10": {
+                            "id": "10",
+                            "class_type": "TripoRefineNode",
+                            "uid": "uid-10",
+                            "inputs": {"prompt": "refine it"},
+                            "widgets": {"widget_0": ""},
+                            "metadata": {"_ui": {"mode": 0}},
+                        },
+                        "17": {
+                            "id": "17",
+                            "class_type": "Preview3D",
+                            "uid": "uid-17",
+                            "inputs": {"images": ["10", 0]},
+                            "widgets": {},
+                            "metadata": {"_ui": {"mode": 0}},
+                        },
+                    },
+                    "edges": [
+                        {"from_node": "10", "from_output": "0", "to_node": "17", "to_input": "images"},
+                    ],
+                    "source": {"id": "sidecar-less", "path": None, "source_type": "workflow"},
+                    "requirements": {},
+                    "inputs": {},
+                    "outputs": [{"node_id": "17", "output_type": "Preview3D"}],
+                    "metadata": {},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        seen["messages"] = messages
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "correct_node_targeted": True,
+                        "correct_parameter_changed": True,
+                        "value_semantically_matches_intent": True,
+                        "no_orphaned_wiring": True,
+                    },
+                    "rationale": "ok",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = judge_edit_intent(
+        tmp_path,
+        {"query": "set the refine prompt to 'refine it'"},
+    )
+
+    assert verdict["pass_"] is True
+    messages = seen["messages"]
+    assert isinstance(messages, list)
+    payload = json.loads(messages[1]["content"])
+    compiled = payload["schema_context"]["compiled_api"]
+    assert set(compiled) == {"10", "17"}
+    assert compiled["10"]["inputs"]["prompt"] == "refine it"
+    assert "Schema and widget evidence" in messages[0]["content"]

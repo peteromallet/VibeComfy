@@ -11,7 +11,7 @@ import json
 import os
 import re
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,31 +24,18 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     """Convert a LiteGraph UI graph to a VibeComfy IR envelope.
 
-    The headless agent-edit service consumes an IR envelope graph (with
-    ``compiled_api``, ``nodes`` as a dict, ``edges`` as a list, etc.), NOT a
-    litegraph UI graph (nodes=list, links=list). This helper converts the UI
-    format to the IR envelope by:
+    The headless agent-edit service consumes an IR envelope graph (rich
+    ``nodes`` as a dict, ``edges`` as a list, etc.), NOT a litegraph UI graph
+    (nodes=list, links=list). This helper converts UI -> ``VibeWorkflow`` and
+    writes the envelope through the single IR writer ``to_envelope()``.
 
-    1. Converting UI -> VibeWorkflow via ``convert_to_vibe_format``
-    2. Serializing VibeWorkflow to the IR envelope with all required keys
-
-    Returns a dict with the IR envelope structure:
-    {
-        "compiled_api": {...},  # ComfyUI API format
-        "nodes": {...},         # VibeNode dict (node_id -> VibeNode)
-        "edges": [...],         # VibeEdge list
-        "inputs": {...},        # VibeInput dict
-        "outputs": [...],       # VibeOutput list
-        "requirements": {...},  # WorkflowRequirements
-        "metadata": {...},      # Workflow metadata
-        "source": {...},        # WorkflowSource
-        "strict_types": bool,
-        "vibecomfy_format_version": str,
-        "id": str,              # Workflow UUID
-    }
+    The envelope is the serialized IR: rich ``nodes`` is the sole structural
+    authority and ``compile("api")`` is a derived function, not stored data, so
+    no ``compiled_api`` twin is written. ``workflow_id`` is a transport stamp
+    applied after ``to_envelope()`` via ``_ensure_workflow_uuid`` — it is not
+    an IR field.
     """
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.ir.types import WorkflowSource
     from vibecomfy.workflow import VibeWorkflow
 
     # Ensure workflow_id exists (UI graphs often omit it)
@@ -56,82 +43,13 @@ def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     if not workflow_id or not _UUID_RE.match(str(workflow_id)):
         workflow_id = str(uuid.uuid4())
 
-    # Convert UI graph to VibeWorkflow
     workflow: VibeWorkflow = convert_to_vibe_format(
         ui_graph,
         source_path=None,
         workflow_id=workflow_id,
         schema_provider=None,  # Use offline schema resolution
     )
-
-    # Build the IR envelope
-    envelope: dict[str, Any] = {
-        "id": workflow.id,
-        "workflow_id": workflow.id,  # Agent validation expects this field name
-        "compiled_api": workflow.compile("api"),
-        "nodes": {},
-        "edges": [],
-        "inputs": {},
-        "outputs": [],
-        "requirements": asdict(workflow.requirements),
-        "metadata": dict(workflow.metadata),
-        "source": asdict(workflow.source),
-        "strict_types": workflow.strict_types,
-        "vibecomfy_format_version": "1.0",
-    }
-
-    # Serialize nodes (VibeNode -> dict)
-    for node_id, node in workflow.nodes.items():
-        node_dict = {
-            "id": node.id,
-            "class_type": node.class_type,
-            "pack": node.pack,
-            "inputs": dict(node.inputs),
-            "widgets": dict(node.widgets),
-            "metadata": dict(node.metadata),
-            "uid": node.uid,
-        }
-        if node.raw_widgets is not None:
-            node_dict["raw_widgets"] = asdict(node.raw_widgets)
-        envelope["nodes"][node_id] = node_dict
-
-    # Serialize edges (VibeEdge -> dict)
-    for edge in workflow.edges:
-        envelope["edges"].append({
-            "from_node": edge.from_node,
-            "from_output": edge.from_output,
-            "to_node": edge.to_node,
-            "to_input": edge.to_input,
-        })
-
-    # Serialize inputs (VibeInput -> dict)
-    for input_name, vibe_input in workflow.inputs.items():
-        envelope["inputs"][input_name] = {
-            "name": vibe_input.name,
-            "node_id": vibe_input.node_id,
-            "field": vibe_input.field,
-            "value": vibe_input.value,
-            "type": vibe_input.type,
-            "default": vibe_input.default,
-            "required": vibe_input.required,
-            "range": vibe_input.range,
-            "aliases": vibe_input.aliases,
-            "media_semantics": vibe_input.media_semantics,
-        }
-
-    # Serialize outputs (VibeOutput -> dict)
-    for output in workflow.outputs:
-        envelope["outputs"].append({
-            "node_id": output.node_id,
-            "output_type": output.output_type,
-            "name": output.name,
-            "artifact_kind": output.artifact_kind,
-            "mime_type": output.mime_type,
-            "filename_prefix": output.filename_prefix,
-            "expected_cardinality": output.expected_cardinality,
-        })
-
-    return envelope
+    return _ensure_workflow_uuid(workflow.to_envelope())
 
 
 def _ensure_workflow_uuid(graph: dict[str, Any]) -> dict[str, Any]:

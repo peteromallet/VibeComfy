@@ -8,7 +8,7 @@ from typing import Any, Literal
 from vibecomfy.ingest.normalize import detect_workflow_shape, normalize_to_api
 
 WorkflowSourceStatus = Literal["loaded", "unsupported", "error"]
-WorkflowSourceShape = Literal["api", "litegraph", "unknown"]
+WorkflowSourceShape = Literal["api", "litegraph", "vibe", "unknown"]
 
 _WRAPPER_KEYS = ("workflow", "prompt", "graph")
 
@@ -224,6 +224,8 @@ def _detect_source_shape(raw: dict[str, Any]) -> WorkflowSourceShape:
         return "api"
     if shape == "ui":
         return "litegraph"
+    if shape == "vibe":
+        return "vibe"
     return "unknown"
 
 

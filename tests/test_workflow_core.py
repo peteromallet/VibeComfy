@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.ingest.index import index_workflows
-from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape, normalize_to_api
+from vibecomfy.ingest.normalize import (
+    convert_to_vibe_format,
+    from_api,
+    from_envelope,
+    from_ui,
+    normalize_to_api,
+)
 from vibecomfy.registry.library import load_workflow_reference, workflow_from_id
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.handles import Handle
@@ -43,8 +49,7 @@ def test_api_workflow_converts_to_vibe_workflow() -> None:
         "3": {"class_type": "SaveImage", "inputs": {"images": ["2", 0]}},
     }
 
-    assert detect_workflow_shape(raw) == "api"
-    workflow = convert_to_vibe_format(normalize_to_api(raw), workflow_id="sample")
+    workflow = from_api(raw, workflow_id="sample")
 
     assert workflow.id == "sample"
     assert workflow.validate().ok
@@ -420,6 +425,80 @@ def test_workflow_copy_deep_copies_mutable_state_and_preserves_original() -> Non
     assert workflow.edges[0].from_node == "1"
 
 
+def test_copy_is_derived_and_preserves_mode_and_groups_deeply() -> None:
+    """P10: copy() is derived — mode/groups ride along without a hand-list edit,
+    and the copy is deep (mutating the clone never touches the original)."""
+    workflow = VibeWorkflow("derived", WorkflowSource("derived"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "KSampler", inputs={"seed": 1}, uid="uid-1", mode=4
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2", "SaveImage", inputs={"images": ["1", 0]}, uid="uid-2", mode=0
+    )
+    workflow.groups = [
+        {"title": "input-group", "nodes": [1, 2], "color": "#3f789e"},
+    ]
+
+    cloned = workflow.copy()
+
+    assert cloned.nodes["1"].mode == 4
+    assert cloned.nodes["2"].mode == 0
+    assert cloned.groups == workflow.groups
+
+    # Deep: mutating the clone's mode/groups leaves the original untouched.
+    cloned.nodes["1"].mode = 0
+    cloned.groups[0]["color"] = "#000000"
+    cloned.groups.append({"title": "extra"})
+    assert workflow.nodes["1"].mode == 4
+    assert workflow.groups == [
+        {"title": "input-group", "nodes": [1, 2], "color": "#3f789e"}
+    ]
+
+
+def test_node_mode_and_groups_survive_envelope_round_trip() -> None:
+    """P10: node.mode and workflow.groups are serialized by to_envelope and
+    restored by from_envelope (dataclass walk — no hand-listed fields)."""
+    from vibecomfy.ingest.normalize import from_envelope
+
+    wf = VibeWorkflow("roundtrip", WorkflowSource("roundtrip"))
+    wf.nodes["1"] = VibeNode(
+        "1", "LoadImage", inputs={"image": "a.png"}, uid="uid-1", mode=4
+    )
+    wf.nodes["2"] = VibeNode(
+        "2", "PreviewImage", inputs={"images": ["1", 0]}, uid="uid-2", mode=2
+    )
+    wf.groups = [
+        {"title": "g1", "nodes": [1, 2], "color": "#112233"},
+        {"title": "g2", "bounding": [0, 0, 100, 100]},
+    ]
+
+    envelope = wf.to_envelope()
+    assert envelope["groups"] == wf.groups
+    assert envelope["nodes"]["1"]["mode"] == 4
+    assert envelope["nodes"]["2"]["mode"] == 2
+
+    restored = from_envelope(envelope)
+    assert restored.nodes["1"].mode == 4
+    assert restored.nodes["2"].mode == 2
+    assert restored.groups == wf.groups
+
+
+def test_90a1d5_mode_distribution_and_compile_survive_p10() -> None:
+    """P10 gate: the 90a1d5 envelope decodes 15 nodes with mode dist {4:9, 0:6};
+    compile still emits 2 (bypass rewiring)."""
+    from collections import Counter
+
+    from vibecomfy.ingest.normalize import from_envelope
+
+    envelope_path = Path("external_workflows/corpus/90a1d5ff9044902e.json")
+    envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+    wf = from_envelope(envelope)
+
+    assert len(wf.nodes) == 15
+    assert dict(Counter(node.mode for node in wf.nodes.values())) == {4: 9, 0: 6}
+    assert len(wf.compile("api")) == 2
+
+
 def test_ui_workflow_normalizes_to_api() -> None:
     raw = {
         "nodes": [
@@ -429,17 +508,22 @@ def test_ui_workflow_normalizes_to_api() -> None:
         "links": [[1, 1, 0, 2, 0, "IMAGE"]],
     }
 
-    assert detect_workflow_shape(raw) == "ui"
     api = normalize_to_api(raw)
     assert api["1"]["class_type"] == "CLIPTextEncode"
     assert api["2"]["inputs"]["images"] == ["1", 0]
+    via_named = from_ui(raw)
+    via_convert = convert_to_vibe_format(raw)
+    assert set(via_named.nodes) == set(via_convert.nodes)
+    assert [node.class_type for node in via_named.nodes.values()] == [
+        node.class_type for node in via_convert.nodes.values()
+    ]
 
 
 def test_empty_workflow_shapes_are_valid_authoring_inputs() -> None:
-    assert detect_workflow_shape({}) == "api"
     assert normalize_to_api({}) == {}
-    assert detect_workflow_shape({"nodes": [], "links": []}) == "ui"
     assert normalize_to_api({"nodes": [], "links": []}) == {}
+    assert from_api({}).nodes == {}
+    assert from_ui({"nodes": [], "links": []}).nodes == {}
 
 
 @pytest.mark.skipif(
@@ -1624,3 +1708,80 @@ def test_uid_counter_monotonic_never_resets() -> None:
     del wf.nodes[b2.node.id]
     b3 = wf.node("C")
     assert wf._uid_counter == 3  # monotonically incremented, not reset
+
+
+def _ir_projection(workflow) -> dict:
+    return {
+        "ids": sorted(workflow.nodes),
+        "classes": {nid: node.class_type for nid, node in workflow.nodes.items()},
+        "uids": {nid: node.uid for nid, node in workflow.nodes.items()},
+        "inputs": {nid: node.inputs for nid, node in workflow.nodes.items()},
+        "widgets": {nid: node.widgets for nid, node in workflow.nodes.items()},
+        "edges": [
+            (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+            for edge in workflow.edges
+        ],
+    }
+
+
+def test_from_api_matches_convert_to_vibe_format() -> None:
+    raw = {
+        "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "old"}},
+        "2": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 4, "positive": ["1", 0]}},
+        "3": {"class_type": "SaveImage", "inputs": {"images": ["2", 0]}},
+    }
+    assert _ir_projection(from_api(raw, workflow_id="sample")) == _ir_projection(
+        convert_to_vibe_format(raw, workflow_id="sample")
+    )
+
+
+def test_from_ui_matches_convert_to_vibe_format() -> None:
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "CLIPTextEncode", "widgets_values": ["hello"], "inputs": []},
+            {"id": 2, "type": "SaveImage", "inputs": [{"name": "images", "link": 1}]},
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+    }
+    assert _ir_projection(from_ui(raw)) == _ir_projection(convert_to_vibe_format(raw))
+
+
+def test_named_importers_match_todays_paths_on_fixtures() -> None:
+    """from_ui / from_api / from_envelope match today's convert/class doors."""
+    ui_path = Path("tests/fixtures/reorganise/simple_text_to_image.json")
+    ui_raw = json.loads(ui_path.read_text(encoding="utf-8"))
+    assert _ir_projection(from_ui(ui_raw)) == _ir_projection(convert_to_vibe_format(ui_raw))
+
+    api = normalize_to_api(ui_raw, use_comfy_converter=False)
+    assert _ir_projection(from_api(api)) == _ir_projection(convert_to_vibe_format(api))
+
+    envelope_path = Path("external_workflows/corpus/90a1d5ff9044902e.json")
+    envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+    via_named = from_envelope(envelope)
+    via_class = VibeWorkflow.from_envelope(envelope)
+    via_convert = convert_to_vibe_format(envelope)
+    assert _ir_projection(via_named) == _ir_projection(via_class)
+    assert _ir_projection(via_named) == _ir_projection(via_convert)
+    assert len(via_named.nodes) == 15
+    assert len(via_named.compile("api")) == 2
+
+
+def test_detect_workflow_shape_is_not_a_public_ingest_export() -> None:
+    import vibecomfy.ingest as ingest
+
+    assert "detect_workflow_shape" not in ingest.__all__
+    assert "from_envelope" in ingest.__all__
+    assert "from_ui" in ingest.__all__
+    assert "from_api" in ingest.__all__
+    assert not hasattr(ingest, "detect_workflow_shape")
+
+
+def test_agent_edit_ingest_uses_nodes_is_list_not_shape_sniff() -> None:
+    """edit_ingest successor: list-nodes pass through; no detect_workflow_shape."""
+    frag = Path("vibecomfy/comfy_nodes/agent/_frag_ingest.py").read_text(encoding="utf-8")
+    norm = Path("vibecomfy/comfy_nodes/agent/graph_normalization.py").read_text(
+        encoding="utf-8"
+    )
+    assert "detect_workflow_shape" not in frag
+    assert "detect_workflow_shape" not in norm
+    assert 'isinstance(graph.get("nodes"), list)' in norm

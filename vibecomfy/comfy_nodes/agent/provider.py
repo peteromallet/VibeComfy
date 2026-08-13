@@ -416,8 +416,8 @@ def build_batch_messages(
         # prompt text for additive intent is risky: the 10 passing bug-fixing
         # demos depend on the exact guidance here, and a runtime gate upstream
         # would need access to _task_looks_like_additive(state) which lives in
-        # the exec'd edit_batch_memory namespace (not importable here).  Left
-        # as-is for now; revisit when wiring additive-aware placement.
+        # the _frag_batch_memory fragment namespace (not wired into this module).
+        # Left as-is for now; revisit when wiring additive-aware placement.
         "For generic save/export/view/output requests, start from the graph's actual terminal output type. "
         "If the graph ends in `IMAGE`, search local consumers with `search(compatible_output_type=\"IMAGE\")`; "
         "if you need an mp4-style video sink, search both the image-to-video step and video sink, e.g. "

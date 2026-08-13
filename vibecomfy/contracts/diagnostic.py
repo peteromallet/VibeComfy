@@ -30,11 +30,16 @@ class DiagnosticLike(Protocol):
 
 
 class Diagnostic:
-    """Shared base for all diagnostic/issue types across the codebase.
+    """Shared base for diagnostic/issue types across the codebase.
 
-    ``ValidationIssue`` (ir/types.py), ``ContractIssue`` (contracts/validation.py),
-    and ``NodeCallValidationIssue`` (schema/call_validation.py) all inherit from
-    this base so that downstream tooling can treat them polymorphically.
+    ``Diagnostic`` is the canonical four-field diagnostic carrier (``code``,
+    ``message``, ``severity``, ``detail``) with a ``to_json()`` serializer.
+
+    Concrete diagnostic types elsewhere (e.g. ``ContractIssue`` in
+    ``contracts/validation.py``, ``NodeCallValidationIssue`` in
+    ``schema/call_validation.py``) may subclass it so downstream tooling can
+    treat them polymorphically, or may stay standalone dataclasses that merely
+    satisfy the structural :class:`DiagnosticLike` surface.
 
     This is intentionally a plain class (not a dataclass) so that children can
     independently choose ``frozen`` and ``slots`` without hitting the dataclass

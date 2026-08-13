@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import copy
-import dataclasses
 import hashlib
 import json
 import os
@@ -29,14 +27,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
 from vibecomfy.testing.canonical import canonical_form
-from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow import VIBECOMFY_FORMAT_VERSION, VibeWorkflow
 
 
 DEFAULT_OUT_DIR = REPO_ROOT / "external_workflows" / "corpus"
 DEFAULT_SHADOW_DIR = REPO_ROOT / "external_workflows" / ".shadow" / "source"
 DEFAULT_MANIFEST = REPO_ROOT / "external_workflows" / "manifest.json"
 GRAPH_IDENTITY_VERSION = 1
-VIBECOMFY_FORMAT_VERSION = "1.0"
 
 
 def _safe_id(value: str) -> str:
@@ -80,27 +77,8 @@ def _extract_api_workflow(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _vibe_workflow_to_dict(workflow: VibeWorkflow) -> dict[str, Any]:
-    """Serialize a VibeWorkflow to a plain JSON-serializable dict."""
-
-    def _to_plain(obj: Any) -> Any:
-        if dataclasses.is_dataclass(obj):
-            result: dict[str, Any] = {}
-            for field in dataclasses.fields(obj):
-                if field.name.startswith("_"):
-                    continue
-                result[field.name] = _to_plain(getattr(obj, field.name))
-            return result
-        if isinstance(obj, dict):
-            return {str(k): _to_plain(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_to_plain(v) for v in obj]
-        return obj
-
-    plain = _to_plain(workflow)
-    # Always include the compiled API representation and a format version.
-    plain["vibecomfy_format_version"] = VIBECOMFY_FORMAT_VERSION
-    plain["compiled_api"] = workflow.compile("api")
-    return plain
+    """Serialize a VibeWorkflow via the single envelope writer."""
+    return workflow.to_envelope()
 
 
 def _build_provenance(
@@ -306,7 +284,7 @@ def _convert_and_save(
     out_dir.mkdir(parents=True, exist_ok=True)
     corpus_path = out_dir / f"{canonical_hash[:16]}.json"
     corpus_path.write_text(
-        _canonical_json(_vibe_workflow_to_dict(workflow)),
+        _canonical_json(workflow.to_envelope()),
         encoding="utf-8",
     )
 

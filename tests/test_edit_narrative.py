@@ -1,6 +1,7 @@
 """Unit tests for the post-validation narrative narrator.
 
-Covers the edit_narrator module without invoking a real provider.
+Covers the _frag_narrator narrative synthesis (exported through the live
+edit module) without invoking a real provider.
 Tests exercise the fact-grounded prompt construction, deterministic fallback,
 and the full _narrate_final_message entrypoint with mocked provider.
 G0-T2: the agent ALWAYS writes the message — the LLM narrator runs for every

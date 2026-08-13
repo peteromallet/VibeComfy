@@ -11,9 +11,7 @@ from vibecomfy.diagnostics import (
     findings_payload,
     patch_suggestions_payload,
 )
-from vibecomfy.ir import __all__ as ir_all
-from vibecomfy.ir import DiagnosticLike
-from vibecomfy.ir.diagnostic import Diagnostic
+from vibecomfy.contracts.diagnostic import Diagnostic, DiagnosticLike
 
 
 def test_diagnostic_finding_payload_omits_empty_optional_fields() -> None:
@@ -58,7 +56,7 @@ def test_diagnostic_helpers_convert_current_payload_shapes() -> None:
     assert patch_suggestions_payload(suggestions) == [{"name": "seed", "rationale": "set deterministic seed"}]
 
 
-# --- DiagnosticLike (vibecomfy.ir.diagnostic) ---
+# --- DiagnosticLike (vibecomfy.contracts.diagnostic) ---
 
 
 def _protocol_members(protocol: type) -> set[str]:
@@ -109,6 +107,6 @@ def test_diagnostic_satisfies_diagnostic_like_surface() -> None:
         assert hasattr(diagnostic, name)
 
 
-def test_diagnostic_like_exported_from_ir_package() -> None:
-    assert "DiagnosticLike" in ir_all
-    assert DiagnosticLike.__module__ == "vibecomfy.ir.diagnostic"
+def test_diagnostic_like_lives_in_contracts() -> None:
+    assert DiagnosticLike.__module__ == "vibecomfy.contracts.diagnostic"
+    assert Diagnostic.__module__ == "vibecomfy.contracts.diagnostic"

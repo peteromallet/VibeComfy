@@ -79,7 +79,7 @@
 4. **Regression lock for `dataclasses` fix** — behavioral test around `edit_batch_repl.py:1528` (facade raises MalformedModelJSON first call, valid second; asserts `dataclasses.replace` executes).
 
 ### GREAT ENGINEERING
-3. **One lossless canonical graph representation** — replace lossy `compiled_api` round-trip (`graph_normalization.py:34`, `ingest/normalize.py:69-73,378-383`) with a rich-envelope decoder (rich `nodes` authoritative; `compiled_api` execution-evidence only); close `executor_durable.py` bypass; pin_opaque emission must carry `properties.vibecomfy_uid` (`ui.py:1800`). *Scout confirmed: NO lossless rich→canonical path exists today; only the browser UI list-nodes path is lossless; the missing piece is a `rich` ingest branch (~50-line decoder reusing `_normalize_ui_to_api`).*
+3. **One lossless canonical graph representation** — LANDED (B02 + Wave 0; see `docs/architecture/canonical-graph-elegance-plan.md`): rich-envelope decoder (`_decode_serialized_vibe`, `normalize.py:382-395`) makes rich `nodes` authoritative; `compiled_api` is execution evidence only; `executor_durable.py` bypass closed; pin_opaque emission carries `properties.vibecomfy_uid` (`ui.py:1800`); public loaders decode envelopes losslessly.
 5. **Transactional batch boundary + bounded semantic repair** (`edit_batch_repl.py:1516-1928`, `_parse_execute.py:69-90`) — rollback + traceback capture + one corrective repair turn for NameError-class; abort on repeated fingerprint.
 6. **Pinned-node semantic consumer comparison** (`ui.py:1666,1754-1775`) — per-output terminal consumer sets `{(target_uid, target_input)}` through reroutes/broadcast lowering; removes pre-editor false rejection; protects 44/131 nodes.
 7. **Real schemas authoritative + combo validation at apply** — swap precedence `_frag_research.py:821` → `CompositeSchemaProvider(state.schema_provider, provisional)` (+ `:874`, `edit_batch_repl.py:1115`); combo membership mandatory in `porting/edit/apply_values.py:12-47`; derive widget names from real schema.
@@ -108,10 +108,10 @@
 
 ## 5. Supporting investigation — lossless representation (scout)
 
-**Verdict: NONE exists today.** Format inventory:
+**Verdict: LANDED — see `docs/architecture/canonical-graph-elegance-plan.md` (§3 Wave 0) and B02.** The rich-envelope decoder is in the tree, rich `nodes` is the sole structural authority, and public loaders decode envelopes losslessly. Format inventory (historical):
 - **LiteGraph UI JSON (list-nodes)** — the ONLY lossless format; `_normalize_ui_to_api` (`normalize.py:115-178`) keeps every node incl. muted/bypassed + UIDs. Browser path (hotshot 8/8 UIDs).
 - **API dict (dict-nodes)** — lossy: `compile('api')` drops muted (mode 2) + bypassed (mode 4) via `_compute_dropped_bypassed_ids` (`workflow.py:1161-1177`) and UI-only nodes (`_is_compile_stripped_node`, `1068-1075`).
-- **Serialized Vibe envelope** — rich `nodes` mapping IS lossless (all VibeNodes, uids, `metadata._ui`) but **nothing consumes it for structure**; re-ingest reads only `compiled_api` (`normalize.py:70`); rich nodes feed widget-evidence merge only (`normalize.py:205-241`, guarded to compiled survivors at `:213-215`).
+- **Serialized Vibe envelope** — rich `nodes` mapping IS lossless (all VibeNodes, uids, `metadata._ui`) and **is now the structural authority** (`_decode_serialized_vibe`, `normalize.py:382-395`); the decoder ignores `compiled_api`; rich nodes still feed widget-evidence merge (`normalize.py:205-241`).
 - **VibeWorkflow IR (in-memory Python)** — lossless itself; only ever built FROM lossy compiled_api when input is a vibe envelope.
 - **`EditSession.working_ui` / `guard_original_ui`** — canonical list-nodes; guard_original_ui is a stamped copy.
 

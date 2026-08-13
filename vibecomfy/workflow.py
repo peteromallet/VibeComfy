@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 from dataclasses import dataclass, field, replace
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,28 @@ from vibecomfy.contracts.validation import (  # noqa: E402
 # under ``workflow.metadata['summary']``.  Re-exported so consumers can
 # import from ``vibecomfy.workflow`` without reaching into contracts.
 from vibecomfy.contracts.summary import WorkflowSummary  # noqa: E402
+
+
+# Stored-envelope format version. The IR is the schema source: writers stamp
+# this via ``VibeWorkflow.to_envelope()`` rather than a script-local constant.
+FORMAT_VERSION = "1.0"
+VIBECOMFY_FORMAT_VERSION = FORMAT_VERSION
+
+
+def _to_plain(obj: Any) -> Any:
+    """Lossless walk of public dataclass fields (skip private ``_`` names)."""
+    if dataclasses.is_dataclass(obj):
+        result: dict[str, Any] = {}
+        for field_info in dataclasses.fields(obj):
+            if field_info.name.startswith("_"):
+                continue
+            result[field_info.name] = _to_plain(getattr(obj, field_info.name))
+        return result
+    if isinstance(obj, dict):
+        return {str(key): _to_plain(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(value) for value in obj]
+    return obj
 
 
 @dataclass(slots=True)
@@ -65,6 +88,7 @@ class VibeNode:
     metadata: dict[str, Any] = field(default_factory=dict)
     uid: str = ""
     raw_widgets: RawWidgetPayload | None = None
+    mode: int = 0
 
     @property
     def provenance(self) -> str:
@@ -156,6 +180,7 @@ class VibeWorkflow:
     requirements: WorkflowRequirements = field(default_factory=WorkflowRequirements)
     metadata: dict[str, Any] = field(default_factory=dict)
     strict_types: bool = False
+    groups: list[dict[str, Any]] = field(default_factory=list)
     _id_map: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _manual_input_names: set[str] = field(default_factory=set, init=False, repr=False)
     _uid_counter: int = field(default=0, init=False, repr=False)
@@ -212,72 +237,43 @@ class VibeWorkflow:
         return self.set_input("model", value)
 
     def copy(self) -> "VibeWorkflow":
-        cloned = VibeWorkflow(
-            id=self.id,
-            source=copy.deepcopy(self.source),
-            nodes={
-                node_id: VibeNode(
-                    id=node.id,
-                    class_type=node.class_type,
-                    pack=node.pack,
-                    inputs=copy.deepcopy(node.inputs),
-                    widgets=copy.deepcopy(node.widgets),
-                    metadata=copy.deepcopy(node.metadata),
-                    uid=node.uid,
-                    raw_widgets=copy.deepcopy(node.raw_widgets),
-                )
-                for node_id, node in self.nodes.items()
-            },
-            edges=[
-                VibeEdge(
-                    from_node=edge.from_node,
-                    from_output=edge.from_output,
-                    to_node=edge.to_node,
-                    to_input=edge.to_input,
-                )
-                for edge in self.edges
-            ],
-            inputs={
-                name: VibeInput(
-                    name=vibe_input.name,
-                    node_id=vibe_input.node_id,
-                    field=vibe_input.field,
-                    value=copy.deepcopy(vibe_input.value),
-                    type=vibe_input.type,
-                    default=copy.deepcopy(vibe_input.default),
-                    required=vibe_input.required,
-                    range=copy.deepcopy(vibe_input.range),
-                    aliases=tuple(vibe_input.aliases),
-                    media_semantics=vibe_input.media_semantics,
-                )
-                for name, vibe_input in self.inputs.items()
-            },
-            outputs=[
-                VibeOutput(
-                    node_id=output.node_id,
-                    output_type=output.output_type,
-                    name=output.name,
-                    artifact_kind=output.artifact_kind,
-                    mime_type=output.mime_type,
-                    filename_prefix=output.filename_prefix,
-                    expected_cardinality=copy.deepcopy(output.expected_cardinality),
-                )
-                for output in self.outputs
-            ],
-            requirements=WorkflowRequirements(
-                models=list(self.requirements.models),
-                custom_nodes=list(self.requirements.custom_nodes),
-                missing_models=list(self.requirements.missing_models),
-                missing_nodes=list(self.requirements.missing_nodes),
-                unsupported=list(self.requirements.unsupported),
-            ),
-            metadata=copy.deepcopy(self.metadata),
-            strict_types=self.strict_types,
-        )
-        cloned._id_map = dict(self._id_map)
-        cloned._manual_input_names = set(self._manual_input_names)
-        cloned._uid_counter = self._uid_counter
+        """Derived, complete deep copy.
+
+        The dataclass walk (``copy.deepcopy``) copies every public field —
+        including ``groups`` and per-node ``mode`` — plus the private
+        bookkeeping (``_id_map``, ``_manual_input_names``, ``_uid_counter``),
+        so adding a field to the dataclass needs no ``copy()`` edit.  The
+        clone is not bound to any workflow context.
+        """
+        cloned = copy.deepcopy(self)
+        if hasattr(cloned, "_workflow_context_token"):
+            del cloned._workflow_context_token
         return cloned
+
+    def to_envelope(self) -> dict[str, Any]:
+        """Serialize this IR as the stored vibe envelope.
+
+        Public dataclass fields plus ``vibecomfy_format_version``. No
+        ``compiled_api`` — ``compile("api")`` is a function, not stored data.
+        Transport stamps such as ``workflow_id`` are applied by callers after
+        this, not here.
+        """
+        plain = _to_plain(self)
+        plain["vibecomfy_format_version"] = FORMAT_VERSION
+        return plain
+
+    @classmethod
+    def from_envelope(cls, raw: dict[str, Any]) -> "VibeWorkflow":
+        """Fail-closed decoder for a serialized vibe envelope.
+
+        Rich ``nodes`` + ``edges`` are the only structural authority.
+        ``compiled_api`` is ignored. Malformed input raises ``ValueError``;
+        no partial graph is returned. Implementation is the existing ingest
+        decoder — this method does not relax it.
+        """
+        from vibecomfy.ingest.normalize import _decode_serialized_vibe
+
+        return _decode_serialized_vibe(raw)
 
     def clone(self) -> "VibeWorkflow":
         return self.copy()
@@ -913,6 +909,14 @@ class VibeWorkflow:
         return str(candidate)
 
 
+def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
+    """Fail-closed reader for a serialized vibe envelope.
+
+    Module-level alias of :meth:`VibeWorkflow.from_envelope`.
+    """
+    return VibeWorkflow.from_envelope(raw)
+
+
 @dataclass(frozen=True)
 class _NodeBuilder:
     workflow: VibeWorkflow
@@ -1150,12 +1154,21 @@ _MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rew
 
 
 def _get_node_mode(node: VibeNode) -> int:
-    """Read the litegraph mode (0/2/4) from _ui metadata; defaults to 0."""
+    """Read the litegraph mode (0/2/4); ``node.mode`` is the authority.
+
+    Legacy fallback: hand-built nodes that predate the field signal mode via
+    ``metadata["_ui"]["mode"]``; it is consulted only when the field is unset
+    (0).  Ingest and envelope decode always populate the field, so production
+    graphs read the field.
+    """
+    mode = node.mode
+    if isinstance(mode, int) and mode:
+        return mode
     ui = node.metadata.get("_ui")
     if not isinstance(ui, dict):
         return 0
-    mode = ui.get("mode", 0)
-    return mode if isinstance(mode, int) else 0
+    legacy = ui.get("mode", 0)
+    return legacy if isinstance(legacy, int) else 0
 
 
 def _compute_dropped_bypassed_ids(

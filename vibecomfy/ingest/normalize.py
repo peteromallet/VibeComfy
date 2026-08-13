@@ -39,6 +39,13 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
+    """Private dispatcher helper. Not part of the public ingest API.
+
+    Callers that know their input should use :func:`from_envelope`,
+    :func:`from_ui`, or :func:`from_api`. This remains for
+    :func:`convert_to_vibe_format`, :func:`normalize_to_api`, and a few
+    internal tags that still need a shape label.
+    """
     if "prompt" in raw and isinstance(raw["prompt"], dict):
         return detect_workflow_shape(raw["prompt"])
     # ``compiled_api`` is optional execution evidence.  A versioned rich
@@ -84,14 +91,29 @@ def normalize_to_api(
         # authority. ``compiled_api`` is stale execution evidence and must never
         # decide which rich nodes exist — the API view is derived by decoding
         # the envelope into a VibeWorkflow and compiling it fresh.
-        workflow = _decode_serialized_vibe(raw)
+        workflow = VibeWorkflow.from_envelope(raw)
         api = workflow.compile("api")
         _merge_vibe_node_widget_evidence(raw, api)
         _enforce_exec_source_limits(api, surface="vibe.compiled_api")
         return api
     if shape != "ui":
         raise ValueError(f"Unsupported workflow shape: {shape}")
+    return _ui_graph_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
 
+
+def _ui_graph_to_api(
+    raw: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> dict[str, Any]:
+    """LiteGraph list-nodes → Comfy prompt dict. Does not sniff shape."""
     if use_comfy_converter:
         try:
             from comfy.component_model.workflow_convert import convert_ui_to_api
@@ -106,7 +128,7 @@ def normalize_to_api(
                     "normalize_to_api(): live ComfyUI compatibility check failed "
                     f"({compatibility.reason_code}); falling back to the offline "
                     "normalizer because comfy_converter_strict=False.",
-                    stacklevel=2,
+                    stacklevel=3,
                 )
                 return _normalize_ui_to_api(raw, schema_provider=schema_provider)
             try:
@@ -118,7 +140,7 @@ def normalize_to_api(
                     "normalize_to_api(): ComfyUI convert_ui_to_api raised; "
                     "falling back to the offline normalizer because "
                     "comfy_converter_strict=False.",
-                    stacklevel=2,
+                    stacklevel=3,
                 )
             else:
                 _enforce_exec_source_limits(converted, surface="ui.converter")
@@ -223,10 +245,10 @@ def _raw_widget_payload_dict(values: Any, *, source: str) -> dict[str, Any]:
 def _merge_vibe_node_widget_evidence(raw: dict[str, Any], api: dict[str, Any]) -> None:
     """Carry rich Vibe node widget evidence into the compiled API graph.
 
-    Serialized Vibe workflows store executable data under ``compiled_api`` and
-    preserve editor evidence under the sibling ``nodes`` map.  The compiled API
-    is what Comfy executes, but widget-shape recovery needs the observed
-    LiteGraph widget vector from ``nodes``.
+    The rich ``nodes`` map is the sole structural authority of a serialized
+    Vibe workflow; the executable API view is derived by compiling the IR
+    (``compile("api")``), never read from stored data.  Widget-shape recovery
+    needs the observed LiteGraph widget vector from the rich ``nodes`` map.
     """
     nodes = raw.get("nodes")
     if not isinstance(nodes, dict):
@@ -379,14 +401,43 @@ def _vibe_string_list(value: Any, label: str) -> list[str]:
     return list(value)
 
 
-def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
-    """Direct decoder for the serialized rich Vibe envelope (workflow shape "vibe").
+def _vibe_groups(value: Any) -> list[dict[str, Any]]:
+    """Decode the serialized graph-level ``groups`` field: ``None`` → ``[]``.
 
-    The rich top-level ``nodes`` mapping and ``edges`` list are the ONLY
-    structural authority: ``compiled_api`` is never consulted for which nodes
-    exist — it is stale execution evidence by construction.  The decode is
-    whole-graph and fail-closed: any malformed or mixed entry raises
-    ``ValueError`` and no partial graph is ever returned.
+    Fail-closed like the rest of the envelope decoder: when present, ``groups``
+    must be a list of group objects (LiteGraph ``{title, bounding, ...}``
+    dicts).  Old envelopes without the key decode to an empty list.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError("serialized vibe envelope 'groups' must be a list of group objects")
+    return deepcopy(value)
+
+
+def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
+    """First-class mode value for a node: ``_ui.mode`` then legacy
+    ``metadata["mode"]``, else 0.  Only ints are accepted."""
+    ui = metadata.get("_ui")
+    if isinstance(ui, dict):
+        ui_mode = ui.get("mode", 0)
+        if isinstance(ui_mode, int):
+            return ui_mode
+    meta_mode = metadata.get("mode")
+    if isinstance(meta_mode, int):
+        return meta_mode
+    return 0
+
+
+def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
+    """Implementation of :meth:`VibeWorkflow.from_envelope`.
+
+    Do not call this from new code — use ``VibeWorkflow.from_envelope`` (or
+    the module-level ``from_envelope``).  The decoder is fail-closed and
+    unrelaxed: the rich top-level ``nodes`` mapping and ``edges`` list are
+    the ONLY structural authority; ``compiled_api`` is never consulted for
+    which nodes exist.  Any malformed or mixed entry raises ``ValueError``
+    and no partial graph is ever returned.
 
     Every field is deep-copied.  Node ``metadata`` is preserved verbatim
     (including ``metadata._ui``) except that ``metadata[PROVENANCE_KEY]`` is
@@ -458,12 +509,15 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     if not isinstance(strict_types, bool):
         raise ValueError("strict_types must be a boolean")
 
+    groups = _vibe_groups(raw.get("groups"))
+
     workflow = VibeWorkflow(
         id=workflow_id,
         source=source,
         requirements=requirements,
         metadata=deepcopy(metadata_raw) if isinstance(metadata_raw, dict) else {},
         strict_types=strict_types,
+        groups=groups,
     )
 
     # ── nodes ──────────────────────────────────────────────────────────────
@@ -531,6 +585,14 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         # decoded node is tagged untrusted_source. Unconditional set — never
         # `setdefault` — so hostile JSON cannot pre-declare itself trusted.
         node_metadata[PROVENANCE_KEY] = "untrusted_source"
+        # Mode is first-class: prefer the serialized node-level ``mode`` field
+        # (written by to_envelope's dataclass walk), falling back to the legacy
+        # ``_ui.mode`` / ``metadata["mode"]`` locations for old envelopes.
+        # ``_ui`` stays verbatim so the emitter's furniture keeps re-emitting it.
+        entry_mode = entry.get("mode")
+        node_mode = (
+            entry_mode if isinstance(entry_mode, int) else _node_mode_from_metadata(node_metadata)
+        )
         workflow.nodes[node_id] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -540,6 +602,7 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             metadata=node_metadata,
             uid=uid,
             raw_widgets=raw_widget_payload,
+            mode=node_mode,
         )
 
     # ── edges ──────────────────────────────────────────────────────────────
@@ -666,15 +729,55 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     return workflow
 
 
-def convert_to_vibe_format(
+def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
+    """Fail-closed lossless decode of a serialized Vibe envelope.
+
+    The rich ``nodes`` mapping and ``edges`` list are the only structural
+    authority. ``compiled_api`` is ignored. Same decoder as
+    :meth:`VibeWorkflow.from_envelope`.
+    """
+    return VibeWorkflow.from_envelope(raw)
+
+
+def from_ui(
+    raw: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> VibeWorkflow:
+    """Ingest a LiteGraph list-nodes graph into a :class:`VibeWorkflow`."""
+    api = _ui_graph_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
+    workflow = from_api(
+        api,
+        source_path=source_path,
+        workflow_id=workflow_id,
+        schema_provider=schema_provider,
+    )
+    # Graph-level LiteGraph groups are first-class on the IR.  The API dict
+    # produced by the converter drops them, so carry them across from the raw
+    # graph here (fail-closed: a non-list groups is rejected).
+    workflow.groups = _vibe_groups(raw.get("groups"))
+    return workflow
+
+
+def from_api(
     api_workflow: dict[str, Any],
     *,
     source_path: str | None = None,
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
+    """Ingest a Comfy prompt dict into a :class:`VibeWorkflow`."""
     with untrusted_scope():
-        return _convert_to_vibe_format_impl(
+        return _from_api_impl(
             api_workflow,
             source_path=source_path,
             workflow_id=workflow_id,
@@ -682,32 +785,95 @@ def convert_to_vibe_format(
         )
 
 
-def _convert_to_vibe_format_impl(
+def _is_vibe_envelope(raw: dict[str, Any]) -> bool:
+    """True when *raw* is a versioned (or compiled_api-bearing) rich envelope."""
+    return isinstance(raw.get("nodes"), dict) and (
+        "vibecomfy_format_version" in raw
+        or isinstance(raw.get("compiled_api"), dict)
+    )
+
+
+def _named_import(
+    raw: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = True,
+) -> VibeWorkflow:
+    """Happy-path import: envelope, then UI, then API. Never ``compile()`` to reach IR."""
+    if _is_vibe_envelope(raw):
+        return from_envelope(raw)
+    if isinstance(raw.get("nodes"), list):
+        return from_ui(
+            raw,
+            source_path=source_path,
+            workflow_id=workflow_id,
+            schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
+            comfy_converter_strict=comfy_converter_strict,
+        )
+    api = normalize_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
+    return from_api(
+        api,
+        source_path=source_path,
+        workflow_id=workflow_id,
+        schema_provider=schema_provider,
+    )
+
+
+def convert_to_vibe_format(
     api_workflow: dict[str, Any],
     *,
     source_path: str | None = None,
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
-    """Ingest a raw workflow dict (api/ui/vibe shapes) into a ``VibeWorkflow``.
+    """Deprecated dispatcher around :func:`from_envelope`, :func:`from_ui`, and :func:`from_api`.
 
-    Serialized rich Vibe envelopes (shape ``"vibe"``) are decoded directly and
-    losslessly by :func:`_decode_serialized_vibe` — the rich ``nodes`` mapping
-    is the only authority for which nodes exist.  API and UI shapes keep the
-    existing compile-path ingest (``normalize_to_api`` → node extraction).
+    Prefer the named importer that matches the input. This helper still sniffs
+    via the private :func:`detect_workflow_shape` so existing callers keep
+    today's ui/api/vibe behavior.
     """
-    if detect_workflow_shape(api_workflow) == "vibe":
-        # Serialized rich Vibe envelope: decode it directly and losslessly. The
-        # rich ``nodes`` mapping is the only authority for which nodes exist;
-        # ``compiled_api`` (and the api-derived path below) is never consulted
-        # for the rich node set.
-        return _decode_serialized_vibe(api_workflow)
-    if detect_workflow_shape(api_workflow) != "api":
-        api_workflow = normalize_to_api(
+    with untrusted_scope():
+        shape = detect_workflow_shape(api_workflow)
+        if shape == "vibe":
+            return from_envelope(api_workflow)
+        if shape == "ui":
+            return from_ui(
+                api_workflow,
+                source_path=source_path,
+                workflow_id=workflow_id,
+                schema_provider=schema_provider,
+            )
+        if shape != "api":
+            api_workflow = normalize_to_api(
+                api_workflow,
+                schema_provider=schema_provider,
+                comfy_converter_strict=True,
+            )
+        return _from_api_impl(
             api_workflow,
+            source_path=source_path,
+            workflow_id=workflow_id,
             schema_provider=schema_provider,
-            comfy_converter_strict=True,
         )
+
+
+def _from_api_impl(
+    api_workflow: dict[str, Any],
+    *,
+    source_path: str | None = None,
+    workflow_id: str | None = None,
+    schema_provider: SchemaProvider | None = None,
+) -> VibeWorkflow:
+    """Ingest a Comfy prompt dict. Caller holds :func:`untrusted_scope`."""
     _enforce_exec_source_limits(api_workflow, surface="api.ingest")
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),
@@ -769,26 +935,24 @@ def _convert_to_vibe_format_impl(
         control_value = _capture_control_after_generate(node, class_type)
         if control_value is not None:
             metadata.setdefault("control_after_generate", control_value)
-        # ── retain mode/flags/color/bgcolor from _ui into top-level metadata ──
+        # ── retain flags/color/bgcolor from _ui into top-level metadata ──
         # Both paths: pure-Python path stores the full raw node in _ui (line 99);
         # comfy-converter path stores a slim _ui enriched by _merge_slim_ui.
         # Captured as metadata DATA only — never enters inputs/widgets (K3 invariant).
+        # mode is first-class on VibeNode (the compile mute/bypass signal): the
+        # field is populated below from `_ui.mode` (fallback metadata["mode"]) and
+        # `_ui.mode` is LEFT IN PLACE so emit_ui_json's furniture keeps re-emitting
+        # it.  No duplicate metadata["mode"] is written on new ingests.
         _ui_raw = metadata.get("_ui")
         if isinstance(_ui_raw, dict):
-            # The _ui dict is a shallow alias of the input API node's _ui
-            # (pure-Python path); deepcopy before mutating so the caller's
-            # node dict is never corrupted by the mode pop below.
+            # The _ui dict may alias the input API node's _ui (pure-Python path);
+            # deepcopy so the caller's node dict is never corrupted.
             # Only assign when a real _ui was present — do not invent {}.
             _ui_node = deepcopy(_ui_raw)
             metadata["_ui"] = _ui_node
-            for _vis_field in ("mode", "flags", "color", "bgcolor"):
+            for _vis_field in ("flags", "color", "bgcolor"):
                 if _vis_field in _ui_node:
                     metadata.setdefault(_vis_field, _ui_node[_vis_field])
-            # Ingest furniture mode is NOT the compile mute/bypass signal — live
-            # _ui.mode set on the IR node is (workflow._get_node_mode). Pop the
-            # furniture copy so a captured mode can never trip compile bypass/mute;
-            # metadata['mode'] (copied above) still feeds the emitter's furniture.
-            _ui_node.pop("mode", None)
         # ── enrich node metadata from schema ──
         output_names = _schema_output_names(schema_provider, class_type)
         if output_names:
@@ -816,6 +980,7 @@ def _convert_to_vibe_format_impl(
             metadata=metadata,
             uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
             raw_widgets=raw_widgets,
+            mode=_node_mode_from_metadata(metadata),
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:

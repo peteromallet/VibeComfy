@@ -147,7 +147,10 @@ def build_workflow_semantics(
         _strings(metadata.get("tags")) + _strings(summary.get("tags")),
     )
     has_workflow_json = bool(workflow_json) or bool(metadata.get("has_workflow_json"))
-    has_compiled_api = bool(compiled_api) or bool(metadata.get("has_compiled_api"))
+    has_rich_nodes = (
+        bool(metadata.get("has_rich_nodes"))
+        or (isinstance(workflow_json, dict) and isinstance(workflow_json.get("nodes"), dict))
+    )
     has_python_source = bool(payload.get("python_source")) or bool(metadata.get("has_python_source"))
     parseable = bool(node_class_multiset)
     return {
@@ -166,7 +169,7 @@ def build_workflow_semantics(
         },
         "promotion_gates": {
             "has_workflow_json": has_workflow_json,
-            "has_compiled_api": has_compiled_api,
+            "has_rich_nodes": has_rich_nodes,
             "has_python_source": has_python_source,
             "parseable_workflow": parseable,
         },

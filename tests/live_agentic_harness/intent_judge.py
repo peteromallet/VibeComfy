@@ -84,7 +84,15 @@ def _schema_context_from_payload(payload: Mapping[str, Any] | None) -> dict[str,
         return None
     compiled_api = graph.get("compiled_api")
     if not isinstance(compiled_api, Mapping):
-        return None
+        # Sidecar-less envelope: the execution view is derived by compiling the
+        # IR (compile("api") is a function, not stored data). Only a graph the
+        # decoder accepts yields context; anything else stays context-free.
+        try:
+            from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+            compiled_api = convert_to_vibe_format(dict(graph)).compile("api")
+        except Exception:
+            return None
     context: dict[str, Any] = {"compiled_api": compiled_api}
     metadata = graph.get("metadata")
     if isinstance(metadata, Mapping):

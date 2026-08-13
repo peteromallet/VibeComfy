@@ -29,6 +29,7 @@ export const STAGED_WEB_MODULES = [
   "comfy_adapter.js",
   "intent_graph_adapter.js",
   "agent_edit_response_contract.js",
+  "agent_edit_response_contract_generated.js",
   "agent_edit_transaction.js",
   "diagnostics_reporting.js",
   "executor_progress.js",

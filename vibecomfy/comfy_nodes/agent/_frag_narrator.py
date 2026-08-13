@@ -146,7 +146,7 @@ def _assemble_narrative_context(
     """Build a ``NarrativeContext`` from the current turn state.
 
     Delegates to the existing ``_narrative_context_payload`` helper in
-    ``edit_humanize`` so the compact summary stays consistent.
+    ``_frag_humanize`` so the compact summary stays consistent.
     """
     payload = _narrative_context_payload(
         state,
@@ -173,7 +173,7 @@ def _deterministic_narrative_fallback(
     from vibecomfy.comfy_nodes.agent.edit import (_fallback_narrative_message)  # T-039 late import: host namespace lookup; resolved at call time
     """Produce a deterministic (non-LLM) fallback message.
 
-    Delegates to ``_fallback_narrative_message`` in ``edit_humanize``
+    Delegates to ``_fallback_narrative_message`` in ``_frag_humanize``
     which uses the existing humanizing helpers to build a safe message.
     """
     ctx_payload = narrative_context.payload if narrative_context is not None else None
@@ -339,7 +339,7 @@ def _call_narrator_llm(
             parse_reason="non_dict_response",
         )
 
-    # Use the canonical extraction helper from edit_humanize which handles
+    # Use the canonical extraction helper from _frag_humanize which handles
     # the 'json' wrapper key that run_model_turn returns.
     message_raw = _narrator_message_from_response(raw)
 

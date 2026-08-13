@@ -65,15 +65,15 @@ def test_requesting_provenance_restored_even_on_exception():
 
     from vibecomfy.ingest import normalize as _norm
 
-    original = _norm._convert_to_vibe_format_impl
+    original = _norm._from_api_impl
 
     def _raise(*_a, **_kw):
         raise _Boom("synthetic")
 
-    _norm._convert_to_vibe_format_impl = _raise  # type: ignore[assignment]
+    _norm._from_api_impl = _raise  # type: ignore[assignment]
     try:
         with pytest.raises(_Boom):
             convert_to_vibe_format({}, workflow_id="t")
         assert requesting_provenance.get() == "agent_authored"
     finally:
-        _norm._convert_to_vibe_format_impl = original  # type: ignore[assignment]
+        _norm._from_api_impl = original  # type: ignore[assignment]

@@ -3,14 +3,11 @@ import {
   readCandidateTransaction as readCanonicalCandidateTransaction,
 } from "./agent_edit_transaction.js";
 import { deep_plain } from "./deep_plain.js";
-
-const PUBLIC_OUTCOME_KINDS = Object.freeze([
-  "candidate",
-  "noop",
-  "clarify",
-  "requires_custom_nodes",
-  "error",
-]);
+import {
+  PUBLIC_OUTCOME_KINDS,
+  INTERNAL_OUTCOME_KIND_MAP,
+  FAILURE_HINT_KEYS,
+} from "./agent_edit_response_contract_generated.js";
 
 const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "clarify",
@@ -20,20 +17,6 @@ const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "requires_custom_nodes",
   "revise",
   "adapt",
-]);
-
-const INTERNAL_OUTCOME_KIND_MAP = Object.freeze({
-  edit: "candidate",
-  "edit+clarify": "candidate",
-});
-
-const FAILURE_HINT_KEYS = Object.freeze([
-  "agent_failure_context",
-  "failureKind",
-  "failure_kind",
-  "nextAction",
-  "next_action",
-  "retryable",
 ]);
 
 const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";

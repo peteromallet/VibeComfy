@@ -341,7 +341,9 @@ def _emit_external_workflow_python(path: Path, row: dict[str, Any]) -> str:
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw, dict) and raw.get("vibecomfy_format_version") and isinstance(raw.get("nodes"), dict):
-        workflow = _vibe_workflow_from_dict(raw)
+        from vibecomfy.workflow import VibeWorkflow  # noqa: PLC0415
+
+        workflow = VibeWorkflow.from_envelope(raw)
     else:
         from vibecomfy.cli_loader import load_workflow_any  # noqa: PLC0415
 
@@ -353,106 +355,6 @@ def _emit_external_workflow_python(path: Path, row: dict[str, Any]) -> str:
         provenance=_provenance_from_row(row),
         prune_dead_branches=False,
     )
-
-
-def _vibe_workflow_from_dict(data: dict[str, Any]):
-    from vibecomfy.workflow import (  # noqa: PLC0415
-        RawWidgetPayload,
-        VibeEdge,
-        VibeInput,
-        VibeNode,
-        VibeOutput,
-        VibeWorkflow,
-        WorkflowRequirements,
-        WorkflowSource,
-    )
-
-    source_data = data.get("source") if isinstance(data.get("source"), dict) else {}
-    requirements_data = data.get("requirements") if isinstance(data.get("requirements"), dict) else {}
-    workflow = VibeWorkflow(
-        id=str(data.get("id") or "external_workflow"),
-        source=WorkflowSource(
-            id=str(source_data.get("id") or data.get("id") or "external_workflow"),
-            path=source_data.get("path"),
-            source_type=str(source_data.get("source_type") or "external_workflow"),
-            provenance=source_data.get("provenance") if isinstance(source_data.get("provenance"), dict) else {},
-        ),
-        requirements=WorkflowRequirements(
-            models=list(requirements_data.get("models") or []),
-            custom_nodes=list(requirements_data.get("custom_nodes") or []),
-            missing_models=list(requirements_data.get("missing_models") or []),
-            missing_nodes=list(requirements_data.get("missing_nodes") or []),
-            unsupported=list(requirements_data.get("unsupported") or []),
-        ),
-        metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
-        strict_types=bool(data.get("strict_types")),
-    )
-    nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
-    for node_id, node_data in nodes.items():
-        if not isinstance(node_data, dict):
-            continue
-        raw_widgets = node_data.get("raw_widgets")
-        raw_payload = None
-        if isinstance(raw_widgets, dict):
-            raw_payload = RawWidgetPayload(
-                values=raw_widgets.get("values"),
-                shape=str(raw_widgets.get("shape") or "unknown"),
-                source=str(raw_widgets.get("source") or "unknown"),
-                has_dict_rows=bool(raw_widgets.get("has_dict_rows")),
-                length=int(raw_widgets.get("length") or 0),
-            )
-        workflow.nodes[str(node_id)] = VibeNode(
-            id=str(node_data.get("id") or node_id),
-            class_type=str(node_data.get("class_type") or "Unknown"),
-            pack=node_data.get("pack"),
-            inputs=node_data.get("inputs") if isinstance(node_data.get("inputs"), dict) else {},
-            widgets=node_data.get("widgets") if isinstance(node_data.get("widgets"), dict) else {},
-            metadata=node_data.get("metadata") if isinstance(node_data.get("metadata"), dict) else {},
-            uid=str(node_data.get("uid") or ""),
-            raw_widgets=raw_payload,
-        )
-    for edge_data in data.get("edges") or []:
-        if not isinstance(edge_data, dict):
-            continue
-        workflow.edges.append(
-            VibeEdge(
-                from_node=str(edge_data.get("from_node") or ""),
-                from_output=str(edge_data.get("from_output") or ""),
-                to_node=str(edge_data.get("to_node") or ""),
-                to_input=str(edge_data.get("to_input") or ""),
-            )
-        )
-    inputs = data.get("inputs") if isinstance(data.get("inputs"), dict) else {}
-    for name, input_data in inputs.items():
-        if not isinstance(input_data, dict):
-            continue
-        workflow.inputs[str(name)] = VibeInput(
-            name=str(input_data.get("name") or name),
-            node_id=str(input_data.get("node_id") or ""),
-            field=str(input_data.get("field") or ""),
-            value=input_data.get("value"),
-            type=input_data.get("type"),
-            default=input_data.get("default"),
-            required=bool(input_data.get("required")),
-            range=input_data.get("range"),
-            aliases=tuple(input_data.get("aliases") or ()),
-            media_semantics=input_data.get("media_semantics") or input_data.get("media"),
-        )
-    for output_data in data.get("outputs") or []:
-        if not isinstance(output_data, dict):
-            continue
-        workflow.outputs.append(
-            VibeOutput(
-                node_id=str(output_data.get("node_id") or ""),
-                output_type=str(output_data.get("output_type") or ""),
-                name=output_data.get("name"),
-                artifact_kind=output_data.get("artifact_kind"),
-                mime_type=output_data.get("mime_type"),
-                filename_prefix=output_data.get("filename_prefix"),
-                expected_cardinality=output_data.get("expected_cardinality"),
-            )
-        )
-    return workflow
 
 
 def _workflow_payload_from_row(row: dict[str, Any], *, corpus_dir: Path) -> dict[str, Any]:
@@ -721,7 +623,7 @@ def _envelope(row: dict[str, Any], *, corpus_dir: Path = DEFAULT_CORPUS_DIR) -> 
         "representations": workflow_payload["representations"],
         "vibecomfy_format_version": workflow_payload["vibecomfy_format_version"],
         "has_workflow_json": workflow_payload["workflow_json"] is not None,
-        "has_compiled_api": workflow_payload["compiled_api"] is not None,
+        "has_rich_nodes": workflow_payload["node_count"] is not None,
         "has_python_source": bool(workflow_payload["python_source"]),
         "python_source_error": workflow_payload["python_source_error"],
     }

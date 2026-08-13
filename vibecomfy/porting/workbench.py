@@ -15,7 +15,7 @@ from vibecomfy.cli_loader import _ready_id_for
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.environment_diagnostics import metadata_environment_warnings
 from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape, normalize_to_api
+from vibecomfy.ingest.normalize import _named_import, detect_workflow_shape
 from vibecomfy.metadata import OUTPUT_NODE_NAMES
 from vibecomfy.contracts import build_contract
 from vibecomfy.node_packs import resolve_node_packs, unresolved_class_types
@@ -768,17 +768,12 @@ def load_port_source(
         )
     if resolved.suffix.lower() in {".png", ".webp"}:
         raw = _load_workflow_from_image(resolved)
-        api = normalize_to_api(
+        workflow = _named_import(
             raw,
-            schema_provider=schema_provider,
-            use_comfy_converter=use_comfy_converter,
-            comfy_converter_strict=True,
-        )
-        workflow = convert_to_vibe_format(
-            api,
             source_path=str(resolved),
             workflow_id=indexed_id or resolved.stem,
             schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
         )
         return LoadedPortSource(
             source_ref=source,
@@ -793,17 +788,12 @@ def load_port_source(
         raise FileNotFoundError(source)
 
     raw = load_workflow_json(resolved)
-    api = normalize_to_api(
+    workflow = _named_import(
         raw,
-        schema_provider=schema_provider,
-        use_comfy_converter=use_comfy_converter,
-        comfy_converter_strict=True,
-    )
-    workflow = convert_to_vibe_format(
-        api,
         source_path=str(resolved),
         workflow_id=indexed_id or resolved.stem,
         schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
     )
     return LoadedPortSource(
         source_ref=source,

@@ -103,7 +103,7 @@ def test_required_post_split_contract_declared_in_manifest() -> None:
     """Names marked required_post_split are a declared contract, not live attrs.
 
     load_agent_generated_scratchpad is currently only a local import inside
-    edit_transform_stages.py — hasattr(edit, ...) is False today. Asserting
+    _frag_transform_stages.py — hasattr(edit, ...) is False today. Asserting
     membership in the manifest's required_post_split list is the T-039 contract;
     after T-039 makes it a top-level edit-module attr, this test can add a live
     hasattr assertion for each name in the list (the flip is expected).

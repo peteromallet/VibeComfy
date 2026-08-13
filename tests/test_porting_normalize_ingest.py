@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import convert_to_vibe_format, from_api, from_ui, normalize_to_api
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
@@ -356,7 +356,7 @@ def _node_without_mode() -> dict:
 
 
 def test_mode_captured_from_pure_python_path() -> None:
-    """Pure-Python path: mode:4 lands in metadata['mode'] (via full _ui)."""
+    """Pure-Python path: mode:4 lands on the first-class VibeNode.mode field."""
     raw_ui = {
         "nodes": [
             {
@@ -372,16 +372,22 @@ def test_mode_captured_from_pure_python_path() -> None:
     from vibecomfy.ingest.normalize import normalize_to_api
     api = normalize_to_api(raw_ui, use_comfy_converter=False)
     wf = convert_to_vibe_format(api)
-    assert wf.nodes["1"].metadata.get("mode") == 4
+    assert wf.nodes["1"].mode == 4
+    # _ui.mode is left in place so emit_ui_json furniture stays intact.
+    assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
+    # No duplicate furniture copy is written on new ingests.
+    assert "mode" not in wf.nodes["1"].metadata
 
 
 def test_mode_captured_from_comfy_converter_path() -> None:
-    """Comfy-converter path: mode:4 in _merge_slim_ui lands in metadata['mode']."""
+    """Comfy-converter path: mode:4 in _merge_slim_ui lands on VibeNode.mode."""
     # Simulate the result of convert_ui_to_api + _merge_slim_ui by providing
     # an API-format node that already has a slim _ui with mode set.
     api_node = _node_with_mode(mode=4)
     wf = convert_to_vibe_format({"1": api_node})
-    assert wf.nodes["1"].metadata.get("mode") == 4
+    assert wf.nodes["1"].mode == 4
+    assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
+    assert "mode" not in wf.nodes["1"].metadata
 
 
 def test_flags_color_bgcolor_captured() -> None:
@@ -393,9 +399,10 @@ def test_flags_color_bgcolor_captured() -> None:
     assert wf.nodes["1"].metadata.get("bgcolor") == "#000000"
 
 
-def test_mode_absent_leaves_metadata_unset() -> None:
-    """Nodes with no mode field do not get a metadata['mode'] key."""
+def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
+    """Nodes with no mode field get mode 0 and no metadata['mode'] key."""
     wf = convert_to_vibe_format({"1": _node_without_mode()})
+    assert wf.nodes["1"].mode == 0
     assert "mode" not in wf.nodes["1"].metadata
 
 
@@ -404,23 +411,31 @@ def test_mode_does_not_enter_inputs_or_widgets() -> None:
     api_node = _node_with_mode(mode=4)
     wf = convert_to_vibe_format({"1": api_node})
     node = wf.nodes["1"]
+    assert node.mode == 4
     assert "mode" not in node.inputs
     assert "mode" not in node.widgets
 
 
-def test_compile_api_byte_identical_with_and_without_mode() -> None:
-    """compile('api') output is identical regardless of mode in metadata."""
-    api_with_mode = _node_with_mode(mode=4)
-    api_without_mode = _node_without_mode()
+def test_compile_api_honors_ingest_captured_mode() -> None:
+    """mode is first-class: ingest-captured mode=4 bypasses the node at compile.
 
-    wf_with = convert_to_vibe_format({"1": api_with_mode})
-    wf_without = convert_to_vibe_format({"1": api_without_mode})
-
+    The pre-P10 decoupling (captured mode never tripping compile) existed only
+    because mode was not a schema field.  The field is now the compile signal:
+    a mode=4 node is dropped/bypassed, while mode=0 compiles identically to
+    an absent mode.
+    """
     import json
-    compiled_with = json.dumps(wf_with.compile(), sort_keys=True)
-    compiled_without = json.dumps(wf_without.compile(), sort_keys=True)
-    assert compiled_with == compiled_without, (
-        "compile('api') output must not change when mode is present in metadata"
+
+    wf_bypassed = convert_to_vibe_format({"1": _node_with_mode(mode=4)})
+    wf_zero = convert_to_vibe_format({"1": _node_with_mode(mode=0)})
+    wf_absent = convert_to_vibe_format({"1": _node_without_mode()})
+
+    assert "1" not in wf_bypassed.compile("api"), "mode=4 node must be bypassed"
+
+    compiled_zero = json.dumps(wf_zero.compile(), sort_keys=True)
+    compiled_absent = json.dumps(wf_absent.compile(), sort_keys=True)
+    assert compiled_zero == compiled_absent, (
+        "compile('api') output must be identical for mode=0 vs absent mode"
     )
 
 
@@ -658,7 +673,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
     assert len(set(uids)) == 15, "uids must all be distinct"
     assert all(isinstance(uid, str) and uid.strip() for uid in uids)
 
-    modes = Counter(node.metadata.get("mode") for node in wf.nodes.values())
+    modes = Counter(node.mode for node in wf.nodes.values())
     assert dict(modes) == {4: 9, 0: 6}
 
     assert wf.nodes["10"].class_type == "TripoRefineNode"
@@ -702,6 +717,30 @@ def test_vibe_rich_ingest_treats_compiled_api_as_optional_evidence() -> None:
     workflow = convert_to_vibe_format(malformed_evidence)
     assert len(workflow.nodes) == 15
     assert workflow.nodes["10"].class_type == "TripoRefineNode"
+
+
+def test_public_loaders_preserve_rich_envelope_90a1d5() -> None:
+    """load_workflow_any / load_port_source decode envelopes losslessly (P1).
+
+    Public loaders must return the full 15-node IR, not the 2-node compile
+    view: they decode the envelope directly instead of compile-then-reingest.
+    The execution view (compile("api")) is unchanged at 2 nodes.
+    """
+    from vibecomfy.cli_loader import load_workflow_any
+    from vibecomfy.porting.workbench import load_port_source
+
+    corpus = str(_CORPUS_90A1D5)
+
+    wf = load_workflow_any(corpus)
+    assert len(wf.nodes) == 15
+    assert wf.nodes["10"].class_type == "TripoRefineNode"
+    assert len(wf.compile("api")) == 2
+
+    loaded = load_port_source(corpus)
+    assert len(loaded.workflow.nodes) == 15
+    assert loaded.workflow.nodes["10"].class_type == "TripoRefineNode"
+    assert len(loaded.workflow.compile("api")) == 2
+    assert loaded.source_kind in {"indexed_json", "raw_json"}
 
 
 def test_vibe_rich_ingest_is_idempotent() -> None:
@@ -797,3 +836,225 @@ def test_vibe_rich_ingest_rejects_incomplete_envelope() -> None:
     bad_strict["strict_types"] = "yes"
     with pytest.raises(ValueError, match="strict_types must be a boolean"):
         convert_to_vibe_format(bad_strict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P5 — VibeWorkflow.to_envelope / from_envelope (one writer, one fail-closed reader)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_to_envelope_from_envelope_round_trip_90a1d5() -> None:
+    """to_envelope(from_envelope(90a1d5)) preserves 15/10/15 uids/modes; compile stays 2."""
+    from vibecomfy.workflow import FORMAT_VERSION, VibeWorkflow, from_envelope
+
+    raw = _load_90a1d5()
+    wf = from_envelope(raw)
+    via_convert = convert_to_vibe_format(raw)
+    assert set(wf.nodes) == set(via_convert.nodes)
+    assert len(wf.nodes) == 15
+    assert len(wf.edges) == 10
+    assert {node.uid for node in wf.nodes.values()} == {
+        node.uid for node in via_convert.nodes.values()
+    }
+    assert all(node.uid.strip() for node in wf.nodes.values())
+    assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
+
+    envelope = wf.to_envelope()
+    assert envelope["vibecomfy_format_version"] == FORMAT_VERSION
+    assert "compiled_api" not in envelope
+    assert len(envelope["nodes"]) == 15
+    assert len(envelope["edges"]) == 10
+
+    wf2 = VibeWorkflow.from_envelope(envelope)
+    assert len(wf2.nodes) == 15
+    assert len(wf2.edges) == 10
+    assert {node.uid for node in wf2.nodes.values()} == {node.uid for node in wf.nodes.values()}
+    assert dict(Counter(node.metadata.get("mode") for node in wf2.nodes.values())) == {4: 9, 0: 6}
+    for nid, node in wf2.nodes.items():
+        original = raw["nodes"][nid]
+        assert node.uid == original["uid"]
+        assert node.metadata["_ui"] == original["metadata"]["_ui"]
+        assert node.inputs == original["inputs"]
+        assert node.widgets == original["widgets"]
+    assert len(wf2.compile("api")) == 2
+    assert set(wf2.compile("api")) == {"3", "17"}
+
+
+def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
+    """A hand-built (old-style) envelope without compiled_api still decodes losslessly."""
+    from vibecomfy.workflow import VibeWorkflow
+
+    envelope = {
+        "id": "hand-built",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "hand-built", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {
+            "models": [],
+            "custom_nodes": [],
+            "missing_models": [],
+            "missing_nodes": [],
+            "unsupported": [],
+        },
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "CheckpointLoaderSimple",
+                "pack": None,
+                "inputs": {"ckpt_name": "model.safetensors"},
+                "widgets": {},
+                "metadata": {"_ui": {"mode": 0}, "mode": 0},
+                "uid": "uid-loader",
+            },
+            "2": {
+                "id": "2",
+                "class_type": "PreviewImage",
+                "pack": None,
+                "inputs": {},
+                "widgets": {},
+                "metadata": {"_ui": {"mode": 4}, "mode": 4},
+                "uid": "uid-preview",
+            },
+        },
+        "edges": [
+            {
+                "from_node": "1",
+                "from_output": "MODEL",
+                "to_node": "2",
+                "to_input": "images",
+            }
+        ],
+        "inputs": {},
+        "outputs": [{"node_id": "2", "output_type": "IMAGE"}],
+        "metadata": {"note": "old-style"},
+        "strict_types": False,
+    }
+    assert "compiled_api" not in envelope
+
+    wf = VibeWorkflow.from_envelope(envelope)
+    assert len(wf.nodes) == 2
+    assert len(wf.edges) == 1
+    assert wf.nodes["1"].uid == "uid-loader"
+    assert wf.nodes["1"].inputs["ckpt_name"] == "model.safetensors"
+    assert wf.nodes["1"].mode == 0
+    assert wf.nodes["2"].mode == 4
+    assert wf.nodes["2"].metadata["mode"] == 4
+    assert wf.nodes["2"].metadata["_ui"]["mode"] == 4
+    assert wf.outputs[0].node_id == "2"
+    written = wf.to_envelope()
+    assert "compiled_api" not in written
+    assert written["nodes"]["1"]["uid"] == "uid-loader"
+    assert written["nodes"]["2"]["mode"] == 4
+    assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
+
+
+def test_from_envelope_fails_closed_on_malformed_input() -> None:
+    """from_envelope raises on malformed input; it never returns a partial graph."""
+    from vibecomfy.workflow import VibeWorkflow
+
+    good = {
+        "id": "closed",
+        "source": {"id": "closed"},
+        "requirements": {},
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "PreviewImage",
+                "inputs": {},
+                "widgets": {},
+                "metadata": {},
+                "uid": "uid-1",
+            }
+        },
+        "edges": [],
+        "inputs": {},
+        "outputs": [],
+    }
+    assert len(VibeWorkflow.from_envelope(good).nodes) == 1
+
+    blank_uid = deepcopy(good)
+    blank_uid["nodes"]["2"] = {
+        "id": "2",
+        "class_type": "PreviewImage",
+        "inputs": {},
+        "widgets": {},
+        "metadata": {},
+        "uid": "",
+    }
+    with pytest.raises(ValueError, match="uid must be a nonblank string"):
+        VibeWorkflow.from_envelope(blank_uid)
+
+    mixed_node = deepcopy(good)
+    mixed_node["nodes"]["2"] = "not-a-mapping"
+    with pytest.raises(ValueError, match="node entries must be mappings"):
+        VibeWorkflow.from_envelope(mixed_node)
+
+    missing_source = deepcopy(good)
+    del missing_source["source"]
+    with pytest.raises(ValueError, match="source"):
+        VibeWorkflow.from_envelope(missing_source)
+
+    missing_requirements = deepcopy(good)
+    del missing_requirements["requirements"]
+    with pytest.raises(ValueError, match="requirements"):
+        VibeWorkflow.from_envelope(missing_requirements)
+
+    not_an_object = ["not", "an", "envelope"]
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        VibeWorkflow.from_envelope(not_an_object)  # type: ignore[arg-type]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P6 — named importers (from_envelope / from_ui / from_api)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_named_from_envelope_preserves_90a1d5() -> None:
+    """The public ingest from_envelope door is lossless on the 90a1d5 fixture."""
+    from vibecomfy.ingest import from_envelope
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    raw = _load_90a1d5()
+    wf = from_envelope(raw)
+    via_convert = convert_to_vibe_format(raw)
+    assert len(wf.nodes) == 15
+    assert len(wf.edges) == 10
+    assert set(wf.nodes) == set(via_convert.nodes)
+    assert {node.uid for node in wf.nodes.values()} == {
+        node.uid for node in via_convert.nodes.values()
+    }
+    assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
+    assert len(wf.compile("api")) == 2
+    assert set(wf.compile("api")) == {"3", "17"}
+
+
+def _ir_projection(workflow) -> dict:
+    return {
+        "ids": sorted(workflow.nodes),
+        "classes": {nid: node.class_type for nid, node in workflow.nodes.items()},
+        "uids": {nid: node.uid for nid, node in workflow.nodes.items()},
+        "inputs": {nid: node.inputs for nid, node in workflow.nodes.items()},
+        "widgets": {nid: node.widgets for nid, node in workflow.nodes.items()},
+        "edges": [
+            (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+            for edge in workflow.edges
+        ],
+    }
+
+
+def test_from_ui_matches_convert_on_ui_fixture() -> None:
+    raw = json.loads(
+        (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert _ir_projection(from_ui(raw)) == _ir_projection(convert_to_vibe_format(raw))
+
+
+def test_from_api_matches_convert_on_api_from_ui_fixture() -> None:
+    raw = json.loads(
+        (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    api = normalize_to_api(raw, use_comfy_converter=False)
+    assert _ir_projection(from_api(api)) == _ir_projection(convert_to_vibe_format(api))

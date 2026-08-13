@@ -9,7 +9,6 @@ from vibecomfy.contracts import build_contract
 from vibecomfy.contracts.surface import build_contract_surface
 from vibecomfy.commands._output import emit
 from vibecomfy.cli_loader import load_workflow_any
-from vibecomfy.ingest.normalize import detect_workflow_shape
 from vibecomfy.patches.registry import find_applicable
 from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.schema import get_schema_provider
@@ -44,8 +43,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         return 0
 
     workflow = load_workflow_any(args.workflow)
-    raw = workflow.compile("api")
-    shape = detect_workflow_shape(raw)
+    shape = "api"
     schema_provider = get_schema_provider("auto")
     report = workflow.validate(schema_provider=schema_provider)
     applicable_patches = [
