@@ -647,10 +647,14 @@ def test_transport_flag_and_pinned_child_env_survive_subprocess_isolation(
     assert persisted["transport"] == "native"
 
 
-def test_transport_omitted_leaves_ambient_env_untouched_and_records_none(
+def test_transport_omitted_resolves_to_openrouter_default_not_ambient_native(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
+    """Rework 2 (oracle issue 1d): the no-flag default is pinned to the
+    canonical OpenRouter product route.  An ambient ``VIBECOMFY_TRANSPORT=native``
+    must never leak into the child or displace the default, and the run records
+    the resolved default (openrouter), not None."""
     scenarios_dir = tmp_path / "scenarios"
     scenarios_dir.mkdir()
     scenario_path = scenarios_dir / "no-transport.json"
@@ -659,7 +663,8 @@ def test_transport_omitted_leaves_ambient_env_untouched_and_records_none(
         encoding="utf-8",
     )
     monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "***")
     captured: dict = {}
 
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
@@ -685,11 +690,20 @@ def test_transport_omitted_leaves_ambient_env_untouched_and_records_none(
         progress_every=0,
     )
 
-    assert "--transport" not in captured["cmd"]
-    # No explicit selector: the operator's deliberate pin passes through.
-    assert captured["env"]["VIBECOMFY_TRANSPORT"] == "native"
-    assert summary["transport"] is None
-    assert summary["scenarios"][0]["transport"] is None
+    # No flag -> the canonical default is forwarded explicitly to the child.
+    assert captured["cmd"][captured["cmd"].index("--transport") + 1] == "openrouter"
+    # The ambient native pin/base URL is stripped from the child environment.
+    assert "VIBECOMFY_TRANSPORT" not in captured["env"]
+    assert "VIBECOMFY_OPENROUTER_BASE_URL" not in captured["env"]
+    # Credential keys are preserved (they supply keys, not transport).
+    assert captured["env"]["OPENROUTER_API_KEY"] == "***"
+    # The run configuration records the resolved default.
+    assert summary["transport"] == "openrouter"
+    assert summary["scenarios"][0]["transport"] == "openrouter"
+    persisted = json.loads(
+        (tmp_path / "out" / "tag" / "run_summary.json").read_text(encoding="utf-8")
+    )
+    assert persisted["transport"] == "openrouter"
 
 
 def test_observed_transport_provenance_passthrough_matches_selection(

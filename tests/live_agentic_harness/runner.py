@@ -35,7 +35,7 @@ from .failure_analysis import (
     recommendations_for_run,
 )
 from .scenario_manifest import discover_manifest_scenarios
-from .adapter import _TRANSPORT_SELECTING_ENV_KEYS
+from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
 
 DEFAULT_MAX_WORKERS = 12
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
@@ -52,9 +52,11 @@ def _pinned_child_env(transport: str | None) -> dict[str, str]:
     the explicit selector is the only authority and the adapter re-establishes
     the pinned values from it.  Credential keys (OPENROUTER_API_KEY /
     DEEPSEEK_API_KEY) are preserved — they supply keys, they do not select
-    transport.  Without an explicit selector the parent environment is passed
-    through untouched so an operator's deliberate ``VIBECOMFY_TRANSPORT`` pin
-    still applies.
+    transport.  ``run_tag``/``run_single`` resolve the no-flag default to the
+    canonical OpenRouter route BEFORE calling this, so a plain run never
+    inherits an ambient ``VIBECOMFY_TRANSPORT``; the ``None`` pass-through is
+    only reachable by direct callers, where an operator's deliberate
+    ``VIBECOMFY_TRANSPORT`` pin still applies.
     """
     if transport is None:
         return dict(os.environ)
@@ -500,7 +502,10 @@ def run_single(
     """Run ONE scenario in-process; write its summary JSON to *out_file* if given.
 
     This is the entry point invoked by the per-scenario subprocess in parallel mode.
+    ``transport=None`` resolves to the canonical OpenRouter product route
+    (``_HARNESS_DEFAULT_TRANSPORT``), never to an ambient credential.
     """
+    transport = transport or _HARNESS_DEFAULT_TRANSPORT
     from .adapter import run_headless_scenario
     from .guard import guard_output_dir
 
@@ -538,8 +543,11 @@ def run_tag(
     *transport* (``"openrouter"`` / ``"native"`` / ``None``) is forwarded
     explicitly onto every child command line and the child environment is
     pinned against ambient transport-selecting variables, so the selector
-    survives subprocess isolation into every profile phase.
+    survives subprocess isolation into every profile phase.  ``None`` resolves
+    to the canonical OpenRouter product route (``_HARNESS_DEFAULT_TRANSPORT``)
+    — the no-flag default is pinned to OpenRouter, never an ambient/native pin.
     """
+    transport = transport or _HARNESS_DEFAULT_TRANSPORT
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
     paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
@@ -786,8 +794,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "(classify/research/implement/reply). When set, ambient "
             "credentials/base URLs can never select the transport; the child "
             "environment is pinned and this flag is forwarded to every "
-            "subprocess. Default: the deterministic harness default (native), "
-            "never an ambient credential."
+            "subprocess. Default: the canonical product route (openrouter), "
+            "pinned — never an ambient credential."
         ),
     )
     parser.add_argument(

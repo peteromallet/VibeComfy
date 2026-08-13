@@ -18,12 +18,14 @@ def _ensure_headless_env() -> None:
 
 
 def _load_credential_env_file(path: Path | str | None = None) -> None:
-    """Hydrate DEEPSEEK_API_KEY from a sibling .env if not already set.
+    """Hydrate credential keys (e.g. DEEPSEEK_API_KEY) from a sibling .env.
 
-    The live agentic harness is meant to run with native DeepSeek API by default.
-    If DEEPSEEK_API_KEY is not in the environment, try the canonical project
-    credential file at ``$BANODOCO_WORKSPACE/brain-of-bndc/.env`` so a local run
-    does not silently fall back to OpenRouter.
+    The live agentic harness runs the canonical OpenRouter product route by
+    default.  This file exists so a local run still finds its API keys when
+    they are not in the environment.  Credentials hydrate; transport-selecting
+    keys never do — mirroring ``runtime._load_env_file_into_environ`` — so an
+    ambient .env can never set ``VIBECOMFY_TRANSPORT`` (or any endpoint/model
+    pin) and silently switch the transport when no explicit flag is given.
     """
     if os.environ.get("DEEPSEEK_API_KEY"):
         return
@@ -48,21 +50,27 @@ def _load_credential_env_file(path: Path | str | None = None) -> None:
             key, _, value = line.partition("=")
             key = key.strip()
             value = value.strip().strip('"').strip("'")
-            if key and value and key not in os.environ:
+            if (
+                key
+                and value
+                and key not in os.environ
+                and key not in _TRANSPORT_SELECTING_ENV_KEYS
+            ):
                 os.environ[key] = value
     except OSError:
         pass
 
 
-# Canonical base URLs for the two supported explicit transports.  ``native`` is
-# the harness's historical default (June baseline: native DeepSeek API); it is
+# Canonical base URLs for the two supported explicit transports.  ``openrouter``
+# is the product/canonical route and the harness's default; ``native`` is the
+# explicit benchmark lane (June baseline: native DeepSeek API).  The default is
 # selected deterministically and can never be displaced by an ambient
 # credential or an inherited ``VIBECOMFY_OPENROUTER_BASE_URL``.
 _TRANSPORT_BASE_URLS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "native": "https://api.deepseek.com/v1",
 }
-_HARNESS_DEFAULT_TRANSPORT = "native"
+_HARNESS_DEFAULT_TRANSPORT = "openrouter"
 
 # Environment keys that select transport/endpoint/model routing.  Ambient
 # copies of these must never leak into a child run: the explicit selector is
@@ -88,7 +96,8 @@ def _ensure_transport_env(transport: str | None = None) -> str:
 
     Resolves the selector from (in order): the explicit *transport* argument,
     an explicit ``VIBECOMFY_TRANSPORT`` environment pin, or the deterministic
-    harness default (``native``).  The base URL is then rewritten
+    harness default (``openrouter`` — the canonical product route).  The base
+    URL is then rewritten
     UNCONDITIONALLY — an inherited ``VIBECOMFY_OPENROUTER_BASE_URL`` or any
     ambient credential can never silently switch the transport.  Every profile
     phase (classify/research/implement/reply) shares this child environment, so

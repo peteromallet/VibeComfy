@@ -694,23 +694,25 @@ def test_transport_openrouter_pin_overrides_ambient_native_credentials(
     assert kwargs["model"] == "deepseek/deepseek-v4-pro"
 
 
-def test_transport_default_is_deterministic_native_ignoring_ambient_base_url(
+def test_transport_default_is_deterministic_openrouter_ignoring_ambient_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ambient credentials cannot silently change the harness default: with no
-    explicit selector the default is the deterministic native pin even when an
-    OpenRouter base URL and key are ambient."""
+    """Rework 2 (oracle issue 1d): with no explicit selector the harness default
+    is the canonical OpenRouter product route — an ambient native base URL/key
+    can never silently switch the no-flag default to native."""
     from tests.live_agentic_harness import adapter
 
-    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "***")
     monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
 
     resolved = adapter._ensure_transport_env(None)
-    assert resolved == "native"
-    assert os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] == "https://api.deepseek.com/v1"
-    assert runtime._base_url_for_route("unknown") == "https://api.deepseek.com/v1"
-    assert runtime._is_native_deepseek_endpoint() is True
+    assert resolved == "openrouter"
+    assert (
+        os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
+    )
+    assert runtime._base_url_for_route("unknown") == "https://openrouter.ai/api/v1"
+    assert runtime._is_native_deepseek_endpoint() is False
 
 
 def test_transport_native_pin_wins_over_route_openrouter_default(
@@ -813,6 +815,41 @@ def test_runtime_never_hydrates_transport_selecting_keys_from_hermes_env(
 
     assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-file"
     assert os.environ.get("DEEPSEEK_API_KEY") == "sk-native-file"
+    assert "VIBECOMFY_TRANSPORT" not in os.environ
+    assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
+    assert "VIBECOMFY_FORCE_MODEL" not in os.environ
+
+
+def test_adapter_credential_env_file_skips_transport_selecting_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Rework 2 (oracle issue 3 — env-skip mirror): the adapter's credential
+    file hydrate mirrors ``runtime._load_env_file_into_environ`` — it supplies
+    keys only, and transport-selecting keys stored in an ambient .env never
+    hydrate, so the file cannot set ``VIBECOMFY_TRANSPORT`` when the explicit
+    flag is absent and the default is OpenRouter."""
+    from tests.live_agentic_harness import adapter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENROUTER_API_KEY=sk-or-file\n"
+        "DEEPSEEK_API_KEY=***\n"
+        "VIBECOMFY_TRANSPORT=native\n"
+        "VIBECOMFY_OPENROUTER_BASE_URL=https://api.deepseek.com/v1\n"
+        "VIBECOMFY_FORCE_MODEL=openrouter:deepseek/deepseek-v4-flash\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+    monkeypatch.delenv("VIBECOMFY_OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("VIBECOMFY_FORCE_MODEL", raising=False)
+
+    adapter._load_credential_env_file(env_file)
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-file"
+    assert os.environ.get("DEEPSEEK_API_KEY") == "***"
     assert "VIBECOMFY_TRANSPORT" not in os.environ
     assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
     assert "VIBECOMFY_FORCE_MODEL" not in os.environ
