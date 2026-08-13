@@ -6665,3 +6665,351 @@ class TestDurableEditEnvelopePreservation:
         assert plan.get("route") == "adapt", (
             "report.executor.plan.route should be adapt, got %r" % plan.get("route")
         )
+
+
+# ── B05: real batch-REPL integration (informational path) ───────────────────
+
+
+class _ReplSchemaProvider:
+    """Minimal ``get_schema`` / ``schemas()`` provider for the real session.
+
+    The informational batch REPL renders the attached graph and builds a
+    signature catalog from the provider; only the node types present in the
+    fixture graph are needed.
+    """
+
+    def __init__(self, schemas: dict[str, Any]) -> None:
+        self._schemas = schemas
+
+    def get_schema(self, class_type: str) -> Any | None:
+        return self._schemas.get(class_type)
+
+    def schemas(self) -> dict[str, Any]:
+        return self._schemas
+
+
+def _b05_schema_provider() -> _ReplSchemaProvider:
+    from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
+
+    return _ReplSchemaProvider(
+        {
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack=None,
+                inputs={"image": InputSpec("STRING")},
+                outputs=[OutputSpec("IMAGE", "image")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+
+
+def _b05_ui_graph() -> dict[str, Any]:
+    """Minimal LoadImage -> SaveImage UI graph (canonical list-nodes shape)."""
+    return {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "pos": [100, 100],
+                "size": [180, 80],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "pos": [400, 100],
+                "size": [180, 80],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 10}],
+            },
+        ],
+        "links": [[10, 1, 0, 2, 0, "IMAGE"]],
+    }
+
+
+_RAW_ALICE_MESSAGE: dict[str, Any] = {
+    "kind": "message",
+    "title": None,
+    "body": "LTX 2.5, agree, fast and a clear improvement!",
+    "author": "alice",
+    "context": "ltx_chatter",
+    "item_id": "test-1",  # str, not int (Discord snowflake precision)
+}
+
+
+class TestRealBatchReplResearchIntegration:
+    """B05 — real batch-REPL integration for the informational path.
+
+    A fixture model emits ``research("LTX 2.5")`` with NO ``sources=`` and
+    then ``done()``.  The REAL EditSession → ``_resolve_query_statement`` →
+    fold → durable ``research_findings`` → executor hoist → reply plumbing
+    runs end to end; the only fakes are the classify/reply model turns, the
+    batch-REPL model client, and the two external research clients (messages
+    + web).  No live network, no deterministic loop, no code-authored query:
+    messages.jsonl proves the model wrote the ``research()`` statement.
+    """
+
+    def _drive(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        batches: list[str],
+        messages: list[dict[str, Any]] | None = None,
+        session_id: str = "b05-ltx",
+    ) -> dict[str, Any]:
+        import importlib
+
+        import vibecomfy.comfy_nodes.agent.edit as agent_edit_module
+        from vibecomfy.comfy_nodes.agent.session import turn_dir_for
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        captured: dict[str, Any] = {"messages_calls": [], "web_calls": []}
+        responses = iter(
+            {
+                "batch": code,
+                "message": "Gathered community evidence for the research question.",
+            }
+            for code in batches
+        )
+
+        def fake_messages_client(query: str, timeout: float) -> dict[str, Any]:
+            captured["messages_calls"].append((query, timeout))
+            return {"results": messages or []}
+
+        def fake_web_client(query: str, timeout: float) -> dict[str, Any]:
+            captured["web_calls"].append((query, timeout))
+            return {"results": []}
+
+        # B05 task 2: BOTH external clients patched — no live Hivemind/web in CI.
+        monkeypatch.setattr(
+            research_module, "_default_hivemind_messages_client", fake_messages_client
+        )
+        monkeypatch.setattr(research_module, "_default_web_search_client", fake_web_client)
+        # Hermetic final-message narrator: an empty JSON payload selects the
+        # deterministic fallback (the same seam the agent-edit tests use).
+        monkeypatch.setattr(
+            agent_edit_module, "run_model_turn", lambda **_kwargs: {"json": {}}
+        )
+
+        durable_holder: dict[str, Any] = {}
+
+        def _real_handle_agent_edit(
+            payload: dict[str, Any], **kwargs: Any
+        ) -> dict[str, Any]:
+            result = agent_edit_module.handle_agent_edit(
+                payload,
+                schema_provider=_b05_schema_provider(),
+                deepseek_client=lambda _messages: next(responses),
+                session_root=tmp_path,
+                **kwargs,
+            )
+            durable_holder["response"] = result
+            return result
+
+        def _fake_reply(query: str, **kwargs: Any) -> str:
+            captured["reply_kwargs"] = kwargs
+            return (
+                "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
+                "and a clear improvement."
+            )
+
+        with mock.patch(
+            "vibecomfy.executor.core.handle_agent_edit",
+            side_effect=_real_handle_agent_edit,
+        ), mock.patch(
+            "vibecomfy.executor.core.run_classify_turn",
+            side_effect=_fake_classify_research_only,
+        ), mock.patch(
+            "vibecomfy.executor.core.run_reply_turn",
+            side_effect=_fake_reply,
+        ):
+            result = run_executor(
+                ExecutorRequest(
+                    query="What is LTX 2.5 and what do people say about it?",
+                    profile="default",
+                    graph=_b05_ui_graph(),
+                    workflow_id="b05-ltx",
+                    session_id=session_id,
+                )
+            )
+
+        durable = durable_holder["response"]
+        turn_dir = turn_dir_for(tmp_path, session_id, str(durable["turn_id"]))
+        return {
+            "result": result,
+            "durable": durable,
+            "turn_dir": turn_dir,
+            "captured": captured,
+        }
+
+    @staticmethod
+    def _research_statement_detail(durable: dict[str, Any]) -> dict[str, Any]:
+        statements = durable["batch_turns"][0]["statements"]
+        for statement in statements:
+            detail = statement.get("detail") or {}
+            if statement.get("op_kind") == "query" and detail.get("research_query"):
+                return detail
+        raise AssertionError("no research() statement detail in batch_turns")
+
+    def test_real_edit_session_omit_sources_resolves_messages_web_and_reaches_reply(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
+    ) -> None:
+        """The model-authored omit-sources research call drives the whole path."""
+        outcome = self._drive(
+            tmp_path,
+            monkeypatch,
+            batches=['research("LTX 2.5")\ndone()'],
+            messages=[_RAW_ALICE_MESSAGE],
+        )
+        result = outcome["result"]
+        durable = outcome["durable"]
+        captured = outcome["captured"]
+
+        # ── resolution: omitted sources → (messages, web); ONE unchanged call
+        assert captured["messages_calls"] == [("LTX 2.5", 3.0)]
+        assert captured["web_calls"] == [("LTX 2.5", 3.0)]
+
+        detail = self._research_statement_detail(durable)
+        assert tuple(detail["requested_research_sources"]) == ("messages", "web")
+        assert tuple(detail["research_sources"]) == ("messages", "web")
+        # structured message sources from the live normalize-only runner
+        message_sources = [
+            source
+            for source in detail["research_result_sources"]
+            if source.get("source") == "hivemind_message"
+        ]
+        assert len(message_sources) == 1
+        assert message_sources[0]["author"] == "alice"
+        assert message_sources[0]["channel"] == "ltx_chatter"
+        assert message_sources[0]["hivemind_id"] == "test-1"
+        # author/channel in query_output + the static messages followup text
+        assert "alice in #ltx_chatter" in detail["query_output"]
+        assert "thin or off-topic" in detail["query_output"]
+        assert "call done()" in detail["query_output"]
+        assert "alice" in detail["community_summary"]
+
+        # ── durable response: research_findings + graph_unchanged / no apply
+        assert durable["ok"] is True
+        assert durable["route"] == "research"
+        assert durable["graph_unchanged"] is True
+        assert durable["no_candidate_reason"] == "route_not_applyable"
+        assert durable.get("candidate") is None
+        assert durable["apply_eligibility"]["applyable"] is False
+        findings = durable["research_findings"]
+        assert isinstance(findings, dict)
+        assert "alice in #ltx_chatter" in findings["community_summary"]
+        assert any(
+            source.get("source") == "hivemind_message"
+            and source.get("author") == "alice"
+            and source.get("channel") == "ltx_chatter"
+            for source in findings["sources"]
+        )
+
+        # ── messages.jsonl: ONE outer research() statement (model-authored)
+        messages_path = outcome["turn_dir"] / "messages.jsonl"
+        assert messages_path.is_file()
+        records = [
+            json.loads(line)
+            for line in messages_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert records
+        batch_text = "".join(str(record.get("batch") or "") for record in records)
+        assert batch_text.count("research(") == 1
+        assert 'research("LTX 2.5")' in batch_text
+        assert "done()" in batch_text
+
+        # ── executor hoist + reply: report.research and run_reply_turn kwargs
+        assert result.ok is True
+        assert result.report.research is not None
+        assert "alice in #ltx_chatter" in result.report.research.community_summary
+        assert any(
+            source.get("source") == "hivemind_message"
+            and source.get("author") == "alice"
+            and source.get("channel") == "ltx_chatter"
+            for source in result.report.research.sources
+        )
+        reply_kwargs = captured["reply_kwargs"]
+        assert reply_kwargs["research_summary"] == result.report.research.community_summary
+        assert any(
+            source.get("source") == "hivemind_message"
+            and source.get("author") == "alice"
+            and source.get("channel") == "ltx_chatter"
+            for source in (reply_kwargs.get("research_sources") or ())
+        )
+        # user-facing reply is NOT the narrator line
+        assert result.reply == (
+            "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
+            "and a clear improvement."
+        )
+        assert result.reply != result.report.implementation.message
+        assert "No graph changes were needed" not in result.reply
+        serialized = result.to_dict()
+        assert serialized["route"] == "research"
+        assert serialized["apply_eligible"] is False
+        assert serialized["candidate"] is None
+
+    def test_real_edit_session_two_model_research_calls_are_not_suppressed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
+    ) -> None:
+        """A second model-authored research() call runs — agent freedom.
+
+        NEVER assert that code skips the second call: the fixture model asks
+        twice, so the patched messages client MUST be invoked twice (union-by-
+        id folds the duplicate row into one collected source).
+        """
+        outcome = self._drive(
+            tmp_path,
+            monkeypatch,
+            batches=['research("LTX 2.5")\nresearch("LTX 2.5 speed")\ndone()'],
+            messages=[_RAW_ALICE_MESSAGE],
+            session_id="b05-ltx-twice",
+        )
+        result = outcome["result"]
+        durable = outcome["durable"]
+        captured = outcome["captured"]
+
+        assert len(captured["messages_calls"]) == 2
+        assert captured["messages_calls"][0][0] == "LTX 2.5"
+        assert captured["messages_calls"][1][0] == "LTX 2.5 speed"
+        assert len(captured["web_calls"]) == 2
+
+        messages_path = outcome["turn_dir"] / "messages.jsonl"
+        records = [
+            json.loads(line)
+            for line in messages_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        batch_text = "".join(str(record.get("batch") or "") for record in records)
+        assert batch_text.count("research(") == 2
+
+        # both statements folded; the repeated row dedupes by string id
+        findings = durable["research_findings"]
+        message_sources = [
+            source
+            for source in findings["sources"]
+            if source.get("source") == "hivemind_message"
+        ]
+        assert len(message_sources) == 1
+        assert message_sources[0]["hivemind_id"] == "test-1"
+
+        assert result.ok is True
+        assert result.report.research is not None
+        assert "alice in #ltx_chatter" in result.report.research.community_summary
