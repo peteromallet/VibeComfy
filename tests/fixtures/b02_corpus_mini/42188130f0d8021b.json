@@ -1,0 +1,523 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "2"
+    }
+  ],
+  "groups": [],
+  "id": "0c650de6a3500bd5",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "VHS_LoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "choose video to upload",
+            "'image'"
+          ],
+          [
+            "custom_height",
+            "0"
+          ],
+          [
+            "custom_width",
+            "0"
+          ],
+          [
+            "force_rate",
+            "0"
+          ],
+          [
+            "format",
+            "'AnimateDiff'"
+          ],
+          [
+            "frame_load_cap",
+            "0"
+          ],
+          [
+            "select_every_nth",
+            "1"
+          ],
+          [
+            "skip_first_frames",
+            "0"
+          ],
+          [
+            "video",
+            "'camera_b.mov'"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'camera_b.mov', 'type': 'input', 'format': 'video/mov', 'force_rate': 0, 'custom_width': 0, 'custom_height': 0, 'frame_load_cap': 0, 'skip_first_frames': 0, 'select_every_nth': 1}}"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "19"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "8"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "True"
+          ],
+          [
+            "trim_to_audio",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {}}"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "42188130f0d8021bbd0f0789d51e018520d4c68455f45fdb54a03661c34aa4db",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1210376139592306698,
+      "channel_name": "dev-chatter",
+      "content_preview": "there you go",
+      "discord_message_url": "https://discord.com/channels/@me/1210376139592306698/1339080950851571814",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1339080950851571814:VHSbroken.json:0c650de6a3500bd5",
+      "filename": "VHSbroken.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:09+00:00",
+      "message_id": 1339080950851571814,
+      "node_class_multiset": {
+        "VHS_LoadVideo": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 2,
+      "origin_date": "2025-02-12T03:49:37.604000+00:00",
+      "originator_global_name": "samhodge",
+      "originator_id": "542962452988559360",
+      "originator_type": "discord_message_author",
+      "originator_username": "samhodge",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "0c650de6a3500bd59b8ec846591bd7ec8071f570616f22f879f0d78df077c54b",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1210376139592306698/1339080950319026188/VHSbroken.json?ex=680fa391&is=680e5211&hm=3820eadefe6dd44408f53f908965ae630476cc1efaedbb8c5d81f90d256a6c25&",
+      "source_workflow_sha256": "42cca7eef1be5915ae4cb911068f319e1d6c740acced95bc907dffd15d75da5a",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "f5d4e774a157205eef3d45dfbf3dd469da79878ddac79224f41e368e1b9d5d4d",
+      "complexity": 1,
+      "description": "Loads a video and combines frames into a video output.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video",
+        "load-video",
+        "combine-video"
+      ],
+      "task_type": "image_to_video",
+      "title": "Video Load and Combine"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "VHS_LoadVideo",
+      "id": "1",
+      "inputs": {
+        "choose video to upload": "image",
+        "custom_height": 0,
+        "custom_width": 0,
+        "force_rate": 0,
+        "format": "AnimateDiff",
+        "frame_load_cap": 0,
+        "select_every_nth": 1,
+        "skip_first_frames": 0,
+        "video": "camera_b.mov",
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "custom_height": 0,
+            "custom_width": 0,
+            "filename": "camera_b.mov",
+            "force_rate": 0,
+            "format": "video/mov",
+            "frame_load_cap": 0,
+            "select_every_nth": 1,
+            "skip_first_frames": 0,
+            "type": "input"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": null,
+              "name": "meta_batch",
+              "shape": 7,
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "shape": 7,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "frame_count",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "type": "VHS_VIDEOINFO"
+            }
+          ],
+          "pos": [
+            -305.7423400878906,
+            -662.1876220703125
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_LoadVideo"
+          },
+          "size": [
+            251.52520751953125,
+            454.01416015625
+          ],
+          "type": "VHS_LoadVideo",
+          "widgets_values": {
+            "choose video to upload": "image",
+            "custom_height": 0,
+            "custom_width": 0,
+            "force_rate": 0,
+            "format": "AnimateDiff",
+            "frame_load_cap": 0,
+            "select_every_nth": 1,
+            "skip_first_frames": 0,
+            "video": "camera_b.mov",
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "custom_height": 0,
+                "custom_width": 0,
+                "filename": "camera_b.mov",
+                "force_rate": 0,
+                "format": "video/mov",
+                "frame_load_cap": 0,
+                "select_every_nth": 1,
+                "skip_first_frames": 0,
+                "type": "input"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "choose video to upload": "image",
+          "custom_height": 0,
+          "custom_width": 0,
+          "force_rate": 0,
+          "format": "AnimateDiff",
+          "frame_load_cap": 0,
+          "select_every_nth": 1,
+          "skip_first_frames": 0,
+          "video": "camera_b.mov",
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "custom_height": 0,
+              "custom_width": 0,
+              "filename": "camera_b.mov",
+              "force_rate": 0,
+              "format": "video/mov",
+              "frame_load_cap": 0,
+              "select_every_nth": 1,
+              "skip_first_frames": 0,
+              "type": "input"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "VHS_VideoCombine",
+      "id": "2",
+      "inputs": {
+        "crf": 19,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "frame_rate": 8,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": true,
+        "trim_to_audio": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {},
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "shape": 7,
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "shape": 7,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            227.6468505859375,
+            -613.1221313476562
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            218.82891845703125,
+            334
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 19,
+            "filename_prefix": "AnimateDiff",
+            "format": "video/h264-mp4",
+            "frame_rate": 8,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": true,
+            "trim_to_audio": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {},
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 11,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 19,
+          "filename_prefix": "AnimateDiff",
+          "format": "video/h264-mp4",
+          "frame_rate": 8,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": true,
+          "trim_to_audio": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {},
+            "paused": false
+          }
+        }
+      },
+      "uid": "2",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "2",
+      "output_type": "VHS_VideoCombine"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "0c650de6a3500bd5",
+    "path": "external_workflows/.shadow/source/0c650de6a3500bd5-VHSbroken.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "42188130f0d8021bbd0f0789d51e018520d4c68455f45fdb54a03661c34aa4db",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1210376139592306698,
+      "channel_name": "dev-chatter",
+      "content_preview": "there you go",
+      "discord_message_url": "https://discord.com/channels/@me/1210376139592306698/1339080950851571814",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1339080950851571814:VHSbroken.json:0c650de6a3500bd5",
+      "filename": "VHSbroken.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:09+00:00",
+      "message_id": 1339080950851571814,
+      "node_class_multiset": {
+        "VHS_LoadVideo": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 2,
+      "origin_date": "2025-02-12T03:49:37.604000+00:00",
+      "originator_global_name": "samhodge",
+      "originator_id": "542962452988559360",
+      "originator_type": "discord_message_author",
+      "originator_username": "samhodge",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "0c650de6a3500bd59b8ec846591bd7ec8071f570616f22f879f0d78df077c54b",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1210376139592306698/1339080950319026188/VHSbroken.json?ex=680fa391&is=680e5211&hm=3820eadefe6dd44408f53f908965ae630476cc1efaedbb8c5d81f90d256a6c25&",
+      "source_workflow_sha256": "42cca7eef1be5915ae4cb911068f319e1d6c740acced95bc907dffd15d75da5a",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

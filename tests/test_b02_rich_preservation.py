@@ -1,11 +1,9 @@
 """B02-C4 — corpus-wide rich-preservation proof tests.
 
-Executes :mod:`scripts.check_b02_rich_preservation` over the ENTIRE
-``external_workflows/corpus`` (every serialized-Vibe envelope) and asserts the
-preservation proof holds: zero projection mismatches and zero uid-less
-emissions.  The corpus is traversed exactly once per test session via
-module-scoped caching.  No environment-variable skip: the proof either holds or
-it fails with a precise per-file/per-axis report.
+Executes :mod:`scripts.check_b02_rich_preservation` over a tracked mini corpus
+of real, migrated serialized-Vibe envelopes and asserts the preservation proof
+holds: zero projection mismatches and zero uid-less emissions. The full ignored
+corpus is exercised explicitly by ``make b02-corpus-full CORPUS_DIR=...``.
 
 A synthetic rich envelope with nonempty groups and real link/edge topology
 proves the groups and semantic link projections survive the pipeline and that
@@ -15,12 +13,20 @@ the checker's projections are not vacuous (a corrupted copy is detected).
 from __future__ import annotations
 
 import functools
+import json
+import shutil
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from scripts import check_b02_rich_preservation as b02
+from scripts import migrate_external_workflow_corpus as migrate
+from vibecomfy.ingest import from_envelope
+
+
+MINI_CORPUS = Path(__file__).parent / "fixtures" / "b02_corpus_mini"
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +36,7 @@ from scripts import check_b02_rich_preservation as b02
 
 @functools.lru_cache(maxsize=1)
 def _corpus_summary() -> dict[str, Any]:
-    return b02.check_corpus()
+    return b02.check_corpus(MINI_CORPUS, expected_count=3)
 
 
 def _failure_digest(summary: dict[str, Any], limit: int = 25) -> str:
@@ -68,6 +74,105 @@ def test_corpus_zero_uidless_emissions() -> None:
     """No emitted canonical node may carry a blank/missing properties.vibecomfy_uid."""
     summary = _corpus_summary()
     assert summary["uidless"] == 0, _failure_digest(summary)
+
+
+def test_mini_corpus_is_first_class_and_execution_is_freshly_derived() -> None:
+    envelopes = list(b02.iter_corpus(MINI_CORPUS))
+    assert len(envelopes) == 3
+    for _path, raw in envelopes:
+        assert "compiled_api" not in raw
+        assert isinstance(raw["groups"], list)
+        assert all(
+            isinstance(entry.get("mode"), int) and not isinstance(entry["mode"], bool)
+            for entry in raw["nodes"].values()
+        )
+        # Legacy UI evidence remains in place even though first-class mode is authoritative.
+        for entry in raw["nodes"].values():
+            ui = entry.get("metadata", {}).get("_ui")
+            if isinstance(ui, dict) and "mode" in ui:
+                assert ui["mode"] == entry["mode"]
+        derived_api = from_envelope(raw).compile("api")
+        assert isinstance(derived_api, dict)
+        assert derived_api
+
+
+def test_checker_reports_checked_and_skipped_sidecar_counts() -> None:
+    summary = _corpus_summary()
+    assert summary["checked"] == 3
+    assert summary["skipped"] == 1
+    assert summary["skipped_sidecars"] == 1
+
+
+def test_checker_rejects_missing_and_empty_corpus_dirs(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        b02.check_corpus(tmp_path / "missing")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="zero envelopes"):
+        b02.check_corpus(empty)
+
+
+def test_migrator_rejects_missing_empty_and_explicit_sidecar(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        migrate.migrate_corpus(tmp_path / "missing", write=False)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="zero envelopes"):
+        migrate.migrate_corpus(empty, write=False)
+    sidecar = MINI_CORPUS / "001cd1f527f7f288.layout.json"
+    with pytest.raises(ValueError, match="sidecar cannot be migrated explicitly"):
+        migrate.migrate_corpus(sidecar, write=False)
+    with pytest.raises(ValueError, match="expected 2797 envelopes, found 3"):
+        migrate.migrate_corpus(MINI_CORPUS, write=False, expected_count=2797)
+
+
+def test_migrator_check_is_idempotent_on_mini_corpus(tmp_path: Path) -> None:
+    report_path = tmp_path / "delta.json"
+    report = migrate.migrate_corpus(
+        MINI_CORPUS,
+        write=False,
+        report_path=report_path,
+        expected_count=3,
+    )
+    assert report["summary"]["files_would_change"] == 0
+    assert report["summary"]["node_modes_after"] == 20
+    assert sum(report["summary"]["node_mode_values_after"].values()) == 20
+    assert report["summary"]["sidecars_untouched"] == 1
+    assert json.loads(report_path.read_text(encoding="utf-8")) == report
+
+
+def test_migrator_write_preserves_metadata_sidecar_and_is_idempotent(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    shutil.copytree(MINI_CORPUS, corpus)
+    envelope_path = corpus / "90a1d5ff9044902e.json"
+    raw = json.loads(envelope_path.read_text(encoding="utf-8"))
+    metadata_before = deepcopy(raw["metadata"])
+    node_metadata_before = {
+        node_id: deepcopy(entry["metadata"])
+        for node_id, entry in raw["nodes"].items()
+    }
+    raw.pop("groups")
+    for entry in raw["nodes"].values():
+        entry.pop("mode")
+    raw["compiled_api"] = from_envelope(raw).compile("api")
+    envelope_path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    sidecar = corpus / "001cd1f527f7f288.layout.json"
+    sidecar_before = sidecar.read_bytes()
+
+    first = migrate.migrate_corpus(corpus, write=True, report_path=tmp_path / "write.json")
+    assert first["summary"]["files_would_change"] == 1
+    written = json.loads(envelope_path.read_text(encoding="utf-8"))
+    assert "compiled_api" not in written
+    assert written["groups"] == []
+    assert written["metadata"] == metadata_before
+    assert {
+        node_id: entry["metadata"] for node_id, entry in written["nodes"].items()
+    } == node_metadata_before
+    assert all(isinstance(entry["mode"], int) for entry in written["nodes"].values())
+    assert sidecar.read_bytes() == sidecar_before
+
+    second = migrate.migrate_corpus(corpus, write=False)
+    assert second["summary"]["files_would_change"] == 0
 
 
 # ---------------------------------------------------------------------------

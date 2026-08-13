@@ -104,11 +104,13 @@ ROOT_BANNED := \
 	version_matrix.json \
 	workflow_corpus
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
+B02_MINI_CORPUS := tests/fixtures/b02_corpus_mini
+
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast full-pytest snapshots oracle b02-corpus-mini b02-corpus-full browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
 
 all: check
 
-check: root-clean docs template-index templates strict-ready fast snapshots oracle browser-smoke parity post-root-clean
+check: root-clean docs template-index templates strict-ready fast snapshots oracle b02-corpus-mini browser-smoke parity post-root-clean
 
 ci: check
 
@@ -176,6 +178,18 @@ snapshots:
 oracle:
 	VIBECOMFY_COMFY_SMOKE=1 $(PYTEST) -q --tb=short \
 		tests/test_porting_ui_emitter.py::test_layer3_corpus_wide_convert_ui_to_api_gate
+
+b02-corpus-mini:
+	PYTHONPATH="$(CURDIR)" $(PYTHON) scripts/check_b02_rich_preservation.py \
+		--corpus-dir "$(B02_MINI_CORPUS)" --expected-count 3
+
+b02-corpus-full:
+	@if [ -z "$(CORPUS_DIR)" ]; then \
+		echo "CORPUS_DIR is required (no default full-corpus path)."; \
+		exit 2; \
+	fi
+	PYTHONPATH="$(CURDIR)" $(PYTHON) scripts/check_b02_rich_preservation.py \
+		--corpus-dir "$(CORPUS_DIR)" --expected-count 2797
 
 browser-smoke:
 	$(NODE) --test tests/browser/*.mjs

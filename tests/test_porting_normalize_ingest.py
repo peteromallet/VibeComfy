@@ -623,8 +623,8 @@ def test_comfy_converter_lenient_skew_falls_back_offline_without_converter_exec(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _CORPUS_90A1D5 = (
-    Path(__file__).resolve().parent.parent
-    / "external_workflows/corpus/90a1d5ff9044902e.json"
+    Path(__file__).resolve().parent
+    / "fixtures/b02_corpus_mini/90a1d5ff9044902e.json"
 )
 
 
@@ -655,9 +655,9 @@ def _ui_projection(ui: dict) -> dict:
 
 
 def test_vibe_rich_ingest_preserves_90a1d5() -> None:
-    """The rich envelope decodes to the full 15-node IR, NOT the 2-node compiled_api."""
+    """The rich envelope decodes fully and derives its two-node execution view fresh."""
     raw = _load_90a1d5()
-    assert len(raw["compiled_api"]) == 2, "precondition: compiled_api is stale/partial evidence"
+    assert "compiled_api" not in raw
 
     wf = convert_to_vibe_format(raw)
 
@@ -668,6 +668,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
     assert wf.source.id == raw["source"]["id"]
     assert wf.strict_types is False
     assert wf.metadata["external_workflow"] is True
+    assert len(wf.compile("api")) == 2
 
     uids = [node.uid for node in wf.nodes.values()]
     assert len(set(uids)) == 15, "uids must all be distinct"
@@ -704,13 +705,12 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
         assert (ui_node.get("properties") or {})["vibecomfy_uid"] == rich["uid"]
 
 
-def test_vibe_rich_ingest_treats_compiled_api_as_optional_evidence() -> None:
-    """Rich structure remains authoritative when execution evidence is absent or bad."""
+def test_vibe_rich_ingest_ignores_optional_compiled_api_evidence() -> None:
+    """Rich structure remains authoritative without stored execution evidence or with bad evidence."""
     raw = _load_90a1d5()
 
-    without_evidence = deepcopy(raw)
-    without_evidence.pop("compiled_api")
-    assert len(convert_to_vibe_format(without_evidence).nodes) == 15
+    assert "compiled_api" not in raw
+    assert len(convert_to_vibe_format(raw).nodes) == 15
 
     malformed_evidence = deepcopy(raw)
     malformed_evidence["compiled_api"] = {"10": "not-an-api-node"}

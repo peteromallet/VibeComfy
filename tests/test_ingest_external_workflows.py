@@ -14,8 +14,8 @@ from scripts import ingest_external_workflows as ingest
 from vibecomfy.workflow import FORMAT_VERSION, VibeWorkflow
 
 _CORPUS_90A1D5 = (
-    Path(__file__).resolve().parent.parent
-    / "external_workflows/corpus/90a1d5ff9044902e.json"
+    Path(__file__).resolve().parent
+    / "fixtures/b02_corpus_mini/90a1d5ff9044902e.json"
 )
 
 
