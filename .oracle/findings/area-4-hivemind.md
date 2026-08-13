@@ -1,0 +1,4 @@
+# Area 4 — Hivemind update semantics
+- Uploader is INSERT-ONLY, SKIP-BY-DEFAULT: --skip-existing default True; preflights external_resources by source+external_id (GET) before POST; external_id = vibecomfy:external_workflow:<canonical_workflow_hash>. add_resource INSERTs into external_resources (contribute-resource edge fn). NO update/upsert path anywhere (upload_external_workflows_to_hivemind.py, upload_ready_templates_to_hivemind.py, hivemind_workflow_semantics.py).
+- --verify is read-only; --only is a substring filter. Tests prove one-row skip + insert.
+- Implication: after corpus regeneration, re-running the uploader SKIPS every existing row — regenerated payloads (mode first-class, no compiled_api) do NOT reach Hivemind. Options: (a) accept Hivemind keeps old payloads (summaries unchanged — summarize reads requirements, not mode), (b) add an update/upsert path (out of scope for this run unless judged needed).
