@@ -54,7 +54,7 @@ def _no_inputs_workflow(workflow_id: str = "wan-wrapper") -> VibeWorkflow:
         inputs={"steps": 20, "seed": 7},
     )
     workflow.nodes["3"] = VibeNode("3", "SaveImage", inputs={"filename_prefix": "out"})
-    # Note: workflow.inputs is intentionally empty — convert_to_vibe_format
+    # Note: workflow.inputs is intentionally empty — from_api
     # would produce the same shape via _register_common_inputs.
     return workflow
 

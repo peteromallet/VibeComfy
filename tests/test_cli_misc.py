@@ -289,7 +289,7 @@ def test_eval_node_image_preview_json(
 
     wf = VibeWorkflow("img-test", WorkflowSource("img-test"))
     wf.nodes["1"] = VibeNode(
-        "1", "VAEDecode", inputs={"samples": ["0", 0], "vae": ["0", 2]}
+        "1", "VAEDecode"
     )
 
     monkeypatch.setattr(runtime_mod, "get_schema_provider", lambda *a, **kw: None)
@@ -335,7 +335,7 @@ def test_eval_node_runpod_no_credentials(
 
     wf = VibeWorkflow("test-eval", WorkflowSource("test-eval"))
     wf.nodes["1"] = VibeNode(
-        "1", "VAEDecode", inputs={"samples": ["0", 0], "vae": ["0", 2]}
+        "1", "VAEDecode"
     )
 
     monkeypatch.setattr(runtime_mod, "get_schema_provider", lambda *a, **kw: None)
@@ -406,7 +406,7 @@ def test_eval_node_server_requires_url(
 
     wf = VibeWorkflow("test-eval", WorkflowSource("test-eval"))
     wf.nodes["1"] = VibeNode(
-        "1", "VAEDecode", inputs={"samples": ["0", 0], "vae": ["0", 2]}
+        "1", "VAEDecode"
     )
 
     monkeypatch.setattr(runtime_mod, "get_schema_provider", lambda *a, **kw: None)

@@ -242,7 +242,7 @@ def _node_kwargs(node: Any, edges_in: dict, var_names: dict[str, str]) -> list[t
 
     Resolves links from BOTH `workflow.edges` (the canonical place) and
     `node.inputs` (for templates whose IR retained list-shaped link values
-    because the upstream `convert_to_vibe_format` didn't strip dotted-id
+    because the upstream `from_api` didn't strip dotted-id
     links).
     """
     cls = node.class_type
@@ -425,7 +425,7 @@ def _build_workflow_for(
     template_path: Path,
 ) -> tuple[Any, dict, dict, str, dict[str, tuple[str, str]] | None]:
     """Drive the parser end and return (workflow, metadata, requirements, id, registered_inputs)."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+    from vibecomfy.ingest.normalize import from_api, normalize_to_api
     from vibecomfy.registry.ready_template import build_authored_ready_workflow
 
     module = _load_module_from_path(template_path)
@@ -433,7 +433,7 @@ def _build_workflow_for(
 
     if hasattr(module, "API_WORKFLOW"):
         api = dict(module.API_WORKFLOW)
-        wf = convert_to_vibe_format(api, source_path=str(template_path), workflow_id=template_id)
+        wf = from_api(api, source_path=str(template_path), workflow_id=template_id)
         return (
             wf,
             dict(module.READY_METADATA),
@@ -451,7 +451,7 @@ def _build_workflow_for(
             source_path = REPO_ROOT / metadata["source_workflow"]
             ui = json.loads(source_path.read_text())
             api = normalize_to_api(ui, use_comfy_converter=False)
-            wf = convert_to_vibe_format(api, source_path=str(template_path), workflow_id=template_id)
+            wf = from_api(api, source_path=str(template_path), workflow_id=template_id)
         else:
             # No UUID — just rebuild via authored path; this gives us a working
             # VibeWorkflow with original IDs preserved.

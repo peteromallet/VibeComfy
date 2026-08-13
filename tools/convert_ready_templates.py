@@ -421,11 +421,11 @@ def _convert_template(
     raw_workflow = _load_source_workflow(metadata)
     if _subgraph_definition_count(raw_workflow) == 1:
         try:
-            from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+            from vibecomfy.ingest.normalize import from_api, normalize_to_api
 
             source_path = _source_workflow_path(metadata)
             api = normalize_to_api(raw_workflow, use_comfy_converter=False)
-            wf = convert_to_vibe_format(
+            wf = from_api(
                 api,
                 source_path=str(source_path or path),
                 workflow_id=template_id,

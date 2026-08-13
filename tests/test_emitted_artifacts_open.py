@@ -7,7 +7,7 @@ per the M7 milestone assumptions.
 Each test:
   1. Loads a ready template, emits it to UI JSON, builds a prior store.
   2. Deserializes the emitted JSON (or extracts it from a synthesized PNG).
-  3. Passes the result directly to ``convert_to_vibe_format`` — asserts no exception.
+  3. Passes the result directly to ``from_ui`` — asserts no exception.
   4. Re-emits with the prior store and asserts ``change_report.content_edits.preserved``
      is non-empty, confirming node-identity survives the round-trip.
 """
@@ -25,7 +25,7 @@ except ImportError:
     pytest.skip("Pillow not installed; skip artifact-open tests", allow_module_level=True)
 
 from vibecomfy import load_workflow_any
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.layout_store import store_from_ui_json
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
@@ -55,7 +55,7 @@ def _first_emit(template_id: str) -> tuple[dict, dict]:
 
 def _assert_preserved_nonempty(graph: dict, prior_store: dict) -> None:
     """Convert graph → VibeWorkflow, re-emit with prior_store, assert preserved non-empty."""
-    wf2 = convert_to_vibe_format(graph)
+    wf2 = from_ui(graph)
     cr_out: list = []
     emit_ui_json(
         wf2,
@@ -82,7 +82,7 @@ def test_json_open(template_id: str) -> None:
     loaded_graph = json.loads(json_bytes)
 
     # Must not raise
-    wf2 = convert_to_vibe_format(loaded_graph)
+    wf2 = from_ui(loaded_graph)
     assert wf2 is not None
 
     _assert_preserved_nonempty(loaded_graph, prior)
@@ -113,7 +113,7 @@ def test_png_open(template_id: str) -> None:
     loaded_from_png = json.loads(raw_chunk)
 
     # Must not raise
-    wf3 = convert_to_vibe_format(loaded_from_png)
+    wf3 = from_ui(loaded_from_png)
     assert wf3 is not None
 
     _assert_preserved_nonempty(loaded_from_png, prior)

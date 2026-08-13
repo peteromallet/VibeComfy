@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 
 
 def _ksampler_chain(class_type: str) -> dict[str, dict]:
@@ -23,7 +23,7 @@ def _ksampler_chain(class_type: str) -> dict[str, dict]:
 
 
 def test_prompt_registered_for_clip_text_encode() -> None:
-    workflow = convert_to_vibe_format(_ksampler_chain("CLIPTextEncode"), workflow_id="img")
+    workflow = from_api(_ksampler_chain("CLIPTextEncode"), workflow_id="img")
 
     assert "prompt" in workflow.inputs
     assert workflow.inputs["prompt"].node_id == "1"
@@ -31,14 +31,14 @@ def test_prompt_registered_for_clip_text_encode() -> None:
 
 
 def test_prompt_registered_for_qwen_image_edit_text_encoder() -> None:
-    workflow = convert_to_vibe_format(_ksampler_chain("TextEncodeQwenImageEdit"), workflow_id="qwen")
+    workflow = from_api(_ksampler_chain("TextEncodeQwenImageEdit"), workflow_id="qwen")
 
     assert "prompt" in workflow.inputs
     assert workflow.inputs["prompt"].node_id == "1"
 
 
 def test_prompt_not_registered_for_wanvideo_text_encoder() -> None:
-    workflow = convert_to_vibe_format(_ksampler_chain("WanVideoTextEncode"), workflow_id="wan")
+    workflow = from_api(_ksampler_chain("WanVideoTextEncode"), workflow_id="wan")
 
     # The WanVideoWrapper text encoder accepts sampler-conditioning text and
     # must not be silently rewritten by the universal --prompt flag.
@@ -46,14 +46,14 @@ def test_prompt_not_registered_for_wanvideo_text_encoder() -> None:
 
 
 def test_prompt_not_registered_for_ace_step_audio_text_encoder() -> None:
-    workflow = convert_to_vibe_format(_ksampler_chain("TextEncodeAceStepAudio1.5"), workflow_id="ace")
+    workflow = from_api(_ksampler_chain("TextEncodeAceStepAudio1.5"), workflow_id="ace")
 
     # ACE Step audio expects tag strings, not free-form image prompts.
     assert workflow.inputs.get("prompt") is None
 
 
 def test_prompt_not_registered_for_unknown_custom_class() -> None:
-    workflow = convert_to_vibe_format(_ksampler_chain("MyCompletelyCustomTextNode"), workflow_id="custom")
+    workflow = from_api(_ksampler_chain("MyCompletelyCustomTextNode"), workflow_id="custom")
 
     assert workflow.inputs.get("prompt") is None
 
@@ -64,7 +64,7 @@ def test_steps_registered_for_ksampler() -> None:
         "2": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 4, "positive": ["1", 0]}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="ks")
+    workflow = from_api(raw, workflow_id="ks")
 
     assert "steps" in workflow.inputs
     assert workflow.inputs["steps"].node_id == "2"
@@ -75,7 +75,7 @@ def test_steps_registered_for_sampler_custom_advanced() -> None:
         "1": {"class_type": "SamplerCustomAdvanced", "inputs": {"steps": 8}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="sca")
+    workflow = from_api(raw, workflow_id="sca")
 
     assert "steps" in workflow.inputs
     assert workflow.inputs["steps"].node_id == "1"
@@ -86,7 +86,7 @@ def test_steps_not_registered_for_wanvideo_sampler() -> None:
         "1": {"class_type": "WanVideoSampler", "inputs": {"steps": 20, "seed": 7}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="wansampler")
+    workflow = from_api(raw, workflow_id="wansampler")
 
     assert workflow.inputs.get("steps") is None
     # seed remains universal and continues to register.
@@ -98,7 +98,7 @@ def test_steps_not_registered_for_unknown_custom_sampler() -> None:
         "1": {"class_type": "TotallyCustomSamplerNode", "inputs": {"steps": 12}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="custom-sampler")
+    workflow = from_api(raw, workflow_id="custom-sampler")
 
     assert workflow.inputs.get("steps") is None
 
@@ -109,7 +109,7 @@ def test_seed_registration_unchanged_across_families() -> None:
         "2": {"class_type": "TextEncodeAceStepAudio1.5", "inputs": {"text": "tag"}},
     }
 
-    workflow = convert_to_vibe_format(raw, workflow_id="seed-everywhere")
+    workflow = from_api(raw, workflow_id="seed-everywhere")
 
     assert workflow.inputs.get("seed") is not None
     assert workflow.inputs["seed"].node_id == "1"
@@ -117,7 +117,7 @@ def test_seed_registration_unchanged_across_families() -> None:
 
 def test_legacy_env_var_restores_old_field_name_only_registration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIBECOMFY_LEGACY_OVERRIDES", "1")
-    workflow = convert_to_vibe_format(_ksampler_chain("WanVideoTextEncode"), workflow_id="legacy")
+    workflow = from_api(_ksampler_chain("WanVideoTextEncode"), workflow_id="legacy")
 
     # Under legacy mode the field-name match is enough to register, even for
     # custom-node text encoders.
@@ -129,6 +129,6 @@ def test_legacy_env_var_restores_steps_registration_for_custom_samplers(monkeypa
     monkeypatch.setenv("VIBECOMFY_LEGACY_OVERRIDES", "1")
     raw = {"1": {"class_type": "TotallyCustomSamplerNode", "inputs": {"steps": 12}}}
 
-    workflow = convert_to_vibe_format(raw, workflow_id="legacy-steps")
+    workflow = from_api(raw, workflow_id="legacy-steps")
 
     assert workflow.inputs.get("steps") is not None

@@ -58,7 +58,7 @@ def _node_with_ui(
         metadata["_ui"] = ui
     if mode is not None:
         metadata["mode"] = mode
-    n = VibeNode(node_id, class_type, metadata=metadata)
+    n = VibeNode(node_id, class_type, metadata=metadata, pos=pos, size=size)
     n.uid = uid or node_id
     return n
 
@@ -79,7 +79,7 @@ def _virtual_node(
         ui["pos"] = pos
     if size is not None:
         ui["size"] = size
-    n = VibeNode(node_id, class_type, metadata={"_ui": ui})
+    n = VibeNode(node_id, class_type, metadata={"_ui": ui}, pos=pos, size=size)
     n.uid = node_id
     return n
 
@@ -160,7 +160,7 @@ def test_virtual_wire_round_trip_vace_corpus(tmp_path: Path):
     vw = _capture_virtual_wires(wf)
     wf.metadata["virtual_wires"] = vw
     raw = source.raw_workflow or {}
-    wf.metadata["groups"] = raw.get("groups", [])
+    wf.groups = raw.get("groups", [])
     wf.metadata["extra"] = raw.get("extra", {})
 
     py_path = tmp_path / "vace.py"
@@ -226,7 +226,7 @@ def test_coord_canonicalization_no_float_drift(tmp_path: Path):
     )
     wf = source.workflow
     raw = source.raw_workflow or {}
-    wf.metadata["groups"] = raw.get("groups", [])
+    wf.groups = raw.get("groups", [])
     wf.metadata["extra"] = raw.get("extra", {})
 
     py_path_1 = tmp_path / "first.py"
@@ -314,9 +314,10 @@ def test_mode2_mute_compile_parity():
         n = VibeNode("1", "KSampler", inputs={"seed": 42, "steps": 20}, metadata=metadata)
         n.uid = "mute-node"
         wf.nodes["1"] = n
-        n2 = VibeNode("2", "SaveImage", inputs={"images": ["1", 0]}, metadata={})
+        n2 = VibeNode("2", "SaveImage", metadata={})
         n2.uid = "save-node"
         wf.nodes["2"] = n2
+        wf.edges.append(VibeEdge("1", "0", "2", "images"))
         return wf
 
     wf_normal = _build_wf_with_mode(None)

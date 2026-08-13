@@ -1,196 +1,256 @@
-Implement the approved agent-judgment informational-research path through B01–B05. B06 is the optional web-reliability follow-up. Code transports, normalizes, deduplicates, displays, remembers, hoists, and cites evidence; the agent alone chooses queries and decides whether to search again or call `done()`.
+## Batch A — Canonical corpus migration `[XHARD]`
+
+Tasks:
+
+1. Add `scripts/migrate_external_workflow_corpus.py`.
+
+   - Require explicit `--corpus-dir`; no repository-relative default.
+   - Fail closed if the directory is absent or contains zero envelopes.
+   - Process `*.json` except `*.layout.json`; reject sidecars if explicitly supplied.
+   - Decode only with `from_envelope()`, serialize only with `to_envelope()` and `sort_keys=True`.
+   - Stage every output before any replacement.
+   - Allow exactly:
+     - add `groups: []` where absent;
+     - remove `compiled_api`;
+     - add integer first-class `node.mode`.
+   - Preserve all metadata and `_ui` content exactly, including legacy mode copies.
+   - Emit a machine-readable per-file delta report; support check-only and explicit write modes.
 
-Do not add deterministic loops/iteration, adapt-route message defaults, distillation write-back, FTS, reaction ranking, prefetch, term expansion, relevance scoring, evidence cards, latches, research-call caps, wall-clock stops, or research-only `max_batches=4`. Do not create `vibecomfy/executor/research_iteration.py`.
+2. Run migration against the absolute corpus path in the main checkout, never the worktree-local ignored path.
 
-The worktree has no venv yet. Use `uv run --frozen ...`.
+   - Migrate exactly 2,797 envelopes.
+   - Leave both `*.layout.json` sidecars, filenames, manifest, and shadow data untouched.
+   - Confirm 135,385 explicit modes; 754 formerly missing modes become `0`.
 
-Every batch ends in exactly one binary, read-only oracle checkpoint. Rework the owning batch until `PASS`; do not start batch N+1 until batch N passes.
+3. Harden `check_b02_rich_preservation.py`.
 
-## B01 — Messages Hivemind client
+   - Require an explicit corpus directory and fail on missing/empty input.
+   - Read first-class mode first with legacy fallback.
+   - Use `from_envelope()` for corpus envelopes and `from_api()` for normalized API dictionaries.
+   - Put groups on `wf.groups`; stop passing `groups=`.
+   - Report checked/skipped counts, including two skipped sidecars.
 
-1. Create `vibecomfy/executor/hivemind_clients.py` with `_hivemind_get_table`, preserving the workflow-client `external_resources?kind=eq.workflow` behavior through `_default_hivemind_client`.
+4. Re-anchor corpus tests around derived execution state.
 
-2. Implement `_CHANNEL_GROUPS`, `_FAMILY_TO_GROUP`, `_channel_scope_for_query`, `_distinctive_tokens`, and `_hivemind_single_or_phrase_ilike`. Include `live_updates` and `minimax_h3_chatter`; keep single-token queries and version tokens.
+   - Remove `compiled_api` assumptions.
+   - Preserve legacy metadata assertions rather than requiring deletion.
+   - Prove execution is freshly derived by `compile("api")`.
+   - Add missing/empty-directory and layout-sidecar rejection tests.
 
-3. Implement `_default_hivemind_messages_client` with:
-   - Step A: `unified_feed`, `kind=eq.distillation`.
-   - Step B: `unified_feed`, `kind=eq.message`.
-   - Step C: channel-scoped `message_feed` when `_raw_message_hits_are_thin`.
-   - Step D: channel-scoped individual-token OR fill.
-   - Timeout recovery through `daily_summaries`, the densest topic group, and optional 90-day scope.
-   - No FTS, unfiltered `limit=1000`, 3-gram expansion, or `external_resources` message search.
+5. Make CI non-vacuous without importing the 466 MB corpus.
 
-4. Implement `_raw_message_hits_are_thin`, `_hivemind_item_id`, `_message_dedupe_key`, `_normalize_hivemind_message_source`, and `_run_hivemind_messages_research`. Keep the runner normalize-only; never fetch Discord attachment URLs as workflow JSON.
+   - Add a small tracked representative envelope fixture directory.
+   - Make the maintained `make check`/`make ci` path call the checker with that explicit directory and expected nonzero count.
+   - Add a separate full-corpus target requiring explicit `CORPUS_DIR` and expected count `2797`; no fallback path.
 
-5. Implement approved-distillations → pending-distillations → recency display order, dedupe by string ID, and the 12-source presentation cap. Do not implement `_rank_message_rows`, IDF filtering, `score <= 0` filtering, or reaction ranking.
+6. Scope cuts:
 
-6. Implement `format_community_summary` with extractive message and distillation formatting, six-item/~800-character bounds, and the empty-result sentence.
+   - Do not repair or rewrite the manifest. Record `355b418f7449ba25.json` as known pre-existing drift.
+   - Do not upload to Hivemind and do not add upsert support. Existing rows may retain old payloads; summaries are unaffected.
 
-7. Move/re-export `_default_hivemind_client`, `_query_tokens`, `_QUERY_TOKEN_RE`, `_SEARCH_STOPWORDS`, and `_HIVEMIND_FALLBACK_STOPWORDS` through `vibecomfy/executor/research.py` so existing imports and patches remain valid. Add `hivemind_message` and `hivemind_distillation` to `_source_tier_for_source` / `_TIER_TTL_MAP`; update `_build_summary` for message-only results without `WORKFLOW_RESEARCH_GUIDANCE`.
+Acceptance gate:
 
-8. Add `tests/test_executor_hivemind_messages.py` covering table/parameter shapes, raw thinness, channel fallback, `live_updates`, string snowflakes, normalize-only behavior, approved-then-recency ordering, low-IDF row retention, and raw MiniMax-H3 Step-D token matching.
+- 2,797 envelopes and two untouched layout sidecars.
+- Unchanged filenames and canonical execution hashes.
+- Every envelope decodes; second migration run reports zero changes.
+- Delta report contains only the three permitted transformations.
+- Metadata and `_ui` are unchanged.
+- No envelope contains `compiled_api`; every node has integer `mode`.
+- Full B02 reports zero mismatches and zero UID-less emissions.
+- Missing/empty corpus checks fail.
+- Focused corpus tests, `git diff --check`, and `make ci` pass.
 
-### B01 checkpoint — binary read-only oracle
+## Batch B — Remove the public dispatcher
 
-Acceptance criteria:
+Tasks:
 
-- `uv run --frozen pytest tests/test_executor_hivemind_messages.py tests/test_executor_research.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- Existing workflow-client URL and `kind=eq.workflow` assertions remain unchanged and green.
-- Fixtures prove message/distillation sources are normalized, deduplicated, ordered, and capped at 12.
-- A low-IDF on-topic row remains visible.
-- No workflow-JSON fetch occurs for message attachment URLs.
-- No deterministic-loop artifacts or `vibecomfy/executor/research_iteration.py` exist.
-- Verdict: `PASS` or owning-batch rework.
+1. Remove only `convert_to_vibe_format()` from `ingest/normalize.py` and its public export. Keep the normalization module and private `_named_import()`.
 
-## B02 — `sources=` tier gating
+2. Migrate the verified callers:
 
-1. Extend `vibecomfy/executor/research.py::research` additively with `sources: tuple[str, ...] | None` and `hivemind_messages_client`.
+   - `from_api()`:
+     - `registry/ready_template.py`
+     - both paths in `tools/format_as_python.py`
+     - `tools/convert_ready_templates.py`
+     - `porting/edit/_gates.py`
+     - API route in `comfy_nodes/agent/routes.py`
+     - `scripts/ingest_external_workflows.py`
+     - API path in `check_b02_rich_preservation.py`
+   - `from_ui()`:
+     - UI route in `comfy_nodes/agent/routes.py`
+     - `demo_factory/fixer.py`
+   - `from_envelope()`:
+     - `comfy_nodes/agent/graph_normalization.py`
+     - corpus path in `check_b02_rich_preservation.py`
+   - `_frag_ingest.py`:
+     - branch with `_is_vibe_envelope(raw)`;
+     - envelope → `from_envelope()`, otherwise → `from_api()`.
+   - `scratchpad_loader.py`:
+     - rewrite both generated source strings and generated imports to use `from_api()`.
 
-2. Implement `run_workflows`, `run_messages`, `run_web`, and `run_registry` exactly from `sources`; retain legacy behavior for `sources is None` with messages disabled.
+3. Leave loader boundaries unchanged.
 
-3. Wire `_run_hivemind_messages_research` only when the messages tier is enabled. Ensure explicit messages-only research sets effective `local_limit=0` and skips workflow Hivemind, web, and registry.
+   - `_named_import()` remains for raw dictionaries of unknown shape.
+   - Ready-ID and `.py` paths continue bypassing it.
+   - `workbench.py` is not a dispatcher caller and receives no migration edit.
 
-4. Implement `VIBECOMFY_MESSAGES_RESEARCH=0` as a messages-client kill switch with warning `"messages tier disabled"`.
+4. Update live comments/docs and mechanically migrate affected tests. Re-anchor equivalence tests on IDs, UIDs, classes, modes, groups, edges, and compiled output.
 
-5. Update `vibecomfy/porting/edit/_resolve.py::_resolve_query_statement` to split `_default_hivemind_client` from `_default_hivemind_messages_client`. Keep the omitted-source default exactly `("workflows",)` in this batch.
+Acceptance gate:
 
-6. Extend `tests/test_executor_research.py` and `tests/test_porting_edit_resolve.py` for the tier matrix, legacy public behavior, single invocation with the original query string, explicit messages/web combinations, and the environment kill switch.
+- `rg 'convert_to_vibe_format' --glob '*.py'` finds only an intentional negative guard.
+- `vibecomfy.ingest` exposes `from_envelope`, `from_ui`, and `from_api`, not the removed dispatcher.
+- `_named_import()` still handles ambiguous raw JSON/image-loader inputs.
+- Generated scratchpad code imports and calls `from_api()`.
+- Offline routes remain offline.
+- Focused ingest, loader, security, ready-template, scratchpad, porting, and B02 tests pass.
 
-### B02 checkpoint — binary read-only oracle
+## Batch D+E — IR-authoritative emission and groups `[XHARD]`
 
-Acceptance criteria:
+Tasks:
 
-- `uv run --frozen pytest tests/test_executor_research.py tests/test_porting_edit_resolve.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- `sources=("messages",)` invokes the messages fake once with the unchanged user query and invokes no workflow, web, registry, or local tier.
-- Public `research("Hotshot XL")` does not invoke the messages client.
-- REPL omission still resolves to `("workflows",)`.
-- Existing invalid-explicit-source diagnostics remain unchanged.
-- No expansion, scoring, latch, retry-by-evidence, network-call-cap, or research-only four-turn artifacts exist.
-- Verdict: `PASS` or owning-batch rework.
+1. Make `_resolve_furniture()` obtain mode only through `_get_node_mode(node)`.
 
-## B03 — Research-route omit default, prompt, followup, and memory
+   - Sidecars and top-level metadata retain authority for flags, colors, properties, title, and geometry—not mode.
+   - Keep the single legacy `_ui.mode` fallback inside `_get_node_mode()`.
 
-1. Create `vibecomfy/executor/research_sources.py` with `_ALLOWED_RESEARCH_TIERS`, `_RESEARCH_SOURCE_ALIASES`, `canonicalize_research_sources`, and `resolve_repl_research_sources`. Treat `None` and `()` as omission; research-only omission resolves to `("messages", "web")`, other omission to `("workflows",)`, and explicit non-empty sources win without union.
+2. Remove the `groups` parameter from `emit_ui_json()` and all seven callers/tests.
 
-2. Add `community_summary: str = ""` to `vibecomfy/executor/contracts.py::ResearchResult`; emit it from `to_dict()` only when non-empty.
+3. Reconcile groups into the IR immediately after `_resolve_preserve_source()`.
 
-3. Update `vibecomfy/executor/research.py::research` to assign `format_community_summary(...)` whenever the messages tier ran, including the empty-result sentence.
+   - If the selected preserve store contains groups, deep-copy them into `workflow.groups`.
+   - Otherwise retain the groups already present on the workflow.
+   - Preserve existing fresh/sidecar/`--from`/breadcrumb precedence.
 
-4. [XHARD] In `vibecomfy/comfy_nodes/agent/edit_batch_repl.py`, compute `canonical_route` and `research_only_route` before constructing `EditSession`; assign `session.research_only` and `session.executor_research_brief`. Add `_dedupe_sources_by_id` and `_fold_research_statement`, and fold live `StatementResult.detail` after resolution. Do not add latch attributes or alter the existing `max_batches` calculation.
+4. Remap group membership during emission.
 
-5. Update `vibecomfy/porting/edit/_resolve.py::_resolve_query_statement` to call `resolve_repl_research_sources`, pass the split clients and resolved `sources`, and attach `research_result_sources`, `community_summary`, and `research_summary` to `StatementResult.detail`.
+   - Build aliases from workflow node ID, numeric source ID, `node.uid`, and captured `_ui.id`.
+   - Map known group members to final LiteGraph integers through `id_remap`.
+   - Preserve member order and group metadata.
+   - Deterministically omit stale/unresolved members rather than emitting dangling IDs.
+   - Merge IR groups before engine-generated groups and retain title deduplication.
 
-6. Update `vibecomfy/porting/edit/_resolve.py::_format_research_query_output` to print `community_summary`, author/channel or distillation metadata, warnings, and up to 12 sources when message kinds are present.
+5. Make `write_layout()` serialize `wf.groups`, not `wf.metadata["groups"]`.
 
-7. Update `vibecomfy/porting/edit/_resolve.py::_research_followup_guidance` with static `_MESSAGES_FOLLOWUP`, gated by:
-   `messages` present and `workflows`/`registry` absent.
-   Messages+web must suppress workflow guidance; web-only must retain External workflow check.
+6. Make `VibeEdge` the sole IR representation and authority for connectivity. *(oracle-approved addition, checkpoint 2)*
 
-8. [XHARD] Add `collected_research_sources`, `collected_research_summary`, and `collected_community_summary` to `vibecomfy/comfy_nodes/agent/_frag_state.py::AgentEditState`. Do not add `collected_evidence_card`.
+   - Migrate all package-owned low-level construction that stores Comfy API link pairs in `VibeNode.inputs` to construct `VibeEdge` objects instead; update affected tests and fixtures.
+   - Keep `from_api()` and `from_ui()` as normalization boundaries: incoming API link pairs become edges and are absent from `node.inputs`.
+   - Outside those ingestion boundaries, fail closed with a targeted error when an API-link-shaped value remains in `VibeNode.inputs` during envelope decode, validation, serialization, or compilation. Compilation must not mutate the IR or silently choose between embedded-input and edge authority.
+   - Use the canonical API-link predicate narrowly so ordinary two-element literal lists are not rejected.
+   - Test raw-link-only inputs and raw-link-plus-edge collisions with both identical and conflicting sources, plus unchanged compiled output for canonical edge-only workflows.
 
-9. [XHARD] Update `vibecomfy/comfy_nodes/agent/_frag_batch_memory.py::_batch_research_memory_summary` to retain any `research_query`, message/distillation markers, community summaries, and up to five optional `search_directions`.
+Acceptance gate:
 
-10. Update `vibecomfy/comfy_nodes/agent/provider.py` research-only prompt: document messages+web omission, omit graph-construction instructions and the four-turn apply-edit cap, and instruct the agent to judge search-again versus `done()`.
+- Compile and emit agree for modes 0/2/4 despite conflicting sidecar or metadata values.
+- Raw source-ID and UID-based group members both emit as correct LiteGraph integers.
+- No emitted group contains dangling/string membership for emitted nodes.
+- Sidecar-only, `--from`, conflict, breadcrumb, `--fresh`, removed-node, and nonnumeric-node-ID cases pass.
+- `port convert` writes reconciled groups onto `wf.groups`.
+- No `emit_ui_json(..., groups=...)` calls or signature remain.
+- No package-owned low-level `VibeNode` construction stores API link pairs in `inputs`, and no serialized envelope contains them.
+- Raw-link/edge collisions fail explicitly rather than compiling with implicit edge-wins precedence.
+- Canonical `from_api()`/`from_ui()` ingestion and edge-only compile round trips remain unchanged.
+- Focused port, emitter, layout, CLI, and B02 tests pass.
 
-11. Update `vibecomfy/executor/core.py::_research_brief_from_plan` canned `avoid` text to forbid invented community consensus.
+## Batch C — First-class geometry `[XHARD]`
 
-12. Add `tests/test_executor_research_sources.py`; extend `tests/test_executor_research.py`, `tests/test_porting_edit_resolve.py`, and `tests/test_comfy_nodes_agent_edit.py` for omission, explicit override, community summaries, detail folding, followup routing, 12-source output, memory persistence, and candidate-term visibility.
+Tasks:
 
-### B03 checkpoint — binary read-only oracle
+1. Add `VibeNode.pos` and `VibeNode.size` as separate `list[float] | None` fields.
 
-Acceptance criteria:
+   - Each present value must contain exactly two finite numeric coordinates.
+   - Absence remains `None`; never synthesize geometry.
+   - Versioned envelopes reject malformed present values.
+   - UI/API ingestion tolerates absent or malformed geometry by leaving the first-class field absent while retaining raw `_ui`.
 
-- `uv run --frozen pytest tests/test_executor_research_sources.py tests/test_executor_research.py tests/test_porting_edit_resolve.py tests/test_comfy_nodes_agent_edit.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- Research-only `None`, `()`, and `sources=[]` resolve to `("messages", "web")`; adapt omission remains `("workflows",)`.
-- Explicit `("web",)` and `("workflows",)` are not unioned with messages.
-- Classify `source_preferences` remain prompt-visible and are not executed.
-- Message results survive into next-turn memory and structured `StatementResult.detail`.
-- Messages+web produces only static messages guidance; web-only retains workflow-JSON guidance.
-- Existing `max_batches = max(1, int(state.batch_max_turns or 1))` remains; no research-only cap exists.
-- No `evidence_card`, strength field, latch, tried-query state, query expansion, or search-direction execution exists.
-- Verdict: `PASS` or owning-batch rework.
+2. Ingest/decode behavior:
 
-## B04 — Hoist and research reply path
+   - UI/API ingest copies valid `_ui.pos` and `_ui.size`.
+   - Envelope decode prefers node-level fields, falling back independently to legacy `_ui`.
+   - First-class values win conflicts.
 
-1. [XHARD] Update `vibecomfy/comfy_nodes/agent/_frag_response_contract.py::_build_batch_repl_response` immediately before `build_legacy_agent_edit_v1` to stamp `research_findings` for the research route. Re-synthesize `summary` and `community_summary` with `format_community_summary` from the deduplicated collected union, capped at 12, with warnings. Preserve `graph_unchanged=True` and `no_candidate_reason="route_not_applyable"`.
+3. Replace geometry descents in:
 
-2. [XHARD] Add `vibecomfy/executor/core.py::_research_result_from_findings` and hoist findings immediately after `_run_implement`.
+   - layout-store writing;
+   - lowering clones and offsets;
+   - virtual-wire capture;
+   - nearest-node reconciliation;
+   - UI captured geometry/emission.
+   - Explicitly copy `mode`, `pos`, and `size` in lowering’s manual constructor.
 
-3. [XHARD] Change `vibecomfy/executor/core.py::run_executor` so `_implementation_result_is_terminal_no_candidate(...)` does not take the early-return shortcut when `_canonical_route_for_plan(plan) == "research"`. Preserve all inspect, clarify, and non-research noop shortcuts; ensure the research route reaches `_run_reply`.
+4. Leave the non-geometry `_ui` hash access in `layout/reconcile.py` unchanged.
 
-4. Update `vibecomfy/executor/core.py::_run_reply` to prefer `ResearchResult.community_summary` over `summary`.
+5. Do not regenerate the corpus again.
 
-5. Update `vibecomfy/executor/prompts.py::build_reply_messages` to cite `hivemind_message` by author/channel and `hivemind_distillation` by title/status/confidence.
+Acceptance gate:
 
-6. Update `vibecomfy/executor/prompts.py::_REPLY_SYSTEM` so research replies do not lead with graph-change narration and cannot invent community consensus or citations.
+- Live and offline UI ingestion produce identical first-class geometry.
+- Old and new envelopes round-trip functionally; first-class values win.
+- Copies are deep and compile output is geometry-invariant.
+- Missing size still triggers the existing stub-layout behavior.
+- Lowering, virtual wires, reconcile matching, sidecars, and emitted coordinate canonicalization remain stable.
+- Focused geometry suite, B02, `make ci`, and full pytest pass.
 
-7. Extend `tests/test_executor_flows.py` with research hoist, community-summary preference, and `test_research_route_terminal_no_candidate_still_runs_reply`.
+## Batch K — Declare the workflow context token
 
-8. Extend `tests/test_executor_contracts.py` with message and distillation citation-shape tests and the research-route reply instruction.
+Tasks:
 
-### B04 checkpoint — binary read-only oracle
+1. Add:
 
-Acceptance criteria:
+   ` _workflow_context_token: Any = field(default=None, init=False, repr=False, compare=False)`
 
-- `uv run --frozen pytest tests/test_executor_flows.py tests/test_executor_contracts.py tests/test_comfy_nodes_agent_edit.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- A terminal-no-candidate research fixture invokes `run_reply_turn`; its user reply is not `implementation_result.message` or “No graph changes were needed.”
-- Hoisted `report.research.sources` contains `source=="hivemind_message"` and `_run_reply` receives `community_summary`.
-- Message citations expose author/channel; distillations expose title/status/confidence without invented author/channel.
-- Live MiniMax H3 and LTX 2.5 probes run at least one model-authored `research()` statement and return message-kind sources from `minimax_h3_chatter`, `ltx_chatter`, `live_updates`, or `daily_summaries`, or a real distillation title/status.
-- Live replies cite those sources and do not lead with workflow-template or no-graph-change narration.
-- `_should_prefetch_research` remains false for the research route.
-- No deterministic-loop artifacts exist.
-- Verdict: `PASS` or owning-batch rework.
+2. Replace token-related `getattr`, `hasattr`, creation, and deletion with direct assignment/access.
 
-## B05 — Real batch-REPL integration
+3. Make `copy()` handle bound workflows by supplying a deepcopy memo that maps the active `contextvars.Token` to `None`. Every clone must be unbound.
 
-1. Add a real `EditSession` integration test in `tests/test_porting_edit_resolve.py` and/or `tests/test_executor_flows.py` with `session.research_only=True` and a fixture model emitting `research("LTX 2.5")` without `sources=`, then `done()`.
+4. Make unseeded counter-generated UID minting collision-safe for deserialized or otherwise pre-populated workflows. *(oracle-approved addition, checkpoint 2)*
 
-2. Patch both `vibecomfy.executor.research._default_hivemind_messages_client` and `vibecomfy.executor.research._default_web_search_client`; use a raw `hivemind_message` fixture for `alice` in `ltx_chatter` and a no-op web result.
+   - Before an unseeded mint, reconcile `_uid_counter` with existing flat auto-minted `n<positive-integer>` UIDs and choose the next unoccupied `n<N>`.
+   - Preserve imported UIDs verbatim and keep the counter monotonic.
+   - Do not introduce a parallel UID registry or expand this task into seeded `id:...` identity redesign or global duplicate-import validation.
 
-3. Assert resolution to `("messages", "web")`, one unchanged `"LTX 2.5"` client call, structured message sources, author/channel query output, static followup text, and live-detail folding into `state.collected_research_sources`.
+Acceptance gate:
 
-4. Assert the durable response stamps `research_findings`, `report.research` contains the message source, `run_reply_turn` receives `alice`/`ltx_chatter`, `graph_unchanged=true`, and `apply_eligible=false`.
+- Bound and unbound copies succeed and have token `None`.
+- Constructor, repr, equality, and envelope omit the field.
+- Enter/exit, eager binding, finalize, nesting rejection, exception cleanup, and async isolation pass.
+- No context token leaks into serialization.
+- After decoding an envelope containing `uid="n1"`, including a sparse higher `n<N>` case, newly added nodes receive distinct UIDs beyond the imported auto-minted range.
+- Repeated mints and copies remain monotonic; nonmatching imported UIDs remain unchanged.
 
-5. Assert the user-facing reply is not the narrator line and `messages.jsonl` contains one outer `research()` statement.
+## Checkpoint structure
 
-6. If adding a two-search fixture, assert the client is called twice; never assert that code skips the second call.
+After each batch:
 
-### B05 checkpoint — binary read-only oracle
+1. Commit only that batch.
+2. Submit the task excerpt, diff from the prior passed checkpoint, test output, and implementation deviations to the oracle.
+3. For Batch A, also attach the external-corpus delta report, counts, and before/after canonical hashes because the corpus is outside the worktree diff.
+4. Oracle returns `PASS` or concrete issues.
+5. Rework and resubmit until `PASS`; record the passed SHA under `.oracle/checkins/`.
+6. `[XHARD]` work goes to GPT-5.6 Sol; other implementation work goes to DeepSeek Flash.
 
-Acceptance criteria:
+## Final release gate
 
-- `uv run --frozen pytest tests/test_porting_edit_resolve.py tests/test_executor_flows.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- The integration uses a real `EditSession` and real resolution/fold/hoist plumbing, not hand-populated collected state.
-- Both external clients are patched; CI performs no live web request.
-- Omitted sources resolve to messages+web and produce a message-kind source through the final reply.
-- `messages.jsonl` proves the query was model-authored and not expanded by code.
-- Repeated model-authored research calls are not suppressed by latches or caps.
-- No deterministic-loop artifacts exist.
-- Verdict: `PASS` or owning-batch rework.
+- Full-corpus migration check with explicit absolute path and expected count `2797`.
+- Full B02 check against that same path.
+- `make ci`
+- `make full-pytest`
+- `git diff --check`
+- Static guards for:
+  - removed dispatcher;
+  - removed `groups=` emitter surface;
+  - sidecar/metadata mode authority in emission;
+  - remaining geometry descents outside approved ingest/hash fallbacks.
+- Verify manifest and Hivemind were not mutated.
+- Final oracle review of the complete branch diff plus the external-corpus report.
 
-## B06 — Optional web 429 backoff and cache TTL
+Explicitly deferred: manifest repair, Hivemind payload refresh/upsert, tracking the 466 MB corpus, id-map redesign, typed groups/metadata, mode enum/sentinel redesign, slots, JS consumers, and full compile/emit unification.
 
-1. Update `vibecomfy/executor/research.py::_default_web_search_client` to retry Brave once after 0.8 seconds on 429, then install a 15-minute skip sentinel; apply the specified 403 handling without adding providers.
+**New exploration areas:** none.
+tokens used
+52,078
+# Revised frozen plan
 
-2. Update the existing web cache read/write path in `vibecomfy/executor/research.py` to store negative results and honor `expires_at`.
+Execution order: **A → B → D+E → C → K → release gate**. Do not begin a batch until its checkpoint passes.
 
-3. Extend `tests/test_executor_research.py` with mocked 429/403, retry timing, sentinel, negative-cache, and expiry cases.
-
-4. Keep web reliability independent from message query choice, REPL iteration, source scoring, and stop decisions.
-
-### B06 checkpoint — binary read-only oracle
-
-Acceptance criteria:
-
-- `uv run --frozen pytest tests/test_executor_research.py -x -q` passes.
-- `uv run --frozen pytest tests/ -x -q` passes.
-- A mocked 429 causes exactly one retry after 0.8 seconds, then a 15-minute skip sentinel.
-- Negative cache entries prevent redundant requests until `expires_at`; expired entries are retried.
-- No new provider, query expansion, evidence scoring, REPL retry branch, latch, or research-call cap exists.
-- Verdict: `PASS` or owning-batch rework.

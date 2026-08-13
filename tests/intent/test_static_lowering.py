@@ -93,10 +93,6 @@ def _make_ksample_node(node_id: str) -> VibeNode:
             "sampler_name": "euler",
             "scheduler": "normal",
             "denoise": 1.0,
-            "model": ["4", 0],
-            "positive": ["5", 0],
-            "negative": ["6", 0],
-            "latent_image": ["7", 0],
         },
     )
 
@@ -105,7 +101,7 @@ def _make_clip_text_node(node_id: str, *, text: str = "prompt") -> VibeNode:
     return VibeNode(
         id=node_id,
         class_type="CLIPTextEncode",
-        inputs={"text": text, "clip": ["99", 0]},
+        inputs={"text": text},
     )
 
 
@@ -1113,11 +1109,17 @@ def test_lower_workflow_over_takes_precedence() -> None:
 
 
 def _node_with_ui(node_id: str, class_type: str, *, pos: tuple[float, float], size: tuple[float, float] | None = None, inputs: dict | None = None) -> VibeNode:
-    """Create a node with explicit _ui pos/size metadata."""
+    """Create a node with first-class and retained raw UI geometry."""
     md: dict[str, Any] = {"_ui": {"pos": list(pos)}}
     if size is not None:
         md["_ui"]["size"] = list(size)
-    node = VibeNode(id=node_id, class_type=class_type, metadata=md)
+    node = VibeNode(
+        id=node_id,
+        class_type=class_type,
+        metadata=md,
+        pos=list(pos),
+        size=list(size) if size is not None else None,
+    )
     if inputs is not None:
         node.inputs = dict(inputs)
     return node
@@ -1142,8 +1144,7 @@ def test_clone_nodes_have_horizontal_stride_positions() -> None:
     # Iter 1: x = 100 + 300*1 = 400
     # Iter 2: x = 100 + 300*2 = 700
     for node_id, node in result.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         lowering = node.metadata.get("vibecomfy.lowering", {})
         source_id = lowering.get("source_node_id")
         iter_idx = lowering.get("iteration_index")
@@ -1173,8 +1174,7 @@ def test_clone_positions_are_snapped_to_whole_integers() -> None:
     assert result.workflow is not None
 
     for node_id, node in result.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         if pos is None:
             continue
         assert isinstance(pos[0], int), f"Node {node_id}: pos[0] should be int, got {pos[0]} ({type(pos[0]).__name__})"
@@ -1205,14 +1205,12 @@ def test_clone_positions_deterministic_across_repeated_lowerings() -> None:
     second_positions: dict[str, list[int]] = {}
 
     for node_id, node in first.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         if pos is not None:
             first_positions[node.uid] = list(pos)
 
     for node_id, node in second.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         if pos is not None:
             second_positions[node.uid] = list(pos)
 
@@ -1241,11 +1239,11 @@ def test_clone_layout_policy_descriptor_in_evidence() -> None:
     assert f"offset={HORIZONTAL_STRIDE}" in result.evidence[0].layout_policy
 
 
-def test_clone_positions_default_to_zero_when_no_source_ui() -> None:
-    """Clones of nodes without _ui metadata default to (0, 0) base position."""
+def test_clone_positions_default_to_zero_when_no_source_geometry() -> None:
+    """Clones of nodes without first-class geometry default to a (0, 0) base."""
     wf = _make_workflow()
     wf.nodes["10"] = _make_loop_node("10", uid="loop-10", var="seed", count=2)
-    # Nodes without _ui metadata
+    # Nodes without first-class geometry.
     wf.nodes["20"] = VibeNode("20", "KSampler", inputs={"seed": 42, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0})
     wf.nodes["30"] = _make_save_image_node("30")
 
@@ -1257,8 +1255,7 @@ def test_clone_positions_default_to_zero_when_no_source_ui() -> None:
     assert result.workflow is not None
 
     for node_id, node in result.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         if pos is None:
             continue
         lowering = node.metadata.get("vibecomfy.lowering", {})
@@ -1284,8 +1281,7 @@ def test_clone_positions_honor_source_y_offset() -> None:
     assert result.workflow is not None
 
     for node_id, node in result.workflow.nodes.items():
-        ui = node.metadata.get("_ui", {})
-        pos = ui.get("pos")
+        pos = node.pos
         if pos is None:
             continue
         lowering = node.metadata.get("vibecomfy.lowering", {})

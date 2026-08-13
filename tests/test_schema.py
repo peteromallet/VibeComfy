@@ -8,7 +8,8 @@ import pytest
 
 from vibecomfy.ingest.normalize import (
     _merge_slim_ui,
-    convert_to_vibe_format,
+    from_api,
+    from_ui,
     normalize_to_api,
     _schema_input_aliases,
     _schema_output_names,
@@ -668,9 +669,9 @@ def test_normalize_to_api_preserves_raw_widget_payload_for_mixed_rows() -> None:
     assert api["1"]["_ui"]["widgets_values"] == rows
 
 
-def test_convert_to_vibe_format_carries_raw_widgets_without_compile_leak() -> None:
+def test_from_ui_carries_raw_widgets_without_compile_leak() -> None:
     rows = [{"lora": "detail.safetensors", "strength": 0.45}, "enabled"]
-    wf = convert_to_vibe_format(
+    wf = from_ui(
         {
             "nodes": [
                 {
@@ -704,7 +705,7 @@ def test_convert_to_vibe_format_carries_raw_widgets_without_compile_leak() -> No
     }
 
 
-def test_convert_to_vibe_format_static_compile_unchanged_with_raw_widgets() -> None:
+def test_from_api_static_compile_unchanged_with_raw_widgets() -> None:
     api = {
         "1": {
             "class_type": "KSampler",
@@ -725,7 +726,7 @@ def test_convert_to_vibe_format_static_compile_unchanged_with_raw_widgets() -> N
         }
     }
 
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
 
     assert wf.nodes["1"].raw_widgets is not None
     assert wf.nodes["1"].raw_widgets.length == 7
@@ -1626,7 +1627,7 @@ def test_schema_input_aliases_empty_when_all_link_only() -> None:
     assert aliases == []
 
 
-def test_convert_to_vibe_format_stores_output_names_with_partial_evidence() -> None:
+def test_from_api_stores_output_names_with_partial_evidence() -> None:
     """Metadata stores all output names including blanks; emitter decides per slot."""
     provider = FakeSchemaProvider(
         {
@@ -1645,14 +1646,14 @@ def test_convert_to_vibe_format_stores_output_names_with_partial_evidence() -> N
         }
     )
     api = {"1": {"class_type": "MultiOut", "inputs": {}}}
-    wf = convert_to_vibe_format(api, schema_provider=provider)
+    wf = from_api(api, schema_provider=provider)
     node = wf.nodes["1"]
     meta = node.metadata
     assert meta.get("output_names") == ["image", "", "latent"]
     assert meta.get("output_types") == ["IMAGE", "LATENT", "VAE"]
 
 
-def test_convert_to_vibe_format_stores_input_aliases_excluding_link_only() -> None:
+def test_from_api_stores_input_aliases_excluding_link_only() -> None:
     """input_aliases only includes widget-type inputs, not link-only types."""
     provider = FakeSchemaProvider(
         {
@@ -1671,13 +1672,13 @@ def test_convert_to_vibe_format_stores_input_aliases_excluding_link_only() -> No
         }
     )
     api = {"1": {"class_type": "Loader", "inputs": {}}}
-    wf = convert_to_vibe_format(api, schema_provider=provider)
+    wf = from_api(api, schema_provider=provider)
     node = wf.nodes["1"]
     meta = node.metadata
     assert meta.get("input_aliases") == ["ckpt_name"]
 
 
-def test_convert_to_vibe_format_stores_schema_source_provenance() -> None:
+def test_from_api_stores_schema_source_provenance() -> None:
     """schema_source provenance is recorded per node from schema metadata."""
     provider = FakeSchemaProvider(
         {
@@ -1698,7 +1699,7 @@ def test_convert_to_vibe_format_stores_schema_source_provenance() -> None:
         }
     )
     api = {"1": {"class_type": "PromptNode", "inputs": {}}}
-    wf = convert_to_vibe_format(api, schema_provider=provider)
+    wf = from_api(api, schema_provider=provider)
     node = wf.nodes["1"]
     meta = node.metadata
     source = meta.get("schema_source")
@@ -1711,7 +1712,7 @@ def test_convert_to_vibe_format_stores_schema_source_provenance() -> None:
     assert source["confidence"] == 1.0
 
 
-def test_convert_to_vibe_format_conflicting_provider_evidence() -> None:
+def test_from_api_conflicting_provider_evidence() -> None:
     """When multiple providers could serve a node, stored provenance reflects
     the winning (highest-priority) evidence."""
     provider = FakeSchemaProvider(
@@ -1730,7 +1731,7 @@ def test_convert_to_vibe_format_conflicting_provider_evidence() -> None:
         }
     )
     api = {"1": {"class_type": "CheckpointLoader", "inputs": {}}}
-    wf = convert_to_vibe_format(api, schema_provider=provider)
+    wf = from_api(api, schema_provider=provider)
     node = wf.nodes["1"]
     source = node.metadata.get("schema_source")
     assert source is not None

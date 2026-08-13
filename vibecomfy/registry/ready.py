@@ -221,7 +221,7 @@ def _classify_ready_template_ast(tree: ast.AST) -> dict[str, Any]:
                 applies_ready_policy = True
             if call_name in {"json.load", "json.loads", "load_workflow_json", "load_template"}:
                 loads_json_runtime = True
-            if call_name.endswith(".compile") or call_name in {"convert_to_vibe_format", "workflow_from_api"}:
+            if call_name.endswith(".compile") or call_name in {"from_api", "workflow_from_api"}:
                 api_dict_wrapper = True
         if isinstance(node, ast.Assign):
             for target in node.targets:

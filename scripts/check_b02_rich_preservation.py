@@ -5,10 +5,10 @@ For every serialized-Vibe envelope in ``external_workflows/corpus/*.json``
 full canonical pipeline and prove deterministic lossless preservation at every
 boundary:
 
-    rich ──convert_to_vibe_format──▶ ir1 ──normalize_agent_edit_graph──▶ canonical
-         ──normalize_to_api(use_comfy_converter=False)──▶ api ──convert_to_vibe_format──▶ ir2
-         ──emit_ui_json(groups=canonical groups)──▶ reemit
-         pin evidence: emit_ui_json(ir1, recovery_report=report, groups=rich groups)
+    rich ──from_envelope──▶ ir1 ──normalize_agent_edit_graph──▶ canonical
+         ──normalize_to_api(use_comfy_converter=False)──▶ api ──from_api──▶ ir2
+         ──emit_ui_json (using ir2.groups)──▶ reemit
+         pin evidence: emit_ui_json(ir1, recovery_report=report)
 
 Axes asserted (every mismatch records ``(file, axis, node, expected, actual)``
 and fails the run):
@@ -35,7 +35,8 @@ and fails the run.
 
 Run as a CLI to get one final JSON summary on stdout:
 
-    .venv/bin/python scripts/check_b02_rich_preservation.py
+    .venv/bin/python scripts/check_b02_rich_preservation.py \
+        --corpus-dir tests/fixtures/b02_corpus_mini --expected-count 3
 
 Exit code is 0 iff zero mismatches and zero uid-less emissions.
 """
@@ -51,7 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest import from_api, from_envelope, normalize_to_api
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.refuse import RefusedEmit
 
@@ -60,7 +61,7 @@ from vibecomfy.porting.refuse import RefusedEmit
 # comparisons by contract.
 _RENUMBERED_KEYS: frozenset[str] = frozenset({"id", "order", "link", "links"})
 
-_SCHEMA_LESS_WARNING = "schema-less"
+_SCHEMA_LESS_WARNING = ".*schema-less.*"
 
 
 # ---------------------------------------------------------------------------
@@ -86,13 +87,26 @@ def _ui_of(metadata: Any) -> dict[str, Any]:
     return ui if isinstance(ui, dict) else {}
 
 
-def _mode_of(metadata: Any) -> int:
-    """Node mode: raw ``_ui.mode`` when present, else top-level metadata mode, else 0."""
+def _legacy_mode_of(metadata: Any) -> int:
+    """Legacy mode: raw ``_ui.mode``, then top-level metadata mode, else 0."""
     ui = _ui_of(metadata)
-    if "mode" in ui:
+    if isinstance(ui.get("mode"), int) and not isinstance(ui["mode"], bool):
         return ui["mode"]
     value = metadata.get("mode")
-    return value if isinstance(value, int) else 0
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _mode_of(entry: Any) -> int:
+    """First-class node mode, with legacy metadata fallback for old envelopes."""
+    if isinstance(entry, dict):
+        value = entry.get("mode")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        return _legacy_mode_of(entry.get("metadata") or {})
+    value = getattr(entry, "mode", None)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return _legacy_mode_of(getattr(entry, "metadata", {}))
 
 
 def _widgets_values_of(metadata: Any) -> Any:
@@ -127,7 +141,7 @@ def rich_node_projection(node_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "id": entry.get("id"),
         "class_type": entry.get("class_type"),
         "uid": entry.get("uid"),
-        "mode": _mode_of(metadata),
+        "mode": _mode_of(entry),
         "raw_widgets": _raw_widgets_projection(entry.get("raw_widgets")),
         "widgets_values": _widgets_values_of(metadata),
         "furniture": _strip_renumbered(_ui_of(metadata)),
@@ -141,7 +155,7 @@ def ir_node_projection(node: Any) -> dict[str, Any]:
         "id": node.id,
         "class_type": node.class_type,
         "uid": node.uid,
-        "mode": _mode_of(metadata),
+        "mode": _mode_of(node),
         "raw_widgets": _raw_widgets_projection(node.raw_widgets),
         "widgets_values": _widgets_values_of(metadata),
         "furniture": _strip_renumbered(_ui_of(metadata)),
@@ -259,12 +273,13 @@ def check_envelope(raw: dict[str, Any]) -> dict[str, Any]:
         _record(result, axis, node, expected, actual)
         return result
 
-    ir1 = convert_to_vibe_format(raw)
+    ir1 = from_envelope(raw)
+    ir1.groups = deepcopy(raw.get("groups") or [])
 
     # ── pin evidence: emit directly with recovery_report + the rich groups ──
     recovery_report: list[dict[str, Any]] = []
     try:
-        pin_envelope = _emit(ir1, recovery_report=recovery_report, groups=raw.get("groups"))
+        pin_envelope = _emit(ir1, recovery_report=recovery_report)
     except RefusedEmit as exc:
         node_id, reason = _refusal_detail(exc)
         return fail("emit_refused", node_id, "emission must succeed", reason)
@@ -294,8 +309,9 @@ def check_envelope(raw: dict[str, Any]) -> dict[str, Any]:
     try:
         canonical = normalize_agent_edit_graph(raw)
         api2 = normalize_to_api(canonical, use_comfy_converter=False)
-        ir2 = convert_to_vibe_format(api2)
-        reemit = _emit(ir2, groups=canonical.get("groups"))
+        ir2 = from_api(api2)
+        ir2.groups = deepcopy(canonical.get("groups") or [])
+        reemit = _emit(ir2)
     except RefusedEmit as exc:
         node_id, reason = _refusal_detail(exc)
         return fail("emit_refused", node_id, "emission must succeed", reason)
@@ -474,20 +490,51 @@ def _refusal_detail(exc: RefusedEmit) -> tuple[Any, str]:
 # ---------------------------------------------------------------------------
 
 
+def _corpus_paths(corpus_dir: str | Path) -> tuple[Path, list[Path]]:
+    """Validate an explicit corpus directory and return its JSON paths."""
+    root = Path(corpus_dir)
+    if root.name.endswith(".layout.json"):
+        raise ValueError(f"layout sidecar cannot be used as a corpus directory: {root}")
+    if not root.exists():
+        raise FileNotFoundError(f"corpus directory does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"corpus path is not a directory: {root}")
+    paths = sorted(root.glob("*.json"))
+    envelope_paths = [path for path in paths if not path.name.endswith(".layout.json")]
+    if not envelope_paths:
+        raise ValueError(f"corpus directory contains zero envelopes: {root}")
+    return root, paths
+
+
 def iter_corpus(corpus_dir: str | Path):
     """Yield ``(path, raw)`` for every serialized-Vibe envelope in the corpus.
 
     Non-envelope ``*.json`` files (e.g. ``.layout.json`` sidecar stores) are
     skipped and reported in the aggregate ``skipped_non_envelopes`` counter.
     """
-    for path in sorted(Path(corpus_dir).glob("*.json")):
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw.get("nodes"), dict) or "vibecomfy_format_version" not in raw:
+    _, paths = _corpus_paths(corpus_dir)
+    found = 0
+    for path in paths:
+        if path.name.endswith(".layout.json"):
             continue
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("nodes"), dict)
+            or "vibecomfy_format_version" not in raw
+        ):
+            continue
+        found += 1
         yield path, raw
+    if found == 0:
+        raise ValueError(f"corpus directory contains zero envelopes: {corpus_dir}")
 
 
-def check_corpus(corpus_dir: str | Path = "external_workflows/corpus") -> dict[str, Any]:
+def check_corpus(
+    corpus_dir: str | Path,
+    *,
+    expected_count: int | None = None,
+) -> dict[str, Any]:
     """Run :func:`check_envelope` over the whole corpus and aggregate counts.
 
     Deterministic: files are processed in sorted order and all set comparisons
@@ -496,6 +543,9 @@ def check_corpus(corpus_dir: str | Path = "external_workflows/corpus") -> dict[s
     """
     summary: dict[str, Any] = {
         "ok": True,
+        "checked": 0,
+        "skipped": 0,
+        "skipped_sidecars": 0,
         "workflows": 0,
         "skipped_non_envelopes": 0,
         "rich_nodes": 0,
@@ -510,17 +560,29 @@ def check_corpus(corpus_dir: str | Path = "external_workflows/corpus") -> dict[s
         "refused_files": [],
         "mismatch_rows": [],
     }
-    for path in sorted(Path(corpus_dir).glob("*.json")):
+    _, paths = _corpus_paths(corpus_dir)
+    for path in paths:
         name = path.name
+        if name.endswith(".layout.json"):
+            summary["skipped"] += 1
+            summary["skipped_sidecars"] += 1
+            continue
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001 — recorded, never swallowed
+            summary["skipped"] += 1
             _record_row(summary, name, "exception", None, "JSON must parse", f"{type(exc).__name__}: {exc}")
             continue
-        if not isinstance(raw.get("nodes"), dict) or "vibecomfy_format_version" not in raw:
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("nodes"), dict)
+            or "vibecomfy_format_version" not in raw
+        ):
+            summary["skipped"] += 1
             summary["skipped_non_envelopes"] += 1
             continue
 
+        summary["checked"] += 1
         summary["workflows"] += 1
         result = check_envelope(raw)
         result["file"] = name
@@ -537,8 +599,16 @@ def check_corpus(corpus_dir: str | Path = "external_workflows/corpus") -> dict[s
             if axis == "emit_refused":
                 summary["refused_files"].append([name, _truncate(node), _truncate(actual)])
 
+    if summary["checked"] == 0:
+        raise ValueError(f"corpus directory contains zero envelopes: {corpus_dir}")
+    summary["expected_count"] = expected_count
+    summary["count_matches"] = expected_count is None or summary["checked"] == expected_count
     summary["mismatch_count"] = len(summary["mismatch_rows"])
-    summary["ok"] = summary["mismatch_count"] == 0 and summary["uidless"] == 0
+    summary["ok"] = (
+        summary["mismatch_count"] == 0
+        and summary["uidless"] == 0
+        and summary["count_matches"]
+    )
     return summary
 
 
@@ -565,12 +635,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--corpus-dir",
-        default="external_workflows/corpus",
-        help="directory of serialized-Vibe corpus envelopes (default: %(default)s)",
+        required=True,
+        help="explicit directory of serialized-Vibe corpus envelopes",
+    )
+    parser.add_argument(
+        "--expected-count",
+        type=int,
+        help="fail unless exactly this many envelopes are checked",
     )
     args = parser.parse_args(argv)
 
-    summary = check_corpus(args.corpus_dir)
+    try:
+        summary = check_corpus(args.corpus_dir, expected_count=args.expected_count)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        parser.error(str(exc))
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0 if summary["ok"] else 1
 

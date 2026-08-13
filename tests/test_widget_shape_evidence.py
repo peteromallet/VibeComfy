@@ -152,7 +152,6 @@ def test_showtext_pysssss_two_widget_shape_is_committed_schema_backed() -> None:
     node = VibeNode(
         "180",
         "ShowText|pysssss",
-        inputs={"text": ["179", 0]},
         widgets={"widget_1": ""},
     )
     provider = _Provider(

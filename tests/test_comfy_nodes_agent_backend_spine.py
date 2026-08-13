@@ -2429,9 +2429,15 @@ def test_validate_stage_leaves_helper_info_non_blocking() -> None:
     workflow = VibeWorkflow("helper", WorkflowSource("helper"))
     workflow.nodes["1"] = VibeNode("1", "MarkdownNote", inputs={"widget_0": "note"})
     workflow.nodes["2"] = VibeNode("2", "LoadImage", inputs={"image": "a.png"})
-    workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "img", "IMAGE": ["2", 0]})
+    workflow.nodes["3"] = VibeNode("3", "SetNode", inputs={"widget_0": "img"})
     workflow.nodes["4"] = VibeNode("4", "GetNode", inputs={"widget_0": "img"})
-    workflow.nodes["5"] = VibeNode("5", "SaveImage", inputs={"images": ["4", 0]})
+    workflow.nodes["5"] = VibeNode("5", "SaveImage")
+    workflow.edges.extend(
+        [
+            VibeEdge("2", "0", "3", "IMAGE"),
+            VibeEdge("4", "0", "5", "images"),
+        ]
+    )
 
     diagnostics = validate_stage_diagnostics(workflow)
 

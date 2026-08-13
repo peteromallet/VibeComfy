@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.errors import ArityDisagreementError
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, from_ui, normalize_to_api
 from vibecomfy.porting.convert import ManualTemplateRefusal, _check_manual_refusal, port_convert_workflow
 from vibecomfy.porting.object_info.serialize import build_cache
 from vibecomfy.porting.workbench import load_port_source
@@ -48,7 +48,7 @@ def _workflow_from_ui_json(path: str) -> tuple[VibeWorkflow, dict[str, Any]]:
 
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     api = normalize_to_api(raw, use_comfy_converter=False)
-    workflow = convert_to_vibe_format(api, source_path=path, workflow_id=Path(path).stem)
+    workflow = from_api(api, source_path=path, workflow_id=Path(path).stem)
     return workflow, raw
 
 
@@ -1851,7 +1851,7 @@ def test_flat_scratchpad_contains_uid_in_node_calls() -> None:
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     text = emit_scratchpad_python(wf, source_path="tests/fixtures/walking_skeleton/flat.json")
 
@@ -1876,7 +1876,7 @@ def test_flat_scratchpad_reimport_yields_same_uids() -> None:
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     text = emit_scratchpad_python(wf, source_path="tests/fixtures/walking_skeleton/flat.json")
 
@@ -1906,7 +1906,7 @@ def _flat_workflow_and_raw():
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
     api = normalize_to_api(raw, use_comfy_converter=False)
-    wf = convert_to_vibe_format(
+    wf = from_api(
         api, source_path="tests/fixtures/walking_skeleton/flat.json", workflow_id="flat"
     )
     return wf, raw

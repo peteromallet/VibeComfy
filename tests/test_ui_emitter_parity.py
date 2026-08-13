@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.emit.ui import (
     emit_ui_json,
     offline_emitter_normalizer_self_consistency_check,
@@ -71,7 +71,7 @@ def _corpus_json_paths() -> list[str]:
 def _wf_from_json(path: str) -> VibeWorkflow:
     with open(path) as handle:
         raw = json.load(handle)
-    return convert_to_vibe_format(raw, source_path=path)
+    return from_ui(raw, source_path=path)
 
 
 def _local_provider():

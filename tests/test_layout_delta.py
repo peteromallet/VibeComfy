@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 from vibecomfy.porting.layout.delta import compute_field_delta
 from vibecomfy.workflow import VibeEdge, VibeNode
@@ -50,7 +50,7 @@ def _api_ksampler_to_saveimage() -> dict:
 
 def test_no_change_produces_empty_delta():
     """Identical snapshot and IR → empty delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
     delta = compute_field_delta(snap, wf)
     assert delta == {}
@@ -58,7 +58,7 @@ def test_no_change_produces_empty_delta():
 
 def test_widget_edit_detected():
     """Changing a widget value after snapshot produces a widget_values_sig delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
 
     # Mutate seed in the IR (post-ingest edit)
@@ -73,7 +73,7 @@ def test_widget_edit_detected():
 
 def test_rewire_detected():
     """Changing an incoming edge after snapshot produces an incoming_edge_sig delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
 
     # Add a new node and rewire KSampler's latent_image to it
@@ -92,7 +92,7 @@ def test_rewire_detected():
 
 def test_unmodified_node_absent_from_delta():
     """A node that was not edited should not appear in the delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
     # Only mutate KSampler
     wf.nodes["1"].inputs["seed"] = 9999
@@ -105,7 +105,7 @@ def test_unmodified_node_absent_from_delta():
 
 def test_added_node_is_snapshot_absent_and_omitted():
     """A node added to the IR after snapshot is absent from snapshot → not in delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
 
     # Add a new node that was not present at ingest time
@@ -124,7 +124,7 @@ def test_removed_node_omitted_from_delta():
     IR uid set directly; compute_field_delta only reports changed fields for
     nodes present in both snapshot and current IR.
     """
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
 
     # Remove a node from the IR
@@ -138,7 +138,7 @@ def test_removed_node_omitted_from_delta():
 
 def test_snapshot_absent_node_omitted_matches_add_semantics():
     """Snapshot-absent nodes (in IR but not snapshot) are excluded from delta."""
-    wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
+    wf = from_api(_api_ksampler_to_saveimage())
     # Take snapshot of only one node by building a partial snapshot manually
     snap_only_sampler = {
         uid: entry

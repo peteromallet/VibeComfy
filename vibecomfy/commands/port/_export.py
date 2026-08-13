@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -443,6 +444,8 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             else:
                 py_path = Path(args.workflow)
             store, prior_path_str, from_overrides, prior_ui_payload = _resolve_preserve_source(args, py_path, workflow)
+            if store is not None and "groups" in store:
+                workflow.groups = deepcopy(store["groups"])
 
             # M5 Step 16: when the preserve source is a UI JSON on disk (--from
             # or breadcrumb auto-discovery), load it as the guard's "original"
@@ -458,7 +461,6 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                     guard_original_ui = None
 
             # Extract sidecar sections for explicit kwargs (for callers that pre-resolved them)
-            sidecar_groups = store.get("groups") if store else None
             sidecar_extra = store.get("extra") if store else None
             sidecar_definitions = store.get("definitions") if store else None
             _force_drop = bool(getattr(args, "force_drop", False))
@@ -470,7 +472,6 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 include_main_positions=getattr(args, "main_positions", False),
                 include_virtual_wires=not getattr(args, "no_virtual_wires", False),
                 recovery_report=recovery_report,
-                groups=sidecar_groups,
                 extra=sidecar_extra,
                 definitions=sidecar_definitions,
                 change_report_out=change_report_out,

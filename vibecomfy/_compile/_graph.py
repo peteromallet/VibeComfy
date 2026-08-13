@@ -12,15 +12,15 @@ def is_api_link(
     allow_tuple: bool = False,
     require_string_node_id: bool = False,
     require_numeric_node_id: bool = True,
+    allow_negative_node_id: bool = False,
     allow_compound_node_id: bool = False,
     require_int_slot: bool = False,
 ) -> bool:
     """Return whether ``value`` is a ComfyUI API link pair.
 
-    The defaults match the most common legacy helper in this repo: a list pair
-    whose source id is digit-shaped after ``str(...)`` coercion. Flags let
-    stricter call sites preserve their existing list/tuple, source-id, and slot
-    rules explicitly.
+    The defaults retain the legacy configurable helper contract.  IR authority
+    boundaries must use :func:`is_canonical_api_link`, whose stricter shape
+    keeps ordinary two-item literal lists out of connectivity logic.
     """
 
     allowed_types = (list, tuple) if allow_tuple else (list,)
@@ -30,11 +30,27 @@ def is_api_link(
     source_id, slot = value
     if require_string_node_id and not isinstance(source_id, str):
         return False
-    if require_numeric_node_id and not _is_numeric_node_id(source_id, allow_compound=allow_compound_node_id):
+    if require_numeric_node_id and not _is_numeric_node_id(
+        source_id,
+        allow_negative=allow_negative_node_id,
+        allow_compound=allow_compound_node_id,
+    ):
         return False
-    if require_int_slot and not isinstance(slot, int):
+    if require_int_slot and (isinstance(slot, bool) or not isinstance(slot, int)):
         return False
     return True
+
+
+def is_canonical_api_link(value: Any) -> bool:
+    """Return whether *value* has the canonical stored Comfy API link shape."""
+    return is_api_link(
+        value,
+        allow_tuple=False,
+        require_string_node_id=True,
+        require_numeric_node_id=True,
+        allow_negative_node_id=True,
+        require_int_slot=True,
+    )
 
 
 def node_id_sort_key(node_id: Any, *, allow_compound: bool = False) -> tuple[Any, ...]:
@@ -47,9 +63,23 @@ def node_id_sort_key(node_id: Any, *, allow_compound: bool = False) -> tuple[Any
     return (1 << 31, text)
 
 
-def _is_numeric_node_id(node_id: Any, *, allow_compound: bool) -> bool:
+def _is_numeric_node_id(
+    node_id: Any,
+    *,
+    allow_negative: bool = False,
+    allow_compound: bool,
+) -> bool:
     parts = str(node_id).split(":") if allow_compound else [str(node_id)]
-    return all(part.isdigit() for part in parts)
+    return all(
+        part.isdigit()
+        or (allow_negative and part.startswith("-") and part[1:].isdigit())
+        for part in parts
+    )
 
 
-__all__ = ["UI_ONLY_CLASS_TYPES", "is_api_link", "node_id_sort_key"]
+__all__ = [
+    "UI_ONLY_CLASS_TYPES",
+    "is_api_link",
+    "is_canonical_api_link",
+    "node_id_sort_key",
+]

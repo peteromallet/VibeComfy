@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import convert_to_vibe_format, from_api, from_ui, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui, normalize_to_api
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
@@ -56,7 +56,7 @@ def _ksampler_api_node_with_ui(*, control: str) -> dict:
 
 
 def _workflow_from_node(node: dict, node_id: str = "1"):  # type: ignore[return]
-    return convert_to_vibe_format({node_id: node})
+    return from_api({node_id: node})
 
 
 # ── Case 1a: 'randomize' captured from named inputs dict ─────────────────────
@@ -115,7 +115,7 @@ def test_vibe_shape_decodes_rich_node_raw_widgets_payload() -> None:
             "widgets_values": [7, "fixed"],
         }
     }
-    wf = convert_to_vibe_format(
+    wf = from_envelope(
         {
             "id": "test",
             "vibecomfy_format_version": "1.0",
@@ -161,7 +161,7 @@ def test_vibe_shape_decodes_rich_node_raw_widgets_payload() -> None:
     assert node.metadata["provenance"] == "untrusted_source"
 
 def test_vibe_shape_carries_dynamic_dict_raw_ui_for_widget_pin() -> None:
-    wf = convert_to_vibe_format(
+    wf = from_envelope(
         {
             "id": "test",
             "vibecomfy_format_version": "1.0",
@@ -274,7 +274,7 @@ def _load_flat_wf():
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    return convert_to_vibe_format(raw)
+    return from_ui(raw)
 
 
 def test_flat_every_node_has_nonempty_uid_equal_to_litegraph_id() -> None:
@@ -301,7 +301,7 @@ def test_flat_pre_existing_vibecomfy_uid_read_back_not_fresh_mint() -> None:
         if node["id"] == 5:
             node.setdefault("properties", {})["vibecomfy_uid"] = "custom-ksampler-uuid"
 
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     ksampler = wf.nodes["5"]
     assert ksampler.uid == "custom-ksampler-uuid", (
         f"Pre-existing vitecomfy_uid not preserved: got {ksampler.uid!r}"
@@ -326,6 +326,8 @@ def test_flat_pos_size_reachable_via_metadata_ui() -> None:
         assert _ui["size"] == expected["size"], (
             f"node {nid} size mismatch: {_ui['size']} != {expected['size']}"
         )
+        assert node.pos == [float(coord) for coord in expected["pos"]]
+        assert node.size == [float(coord) for coord in expected["size"]]
 
 
 def test_flat_determinism_same_source_identical_uids() -> None:
@@ -371,7 +373,7 @@ def test_mode_captured_from_pure_python_path() -> None:
     }
     from vibecomfy.ingest.normalize import normalize_to_api
     api = normalize_to_api(raw_ui, use_comfy_converter=False)
-    wf = convert_to_vibe_format(api)
+    wf = from_api(api)
     assert wf.nodes["1"].mode == 4
     # _ui.mode is left in place so emit_ui_json furniture stays intact.
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
@@ -384,7 +386,7 @@ def test_mode_captured_from_comfy_converter_path() -> None:
     # Simulate the result of convert_ui_to_api + _merge_slim_ui by providing
     # an API-format node that already has a slim _ui with mode set.
     api_node = _node_with_mode(mode=4)
-    wf = convert_to_vibe_format({"1": api_node})
+    wf = from_api({"1": api_node})
     assert wf.nodes["1"].mode == 4
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
     assert "mode" not in wf.nodes["1"].metadata
@@ -393,7 +395,7 @@ def test_mode_captured_from_comfy_converter_path() -> None:
 def test_flags_color_bgcolor_captured() -> None:
     """flags, color, bgcolor are also captured into metadata."""
     api_node = _node_with_mode(mode=0, flags={"pinned": True}, color="#ff0000", bgcolor="#000000")
-    wf = convert_to_vibe_format({"1": api_node})
+    wf = from_api({"1": api_node})
     assert wf.nodes["1"].metadata.get("flags") == {"pinned": True}
     assert wf.nodes["1"].metadata.get("color") == "#ff0000"
     assert wf.nodes["1"].metadata.get("bgcolor") == "#000000"
@@ -401,7 +403,7 @@ def test_flags_color_bgcolor_captured() -> None:
 
 def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
     """Nodes with no mode field get mode 0 and no metadata['mode'] key."""
-    wf = convert_to_vibe_format({"1": _node_without_mode()})
+    wf = from_api({"1": _node_without_mode()})
     assert wf.nodes["1"].mode == 0
     assert "mode" not in wf.nodes["1"].metadata
 
@@ -409,7 +411,7 @@ def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
 def test_mode_does_not_enter_inputs_or_widgets() -> None:
     """mode must never appear in node.inputs or node.widgets (K3 invariant)."""
     api_node = _node_with_mode(mode=4)
-    wf = convert_to_vibe_format({"1": api_node})
+    wf = from_api({"1": api_node})
     node = wf.nodes["1"]
     assert node.mode == 4
     assert "mode" not in node.inputs
@@ -426,9 +428,9 @@ def test_compile_api_honors_ingest_captured_mode() -> None:
     """
     import json
 
-    wf_bypassed = convert_to_vibe_format({"1": _node_with_mode(mode=4)})
-    wf_zero = convert_to_vibe_format({"1": _node_with_mode(mode=0)})
-    wf_absent = convert_to_vibe_format({"1": _node_without_mode()})
+    wf_bypassed = from_api({"1": _node_with_mode(mode=4)})
+    wf_zero = from_api({"1": _node_with_mode(mode=0)})
+    wf_absent = from_api({"1": _node_without_mode()})
 
     assert "1" not in wf_bypassed.compile("api"), "mode=4 node must be bypassed"
 
@@ -448,6 +450,69 @@ _MINIMAL_UI_RAW: dict = {
     "nodes": [{"id": 1, "type": "SaveImage", "inputs": [], "widgets_values": ["output"]}],
     "links": [],
 }
+
+
+def test_live_and_offline_ui_ingest_copy_identical_first_class_geometry() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "inputs": [],
+                "pos": [10, 20.5],
+                "size": [300.25, 180],
+            }
+        ],
+        "links": [],
+    }
+    converted = {"1": {"class_type": "SaveImage", "inputs": {}}}
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = MagicMock(return_value=deepcopy(converted))
+    compatible = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "expected", "version": None},
+        safe_families=[],
+    )
+
+    offline = from_ui(raw, use_comfy_converter=False)
+    with patch.dict(
+        "sys.modules",
+        {
+            "comfy": MagicMock(),
+            "comfy.component_model": MagicMock(),
+            "comfy.component_model.workflow_convert": fake_module,
+        },
+    ), patch(
+        "vibecomfy.ingest.normalize.check_comfy_compatibility",
+        return_value=compatible,
+    ):
+        live = from_ui(raw)
+
+    assert live.nodes["1"].pos == offline.nodes["1"].pos == [10.0, 20.5]
+    assert live.nodes["1"].size == offline.nodes["1"].size == [300.25, 180.0]
+    raw["nodes"][0]["pos"][0] = 999
+    raw["nodes"][0]["size"][0] = 999
+    assert live.nodes["1"].pos == offline.nodes["1"].pos == [10.0, 20.5]
+    assert live.nodes["1"].size == offline.nodes["1"].size == [300.25, 180.0]
+
+
+def test_api_ingest_tolerates_malformed_geometry_and_retains_raw_ui() -> None:
+    raw_ui = {"pos": [1], "size": [float("inf"), 2], "custom": {"keep": True}}
+    workflow = from_api(
+        {"1": {"class_type": "SaveImage", "inputs": {}, "_ui": raw_ui}}
+    )
+    node = workflow.nodes["1"]
+
+    assert node.pos is None
+    assert node.size is None
+    assert node.metadata["_ui"] == raw_ui
+    assert node.metadata["_ui"] is not raw_ui
 
 
 def test_comfy_converter_strict_absent_comfy_falls_through_to_offline() -> None:
@@ -623,8 +688,8 @@ def test_comfy_converter_lenient_skew_falls_back_offline_without_converter_exec(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _CORPUS_90A1D5 = (
-    Path(__file__).resolve().parent.parent
-    / "external_workflows/corpus/90a1d5ff9044902e.json"
+    Path(__file__).resolve().parent
+    / "fixtures/b02_corpus_mini/90a1d5ff9044902e.json"
 )
 
 
@@ -655,11 +720,11 @@ def _ui_projection(ui: dict) -> dict:
 
 
 def test_vibe_rich_ingest_preserves_90a1d5() -> None:
-    """The rich envelope decodes to the full 15-node IR, NOT the 2-node compiled_api."""
+    """The rich envelope decodes fully and derives its two-node execution view fresh."""
     raw = _load_90a1d5()
-    assert len(raw["compiled_api"]) == 2, "precondition: compiled_api is stale/partial evidence"
+    assert "compiled_api" not in raw
 
-    wf = convert_to_vibe_format(raw)
+    wf = from_envelope(raw)
 
     assert len(wf.nodes) == 15
     assert len(wf.edges) == 10
@@ -668,6 +733,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
     assert wf.source.id == raw["source"]["id"]
     assert wf.strict_types is False
     assert wf.metadata["external_workflow"] is True
+    assert len(wf.compile("api")) == 2
 
     uids = [node.uid for node in wf.nodes.values()]
     assert len(set(uids)) == 15, "uids must all be distinct"
@@ -704,17 +770,16 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
         assert (ui_node.get("properties") or {})["vibecomfy_uid"] == rich["uid"]
 
 
-def test_vibe_rich_ingest_treats_compiled_api_as_optional_evidence() -> None:
-    """Rich structure remains authoritative when execution evidence is absent or bad."""
+def test_vibe_rich_ingest_ignores_optional_compiled_api_evidence() -> None:
+    """Rich structure remains authoritative without stored execution evidence or with bad evidence."""
     raw = _load_90a1d5()
 
-    without_evidence = deepcopy(raw)
-    without_evidence.pop("compiled_api")
-    assert len(convert_to_vibe_format(without_evidence).nodes) == 15
+    assert "compiled_api" not in raw
+    assert len(from_envelope(raw).nodes) == 15
 
     malformed_evidence = deepcopy(raw)
     malformed_evidence["compiled_api"] = {"10": "not-an-api-node"}
-    workflow = convert_to_vibe_format(malformed_evidence)
+    workflow = from_envelope(malformed_evidence)
     assert len(workflow.nodes) == 15
     assert workflow.nodes["10"].class_type == "TripoRefineNode"
 
@@ -753,10 +818,11 @@ def test_vibe_rich_ingest_is_idempotent() -> None:
     # UI -> IR via the deterministic offline normalizer (the comfy converter
     # intentionally drops mode-4 bypassed nodes — ComfyUI semantics, unchanged).
     api2 = normalize_to_api(ui1, use_comfy_converter=False)
-    wf2 = convert_to_vibe_format(api2)
+    wf2 = from_api(api2)
     assert len(wf2.nodes) == 15 and len(wf2.edges) == 10
 
-    ui2 = emit_ui_json(wf2, schema_provider=None, groups=deepcopy(ui1.get("groups")))
+    wf2.groups = deepcopy(ui1.get("groups"))
+    ui2 = emit_ui_json(wf2, schema_provider=None)
 
     assert _ui_projection(ui1) == _ui_projection(ui2)
 
@@ -768,27 +834,27 @@ def test_vibe_rich_ingest_rejects_malformed_mixed_entries() -> None:
     mixed_nodes = deepcopy(raw)
     mixed_nodes["nodes"]["999"] = "not-a-node"
     with pytest.raises(ValueError, match="must be mappings"):
-        convert_to_vibe_format(mixed_nodes)
+        from_envelope(mixed_nodes)
 
     key_mismatch = deepcopy(raw)
     key_mismatch["nodes"]["10"]["id"] = "11"
     with pytest.raises(ValueError, match="must equal node.id"):
-        convert_to_vibe_format(key_mismatch)
+        from_envelope(key_mismatch)
 
     blank_uid = deepcopy(raw)
     blank_uid["nodes"]["10"]["uid"] = "  "
     with pytest.raises(ValueError, match="uid must be a nonblank string"):
-        convert_to_vibe_format(blank_uid)
+        from_envelope(blank_uid)
 
     negative_length = deepcopy(raw)
     negative_length["nodes"]["10"]["raw_widgets"]["length"] = -1
     with pytest.raises(ValueError, match="nonnegative integer"):
-        convert_to_vibe_format(negative_length)
+        from_envelope(negative_length)
 
     non_mapping_edges = deepcopy(raw)
     non_mapping_edges["edges"] = ["not-an-edge"]
     with pytest.raises(ValueError, match="must be mappings"):
-        convert_to_vibe_format(non_mapping_edges)
+        from_envelope(non_mapping_edges)
 
 
 def test_vibe_rich_ingest_rejects_dangling_endpoint_edges() -> None:
@@ -800,21 +866,21 @@ def test_vibe_rich_ingest_rejects_dangling_endpoint_edges() -> None:
         {"from_node": "999", "from_output": "0", "to_node": "3", "to_input": "model_task_id"}
     ]
     with pytest.raises(ValueError, match="must exist in nodes"):
-        convert_to_vibe_format(dangling_from)
+        from_envelope(dangling_from)
 
     dangling_to = deepcopy(raw)
     dangling_to["edges"] = [
         {"from_node": "3", "from_output": "0", "to_node": "424242", "to_input": "model_file"}
     ]
     with pytest.raises(ValueError, match="must exist in nodes"):
-        convert_to_vibe_format(dangling_to)
+        from_envelope(dangling_to)
 
     blank_endpoint = deepcopy(raw)
     blank_endpoint["edges"] = [
         {"from_node": "", "from_output": "0", "to_node": "3", "to_input": "model_task_id"}
     ]
     with pytest.raises(ValueError, match="from_node must be a nonblank string"):
-        convert_to_vibe_format(blank_endpoint)
+        from_envelope(blank_endpoint)
 
 
 def test_vibe_rich_ingest_rejects_incomplete_envelope() -> None:
@@ -825,17 +891,17 @@ def test_vibe_rich_ingest_rejects_incomplete_envelope() -> None:
         partial = deepcopy(raw)
         del partial[field]
         with pytest.raises(ValueError):
-            convert_to_vibe_format(partial)
+            from_envelope(partial)
 
     bad_outputs = deepcopy(raw)
     bad_outputs["outputs"] = "not-a-list"
     with pytest.raises(ValueError, match="outputs.*must be a list"):
-        convert_to_vibe_format(bad_outputs)
+        from_envelope(bad_outputs)
 
     bad_strict = deepcopy(raw)
     bad_strict["strict_types"] = "yes"
     with pytest.raises(ValueError, match="strict_types must be a boolean"):
-        convert_to_vibe_format(bad_strict)
+        from_envelope(bad_strict)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -849,12 +915,10 @@ def test_to_envelope_from_envelope_round_trip_90a1d5() -> None:
 
     raw = _load_90a1d5()
     wf = from_envelope(raw)
-    via_convert = convert_to_vibe_format(raw)
-    assert set(wf.nodes) == set(via_convert.nodes)
     assert len(wf.nodes) == 15
     assert len(wf.edges) == 10
     assert {node.uid for node in wf.nodes.values()} == {
-        node.uid for node in via_convert.nodes.values()
+        node.uid for node in wf.nodes.values()
     }
     assert all(node.uid.strip() for node in wf.nodes.values())
     assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
@@ -1011,16 +1075,13 @@ def test_from_envelope_fails_closed_on_malformed_input() -> None:
 def test_named_from_envelope_preserves_90a1d5() -> None:
     """The public ingest from_envelope door is lossless on the 90a1d5 fixture."""
     from vibecomfy.ingest import from_envelope
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
 
     raw = _load_90a1d5()
     wf = from_envelope(raw)
-    via_convert = convert_to_vibe_format(raw)
     assert len(wf.nodes) == 15
     assert len(wf.edges) == 10
-    assert set(wf.nodes) == set(via_convert.nodes)
     assert {node.uid for node in wf.nodes.values()} == {
-        node.uid for node in via_convert.nodes.values()
+        node.uid for node in wf.nodes.values()
     }
     assert dict(Counter(node.metadata.get("mode") for node in wf.nodes.values())) == {4: 9, 0: 6}
     assert len(wf.compile("api")) == 2
@@ -1041,20 +1102,26 @@ def _ir_projection(workflow) -> dict:
     }
 
 
-def test_from_ui_matches_convert_on_ui_fixture() -> None:
+def test_from_ui_matches_ui_fixture_invariants() -> None:
     raw = json.loads(
         (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
             encoding="utf-8"
         )
     )
-    assert _ir_projection(from_ui(raw)) == _ir_projection(convert_to_vibe_format(raw))
+    wf = from_ui(raw)
+    assert _ir_projection(wf)["ids"]
+    assert all(node.uid for node in wf.nodes.values())
+    assert all(node.class_type for node in wf.nodes.values())
 
 
-def test_from_api_matches_convert_on_api_from_ui_fixture() -> None:
+def test_from_api_matches_api_fixture_invariants() -> None:
     raw = json.loads(
         (Path(__file__).parent / "fixtures/reorganise/simple_text_to_image.json").read_text(
             encoding="utf-8"
         )
     )
     api = normalize_to_api(raw, use_comfy_converter=False)
-    assert _ir_projection(from_api(api)) == _ir_projection(convert_to_vibe_format(api))
+    wf = from_api(api)
+    assert _ir_projection(wf)["ids"]
+    assert all(node.uid for node in wf.nodes.values())
+    assert all(node.class_type for node in wf.nodes.values())

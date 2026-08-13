@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, normalize_to_api
 from vibecomfy.porting.emitter import emit_ready_template_python
 from vibecomfy.commands.validate import _subgraph_freshness_diagnostics
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -113,7 +113,7 @@ def test_subgraph_external_input_edge_becomes_function_parameter() -> None:
 def _emit_ready_from_ui_json(path: str, template_id: str) -> str:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     api = normalize_to_api(raw, use_comfy_converter=False)
-    workflow = convert_to_vibe_format(api, source_path=path, workflow_id=Path(path).stem)
+    workflow = from_api(api, source_path=path, workflow_id=Path(path).stem)
     return emit_ready_template_python(
         workflow,
         ready_metadata={

@@ -167,7 +167,7 @@ def test_bypass_equivalence_against_convert_ui_to_api(
         "comfy.component_model.workflow_convert"
     ).convert_ui_to_api
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     raw_path = _REPO_ROOT / corpus_path
     raw = json.loads(raw_path.read_text(encoding="utf-8"))
@@ -183,7 +183,7 @@ def test_bypass_equivalence_against_convert_ui_to_api(
     # vibecomfy path: UI JSON → IR → compile('api')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
     vc_api = wf.compile("api")
 
     # ComfyUI path: UI JSON → convert_ui_to_api

@@ -1,0 +1,409 @@
+{
+  "edges": [
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "input",
+      "to_node": "1"
+    }
+  ],
+  "groups": [],
+  "id": "5ff602c9e553cc6c",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "DisplayAny",
+        "incoming_edge_sig": [
+          [
+            "input",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'raw value'"
+          ],
+          [
+            "widget_1",
+            "'14080.0'"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "23237ab4-f1ba-4772-b8c1-dd4459fe6a20",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "input"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "161"
+          ],
+          [
+            "value_1",
+            "1024"
+          ],
+          [
+            "value_2",
+            "704"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'(H /32 * W /32) (Frames -1 /8)\\nInfo from harelcain who said the context length should ideally be around less than 15k, but 20k is probably fine.\\n\\nThis is the context limit of audio and video dimension and length.\\n\\nLTX-2 can do longer videos, this is just a quick at a glance idea of how artifacty your result might be when going bigger/longer'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "bbb556b30438a62c2d9b5193d7fc618be5d9a4e06dfa35946378efb601f0ff1f",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1458032975982755861,
+      "channel_name": "ltx_gens",
+      "content_preview": "btw I threw this together from a comment from one of the devs.",
+      "discord_message_url": "https://discord.com/channels/@me/1458032975982755861/1463643173279633460",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1463643173279633460:LTX2_AV_Token_Calculator.json:5ff602c9e553cc6c",
+      "filename": "LTX2_AV_Token_Calculator.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:50+00:00",
+      "message_id": 1463643173279633460,
+      "node_class_multiset": {
+        "23237ab4-f1ba-4772-b8c1-dd4459fe6a20": 1,
+        "DisplayAny": 1,
+        "Note": 1
+      },
+      "node_count": 3,
+      "origin_date": "2026-01-21T21:15:25.685000+00:00",
+      "originator_global_name": "TK_999",
+      "originator_id": "372902354397429772",
+      "originator_type": "discord_message_author",
+      "originator_username": "tk_999",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "5ff602c9e553cc6c8c38db404bad1804cd11d6dc9b0b080ff0d1d86e71640a0c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1458032975982755861/1463643173019451726/LTX2_AV_Token_Calculator.json?ex=69733c2d&is=6971eaad&hm=f0381cd528f13521cc4e5366093c6ef0416b6b06677112cfe774d1ebffe00e86&",
+      "source_workflow_sha256": "e2bebc625bee204f60099efc38301ecbd8e55267e0cfd0e686c7804235a86f3e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "1b1bbe5bf93ea6c981bc823414083057ed8a871fe712c9ccabbe37ac23184f5c",
+      "complexity": 1,
+      "description": "A simple workflow with a DisplayAny node and a Note node, connected by a single edge. It has no outputs or models loaded.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "display",
+        "note",
+        "minimal"
+      ],
+      "task_type": "other",
+      "title": "Minimal Workflow with Note and DisplayAny"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "DisplayAny",
+      "id": "1",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "input",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2780,
+            4620
+          ],
+          "properties": {
+            "Node name for S&R": "DisplayAny"
+          },
+          "size": [
+            210,
+            112
+          ],
+          "type": "DisplayAny",
+          "widgets_values": [
+            "raw value",
+            "14080.0"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "raw value",
+          "14080.0"
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_0": "raw value",
+        "widget_1": "14080.0"
+      }
+    },
+    "2": {
+      "class_type": "23237ab4-f1ba-4772-b8c1-dd4459fe6a20",
+      "id": "2",
+      "inputs": {
+        "value": 161,
+        "value_1": 1024,
+        "value_2": 704
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "label": "frames",
+              "link": null,
+              "name": "value",
+              "type": "INT",
+              "widget": {
+                "name": "value"
+              }
+            },
+            {
+              "label": "width",
+              "link": null,
+              "name": "value_1",
+              "type": "INT",
+              "widget": {
+                "name": "value_1"
+              }
+            },
+            {
+              "label": "height",
+              "link": null,
+              "name": "value_2",
+              "type": "INT",
+              "widget": {
+                "name": "value_2"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "FLOAT",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            2440,
+            4620
+          ],
+          "properties": {
+            "proxyWidgets": [
+              [
+                "-1",
+                "value"
+              ],
+              [
+                "-1",
+                "value_1"
+              ],
+              [
+                "-1",
+                "value_2"
+              ]
+            ]
+          },
+          "size": [
+            260,
+            106
+          ],
+          "type": "23237ab4-f1ba-4772-b8c1-dd4459fe6a20",
+          "widgets_values": [
+            161,
+            1024,
+            704
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          161,
+          1024,
+          704
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "Note",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 3,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            2470,
+            4390
+          ],
+          "properties": {},
+          "size": [
+            480,
+            160
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "(H /32 * W /32) (Frames -1 /8)\nInfo from harelcain who said the context length should ideally be around less than 15k, but 20k is probably fine.\n\nThis is the context limit of audio and video dimension and length.\n\nLTX-2 can do longer videos, this is just a quick at a glance idea of how artifacty your result might be when going bigger/longer"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "(H /32 * W /32) (Frames -1 /8)\nInfo from harelcain who said the context length should ideally be around less than 15k, but 20k is probably fine.\n\nThis is the context limit of audio and video dimension and length.\n\nLTX-2 can do longer videos, this is just a quick at a glance idea of how artifacty your result might be when going bigger/longer"
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": "(H /32 * W /32) (Frames -1 /8)\nInfo from harelcain who said the context length should ideally be around less than 15k, but 20k is probably fine.\n\nThis is the context limit of audio and video dimension and length.\n\nLTX-2 can do longer videos, this is just a quick at a glance idea of how artifacty your result might be when going bigger/longer"
+      }
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "5ff602c9e553cc6c",
+    "path": "external_workflows/.shadow/source/5ff602c9e553cc6c-LTX2_AV_Token_Calculator.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "bbb556b30438a62c2d9b5193d7fc618be5d9a4e06dfa35946378efb601f0ff1f",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1458032975982755861,
+      "channel_name": "ltx_gens",
+      "content_preview": "btw I threw this together from a comment from one of the devs.",
+      "discord_message_url": "https://discord.com/channels/@me/1458032975982755861/1463643173279633460",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1463643173279633460:LTX2_AV_Token_Calculator.json:5ff602c9e553cc6c",
+      "filename": "LTX2_AV_Token_Calculator.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:50+00:00",
+      "message_id": 1463643173279633460,
+      "node_class_multiset": {
+        "23237ab4-f1ba-4772-b8c1-dd4459fe6a20": 1,
+        "DisplayAny": 1,
+        "Note": 1
+      },
+      "node_count": 3,
+      "origin_date": "2026-01-21T21:15:25.685000+00:00",
+      "originator_global_name": "TK_999",
+      "originator_id": "372902354397429772",
+      "originator_type": "discord_message_author",
+      "originator_username": "tk_999",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "5ff602c9e553cc6c8c38db404bad1804cd11d6dc9b0b080ff0d1d86e71640a0c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1458032975982755861/1463643173019451726/LTX2_AV_Token_Calculator.json?ex=69733c2d&is=6971eaad&hm=f0381cd528f13521cc4e5366093c6ef0416b6b06677112cfe774d1ebffe00e86&",
+      "source_workflow_sha256": "e2bebc625bee204f60099efc38301ecbd8e55267e0cfd0e686c7804235a86f3e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

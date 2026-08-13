@@ -1145,7 +1145,7 @@ def _node_kwargs(
     schema_set = set(schema)
 
     # Per-node widget alias metadata populated by the schema provider during
-    # convert_to_vibe_format.  Prefer this over the static WIDGET_SCHEMA so
+    # from_api.  Prefer this over the static WIDGET_SCHEMA so
     # that schema-source evidence wins - the static table is only a fallback.
     node_metadata: dict[str, Any] = getattr(node, "metadata", None) or {}
     input_aliases: list[str | None] | None = None
@@ -1162,11 +1162,6 @@ def _node_kwargs(
     if external_refs is None:
         external_refs = {}
 
-    incoming: dict[str, tuple[str, int]] = {}
-    incoming_exprs: dict[str, str] = {}
-    for edge in edges_in.get(node.id, []):
-        incoming[edge.to_input] = (edge.from_node, int(edge.from_output))
-
     def _translate_widget(key: str, value: Any = None) -> str | None:
         if key.startswith("unused_widget_"):
             return None
@@ -1175,6 +1170,25 @@ def _node_kwargs(
         if not key.startswith("widget_"):
             return key
         return resolve_widget_key_with_provenance(cls, key, input_aliases=input_aliases).name
+
+    incoming: dict[str, tuple[str, int]] = {}
+    incoming_exprs: dict[str, str] = {}
+    for edge in edges_in.get(node.id, []):
+        target_name = str(edge.to_input)
+        if str(edge.from_node) == "-10":
+            translated_link = _translate_widget(target_name)
+            if translated_link is not None:
+                expr = external_refs.get(
+                    (str(getattr(node, "id", "")), translated_link)
+                )
+                if expr is None and translated_link != target_name:
+                    expr = external_refs.get(
+                        (str(getattr(node, "id", "")), target_name)
+                    )
+                if expr is not None:
+                    incoming_exprs[translated_link] = expr
+            continue
+        incoming[target_name] = (str(edge.from_node), int(edge.from_output))
 
     raw_inputs: dict[str, Any] = {}
     for key, value in node.inputs.items():

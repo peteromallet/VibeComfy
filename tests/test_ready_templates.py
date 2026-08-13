@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.contracts import build_contract, doctor_contract
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.patches.ltx_lowvram import apply as apply_ltx_lowvram
 from vibecomfy.patches.resolution import resolution
 from vibecomfy.porting.parity import compile_equivalent
@@ -1162,7 +1162,7 @@ def test_snapshotted_ready_template_graph_matches_pre_refactor_api(template_id: 
     snapshot_name = template_id.rsplit("/", 1)[-1]
     expected = json.loads((Path(__file__).parent / "snapshots" / f"{snapshot_name}.api.json").read_text(encoding="utf-8"))
     if template_id.startswith("video/ltx2_3_"):
-        expected_workflow = convert_to_vibe_format(expected, workflow_id=template_id)
+        expected_workflow = from_api(expected, workflow_id=template_id)
         expected_workflow.metadata["ready_template"] = template_id
         apply_ltx_lowvram(expected_workflow)
         resolution(384, 256, 9).apply(expected_workflow)

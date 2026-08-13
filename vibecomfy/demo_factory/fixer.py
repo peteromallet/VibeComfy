@@ -35,7 +35,7 @@ def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     applied after ``to_envelope()`` via ``_ensure_workflow_uuid`` — it is not
     an IR field.
     """
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.workflow import VibeWorkflow
 
     # Ensure workflow_id exists (UI graphs often omit it)
@@ -43,7 +43,7 @@ def _ui_graph_to_ir_envelope(ui_graph: dict[str, Any]) -> dict[str, Any]:
     if not workflow_id or not _UUID_RE.match(str(workflow_id)):
         workflow_id = str(uuid.uuid4())
 
-    workflow: VibeWorkflow = convert_to_vibe_format(
+    workflow: VibeWorkflow = from_ui(
         ui_graph,
         source_path=None,
         workflow_id=workflow_id,

@@ -6,7 +6,6 @@ Tests unusual but valid JSON shapes: deeply nested inputs, empty inputs,
 special characters in input names.
 """
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 

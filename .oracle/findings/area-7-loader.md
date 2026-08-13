@@ -1,0 +1,4 @@
+# Area 7 — Generic loader boundary
+- All three loaders ingest RAW DICTS of unknown shape and route JSON/PNG/WEBP through _named_import (envelope→UI→API sniff, never compile): cli_loader.load_workflow_any (ready-id / .py scratchpad / .json→_named_import; NO .png/.webp — image raises FileNotFoundError); library.workflow_from_file (.json→_named_import) + workflow_from_id (indexed corpus→_named_import); workbench.load_port_source (ready-id / .py / .png+.webp→_load_workflow_from_image→_named_import / .json→_named_import; most format-rich).
+- Extension alone cannot disambiguate shape (JSON can be envelope OR api dict OR ui litegraph). _named_import MUST be retained as happy-path dispatcher for every loader consuming a raw dict. .py (scratchpad) + ready-id paths legitimately bypass it (not raw dicts).
+- Verdict: Codex's recommendation confirmed — keep _named_import.

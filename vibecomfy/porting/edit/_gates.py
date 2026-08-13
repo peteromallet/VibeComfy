@@ -156,14 +156,14 @@ class _GatesMixin:
         return candidate, ()
 
     def _workflow_from_ui(self, ui_json: Mapping[str, Any]) -> VibeWorkflow:
-        from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+        from vibecomfy.ingest.normalize import from_api, normalize_to_api
 
         api = normalize_to_api(
             deepcopy(dict(ui_json)),
             schema_provider=self.schema_provider,
             use_comfy_converter=False,
         )
-        workflow = convert_to_vibe_format(
+        workflow = from_api(
             api,
             schema_provider=self.schema_provider,
         )

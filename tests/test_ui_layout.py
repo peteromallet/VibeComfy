@@ -1549,13 +1549,14 @@ class TestEmitUiJsonGroupsIncludeSubgraphs:
             }
         }
 
-        caller_groups = [
+        ir_groups = [
             {"title": "CallerGroup", "bounding": [0, 0, 100, 100], "color": "#ffffff"},
             # Same title as engine group → should be suppressed from engine merge
             {"title": "EngineGroup", "bounding": [200, 200, 50, 50], "color": "#cccccc"},
         ]
 
-        result = emit_ui_json(wf, groups=caller_groups)
+        wf.groups = ir_groups
+        result = emit_ui_json(wf)
         groups = result.get("groups", [])
 
         # Caller groups must appear first.

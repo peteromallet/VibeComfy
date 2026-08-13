@@ -9,10 +9,19 @@ from typing import Any
 
 import pytest
 
+from vibecomfy._compile._graph import is_canonical_api_link
+from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import (
+    RawWidgetPayload,
+    VibeEdge,
+    VibeNode,
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowSource,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +140,139 @@ def test_numeric_from_output_resolves_directly() -> None:
     link = result["links"][0]
     assert link[2] == 0  # from_slot
     assert link[5] == "IMAGE"  # socket type from OutputSpec
+
+
+def test_emit_ui_json_rejects_embedded_api_link_without_edge() -> None:
+    wf = _wf("raw-link")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["1", 0]})
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["edge_collision"] == "none"
+
+
+def test_emit_ui_json_rejects_embedded_subgraph_boundary_link() -> None:
+    wf = _wf("boundary-link")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["-10", 0]})
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["embedded_source"] == ["-10", 0]
+
+
+@pytest.mark.parametrize(
+    ("edge", "expected_collision"),
+    [
+        (VibeEdge("1", "0", "2", "image"), "identical"),
+        (VibeEdge("3", "1", "2", "image"), "conflicting"),
+    ],
+)
+def test_emit_ui_json_rejects_embedded_api_link_edge_collision(
+    edge: VibeEdge, expected_collision: str
+) -> None:
+    wf = _wf("raw-link-collision")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink", inputs={"image": ["1", 0]})
+    wf.nodes["3"] = VibeNode("3", "OtherSource")
+    wf.edges.append(edge)
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        emit_ui_json(wf)
+
+    assert exc_info.value.code == "embedded_api_link"
+    assert exc_info.value.detail["edge_collision"] == expected_collision
+
+
+def test_emit_ui_json_preserves_edge_only_connectivity() -> None:
+    wf = _wf("edge-only")
+    wf.nodes["1"] = VibeNode("1", "Source")
+    wf.nodes["2"] = VibeNode("2", "Sink")
+    wf.edges.append(VibeEdge("1", "0", "2", "image"))
+
+    result = emit_ui_json(wf)
+
+    assert result["links"] == [[1, 1, 0, 2, 0, ""]]
+    sink = next(node for node in result["nodes"] if node["id"] == 2)
+    assert sink["inputs"] == [{"name": "image", "type": "UNKNOWN", "link": 1}]
+
+
+def test_subgraph_boundary_connectivity_uses_edges_not_node_inputs() -> None:
+    subgraph = _build_subgraph_def(
+        {
+            "id": "sg-boundary",
+            "name": "Boundary",
+            "inputs": [{"name": "switch", "type": "BOOLEAN", "linkIds": [1]}],
+            "outputs": [{"name": "out", "type": "BOOLEAN"}],
+            "nodes": [
+                {
+                    "id": 10,
+                    "type": "LazySwitchKJ",
+                    "inputs": [
+                        {"name": "switch", "link": 1},
+                        {"name": "external", "link": 2},
+                    ],
+                    "outputs": [{"name": "out"}],
+                    "widgets_values": [],
+                }
+            ],
+            "links": [
+                {
+                    "id": 1,
+                    "origin_id": -10,
+                    "origin_slot": 0,
+                    "target_id": 10,
+                    "target_slot": 0,
+                    "type": "BOOLEAN",
+                },
+                {
+                    "id": 2,
+                    "origin_id": 99,
+                    "origin_slot": 0,
+                    "target_id": 10,
+                    "target_slot": 1,
+                    "type": "BOOLEAN",
+                },
+                {
+                    "id": 3,
+                    "origin_id": 10,
+                    "origin_slot": 0,
+                    "target_id": -20,
+                    "target_slot": 0,
+                    "type": "BOOLEAN",
+                },
+            ],
+        },
+        slug="boundary",
+        source_path=None,
+    )
+
+    assert all(
+        not is_canonical_api_link(value)
+        for node in subgraph.nodes.values()
+        for value in node.inputs.values()
+    )
+    assert subgraph.edges_in["10"] == [
+        VibeEdge("-10", "0", "10", "switch"),
+        VibeEdge("-10", "1", "10", "external"),
+    ]
+    assert subgraph.input_refs == {
+        ("10", "switch"): "switch",
+        ("10", "external"): "external",
+    }
+    source = "\n".join(
+        _emit_subgraph_functions(
+            {"subgraph_definitions": {subgraph.id: subgraph}},
+            diagnostics=[],
+            constant_map={},
+        )
+    )
+    assert "external=external" in source
+    assert "switch=switch" in source
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +644,7 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
     to wf.compile('api') for every UI-shaped official corpus workflow."""
     import glob
 
-    from vibecomfy.ingest.normalize import _normalize_ui_to_api, convert_to_vibe_format
+    from vibecomfy.ingest.normalize import _normalize_ui_to_api, from_ui
     from vibecomfy.porting.parity import compile_equivalent
 
     paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
@@ -512,7 +654,7 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
             raw = json.load(handle)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ui = emit_ui_json(wf)
@@ -543,7 +685,7 @@ def test_corpus_compile_api_byte_identity() -> None:
     import hashlib as _hashlib
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     corpus_root = Path("ready_templates/sources")
     exclude = {
@@ -566,7 +708,7 @@ def test_corpus_compile_api_byte_identity() -> None:
         # Only process UI-shaped workflows (nodes is a list)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
 
         # First compile: baseline.  Some custom-node workflows carry orphaned
         # broadcast edges that fail compile(); these are pre-existing and not
@@ -636,7 +778,7 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
     """
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.workflow import _get_node_mode
 
     corpus_root = Path("ready_templates/sources")
@@ -661,7 +803,7 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
             raw = json.load(fh)
         if not isinstance(raw.get("nodes"), list):
             continue
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
 
         # Determine if ALL nodes are mode==0
         all_mode0 = True
@@ -891,12 +1033,12 @@ def _local_provider():
 def test_offline_parity_gate_green_on_starter_set(path: str) -> None:
     """compile_equivalent(_normalize_ui_to_api(emit_ui_json(wf)), compile('api')) — never
     imports ComfyUI — is green for a >=5 starter set spanning image/video/edit."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open(path) as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
     assert ok, f"{path}: {diffs[:5]}"
 
@@ -907,12 +1049,12 @@ def test_offline_parity_never_imports_comfy() -> None:
     around offline_emitter_normalizer_self_consistency_check and assert it still runs green."""
     import builtins
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open("ready_templates/sources/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     provider = _local_provider()
 
     real_import = builtins.__import__
@@ -993,12 +1135,12 @@ def test_structural_validate_skips_schema_less_and_records() -> None:
 
 @pytest.mark.parametrize("path", _STARTER_SET)
 def test_structural_validate_green_on_starter_set(path: str) -> None:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import structural_validate
 
     with open(path) as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     provider = _local_provider()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1022,7 +1164,7 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
         pytest.skip("comfy release smoke gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
     comfy_convert = _require_comfy_import()
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     fixture_path = (
         Path(__file__).parent / "fixtures" / "walking_skeleton" / "flat.json"
@@ -1034,7 +1176,7 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
         str(node["id"]): node["pos"] for node in raw["nodes"]
     }
 
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ui = emit_ui_json(wf, schema_provider=_local_provider())
@@ -1168,7 +1310,7 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
 
     comfy_convert = _require_comfy_import()
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.ingest.normalize import normalize_to_api
     from vibecomfy.testing.canonical import canonical_equal
 
@@ -1222,7 +1364,7 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
             if not isinstance(raw.get("nodes"), list):
                 continue
 
-            wf = convert_to_vibe_format(raw)
+            wf = from_ui(raw)
 
             # Build the schema provider once per workflow
             provider = get_schema_provider("local")
@@ -1508,12 +1650,12 @@ def _check_canonical_input_names(
 
 
 def test_default_output_path_from_source_name() -> None:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import default_output_path
 
     with open("ready_templates/sources/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
-    wf = convert_to_vibe_format(raw, source_path="ready_templates/sources/official/video/wan_t2v.json")
+    wf = from_ui(raw, source_path="ready_templates/sources/official/video/wan_t2v.json")
     assert default_output_path(wf).as_posix() == "out/ui_export/wan_t2v.json"
 
 
@@ -1583,11 +1725,11 @@ def test_flat_ksampler_does_not_raise_on_emit(tmp_path) -> None:
     """
     import json as _json
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     report: list[dict] = []
     with warnings.catch_warnings():
@@ -1683,11 +1825,11 @@ def test_every_nonempty_uid_node_emits_vibecomfy_uid_property() -> None:
     """Every node with a non-empty uid carries properties['vibecomfy_uid']."""
     import json as _json
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1738,12 +1880,12 @@ def test_nodes_absent_from_layout_fall_back_to_stub() -> None:
 
 def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
     """When layout is empty {} but node has _ui metadata, captured geometry is used."""
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
     import json as _json
 
     with open("tests/fixtures/walking_skeleton/flat.json") as fh:
         raw = _json.load(fh)
-    wf = convert_to_vibe_format(raw)
+    wf = from_ui(raw)
 
     # All nodes should have _ui with captured pos/size from ingest
     with warnings.catch_warnings():
@@ -1757,6 +1899,25 @@ def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
         assert emit_node["pos"] == [float(p) for p in expected_pos], (
             f"Node {lite_id}: captured pos {emit_node['pos']} != raw {expected_pos}"
         )
+
+
+def test_captured_geometry_requires_both_first_class_pairs() -> None:
+    from vibecomfy.porting.emit.ui import _captured_geometry
+
+    node = VibeNode(
+        "1",
+        "SaveImage",
+        metadata={"_ui": {"pos": [900, 900], "size": [300, 400]}},
+        pos=[10.0, 20.0],
+        size=None,
+    )
+    assert _captured_geometry(node) is None
+
+    node.size = [300.0, 180.0]
+    assert _captured_geometry(node) == {
+        "pos": [10.0, 20.0],
+        "size": [300.0, 180.0],
+    }
 
 
 def test_captured_properties_blob_re_emitted_verbatim_with_ir_keys_merged() -> None:
@@ -1977,7 +2138,7 @@ def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
     import json as _json
     from pathlib import Path
 
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_ui
 
     baseline_path = Path("out/emit_survey_baseline.json")
     if not baseline_path.is_file():
@@ -1997,7 +2158,7 @@ def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
             continue
         with open(abs_path) as fh:
             raw = _json.load(fh)
-        wf = convert_to_vibe_format(raw)
+        wf = from_ui(raw)
         report: list[dict] = []
         try:
             with warnings.catch_warnings():
@@ -2058,9 +2219,9 @@ def test_widget_order_matches_object_info_for_covered_class() -> None:
 
 
 def test_furniture_from_sidecar_entry_roundtrip() -> None:
-    """Sidecar path: a layout entry with groups/colors/collapsed/mode is emitted faithfully."""
+    """Sidecar furniture is preserved while mode remains IR-authoritative."""
     wf = _wf("sidecar-test")
-    node = VibeNode("1", "SidecarNode")
+    node = VibeNode("1", "SidecarNode", mode=2)
     node.uid = "uid-aa"
     wf.nodes["1"] = node
 
@@ -2071,7 +2232,7 @@ def test_furniture_from_sidecar_entry_roundtrip() -> None:
         "flags": {"collapsed": True},
         "color": "#332",
         "bgcolor": "#553",
-        "mode": 2,
+        "mode": 4,
         "properties": {"Node name for S&R": "SidecarNode", "custom": "val"},
     }
     result = emit_ui_json(wf, layout={"uid-aa": layout_entry})
@@ -2133,7 +2294,7 @@ def test_furniture_absent_fields_fallback_to_defaults() -> None:
 
 
 def test_furniture_mode_defaults_to_zero_for_non_int() -> None:
-    """Non-int mode values (None, string, float) are defaulted to 0."""
+    """Non-int sidecar mode values cannot override the IR's mode authority."""
     wf = _wf("bad-mode")
     node = VibeNode("1", "BadMode")
     node.uid = "uid-bm"
@@ -2155,8 +2316,8 @@ def test_furniture_mode_defaults_to_zero_for_non_int() -> None:
     assert result2["nodes"][0]["mode"] == 0
 
 
-def test_furniture_groups_from_param() -> None:
-    """groups= param populates the top-level groups array."""
+def test_furniture_groups_from_ir() -> None:
+    """The first-class IR groups field populates the top-level groups array."""
     wf = _wf("gtest")
     wf.nodes["1"] = VibeNode("1", "N1")
 
@@ -2164,10 +2325,12 @@ def test_furniture_groups_from_param() -> None:
         {"title": "Group A", "bounding": [0, 0, 400, 300], "color": "#3f3"},
         {"title": "Group B", "bounding": [500, 0, 400, 300], "color": "#33f"},
     ]
-    result = emit_ui_json(wf, groups=groups)
+    wf.groups = groups
+    result = emit_ui_json(wf)
     assert result["groups"] == groups
 
     # Default: empty list
+    wf.groups = []
     result2 = emit_ui_json(wf)
     assert result2["groups"] == []
 
@@ -2205,8 +2368,73 @@ def test_furniture_sidecar_takes_precedence_over_metadata_ui() -> None:
     assert emitted["flags"] == {"collapsed": True}, "sidecar flags should win"
     assert emitted["color"] == "#sc", "sidecar color should win"
     assert emitted["bgcolor"] == "#scbg", "sidecar bgcolor should win"
-    assert emitted["mode"] == 2, "sidecar mode should win"
+    assert emitted["mode"] == 4, "IR/_ui mode authority should beat sidecar mode"
     assert emitted["properties"]["from"] == "sidecar", "sidecar properties should win"
+
+
+@pytest.mark.parametrize(
+    ("mode", "sidecar_mode", "metadata_mode", "compiled"),
+    [(0, 2, 4, True), (2, 4, 0, False), (4, 0, 2, False)],
+)
+def test_emit_and_compile_share_mode_authority_despite_conflicts(
+    mode: int,
+    sidecar_mode: int,
+    metadata_mode: int,
+    compiled: bool,
+) -> None:
+    wf = _wf(f"mode-authority-{mode}")
+    node = VibeNode(
+        "1",
+        "LoadImage",
+        uid="uid-mode",
+        mode=mode,
+        metadata={"mode": metadata_mode},
+    )
+    wf.nodes["1"] = node
+    layout_entry = {
+        "pos": [0, 0],
+        "size": [100, 100],
+        "mode": sidecar_mode,
+    }
+
+    emitted = emit_ui_json(wf, layout={"uid-mode": layout_entry})
+
+    assert emitted["nodes"][0]["mode"] == mode
+    assert ("1" in wf.compile("api")) is compiled
+
+
+def test_ir_group_members_remap_all_live_aliases_and_omit_stale_members() -> None:
+    wf = _wf("group-members")
+    wf.nodes["author_a"] = VibeNode(
+        "41",
+        "NodeA",
+        uid="uid-a",
+        metadata={"_ui": {"id": 141}},
+    )
+    wf.nodes["author_b"] = VibeNode(
+        "author_b",
+        "NodeB",
+        uid="uid-b",
+        metadata={"_ui": {"id": "142"}},
+    )
+    wf.groups = [
+        {
+            "title": "Aliases",
+            "color": "#123456",
+            "nodes": ["author_a", 41, "uid-a", 141, "uid-b", "142", "stale", 999],
+        }
+    ]
+
+    emitted = emit_ui_json(wf)
+
+    assert emitted["groups"] == [
+        {
+            "title": "Aliases",
+            "color": "#123456",
+            "nodes": [1, 1, 1, 1, 2, 2],
+        }
+    ]
+    assert wf.groups[0]["nodes"][-2:] == ["stale", 999], "emission must not mutate IR"
 
 
 # ---------------------------------------------------------------------------
@@ -2249,12 +2477,13 @@ def test_node_captured_with_mode_4_reemits_mode_4() -> None:
 def test_node_captured_with_mode_2_reemits_mode_2() -> None:
     """T10: A node captured with mode 2 (muted) re-emits mode 2.
 
-    Captures mode 2 via the sidecar (layout=) path and confirms it
-    survives the full emit round-trip.
+    Captures mode 2 on the IR node and confirms a conflicting sidecar cannot
+    override it during the full emit round-trip.
     """
     wf = _wf("mode2-roundtrip")
     node = VibeNode("1", "SaveImage")
     node.uid = "uid-mode2"
+    node.mode = 2
     wf.nodes["1"] = node
 
     sidecar_entry = {
@@ -2263,7 +2492,7 @@ def test_node_captured_with_mode_2_reemits_mode_2() -> None:
         "flags": {},
         "color": None,
         "bgcolor": None,
-        "mode": 2,
+        "mode": 4,
         "properties": {},
     }
 
@@ -2424,18 +2653,18 @@ def test_virtual_wires_display_and_flat_modes() -> None:
     orphan_pos = [300.0, 250.0]
     reroute_pos = [500.0, 100.0]
 
-    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"}, pos=list(set_pos), size=[30, 30])
     wf.nodes["10"].metadata["_ui"] = {"pos": list(set_pos), "size": [30, 30]}
 
-    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"}, pos=list(get_pos), size=[30, 30])
     wf.nodes["11"].metadata["_ui"] = {"pos": list(get_pos), "size": [30, 30]}
 
     # Orphaned GetNode: broadcast name has no matching SetNode
-    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"})
+    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"}, pos=list(orphan_pos), size=[30, 30])
     wf.nodes["12"].metadata["_ui"] = {"pos": list(orphan_pos), "size": [30, 30]}
 
     # Reroute passthrough
-    wf.nodes["20"] = VibeNode("20", "Reroute")
+    wf.nodes["20"] = VibeNode("20", "Reroute", pos=list(reroute_pos), size=[20, 20])
     wf.nodes["20"].metadata["_ui"] = {"pos": list(reroute_pos), "size": [20, 20]}
 
     # Edges
@@ -2519,6 +2748,8 @@ def test_coordinates_canonicalized_to_m2_precision() -> None:
     wf.nodes["98"] = VibeNode(
         "98", "LoadImage",
         metadata={"_ui": {"pos": [123.456789, 987.654321], "size": [319.999999, 180.000001]}},
+        pos=[123.456789, 987.654321],
+        size=[319.999999, 180.000001],
     )
     wf.nodes["99"] = VibeNode("99", "SaveImage")
     wf.connect("98.0", "99.images")
@@ -2528,7 +2759,7 @@ def test_coordinates_canonicalized_to_m2_precision() -> None:
     })
     result = emit_ui_json(wf, schema_provider=provider)
 
-    # Node 98 uses _captured_geometry (from _ui metadata)
+    # Node 98 uses first-class _captured_geometry.
     n98 = next(n for n in result["nodes"] if n["id"] == 98)
     assert n98["pos"] == [123.46, 987.65], f"pos not M2-canonicalized: {n98['pos']}"
     assert n98["size"] == [320.0, 180.0], f"size not M2-canonicalized: {n98['size']}"
@@ -2717,7 +2948,8 @@ def test_main_positions_groups_with_canonicalized_geometry() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = emit_ui_json(wf, groups=groups, include_main_positions=True)
+        wf.groups = groups
+        result = emit_ui_json(wf, include_main_positions=True)
 
     assert len(result["groups"]) == 1
     assert result["groups"][0]["bounding"] == [10.56, 20.44, 300.0, 401.0], (
@@ -2976,9 +3208,10 @@ def test_reconcile_called_with_full_envelope(monkeypatch) -> None:
 
 
 def test_preserve_merge_matched_verbatim_new_anchored() -> None:
-    """A uid-matched node carries pos/size/mode/flags/color/properties verbatim
-    from the prior_store entry; a new (uidless) wired neighbor is anchored to
-    the matched node via computed_anchors and placed by the layout engine.
+    """A matched node carries sidecar geometry/furniture except IR-owned mode.
+
+    A new (uidless) wired neighbor is anchored to the matched node via
+    computed_anchors and placed by the layout engine.
     """
     wf = _wf()
     a = VibeNode("1", "LoadImage")
@@ -3008,10 +3241,10 @@ def test_preserve_merge_matched_verbatim_new_anchored() -> None:
 
     by_uid = {n["properties"].get("vibecomfy_uid"): n for n in result["nodes"]}
     matched_node = by_uid["uid-a"]
-    # Verbatim pos/size/mode/flags from the prior_store entry.
+    # Geometry and display furniture come from the prior store; mode does not.
     assert matched_node["pos"] == [123.0, 456.0]
     assert matched_node["size"] == [222.0, 111.0]
-    assert matched_node["mode"] == 2
+    assert matched_node["mode"] == 0
     assert matched_node["flags"] == {"collapsed": True}
     assert matched_node["color"] == "#abc"
     assert matched_node["bgcolor"] == "#def"

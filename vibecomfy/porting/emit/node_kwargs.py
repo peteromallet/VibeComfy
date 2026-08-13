@@ -16,7 +16,7 @@ def node_kwargs(node: Any, edges_in: dict, var_names: dict[str, str]) -> list[tu
 
     Resolves links from BOTH `workflow.edges` (the canonical place) and
     `node.inputs` (for templates whose IR retained list-shaped link values
-    because the upstream `convert_to_vibe_format` didn't strip dotted-id
+    because the upstream `from_api` didn't strip dotted-id
     links).
     """
     cls = node.class_type

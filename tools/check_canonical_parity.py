@@ -214,7 +214,7 @@ def _reset_leaked_workflow_context() -> None:
     except Exception:
         return
     workflow = active_workflow()
-    token = getattr(workflow, "_workflow_context_token", None) if workflow is not None else None
+    token = workflow._workflow_context_token if workflow is not None else None
     if token is None:
         return
     try:

@@ -172,10 +172,10 @@ import json, sys
 python -m pip install -e ".[comfy]"
 from vibecomfy.comfy_backend import ensure_nodes; ensure_nodes()
 from comfy.component_model.workflow_convert import convert_ui_to_api
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_ui
 
 raw = json.loads(open("ready_templates/sources/official/image/z_image.json").read())
-wf = convert_to_vibe_format(raw)
+wf = from_ui(raw)
 vc_node = wf.compile("api")["6"]
 comfy_node = convert_ui_to_api(raw)["6"]
 print("vibecomfy keys:", sorted(vc_node.keys()))   # no _meta

@@ -24,7 +24,7 @@ Every `VibeNode` carries a provenance tag in `metadata['provenance']`. The tag r
 
 | Tag | Meaning | Set by |
 |---|---|---|
-| `untrusted_source` | The node came from graph text supplied by an external source (JSON import, scratchpad from another agent, raw ComfyUI JSON payload). **This is the fail-closed default when provenance is missing or `None`.** | `convert_to_vibe_format`, scratchpad/ready loaders under untrusted scope |
+| `untrusted_source` | The node came from graph text supplied by an external source (JSON import, scratchpad from another agent, raw ComfyUI JSON payload). **This is the fail-closed default when provenance is missing or `None`.** | `from_api` / `from_ui` / `from_envelope`, scratchpad/ready loaders under untrusted scope |
 | `agent_authored` | The node was created programmatically by the local agent at edit time (e.g., `wf.add_node(…)` during a recipe or a deliberate edit). **This is the safe default for direct CLI/user calls and for nodes created outside an `untrusted_scope()` block.** | `VibeWorkflow.add_node` (default), `node()`, `add_block_node()` |
 | `user_confirmed` | A node that was originally `untrusted_source` but the user explicitly approved through the gate confirmation prompt. Monotonically promoted from `untrusted_source` by `provenance.confirm()`. | `provenance.confirm(node)` (idempotent on already-trusted) |
 

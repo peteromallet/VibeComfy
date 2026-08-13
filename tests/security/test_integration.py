@@ -26,7 +26,7 @@ from typing import Any, Sequence
 
 import pytest
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.commands.analyze import agent_dump_workflow
 from vibecomfy.security.gate import (
     CapabilityFenceError,
@@ -112,7 +112,7 @@ def test_ingest_and_dump_taint_markers_and_preamble(_isolated_gate_context):
     and prepends the ``_taint_contract`` preamble. The audit log records the
     per-node gate decisions.
     """
-    wf = convert_to_vibe_format(_SYNTHETIC_COMFYUI_JSON)
+    wf = from_api(_SYNTHETIC_COMFYUI_JSON)
 
     # All nodes are untrusted after ingest.
     from vibecomfy.security import provenance as _prov
@@ -161,14 +161,14 @@ def test_ingest_dump_exit_42_subprocess():
     then deliberately raises CapabilityFenceError exits 42 with JSON on stderr."""
     script = """
 import sys, json
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.security.gate import (
     CapabilityFenceError, GateContext, set_gate_context, untrusted_scope,
 )
 ctx = GateContext(non_interactive=True, assume_yes=False, audit=[])
 set_gate_context(ctx)
 
-wf = convert_to_vibe_format({
+wf = from_api({
     "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hello"}},
     "2": {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "out"}},
 })
@@ -203,7 +203,7 @@ except CapabilityFenceError as exc:
 
 def test_add_node_saveimage_blocked_headless(_isolated_gate_context):
     """Probe (b): headless + untrusted_scope raises CapabilityFenceError."""
-    wf = convert_to_vibe_format(_SYNTHETIC_COMFYUI_JSON)
+    wf = from_api(_SYNTHETIC_COMFYUI_JSON)
     ctx = _isolated_gate_context
 
     with pytest.raises(CapabilityFenceError) as exc:
@@ -226,7 +226,7 @@ def test_add_node_saveimage_allowed_with_yes(_isolated_gate_context):
     )
     try:
         yes_ctx = _gate_context_var.get()
-        wf = convert_to_vibe_format(_SYNTHETIC_COMFYUI_JSON)
+        wf = from_api(_SYNTHETIC_COMFYUI_JSON)
         with untrusted_scope():
             wf.add_node("SaveImage", filename_prefix="allowed_prefix")
         bypass_entries = [
@@ -244,13 +244,13 @@ def test_add_node_saveimage_exit_42_subprocess():
     """Probe (b) subprocess smoke: CLI-style invocation exits 42 on SaveImage refusal."""
     script = """
 import sys, json
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.security.gate import (
     CapabilityFenceError, GateContext, set_gate_context, untrusted_scope,
 )
 ctx = GateContext(non_interactive=True, assume_yes=False, audit=[])
 set_gate_context(ctx)
-wf = convert_to_vibe_format({
+wf = from_api({
     "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "a prompt"}},
 })
 try:
@@ -387,7 +387,7 @@ def test_yes_bypass_entries_in_audit_readable_without_parsing_stderr():
     token = set_gate_context(yes_ctx)
     try:
         # (a) ingest → all nodes allowed via trusted_provenance; verify audit populated.
-        wf = convert_to_vibe_format(_SYNTHETIC_COMFYUI_JSON)
+        wf = from_api(_SYNTHETIC_COMFYUI_JSON)
         _ = agent_dump_workflow(wf)
 
         # (b) add_node under untrusted_scope → assume_yes_bypass.

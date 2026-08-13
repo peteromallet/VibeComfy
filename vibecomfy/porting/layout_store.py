@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -171,22 +172,22 @@ def _assemble_definition_entries(
 def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
     """Serialize the full M2 layout envelope for ``wf`` to the sidecar file.
 
-    Per-uid node geometry is captured from each node's ``metadata['_ui']``.
-    Nodes with an empty uid or no captured ``pos`` are skipped (M1.5 behavior).
-    Graph-level sections are read from ``wf.metadata`` when present and otherwise
-    serialized as empty/absent. Returns the sidecar path written.
+    Per-uid node geometry is captured from first-class ``pos``/``size`` fields.
+    Nodes with an empty uid or no first-class ``pos`` are skipped (M1.5 behavior).
+    Groups are serialized from the first-class ``wf.groups`` field.  Other
+    graph-level sections are read from ``wf.metadata`` when present and
+    otherwise serialized as empty/absent. Returns the sidecar path written.
     """
     entries: dict[str, dict] = {}
     for node in wf.nodes.values():
         uid = node.uid
         if not uid:
             continue
+        if node.pos is None:
+            continue
         ui = node.metadata.get("_ui")
-        if not isinstance(ui, dict):
-            continue
-        if ui.get("pos") is None:
-            continue
-        entries[uid] = _build_entry(ui)
+        furniture = ui if isinstance(ui, dict) else {}
+        entries[uid] = _build_entry({**furniture, "pos": node.pos, "size": node.size})
 
     meta = getattr(wf, "metadata", {}) or {}
     layout_meta = meta.get("_layout") if isinstance(meta.get("_layout"), dict) else {}
@@ -218,7 +219,7 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
         "vibecomfy_version": _vibecomfy_version(),
         "schema_hash": _schema_hash(),
         "entries": entries,
-        "groups": _section("groups", []) or [],
+        "groups": deepcopy(wf.groups),
         "extra": extra,
         "lastRerouteId": _section("lastRerouteId", None),
         "definitions": _section("definitions", {}) or {},

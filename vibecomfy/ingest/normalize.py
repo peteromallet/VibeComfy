@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any
 
 import warnings
 
-from vibecomfy._compile._graph import is_api_link
+from vibecomfy._compile._graph import is_canonical_api_link
 from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
 # vibecomfy.exec class type: mirrored as a literal to avoid a module-level import of
 # vibecomfy.comfy_nodes.exec_node, which would re-execute comfy_nodes/__init__ (route
@@ -32,6 +33,8 @@ from vibecomfy.workflow import (
     VibeWorkflow,
     WorkflowRequirements,
     WorkflowSource,
+    _embedded_api_link_details,
+    _embedded_api_link_message,
 )
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
@@ -43,8 +46,8 @@ def detect_workflow_shape(raw: dict[str, Any]) -> str:
 
     Callers that know their input should use :func:`from_envelope`,
     :func:`from_ui`, or :func:`from_api`. This remains for
-    :func:`convert_to_vibe_format`, :func:`normalize_to_api`, and a few
-    internal tags that still need a shape label.
+    :func:`normalize_to_api` and a few internal tags that still need a shape
+    label.
     """
     if "prompt" in raw and isinstance(raw["prompt"], dict):
         return detect_workflow_shape(raw["prompt"])
@@ -429,6 +432,65 @@ def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
     return 0
 
 
+def _geometry_pair(value: Any) -> list[float] | None:
+    """Return a detached finite numeric pair, or ``None`` when invalid/absent.
+
+    Real lists/tuples must be EXACTLY two finite numeric coordinates — a
+    three-element list is malformed, not truncatable. The legacy
+    objectified-array form some LiteGraph exports produce is accepted: a dict
+    keyed by string indices (``{"0": x, "1": y}``; ``pos`` may carry a
+    trailing ``"2"`` z element, which is dropped). Anything else (booleans,
+    non-finite, non-numeric, wrong arity) is treated as absent rather than
+    guessed.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        try:
+            ordered = [value[str(i)] for i in range(len(value))]
+        except (KeyError, ValueError):
+            return None
+        if len(ordered) < 2:
+            return None
+        value = ordered[:2]
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in value):
+        return None
+    try:
+        pair = [float(value[0]), float(value[1])]
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return pair if all(math.isfinite(coord) for coord in pair) else None
+
+
+def _decode_envelope_geometry(
+    entry: dict[str, Any], metadata: dict[str, Any], field_name: str, node_id: str
+) -> list[float] | None:
+    """Decode strict first-class geometry with an independent legacy ``_ui`` fallback."""
+    if field_name in entry:
+        node_value = entry[field_name]
+        if node_value is None:
+            return None
+        pair = _geometry_pair(node_value)
+        if pair is None:
+            raise ValueError(
+                f"node {node_id!r}: {field_name} must contain exactly two finite numeric coordinates or null"
+            )
+        return pair
+
+    ui = metadata.get("_ui")
+    legacy_value = ui.get(field_name) if isinstance(ui, dict) else None
+    if legacy_value is None:
+        return None
+    pair = _geometry_pair(legacy_value)
+    if pair is None:
+        raise ValueError(
+            f"node {node_id!r}: legacy _ui.{field_name} must contain exactly two finite numeric coordinates or null"
+        )
+    return pair
+
+
 def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     """Implementation of :meth:`VibeWorkflow.from_envelope`.
 
@@ -593,6 +655,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         node_mode = (
             entry_mode if isinstance(entry_mode, int) else _node_mode_from_metadata(node_metadata)
         )
+        node_pos = _decode_envelope_geometry(entry, node_metadata, "pos", node_id)
+        node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
         workflow.nodes[node_id] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -603,6 +667,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             uid=uid,
             raw_widgets=raw_widget_payload,
             mode=node_mode,
+            pos=node_pos,
+            size=node_size,
         )
 
     # ── edges ──────────────────────────────────────────────────────────────
@@ -633,6 +699,15 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         )
 
     # ── top-level inputs / outputs ─────────────────────────────────────────
+    embedded_links = _embedded_api_link_details(workflow)
+    if embedded_links:
+        raise ValueError(
+            "embedded_api_link: "
+            + _embedded_api_link_message(
+                embedded_links[0], surface="serialized vibe envelope decode"
+            )
+        )
+
     inputs_raw = raw.get("inputs")
     if not isinstance(inputs_raw, dict):
         raise ValueError("serialized vibe envelope 'inputs' must be a mapping")
@@ -828,44 +903,6 @@ def _named_import(
     )
 
 
-def convert_to_vibe_format(
-    api_workflow: dict[str, Any],
-    *,
-    source_path: str | None = None,
-    workflow_id: str | None = None,
-    schema_provider: SchemaProvider | None = None,
-) -> VibeWorkflow:
-    """Deprecated dispatcher around :func:`from_envelope`, :func:`from_ui`, and :func:`from_api`.
-
-    Prefer the named importer that matches the input. This helper still sniffs
-    via the private :func:`detect_workflow_shape` so existing callers keep
-    today's ui/api/vibe behavior.
-    """
-    with untrusted_scope():
-        shape = detect_workflow_shape(api_workflow)
-        if shape == "vibe":
-            return from_envelope(api_workflow)
-        if shape == "ui":
-            return from_ui(
-                api_workflow,
-                source_path=source_path,
-                workflow_id=workflow_id,
-                schema_provider=schema_provider,
-            )
-        if shape != "api":
-            api_workflow = normalize_to_api(
-                api_workflow,
-                schema_provider=schema_provider,
-                comfy_converter_strict=True,
-            )
-        return _from_api_impl(
-            api_workflow,
-            source_path=source_path,
-            workflow_id=workflow_id,
-            schema_provider=schema_provider,
-        )
-
-
 def _from_api_impl(
     api_workflow: dict[str, Any],
     *,
@@ -892,13 +929,7 @@ def _from_api_impl(
         widgets: dict[str, Any] = {}
         class_type = str(node.get("class_type", "Unknown"))
         for key, value in raw_inputs.items():
-            if input_provenance.get(key) != "widget" and is_api_link(
-                value,
-                allow_tuple=False,
-                require_string_node_id=False,
-                require_numeric_node_id=True,
-                require_int_slot=False,
-            ):
+            if input_provenance.get(key) != "widget" and is_canonical_api_link(value):
                 continue
             if key.startswith("widget_") or _is_exec_widget_key(class_type, key):
                 widgets[key] = value
@@ -981,6 +1012,8 @@ def _from_api_impl(
             uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
             raw_widgets=raw_widgets,
             mode=_node_mode_from_metadata(metadata),
+            pos=_geometry_pair(_ui_node.get("pos")) if isinstance(_ui_raw, dict) else None,
+            size=_geometry_pair(_ui_node.get("size")) if isinstance(_ui_raw, dict) else None,
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:
@@ -994,13 +1027,7 @@ def _from_api_impl(
         if not isinstance(input_provenance, dict):
             input_provenance = {}
         for name, value in dict(node.get("inputs", {})).items():
-            if input_provenance.get(name) != "widget" and is_api_link(
-                value,
-                allow_tuple=False,
-                require_string_node_id=False,
-                require_numeric_node_id=True,
-                require_int_slot=False,
-            ):
+            if input_provenance.get(name) != "widget" and is_canonical_api_link(value):
                 workflow.edges.append(VibeEdge(str(value[0]), str(value[1]), str(node_id), name))
 
     workflow.requirements = _infer_requirements(workflow)
@@ -1090,9 +1117,9 @@ _CONTROL_AFTER_GENERATE_VALUES: frozenset[str] = frozenset(
 def _capture_control_after_generate(node: dict[str, Any], class_type: str) -> str | None:
     """Recover a node's ``control_after_generate`` value, if present.
 
-    Looks in two places, both available at ``convert_to_vibe_format`` time and both
-    examined BEFORE the ``_schema_input_names`` None-strip (:185) can discard the
-    value during ``_normalize_ui_to_api``:
+    Looks in two places, both available at named-importer (``from_api`` /
+    ``from_ui``) time and both examined BEFORE the ``_schema_input_names``
+    None-strip (:185) can discard the value during ``_normalize_ui_to_api``:
 
     1. A named ``control_after_generate`` input (e.g. api-format prompts, or schemas
        like ``RandomNoise`` that name the position).

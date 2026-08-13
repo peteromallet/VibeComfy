@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import dataclasses
 from dataclasses import dataclass, field, replace
+import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
 from vibecomfy._compile import _resolve as helper_resolve
 from vibecomfy._compile import _widgets as widget_aliases
 from vibecomfy._compile import _helpers as workflow_helpers
+from vibecomfy._compile._graph import is_canonical_api_link
 from vibecomfy.errors import VibeComfyError
 from vibecomfy.handles import Handle
 
@@ -52,6 +54,41 @@ def _to_plain(obj: Any) -> Any:
     return obj
 
 
+def _geometry_error(value: Any) -> str | None:
+    """Return why a first-class geometry value is invalid, if it is invalid."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 2:
+        return "must be a list containing exactly two coordinates"
+    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in value):
+        return "coordinates must be numeric (not booleans)"
+    try:
+        finite = all(math.isfinite(float(coord)) for coord in value)
+    except (OverflowError, TypeError, ValueError):
+        finite = False
+    if not finite:
+        return "coordinates must be finite"
+    return None
+
+
+def _invalid_geometry_details(workflow: "VibeWorkflow") -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for node_id, node in workflow.nodes.items():
+        for field_name in ("pos", "size"):
+            value = getattr(node, field_name)
+            error = _geometry_error(value)
+            if error is not None:
+                details.append(
+                    {
+                        "node_id": str(node_id),
+                        "field": field_name,
+                        "value": value,
+                        "reason": error,
+                    }
+                )
+    return details
+
+
 @dataclass(slots=True)
 class WorkflowSource:
     id: str
@@ -89,6 +126,8 @@ class VibeNode:
     uid: str = ""
     raw_widgets: RawWidgetPayload | None = None
     mode: int = 0
+    pos: list[float] | None = None
+    size: list[float] | None = None
 
     @property
     def provenance(self) -> str:
@@ -184,6 +223,7 @@ class VibeWorkflow:
     _id_map: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _manual_input_names: set[str] = field(default_factory=set, init=False, repr=False)
     _uid_counter: int = field(default=0, init=False, repr=False)
+    _workflow_context_token: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __enter__(self) -> "VibeWorkflow":
         from vibecomfy.workflow_context import active_workflow, bind_workflow
@@ -191,12 +231,9 @@ class VibeWorkflow:
         # If ``new_workflow()`` already eagerly bound this workflow (the post-
         # revert default for emitted templates), reuse that binding rather than
         # raising — the ``with`` form is purely scoping sugar in that case.
-        if (
-            getattr(self, "_workflow_context_token", None) is not None
-            and active_workflow() is self
-        ):
+        if self._workflow_context_token is not None and active_workflow() is self:
             return self
-        if getattr(self, "_workflow_context_token", None) is not None:
+        if self._workflow_context_token is not None:
             raise RuntimeError(
                 "Nested workflow contexts not supported. The outer `with new_workflow(...)` "
                 "block is still active."
@@ -207,7 +244,7 @@ class VibeWorkflow:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         from vibecomfy.workflow_context import reset_workflow
 
-        token = getattr(self, "_workflow_context_token", None)
+        token = self._workflow_context_token
         if token is not None:
             reset_workflow(token)
             self._workflow_context_token = None
@@ -241,14 +278,13 @@ class VibeWorkflow:
 
         The dataclass walk (``copy.deepcopy``) copies every public field —
         including ``groups`` and per-node ``mode`` — plus the private
-        bookkeeping (``_id_map``, ``_manual_input_names``, ``_uid_counter``),
-        so adding a field to the dataclass needs no ``copy()`` edit.  The
-        clone is not bound to any workflow context.
+        bookkeeping (``_id_map``, ``_manual_input_names``, ``_uid_counter``).
+        A bound workflow's live ``contextvars.Token`` cannot be meaningfully
+        deep-copied, so the deepcopy memo maps it to ``None`` up front; every
+        clone is therefore unbound (``_workflow_context_token is None``).
         """
-        cloned = copy.deepcopy(self)
-        if hasattr(cloned, "_workflow_context_token"):
-            del cloned._workflow_context_token
-        return cloned
+        memo = {id(self._workflow_context_token): None}
+        return copy.deepcopy(self, memo=memo)
 
     def to_envelope(self) -> dict[str, Any]:
         """Serialize this IR as the stored vibe envelope.
@@ -258,6 +294,13 @@ class VibeWorkflow:
         Transport stamps such as ``workflow_id`` are applied by callers after
         this, not here.
         """
+        _raise_embedded_api_links(self, surface="envelope serialization")
+        invalid_geometry = _invalid_geometry_details(self)
+        if invalid_geometry:
+            detail = invalid_geometry[0]
+            raise ValueError(
+                f"node {detail['node_id']!r}: {detail['field']} {detail['reason']}"
+            )
         plain = _to_plain(self)
         plain["vibecomfy_format_version"] = FORMAT_VERSION
         return plain
@@ -472,12 +515,36 @@ class VibeWorkflow:
 
         Counter always increments regardless of whether a seed is provided.
         When seed is given it becomes the local uid component (extrinsic identity).
-        When omitted, the counter value provides authored creation-order identity.
+        When omitted, the counter value provides authored creation-order identity;
+        before minting, the counter is reconciled with any pre-existing flat
+        auto-minted ``n<positive-integer>`` uids (e.g. imported via envelope
+        decode) so the minted uid never collides with one already present.
+        The counter only ever moves forward (monotonic).
         """
         from vibecomfy.identity.uid import make_uid
+        if seed is None:
+            self._reconcile_uid_counter()
         self._uid_counter += 1
         local = seed if seed is not None else f"n{self._uid_counter}"
         return make_uid("", local)
+
+    def _reconcile_uid_counter(self) -> None:
+        """Raise ``_uid_counter`` above any existing flat auto-minted ``n<N>`` uids.
+
+        Envelope decode preserves imported uids verbatim while
+        ``_uid_counter`` starts at zero, so an unseeded mint would otherwise
+        collide with an imported ``n<positive-integer>`` (e.g. ``n1``). Scan
+        existing node uids matching the auto-mint shape and move the counter
+        forward to the largest N found. Imported uids are never rewritten and
+        the counter never decreases (monotonic).
+        """
+        highest = 0
+        for node in self.nodes.values():
+            digits = node.uid[1:] if node.uid.startswith("n") else ""
+            if digits.isdecimal() and int(digits) > 0:
+                highest = max(highest, int(digits))
+        if highest >= self._uid_counter:
+            self._uid_counter = highest
 
     def add_node(
         self,
@@ -694,14 +761,34 @@ class VibeWorkflow:
                 issues.append(ValidationIssue("missing_edge_source", f"Missing source node {edge.from_node}."))
             if edge.to_node not in self.nodes:
                 issues.append(ValidationIssue("missing_edge_target", f"Missing target node {edge.to_node}."))
+        for detail in _invalid_geometry_details(self):
+            issues.append(
+                ValidationIssue(
+                    "invalid_geometry",
+                    f"Node {detail['node_id']} {detail['field']} {detail['reason']}.",
+                    severity="error",
+                    detail=detail,
+                )
+            )
+        embedded_links = _embedded_api_link_details(self)
+        for detail in embedded_links:
+            issues.append(
+                ValidationIssue(
+                    "embedded_api_link",
+                    _embedded_api_link_message(detail, surface="validation"),
+                    severity="error",
+                    detail=detail,
+                )
+            )
         api: dict[str, Any] | None = None
-        try:
-            api = self.compile(backend="api")
-        except Exception as exc:
-            detail: dict[str, Any] = {}
-            if isinstance(exc, WorkflowCompileError):
-                detail = {"compile_code": exc.code, **exc.detail}
-            issues.append(ValidationIssue("api_compile_failed", str(exc), severity="error", detail=detail))
+        if not embedded_links:
+            try:
+                api = self.compile(backend="api")
+            except Exception as exc:
+                detail: dict[str, Any] = {}
+                if isinstance(exc, WorkflowCompileError):
+                    detail = {"compile_code": exc.code, **exc.detail}
+                issues.append(ValidationIssue("api_compile_failed", str(exc), severity="error", detail=detail))
         if schema_provider is not None:
             from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 
@@ -732,6 +819,7 @@ class VibeWorkflow:
         ]
 
     def compile(self, backend: str = "api") -> dict[str, Any]:
+        _raise_embedded_api_links(self, surface=f"{backend} compilation")
         if backend == "graphbuilder":
             return self._compile_graphbuilder()
         if backend != "api":
@@ -1040,6 +1128,71 @@ def _compile_node_inputs(node: VibeNode) -> dict[str, Any]:
         for key, value in inputs.items()
         if not _is_ui_only_prompt_input(key, value)
     }
+
+
+def _embedded_api_link_details(workflow: VibeWorkflow) -> list[dict[str, Any]]:
+    """Describe canonical API links illegally embedded in IR node inputs."""
+    details: list[dict[str, Any]] = []
+    edges_by_target: dict[tuple[str, str], list[list[Any]]] = {}
+    for edge in workflow.edges:
+        key = (str(edge.to_node), str(edge.to_input))
+        try:
+            output_slot: Any = int(edge.from_output)
+        except (TypeError, ValueError):
+            output_slot = str(edge.from_output)
+        edges_by_target.setdefault(key, []).append([str(edge.from_node), output_slot])
+
+    for node_id, node in workflow.nodes.items():
+        for input_name, value in node.inputs.items():
+            if not is_canonical_api_link(value):
+                continue
+            embedded_source = [str(value[0]), int(value[1])]
+            edge_sources = edges_by_target.get((str(node_id), str(input_name)), [])
+            if not edge_sources:
+                collision = "none"
+            elif all(source == embedded_source for source in edge_sources):
+                collision = "identical"
+            else:
+                collision = "conflicting"
+            details.append(
+                {
+                    "node_id": str(node_id),
+                    "input_name": str(input_name),
+                    "embedded_source": embedded_source,
+                    "edge_sources": edge_sources,
+                    "edge_collision": collision,
+                }
+            )
+    return details
+
+
+def _embedded_api_link_message(detail: dict[str, Any], *, surface: str) -> str:
+    collision = detail["edge_collision"]
+    collision_text = ""
+    if collision != "none":
+        collision_text = f"; the socket also has {collision} VibeEdge connectivity"
+    return (
+        f"{surface} rejected node {detail['node_id']!r} input "
+        f"{detail['input_name']!r}: embedded Comfy API link "
+        f"{detail['embedded_source']!r}{collision_text}. "
+        "VibeEdge is the sole IR connectivity authority."
+    )
+
+
+def _raise_embedded_api_links(workflow: VibeWorkflow, *, surface: str) -> None:
+    details = _embedded_api_link_details(workflow)
+    if not details:
+        return
+    detail = details[0]
+    raise WorkflowCompileError(
+        "embedded_api_link",
+        _embedded_api_link_message(detail, surface=surface),
+        detail=detail,
+        next_action=(
+            "Normalize raw workflows with from_api()/from_ui(), or replace the embedded "
+            "pair with a VibeEdge before continuing."
+        ),
+    )
 
 
 def _normalize_input_aliases(aliases: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
@@ -1451,10 +1604,6 @@ def _resolve_link_value(
     broadcast_sources: dict[str, list[Any]],
 ) -> Any:
     return helper_resolve.resolve_compile_link_value(value, nodes, broadcast_sources)
-
-
-def _is_api_link(value: Any) -> bool:
-    return workflow_helpers.is_api_link(value)
 
 
 def _apply_positional_widget_aliases(inputs: dict[str, Any], node: VibeNode) -> None:

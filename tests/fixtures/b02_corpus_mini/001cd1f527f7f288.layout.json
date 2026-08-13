@@ -1,0 +1,432 @@
+{
+  "definitions": {},
+  "entries": {
+    "1": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimpleWithNoiseSelect",
+        "vibecomfy_id": "CheckpointLoaderSimpleWithNoiseSelect_0",
+        "vibecomfy_uid": "1"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "10": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        2600,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "VAEDecode_6",
+        "vibecomfy_uid": "10"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "12": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        3120,
+        92
+      ],
+      "properties": {
+        "Node name for S&R": "SaveImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "SaveImage_7",
+        "vibecomfy_uid": "12"
+      },
+      "size": [
+        320,
+        52
+      ]
+    },
+    "2": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        552
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "VAELoader_1",
+        "vibecomfy_uid": "2"
+      },
+      "size": [
+        320,
+        52
+      ]
+    },
+    "26": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        368
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImagesFromDirectory",
+        "vibecomfy_id": "LoadImagesFromDirectory_8",
+        "vibecomfy_uid": "26"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "3": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        520,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "CLIPTextEncode_2",
+        "vibecomfy_uid": "3"
+      },
+      "size": [
+        320,
+        52
+      ]
+    },
+    "5": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        644
+      ],
+      "properties": {
+        "Node name for S&R": "PrimitiveNode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "PrimitiveNode_3",
+        "vibecomfy_uid": "5"
+      },
+      "size": [
+        320,
+        52
+      ]
+    },
+    "50": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        1040,
+        70
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "PreviewImage_9",
+        "vibecomfy_uid": "50"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "53": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        520,
+        228
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScale",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "ImageScale_10",
+        "vibecomfy_uid": "53"
+      },
+      "size": [
+        320,
+        74
+      ]
+    },
+    "6": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        520,
+        114
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "CLIPTextEncode_4",
+        "vibecomfy_uid": "6"
+      },
+      "size": [
+        320,
+        52
+      ]
+    },
+    "61": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        184
+      ],
+      "properties": {
+        "Node name for S&R": "Integer",
+        "_vibecomfy_schema_provider": "vibecomfy_builtin",
+        "vibecomfy_id": "Integer_11",
+        "vibecomfy_uid": "61"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "62": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        276
+      ],
+      "properties": {
+        "Node name for S&R": "Integer",
+        "_vibecomfy_schema_provider": "vibecomfy_builtin",
+        "vibecomfy_id": "Integer_12",
+        "vibecomfy_uid": "62"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "7": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        2080,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "KSampler_5",
+        "vibecomfy_uid": "7"
+      },
+      "size": [
+        320,
+        140
+      ]
+    },
+    "70": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        0,
+        92
+      ],
+      "properties": {
+        "Node name for S&R": "ControlNetLoaderAdvanced",
+        "vibecomfy_id": "ControlNetLoaderAdvanced_13",
+        "vibecomfy_uid": "70"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "71": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        1040,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "LineArtPreprocessor",
+        "vibecomfy_id": "LineArtPreprocessor_14",
+        "vibecomfy_uid": "71"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "72": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        1560,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "ControlNetApplyAdvanced",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "ControlNetApplyAdvanced_15",
+        "vibecomfy_uid": "72"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "73": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        1040,
+        140
+      ],
+      "properties": {
+        "Node name for S&R": "ADE_AnimateDiffLoaderV1Advanced",
+        "vibecomfy_id": "ADE_AnimateDiffLoaderV1Advanced_16",
+        "vibecomfy_uid": "73"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "74": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        3120,
+        0
+      ],
+      "properties": {
+        "Node name for S&R": "ADE_AnimateDiffCombine",
+        "vibecomfy_id": "ADE_AnimateDiffCombine_17",
+        "vibecomfy_uid": "74"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "92": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        1560,
+        70
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "PreviewImage_18",
+        "vibecomfy_uid": "92"
+      },
+      "size": [
+        320,
+        30
+      ]
+    },
+    "96": {
+      "bgcolor": null,
+      "color": null,
+      "flags": {},
+      "mode": 0,
+      "pos": [
+        520,
+        342
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage",
+        "_vibecomfy_schema_provider": "object_info_index",
+        "vibecomfy_id": "EmptyLatentImage_19",
+        "vibecomfy_uid": "96"
+      },
+      "size": [
+        320,
+        30
+      ]
+    }
+  },
+  "extra": {
+    "vibecomfy": {
+      "layout_version": "m4",
+      "prior_path": "external_workflows/corpus/001cd1f527f7f288.json",
+      "source_template": "001cd1f527f7f288"
+    }
+  },
+  "groups": [],
+  "lastRerouteId": null,
+  "metadata": {
+    "summary": {
+      "_content_hash": "c39d9dd7596ccb46af8536ee078438ca46cf4dd36d0a982604a5978ca5a6b6a3",
+      "complexity": 1,
+      "description": "",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": false
+      },
+      "media_type": "image",
+      "tags": [],
+      "task_type": "other",
+      "title": ""
+    }
+  },
+  "schema_hash": "4e171992d8e27611",
+  "store_version": 2,
+  "unkeyed": [],
+  "vibecomfy_version": "0.1.0",
+  "virtual_wires": {}
+}

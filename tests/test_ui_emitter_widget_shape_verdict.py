@@ -381,7 +381,7 @@ def test_schema_known_generated_node_uses_schema_defaults_and_marks_recovery() -
 
 
 def test_schema_default_regeneration_preserves_ingested_positional_widget_values() -> None:
-    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import from_api
 
     provider = _Provider(
         {
@@ -399,7 +399,7 @@ def test_schema_default_regeneration_preserves_ingested_positional_widget_values
             )
         }
     )
-    wf = convert_to_vibe_format(
+    wf = from_api(
         {
             "9": {
                 "class_type": "EmptyLatentImage",

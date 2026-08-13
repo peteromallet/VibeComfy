@@ -3,19 +3,19 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 
 from vibecomfy.blocks.save import image as save_image
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api
 from vibecomfy.registry.ready_template import bind_input
-from vibecomfy.workflow import VibeInput, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
 
 
-def test_finalize_metadata_matches_convert_to_vibe_format_for_equivalent_graph() -> None:
+def test_finalize_metadata_matches_from_api_for_equivalent_graph() -> None:
     workflow = VibeWorkflow("metadata", WorkflowSource("metadata"))
     text = workflow.add_node("CLIPTextEncode", text="hello")
     save = workflow.add_node("SaveVideo", video="placeholder")
     workflow.connect(f"{text.id}.0", f"{save.id}.video")
     workflow.finalize_metadata()
 
-    converted = convert_to_vibe_format(
+    converted = from_api(
         {
             "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hello"}},
             "2": {"class_type": "SaveVideo", "inputs": {"video": ["1", 0]}},
@@ -254,13 +254,13 @@ def test_finalize_metadata_keeps_exec_semantic_io_names_out_of_public_inputs() -
     workflow.nodes["1"] = VibeNode(
         "1",
         "vibecomfy.exec",
-        inputs={"in_0": ["2", 0]},
         widgets={
             "source": "return {'image': image}",
             "io": {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]},
         },
     )
     workflow.nodes["2"] = VibeNode("2", "LoadImage", inputs={"image": "input.png"})
+    workflow.edges.append(VibeEdge("2", "0", "1", "in_0"))
 
     workflow.finalize_metadata()
     compiled = workflow.compile("api")

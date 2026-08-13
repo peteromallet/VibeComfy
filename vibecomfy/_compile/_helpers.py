@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from vibecomfy._compile._graph import is_api_link
+
 
 UI_ONLY_CLASS_TYPES: frozenset[str] = frozenset({"Note", "MarkdownNote"})
 BROADCAST_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode"})
@@ -193,14 +195,6 @@ def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
         if is_api_link(value):
             return [str(value[0]), int(value[1])]
     return None
-
-
-def is_api_link(value: Any) -> bool:
-    if not isinstance(value, list) or len(value) != 2:
-        return False
-    if isinstance(value[1], bool) or not isinstance(value[1], int):
-        return False
-    return True
 
 
 def _compile_helper_inputs(node: Any) -> dict[str, Any]:
