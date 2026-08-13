@@ -44,6 +44,19 @@ _SOFT_WARNING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"Too Many Requests", re.IGNORECASE),
 ]
 
+# Canonical public route vocabulary (mirrors vibecomfy.executor.contracts).
+# Edit routes may land graph changes; non-edit routes never do.  Exemption
+# from the landed-count guard is decided from the envelope's canonical route,
+# never from the agent's self-declared outcome/reason labels.
+_EDIT_ROUTES = frozenset({"revise", "adapt", "reorganise"})
+_NON_EDIT_ROUTES = frozenset({
+    "clarify",
+    "respond",
+    "inspect",
+    "research",
+    "requires_custom_nodes",
+})
+
 
 def _load_json(path: Path) -> dict[str, Any] | None:
     """Load a JSON artifact if it exists and is valid."""
@@ -211,29 +224,48 @@ def _collect_pattern_matches(
     return issues
 
 
-def _explicitly_non_edit_route(response: Mapping[str, Any]) -> bool:
-    """Return True when the response itself declares that no edit was applied.
+def _canonical_route(response: Mapping[str, Any]) -> str:
+    """Return the canonical public route carried by the response envelope.
 
-    These routes are scored by their own structured checks
-    (``no_candidate_reason`` / ``outcome_kind``); demanding a positive landed
-    operation count for them would be wrong — an edit that was explicitly
-    refused or never attempted has no operations to count.
+    The authoritative field is the top-level ``route`` (written by
+    ``AgentTurnResult.to_dict`` in vibecomfy.executor.contracts); the same
+    public route is mirrored in ``evidence.classification.route`` and
+    ``report.executor.plan.route``.  Missing/non-string routes resolve to
+    the empty string so an envelope without a route can never claim a
+    non-edit exemption (fail closed).
     """
-    if response.get("no_candidate_reason") in {
-        "no_changes",
-        "no_candidate",
-        "route_not_applyable",
-    }:
-        return True
-    outcome = response.get("outcome")
-    if isinstance(outcome, Mapping) and outcome.get("kind") in {
-        "noop",
-        "clarify",
-        "requires_custom_nodes",
-        "failure",
-    }:
-        return True
-    return False
+    route = response.get("route")
+    if isinstance(route, str):
+        return route
+    evidence = response.get("evidence")
+    if isinstance(evidence, Mapping):
+        classification = evidence.get("classification")
+        if isinstance(classification, Mapping) and isinstance(classification.get("route"), str):
+            return classification["route"]
+    report = response.get("report")
+    if isinstance(report, Mapping):
+        executor = report.get("executor")
+        if isinstance(executor, Mapping):
+            plan = executor.get("plan")
+            if isinstance(plan, Mapping) and isinstance(plan.get("route"), str):
+                return plan["route"]
+    return ""
+
+
+def _explicitly_non_edit_route(response: Mapping[str, Any]) -> bool:
+    """Return True when the envelope's canonical route is a non-edit route.
+
+    The route is read from the envelope (``response.route``) — never from the
+    agent's self-declared ``no_candidate_reason`` / ``outcome.kind``.  An
+    edit-route envelope self-labeling ``outcome.kind=clarify`` or
+    ``no_candidate_reason=route_not_applyable`` is NOT exempt: a claimed edit
+    (graph_unchanged=false) must still be backed by a positive landed count.
+    These routes are scored by their own structured checks
+    (``no_candidate_reason`` / ``outcome_kind``) and by the route/graph
+    consistency check; demanding a positive landed operation count for them
+    would be wrong — a truthful non-edit route has no operations to count.
+    """
+    return _canonical_route(response) in _NON_EDIT_ROUTES
 
 
 def _landed_operation_count(response: Mapping[str, Any]) -> Any:
@@ -665,8 +697,9 @@ def assess_live_output_dir(
             # (graph_unchanged is False) must be backed by a positive integer
             # change_details.landed_operation_count.  Missing, malformed, or
             # zero counts fail closed.  Accepted grounded refusals
-            # (safe_refusal_accepted) and explicitly non-edit routes are
+            # (safe_refusal_accepted) and canonical non-edit routes are
             # exempt — they are scored by their own structured checks.
+            route = _canonical_route(response)
             if (
                 not safe_refusal_accepted
                 and response.get("graph_unchanged") is False
@@ -689,6 +722,28 @@ def assess_live_output_dir(
                             ),
                         }
                     )
+
+            # G0R route/graph consistency: a canonical non-edit route must
+            # never claim graph_unchanged=false.  Non-edit routes are exempt
+            # from the landed-count guard only when the graph really is
+            # unchanged (or the refusal is authorized above); an edit-route
+            # envelope self-relabeled as clarify/respond/failure cannot
+            # bypass the structural checks by relabeling alone.
+            if (
+                not safe_refusal_accepted
+                and response.get("graph_unchanged") is False
+                and route in _NON_EDIT_ROUTES
+            ):
+                issues.append(
+                    {
+                        "check": "route_graph_consistency",
+                        "severity": "error",
+                        "detail": (
+                            f"Non-edit route {route!r} claimed graph_unchanged=false; "
+                            "a non-edit route cannot change the graph."
+                        ),
+                    }
+                )
 
             no_reason = response.get("no_candidate_reason")
             if not safe_refusal_accepted and no_reason in {"no_changes", "no_candidate"}:
