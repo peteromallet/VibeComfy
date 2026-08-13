@@ -94,6 +94,116 @@ def test_no_mutation_loop_lowered_workflow_produces_empty_delta():
     assert delta == {}
 
 
+# ---------------------------------------------------------------------------
+# SetNode-as-source passthrough (B03 rework4: oracle blocking issue)
+# ---------------------------------------------------------------------------
+
+def _setnode_passthrough_wf() -> VibeWorkflow:
+    """Minimal corpus-shaped passthrough: ``36:0 → SetNode 37 → 40:samples``.
+
+    Mirrors the real corpus case ``36:2 → SetNode 37:LATENT → 40:samples``
+    (external_workflows/corpus/011c7ad91694b8c4.json) where the SetNode is the
+    unambiguous unique inbound/outbound path between a producer and a consumer.
+    """
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["36"] = VibeNode("36", "LTXVCropGuides", uid="36")
+    wf.nodes["37"] = VibeNode("37", "SetNode", uid="37", inputs={"name": "croped_latent"})
+    wf.nodes["40"] = VibeNode("40", "VAEDecode", uid="40")
+    wf.edges = [
+        VibeEdge("36", "0", "37", "LATENT"),
+        VibeEdge("37", "0", "40", "samples"),
+    ]
+    return wf
+
+
+def test_unchanged_setnode_passthrough_source_produces_no_delta():
+    """An unchanged ``A → SetNode → B`` passthrough must resolve through the
+    SetNode's unique inbound terminal and yield NO delta and no refusal.
+
+    Regression for the B03 oracle finding: the SetNode-as-source case was
+    unconditionally reported as ``setnode_as_source``, which fabricated a
+    semantic-link delta for every node and refused unrelated pinned nodes.
+    """
+    wf = _setnode_passthrough_wf()
+    snap = capture_ingest_snapshot({}, wf)
+    delta = compute_field_delta(snap, wf)
+    assert delta == {}
+
+
+def test_setnode_passthrough_source_change_detected():
+    """Rewiring the SetNode's inbound terminal to a different source node must
+    surface as a canonical semantic-link delta on the downstream consumer."""
+    wf = _setnode_passthrough_wf()
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["36b"] = VibeNode("36b", "LTXVCropGuides", uid="36b")
+    wf.edges = [
+        VibeEdge("36b", "0", "37", "LATENT"),
+        VibeEdge("37", "0", "40", "samples"),
+    ]
+
+    delta = compute_field_delta(snap, wf)
+    assert "40" in delta
+    semantic = delta["40"]["semantic_link_set"]
+    assert semantic["before"] == (("36", "0", "40", "samples"),)
+    assert semantic["after"] == (("36b", "0", "40", "samples"),)
+    assert semantic["before"] != semantic["after"]
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
+
+
+def test_setnode_passthrough_port_change_detected():
+    """Switching the SetNode's inbound terminal to a different output port of
+    the same source must surface as a canonical semantic-link delta."""
+    wf = _setnode_passthrough_wf()
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.edges = [
+        VibeEdge("36", "1", "37", "LATENT"),
+        VibeEdge("37", "0", "40", "samples"),
+    ]
+
+    delta = compute_field_delta(snap, wf)
+    assert "40" in delta
+    semantic = delta["40"]["semantic_link_set"]
+    assert semantic["before"] == (("36", "0", "40", "samples"),)
+    assert semantic["after"] == (("36", "1", "40", "samples"),)
+    assert semantic["before"] != semantic["after"]
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
+
+
+def test_ambiguous_setnode_source_fails_closed_with_issue():
+    """A SetNode-as-source with TWO inbound candidates is genuinely ambiguous:
+    it must fail closed with the ``setnode_as_source`` issue and NO semantic
+    link, instead of silently picking one candidate."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["36"] = VibeNode("36", "ProducerA", uid="36")
+    wf.nodes["38"] = VibeNode("38", "ProducerB", uid="38")
+    wf.nodes["37"] = VibeNode("37", "SetNode", uid="37", inputs={"name": "LATENT"})
+    wf.nodes["40"] = VibeNode("40", "Consumer", uid="40")
+    wf.edges = [
+        VibeEdge("36", "0", "37", "LATENT"),
+        VibeEdge("38", "0", "37", "LATENT"),
+        VibeEdge("37", "0", "40", "samples"),
+    ]
+    snap = capture_ingest_snapshot({}, wf)
+
+    delta = compute_field_delta(snap, wf)
+    assert "40" in delta
+    semantic = delta["40"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert any(
+        issue.startswith("setnode_as_source:37:2")
+        for issue in semantic["before_resolution_issues"]
+    )
+    assert any(
+        issue.startswith("setnode_as_source:37:2")
+        for issue in semantic["after_resolution_issues"]
+    )
+
+
 def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
     """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
     wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))

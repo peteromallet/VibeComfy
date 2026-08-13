@@ -197,6 +197,76 @@ def _raw_connected_dynamic_ui() -> dict[str, Any]:
     }
 
 
+def _raw_setnode_passthrough_ui() -> dict[str, Any]:
+    """Full litegraph payload for a pinned dynamic node + ``36 → SetNode → 40``.
+
+    Mirrors the corpus topology that triggered B03 finding 3
+    (``external_workflows/corpus/011c7ad91694b8c4.json``): a SetNode used as a
+    SOURCE with one unambiguous inbound terminal.  The dynamic node (7) is
+    unrelated to the passthrough and must pin unchanged.
+    """
+    return {
+        "nodes": [
+            {
+                "id": 7,
+                "type": "DynamicRows",
+                "pos": [10, 20],
+                "size": [300, 120],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "uid-dynamic"},
+                "widgets_values": [{"lora": "a"}, {"lora": "b"}],
+            },
+            {
+                "id": 36,
+                "type": "LTXVCropGuides",
+                "pos": [0, 300],
+                "size": [200, 100],
+                "flags": {},
+                "order": 1,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": [1], "slot_index": 0}],
+                "properties": {"vibecomfy_uid": "36"},
+                "widgets_values": [],
+            },
+            {
+                "id": 37,
+                "type": "SetNode",
+                "pos": [220, 300],
+                "size": [200, 100],
+                "flags": {},
+                "order": 2,
+                "mode": 0,
+                "inputs": [{"name": "LATENT", "type": "LATENT", "link": 1}],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": [2], "slot_index": 0}],
+                "properties": {"vibecomfy_uid": "37"},
+                "widgets_values": ["LATENT"],
+            },
+            {
+                "id": 40,
+                "type": "VAEDecode",
+                "pos": [440, 300],
+                "size": [200, 100],
+                "flags": {},
+                "order": 3,
+                "mode": 0,
+                "inputs": [{"name": "samples", "type": "LATENT", "link": 2}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "40"},
+                "widgets_values": [],
+            },
+        ],
+        "links": [
+            [1, 36, 0, 37, 0, "LATENT"],
+            [2, 37, 0, 40, 0, "LATENT"],
+        ],
+    }
+
+
 def test_power_lora_style_overflow_pins_from_full_raw_ui_payload() -> None:
     raw_ui = _raw_power_lora_ui()
     wf = _wf()
@@ -309,6 +379,49 @@ def test_pinned_dynamic_node_bypasses_widget_regeneration() -> None:
     assert node["widgets_values"] == [{"lora": "a"}, {"lora": "b"}]
     assert report[0]["widget_shape_verdict"] == "pin_opaque"
     assert report[0]["widget_shape_details"]["reasons"] == ["schema_less", "dict_row_dynamic_widgets"]
+
+
+def test_setnode_passthrough_does_not_fabricate_link_delta_on_pinned_node() -> None:
+    """B03 rework4: an unchanged ``A → SetNode → B`` passthrough must not
+    fabricate a link delta onto an unrelated pinned dynamic node.
+
+    Before the fix, ``canonical_semantic_link_set`` unconditionally reported
+    ``setnode_as_source`` for every SetNode with an outbound edge; the
+    resolution issue attached a fabricated ``semantic_link_set`` delta to every
+    node, which added a ``link_delta`` blocker and refused this pinned
+    DynamicRows node during emit.
+    """
+    raw_ui = _raw_setnode_passthrough_ui()
+    wf = _wf()
+    wf.nodes["7"] = VibeNode(
+        "7",
+        "DynamicRows",
+        uid="uid-dynamic",
+        raw_widgets=_raw_widgets(),
+    )
+    wf.nodes["36"] = VibeNode("36", "LTXVCropGuides", uid="36")
+    wf.nodes["37"] = VibeNode("37", "SetNode", uid="37", inputs={"name": "LATENT"})
+    wf.nodes["40"] = VibeNode("40", "VAEDecode", uid="40")
+    wf.edges = [
+        VibeEdge("36", "0", "37", "LATENT"),
+        VibeEdge("37", "0", "40", "samples"),
+    ]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    report: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(
+            wf,
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+            recovery_report=report,
+        )
+
+    assert len(ui["nodes"]) == 4
+    entry = next(item for item in report if item.get("node_id") == "7")
+    assert entry["widget_shape_verdict"] == "pin_opaque"
+    assert "link_delta" not in entry["widget_shape_details"]["reasons"]
 
 
 def test_dynamic_node_without_prior_raw_ui_payload_refuses() -> None:

@@ -95,9 +95,10 @@ def canonical_semantic_link_set(
 
     # Iterative terminal-source resolution with memoization.
     #
-    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop)
-    # follows exactly one candidate or fails closed, so the walk is a simple
-    # chain.  The result of every visited (node_id, output_port) key is cached,
+    # Each helper hop (Reroute passthrough, GetNode→SetNode broadcast hop,
+    # SetNode-as-source passthrough) follows exactly one candidate or fails
+    # closed, so the walk is a simple chain.  The result of every visited
+    # (node_id, output_port) key is cached,
     # making the whole traversal linear in the helper graph and immune to
     # repeated fan-out re-walks.  Re-entering a key that is still on the
     # current path means the graph is cyclic: the walk terminates immediately
@@ -164,10 +165,16 @@ def canonical_semantic_link_set(
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
-            else:  # SetNode used as a source is not resolvable.
-                issues.add(f"setnode_as_source:{key[0]}")
-                result = None
-                break
+            else:  # SetNode used as a source resolves passthrough through its
+                # unique inbound terminal, exactly as the compiler resolves the
+                # same case (_compile/_resolve.py:172).  Zero or multiple
+                # inbound candidates are genuinely ambiguous and fail closed.
+                candidates = sorted(set(inbound.get(key[0], ())))
+                if len(candidates) != 1:
+                    issues.add(f"setnode_as_source:{key[0]}:{len(candidates)}")
+                    result = None
+                    break
+                next_node, next_port, _target_input = candidates[0]
             in_progress.add(key)
             path.append(key)
             if len(path) > _MAX_SEMANTIC_WALK:
