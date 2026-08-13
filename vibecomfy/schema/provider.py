@@ -516,6 +516,23 @@ class CompositeSchemaProvider:
         return merged
 
 
+def with_provisional_gap_filler(
+    authoritative: SchemaProvider,
+    provisional: SchemaProvider,
+) -> CompositeSchemaProvider:
+    """Compose real/runtime schemas first; provisional fills only gaps.
+
+    ``CompositeSchemaProvider.get_schema`` is first-match-wins and
+    ``schemas()`` merges providers in reverse order, so the FIRST provider
+    dominates both views. Provisional registry/workflow-JSON schemas are weaker
+    evidence than real/runtime object-info schemas: they must never shadow a
+    real schema (semantic names/choices), only answer classes the
+    authoritative provider cannot. Every agent hydration site composes through
+    this helper so the ordering invariant lives in exactly one place.
+    """
+    return CompositeSchemaProvider(authoritative, provisional)
+
+
 class ProvisionalRegistrySchemaProvider:
     """Evidence-backed schemas for missing custom nodes discovered by registry research.
 

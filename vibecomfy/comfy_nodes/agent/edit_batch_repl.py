@@ -1102,6 +1102,7 @@ def _hydrate_actionable_registry_dependencies(deps, state: AgentEditState) -> No
         return
     try:
         CompositeSchemaProvider, ProvisionalRegistrySchemaProvider = _import_from("vibecomfy.schema", "CompositeSchemaProvider"), _import_from("vibecomfy.schema", "ProvisionalRegistrySchemaProvider")
+        with_provisional_gap_filler = _import_from("vibecomfy.schema", "with_provisional_gap_filler")
 
         provisional = ProvisionalRegistrySchemaProvider(new_candidates)
         if not provisional.schemas():
@@ -1112,7 +1113,7 @@ def _hydrate_actionable_registry_dependencies(deps, state: AgentEditState) -> No
                 *(deps._candidate_stable_key(candidate) for candidate in new_candidates),
             }
         )
-        state.schema_provider = CompositeSchemaProvider(provisional, state.schema_provider)
+        state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
     except Exception as exc:  # noqa: BLE001 - workflow evidence may still hydrate it
         deps.LOGGER.debug("planned registry dependency hydration unavailable: %s", exc)
 
