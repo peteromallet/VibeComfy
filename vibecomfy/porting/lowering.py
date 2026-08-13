@@ -314,11 +314,16 @@ def _is_duplicable_terminal_sink(workflow: "VibeWorkflow", node_id: str) -> bool
     return any(output.node_id == node_id for output in workflow.outputs)
 
 
-def _clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
+def clone_uid(loop_uid: str | None, source_uid: str, iteration_index: int) -> str:
+    """Return the stable UID used for a node cloned by loop lowering."""
     loop_scope, loop_local = parse_uid(loop_uid or "")
     _, source_local = parse_uid(source_uid)
     local_uid = f"{loop_local or 'loop'}:iter{iteration_index}:{source_local}"
     return make_uid(loop_scope, local_uid)
+
+
+# Compatibility for internal/tests that imported the formerly-private helper.
+_clone_uid = clone_uid
 
 
 def _clone_node(
@@ -335,7 +340,7 @@ def _clone_node(
 ) -> "VibeNode":
     new_id = workflow._next_node_id()
     source_uid = source_node.uid or source_node.id
-    clone_uid = _clone_uid(loop_uid, source_uid, iteration_index)
+    cloned_uid = clone_uid(loop_uid, source_uid, iteration_index)
     cloned_metadata = copy.deepcopy(source_node.metadata)
     cloned_metadata["vibecomfy.lowering"] = {
         "loop_node_id": loop_node_id,
@@ -383,7 +388,7 @@ def _clone_node(
         inputs=copy.deepcopy(source_node.inputs),
         widgets=copy.deepcopy(source_node.widgets),
         metadata=cloned_metadata,
-        uid=clone_uid,
+        uid=cloned_uid,
         raw_widgets=copy.deepcopy(source_node.raw_widgets),
     )
     workflow.nodes[new_id] = cloned

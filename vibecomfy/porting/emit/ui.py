@@ -1585,7 +1585,7 @@ def _split_widget_shape_deltas(
         field_delta["widgets_values"] = delta["widget_values_sig"]
     if "public_input_binding" in delta:
         field_delta["public_input_binding"] = delta["public_input_binding"]
-    for key in ("incoming_edge_sig", "outgoing_edge_sig"):
+    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
         if key in delta:
             link_delta[key] = delta[key]
     for key, value in delta.items():
@@ -1594,6 +1594,7 @@ def _split_widget_shape_deltas(
             "public_input_binding",
             "incoming_edge_sig",
             "outgoing_edge_sig",
+            "semantic_link_set",
         }:
             field_delta[key] = value
     return field_delta, link_delta

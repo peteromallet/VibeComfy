@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 
 from vibecomfy.porting.layout_store import store_from_ui_json
+from vibecomfy.porting.layout.delta import canonical_semantic_link_set
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.lowering import clone_uid
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -712,6 +714,320 @@ def test_pinned_connected_node_rewrites_stale_local_link_refs_to_global_links() 
     assert pinned["outputs"][0]["links"] == [2]
     assert "42" not in json.dumps(ui)
     assert "43" not in json.dumps(ui)
+
+
+# ---------------------------------------------------------------------------
+# B03 — canonical semantic pin comparison
+# ---------------------------------------------------------------------------
+
+
+def _semantic_pin_workflow() -> tuple[VibeWorkflow, dict[str, Any]]:
+    raw_ui = _raw_connected_dynamic_ui()
+    wf = _wf()
+    wf.nodes["7"] = VibeNode(
+        "7",
+        "DynamicRows",
+        uid="uid-dynamic",
+        raw_widgets=_raw_widgets(),
+    )
+    return wf, raw_ui
+
+
+def _emit_semantic_pin(wf: VibeWorkflow, raw_ui: dict[str, Any]) -> dict[str, Any]:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return emit_ui_json(
+            wf,
+            schema_provider=_provider(),
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+        )
+
+
+def test_pinned_semantic_set_get_fanout_preserves_terminal_consumer_set() -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
+    for node_id in range(20, 24):
+        wf.nodes[str(node_id)] = VibeNode(str(node_id), "SaveImage", uid=f"consumer-{node_id}")
+    wf.edges = [VibeEdge("7", "0", "10", "value")]
+    wf.edges.extend(VibeEdge("11", "0", str(node_id), "images") for node_id in range(20, 24))
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    del wf.nodes["10"]
+    del wf.nodes["11"]
+    wf.edges = [VibeEdge("7", "0", str(node_id), "images") for node_id in range(20, 24)]
+
+    emitted = _emit_semantic_pin(wf, raw_ui)
+    assert next(node for node in emitted["nodes"] if node["id"] == 7)["widgets_values"] == [
+        {"lora": "a"},
+        {"lora": "b"},
+    ]
+
+
+def test_pinned_semantic_reroute_one_to_one_and_link_renumbering_pins() -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["8"] = VibeNode("8", "Reroute", uid="reroute")
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+    wf.edges = [VibeEdge("7", "0", "8", ""), VibeEdge("8", "0", "9", "images")]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    del wf.nodes["8"]
+    wf.edges = [VibeEdge("7", "0", "9", "images")]
+    # Unrelated earlier-sorting edge changes the emitted numeric link id only.
+    wf.nodes["1"] = VibeNode("1", "KSampler", uid="unrelated-source")
+    wf.nodes["2"] = VibeNode("2", "SaveImage", uid="unrelated-consumer")
+    wf.edges.insert(0, VibeEdge("1", "0", "2", "images"))
+
+    emitted = _emit_semantic_pin(wf, raw_ui)
+    pinned = next(node for node in emitted["nodes"] if node["id"] == 7)
+    assert pinned["outputs"][0]["links"] == [2]
+
+
+def test_pinned_semantic_loop_cloned_consumers_collapse_to_source_uid() -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+    wf.edges = [VibeEdge("7", "0", "9", "images")]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    del wf.nodes["9"]
+    wf.edges = []
+    for iteration in range(3):
+        node_id = str(20 + iteration)
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        wf.nodes[node_id] = VibeNode(
+            node_id,
+            "SaveImage",
+            uid=lowered_uid,
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("7", "0", node_id, "images"))
+
+    _emit_semantic_pin(wf, raw_ui)
+
+
+def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -> None:
+    """The corpus regression: one Set/Get route becomes N direct clone links."""
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="set", widgets={"widget_0": "BUS"})
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="get", widgets={"widget_0": "BUS"})
+    wf.nodes["12"] = VibeNode("12", "SaveImage", uid="consumer")
+    wf.edges = [
+        VibeEdge("7", "image", "10", "value"),
+        VibeEdge("11", "0", "12", "images"),
+    ]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    del wf.nodes["10"]
+    del wf.nodes["11"]
+    del wf.nodes["12"]
+    wf.edges = []
+    for iteration in range(4):
+        node_id = str(20 + iteration)
+        lowered_uid = clone_uid("loop", "consumer", iteration)
+        wf.nodes[node_id] = VibeNode(
+            node_id,
+            "SaveImage",
+            uid=lowered_uid,
+            metadata={
+                "vibecomfy.lowering": {
+                    "source_uid": "consumer",
+                    "loop_uid": "loop",
+                    "iteration_index": iteration,
+                }
+            },
+        )
+        wf.edges.append(VibeEdge("7", "image", node_id, "images"))
+
+    _emit_semantic_pin(wf, raw_ui)
+
+
+def test_pinned_semantic_nested_scoped_broadcast_preserves_scope() -> None:
+    nodes = {
+        "source": ("outer:sg/inner:sg#source", "Producer", None),
+        "set": ("outer:sg/inner:sg#set", "SetNode", "BUS"),
+        "get": ("outer:sg/inner:sg#get", "GetNode", "BUS"),
+        "consumer": ("outer:sg/inner:sg#consumer", "Consumer", None),
+    }
+    nested, issues = canonical_semantic_link_set(
+        nodes,
+        [
+            ("source", "image", "set", "value"),
+            ("get", "0", "consumer", "images"),
+        ],
+    )
+    flat, flat_issues = canonical_semantic_link_set(
+        {"source": nodes["source"], "consumer": nodes["consumer"]},
+        [("source", "image", "consumer", "images")],
+    )
+    assert nested == flat == (
+        ("outer:sg/inner:sg#source", "image", "outer:sg/inner:sg#consumer", "images"),
+    )
+    assert issues == flat_issues == ()
+
+
+@pytest.mark.parametrize(
+    ("after_links", "expected_after"),
+    [
+        ([], []),
+        (
+            [
+                ("source", "model", "consumer", "images"),
+                ("source", "model", "other", "images"),
+            ],
+            [
+                ["source-uid", "model", "consumer-uid", "images"],
+                ["source-uid", "model", "other-uid", "images"],
+            ],
+        ),
+        ([("source", "model", "other", "images")], [["source-uid", "model", "other-uid", "images"]]),
+        ([("source", "model", "consumer", "mask")], [["source-uid", "model", "consumer-uid", "mask"]]),
+        ([("source", "clip", "consumer", "images")], [["source-uid", "clip", "consumer-uid", "images"]]),
+    ],
+    ids=["removed", "added", "repointed", "consumer_input_changed", "source_output_changed"],
+)
+def test_pinned_semantic_genuine_consumer_change_refuses(
+    after_links: list[tuple[str, str, str, str]],
+    expected_after: list[list[str]],
+) -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer-uid")
+    wf.nodes["10"] = VibeNode("10", "SaveImage", uid="other-uid")
+    wf.nodes["7"].uid = "source-uid"
+    raw_ui["nodes"][0]["properties"]["vibecomfy_uid"] = "source-uid"
+    wf.edges = [VibeEdge("7", "model", "9", "images")]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+    id_for = {"source": "7", "consumer": "9", "other": "10"}
+    wf.edges = [VibeEdge(id_for[a], b, id_for[c], d) for a, b, c, d in after_links]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    link_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert link_delta["before"] == [["source-uid", "model", "consumer-uid", "images"]]
+    assert link_delta["after"] == expected_after
+
+
+@pytest.mark.parametrize(
+    ("nodes", "links", "issue_prefix"),
+    [
+        (
+            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
+            [("r", "0", "c", "input")],
+            "reroute_source_count:r:0",
+        ),
+        (
+            {
+                "r1": ("reroute-1", "Reroute", None),
+                "r2": ("reroute-2", "Reroute", None),
+                "c": ("consumer", "Consumer", None),
+            },
+            [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
+            "cyclic_path:",
+        ),
+        (
+            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
+            [("g", "0", "c", "input")],
+            "broadcast_setter_count:g:MISSING:0",
+        ),
+        (
+            {
+                "s1": ("source-1", "Producer", None),
+                "s2": ("source-2", "Producer", None),
+                "r": ("reroute", "Reroute", None),
+                "c": ("consumer", "Consumer", None),
+            },
+            [
+                ("s1", "0", "r", ""),
+                ("s2", "0", "r", ""),
+                ("r", "0", "c", "input"),
+            ],
+            "reroute_source_count:r:2",
+        ),
+    ],
+    ids=["orphaned_reroute", "cyclic_reroute", "orphaned_broadcast", "ambiguous_reroute"],
+)
+def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
+    nodes: dict[str, tuple[str, str, str | None]],
+    links: list[tuple[str, str, str, str]],
+    issue_prefix: str,
+) -> None:
+    first = canonical_semantic_link_set(nodes, links)
+    second = canonical_semantic_link_set(nodes, reversed(links))
+    assert first == second
+    assert any(issue.startswith(issue_prefix) for issue in first[1])
+
+
+def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+    wf.edges = [VibeEdge("7", "0", "9", "images")]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="orphan-get", widgets={"widget_0": "MISSING"})
+    wf.edges = [VibeEdge("11", "0", "9", "images")]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
+    assert semantic_delta["after"] == []
+    assert semantic_delta["after_resolution_issues"] == [
+        "broadcast_setter_count:11:MISSING:0"
+    ]
+
+
+def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
+    wf, raw_ui = _semantic_pin_workflow()
+    wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
+    wf.edges = [VibeEdge("7", "0", "9", "images")]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["11"] = VibeNode("11", "Reroute", uid="reroute-1")
+    wf.nodes["12"] = VibeNode("12", "Reroute", uid="reroute-2")
+    wf.edges = [
+        VibeEdge("11", "0", "12", ""),
+        VibeEdge("12", "0", "11", ""),
+        VibeEdge("11", "0", "9", "images"),
+    ]
+
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
+        warnings.simplefilter("ignore")
+        _emit_semantic_pin(wf, raw_ui)
+
+    semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
+    assert semantic_delta["after"] == []
+    assert len(semantic_delta["after_resolution_issues"]) == 1
+    assert semantic_delta["after_resolution_issues"][0].startswith("cyclic_path:")
+
+
+def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:
+    nodes = {
+        "s": ("source", "Producer", None),
+        "c": ("consumer", "Consumer", None),
+    }
+    semantic, issues = canonical_semantic_link_set(
+        nodes,
+        [
+            ("s", "model", "c", "input"),
+            ("s", "model", "c", "input"),
+            ("s", "clip", "c", "input"),
+        ],
+    )
+    assert semantic == (
+        ("source", "clip", "consumer", "input"),
+        ("source", "model", "consumer", "input"),
+    )
+    assert issues == ()
 
 
 def test_pinned_output_link_count_mismatch_overlays_ir_ids() -> None:

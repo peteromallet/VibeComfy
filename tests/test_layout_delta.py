@@ -72,7 +72,7 @@ def test_widget_edit_detected():
 
 
 def test_rewire_detected():
-    """Changing an incoming edge after snapshot produces an incoming_edge_sig delta."""
+    """Changing an incoming edge produces a canonical semantic-link delta."""
     wf = convert_to_vibe_format(_api_ksampler_to_saveimage())
     snap = capture_ingest_snapshot({}, wf)
 
@@ -87,7 +87,10 @@ def test_rewire_detected():
 
     delta = compute_field_delta(snap, wf)
     assert "sampler-uid" in delta
-    assert "incoming_edge_sig" in delta["sampler-uid"]
+    semantic = delta["sampler-uid"]["semantic_link_set"]
+    assert semantic["before"] != semantic["after"]
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
 
 
 def test_unmodified_node_absent_from_delta():

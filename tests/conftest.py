@@ -230,12 +230,18 @@ def _isolate_comfyui_import_state() -> None:
     except Exception:
         pass
 
-    try:
-        from vibecomfy.comfy_nodes.agent import edit as agent_edit
+    # Only import the (heavy) ComfyUI agent when the test actually pulled the
+    # ComfyUI stack in; otherwise there is nothing to isolate.  Importing
+    # ``vibecomfy.comfy_nodes.agent`` transitively loads torch/comfy and can
+    # take tens of seconds, which made single-test runs flaky against the
+    # pytest-timeout budget even though the test itself never touched ComfyUI.
+    if any(name == "comfy" or name.startswith("comfy.") for name in sys.modules):
+        try:
+            from vibecomfy.comfy_nodes.agent import edit as agent_edit
 
-        agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
-    except Exception:
-        pass
+            agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
+        except Exception:
+            pass
 
     for name in tuple(sys.modules):
         if name in modules_before:

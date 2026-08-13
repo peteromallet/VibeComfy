@@ -81,7 +81,7 @@ def decide_widget_shape(
     field_delta = dict(_lookup(field_deltas, node_id) or {})
     link_delta = dict(_lookup(link_deltas, node_id) or {})
     has_widget_delta = _has_widget_delta(field_delta)
-    has_link_delta = bool(link_delta)
+    has_link_delta = _has_link_delta(link_delta)
 
     static_reasons = _static_refusal_reasons(evidence)
 
@@ -390,6 +390,23 @@ def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
     return any(
         field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
         for field in field_delta
+    )
+
+
+def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
+    """Interpret the canonical semantic-set comparison supplied by the emitter.
+
+    The fallback preserves compatibility for direct policy callers that still
+    provide an opaque link-delta mapping. Resolution issues always fail closed,
+    even when the successfully resolved portions of the two sets are equal.
+    """
+    semantic = link_delta.get("semantic_link_set")
+    if not isinstance(semantic, Mapping):
+        return bool(link_delta)
+    return bool(
+        semantic.get("before") != semantic.get("after")
+        or semantic.get("before_resolution_issues")
+        or semantic.get("after_resolution_issues")
     )
 
 
