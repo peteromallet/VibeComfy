@@ -435,12 +435,13 @@ def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
 def _geometry_pair(value: Any) -> list[float] | None:
     """Return a detached finite numeric pair, or ``None`` when invalid/absent.
 
-    Accepts a real two-element list/tuple, or the legacy objectified-array
-    form some LiteGraph exports produce — a dict keyed by string indices
-    (``{"0": x, "1": y}``, pos may also carry a trailing ``"2"`` z element).
-    The first two coordinates in integer-key order are used; anything else
-    (booleans, non-finite, non-numeric, wrong arity) is treated as absent
-    rather than guessed.
+    Real lists/tuples must be EXACTLY two finite numeric coordinates — a
+    three-element list is malformed, not truncatable. The legacy
+    objectified-array form some LiteGraph exports produce is accepted: a dict
+    keyed by string indices (``{"0": x, "1": y}``; ``pos`` may carry a
+    trailing ``"2"`` z element, which is dropped). Anything else (booleans,
+    non-finite, non-numeric, wrong arity) is treated as absent rather than
+    guessed.
     """
     if value is None:
         return None
@@ -449,14 +450,15 @@ def _geometry_pair(value: Any) -> list[float] | None:
             ordered = [value[str(i)] for i in range(len(value))]
         except (KeyError, ValueError):
             return None
-        value = ordered
-    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        if len(ordered) < 2:
+            return None
+        value = ordered[:2]
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
         return None
-    coords = value[:2]
-    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in coords):
+    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in value):
         return None
     try:
-        pair = [float(coords[0]), float(coords[1])]
+        pair = [float(value[0]), float(value[1])]
     except (OverflowError, TypeError, ValueError):
         return None
     return pair if all(math.isfinite(coord) for coord in pair) else None
