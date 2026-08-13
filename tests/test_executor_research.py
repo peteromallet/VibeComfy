@@ -2010,6 +2010,267 @@ class TestResearchIntegration:
         )
 
 
+# ── web reliability: Brave 429 backoff + cache TTL (B06) ────────────────────
+
+
+class TestWebSearchReliability:
+    """Mocked 429/403 backoff, skip sentinel, and negative-cache expiry.
+
+    These cases exercise only ``vibecomfy.executor.research``'s web tier;
+    nothing here touches message query choice, REPL iteration, source
+    scoring, or stop decisions.
+    """
+
+    def _fresh_web_module(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> Any:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "_DEFAULT_WEB_CACHE_ROOT", tmp_path)
+        monkeypatch.setattr(research_module, "_read_web_search_cache", lambda query: [])
+        monkeypatch.setattr(
+            research_module, "_read_web_search_cache_entry", lambda query: None
+        )
+        monkeypatch.setattr(
+            research_module, "_write_web_search_cache", lambda query, results: None
+        )
+        monkeypatch.setattr(research_module, "_BRAVE_SKIP_UNTIL", None)
+        return research_module
+
+    def test_brave_429_retries_once_after_08s_then_installs_sentinel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        research_module = self._fresh_web_module(monkeypatch, tmp_path)
+
+        brave_calls: list[str] = []
+
+        def brave(query: str, timeout: float) -> list[dict[str, str]]:
+            brave_calls.append("brave")
+            raise research_module.WebSearchHTTPError(
+                "brave search HTTP error 429: Too Many Requests", status_code=429
+            )
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(
+            research_module.time, "sleep", lambda seconds: sleeps.append(seconds)
+        )
+        monkeypatch.setattr(research_module, "_duckduckgo_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_github_repository_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_brave_search", brave)
+
+        with pytest.raises(research_module.WebSearchError) as excinfo:
+            research_module._default_web_search_client("HotshotXL", 1)
+        assert "429" in str(excinfo.value)
+        assert brave_calls == ["brave", "brave"]  # exactly one retry
+        assert sleeps == [0.8]
+        assert research_module._brave_skip_active()
+
+        # The sentinel keeps the next call from touching Brave again.
+        with pytest.raises(research_module.WebSearchError) as excinfo2:
+            research_module._default_web_search_client("HotshotXL", 1)
+        assert "skipped" in str(excinfo2.value)
+        assert brave_calls == ["brave", "brave"]
+
+    def test_brave_429_retry_succeeds_without_sentinel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        research_module = self._fresh_web_module(monkeypatch, tmp_path)
+
+        attempts: list[str] = []
+
+        def brave(query: str, timeout: float) -> list[dict[str, str]]:
+            attempts.append("brave")
+            if len(attempts) == 1:
+                raise research_module.WebSearchHTTPError(
+                    "brave search HTTP error 429: Too Many Requests", status_code=429
+                )
+            return [
+                {
+                    "title": "HotshotXL brave lead",
+                    "url": "https://example.com/brave",
+                    "snippet": "brave lead",
+                }
+            ]
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(
+            research_module.time, "sleep", lambda seconds: sleeps.append(seconds)
+        )
+        monkeypatch.setattr(research_module, "_duckduckgo_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_github_repository_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_brave_search", brave)
+
+        result = research_module._default_web_search_client("HotshotXL", 1)
+
+        assert [item["title"] for item in result["results"]] == ["HotshotXL brave lead"]
+        assert sleeps == [0.8]
+        assert not research_module._brave_skip_active()
+
+    def test_brave_403_installs_sentinel_without_retry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        research_module = self._fresh_web_module(monkeypatch, tmp_path)
+
+        brave_calls: list[str] = []
+
+        def brave(query: str, timeout: float) -> list[dict[str, str]]:
+            brave_calls.append("brave")
+            raise research_module.WebSearchHTTPError(
+                "brave search HTTP error 403: Forbidden", status_code=403
+            )
+
+        monkeypatch.setattr(research_module, "_duckduckgo_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_github_repository_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_brave_search", brave)
+
+        with pytest.raises(research_module.WebSearchError) as excinfo:
+            research_module._default_web_search_client("HotshotXL", 1)
+        assert "403" in str(excinfo.value)
+        assert brave_calls == ["brave"]  # 403 means blocked: no pointless retry
+        assert research_module._brave_skip_active()
+
+    def test_brave_skip_sentinel_window_expires_and_retries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        research_module = self._fresh_web_module(monkeypatch, tmp_path)
+        research_module._install_brave_skip_sentinel()
+        assert research_module._brave_skip_active()
+
+        # Simulate the 15-minute window passing.
+        monkeypatch.setattr(
+            research_module,
+            "_BRAVE_SKIP_UNTIL",
+            research_module.time.monotonic() - 1,
+        )
+        assert not research_module._brave_skip_active()
+
+        brave_calls: list[str] = []
+        monkeypatch.setattr(
+            research_module,
+            "_brave_search",
+            lambda query, timeout: brave_calls.append("brave") or [],
+        )
+        monkeypatch.setattr(research_module, "_duckduckgo_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_github_repository_search", lambda query, timeout: [])
+
+        result = research_module._default_web_search_client("HotshotXL", 1)
+
+        assert brave_calls == ["brave"]  # expired sentinel: Brave contacted again
+        assert result["results"] == []
+
+    def test_retry_and_sentinel_constants(self) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        assert research_module._BRAVE_RETRY_DELAY_SECONDS == 0.8
+        assert research_module._BRAVE_SKIP_WINDOW_SECONDS == 15 * 60
+
+    def test_negative_cache_prevents_redundant_requests_until_expiry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "_DEFAULT_WEB_CACHE_ROOT", tmp_path)
+        monkeypatch.setattr(research_module, "_BRAVE_SKIP_UNTIL", None)
+
+        live_calls: list[str] = []
+
+        def duck(query: str, timeout: float) -> list[dict[str, str]]:
+            live_calls.append("duck")
+            return []
+
+        monkeypatch.setattr(research_module, "_duckduckgo_search", duck)
+        monkeypatch.setattr(research_module, "_github_repository_search", lambda query, timeout: [])
+        monkeypatch.setattr(research_module, "_brave_search", lambda query, timeout: [])
+
+        # First call: live search runs, finds nothing, stores a negative entry.
+        first = research_module._default_web_search_client("HotshotXL", 1)
+        assert first["results"] == []
+        assert live_calls == ["duck"]
+        entry = research_module._read_web_search_cache_entry("HotshotXL")
+        assert entry is not None and entry.get("negative") is True
+        assert entry.get("expires_at", 0) > research_module.time.time()
+
+        # Second call within the TTL: the negative entry skips live search.
+        second = research_module._default_web_search_client("HotshotXL", 1)
+        assert live_calls == ["duck"]  # no redundant request
+        assert any("cached negative result" in w for w in second["warnings"])
+
+        # Expire the entry: the next call retries live.
+        path = research_module._web_search_cache_path("HotshotXL")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["expires_at"] = research_module.time.time() - 1
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        third = research_module._default_web_search_client("HotshotXL", 1)
+        assert live_calls == ["duck", "duck"]
+        assert third["results"] == []
+
+    def test_expired_cache_entries_are_not_read(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "_DEFAULT_WEB_CACHE_ROOT", tmp_path)
+        results = [
+            {"title": "HotshotXL stale", "url": "https://example.com/stale", "snippet": "stale"}
+        ]
+        research_module._write_web_search_cache("HotshotXL", results)
+
+        # Fresh entry is readable.
+        assert research_module._read_web_search_cache("HotshotXL") == results
+        assert research_module._read_web_search_cache_entry("HotshotXL") is not None
+
+        # Rewrite with a past expires_at: the entry expires and is retried.
+        path = research_module._web_search_cache_path("HotshotXL")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["expires_at"] = research_module.time.time() - 1
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        assert research_module._read_web_search_cache("HotshotXL") == []
+        assert research_module._read_web_search_cache_entry("HotshotXL") is None
+
+    def test_write_web_search_cache_stores_expires_at_and_negative_flag(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "_DEFAULT_WEB_CACHE_ROOT", tmp_path)
+
+        research_module._write_web_search_cache("HotshotXL", [])
+        negative_payload = json.loads(
+            research_module._web_search_cache_path("HotshotXL").read_text(encoding="utf-8")
+        )
+        assert negative_payload["negative"] is True
+        assert negative_payload["expires_at"] > research_module.time.time()
+
+        research_module._write_web_search_cache(
+            "HotshotXL",
+            [{"title": "lead", "url": "https://example.com/lead", "snippet": "lead"}],
+        )
+        positive_payload = json.loads(
+            research_module._web_search_cache_path("HotshotXL").read_text(encoding="utf-8")
+        )
+        assert positive_payload["negative"] is False
+        assert positive_payload["expires_at"] > research_module.time.time()
+
+
 # ── sources= tier gating (B02) ───────────────────────────────────────────────
 
 

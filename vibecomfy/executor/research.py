@@ -107,6 +107,12 @@ _DEFAULT_BRAVE_SEARCH_URL = "https://search.brave.com/search"
 _DEFAULT_WEB_CACHE_ROOT = Path(os.environ.get("VIBECOMFY_WEB_SEARCH_CACHE", "~/.cache/vibecomfy/web_search")).expanduser()
 _DEFAULT_WEB_SEARCH_TIMEOUT = 5.0  # seconds
 
+# Brave rate-limit backoff: one retry after 0.8s on HTTP 429, then a
+# 15-minute skip sentinel so the client stops hitting a refusing endpoint.
+_BRAVE_RETRY_DELAY_SECONDS = 0.8
+_BRAVE_SKIP_WINDOW_SECONDS = 15 * 60  # 15 minutes
+_BRAVE_SKIP_UNTIL: float | None = None  # monotonic deadline; module-global
+
 # ── Per-tier freshness TTLs (SD1) ─────────────────────────────────────────────
 # Each tier carries a maximum age before cached results are marked stale.
 # Zero means "no caching / always fetch" (live runtime schemas).
@@ -228,6 +234,20 @@ _REGISTRY_QUERY_STOPWORDS = {
 
 class WebSearchError(Exception):
     """Non-fatal web-search error converted to a warning by ``research()``."""
+
+
+class WebSearchHTTPError(WebSearchError):
+    """Web-search HTTP failure carrying the response status code.
+
+    Subclasses :class:`WebSearchError` so existing callers keep treating it
+    as a non-fatal warning.  ``status_code`` lets the default client apply a
+    small reliability policy (429 retry-once, 403 skip sentinel) without
+    adding providers or touching any other research tier.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class RegistrySearchError(Exception):
@@ -833,6 +853,11 @@ def _brave_search(query: str, timeout: float) -> list[dict[str, str]]:
             html = resp.read().decode("utf-8", errors="replace")
     except TimeoutError as exc:
         raise WebSearchError(f"brave search timed out after {timeout}s") from exc
+    except urllib.error.HTTPError as exc:
+        raise WebSearchHTTPError(
+            f"brave search HTTP error {exc.code}: {exc.reason}",
+            status_code=exc.code,
+        ) from exc
     except urllib.error.URLError as exc:
         raise WebSearchError(f"brave search HTTP error: {exc}") from exc
 
@@ -867,6 +892,45 @@ def _brave_search(query: str, timeout: float) -> list[dict[str, str]]:
             break
     results.sort(key=lambda item: (-_external_workflow_result_score(item), item["url"]))
     return results[:_DEFAULT_EXTERNAL_LIMIT]
+
+
+def _brave_skip_active() -> bool:
+    """True while the Brave 15-minute skip sentinel is installed."""
+    deadline = _BRAVE_SKIP_UNTIL
+    return deadline is not None and time.monotonic() < deadline
+
+
+def _install_brave_skip_sentinel() -> None:
+    """Install the 15-minute window during which Brave is not contacted."""
+    global _BRAVE_SKIP_UNTIL
+    _BRAVE_SKIP_UNTIL = time.monotonic() + _BRAVE_SKIP_WINDOW_SECONDS
+
+
+def _brave_search_with_backoff(query: str, timeout: float) -> list[dict[str, str]]:
+    """Brave search with one 0.8s retry on HTTP 429 and a skip sentinel.
+
+    A live HTTP 429 is retried exactly once after
+    ``_BRAVE_RETRY_DELAY_SECONDS``; if the retry still fails, a 15-minute
+    skip sentinel is installed so the default client stops contacting Brave
+    for that window.  A first-time HTTP 403 (Brave blocking us) also installs
+    the sentinel without a pointless retry.  Non-HTTP failures (timeouts,
+    DNS) propagate as plain warnings and never install the sentinel.
+    """
+    if _brave_skip_active():
+        raise WebSearchError("brave search skipped: rate-limit sentinel active")
+    try:
+        return _brave_search(query, timeout)
+    except WebSearchHTTPError as exc:
+        if exc.status_code == 429:
+            time.sleep(_BRAVE_RETRY_DELAY_SECONDS)
+            try:
+                return _brave_search(query, timeout)
+            except WebSearchHTTPError:
+                _install_brave_skip_sentinel()
+                raise
+        if exc.status_code == 403:
+            _install_brave_skip_sentinel()
+        raise
 
 
 def _external_workflow_result_score(item: Mapping[str, str]) -> int:
@@ -942,40 +1006,53 @@ def _filter_web_results_by_named_anchor(
 
 def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
     """Best-effort public web-search evidence using DuckDuckGo HTML + GitHub."""
+    cached_entry = _read_web_search_cache_entry(query)
     cached = _read_web_search_cache(query)
     results: list[dict[str, str]] = []
     warnings: list[str] = []
-    try:
-        results.extend(_duckduckgo_search(query, timeout))
-    except WebSearchError as exc:
-        warnings.append(str(exc))
-    try:
-        results.extend(_github_repository_search(query, timeout))
-    except WebSearchError as exc:
-        warnings.append(str(exc))
-    if not results:
+    skipped_negative = False
+    if cached_entry is not None and cached_entry.get("negative") and not cached:
+        # Fresh negative cache entry: the exact query recently returned no
+        # results, so skip redundant live requests until ``expires_at``.
+        # Expired entries fall through and are retried live.
+        warnings.append("web search: using cached negative result; no live search")
+        skipped_negative = True
+    else:
         try:
-            results.extend(_brave_search(query, timeout))
+            results.extend(_duckduckgo_search(query, timeout))
         except WebSearchError as exc:
             warnings.append(str(exc))
-    if results:
-        _write_web_search_cache(query, results[:_DEFAULT_EXTERNAL_LIMIT])
-        if cached:
-            seen_keys = {
-                str(item.get("url") or item.get("title") or "").casefold()
-                for item in results
-            }
-            for cached_item in cached:
-                key = str(cached_item.get("url") or cached_item.get("title") or "").casefold()
-                if key and key in seen_keys:
-                    continue
-                if key:
-                    seen_keys.add(key)
-                results.append(cached_item)
-            results.sort(key=lambda item: (-_external_workflow_result_score(item), str(item.get("url") or "")))
-    elif cached:
-        warnings.append("web search: using cached results after live search returned no results")
-        results.extend(cached)
+        try:
+            results.extend(_github_repository_search(query, timeout))
+        except WebSearchError as exc:
+            warnings.append(str(exc))
+        if not results:
+            try:
+                results.extend(_brave_search_with_backoff(query, timeout))
+            except WebSearchError as exc:
+                warnings.append(str(exc))
+        if results:
+            _write_web_search_cache(query, results[:_DEFAULT_EXTERNAL_LIMIT])
+            if cached:
+                seen_keys = {
+                    str(item.get("url") or item.get("title") or "").casefold()
+                    for item in results
+                }
+                for cached_item in cached:
+                    key = str(cached_item.get("url") or cached_item.get("title") or "").casefold()
+                    if key and key in seen_keys:
+                        continue
+                    if key:
+                        seen_keys.add(key)
+                    results.append(cached_item)
+                results.sort(key=lambda item: (-_external_workflow_result_score(item), str(item.get("url") or "")))
+        elif cached:
+            warnings.append("web search: using cached results after live search returned no results")
+            results.extend(cached)
+        else:
+            # Store the negative outcome so the next call within the TTL
+            # window skips redundant live requests entirely.
+            _write_web_search_cache(query, [])
     if results:
         filtered_results, dropped = _filter_web_results_by_named_anchor(query, results)
         if dropped:
@@ -983,7 +1060,7 @@ def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
                 f"web search: dropped {dropped} generic result(s) that did not mention the named target"
             )
         results = filtered_results
-    if not results and warnings:
+    if not results and warnings and not skipped_negative:
         raise WebSearchError("; ".join(warnings))
     return {"results": results[:_DEFAULT_EXTERNAL_LIMIT], "warnings": warnings}
 
@@ -1049,12 +1126,37 @@ def _read_web_search_cache(query: str) -> list[dict[str, str]]:
     return merged_results[:_DEFAULT_EXTERNAL_LIMIT]
 
 
+def _read_web_search_cache_entry(query: str) -> dict[str, Any] | None:
+    """Return the raw cache payload for *query* when present and unexpired.
+
+    Returns ``None`` when the entry is missing, malformed, or past its
+    ``expires_at`` so callers retry live.  Legacy entries without an
+    ``expires_at`` are treated as fresh (pre-B06 behavior).
+    """
+    path = _web_search_cache_path(query)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    expires_at = payload.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.time() > expires_at:
+        return None
+    return payload
+
+
 def _read_web_search_cache_path(path: Path) -> list[dict[str, str]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
-    items = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return []
+    expires_at = payload.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.time() > expires_at:
+        return []
+    items = payload.get("results")
     if not isinstance(items, list):
         return []
     results: list[dict[str, str]] = []
@@ -1073,7 +1175,16 @@ def _write_web_search_cache(query: str, results: list[dict[str, str]]) -> None:
     try:
         _DEFAULT_WEB_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
         _web_search_cache_path(query).write_text(
-            json.dumps({"query": query, "results": results}, sort_keys=True, indent=2),
+            json.dumps(
+                {
+                    "query": query,
+                    "expires_at": time.time() + _DEFAULT_WEB_SEARCH_TTL,
+                    "negative": not results,
+                    "results": results,
+                },
+                sort_keys=True,
+                indent=2,
+            ),
             encoding="utf-8",
         )
     except Exception:
