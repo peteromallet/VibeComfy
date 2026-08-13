@@ -219,8 +219,16 @@ def test_envelope_sidecar_less_envelope_keeps_rich_nodes_gate(monkeypatch, tmp_p
         "LoadCheckpoint": 1,
         "PreviewImage": 1,
     }
-    assert metadata["workflow_semantics"]["promotion_gates"]["has_rich_nodes"] is True
-    assert "has_compiled_api" not in metadata["workflow_semantics"]["promotion_gates"]
+    gates = metadata["workflow_semantics"]["promotion_gates"]
+    assert gates["has_rich_nodes"] is True
+    # The hivemind contribute-resource validation still requires a boolean
+    # has_compiled_api gate for vibecomfy-external sources; sidecar-less
+    # envelopes report it as False rather than omitting it. Regression guard:
+    # the key must ALWAYS be present so 9f435dfc cannot recur (server 400s
+    # on missing keys).
+    assert set(gates) >= {"has_workflow_json", "has_compiled_api", "has_python_source", "parseable_workflow"}
+    assert all(isinstance(gates[k], bool) for k in ("has_workflow_json", "has_compiled_api", "has_python_source", "parseable_workflow"))
+    assert gates["has_compiled_api"] is False
     assert payload["workflow_json"] == workflow_json
     assert payload["compiled_api"] is None
 

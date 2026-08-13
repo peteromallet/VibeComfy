@@ -152,6 +152,7 @@ def build_workflow_semantics(
         or (isinstance(workflow_json, dict) and isinstance(workflow_json.get("nodes"), dict))
     )
     has_python_source = bool(payload.get("python_source")) or bool(metadata.get("has_python_source"))
+    has_compiled_api = bool(compiled_api) or bool(metadata.get("has_compiled_api"))
     parseable = bool(node_class_multiset)
     return {
         "media_type": media_type,
@@ -171,6 +172,7 @@ def build_workflow_semantics(
             "has_workflow_json": has_workflow_json,
             "has_rich_nodes": has_rich_nodes,
             "has_python_source": has_python_source,
+            "has_compiled_api": has_compiled_api,
             "parseable_workflow": parseable,
         },
     }
