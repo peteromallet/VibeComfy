@@ -103,7 +103,7 @@ def new_workflow(
     # binding.  Skipping if the workflow is already bound (e.g. caller is using
     # ``with new_workflow(...) as wf:``); the ``with`` form will then re-bind a
     # fresh token in __enter__.
-    if getattr(wf, "_workflow_context_token", None) is None:
+    if wf._workflow_context_token is None:
         from vibecomfy.workflow_context import active_workflow, bind_workflow
 
         # Defensive: if a *different* previous workflow leaked its binding
@@ -117,7 +117,7 @@ def new_workflow(
         # contract.
         existing = active_workflow()
         if existing is not None and existing is not wf:
-            existing_token = getattr(existing, "_workflow_context_token", None)
+            existing_token = existing._workflow_context_token
             if existing_token is None:
                 from vibecomfy.workflow_context import _CURRENT_WORKFLOW
 
@@ -558,7 +558,7 @@ def _finalize_impl(
     # cascades into ``ContextVarBindingError``.  ``new_workflow()`` exists to
     # let module-body node() calls discover the active workflow; by the time we
     # reach finalize, that purpose is served.
-    token = getattr(wf, "_workflow_context_token", None)
+    token = wf._workflow_context_token
     if token is not None:
         try:
             from vibecomfy.workflow_context import reset_workflow
