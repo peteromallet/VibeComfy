@@ -28,5 +28,33 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "This query is specific to the workflow's backbone choice, requires deep understanding of AnimateDiff and ControlNet integration with different architectures, and is a pure research question that forces investigation of tradeoffs without edi"
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/a7e2af6f0472627b.json",
+    "required_node_evidence": [
+      "CheckpointLoaderSimple",
+      "ADE_AnimateDiffLoaderWithContext",
+      "ControlNetLoaderAdvanced",
+      "ControlNetApplyAdvanced",
+      "KSampler"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Compare the current UNet/AnimateDiff/ControlNet integration with a DiT migration, covering model/control compatibility, motion coherence, compute, and likely graph changes without pretending it is a drop-in swap.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

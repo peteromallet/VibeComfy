@@ -28,5 +28,33 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "This query targets the unique latent compositing step, asking for a comparative analysis of an alternative method\u2014forcing genuine research reasoning rather than a simple lookup."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/17dc9bc3ed806c24.json",
+    "required_node_evidence": [
+      "LatentComposite",
+      "VAEEncode",
+      "EmptyLatentImage",
+      "AnimateDiffLoaderV1",
+      "KSampler"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Compare the graph's encoded-image LatentComposite path with direct init-image conditioning, including where each anchors structure and the likely temporal-coherence trade-off.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

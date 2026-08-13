@@ -27,5 +27,32 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "Requires tracing artifact to specific node(s) in a complex graph without obvious culprits, testing deep diagnostic reasoning."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/f855deb7cdef4ace.json",
+    "required_node_evidence": [
+      "SaveVideo",
+      "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf",
+      "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b",
+      "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Inspect the opaque custom-node metadata/settings and connections before naming a culprit for blur/banding; distinguish processing/range/bit-depth loss from SaveVideo codec settings and flag any unresolved UUID semantics.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

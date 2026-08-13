@@ -19,6 +19,13 @@ from tests.harness_common import (
 )
 
 
+_CORRECTED_D13_EDIT_IDS = (
+    "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
+    "video-image-to-video-conversion-with-moonvalley-d7853c",
+    "multi-3d-preview-and-image-output-workflow-d93baf",
+)
+
+
 def _write_flow_metadata(output_dir: Path, **overrides: object) -> None:
     metadata = {
         "flow_kind": FLOW_KIND_LIVE_AGENTIC_HEADLESS,
@@ -354,6 +361,82 @@ def test_agentic_guard_rejects_unallowed_noop_when_edit_or_refuse_expected(tmp_p
     checks = {issue["check"] for issue in verdict["assessment"]["issues"] if issue["severity"] == "error"}
     assert "graph_changed" in checks
     assert "no_candidate_reason" in checks
+
+
+@pytest.mark.parametrize("scenario_id", _CORRECTED_D13_EDIT_IDS)
+def test_corrected_d13_edits_cannot_pass_as_noops(
+    tmp_path: Path,
+    scenario_id: str,
+) -> None:
+    output_dir = tmp_path / scenario_id
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "noop"},
+                "message": "No changes.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    scenario_path = (
+        Path(__file__).parent
+        / "live_agentic_harness"
+        / "scenarios"
+        / f"{scenario_id}.json"
+    )
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is False
+    checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "graph_changed" in checks
+    assert "no_candidate_reason" in checks
+    assert "outcome_kind" in checks
+
+
+def test_desired_edit_fails_closed_when_intent_judge_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    output_dir = tmp_path / "desired-judge-unavailable"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    _write_successful_candidate(output_dir)
+    (output_dir / "implementation_result.json").write_text(
+        json.dumps({"status": "success"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_edit_intent",
+        lambda *args, **kwargs: {"pass_": None, "error": "judge unavailable"},
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "desired-judge-unavailable",
+            "query": "set seed to 42",
+            "assessment": {"expect_graph_changed": True},
+            "desired": {
+                "outcome": "seed is 42",
+                "quality": "only the intended seed changes",
+                "alternatives_ok": False,
+            },
+        },
+    )
+
+    assert verdict["live_agentic_success"] is False
+    assert any(
+        issue["check"] == "intent_judge" and issue["severity"] == "error"
+        for issue in verdict["assessment"]["issues"]
+    )
 
 
 def test_agentic_guard_rejects_oversized_model_request(tmp_path: Path) -> None:

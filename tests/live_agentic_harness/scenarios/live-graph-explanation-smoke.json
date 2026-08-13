@@ -34,5 +34,13 @@
         "steps": 20
       }
     }
+  },
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "classification": {
+    "kind": "health_control",
+    "excluded_from_semantic_product_rates": true,
+    "purpose": "Smoke-test that an inline graph can be inspected and answered without requiring a product-quality semantic score."
   }
 }

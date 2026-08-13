@@ -30,5 +30,35 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "A pure comprehension test focusing on a distinguishing design choice of this workflow, forcing clear explanation of the dual-model architecture."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/7c8bb3b65e8084ae.json",
+    "required_node_evidence": [
+      "UNETLoader",
+      "ModelSamplingSD3",
+      "KSamplerAdvanced",
+      "EmptyHunyuanLatentVideo",
+      "VAEDecode",
+      "SaveAnimatedWEBP",
+      "SaveWEBM"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Describe the two loaded model/sampling paths from high-noise to low-noise stages and state whether the graph chains, combines, or merely exposes alternatives, based on actual edges rather than the title.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

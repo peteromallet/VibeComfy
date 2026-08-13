@@ -13,6 +13,7 @@ from tests.live_agentic_harness.runner import (
     _provider_infra_failure_class,
     run_tag,
 )
+from tests.live_agentic_harness.scenario_manifest import write_manifest
 from vibecomfy.executor.contracts import coerce_model_attempts
 
 
@@ -114,6 +115,7 @@ def test_runner_does_not_retry_outer_timeout(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -198,6 +200,7 @@ def test_runner_types_provider_capacity_without_retry(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -243,6 +246,7 @@ def test_runner_retries_only_typed_empty_zero_token_attempt(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -283,6 +287,7 @@ def test_runner_keeps_malformed_nonempty_as_product_failure(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -330,6 +335,7 @@ def test_runner_counts_persistent_provider_capacity_as_infra_blocked(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -398,6 +404,7 @@ def test_runner_does_not_classify_soft_search_429_as_infra(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -440,6 +447,7 @@ def test_runner_timeout_preserves_scenario_graph_change_expectation(
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     summary = run_tag(
@@ -543,6 +551,7 @@ def test_persisted_agentic_summary_redacts_json_quoted_secrets(
         out_file.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
+    write_manifest(scenarios_dir)
     monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
 
     run_tag(

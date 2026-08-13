@@ -30,5 +30,34 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "A genuine research request that tests end-to-end understanding of SVD conditioning, appropriate given med complexity and research query_type."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/389d9080e42e36dd.json",
+    "required_node_evidence": [
+      "CheckpointLoaderSimple",
+      "CLIPTextEncode",
+      "ImageOnlyCheckpointLoader",
+      "SVD_img2vid_Conditioning",
+      "KSampler",
+      "SaveAnimatedWEBP"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Trace every major stage to the WEBP output and accurately distinguish SDXL text conditioning from SVD's image/motion conditioning instead of claiming unsupported direct text control of SVD.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

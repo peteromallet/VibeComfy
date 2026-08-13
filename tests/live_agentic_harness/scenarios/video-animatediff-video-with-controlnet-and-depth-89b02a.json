@@ -31,5 +31,33 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "The question requires researching state-of-the-art depth models for video and evaluating tradeoffs, a genuine investigation that goes beyond simple lookup."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/89b02a141d7451bb.json",
+    "required_node_evidence": [
+      "DownloadAndLoadDepthAnythingV2Model",
+      "DepthAnything_V2",
+      "ControlNetLoader",
+      "ACN_AdvancedControlNetApply_v2",
+      "ADE_UseEvolvedSampling"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Compare named depth estimators or temporal-depth strategies and explain how their output normalization/stability must match the existing ControlNet guidance path.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

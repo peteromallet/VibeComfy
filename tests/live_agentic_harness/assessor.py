@@ -841,7 +841,9 @@ def assess_live_output_dir(
                 issues.append(
                     {
                         "check": "intent_judge",
-                        "severity": "warning",
+                        # A desired block is an active acceptance rubric, not
+                        # optional context. Fail closed if its judge is absent.
+                        "severity": "error" if scenario.get("desired") else "warning",
                         "detail": f"LLM intent judge could not run: {verdict.get('error')}",
                     }
                 )

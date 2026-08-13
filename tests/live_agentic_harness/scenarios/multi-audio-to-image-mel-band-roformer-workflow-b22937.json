@@ -28,5 +28,33 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "Requires a full pipeline explanation, including the unusual pairing of audio processing and image preview output."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/b22937d66f82f884.json",
+    "required_node_evidence": [
+      "LoadAudio",
+      "MelBandRoFormerModelLoader",
+      "MelBandRoFormerSampler",
+      "SaveAudioMP3",
+      "PreviewImage"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Trace the audio through MelBandRoFormer and explain separately why an MP3 is saved and why an image preview is produced, based on the actual output branches.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

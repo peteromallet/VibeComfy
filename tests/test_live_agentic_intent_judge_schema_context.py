@@ -6,6 +6,57 @@ from pathlib import Path
 from tests.live_agentic_harness.intent_judge import judge_edit_intent
 
 
+def test_intent_judge_includes_scenario_desired_rubric(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    (tmp_path / "original.ui.json").write_text(
+        json.dumps({"nodes": []}), encoding="utf-8"
+    )
+    (tmp_path / "candidate.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1}]}), encoding="utf-8"
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["messages"] = messages
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "correct_node_targeted": True,
+                        "correct_parameter_changed": True,
+                        "value_semantically_matches_intent": True,
+                        "no_orphaned_wiring": True,
+                    },
+                    "rationale": "desired outcome satisfied",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    desired = {
+        "outcome": "seed is 42",
+        "quality": "only the intended seed changes",
+        "alternatives_ok": False,
+    }
+    verdict = judge_edit_intent(
+        tmp_path,
+        {"query": "set seed to 42", "desired": desired},
+    )
+
+    assert verdict["pass_"] is True
+    messages = seen["messages"]
+    assert isinstance(messages, list)
+    assert "Scenario-specific desired outcome" in messages[0]["content"]
+    payload = json.loads(messages[1]["content"])
+    assert payload["desired_outcome"] == desired
+
+
 def test_intent_judge_includes_compiled_api_schema_context(
     tmp_path: Path,
     monkeypatch,

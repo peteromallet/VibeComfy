@@ -3,5 +3,10 @@
   "query": "This video workflow is too slow. Is there a distilled or faster way to run it without changing the creative intent?",
   "assessment": {
     "expect_graph_changed": false
+  },
+  "classification": {
+    "kind": "health_control",
+    "excluded_from_semantic_product_rates": true,
+    "purpose": "Exercise the research route without a source graph; this is transport/routing health, not semantic product quality."
   }
 }

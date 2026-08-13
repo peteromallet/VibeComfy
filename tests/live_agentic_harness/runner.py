@@ -33,6 +33,7 @@ from .failure_analysis import (
     prepare_failure_analysis,
     recommendations_for_run,
 )
+from .scenario_manifest import discover_manifest_scenarios
 
 DEFAULT_MAX_WORKERS = 12
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
@@ -40,10 +41,14 @@ DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 REPO = Path(__file__).resolve().parents[2]
 
-def _scenario_paths(scenarios_dir: Path) -> list[Path]:
+def _scenario_paths(
+    scenarios_dir: Path,
+    *,
+    manifest_path: Path | None = None,
+) -> list[Path]:
     if not scenarios_dir.is_dir():
-        return []
-    return sorted(p for p in scenarios_dir.iterdir() if p.suffix in {".yaml", ".yml", ".json"})
+        raise FileNotFoundError(f"scenario directory is missing: {scenarios_dir}")
+    return discover_manifest_scenarios(scenarios_dir, manifest_path=manifest_path)
 
 
 def _load_scenario(path: Path) -> dict[str, Any]:
@@ -487,12 +492,13 @@ def run_tag(
     per_scenario_timeout: int = DEFAULT_PER_SCENARIO_TIMEOUT,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     infra_retries: int = DEFAULT_INFRA_RETRIES,
+    manifest_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run every scenario under *scenarios_dir* CONCURRENTLY — each in its own
     subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*."""
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
-    paths = _scenario_paths(scenarios_dir)
+    paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
     results: list[dict[str, Any] | None] = [None] * len(paths)
     sem = threading.Semaphore(max(1, max_workers))
     lock = threading.Lock()
@@ -673,6 +679,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory containing scenario YAML/JSON files.",
     )
     parser.add_argument(
+        "--manifest",
+        default=None,
+        help=(
+            "Authoritative scenario manifest (default: scenario_manifest.json "
+            "beside the scenarios directory)."
+        ),
+    )
+    parser.add_argument(
         "--output-base",
         default=None,
         help="Base evidence directory (default: out/agentic).",
@@ -825,6 +839,7 @@ def main(argv: list[str] | None = None) -> int:
         per_scenario_timeout=args.per_scenario_timeout,
         progress_every=args.progress_every,
         infra_retries=args.infra_retries,
+        manifest_path=Path(args.manifest) if args.manifest else None,
     )
     if args.prepare_failure_analysis or args.analyze_failures or args.recommend_fixes:
         run_summary_path = _run_dir_for(output_base, summary["tag"]) / "run_summary.json"
