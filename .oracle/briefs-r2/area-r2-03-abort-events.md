@@ -1,0 +1,5 @@
+Explore area (round 2): Abort-event semantics for transactional rollback telemetry.
+
+Context: B05-lite (journaled unexpected-exception rollback) snapshots working IR/UI before a model-authored batch executes and restores on uncaught exception. Open question: can telemetry events be buffered transactionally, or must rollback emit compensating abort records? The plan needs to know how telemetry/ledger writes are ordered relative to the mutation boundary.
+
+Task: find the telemetry/ledger/event sinks (session ledger, telemetry events, flow_metadata, candidate artifacts, edit session persistence — search vibecomfy/ for telemetry, ledger, session events, emit, flow_metadata writers), and whether they are written inside the batch mutation path (before the exception boundary) or after. Report verified facts with file:line, whether a rollback would leave stale telemetry claiming success, whether buffering or compensating abort records is feasible today, unknowns, risks, suggested approach for B05-lite. Ranked findings, <300 words.

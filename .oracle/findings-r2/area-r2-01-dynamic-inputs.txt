@@ -1,0 +1,13 @@
+## Ranked findings: dynamic-input contracts (B08 exemption surface)
+
+**1. Phantom-slot chain is the C8 signature.** `resolve_source_endpoint`'s schema fallback returns a catalog `slot_index` with **no bounds check** against the node's real `outputs` array (`resolution.py:641-678`). `_apply_upsert_link` writes `origin_slot=source.slot_index or 0` unchecked (`apply_mutate.py:203`); `_ensure_output_link_reference` silently no-ops when out of range (`apply_links.py:314-334`). Projection then resolves ports by index and `_native_port_name` raises "Missing stable link from port" (`projection_registry_v1.py:115-120, 123-149`).
+
+**2. Target-side fabrication is unchecked.** `_ensure_input_slot` appends `{"name", "type": "*", "link": None}` for any unknown name (`apply_links.py:289-300`); `resolve_target_endpoint` accepts schema-only inputs absent from the node (`resolution.py:744-773`), yielding `slot_index=None` → fabricate. `resolve_output_slot_index` duplicates the schema fallback (`resolution.py:493-525`).
+
+**3. Real outputs array origin.** Import path: `EditLedger.ingest` deep-copies raw graph verbatim — substrate truth (`ledger.py:111-112, 174`). Creation path: `materialize_litegraph_node` → `_schema_outputs_for_unwired_node(schema)` (`ui.py:1073-1083`); `vibecomfy.exec` grows `out_N` from io (`ui.py:1173-1189`; fixed slots `provider.py:157-173`).
+
+**4. Exempt class set (precedent: `validate.py:452-471`).** Count-driven: `ImageConcatMulti` (`image_N`, `lint.py:84-111`, `apply_resolve_add.py:467-500`), `LTXVImgToVideoInplaceKJ` (`num_images.*`), `SimpleCalculator` (`input_N`), `LTXVAddGuide` (`guide_N`), `SimpleCalculatorKJ` (payload vars), `in_N` fixed slots (`validate.py:444-449`). Helpers/proxies with arbitrary ports: `Reroute`, `GetNode`, `SetNode`, `PrimitiveNode`/primitives (`lint.py:405-415`; passthrough resolution `apply_links.py:126-164`). Dynamic `INPUT_TYPES` custom nodes (`extract.py:8-14`).
+
+**Minimal invariant:** a port is valid iff present in `node["outputs"]`/`["inputs"]`, or class matches a dynamic pattern **and** the schema-fallback slot is bounds-verified (or materialized into the node, as `_ensure_input_slot` does for inputs) before link write. C8 = catalog/link-only port, no pattern, no materialization.
+
+**Risks:** dynamic list duplicated 3× (needs one shared predicate); `SimpleCalculatorKJ` vars not statically enumerable; fallback also repairs stale cache — can't delete.

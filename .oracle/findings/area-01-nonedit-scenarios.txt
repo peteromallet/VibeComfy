@@ -1,0 +1,12 @@
+## Non-Edit Scenario Semantic-Quality Audit
+
+**Inventory (40, not 37).** `expect_graph_changed:false` appears in 39 scenarios; `live-graph-explanation-smoke.json` has no `assessment` block at all. Breakdown: 13 `research`, 12 `explain`, 12 `diagnose` (all `apply:false`, `network:true`, no `desired`, no `expected_outcome_kinds`) — the plan's "37" matches only query-type non-edits, excluding 3 **mislabeled edit scenarios**: `video-video-inpainting-with-spline-based-cut-and-dra-485ff2.json`, `video-image-to-video-conversion-with-moonvalley-d7853c.json`, `multi-3d-preview-and-image-output-workflow-d93baf.json` — each `query_type:edit`, `apply:true`, with a `desired` block, yet `expect_graph_changed:false`. Two lack `workflow_path` (`speed-distillation-research.json`, smoke).
+
+**Scoring.** `guard.py:87-89`: pass = metadata_success AND assessment.passed. The LLM intent judge runs **only** when `expect_graph_changed` is true (`assessor.py:695-699`); the `expected_outcome_kinds` branch (`assessor.py:677-690`) never fires — no scenario defines it (grep-verified). The G0-T2 prose matcher was removed (`assessor.py:742-746`): "prose never gates a scenario." For non-edits, only response health, readiness, hard diagnostics, upstream failures, and `implementation_result.ok` apply.
+
+**Findings (ranked).**
+1. **No answer-quality gate exists for any non-edit scenario** — a hallucinated explanation, wrong diagnosis, or empty-but-valid response passes. The 3 mislabeled edits can no-op and still pass (graph_changed/outcome/judge checks are skipped), inflating the pass rate.
+2. **`desired` blocks on the 3 mislabeled scenarios are dead config** — consumed only by `judge_edit_intent` (`intent_judge.py:321-335`), which never runs for them.
+3. **Unknowns**: runtime fallback `_expects_graph_changed` (`assessor.py:231-235`) could flip the smoke scenario to edit-mode if the agent plans adapt/revise; plan's 37-count basis unverified.
+
+**Classification**: 37 research/explain/diagnose = genuine **product** scenarios (need a text judge); `live-graph-explanation-smoke` + `speed-distillation-research` = **health controls**; the 3 mislabeled = edit scenarios — fix `expect_graph_changed:true` or exclude from the non-edit denominator before freezing it.

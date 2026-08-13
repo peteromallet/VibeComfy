@@ -1,0 +1,13 @@
+## Class-C clustering verdict: wiring failures share ONE editor/catalog defect
+
+**1. Confirmed shared defect — schema-vs-graph divergence at source resolution.** `resolve_source_endpoint` (`vibecomfy/porting/resolution.py:641-651`) falls back to the schema catalog when a source output name is absent from the working node's `outputs` array, returning a schema-derived slot index. `_apply_upsert_link` (`apply_mutate.py:203`) writes `origin_slot=source.slot_index or 0` with no bounds check. The projection gate then resolves ports **by index** against the node's real `outputs` (`projection_registry_v1.py:115-120`, `_native_port_name`) → out-of-range → exactly `"Missing stable link from port"`. Same resolver serves add_node links (`apply_resolve_add.py:242`). Pure model slot errors are caught earlier (`unknown_output_slot` → batch rollback, different signature); the C8 signature specifically implies this divergence, which triggers whenever the working node's outputs are incomplete (lossy normalization, B6/D5) or the catalog lists more outputs than the node carries.
+
+**2. Single choke point.** All C8 errors surface through one site: finalize projection `session.py:2419-2431` → ValidationError. Lint runs post-apply and only detects no-ops (`edit_batch_repl.py:1917,1930`), so it can't prevent the divergence.
+
+**3. C9 shares the root family.** `resolve_target_endpoint` + `_ensure_input_slot` (`apply_links.py:289-300`) silently **append synthetic inputs** for unknown names — links into nonexistent inputs materialize instead of rejecting → wrong-semantic edits.
+
+**4. Artifacts absent.** `out/agentic/` (live-final, live-g0, summaries, failure details) is not in this checkout; per-scenario attribution of the ~6 C8s is unverifiable here — only case-06 and the synthesis docs survive.
+
+**5. Risks/unknowns:** can't confirm how many C8s were divergence vs. genuine hallucination; G0 flip subset excluded C8, so it's still residual.
+
+**6. Batch justified — as deterministic editor fixes + regression tests** (source-slot bounds check at apply, name-based projection, pre-apply endpoint lint, stop synthetic-input fabrication), not a model-prompt batch. Expect most of C8 (~6) plus part of C9; ~70-75 ceiling per complete-picture doc.

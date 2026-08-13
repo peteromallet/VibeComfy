@@ -1,0 +1,31 @@
+## Schema-provider ownership audit
+
+**Verified facts**
+
+Precedence: `CompositeSchemaProvider.get_schema` = first-match-wins; `schemas()` merges `reversed(providers)`, so the **first** provider also dominates the merged dict — real-first is the invariant for both views.
+
+Baseline is real: `_frag_entrypoint.py:65` (`_default_runtime_schema_provider`), `routes.py:107/230` (`get_schema_provider("local")`). Wrong precedence enters only via the sites below.
+
+**Sites (7)** — argument order:
+1. `_frag_orchestration.py:434` — `(*providers)` = [Runtime, Authoring] — all real ✓
+2. `_frag_research.py:821` — `(state, provisional)` real-first ✓ (structurally; poisoned if 874 ran earlier)
+3. `_frag_research.py:922` — `(state, provisional)` real-first ✓ (same caveat)
+4. `_frag_research.py:874` — `(provisional, state)` ✗ provisional-first (known)
+5. `_frag_response_contract.py:793` — `(provisional, session.schema_provider)` ✗ **new**; sets both session AND state → poisons session across turns
+6. `_frag_batch_loop.py:910` — `(provisional, state)` ✗ **new**
+7. `edit_batch_repl.py:1115` — `(provisional, state)` ✗ known (`_hydrate_actionable_registry_dependencies`)
+
+Helper factories (`get_schema_provider`, `get_authoring_schema_provider`, `_default_runtime_schema_provider`) never inject provisional — safe. No shared "wrap-with-provisional" helper exists; each bug site hand-rolls the ordering, which is why it drifts.
+
+**Enum/combo at apply — both paths safe:**
+- Set (`apply_resolve_base.py:184`): `control_after_generate` check (:321) + `_validate_literal_value` (:335) run **before** any mutation; errors → `(None, issues)`.
+- Add (`apply_resolve_add.py:39`): per-field validation (:199), blocks on error (:209) before `ResolvedAddNodeSpec` builds.
+- Caveat: `_validate_literal_value` returns `[]` when `spec is None` (apply_values.py:20) — so a provisional-first schema with empty `choices` makes `value_not_in_enum` vacuous. `_coerce_choice_value` and asset-enum warning are soft escapes.
+
+**Widget-name derivation:** `contracts.py:2527` → compile-time `WIDGET_SCHEMA` table (aliases.py:129) — provider-independent; fallback only via `apply_positional_widget_aliases`. Low risk.
+
+**Unknowns:** intra-turn order of 874 vs 821/922; session persistence across turns (amplifies :793).
+
+**Ranked findings:** (1) 793 session-poison, (2) 874, (3) 910, (4) 1115, (5) 821/922 conditional.
+
+**Suggested approach:** introduce one factory `prepend_provisional(provider, candidates)` enforcing real-first, migrate all 4 bug sites, assert order in tests.

@@ -1,0 +1,17 @@
+Verified across worker/runtime/provider/agent_backend/artifacts/core/contracts.
+
+**Verified coverage on success paths**
+- worker.py:509-527 — success envelope carries `deepseek_usage`, `deepseek_cache_breakout_complete`, `finish_reason` (415-423), plus `model`, `phase`, `endpoint` (base_url). No provider, no requested/resolved split (`model` = resolved runtime slug; original profile model lost).
+- runtime.py:1153 (`run_model_turn`) returns the full worker result — classify/reply provider gets model/phase/endpoint/usage/finish_reason.
+- Batch path: provider.py:1390-1397 audit_metadata = provider="arnold", requested_route, route_metadata, credential_presence, response_contract; persisted to `model_response.json` via edit_batch_repl.py:1673-1679 (`turn_result.to_dict()`: batch/message/route/model/audit_metadata).
+- executor Report (contracts.py:2107-2118): aggregated `deepseek_usage`+cost, `model_response` (failure-only). flow_metadata (artifacts.py:298-312): no model/provider/endpoint fields.
+
+**Gaps vs B01 failed set** — phase/finish_reason/tokens ✓ (json path only); preview ✗ (failure-only, worker.py:151); provider ✗ everywhere on success; model present but single ambiguous field; requested-vs-resolved ✗; transport/base_url ✗ in artifacts/Report.
+
+**Key losses** — runtime.py:704/746/782 strip worker metadata to `{content/message/python/delta}`; agent_backend.py:159-171 discards result on success; `_normalize_batch_response` merges no worker-observed fields.
+
+**Derivability** — requested model: profile spec (core.py:2003) + profiler log only; resolved model/endpoint/transport: not persisted on any success path; not derivable in final report without changes.
+
+**Minimal additive change** — (1) runtime.py: return `{**content, **worker_metadata}` from the three stripping seams (3 lines); (2) worker.py:519 add `requested_model` (pass original model into request) + `provider` from agent_kwargs (2 lines); (3) provider/agent_backend: merge result into audit_metadata/span. No shape breakage — additive keys.
+
+**Risks** — non-hermes routes (codex/claude) return `{}` metadata (worker.py:431); `model` ambiguity on retries; credential_presence redaction.

@@ -1,0 +1,5 @@
+Explore area: B05-lite rollback side effects — what can be written before the exception boundary?
+
+Context: B05-lite (plan) wants exception-safe transactional rollback for one model-authored batch (edit_batch_repl.py). Rollback must restore IR/UI/rendered Python/candidate artifacts/ledger on uncaught batch exceptions. This area checks whether rendered Python, candidate files, telemetry, and session ledgers can be written before the exception boundary — i.e., what state is mutated before the point where an exception escapes.
+
+Task: trace edit_batch_repl.py (and _parse_execute.py, executor_durable.py) execution order: where does the batch mutate working IR/UI, when are artifacts/candidates/ledgers written, where can exceptions escape. Report verified facts with file:line, the minimal snapshot surface needed for byte-equivalent rollback, whether rendered-Python/candidate writes happen mid-batch (must be included in snapshot), unknowns, risks, suggested approach. Ranked findings, <300 words.

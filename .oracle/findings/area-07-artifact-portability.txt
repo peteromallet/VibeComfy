@@ -1,0 +1,16 @@
+## Artifact Portability — B09 Report Pinning
+
+**Verified facts**
+- **Scenarios:** exactly **150 JSON files** in `tests/live_agentic_harness/scenarios/` (tracked, in-repo). Each is a descriptor `{id, brief, query, graph}` with a **stable `id` slug** (e.g. `live-graph-explanation-smoke`); `id` is the natural stable reference. No hash infra attached.
+- **external_workflows:** **not on disk** (path missing; gitignored at `.gitignore:25-26`). Scripts define the expected layout: `manifest.json` (rows carry `summary` + `primary_source` provenance), `corpus/*.json`, `github_scan.json`, `.shadow/source|summary-cache`. Corpus count unknowable locally.
+- **run summaries:** `out/` **absent** — zero persisted evidence; `out/agentic/<tag>/run_summary.json` (+`.partial.json`) written by `tests/live_agentic_harness/runner.py`/`failure_analysis.py` (paths only, **no hashes**). Prior runs (`live-final`, `live-g0`) exist only as doc citations.
+- **B02 checker** (`scripts/check_b02_rich_preservation.py`) **pins nothing**: sorted glob over `external_workflows/corpus/*.json`, envelope round-trip checks, JSON summary — zero sha256/manifest logic. Hash infra exists but is unwired: `enumerate_github_workflows.py` (sha256 + `{sha256[:16]}-file` names), `runpod_artifacts.py::_sha256`, `runpod_e2e_matrix.py` `output_sha256s`.
+- **D13:** scenario-defect audit workstream (failure-analysis docs); no manifest artifact found.
+
+**Reproducible pin needs:** commit SHA + per-file sha256 for all 150 scenarios; corpus digest + per-file sha256 (B02 summary extension); run_summary recording commit + scenario hashes + lanes; report references by `id` slug + sha256, never paths.
+
+**Unknowns/risks:** corpus/out off-disk (hard blocker for B02/B09 evidence claims); github_scan re-downloads rotate hashes; run summaries record paths only → undetectable drift; B09 plan says **100 scenarios × 4 lanes** vs 150 on disk.
+
+**Approach:** (1) preflight emits `scenarios_manifest.json` (id/path/sha256) + `git rev-parse HEAD`, fails if corpus/out absent; (2) extend B02 summary with per-file sha256; (3) cite manifest rows (sha256 + primary_source) for external corpus; (4) persist commit+hashes into run_summary.json via existing `_sha256` helpers.
+
+**Ranked:** 1. external_workflows absent 2. out/ absent 3. B02 pins nothing 4. scenario pin easy (150, stable ids) 5. 100-vs-150 mismatch.

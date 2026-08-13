@@ -1,0 +1,5 @@
+Explore area: Schema-provider ownership — audit all provider construction sites.
+
+Context: B04 needs real schemas authoritative over provisional evidence. Four provisional-first sites are known (_frag_research.py:821, :874, edit_batch_repl.py:1115 + widget-name derivation); the plan must know ALL construction sites of CompositeSchemaProvider and similar providers, including future helper factories.
+
+Task: find every construction/ordering site of schema providers (search for CompositeSchemaProvider, ProvisionalSchemaProvider, schema_provider, provisional across vibecomfy/ and tests/), and report for each: file:line, argument order (real-first vs provisional-first), whether the invariant holds, and any helper factory that could reintroduce wrong precedence. Also check enum/combo validation at apply (porting/edit/apply_values.py, apply_resolve_*.py): is value_not_in_enum enforced before candidate mutation on both add and set paths? Verified facts, unknowns, risks, suggested approach. Ranked findings, <300 words.
