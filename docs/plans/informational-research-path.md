@@ -1,5 +1,7 @@
 # VibeComfy Informational-Question Pipeline: Real Messages Tier + Gated Iteration
 
+> **Supersession (2026-08-12 user ruling):** Goal 3, §3, Key Decisions 5 and 8, PR 5, and the inner-loop mermaid / observability (`informational_strength`, `variant_count`) are **superseded** by [`docs/plans/agent-judgment-iteration.md`](agent-judgment-iteration.md). Iteration is agent judgment only — no code-level search/stop loop. Goal 2 / Decision 4 (inherit-on-omit) were already superseded by the child omit-default in [`discord-message-search-default.md`](discord-message-search-default.md). The messages client, tier gating, hoist insertion, and "do not break" list remain **except** parent §1 `_rank_message_rows` IDF / `score <= 0` drop, which the successor replaces with approved-then-recency display order.
+
 | Field | Value |
 |---|---|
 | **Author** | VibeComfy executor / research |
