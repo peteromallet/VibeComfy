@@ -386,14 +386,34 @@ def ingest_and_upload(findings: List[Dict[str, Any]], *, dry_run: bool) -> Dict[
         counts["errors"] += 1
         return counts
 
+    # Scope the upload to rows this scan actually created. The uploader builds
+    # envelopes for every manifest row, and the scratchpad emitter per row is
+    # slow — a full-manifest pass on a 2800+ row corpus stalls for hours. Only
+    # newly-ingested rows (no hivemind_upload.status yet) need uploading; the
+    # rest are already idempotently skipped.
+    manifest = json.loads((REPO_ROOT / "external_workflows" / "manifest.json").read_text(encoding="utf-8"))
+    pending = [
+        w["workflow_id"]
+        for w in manifest.get("workflows", [])
+        if (w.get("primary_source") or {}).get("discovered_by") == "agentic-daily-scan"
+        and not (w.get("hivemind_upload") or {}).get("status")
+    ]
+    upload_cmd = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "upload_external_workflows_to_hivemind.py"),
+        "--skip-existing", "--sleep", "0.3",
+        "--enrich", "--model", os.environ.get("AGENTIC_SCAN_ENRICH_MODEL", "deepseek-chat"),
+    ]
+    for wid in pending:
+        upload_cmd += ["--only", wid]
     upload = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "upload_external_workflows_to_hivemind.py"),
-         "--skip-existing", "--sleep", "0.3"],
+        upload_cmd,
         capture_output=True, text=True, cwd=str(REPO_ROOT),
     )
     print(f"[upload] exit {upload.returncode}: {upload.stdout.strip()[-500:]}", file=sys.stderr)
     counts["uploaded"] = sum(1 for line in upload.stdout.splitlines() if '"status": "uploaded"' in line)
     counts["skipped"] = sum(1 for line in upload.stdout.splitlines() if '"status": "skipped_existing"' in line)
+    counts["errors"] += sum(1 for line in upload.stdout.splitlines() if '"status": "error"' in line)
     return counts
 
 
