@@ -204,6 +204,191 @@ def test_ambiguous_setnode_source_fails_closed_with_issue():
     )
 
 
+# ---------------------------------------------------------------------------
+# GetNode input-chain display edges (B03 rework5: oracle blocking issue)
+# ---------------------------------------------------------------------------
+
+def _getnode_chain_wf() -> VibeWorkflow:
+    """``source → SetNode → Reroute → GetNode → consumer`` with the channel
+    display edge, mirroring tests/test_virtual_wire_round_trip.py:70."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="uid-dynamic")
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "LATENT"})
+    wf.nodes["14"] = VibeNode("14", "Reroute", uid="14")
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="11", inputs={"widget_0": "LATENT"})
+    wf.nodes["5"] = VibeNode("5", "KSampler", uid="consumer")
+    wf.edges = [
+        VibeEdge("1", "0", "10", "broadcast_in"),
+        VibeEdge("10", "0", "14", "0"),
+        VibeEdge("14", "0", "11", "broadcast_out"),
+        VibeEdge("11", "0", "5", "model"),
+    ]
+    return wf
+
+
+def test_unchanged_getnode_input_chain_produces_no_delta():
+    """An unchanged ``source → SetNode → Reroute → GetNode → consumer`` chain
+    resolves the GetNode display edge through its channel and yields NO delta
+    and NO resolution issues (B03 oracle finding 3 regression).
+
+    Before the fix, the edge entering the GetNode through ``broadcast_out``
+    unconditionally emitted ``helper_input_unsupported``, which fabricated a
+    semantic-link delta on every snapshot node and refused the unchanged
+    workflow.
+    """
+    wf = _getnode_chain_wf()
+    snap = capture_ingest_snapshot({}, wf)
+    delta = compute_field_delta(snap, wf)
+    assert delta == {}
+
+
+def test_getnode_chain_source_change_detected():
+    """Rewiring the channel's terminal source must surface as a canonical
+    semantic-link delta on the downstream consumer, with no fabricated
+    resolution issues."""
+    wf = _getnode_chain_wf()
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["2"] = VibeNode("2", "CheckpointLoaderSimple", uid="uid-dynamic-b")
+    wf.edges = [
+        VibeEdge("2", "0", "10", "broadcast_in"),
+        VibeEdge("10", "0", "14", "0"),
+        VibeEdge("14", "0", "11", "broadcast_out"),
+        VibeEdge("11", "0", "5", "model"),
+    ]
+
+    delta = compute_field_delta(snap, wf)
+    assert "consumer" in delta
+    semantic = delta["consumer"]["semantic_link_set"]
+    assert semantic["before"] == (("uid-dynamic", "0", "consumer", "model"),)
+    assert semantic["after"] == (("uid-dynamic-b", "0", "consumer", "model"),)
+    assert semantic["before"] != semantic["after"]
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
+
+
+def test_ambiguous_getnode_channel_fails_closed_with_issue():
+    """Two SetNodes feeding one GetNode's channel is genuinely ambiguous: it
+    must fail closed with the ``broadcast_setter_count`` issue on the nodes
+    actually involved (the GetNode and its consumer), and NO silent
+    resolution — while unrelated nodes stay out of the delta."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["1"] = VibeNode("1", "ProducerA", uid="1")
+    wf.nodes["2"] = VibeNode("2", "ProducerB", uid="2")
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "LATENT"})
+    wf.nodes["12"] = VibeNode("12", "SetNode", uid="12", inputs={"widget_0": "LATENT"})
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="11", inputs={"widget_0": "LATENT"})
+    wf.nodes["5"] = VibeNode("5", "Consumer", uid="consumer")
+    wf.edges = [
+        VibeEdge("1", "0", "10", "broadcast_in"),
+        VibeEdge("2", "0", "12", "broadcast_in"),
+        VibeEdge("10", "0", "11", "broadcast_out"),
+        VibeEdge("12", "0", "11", "broadcast_out"),
+        VibeEdge("11", "0", "5", "images"),
+    ]
+    snap = capture_ingest_snapshot({}, wf)
+
+    delta = compute_field_delta(snap, wf)
+    assert "consumer" in delta
+    semantic = delta["consumer"]["semantic_link_set"]
+    assert semantic["before"] == ()
+    assert semantic["after"] == ()
+    assert any(
+        issue.startswith("broadcast_setter_count:11:LATENT:2")
+        for issue in semantic["before_resolution_issues"]
+    )
+    assert any(
+        issue.startswith("broadcast_setter_count:11:LATENT:2")
+        for issue in semantic["after_resolution_issues"]
+    )
+    # The ambiguous junction's own node carries the issue too...
+    assert "11" in delta
+    assert any(
+        issue.startswith("broadcast_setter_count:11:LATENT:2")
+        for issue in delta["11"]["semantic_link_set"]["after_resolution_issues"]
+    )
+    # ...and unrelated nodes are NOT fanned out.
+    for unrelated in ("1", "2", "10", "12"):
+        assert "semantic_link_set" not in delta.get(unrelated, {})
+
+
+# ---------------------------------------------------------------------------
+# Zero-candidate helper plumbing (B03 rework6: oracle regression)
+# ---------------------------------------------------------------------------
+
+def _orphaned_plumbing_wf() -> VibeWorkflow:
+    """Mirrors the corpus pattern that refused at B03 HEAD: unbacked GetNode
+    (no SetNode for its channel), dangling Reroute (no inbound), and a
+    source-less SetNode-as-source all feeding real consumers.  These are
+    stable display-plumbing properties of an unchanged workflow — the semantic
+    resolution must degenerate them to opaque terminals instead of fabricating
+    ``*:0`` resolution issues that refused schema-less dict-row consumers."""
+    wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))
+    wf.nodes["35"] = VibeNode("35", "VHS_VideoCombine", uid="35")
+    wf.nodes["56"] = VibeNode("56", "VHS_VideoCombine", uid="56")
+    wf.nodes["66"] = VibeNode("66", "ImageScale", uid="66")
+    wf.nodes["40"] = VibeNode("40", "Consumer", uid="40")
+    wf.nodes["137"] = VibeNode("137", "GetNode", uid="137", inputs={"name": "fps"})
+    wf.nodes["158"] = VibeNode("158", "Reroute", uid="158")
+    wf.nodes["601"] = VibeNode("601", "SetNode", uid="601", inputs={"name": "LATENT"})
+    wf.edges = [
+        VibeEdge("137", "0", "35", "frame_rate"),
+        VibeEdge("158", "0", "66", "round_to_multiple"),
+        VibeEdge("601", "0", "40", "samples"),
+    ]
+    return wf
+
+
+def test_unchanged_orphaned_helper_plumbing_produces_no_delta():
+    """An unchanged workflow with unbacked GetNode / dangling Reroute /
+    source-less SetNode plumbing yields NO delta and NO resolution issues.
+
+    Before the fix, each zero-candidate helper emitted ``*:0`` resolution
+    issues that were attributed to the consumers, fabricating a
+    ``semantic_link_set`` delta and refusing the unchanged schema-less
+    VHS_VideoCombine pins (B03 rework6: 6 corpus files refused at HEAD).
+    """
+    wf = _orphaned_plumbing_wf()
+    snap = capture_ingest_snapshot({}, wf)
+    delta = compute_field_delta(snap, wf)
+    assert delta == {}
+
+
+def test_adding_setter_to_orphaned_getnode_channel_is_detected():
+    """Backing an orphaned GetNode channel with a real SetNode changes the
+    canonical terminal from the opaque GetNode uid to the setter's source —
+    the downstream consumer must surface a semantic-link delta (fail closed
+    on the genuine difference)."""
+    wf = _orphaned_plumbing_wf()
+    snap = capture_ingest_snapshot({}, wf)
+
+    wf.nodes["1"] = VibeNode("1", "LoadImage", uid="load-image")
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "fps"})
+    wf.edges = [
+        VibeEdge("1", "0", "10", "broadcast_in"),
+        VibeEdge("10", "0", "137", "broadcast_out"),
+        VibeEdge("137", "0", "35", "frame_rate"),
+        VibeEdge("158", "0", "66", "round_to_multiple"),
+        VibeEdge("601", "0", "40", "samples"),
+    ]
+
+    delta = compute_field_delta(snap, wf)
+    assert "35" in delta
+    semantic = delta["35"]["semantic_link_set"]
+    assert semantic["before"] == (("137", "0", "35", "frame_rate"),)
+    assert semantic["after"] == (("load-image", "0", "35", "frame_rate"),)
+    assert semantic["before"] != semantic["after"]
+    assert semantic["before_resolution_issues"] == ()
+    assert semantic["after_resolution_issues"] == ()
+    # The GetNode's own incident changed too: it is no longer the opaque
+    # terminal of the edge (the channel now resolves past it).
+    assert delta["137"]["semantic_link_set"]["before"] == (("137", "0", "35", "frame_rate"),)
+    assert delta["137"]["semantic_link_set"]["after"] == ()
+    # Unrelated consumers of the other orphaned plumbing stay clean.
+    for uid in ("56", "66", "40", "158", "601"):
+        assert "semantic_link_set" not in delta.get(uid, {})
+
+
 def test_ordinary_clone_shaped_uid_without_lowering_metadata_has_no_delta():
     """A textual ``*:iterN:*`` UID is not lowering provenance by itself."""
     wf = VibeWorkflow("wf", WorkflowSource("wf", None, "test"))

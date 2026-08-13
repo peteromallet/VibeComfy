@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.porting.layout_store import store_from_ui_json
-from vibecomfy.porting.layout.delta import canonical_semantic_link_set
+from vibecomfy.porting.layout.delta import canonical_semantic_link_set, compute_field_delta
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.lowering import clone_uid
@@ -419,6 +419,53 @@ def test_setnode_passthrough_does_not_fabricate_link_delta_on_pinned_node() -> N
         )
 
     assert len(ui["nodes"]) == 4
+    entry = next(item for item in report if item.get("node_id") == "7")
+    assert entry["widget_shape_verdict"] == "pin_opaque"
+    assert "link_delta" not in entry["widget_shape_details"]["reasons"]
+
+
+def test_getnode_input_chain_does_not_fabricate_link_delta_on_pinned_node() -> None:
+    """B03 rework5: an unchanged ``source → SetNode → Reroute → GetNode →
+    consumer`` display chain must not fabricate a link delta on an unrelated
+    pinned dynamic node (mirrors tests/test_virtual_wire_round_trip.py:70).
+
+    Before the fix, every edge entering a GetNode emitted
+    ``helper_input_unsupported``; the global issue attached a fabricated
+    ``semantic_link_set`` delta to every node, which added a ``link_delta``
+    blocker and refused this pinned DynamicRows node during emit.
+    """
+    raw_ui = _raw_dynamic_ui()
+    wf = _wf()
+    wf.nodes["7"] = VibeNode(
+        "7",
+        "DynamicRows",
+        uid="uid-dynamic",
+        raw_widgets=_raw_widgets(),
+    )
+    wf.nodes["1"] = VibeNode("1", "CheckpointLoaderSimple", uid="uid-loader")
+    wf.nodes["10"] = VibeNode("10", "SetNode", uid="10", inputs={"widget_0": "LATENT"})
+    wf.nodes["14"] = VibeNode("14", "Reroute", uid="14")
+    wf.nodes["11"] = VibeNode("11", "GetNode", uid="11", inputs={"widget_0": "LATENT"})
+    wf.nodes["5"] = VibeNode("5", "KSampler", uid="consumer")
+    wf.edges = [
+        VibeEdge("1", "0", "10", "broadcast_in"),
+        VibeEdge("10", "0", "14", "0"),
+        VibeEdge("14", "0", "11", "broadcast_out"),
+        VibeEdge("11", "0", "5", "model"),
+    ]
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+
+    report: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(
+            wf,
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+            recovery_report=report,
+        )
+
+    assert len(ui["nodes"]) == 6
     entry = next(item for item in report if item.get("node_id") == "7")
     assert entry["widget_shape_verdict"] == "pin_opaque"
     assert "link_delta" not in entry["widget_shape_details"]["reasons"]
@@ -1230,11 +1277,6 @@ def test_pinned_semantic_genuine_consumer_change_refuses(
     ("nodes", "links", "issue_prefix"),
     [
         (
-            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
-            [("r", "0", "c", "input")],
-            "reroute_source_count:r:0",
-        ),
-        (
             {
                 "r1": ("reroute-1", "Reroute", None),
                 "r2": ("reroute-2", "Reroute", None),
@@ -1242,11 +1284,6 @@ def test_pinned_semantic_genuine_consumer_change_refuses(
             },
             [("r1", "0", "r2", ""), ("r2", "0", "r1", ""), ("r1", "0", "c", "input")],
             "cyclic_path:",
-        ),
-        (
-            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
-            [("g", "0", "c", "input")],
-            "broadcast_setter_count:g:MISSING:0",
         ),
         (
             {
@@ -1263,17 +1300,81 @@ def test_pinned_semantic_genuine_consumer_change_refuses(
             "reroute_source_count:r:2",
         ),
     ],
-    ids=["orphaned_reroute", "cyclic_reroute", "orphaned_broadcast", "ambiguous_reroute"],
+    ids=["cyclic_reroute", "ambiguous_reroute"],
 )
 def test_pinned_semantic_unresolved_paths_fail_closed_deterministically(
     nodes: dict[str, tuple[str, str, str | None]],
     links: list[tuple[str, str, str, str]],
     issue_prefix: str,
 ) -> None:
+    """Genuinely ambiguous/cyclic helper paths fail closed deterministically.
+
+    Multiple inbound candidates (``*:N`` with N >= 2) and cyclic traversal are
+    genuine ambiguity and must never resolve silently; the verdict is
+    deterministic regardless of link iteration order (B03 rework6 keeps this
+    fail-closed guarantee — only zero-candidate orphaned plumbing resolves to
+    opaque terminals, see ``test_pinned_semantic_orphaned_helpers_resolve``).
+    """
     first = canonical_semantic_link_set(nodes, links)
     second = canonical_semantic_link_set(nodes, reversed(links))
     assert first == second
     assert any(issue.startswith(issue_prefix) for issue in first[1])
+
+
+@pytest.mark.parametrize(
+    ("nodes", "links", "expected_terminal_uid"),
+    [
+        (
+            {"r": ("reroute", "Reroute", None), "c": ("consumer", "Consumer", None)},
+            [("r", "0", "c", "input")],
+            "reroute",
+        ),
+        (
+            {"g": ("get", "GetNode", "MISSING"), "c": ("consumer", "Consumer", None)},
+            [("g", "0", "c", "input")],
+            "get",
+        ),
+        (
+            {"s": ("set", "SetNode", "LATENT"), "c": ("consumer", "Consumer", None)},
+            [("s", "0", "c", "input")],
+            "set",
+        ),
+        (
+            {
+                "g": ("get", "GetNode", "LATENT"),
+                "s": ("set", "SetNode", "LATENT"),
+                "c": ("consumer", "Consumer", None),
+            },
+            [("s", "0", "g", "broadcast_out"), ("g", "0", "c", "input")],
+            "set",
+        ),
+    ],
+    ids=["orphaned_reroute", "orphaned_broadcast", "orphaned_setnode_source", "setter_without_source"],
+)
+def test_pinned_semantic_orphaned_helpers_resolve_to_opaque_terminals(
+    nodes: dict[str, tuple[str, str, str | None]],
+    links: list[tuple[str, str, str, str]],
+    expected_terminal_uid: str,
+) -> None:
+    """Zero-candidate helpers resolve to their own opaque terminal.
+
+    A dangling Reroute (no inbound), a GetNode whose channel has no SetNode,
+    a source-less SetNode, and a unique setter with no inbound are all stable
+    display-plumbing properties, NOT changes: recording ``*:0`` resolution
+    issues fabricated a ``link_delta`` on unchanged schema-less consumers
+    (B03 rework6).  They degenerate to an opaque terminal at the helper's own
+    uid so an unchanged workflow compares equal, while any real rewiring
+    (adding a source/setter) still changes the canonical terminal and is
+    detected.  The verdict is deterministic under link iteration order.
+    """
+    first = canonical_semantic_link_set(nodes, links)
+    second = canonical_semantic_link_set(nodes, reversed(links))
+    assert first == second
+    semantic, issues = first
+    assert issues == ()
+    assert semantic == (
+        (expected_terminal_uid, "0", "consumer", "input"),
+    )
 
 
 def test_pinned_semantic_distinct_helper_input_endpoints_are_ambiguous() -> None:
@@ -1308,7 +1409,7 @@ def test_pinned_semantic_duplicate_uid_diagnostics_ignore_mapping_order() -> Non
     )
 
 
-def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() -> None:
+def test_pinned_semantic_orphaned_consumer_path_refuses_with_link_delta() -> None:
     wf, raw_ui = _semantic_pin_workflow()
     wf.nodes["9"] = VibeNode("9", "SaveImage", uid="consumer")
     wf.edges = [VibeEdge("7", "0", "9", "images")]
@@ -1323,10 +1424,19 @@ def test_pinned_semantic_orphaned_consumer_path_refuses_with_resolution_issue() 
 
     semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
     assert semantic_delta["before"] == [["uid-dynamic", "0", "consumer", "images"]]
+    # B03 rework6: the orphaned GetNode is a zero-candidate helper, so it
+    # resolves to its own opaque terminal instead of fabricating a resolution
+    # issue — the refusal is driven by the canonical incident CHANGE on the
+    # pinned node's uid (its edge was repointed to the orphaned GetNode),
+    # which is the genuine difference.
     assert semantic_delta["after"] == []
-    assert semantic_delta["after_resolution_issues"] == [
-        "broadcast_setter_count:11:MISSING:0"
-    ]
+    # B03 rework5: resolution issues are attributed to the nodes actually
+    # involved (the orphaned GetNode and its consumer), not fanned out to the
+    # unrelated pinned node.
+    assert semantic_delta["after_resolution_issues"] == []
+    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+    assert consumer_issues == ()
 
 
 def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
@@ -1349,8 +1459,13 @@ def test_pinned_semantic_cyclic_consumer_path_refuses_fail_closed() -> None:
 
     semantic_delta = exc_info.value.diff["7"]["details"]["link_delta"]["semantic_link_set"]
     assert semantic_delta["after"] == []
-    assert len(semantic_delta["after_resolution_issues"]) == 1
-    assert semantic_delta["after_resolution_issues"][0].startswith("cyclic_path:")
+    # B03 rework5: the cyclic-path issue belongs to the consumer actually fed
+    # by the cyclic Reroute chain, not to the unrelated pinned node.
+    assert semantic_delta["after_resolution_issues"] == []
+    field_delta = compute_field_delta(wf.metadata["_ingest_snapshot"], wf)
+    consumer_issues = field_delta["consumer"]["semantic_link_set"]["after_resolution_issues"]
+    assert len(consumer_issues) == 1
+    assert consumer_issues[0].startswith("cyclic_path:")
 
 
 def test_pinned_semantic_multiplicity_dedupes_but_ports_remain_identity() -> None:

@@ -51,6 +51,28 @@ def canonical_semantic_link_set(
     UIDs are collapsed to the source consumer UID. Ambiguous, missing, orphaned,
     or cyclic paths are reported instead of being silently discarded.
     """
+    semantic, issues, _attribution = _canonical_semantic_link_set(
+        nodes,
+        links,
+        consumer_uid_aliases=consumer_uid_aliases,
+    )
+    return semantic, issues
+
+
+def _canonical_semantic_link_set(
+    nodes: Mapping[str, SemanticNode],
+    links: Iterable[SemanticLink],
+    *,
+    consumer_uid_aliases: Mapping[str, str] | None = None,
+) -> tuple[tuple[SemanticLink, ...], tuple[str, ...], dict[str, frozenset[str]]]:
+    """Resolution core: returns ``(links, issues, issue_attribution)``.
+
+    ``issue_attribution`` maps each canonical consumer uid to the resolution
+    issues that involve it: issues recorded while resolving one of the
+    consumer's inbound edges plus issues that name one of its graph-local
+    ids.  ``compute_field_delta`` uses this map so a single global issue
+    never fans out into a per-node delta on every snapshot node.
+    """
     aliases = {
         str(uid): str(canonical)
         for uid, canonical in (consumer_uid_aliases or {}).items()
@@ -66,6 +88,17 @@ def canonical_semantic_link_set(
         }
     )
     issues: set[str] = set()
+    # Ordered record of every issue as first detected, so a failing resolution
+    # can attribute exactly the issues it added to the consuming edge.
+    issue_log: list[str] = []
+    # canonical consumer uid -> resolution issues that involve it.
+    attribution: dict[str, set[str]] = defaultdict(set)
+
+    def record_issue(issue: str) -> None:
+        if issue in issues:
+            return
+        issues.add(issue)
+        issue_log.append(issue)
 
     uids: dict[str, str] = {}
     for node_id, (uid, _class_type, _channel) in sorted(
@@ -73,16 +106,21 @@ def canonical_semantic_link_set(
     ):
         prior_id = uids.get(uid)
         if prior_id is not None and prior_id != node_id:
-            issues.add(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
+            record_issue(f"duplicate_uid:{uid}:{min(prior_id, node_id)}:{max(prior_id, node_id)}")
         else:
             uids[uid] = node_id
 
     inbound: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     for source, source_output, consumer, consumer_input in link_rows:
         if source not in normalized_nodes:
-            issues.add(f"unknown_source:{source}")
+            record_issue(f"unknown_source:{source}")
+            consumer_spec = normalized_nodes.get(consumer)
+            if consumer_spec is not None:
+                attribution[
+                    aliases.get(str(consumer_spec[0]), str(consumer_spec[0]))
+                ].add(f"unknown_source:{source}")
         if consumer not in normalized_nodes:
-            issues.add(f"unknown_consumer:{consumer}")
+            record_issue(f"unknown_consumer:{consumer}")
         # Keep the helper endpoint's input identity until ambiguity has been
         # decided.  Two edges from the same source/output into different
         # helper inputs are still two distinct candidates and must fail closed.
@@ -105,34 +143,39 @@ def canonical_semantic_link_set(
     # and the path is reported via ``cyclic_path:`` (fail closed).  The hard
     # ``_MAX_SEMANTIC_WALK`` hop cap guarantees bounded time even for
     # adversarial inputs, so every call returns a deterministic verdict.
-    memo: dict[tuple[str, str], tuple[str, str] | None] = {}
+    # ``(result, issues)`` where ``issues`` are the resolution issues recorded
+    # while first resolving that key (replayed on memo hits so every consuming
+    # edge of a failed key is attributed the same fail-closed diagnostics).
+    memo: dict[tuple[str, str], tuple[tuple[str, str] | None, frozenset[str]]] = {}
     in_progress: set[tuple[str, str]] = set()
 
     def terminal_source(
         node_id: str,
         output_port: str,
-    ) -> tuple[str, str] | None:
+    ) -> tuple[tuple[str, str] | None, frozenset[str]]:
         start = (node_id, output_port)
         if start in memo:
             return memo[start]
         path: list[tuple[str, str]] = []
         current = start
         result: tuple[str, str] | None = None
+        issues_for_key: frozenset[str] = frozenset()
+        walk_start = len(issue_log)
         while True:
             key = current
             if key in memo:
-                result = memo[key]
+                result, issues_for_key = memo[key]
                 break
             if key in in_progress:
                 cycle_nodes = {
                     hop[0] for hop in path[path.index(key):]
                 } | {key[0]}
-                issues.add(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
+                record_issue(f"cyclic_path:{':'.join(sorted(cycle_nodes))}")
                 result = None
                 break
             spec = normalized_nodes.get(key[0])
             if spec is None:
-                issues.add(f"unknown_source:{key[0]}")
+                record_issue(f"unknown_source:{key[0]}")
                 result = None
                 break
             uid, class_type, channel = spec
@@ -141,52 +184,90 @@ def canonical_semantic_link_set(
                 break
             if class_type == "Reroute":
                 candidates = sorted(set(inbound.get(key[0], ())))
+                if not candidates:
+                    # A Reroute with no inbound terminal is opaque display
+                    # plumbing: its outbound edge carries no resolvable source,
+                    # so the helper degenerates to an opaque terminal at its
+                    # own (uid, port).  This is a stable property of the graph,
+                    # not a change — recording ``reroute_source_count:*:0``
+                    # here fabricated a link delta on every downstream consumer
+                    # of unchanged schema-less nodes (B03 rework6).  Two or
+                    # more inbound candidates remain genuine ambiguity and fail
+                    # closed below.
+                    result = (uid, key[1])
+                    break
                 if len(candidates) != 1:
-                    issues.add(f"reroute_source_count:{key[0]}:{len(candidates)}")
+                    record_issue(f"reroute_source_count:{key[0]}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
             elif class_type == "GetNode":
                 if not channel:
-                    issues.add(f"broadcast_name_missing:{key[0]}")
+                    record_issue(f"broadcast_name_missing:{key[0]}")
                     result = None
                     break
                 setters = sorted(set(setters_by_channel.get(str(channel), ())))
+                if not setters:
+                    # No SetNode backs this channel: the GetNode is an unbacked
+                    # display device whose outbound value is opaque.  It
+                    # degenerates to an opaque terminal at its own (uid, port)
+                    # instead of fabricating ``broadcast_setter_count:*:0`` on
+                    # unchanged consumers (B03 rework6).  Multiple setters for
+                    # one channel remain genuine ambiguity and fail closed below.
+                    result = (uid, key[1])
+                    break
                 if len(setters) != 1:
-                    issues.add(
+                    record_issue(
                         f"broadcast_setter_count:{key[0]}:{channel}:{len(setters)}"
                     )
                     result = None
                     break
                 setter_id = setters[0]
                 candidates = sorted(set(inbound.get(setter_id, ())))
+                if not candidates:
+                    # The channel's sole SetNode has no inbound terminal: the
+                    # setter itself is the opaque value source.  Same degenerate
+                    # rule as the source-less SetNode-as-source case below.
+                    setter_uid = normalized_nodes[setter_id][0]
+                    result = (setter_uid, key[1])
+                    break
                 if len(candidates) != 1:
-                    issues.add(f"broadcast_source_count:{setter_id}:{len(candidates)}")
+                    record_issue(f"broadcast_source_count:{setter_id}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
             else:  # SetNode used as a source resolves passthrough through its
                 # unique inbound terminal, exactly as the compiler resolves the
-                # same case (_compile/_resolve.py:172).  Zero or multiple
-                # inbound candidates are genuinely ambiguous and fail closed.
+                # same case (_compile/_resolve.py:172).  A source-less SetNode
+                # (zero inbound) degenerates to an opaque terminal at its own
+                # uid (B03 rework6); two or more inbound candidates are
+                # genuinely ambiguous and fail closed below.
                 candidates = sorted(set(inbound.get(key[0], ())))
+                if not candidates:
+                    result = (uid, key[1])
+                    break
                 if len(candidates) != 1:
-                    issues.add(f"setnode_as_source:{key[0]}:{len(candidates)}")
+                    record_issue(f"setnode_as_source:{key[0]}:{len(candidates)}")
                     result = None
                     break
                 next_node, next_port, _target_input = candidates[0]
             in_progress.add(key)
             path.append(key)
             if len(path) > _MAX_SEMANTIC_WALK:
-                issues.add(f"semantic_walk_limit:{key[0]}")
+                record_issue(f"semantic_walk_limit:{key[0]}")
                 result = None
                 break
             current = (next_node, next_port)
+        if result is None:
+            # A failure may have been replayed from a memoized key; either way
+            # the issues that blocked this resolution belong to every consumer
+            # of it, so the full set is cached on each visited key.
+            issues_for_key = frozenset(issue_log[walk_start:]) | issues_for_key
         for visited_key in path:
-            memo[visited_key] = result
+            memo[visited_key] = (result, issues_for_key)
             in_progress.discard(visited_key)
-        memo[start] = result
-        return result
+        memo[start] = (result, issues_for_key)
+        return result, issues_for_key
 
     semantic: set[SemanticLink] = set()
     for source, source_output, consumer, consumer_input in link_rows:
@@ -196,10 +277,25 @@ def canonical_semantic_link_set(
         consumer_uid, consumer_class_type, _channel = consumer_spec
         if consumer_class_type in {"SetNode", "Reroute"}:
             continue
+        consumer_key = aliases.get(consumer_uid, consumer_uid)
         if consumer_class_type == "GetNode":
-            issues.add(f"helper_input_unsupported:{consumer}")
+            if consumer_input == "broadcast_out":
+                # An edge entering a GetNode through its channel input is a
+                # display edge: the compiler resolves the GetNode's outbound
+                # through its channel and removes the helper-touching display
+                # edge (_compile/_resolve.py:136). Resolving the channel here
+                # means a resolvable chain never emits helper_input_unsupported;
+                # genuinely unresolvable channels (missing name, non-unique
+                # setter, non-unique setter inbound, cycles) still fail closed
+                # with the specific issue recorded by the walk.
+                _terminal, term_issues = terminal_source(consumer, source_output)
+                attribution[consumer_key].update(term_issues)
+                continue
+            record_issue(f"helper_input_unsupported:{consumer}")
+            attribution[consumer_key].add(f"helper_input_unsupported:{consumer}")
             continue
-        terminal = terminal_source(source, source_output)
+        terminal, term_issues = terminal_source(source, source_output)
+        attribution[consumer_key].update(term_issues)
         if terminal is None:
             continue
         semantic.add(
@@ -211,7 +307,50 @@ def canonical_semantic_link_set(
             )
         )
 
-    return tuple(sorted(semantic)), tuple(sorted(issues))
+    # Named-node attribution: an issue that names a graph-local node also
+    # belongs on that node's own uid, even when the failing walk was first
+    # observed from a different consumer (memoized resolution).
+    for issue in issues:
+        for mentioned_uid in _issue_mentioned_uids(issue, normalized_nodes):
+            attribution[mentioned_uid].add(issue)
+
+    return (
+        tuple(sorted(semantic)),
+        tuple(sorted(issues)),
+        {uid: frozenset(issue_set) for uid, issue_set in attribution.items()},
+    )
+
+
+def _issue_mentioned_uids(
+    issue: str,
+    nodes: Mapping[str, SemanticNode],
+) -> frozenset[str]:
+    """Map the graph-local node ids named by a resolution issue to stable uids.
+
+    ``unknown_source``/``unknown_consumer`` name ghost ids absent from
+    ``nodes`` by construction; they are attributed to the consuming edge at
+    record time instead of here.
+    """
+    code, _, rest = issue.partition(":")
+    parts = rest.split(":") if rest else []
+    if code == "duplicate_uid" and len(parts) >= 3:
+        # duplicate_uid:<uid>:<id_a>:<id_b>
+        mentioned = {parts[0]}
+        for node_id in parts[1:3]:
+            spec = nodes.get(node_id)
+            mentioned.add(spec[0] if spec else node_id)
+        return frozenset(mentioned)
+    if code == "cyclic_path":
+        node_ids = parts
+    elif code in {"unknown_source", "unknown_consumer"} or not parts:
+        return frozenset()
+    else:
+        node_ids = (parts[0],)
+    mentioned: set[str] = set()
+    for node_id in node_ids:
+        spec = nodes.get(node_id)
+        mentioned.add(spec[0] if spec else node_id)
+    return frozenset(mentioned)
 
 
 def _snapshot_channel(snapshot_entry: Mapping[str, Any]) -> str | None:
@@ -369,12 +508,12 @@ def compute_field_delta(
     # contain newly lowered clones absent from the snapshot, so it retains the
     # complete validated live alias map.
     before_aliases = _snapshot_consumer_uid_aliases(before_nodes, after_aliases)
-    canonical_before, before_issues = canonical_semantic_link_set(
+    canonical_before, _before_issues, before_attribution = _canonical_semantic_link_set(
         before_nodes,
         before_links,
         consumer_uid_aliases=before_aliases,
     )
-    canonical_after, after_issues = canonical_semantic_link_set(
+    canonical_after, _after_issues, after_attribution = _canonical_semantic_link_set(
         after_nodes,
         after_links,
         consumer_uid_aliases=after_aliases,
@@ -409,12 +548,18 @@ def compute_field_delta(
         after_incident = tuple(
             link for link in canonical_after if link[0] == uid_key or link[2] == uid_key
         )
-        if before_incident != after_incident or before_issues or after_issues:
+        # Resolution issues are attached only to the snapshot nodes actually
+        # involved (issue-named uids plus consumers of the failing edges), so
+        # a single ambiguous helper never fabricates a semantic-link delta on
+        # unrelated pins (B03 oracle finding 3 fan-out amplification).
+        before_uid_issues = tuple(sorted(before_attribution.get(uid_key, ())))
+        after_uid_issues = tuple(sorted(after_attribution.get(uid_key, ())))
+        if before_incident != after_incident or before_uid_issues or after_uid_issues:
             node_delta["semantic_link_set"] = {
                 "before": before_incident,
                 "after": after_incident,
-                "before_resolution_issues": before_issues,
-                "after_resolution_issues": after_issues,
+                "before_resolution_issues": before_uid_issues,
+                "after_resolution_issues": after_uid_issues,
             }
 
         if node_delta:
