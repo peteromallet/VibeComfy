@@ -1671,7 +1671,7 @@ def _research_brief_from_plan(
                 "avoid": [
                     "generic searches for the raw sentence",
                     "stopword-only searches such as there way run",
-                    "treating Discord snippets as authoritative without workflow evidence",
+                    "inventing community consensus that the sources do not support",
                 ],
                 "known_graph_context": plan.known_graph_context
                 or "Attached graph may be absent; infer only broad workflow family from the request.",

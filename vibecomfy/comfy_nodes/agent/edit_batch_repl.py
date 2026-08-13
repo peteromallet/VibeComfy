@@ -226,6 +226,66 @@ def _import_from(module_path: str, name: str) -> Any:
     return getattr(importlib.import_module(module_path), name)
 
 
+# ── Research collection fold (B03) ──────────────────────────────────────────
+# Transport plumbing only: cross-turn union of message/distillation sources and
+# last-write-wins paragraphs, folded from each live StatementResult.detail right
+# after resolve.  No ranking, no IDF, no "stronger row" selection, no latch, no
+# evidence card, and no stop decision.  The agent already saw every row in
+# query_output and judges relevance itself.
+
+
+def _dedupe_sources_by_id(
+    *batches: tuple[Mapping[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
+    """Cross-turn union of research sources. Dedupe key kind:hivemind_id
+    (fallback url). First-seen wins. Does not re-query HTTP. Does not rank by
+    IDF. Display order is applied at stamp/hoist time.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for batch in batches:
+        for source in batch:
+            if not isinstance(source, Mapping):
+                continue
+            kind = str(source.get("source") or source.get("kind") or "")
+            item_id = str(source.get("hivemind_id") or source.get("item_id") or "")
+            url = str(source.get("url") or "")
+            key = f"{kind}:{item_id}" if kind and item_id else url
+            if not key:
+                key = str(source.get("title") or source.get("class_type") or "")[:80]
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(source))
+    return tuple(merged)
+
+
+def _fold_research_statement(state: Any, detail: Mapping[str, Any]) -> None:
+    """Fold one resolved research statement's detail into the collected state.
+
+    First-seen-wins on sources is enough: if a later research() returns a
+    better excerpt for the same id, losing it is acceptable — the agent already
+    saw both in query_output.  Last-write-wins on the paragraphs is intentional
+    (the agent already saw the earlier paragraph in Prior research/query
+    memory).  Never picks the "better" summary with a strength rank.
+    """
+    incoming = tuple(
+        s
+        for s in (detail.get("research_result_sources") or ())
+        if isinstance(s, Mapping)
+    )
+    state.collected_research_sources = _dedupe_sources_by_id(
+        getattr(state, "collected_research_sources", ()) or (),
+        incoming,
+    )
+    community = str(detail.get("community_summary") or "").strip()
+    if community:
+        state.collected_community_summary = community
+    summary = str(detail.get("research_summary") or "").strip()
+    if summary:
+        state.collected_research_summary = summary
+
+
 # ── Batch REPL loop (T-037 extraction) ─────────────────────────────────────
 # The batch loop (formerly stitched into the edit façade from the three
 # edit_batch_loop_{intro,apply,finish} fragments, group 11 of the old
@@ -1247,11 +1307,18 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # Keep the user request available for exact-value extraction even when no
     # precedent bindings exist. The resolver treats absent or ineligible
     # bindings as a no-op, so an empty/partial context cannot gate construction.
+    # B03: canonical_route / research_only_route are computed BEFORE the session
+    # is built so the omit-site resolver (session.research_only) can default
+    # omitted research() sources= to ("messages", "web") on the research route.
+    canonical_route = deps._canonical_agent_edit_route(state.route or route)
+    research_only_route = canonical_route == "research"
     session = edit_session_module.EditSession(
         prepared_ui,
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
     )
+    session.executor_research_brief = state.executor_research_brief  # dict | None
+    session.research_only = research_only_route
     state.batch_session = session
     initial_render = session.render()
     present_types = deps._present_class_types(session)
@@ -1319,8 +1386,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # revise route.
     precedent_adaptation_prompt = ""
     adapt_scoped_research_context = ""
-    canonical_route = deps._canonical_agent_edit_route(state.route or route)
-    research_only_route = canonical_route == "research"
     if canonical_route in {"adapt", "revise"} and (
         state.executor_adaptation_plan or state.executor_precedent_slices
     ):
@@ -1915,6 +1980,19 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             )
 
         batch_result = session.apply_batch(editable_batch)
+        # ── B03: fold live research StatementResult.detail after resolve ──
+        # Collection plumbing on the LIVE statements (not the serialized
+        # turn_record): message/distillation sources union by id, and
+        # last-write-wins community/research paragraphs.  Never a latch, never
+        # a stop decision — the agent already judged these rows in query_output.
+        for item in batch_result.statements:
+            if not getattr(item, "ok", False):
+                continue
+            if str(getattr(item, "op_kind", "") or "") != "query":
+                continue
+            detail = getattr(item, "detail", None)
+            if isinstance(detail, Mapping) and detail.get("research_query"):
+                _fold_research_statement(state, detail)
         deps._enrich_schema_provider_from_resolver_candidates(
             state,
             session,

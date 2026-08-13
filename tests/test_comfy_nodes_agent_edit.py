@@ -3490,6 +3490,166 @@ def test_batch_repl_research_memory_keeps_workflow_evidence_across_turns() -> No
     assert "Use workflow precedent as pattern evidence" in memory
 
 
+def test_batch_repl_research_memory_persists_message_kind_results() -> None:
+    """B03: a research() statement with message-kind results survives into
+    next-turn memory even without workflow markers — research_query alone is
+    relevant, and the community paragraph is carried verbatim."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "turn_number": 1,
+                "statements": [
+                    {
+                        "source": 'research("MiniMax H3")',
+                        "detail": {
+                            "query": "research",
+                            "research_query": "MiniMax H3",
+                            "requested_research_sources": ("messages", "web"),
+                            "community_summary": (
+                                "alice in #minimax_h3_chatter: loving the new model"
+                            ),
+                            "query_output": (
+                                "alice in #minimax_h3_chatter: loving the new model\n"
+                                "Sources:\n"
+                                "- MiniMax H3 is amazing (alice; minimax_h3_chatter; message)\n"
+                                "source kind: hivemind_message\n"
+                                "If the community evidence is thin or off-topic, search again "
+                                "with different terms (model name + version, or a "
+                                "complaint/praise phrase)."
+                            ),
+                        },
+                    }
+                ],
+            },
+        ]
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "MiniMax H3" in memory
+    assert "hivemind_message" in memory
+    assert "alice" in memory
+    assert "minimax_h3_chatter" in memory
+    assert "No community discussion found" not in memory
+
+
+def test_batch_repl_research_memory_persists_empty_community_sentence() -> None:
+    """B03: the empty-set community sentence alone marks a research turn
+    relevant for memory."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "turn_number": 2,
+                "statements": [
+                    {
+                        "source": 'research("LTX 2.5")',
+                        "detail": {
+                            "query": "research",
+                            "research_query": "LTX 2.5",
+                            "requested_research_sources": ("messages", "web"),
+                            "community_summary": 'No community discussion found for "LTX 2.5".',
+                            "query_output": 'No community discussion found for "LTX 2.5".',
+                        },
+                    }
+                ],
+            },
+        ]
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "LTX 2.5" in memory
+    assert "No community discussion found" in memory
+
+
+def test_batch_repl_research_memory_echoes_search_directions_as_candidates() -> None:
+    """B03: classify search_directions are echoed once as optional candidate
+    terms — prompt-visible, never executed."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        executor_research_brief={
+            "search_directions": [
+                "MiniMax H3 model community reception",
+                "MiniMax H3 complaints",
+                "MiniMax H3 vs Hunyuan",
+            ],
+            "source_preferences": ["messages", "web"],
+        },
+        batch_turns=[
+            {
+                "turn_number": 1,
+                "statements": [
+                    {
+                        "source": 'research("MiniMax H3")',
+                        "detail": {
+                            "query": "research",
+                            "research_query": "MiniMax H3",
+                            "requested_research_sources": ("messages", "web"),
+                            "community_summary": "alice in #minimax_h3_chatter: loving it",
+                            "query_output": "alice in #minimax_h3_chatter: loving it",
+                        },
+                    }
+                ],
+            },
+        ],
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "Candidate search terms (optional; you may use these or invent better ones)" in memory
+    assert "MiniMax H3 model community reception" in memory
+    assert "MiniMax H3 complaints" in memory
+    assert "MiniMax H3 vs Hunyuan" in memory
+
+
+def test_batch_repl_research_memory_caps_directions_at_five() -> None:
+    """B03: at most five search_directions are echoed into the memory header."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        executor_research_brief={
+            "search_directions": [f"direction {i}" for i in range(8)],
+        },
+        batch_turns=[
+            {
+                "turn_number": 1,
+                "statements": [
+                    {
+                        "source": 'research("q")',
+                        "detail": {
+                            "query": "research",
+                            "research_query": "q",
+                            "requested_research_sources": ("messages", "web"),
+                            "community_summary": "x",
+                            "query_output": "x",
+                        },
+                    }
+                ],
+            },
+        ],
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "direction 0" in memory
+    assert "direction 4" in memory
+    assert "direction 5" not in memory
+    assert "direction 7" not in memory
+
+
 # ── T16: cross-turn memory compactness, no full-packet reserialization,
 #        forbidden-key absence ──────────────────────────────────────────
 
@@ -6586,7 +6746,12 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     assert "You are answering a research question" in system_prompt
     assert "Do not edit the graph" in system_prompt
     assert "Gather auditable evidence" in system_prompt
-    assert "never search the raw user sentence" in system_prompt
+    # B03 research-only prompt: omit default documented, search-again-vs-done
+    # left to agent judgment (construction strategy block removed)
+    assert "If sources are omitted on this informational route" in system_prompt
+    assert "messages and web" in system_prompt
+    assert "search again" in system_prompt
+    assert "call `done()`" in system_prompt
     assert "Research brief from triage (tentative retrieval hints; not findings)" in user_prompt
     assert "Use these hints to seed focused research" in user_prompt
     assert "prefer evidence that matches the user goal and current graph" in user_prompt
@@ -17982,6 +18147,43 @@ class TestBuildBatchMessagesResearchToolExposure:
         assert "Effective surface rule:" not in research_combined
         assert "linked override" not in research_combined
         assert "effective source" not in research_combined
+
+    def test_research_only_prompt_documents_omit_default_and_judgment(self) -> None:
+        """B03: the research-only prompt documents the messages+web omit
+        default, omits graph-construction + the 4-turn apply-edit cap, and
+        leaves search-again-vs-done to the agent's judgment."""
+        from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
+
+        messages = build_batch_messages(
+            task="What do people think about the new MiniMax H3 model?",
+            python_source="",
+            research_only=True,
+            max_batches=50,
+            budget_remaining=50,
+        )
+        system = messages[0]["content"]
+
+        assert "Do not edit the graph" in system
+        assert "Gather auditable evidence" in system
+        # omit default documented
+        assert "If sources are omitted on this informational route" in system
+        assert "messages and web" in system
+        assert "NOT workflows" in system
+        # no 4-turn apply-edit cap (only the explicit "no cap" sentence)
+        assert "Research cap:" not in system
+        assert "after 4 consecutive turns" not in system
+        assert "There is no 4-turn" in system
+        assert "Add:" not in system
+        assert "Change:" not in system
+        assert "Two moves:" not in system
+        assert "vibecomfy.exec" not in system
+        # judgment: search again vs done
+        assert "thin or off-topic, search again" in system
+        assert "call `done()`" in system
+        assert "search_directions are suggestions" in system
+        # no evidence card language
+        assert "evidence card" not in system
+        assert "strength=" not in system
 
     def test_research_block_uses_evidence_context_label_turn0(self) -> None:
         """Research block on turn 0 uses 'Research evidence/context' as the section

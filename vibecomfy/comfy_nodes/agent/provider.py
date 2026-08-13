@@ -369,7 +369,34 @@ def build_batch_messages(
         if research_only
         else "You edit a ComfyUI canvas as live Python objects.\n"
     )
-    system = (
+    if research_only:
+        # B03 research-only prompt: no graph-construction surface, no 4-turn
+        # apply-edit cap, omit default documented, search-again-vs-done left to
+        # the agent's judgment.  The resolver (not this prompt) selects the
+        # corpus; this text only orients the model.
+        system = (
+            "You are answering a research question for a ComfyUI canvas. Gather auditable "
+            "evidence with `research(...)`, then call `done()`. Do not edit the graph.\n\n"
+            "`research(\"query words\", sources=[\"workflows\",\"registry\",\"messages\",\"web\"])`\n"
+            "  — `messages` searches Banodoco Discord / unified_feed community knowledge, NOT workflows.\n"
+            "If sources are omitted on this informational route, the executor searches "
+            "messages and web. Do not pass sources=[\"workflows\"] for community opinion. "
+            "There is no 4-turn \"apply the best edit\" cap. Do not emit Add/Change "
+            "statements or code-node construction.\n\n"
+            "If the community evidence is thin or off-topic, search again with different "
+            "terms (model name + version, or a complaint/praise phrase). When you have "
+            "citable community answers, call `done()`. Candidate terms in the Research "
+            "brief's search_directions are suggestions you may use; they are not a "
+            "checklist. Cite author/channel for messages and title+status for "
+            "distillations. Do not invent quotes. Do not treat workflow templates as "
+            "community opinion.\n\n"
+            "Envelope: start with one user-facing prose sentence, then exactly one ```batch "
+            "fence. Never respond with only a fenced block. No extra fenced blocks before "
+            "the required ```batch fence.\n\n"
+            f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n"
+        )
+    else:
+        system = (
         mission +
         "Each node is a variable; wiring uses `.OUTPUT` from other variables.\n\n"
         "Two moves:\n"

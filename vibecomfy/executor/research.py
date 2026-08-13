@@ -5946,6 +5946,8 @@ def research(
     # ── Phase 2b: community messages tier (B02) ───────────────────────────
     # A separate normalize-only runner on the injectable messages client.
     # One call, one query string; no workflow-JSON fetching. Non-fatal.
+    message_sources: tuple[dict[str, Any], ...] = ()
+    messages_tier_ran = resolved_messages_client is not None and hivemind_timeout > 0
     if resolved_messages_client is not None and hivemind_timeout > 0:
         try:
             message_sources = _run_hivemind_messages_research(
@@ -5960,6 +5962,16 @@ def research(
         else:
             for ms in message_sources:
                 sources.append(ms)
+
+    # ── community display paragraph (B03) ─────────────────────────────────
+    # Extractive, display-only.  Assigned whenever the messages tier ran —
+    # including the literal "No community discussion found ..." sentence when
+    # it produced nothing (or errored).  Never a score / strength / latch.
+    community_summary = (
+        format_community_summary(message_sources, query=query)
+        if messages_tier_ran
+        else ""
+    )
 
     # ── Phase 3: read-only Comfy Registry / Manager missing-node evidence ─
     if resolved_registry_resolver is not None:
@@ -6170,6 +6182,7 @@ def research(
         sources=tuple(sources),
         warnings=tuple(list(warnings) + precedent_warnings),
         warning_details=tuple(warning_details),
+        community_summary=community_summary,
         precedent_slices=precedent_slices,
         adaptation_plan=adaptation_plan,
         precedent_packet=precedent_packet,

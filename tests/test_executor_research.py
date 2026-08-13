@@ -2247,6 +2247,149 @@ class TestResearchTierGating:
         assert {"type": "HivemindError", "message": "messages unreachable"} in result.warning_details
 
 
+# ── community_summary assignment (B03) ───────────────────────────────────────
+
+
+class TestResearchCommunitySummary:
+    """``research()`` writes ``ResearchResult.community_summary`` iff the
+    messages tier ran — including the empty-set sentence when it produced
+    nothing.  Extractive display only; never a score / strength / stop_reason.
+    """
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_tier_sets_community_summary(self, mock_corpus) -> None:
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "kind": "message",
+                        "title": "MiniMax H3 is amazing",
+                        "body": "loving the new model",
+                        "author_name": "alice",
+                        "channel_name": "minimax_h3_chatter",
+                        "message_id": "9007199254740993",
+                        "created_at": "2026-08-01T00:00:00Z",
+                    }
+                ]
+            }
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+            hivemind_timeout=0.5,
+        )
+
+        assert result.community_summary
+        assert "alice" in result.community_summary
+        assert "minimax_h3_chatter" in result.community_summary
+        # to_dict() emits the key only when non-empty
+        assert "community_summary" in result.to_dict()
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_tier_empty_result_still_sets_sentence(self, mock_corpus) -> None:
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            return {"results": []}
+
+        result = research(
+            "LTX 2.5",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+            hivemind_timeout=0.5,
+        )
+
+        assert result.community_summary == 'No community discussion found for "LTX 2.5".'
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_legacy_public_research_without_sources_has_empty_community_summary(
+        self, mock_corpus
+    ) -> None:
+        mock_corpus.return_value = [_make_entry("KSampler")]
+
+        result = research(
+            "Hotshot XL",
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+        )
+
+        # Messages tier never ran → field stays "" and to_dict() omits the key.
+        assert result.community_summary == ""
+        assert "community_summary" not in result.to_dict()
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_error_still_sets_empty_sentence(self, mock_corpus) -> None:
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            raise HivemindError("messages unreachable")
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+            hivemind_timeout=0.5,
+        )
+
+        # The tier ran (and errored) → honest empty-set sentence, non-fatal.
+        assert result.community_summary == 'No community discussion found for "MiniMax H3".'
+        assert any("hivemind messages" in w for w in result.warnings)
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_env_kill_switch_leaves_community_summary_empty(self, mock_corpus, monkeypatch) -> None:
+        monkeypatch.setenv("VIBECOMFY_MESSAGES_RESEARCH", "0")
+
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            raise AssertionError("messages client must not run when disabled")
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_timeout=0.5,
+        )
+
+        # Tier was requested but disabled → it did not run → no paragraph.
+        assert result.community_summary == ""
+        assert "messages tier disabled" in result.warnings
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_distillation_sources_are_summarized_with_status(self, mock_corpus) -> None:
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "kind": "distillation",
+                        "title": "LTX 2.5 community reception",
+                        "body": "Mostly positive reception in Banodoco.",
+                        "item_id": "dist-1",
+                        "metadata": {"status": "approved", "confidence": 0.8},
+                        "created_at": "2026-08-01T00:00:00Z",
+                    }
+                ]
+            }
+
+        result = research(
+            "LTX 2.5",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+            hivemind_timeout=0.5,
+        )
+
+        assert "approved" in result.community_summary
+        assert "LTX 2.5 community reception" in result.community_summary
+
+
 # ── HivemindClient protocol ──────────────────────────────────────────────────
 
 

@@ -1950,6 +1950,12 @@ class ResearchResult:
     warnings: tuple[str, ...] = ()
     warning_details: tuple[dict[str, Any], ...] = ()
 
+    # Extractive community display paragraph (messages tier).  Written by
+    # research() whenever the messages tier ran — including the literal
+    # "No community discussion found ..." sentence when it produced nothing.
+    # Display-only; never a score / strength / stop_reason.
+    community_summary: str = ""
+
     # ── structured precedent fields (SD2, optional) ──────────────────
     precedent_slices: tuple[WorkflowSlice, ...] = ()
     adaptation_plan: PrecedentAdaptationPlan | None = None
@@ -1983,6 +1989,8 @@ class ResearchResult:
             "sources": _thaw_jsonish(self.sources),
             "warnings": _thaw_jsonish(self.warnings),
         }
+        if self.community_summary:
+            result["community_summary"] = self.community_summary
         if self.warning_details:
             result["warning_details"] = _thaw_jsonish(self.warning_details)
         if self.precedent_slices:

@@ -205,6 +205,12 @@ class AgentEditState:
     executor_precedent_slices: tuple[dict[str, Any], ...] = ()
     executor_adaptation_plan: dict[str, Any] | None = None
     executor_research_brief: dict[str, Any] | None = None
+    # B03: cross-turn research collection (folded from live StatementResult.detail
+    # after each resolve).  Prompt-memory + structured evidence carry; NOT a latch,
+    # NOT an evidence card, and never read as a stop decision.
+    collected_research_sources: tuple[dict[str, Any], ...] = ()
+    collected_research_summary: str = ""
+    collected_community_summary: str = ""
     # SD3: adapt-prefetch scoped research nested under execution_protocol_notes.
     execution_protocol_notes: dict[str, Any] | None = None
     execution_plan: ExecutionPlan | None = None

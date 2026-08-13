@@ -212,9 +212,23 @@ def _format_research_query_output(result: Any) -> str:
     summary = _shorten_query_text(getattr(result, "summary", ""), max_chars=1200)
     if summary:
         lines.append(summary)
+    community_summary = str(getattr(result, "community_summary", "") or "").strip()
+    if community_summary:
+        lines.append(community_summary)
     sources = getattr(result, "sources", ()) or ()
     if sources:
         lines.append("Sources:")
+        message_kinds = {"hivemind_message", "hivemind_distillation"}
+        has_message_kinds = any(
+            isinstance(source, Mapping)
+            and str(source.get("source") or "") in message_kinds
+            for source in sources
+        )
+        # B03: message/distillation rows get the full 12-cap so the model can
+        # judge the same rows that get folded and hoisted.  Non-message
+        # results keep today's 5/8 structure.
+        first_cap = 12 if has_message_kinds else 5
+        total_cap = 12 if has_message_kinds else 8
         selected_sources: list[Any] = []
         seen_source_kinds: set[str] = set()
         for source in sources:
@@ -222,10 +236,10 @@ def _format_research_query_output(result: Any) -> str:
                 continue
             selected_sources.append(source)
             seen_source_kinds.add(str(source.get("source") or ""))
-            if len(selected_sources) >= 5:
+            if len(selected_sources) >= first_cap:
                 break
         for source in sources:
-            if len(selected_sources) >= 8:
+            if len(selected_sources) >= total_cap:
                 break
             if not isinstance(source, Mapping):
                 continue
@@ -245,9 +259,16 @@ def _format_research_query_output(result: Any) -> str:
                 or f"source {index}",
                 max_chars=140,
             )
+            source_kind = str(source.get("source") or "")
+            # B03: message/distillation rows carry author / channel /
+            # distillation_status in the descriptor parts so the agent can
+            # cite them without a second lookup.
+            descriptor_keys = ["kind", "source_type", "pack", "source_workflow_path", "path", "url"]
+            if source_kind in message_kinds:
+                descriptor_keys = ["author", "channel", "distillation_status"] + descriptor_keys
             descriptor_parts = [
                 _shorten_query_text(source.get(key), max_chars=180)
-                for key in ("kind", "source_type", "pack", "source_workflow_path", "path", "url")
+                for key in descriptor_keys
                 if source.get(key)
             ]
             descriptor = f" ({'; '.join(descriptor_parts[:4])})" if descriptor_parts else ""
@@ -380,9 +401,33 @@ def _has_url_only_web_leads(result: Any) -> bool:
     return False
 
 
+_MESSAGES_FOLLOWUP = (
+    "If the community evidence is thin or off-topic, search again with "
+    "different terms (model name + version, or a complaint/praise phrase). "
+    "Candidate terms in the Research brief's search_directions are suggestions "
+    "you may use; they are not a checklist. When you have citable community "
+    "answers, call done(). Cite author/channel for messages and title+status "
+    "for distillations. Do not invent quotes. Do not treat workflow templates "
+    "as community opinion."
+)
+
+
 def _research_followup_guidance(query: str, sources: tuple[str, ...], result: Any) -> str:
     notes: list[str] = []
     source_set = set(sources)
+    # B03: when messages are actually in play (and workflows/registry are not),
+    # emit ONLY the static messages followup — no Workflow-first / Research
+    # order / External workflow / Concrete pattern / Registry check notes.
+    # This is static prompt text, never gated on hit count or any strength
+    # helper.  Explicit sources=["web"] is NOT messages_in_play, so External
+    # workflow check still fires there.
+    messages_in_play = (
+        "messages" in source_set
+        and "workflows" not in source_set
+        and "registry" not in source_set
+    )
+    if messages_in_play:
+        return "\n\n" + _MESSAGES_FOLLOWUP
     if "workflows" in source_set:
         notes.append(
             "Workflow-first check: treat workflow/template results as usable precedent only if they mention "
@@ -781,9 +826,20 @@ class _ResolveMixin:
                 import importlib
 
                 research_module = importlib.import_module("vibecomfy.executor.research")
+                research_sources_module = importlib.import_module(
+                    "vibecomfy.executor.research_sources"
+                )
                 pack_resolver_module = importlib.import_module("vibecomfy.registry.pack_resolver")
                 httpx_module = importlib.import_module("httpx")
-                requested_source_tuple = requested_sources or ("workflows",)
+                # B03 omit-site: None / () / [] are OMISSION, not "search
+                # nothing".  Research-only sessions default to ("messages",
+                # "web"); every other route stays ("workflows",).  Explicit
+                # non-empty sources= wins with no union.  Classify
+                # source_preferences are never read here (prompt-visible only).
+                requested_source_tuple = research_sources_module.resolve_repl_research_sources(
+                    requested_sources,
+                    research_only=bool(getattr(self, "research_only", False)),
+                )
                 source_set = set(requested_source_tuple)
                 registry_resolver = None
                 if "registry" in source_set:
@@ -840,6 +896,21 @@ class _ResolveMixin:
                 "research_query": query,
                 "research_sources": tuple(source for source in requested_source_tuple if source in source_set),
                 "requested_research_sources": requested_source_tuple,
+                # B03 structured carry: message/distillation sources (cap 12),
+                # community paragraph, and summary survive into next-turn
+                # memory + the REPL fold.  Underscore audit keys are dropped
+                # except the three public stamp keys.  No evidence_card.
+                "research_result_sources": [
+                    {
+                        k: v
+                        for k, v in src.items()
+                        if not str(k).startswith("_")
+                        or k in {"_tier", "_freshness_status", "_retrieval_time"}
+                    }
+                    for src in (getattr(output, "sources", ()) or ())[:12]
+                ],
+                "community_summary": getattr(output, "community_summary", "") or "",
+                "research_summary": getattr(output, "summary", "") or "",
                 "resolver_candidates": [
                     source.get("resolver_candidate")
                     for source in getattr(output, "sources", ()) or ()
