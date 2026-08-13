@@ -139,7 +139,7 @@ def run_headless_scenario(
     )
 
     result = run_headless(request, entrypoint="live_agentic_harness")
-    return {
+    summary: dict[str, Any] = {
         "scenario_id": scenario_id,
         "status": result.status,
         "ok": result.ok,
@@ -150,3 +150,41 @@ def run_headless_scenario(
         "deepseek_est_cost_usd": result.response.get("deepseek_est_cost_usd"),
         "deepseek_cost_basis": result.response.get("deepseek_cost_basis"),
     }
+    # Persist the typed parse reason from the executor's model_response artifact
+    # so the runner's infra reclassification is evidence-based (parse_reason ==
+    # "empty" AND completion_tokens == 0), never phrase-matching alone.
+    parse_reason = _extract_parse_reason(result.response)
+    if parse_reason is not None:
+        summary["parse_reason"] = parse_reason
+    return summary
+
+
+def _extract_parse_reason(response: Mapping[str, Any]) -> str | None:
+    """Read ``parse_reason`` from the executor failure's model_response artifact.
+
+    Shape: ``response.report.executor.model_response.turns[0].error.parse_reason``.
+    Returns None when the attempt did not fail on a model response or the
+    artifact is missing — absence is NOT evidence of an empty response.
+    """
+    report = response.get("report")
+    if not isinstance(report, Mapping):
+        return None
+    executor = report.get("executor")
+    if not isinstance(executor, Mapping):
+        return None
+    model_response = executor.get("model_response")
+    if not isinstance(model_response, Mapping):
+        return None
+    turns = model_response.get("turns")
+    if not isinstance(turns, (list, tuple)) or not turns:
+        return None
+    first = turns[0]
+    if not isinstance(first, Mapping):
+        return None
+    error = first.get("error")
+    if not isinstance(error, Mapping):
+        return None
+    value = error.get("parse_reason")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()

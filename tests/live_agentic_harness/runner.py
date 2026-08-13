@@ -236,9 +236,9 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     """Observed completion tokens of the attempt's model call, or None when absent.
 
     The attempt summary (agentic_summary) carries ``deepseek_usage`` at the top
-    level — the executor result's usage dict.  ``completion_tokens == 0`` is the
-    structured evidence of an empty/transport response; absence of the record is
-    NOT evidence, so it never classifies as infra.
+    level — the executor result's usage dict.  A completion-token count of 0 is
+    the structured evidence of an empty/transport response; absence of the
+    record is NOT evidence, so it never classifies as infra.
     """
     usage = summary.get("deepseek_usage")
     if not isinstance(usage, Mapping):
@@ -249,16 +249,36 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     return int(value)
 
 
+def _summary_parse_reason(summary: dict[str, Any]) -> str | None:
+    """Typed parse reason of the attempt's failed model call, or None when absent.
+
+    Mirrors the worker/executor ``parse_reason`` vocabulary (``empty``,
+    ``malformed_json``, ``missing_content``, ...).  The adapter persists it on
+    the attempt summary from the executor's ``model_response`` artifact.  Absence
+    is NOT evidence: a parse phrase with no typed reason never classifies as
+    infra.
+    """
+    value = summary.get("parse_reason")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
 def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
     text = _summary_text_for_infra_classification(summary)
     if not text:
         return None
     if _PARSE_FAILURE_PATTERN.search(text):
         # The parse phrase alone is never infra: markdown instead of JSON is a
-        # product failure.  Only an empty model response — structured evidence
-        # that the call observed zero completion tokens (a transport-level
-        # reply) — is retryable infrastructure.
-        if _summary_completion_tokens(summary) == 0:
+        # product failure.  Only a typed EMPTY model response — structured
+        # evidence that parse_reason == "empty" AND the call observed zero
+        # completion tokens (a transport-level reply) — is retryable
+        # infrastructure.  A nonzero-token parser/contract failure stays
+        # product_fail and never receives the subprocess infra retry.
+        if (
+            _summary_parse_reason(summary) == "empty"
+            and _summary_completion_tokens(summary) == 0
+        ):
             return "infra_empty_response"
         return None
     if any(pattern.search(text) for pattern in _PROVIDER_INFRA_PATTERNS):

@@ -377,6 +377,135 @@ def test_openrouter_worker_error_message_includes_type(
         )
 
 
+def test_empty_worker_output_is_typed_empty_response() -> None:
+    """Empty output is typed ``empty_response``, never a content parse failure."""
+    from vibecomfy.comfy_nodes.agent.worker import (
+        EmptyModelResponseError,
+        _parse_failure_reason,
+        _persist_parse_evidence,
+    )
+
+    exc = EmptyModelResponseError("Agent returned an empty json response.")
+    assert _parse_failure_reason(exc, "") == "empty"
+    assert _parse_failure_reason(exc, None) == "empty"
+
+    out: dict = {}
+    _persist_parse_evidence(
+        out,
+        exc,
+        "",
+        {"finish_reason": "stop", "deepseek_usage": {"completion_tokens": 0, "prompt_tokens": 10, "total_tokens": 10}},
+        {
+            "agent_id": "hermes",
+            "model": "deepseek-v4-flash",
+            "agent_kwargs": {
+                "model": "deepseek-v4-flash",
+                "provider": "openrouter",
+                "base_url": "https://api.deepseek.com/v1",
+            },
+        },
+        {"backend_phase": "classify"},
+    )
+
+    assert out["parse_reason"] == "empty"
+    assert out["empty_response"] is True
+    assert out["completion_tokens_zero"] is True
+    assert out["completion_tokens"] == 0
+    assert out["finish_reason"] == "stop"
+    assert out["resolved_model"] == "deepseek-v4-flash"
+    assert out["adapter"] == "hermes"
+    assert out["provider"] == "openrouter"
+    assert out["endpoint"] == "https://api.deepseek.com/v1"
+    assert out["phase"] == "classify"
+    # Credentials never persist.
+    assert "api_key" not in out
+
+
+def test_empty_worker_result_is_retried_as_fresh_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typed empty response is a transient infra outcome: _run_worker retries
+    it as a fresh transport attempt, never surfacing it as a content failure."""
+    empty = {
+        "error": "Agent returned an empty json response.",
+        "error_type": "EmptyModelResponseError",
+        "empty_response": True,
+        "parse_reason": "empty",
+        "completion_tokens": 0,
+        "completion_tokens_zero": True,
+    }
+    good = {"content": '{"reply": "ok"}', "json": {"reply": "ok"}}
+    calls = []
+
+    def fake_once(*args, **kwargs):
+        calls.append((args, kwargs))
+        return empty if len(calls) == 1 else good
+
+    monkeypatch.setattr(runtime, "_run_worker_once", fake_once)
+    monkeypatch.setattr(runtime.time, "sleep", lambda _s: None)
+
+    result = runtime._run_worker(
+        {"api_key": "***"},
+        "sys",
+        "usr",
+        response_contract="json",
+        agent_id="hermes",
+        model="openrouter:deepseek/deepseek-v4-pro",
+    )
+
+    assert result == good
+    assert len(calls) == 2
+    assert calls[1][1]["profiling_context"]["transient_retry_count"] == 1
+
+
+def test_nonempty_invalid_json_remains_malformed_model_json() -> None:
+    """Nonempty invalid JSON stays a content/parser failure (malformed_json),
+    never the typed empty_response, and never consumes a transport retry."""
+    from vibecomfy.comfy_nodes.agent.worker import _parse_failure_reason, _persist_parse_evidence
+
+    import json as _json
+
+    exc = _json.JSONDecodeError("Expecting value", "{not json", 0)
+    assert _parse_failure_reason(exc, "{not json") == "malformed_json"
+
+    out: dict = {}
+    _persist_parse_evidence(
+        out,
+        exc,
+        "{not json",
+        {"finish_reason": "stop", "deepseek_usage": {"completion_tokens": 42, "prompt_tokens": 100, "total_tokens": 142}},
+        {
+            "agent_id": "hermes",
+            "model": "deepseek-v4-flash",
+            "agent_kwargs": {
+                "model": "deepseek-v4-flash",
+                "provider": "openrouter",
+                "base_url": "https://api.deepseek.com/v1",
+            },
+        },
+        {"backend_phase": "classify"},
+    )
+
+    assert out["parse_reason"] == "malformed_json"
+    assert out.get("empty_response") is not True
+    assert out["completion_tokens_zero"] is False
+    assert out["completion_tokens"] == 42
+    assert out["raw_response_preview"] == "{not json"
+
+    # The runtime treats a malformed nonempty JSON worker error as non-transient
+    # (owned by the response-contract retry layer) — never a fresh transport.
+    assert (
+        runtime._is_transient_worker_result(
+            {"error": "bad json", "error_type": "JSONDecodeError", "parse_reason": "malformed_json"}
+        )
+        is False
+    )
+    # And the provider boundary keeps raising MalformedModelJSON for nonempty
+    # invalid JSON.
+    with pytest.raises(agent_provider.MalformedModelJSON):
+        agent_provider._extract_json_object("{not json")
+
+
 def test_openrouter_worker_401_error_is_permission_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

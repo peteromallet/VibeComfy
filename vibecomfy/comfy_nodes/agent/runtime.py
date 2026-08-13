@@ -77,6 +77,11 @@ _WORKER_TRANSIENT_BACKOFF_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_RETRY_
 # re-prompting with a JSON nudge, so they are excluded here to avoid double
 # handling. Everything else a worker reports (connection reset, read timeout,
 # 429, 5xx, ...) is treated as transient.
+#
+# ``EmptyModelResponseError`` is intentionally NOT in this set: an empty
+# (zero-token) model reply is a transport-level outcome, so it is retried as a
+# fresh transport attempt (fresh subprocess/connection) by ``_run_worker`` —
+# never re-prompted as if the model produced content to fix.
 _WORKER_NON_TRANSIENT_ERROR_TYPES = {
     "AuthError",
     "AuthenticationError",
@@ -84,6 +89,11 @@ _WORKER_NON_TRANSIENT_ERROR_TYPES = {
     "JSONDecodeError",
     "ValueError",
 }
+
+# Worker-reported error types that are explicitly transient transport-level
+# outcomes.  ``EmptyModelResponseError`` is the typed empty-response marker
+# (distinct from a bare ``ValueError`` content failure).
+_EMPTY_RESPONSE_ERROR_TYPES = frozenset({"EmptyModelResponseError"})
 LOGGER = logging.getLogger(__name__)
 _DEEPSEEK_USAGE_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "vibecomfy_deepseek_usage_capture",
@@ -257,13 +267,46 @@ def _raise_worker_error(result: Mapping[str, Any]) -> None:
         The exception type and message are unchanged; upstream classify/reply
         failure envelopes can read ``worker_result`` to persist parse_reason,
         raw preview, usage, model, phase, and endpoint without re-resolving
-        provider internals.
+        provider internals.  Typed top-level fields (``parse_reason``,
+        ``empty_response``, ``finish_reason``, ``completion_tokens_zero``) are
+        also copied onto the exception itself so they survive any provider
+        re-wrap that does not forward the full worker result.
         """
         try:
             exc.worker_result = dict(result)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 - evidence attachment is best-effort
             pass
+        for key in (
+            "parse_reason",
+            "empty_response",
+            "finish_reason",
+            "completion_tokens_zero",
+            "completion_tokens",
+            "resolved_model",
+            "adapter",
+            "provider",
+            "endpoint",
+        ):
+            if key not in result or getattr(exc, key, None) is not None:
+                continue
+            try:
+                setattr(exc, key, result[key])
+            except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+                pass
         return exc
+
+    if error_type in _EMPTY_RESPONSE_ERROR_TYPES:
+        # A typed empty response: raise with the empty-response marker so the
+        # executor's failure envelope records parse_reason=empty (transport
+        # level), never a content/parse failure.
+        empty_exc = RuntimeError(message)
+        _with_worker_result(empty_exc)
+        try:
+            empty_exc.parse_reason = "empty"  # type: ignore[attr-defined]
+            empty_exc.empty_response = True  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+        raise empty_exc
 
     if (
         error_type in {"AuthError", "AuthenticationError", "PermissionError"}
@@ -475,16 +518,22 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
 def _is_transient_worker_result(result: Mapping[str, Any]) -> bool:
     """True when a worker result is a transient failure worth retrying.
 
-    A worker reports failure by returning ``{"error": ..., "error_type": ...}``.
+    A worker reports failure by returning ``{\"error\": ..., \"error_type\": ...}``.
     That is transient (and so retryable) unless it is a setup/auth fault that
     will not recover (``runtime_unavailable``) or one of the content errors the
     contract retry layer owns (see ``_WORKER_NON_TRANSIENT_ERROR_TYPES``).
+
+    A typed empty response (``EmptyModelResponseError``) is transient: the call
+    produced zero completion tokens, so a fresh subprocess/connection attempt
+    is the right recovery.
     """
     if not isinstance(result, Mapping) or "error" not in result:
         return False
     if _is_runtime_unavailable(result):
         return False
     error_type = str(result.get("error_type") or "").strip()
+    if error_type in _EMPTY_RESPONSE_ERROR_TYPES:
+        return True
     return error_type not in _WORKER_NON_TRANSIENT_ERROR_TYPES
 
 

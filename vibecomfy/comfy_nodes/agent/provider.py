@@ -47,6 +47,15 @@ _BATCH_REPL_PARSE_RETRY_PROMPT = (
     'clarify("...") inside the batch block. Do not include any other markdown.'
 )
 
+# User-facing readiness reason shown verbatim in the agent panel when the
+# Arnold/Hermes runtime cannot be loaded. Never leak raw import tracebacks:
+# the detailed cause is logged, and this sentence tells the user how to fix it.
+_ARNOLD_RUNTIME_UNAVAILABLE_REASON = (
+    "The agent panel needs the VibeComfy [agent] extra. Install with: "
+    "pip install -e '.[agent]' inside ComfyUI's Python environment, "
+    "then restart ComfyUI."
+)
+
 
 def _outcome_kind(value: Any) -> str:
     if isinstance(value, Mapping):
@@ -210,11 +219,17 @@ _EVIDENCE_ATTRS = (
     "raw_response_preview",
     "finish_reason",
     "completion_tokens",
+    "completion_tokens_zero",
     "prompt_tokens",
     "total_tokens",
     "model",
+    "requested_model",
+    "resolved_model",
+    "adapter",
+    "provider",
     "phase",
     "endpoint",
+    "empty_response",
 )
 
 
@@ -237,11 +252,34 @@ def _attach_provider_context(
     *,
     model: str | None,
     phase: str | None,
+    resolved_model: str | None = None,
+    adapter: str | None = None,
+    provider: str | None = None,
 ) -> None:
     """Fill provider-known model/phase evidence when the exception lacks it."""
     if model and getattr(exc, "model", None) is None:
         try:
             setattr(exc, "model", model)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+    if model and getattr(exc, "requested_model", None) is None:
+        try:
+            setattr(exc, "requested_model", model)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+    if resolved_model and getattr(exc, "resolved_model", None) is None:
+        try:
+            setattr(exc, "resolved_model", resolved_model)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+    if adapter and getattr(exc, "adapter", None) is None:
+        try:
+            setattr(exc, "adapter", adapter)
+        except Exception:  # noqa: BLE001 - evidence attachment is best-effort
+            pass
+    if provider and getattr(exc, "provider", None) is None:
+        try:
+            setattr(exc, "provider", provider)
         except Exception:  # noqa: BLE001 - evidence attachment is best-effort
             pass
     if phase and getattr(exc, "phase", None) is None:
@@ -1193,7 +1231,17 @@ def run_agent_turn(
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
         raise
     except Exception as exc:
-        raise ProviderError(str(exc)) from exc
+        wrapped = ProviderError(str(exc))
+        _forward_evidence_attrs(exc, wrapped)
+        _attach_provider_context(
+            wrapped,
+            model=model,
+            phase="agent_edit_python",
+            resolved_model=selected_model,
+            adapter=dispatch_route,
+            provider="arnold",
+        )
+        raise wrapped from exc
     return _normalize_agent_response(
         response,
         route=dispatch_route,
@@ -1251,7 +1299,17 @@ def run_agent_turn_delta(
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
         raise
     except Exception as exc:
-        raise ProviderError(str(exc)) from exc
+        wrapped = ProviderError(str(exc))
+        _forward_evidence_attrs(exc, wrapped)
+        _attach_provider_context(
+            wrapped,
+            model=model,
+            phase="agent_edit",
+            resolved_model=selected_model,
+            adapter=dispatch_route,
+            provider="arnold",
+        )
+        raise wrapped from exc
     try:
         return normalize_delta_agent_response(
             response,
@@ -1476,7 +1534,17 @@ def run_agent_turn_batch(
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
         raise
     except Exception as exc:
-        raise ProviderError(str(exc)) from exc
+        wrapped = ProviderError(str(exc))
+        _forward_evidence_attrs(exc, wrapped)
+        _attach_provider_context(
+            wrapped,
+            model=model,
+            phase="agent_edit_batch",
+            resolved_model=selected_model,
+            adapter=dispatch_route,
+            provider="arnold",
+        )
+        raise wrapped from exc
 
 
 def run_model_turn(
@@ -1542,12 +1610,26 @@ def run_model_turn(
         # ``as exc`` is load-bearing: without it the name is unbound in this
         # clause and evidence attachment raises UnboundLocalError, destroying
         # the original exception type + evidence.
-        _attach_provider_context(exc, model=selected_model, phase=phase)
+        _attach_provider_context(
+            exc,
+            model=model,
+            phase=phase,
+            resolved_model=selected_model,
+            adapter=dispatch_route,
+            provider="arnold",
+        )
         raise
     except Exception as exc:
         wrapped = ProviderError(str(exc))
         _forward_evidence_attrs(exc, wrapped)
-        _attach_provider_context(wrapped, model=selected_model, phase=phase)
+        _attach_provider_context(
+            wrapped,
+            model=model,
+            phase=phase,
+            resolved_model=selected_model,
+            adapter=dispatch_route,
+            provider="arnold",
+        )
         raise wrapped from exc
 
     if not isinstance(response, Mapping):
@@ -1573,8 +1655,8 @@ def readiness(*, route: str | None = None, model: str | None = None) -> dict[str
                 provider_available=False,
             ),
             "ready": False,
-            "reason": str(exc),
-            "error": str(exc),
+            "reason": _ARNOLD_RUNTIME_UNAVAILABLE_REASON,
+            "error": _ARNOLD_RUNTIME_UNAVAILABLE_REASON,
         }
 
     # Probe the runtime with the REQUESTED route (e.g. "anthropic" /

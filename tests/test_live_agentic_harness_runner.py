@@ -20,12 +20,13 @@ _PARSE_DETAIL = (
 )
 
 
-def _parse_failure_summary(*, completion_tokens: int) -> dict:
+def _parse_failure_summary(*, completion_tokens: int, parse_reason: str = "empty") -> dict:
     return {
         "scenario_id": "parse-failure",
         "status": "error",
         "ok": False,
         "output_dir": "out/agentic/tag/parse-failure",
+        "parse_reason": parse_reason,
         "deepseek_usage": {
             "prompt_tokens": 900,
             "completion_tokens": completion_tokens,

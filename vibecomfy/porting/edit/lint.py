@@ -34,6 +34,8 @@ Rules enforced:
   current value are dropped as ``dropped_noop``.
 - *mode no-op* – ``set_mode`` ops that set the mode the node already has
   are dropped as ``dropped_noop``.
+- *title no-op* – ``set_title`` ops that set the title the node already has
+  are dropped as ``dropped_noop``; an empty/non-string title is rejected.
 - *add_node* – validates that ``class_type`` is non-empty and (when a
   ``schema_provider`` is supplied) that the class is known and all
   ``inputs`` keys name valid inputs on that class.
@@ -66,6 +68,7 @@ from .ops import (
     ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
+    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.resolution import (
@@ -1189,6 +1192,51 @@ def _lint_set_mode(
     return SetModeOp(op="set_mode", target=target, mode=op.mode), None, "passed"
 
 
+def _lint_set_title(
+    op: SetTitleOp, op_index: int, index: LintIndex
+) -> tuple[EditOp | None, LintIssue | None, str]:
+    """Lint a ``set_title`` op.
+
+    Validates the target node and the non-empty title, and detects title
+    no-ops (renaming a node to the title it already has).
+    """
+    if not isinstance(op.title, str) or not op.title.strip():
+        return None, _make_issue(
+            "empty_title",
+            "set_title requires a non-empty title string.",
+            severity="error",
+            op_index=op_index,
+            op_kind="set_title",
+            detail={"title": op.title},
+        ), "rejected"
+
+    target, issue = _resolve_node_target(
+        index, op.target, op_index=op_index, op_kind="set_title",
+    )
+    if target is None:
+        return None, issue, "rejected"
+
+    node = index.node_by_uid(target.scope_path, target.uid)
+    current_title = node.get("title") if node is not None else None
+
+    if current_title == op.title:
+        return None, _make_issue(
+            "noop_title",
+            f"{_node_label(index, target.scope_path, target.uid)} is "
+            f"already titled {op.title!r}.",
+            severity="info",
+            op_index=op_index,
+            op_kind="set_title",
+            scope_path=target.scope_path,
+            uid=target.uid,
+            detail={"current_title": current_title, "requested_title": op.title},
+        ), "dropped_noop"
+
+    if target is op.target:
+        return op, None, "passed"
+    return SetTitleOp(op="set_title", target=target, title=op.title), None, "passed"
+
+
 # ── main entry point ────────────────────────────────────────────────────────
 
 def lint_delta(
@@ -1230,6 +1278,7 @@ def lint_delta(
         "remove_link": _lint_remove_link,
         "reorder": _lint_reorder,
         "set_mode": _lint_set_mode,
+        "set_title": _lint_set_title,
     }
 
     _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link"})

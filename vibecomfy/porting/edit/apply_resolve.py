@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .ledger import EditLedger
-from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, SetTitleOp, UpsertLinkOp
 from vibecomfy.porting.edit.apply_resolve_add import _resolve_add_node, _resolve_reorder
 from vibecomfy.porting.edit.apply_resolve_base import _resolve_node_only, _resolve_remove_link, _resolve_remove_node, _resolve_set_node_field, _resolve_upsert_link
 from vibecomfy.porting.edit.apply_types import ResolvedOp, ValueDefaultContext, _issue
@@ -25,6 +25,10 @@ def _resolve_op(
             value_default_context=value_default_context,
         )
     if isinstance(op, SetModeOp):
+        return _resolve_node_only(ledger, op.target)
+    if isinstance(op, SetTitleOp):
+        # set_title resolves through the node-target path (like set_mode), NOT
+        # the field path: titles are a top-level LiteGraph node property.
         return _resolve_node_only(ledger, op.target)
     if isinstance(op, RemoveNodeOp):
         return _resolve_remove_node(ledger, op.target)

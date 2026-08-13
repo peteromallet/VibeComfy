@@ -167,4 +167,5 @@ For UI round-trips, editor layout is preserved where it is available.
 
 That is the core bet: do not make agents become native ComfyUI JSON editors.
 Give them a translation layer in the programming language where they already
-show the strongest general competence.
+show the strongest general competence. The object at the center of that layer
+is described in [What Is a VibeWorkflow?](what_is_a_vibeworkflow.md).

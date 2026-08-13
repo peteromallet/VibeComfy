@@ -171,10 +171,15 @@ export function submitReadinessState(panel, deps = {}) {
     : { kind: ROUTE_STATUS_KIND?.LOADING };
   console.log("[vibecomfy] submitReadinessState routeStatus.kind=", routeStatus?.kind, "statusSnapshot.ready=", panel?.state?.statusSnapshot?.ready);
   if (routeStatus.kind === ROUTE_STATUS_KIND?.LOADING) {
+    const statusRequestEpoch = Number.isFinite(panel?.state?.statusRequestEpoch)
+      ? panel.state.statusRequestEpoch
+      : 0;
     return {
       ready: false,
       reason: routeStatus.kind,
-      message: "Waiting for /vibecomfy/agent/status before enabling Submit.",
+      message: statusRequestEpoch === 0
+        ? "Open the VibeComfy panel to connect."
+        : "Waiting for /vibecomfy/agent/status before enabling Submit.",
     };
   }
   if (routeStatus.kind === ROUTE_STATUS_KIND?.MISSING_OPTIONS) {

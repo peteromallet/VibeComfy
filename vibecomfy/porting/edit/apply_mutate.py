@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .ledger import EditLedger
-from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, SetTitleOp, UpsertLinkOp
 from vibecomfy.porting.edit.apply_links import _ensure_input_slot, _ensure_output_link_reference, _link_endpoints, _link_ids_targeting_input, _new_link_for_scope, _remove_link_from_scope, _remove_node_from_scope, _rewire_link_origin, _set_input_link_reference
 from vibecomfy.porting.edit.apply_place import _next_node_order, _node_size, _place_add_node
 from vibecomfy.porting.edit.apply_slots import _reorder_names, _widget_name_for_input
@@ -24,6 +24,10 @@ def _apply_resolved_op(
     if isinstance(op, SetModeOp):
         assert isinstance(resolved_op, ResolvedNodeRef)
         _apply_set_mode(resolved_op, op.mode)
+        return resolved_op, []
+    if isinstance(op, SetTitleOp):
+        assert isinstance(resolved_op, ResolvedNodeRef)
+        _apply_set_title(resolved_op, op.title)
         return resolved_op, []
     if isinstance(op, RemoveLinkOp):
         assert isinstance(resolved_op, ResolvedRemoveLinkRef)
@@ -49,6 +53,12 @@ def _apply_set_mode(node_ref: ResolvedNodeRef, mode: int) -> None:
     node = node_ref.node
     if isinstance(node, dict):
         node["mode"] = mode
+
+
+def _apply_set_title(node_ref: ResolvedNodeRef, title: str) -> None:
+    node = node_ref.node
+    if isinstance(node, dict):
+        node["title"] = title
 
 
 def _apply_remove_link(

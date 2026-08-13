@@ -1001,6 +1001,23 @@ class TestBuildClassifyMessages:
         system = msgs[0]["content"]
         assert "deterministic safety checks" in system
         assert "prefer route=\"clarify\"" in system
+
+    def test_system_prompt_never_clarifies_when_node_is_named(self) -> None:
+        """A unique named node in the request/graph summary is an edit, never a clarify."""
+        msgs = build_classify_messages("rename the SaveImage node", has_graph=True)
+        system = msgs[0]["content"]
+        assert (
+            'NEVER choose route="clarify" when the graph summary or user '
+            "request names a unique matching node" in system
+        )
+        assert 'route="revise"' in system
+
+    def test_system_prompt_teaches_node_titles_are_editable(self) -> None:
+        """Rename requests are concrete graph edits (set_title), not clarifications."""
+        msgs = build_classify_messages("rename a node", has_graph=True)
+        system = msgs[0]["content"]
+        assert "ComfyUI node titles are editable via the set_title edit op" in system
+        assert "route to route=\"revise\"" in system
         assert "rather than guessing a mutation route" in system
 
     def test_system_prompt_pins_outside_patterns_to_adapt_and_local_edits_elsewhere(self) -> None:
@@ -3837,3 +3854,60 @@ class TestExecutorExportAccess:
     def test_graph_facts_importable(self) -> None:
         from vibecomfy.executor import GraphFacts as GF
         assert GF is GraphFacts
+
+
+# ── Truthful classification failure (G0/B01) ─────────────────────────────────
+
+
+def test_classification_failure_is_nullable_and_truthful(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A classify exception yields classification_status=failed and NO fabricated
+    decision, intent, or route — the plan stays None and the serialized report
+    carries no invented respond_only placeholder."""
+    from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON
+    from vibecomfy.executor.core import run_executor
+
+    exc = MalformedModelJSON(
+        "Agent response was not valid JSON with keys `python` and `message`.",
+        raw_response="{not json",
+        parse_reason="malformed_json",
+    )
+    exc.completion_tokens = 0
+    exc.completion_tokens_zero = True
+    exc.finish_reason = "stop"
+    exc.adapter = "hermes"
+    exc.provider = "openrouter"
+    exc.endpoint = "https://api.deepseek.com/v1"
+    exc.raw_response_preview = "{not json"
+
+    def _raise(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", _raise)
+
+    result = run_executor(ExecutorRequest(query="do something"))
+
+    assert result.ok is False
+    assert result.failure_stage == "classify"
+    assert result.failure_kind == "MalformedModelJSON"
+    # Typed phase failure: status=failed, plan is None (nullable decision).
+    assert result.report.classification_status == "failed"
+    assert result.report.plan is None
+    inner = result.to_dict()["report"]["executor"]
+    assert inner["classification_status"] == "failed"
+    assert "plan" not in inner, "failed classification must not carry a plan"
+    # No fabricated intent or route in the serialized envelope.
+    turn_payload = result.turn.to_dict()
+    assert turn_payload["route"] == ""
+    assert turn_payload["evidence"]["classification"] == {}
+    # The typed parse evidence survives into the report artifact.
+    error = inner["model_response"]["turns"][0]["error"]
+    assert error["parse_reason"] == "malformed_json"
+    assert error["completion_tokens_zero"] is True
+    assert error["completion_tokens"] == 0
+    assert error["phase"] == "classify"
+    assert error["adapter"] == "hermes"
+    assert error["provider"] == "openrouter"
+    assert error["endpoint"] == "https://api.deepseek.com/v1"
+    assert "api_key" not in json.dumps(inner)

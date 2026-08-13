@@ -551,6 +551,8 @@ def _statement_op_kind(statement: ast.stmt) -> str | None:
 def _assignment_op_kind(value: ast.expr, *, target_attr: str) -> str:
     if target_attr == "mode":
         return "set_mode"
+    if target_attr == "title":
+        return "set_title"
     if isinstance(value, ast.Constant) and value.value is None:
         return "remove_link"
     if _is_graph_reference_value(value):

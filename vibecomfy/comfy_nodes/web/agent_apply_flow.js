@@ -132,7 +132,7 @@ export function createApplyFlow(deps) {
       if (!op || typeof op !== "object" || typeof op.op !== "string") {
         continue;
       }
-      if (op.op === "set_node_field" || op.op === "set_mode" || op.op === "reorder") {
+      if (op.op === "set_node_field" || op.op === "set_mode" || op.op === "set_title" || op.op === "reorder") {
         inverseOps.push(clonePlainData(op));
         continue;
       }

@@ -2,7 +2,7 @@
 //
 // Mirrors the Python backend's canonical V2 delta contract defined in
 // `vibecomfy/porting/edit/ops.py`.  The canonical persisted/runtime-facing
-// contract is ``{schema_version: "2.0.0", ops: [...]}`` with exactly six
+// contract is ``{schema_version: "2.0.0", ops: [...]}`` with exactly seven
 // supported op kinds.
 //
 // This module is the single browser-side authority for delta normalisation.
@@ -28,6 +28,7 @@ export const DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_app
 export const CANONICAL_DELTA_OP_NAMES = Object.freeze([
   "set_node_field",
   "set_mode",
+  "set_title",
   "add_node",
   "upsert_link",
   "remove_node",
@@ -101,7 +102,7 @@ function _freezePlainData(value) {
 /**
  * Lenient validation for legacy flat V2 op arrays.  Only checks that the
  * entry has a non-empty string ``op`` and that the op kind is one of the
- * six canonical names.  All other fields are passed through as-is with
+ * seven canonical names.  All other fields are passed through as-is with
  * sorted keys for deterministic shape.
  *
  * @param {object} entry
@@ -202,6 +203,24 @@ function _validateCanonicalOpStrict(entry, index) {
       if (![0, 2, 4].includes(entry.mode)) {
         throw new DeltaDiagnosticError(
           `set_mode at index ${index} must have "mode" one of: 0, 2, 4.`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName },
+        );
+      }
+      break;
+    }
+
+    case "set_title": {
+      if (!Array.isArray(entry.target) || entry.target.length !== 2) {
+        throw new DeltaDiagnosticError(
+          `set_title at index ${index} must have a "target" array of length 2.`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName },
+        );
+      }
+      if (!_isNonEmptyString(entry.title)) {
+        throw new DeltaDiagnosticError(
+          `set_title at index ${index} must have a non-empty string "title".`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -560,6 +579,7 @@ export function ensureRootScopedOps(ops) {
     if (
       op.op === "set_node_field" ||
       op.op === "set_mode" ||
+      op.op === "set_title" ||
       op.op === "remove_node"
     ) {
       if (Array.isArray(op.target) && op.target.length >= 2) {

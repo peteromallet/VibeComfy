@@ -299,6 +299,7 @@ class VibeComfyStripConditioningKeys:
     RETURN_NAMES = ("positive", "negative")
     FUNCTION = "strip"
     CATEGORY = "conditioning/vibecomfy"
+    SEARCH_ALIASES: list[str] = ["VibeComfy"]
 
     def strip(self, positive: list[Any], negative: list[Any], keys: str):
         key_set = {key.strip() for key in str(keys or "").split(",") if key.strip()}
@@ -320,6 +321,8 @@ class _VibeComfyIntentNodeBase:
     VIBECOMFY_RUNTIME_BACKED = False
     VIBECOMFY_LOWERED = False
     VIBECOMFY_INTENT_NODE = True
+
+    SEARCH_ALIASES: list[str] = ["VibeComfy"]
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
@@ -519,6 +522,9 @@ class VibeComfyLoopIntent(_VibeComfyIntentNodeBase):
 
 
 NODE_CLASS_MAPPINGS = {
+    # Lowercase canonical key (what the agent edit engine emits) plus the
+    # CamelCase legacy alias; both resolve to the same class.
+    "vibecomfy.strip_conditioning_keys": VibeComfyStripConditioningKeys,
     "VibeComfyStripConditioningKeys": VibeComfyStripConditioningKeys,
     EXEC_CLASS_TYPE: VibeComfyExec,
     KIND_TO_CLASS_TYPE["code"]: VibeComfyCodeIntent,
@@ -526,6 +532,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "vibecomfy.strip_conditioning_keys": "VibeComfy Strip Conditioning Keys",
     "VibeComfyStripConditioningKeys": "VibeComfy Strip Conditioning Keys",
     EXEC_CLASS_TYPE: "VibeComfy Exec",
     KIND_TO_CLASS_TYPE["code"]: "VibeComfy Code Intent",

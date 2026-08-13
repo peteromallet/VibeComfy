@@ -313,6 +313,7 @@ def synthesize_headless_artifacts(
 
     report = _executor_report(result)
     classification = report.get("plan")
+    model_response = report.get("model_response")
     if isinstance(classification, Mapping):
         classification_payload = _redact(classification)
         _safe_write(output_dir / "classification.json", classification_payload)
@@ -342,6 +343,22 @@ def synthesize_headless_artifacts(
                 _redact(implementation),
             )
             _append_manifest(manifest, "implementation_result.json")
+    elif report.get("classification_status") or model_response is not None:
+        # Truthful failed-classification artifact: no fabricated decision/plan.
+        # Persist the typed status plus the model-call evidence so the failure
+        # is diagnosable at the artifact boundary.
+        classification_payload = _redact(
+            {
+                "classification_status": report.get("classification_status") or "failed",
+                "model_response": model_response,
+            }
+        )
+        _safe_write(output_dir / "classification.json", classification_payload)
+        _append_manifest(manifest, "classification.json")
+
+    if model_response is not None:
+        _safe_write(output_dir / "model_response.json", _redact(model_response))
+        _append_manifest(manifest, "model_response.json")
 
     turn_dir = _turn_dir_from_response(response)
     copied: list[str] = []

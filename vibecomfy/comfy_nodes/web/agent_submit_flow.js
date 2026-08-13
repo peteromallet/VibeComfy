@@ -37,6 +37,11 @@ export function createSubmitFlow(deps) {
     api,
     normalizeRoutePreference,
     agentPanelFailure,
+    // Optional UI hook invoked when the inactivity watchdog expires while the
+    // absolute deadline still has time (see runSubmitFetchWithDeadline). The
+    // flow marks the non-terminal stall state and re-arms itself; the host
+    // uses this hook to surface "still working" without aborting the fetch.
+    onSubmitStalled,
   } = deps;
 
   // Used to preserve drafts before auto-switching scopes during submit.
@@ -136,6 +141,12 @@ export function createSubmitFlow(deps) {
       return false;
     }
     activity.lastActivityAtMs = currentSubmitNowMs();
+    // Progress resumed — clear any non-terminal stall marker raised by the
+    // inactivity watchdog so the "still working" notice does not linger.
+    if (panel.state.submitStalledSince != null) {
+      panel.state.submitStalledSince = null;
+      panel.state.submitStalledLastProgressAtMs = null;
+    }
     return true;
   }
 
@@ -280,14 +291,39 @@ export function createSubmitFlow(deps) {
           );
           return;
         }
+        if (absoluteRemainingMs > 0) {
+          // The inactivity deadline expired but the absolute deadline still has
+          // time. This is a non-terminal stall: the provider may still be
+          // working silently (e.g. a long tool call between heartbeats). Do NOT
+          // abort or settle — surface "still working, last progress Xs ago" and
+          // keep waiting until the absolute deadline.
+          if (panel?.state) {
+            panel.state.submitStalledSince = nowMs;
+            panel.state.submitStalledLastProgressAtMs = activity.lastActivityAtMs;
+          }
+          if (typeof onSubmitStalled === "function") {
+            try {
+              onSubmitStalled(panel, {
+                stalledSinceMs: nowMs,
+                lastProgressAtMs: activity.lastActivityAtMs,
+              });
+            } catch (_error) {
+              // UI hook is best-effort; the watchdog re-arm below is the
+              // behavioral contract.
+            }
+          }
+          timeoutId = submitWatchdogDepsState.setTimeoutFn(
+            expireOrRearm,
+            absoluteRemainingMs,
+          );
+          return;
+        }
         try {
           submitAbortController?.abort();
         } catch (_error) {
           // Best-effort abort only.
         }
-        const timeoutKind = absoluteRemainingMs <= 0 ? "absolute" : "inactivity";
-        const elapsedLimitMs = timeoutKind === "absolute" ? absoluteDeadlineMs : deadlineMs;
-        settle(reject, buildSubmitTimeoutFailure(panel, snapshot, elapsedLimitMs, timeoutKind));
+        settle(reject, buildSubmitTimeoutFailure(panel, snapshot, absoluteDeadlineMs, "absolute"));
       };
       timeoutId = submitWatchdogDepsState.setTimeoutFn(
         expireOrRearm,

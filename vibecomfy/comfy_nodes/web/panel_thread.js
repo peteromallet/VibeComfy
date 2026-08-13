@@ -2059,6 +2059,17 @@ function renderShowEarlierMessages(panel, olderMount, hiddenCount, deps = {}) {
   olderMount.style.display = "block";
 }
 
+// The exact example prompts surfaced in the welcome examples. They double as
+// the "always confirm before paid submit" sentinel list in the submit flow:
+// clicking an example is a demo, not a deliberate paid submission.
+export const WELCOME_EXAMPLE_PROMPTS = Object.freeze([
+  "Add a code node that processes images with PIL",
+  "Explain what's happening in this workflow in depth",
+  "Make the prompts more specific",
+  "Reorganise this workflow",
+  "Improve this workflow so it's cleaner, more reliable, and easier to understand",
+]);
+
 function renderWelcomeExamples(body, deps = {}) {
   const { currentAgentPanel, el } = deps;
   const welcome = el("div");
@@ -2081,14 +2092,7 @@ function renderWelcomeExamples(body, deps = {}) {
   });
   welcome.appendChild(heading);
 
-  const examplePrompts = [
-    "Add a code node that processes images with PIL",
-    "Explain what's happening in this workflow in depth",
-    "Make the prompts more specific",
-    "Reorganise this workflow",
-    "Improve this workflow so it's cleaner, more reliable, and easier to understand",
-  ];
-  for (const example of examplePrompts) {
+  for (const example of WELCOME_EXAMPLE_PROMPTS) {
     const row = el("div", example);
     Object.assign(row.style, {
       fontSize: "11px",
@@ -2099,6 +2103,17 @@ function renderWelcomeExamples(body, deps = {}) {
       background: "#0a1628",
       border: "1px solid #1e3355",
     });
+    // Muted hint so users know examples are not free demos: they submit
+    // through the configured provider and consume API/CLI quota.
+    const costHint = el("span", "uses your API key");
+    Object.assign(costHint.style, {
+      fontSize: "9px",
+      color: "#6b7080",
+      marginLeft: "8px",
+      textTransform: "uppercase",
+      letterSpacing: "0.06em",
+    });
+    row.appendChild(costHint);
     row.onclick = () => {
       const panel = currentAgentPanel();
       if (panel?.fields?.prompt) {

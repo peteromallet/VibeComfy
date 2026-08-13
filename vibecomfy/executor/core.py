@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -68,6 +69,10 @@ from .revision_evidence import collect_graph_facts
 
 LOGGER = logging.getLogger(__name__)
 
+# Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
+# events emitted while the implement phase is running.
+_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
 _INSTALL_RESEARCH_TERMS = (
     "install",
     "installation",
@@ -110,18 +115,38 @@ _MODEL_RESPONSE_EVIDENCE_KEYS = (
     "parse_reason",
     "raw_response_preview",
     "finish_reason",
+    "completion_tokens_zero",
     "completion_tokens",
     "prompt_tokens",
     "total_tokens",
     "model",
+    "requested_model",
+    "resolved_model",
+    "adapter",
+    "provider",
     "phase",
     "endpoint",
+    "empty_response",
 )
 
 _PARSE_REASON_EMPTY = "empty"
 _PARSE_REASON_MISSING_CONTENT = "missing_content"
 _PARSE_REASON_MALFORMED_JSON = "malformed_json"
 _PARSE_REASON_NON_JSON_CONTENT = "non_json_content"
+
+_RAW_PREVIEW_LIMIT = 1200
+
+
+def _bound_raw_preview(text: str) -> str:
+    """Bound a raw response preview to the canonical window."""
+    if not isinstance(text, str):
+        return ""
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return ""
+    if len(normalized) <= _RAW_PREVIEW_LIMIT:
+        return normalized
+    return normalized[: _RAW_PREVIEW_LIMIT - 1].rstrip() + "…"
 
 
 def _evidence_value(value: Any) -> bool:
@@ -157,7 +182,7 @@ def _model_response_evidence_from_exception(exc: BaseException) -> dict[str, Any
     Reads evidence attrs attached by the worker / runtime / provider /
     agent-backend hops (including the worker result dict) and walks
     ``__cause__`` so evidence survives provider wrapping. First non-empty value
-    wins.
+    wins.  Credentials are never read — only the bounded diagnostic fields.
     """
     evidence: dict[str, Any] = {}
     seen: set[int] = set()
@@ -191,6 +216,30 @@ def _model_response_evidence_from_exception(exc: BaseException) -> dict[str, Any
         reason = _infer_parse_reason(exc)
         if reason:
             evidence["parse_reason"] = reason
+    # Defense-in-depth: even if a hop attached an unbounded preview, the
+    # persisted artifact never carries more than the bounded window.
+    preview = evidence.get("raw_response_preview")
+    if isinstance(preview, str) and len(preview) > _RAW_PREVIEW_LIMIT:
+        evidence["raw_response_preview"] = _bound_raw_preview(preview)
+    # Derive the typed zero/nonzero completion-token flag whenever the count is
+    # known (transport-level empty replies report 0; content/parser failures
+    # report >0).  Absence of the count is NOT evidence, so the flag is only
+    # emitted alongside the observed count.
+    if (
+        "completion_tokens_zero" not in evidence
+        and isinstance(evidence.get("completion_tokens"), int)
+    ):
+        evidence["completion_tokens_zero"] = evidence["completion_tokens"] == 0
+    if (
+        "requested_model" not in evidence
+        and isinstance(evidence.get("model"), str)
+    ):
+        evidence["requested_model"] = evidence["model"]
+    if (
+        "resolved_model" not in evidence
+        and isinstance(evidence.get("model"), str)
+    ):
+        evidence["resolved_model"] = evidence["model"]
     return evidence
 
 
@@ -2296,6 +2345,26 @@ def run_executor(
                 status="start",
                 client_id=client_id,
             )
+            # Keep the panel alive during long model-backed implement turns:
+            # a daemon thread re-emits phase="implement" status="working" every
+            # ~15s until _run_implement returns. send_sync is thread-safe.
+            heartbeat_stop = threading.Event()
+
+            def _implement_heartbeat() -> None:
+                while not heartbeat_stop.wait(_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS):
+                    _emit_executor_phase_event(
+                        request,
+                        executor_id=executor_id,
+                        phase="implement",
+                        status="working",
+                        client_id=client_id,
+                    )
+
+            heartbeat_thread = threading.Thread(
+                target=_implement_heartbeat,
+                name="vibecomfy-executor-implement-heartbeat",
+                daemon=True,
+            )
             with profiler_span(
                 LOGGER,
                 "executor.phase",
@@ -2303,14 +2372,19 @@ def run_executor(
                 phase="implement",
                 **_spec_fields(implement_spec),
             ) as span:
-                implementation_result = _run_implement(
-                    request,
-                    implement_spec,
-                    plan=plan,
-                    research_result=research_result,
-                    client_id=client_id,
-                    additive=additive,
-                )
+                try:
+                    heartbeat_thread.start()
+                    implementation_result = _run_implement(
+                        request,
+                        implement_spec,
+                        plan=plan,
+                        research_result=research_result,
+                        client_id=client_id,
+                        additive=additive,
+                    )
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=2.0)
                 # B04: hoist durable research findings onto report.research
                 # for the research route (agent-judgment evidence carry; NOT
                 # a latch and never a stop decision).

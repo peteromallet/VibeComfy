@@ -109,4 +109,5 @@ for agentic editing.
 
 The goal is not the shortest script. The goal is a workflow representation that
 lets an agent safely understand, patch, compose, validate, export, and run modern
-ComfyUI graphs.
+ComfyUI graphs. The shape of that representation is the
+[What Is a VibeWorkflow?](what_is_a_vibeworkflow.md) object.

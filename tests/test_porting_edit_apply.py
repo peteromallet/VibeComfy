@@ -1652,6 +1652,24 @@ def test_apply_delta_set_mode_only_changes_target_node() -> None:
         assert nodes_after[node_id] == before
 
 
+def test_apply_delta_set_title_only_changes_target_node() -> None:
+    original = _fixture()
+    stamped_before = EditLedger.ingest(original).stamped_copy()
+    delta = parse_edit_delta([{"op": "set_title", "target": ["", "5"], "title": "TestNode"}])
+
+    result = apply_delta(original, delta, schema_provider=_SchemaProvider())
+
+    assert result.ok is True
+    assert result.candidate is not None
+    nodes_after = _normalized_root_nodes(result.candidate)
+    nodes_before = _normalized_root_nodes(stamped_before)
+    assert nodes_after[5]["title"] == "TestNode"
+    for node_id, before in nodes_before.items():
+        if node_id == 5:
+            continue
+        assert nodes_after[node_id] == before
+
+
 def test_apply_delta_remove_link_updates_root_array_links_and_node_references() -> None:
     original = _fixture()
     delta = parse_edit_delta([{"op": "remove_link", "to": ["", "5", "latent_image"]}])

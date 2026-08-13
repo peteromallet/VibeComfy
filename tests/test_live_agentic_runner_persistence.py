@@ -348,3 +348,112 @@ def test_runner_timeout_preserves_scenario_graph_change_expectation(
     assert scenario["guard"]["assessment"]["expect_graph_changed"] is False
     assert scenario["failure_class"] == "infra_timeout"
     assert summary["infra_failures"] == 1
+
+
+# ── Evidence-based infra reclassification for parse failures (B01) ───────────
+# A parse failure is retryable infrastructure ONLY when the typed evidence says
+# parse_reason == "empty" AND completion_tokens == 0.  The phrase "could not be
+# parsed" alone is insufficient; a nonzero-token parser/contract failure stays
+# product_fail and never receives the subprocess infra retry.
+
+_PARSE_DETAIL = (
+    "response.ok is False: The model response could not be parsed. "
+    "The graph is unchanged."
+)
+
+
+def _parse_failure_summary(*, completion_tokens: int, parse_reason: str) -> dict:
+    return {
+        "scenario_id": "parse-failure",
+        "status": "error",
+        "ok": False,
+        "output_dir": "out/agentic/tag/parse-failure",
+        "parse_reason": parse_reason,
+        "deepseek_usage": {
+            "prompt_tokens": 900,
+            "completion_tokens": completion_tokens,
+            "total_tokens": 900 + completion_tokens,
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 900,
+            "n_calls": 1,
+        },
+        "deepseek_est_cost_usd": 0.0,
+        "deepseek_cost_basis": "not_available",
+        "guard": {
+            "live_agentic_success": False,
+            "score_class": "product_fail",
+            "assessment": {
+                "passed": False,
+                "issues": [
+                    {"check": "response_ok", "severity": "error", "detail": _PARSE_DETAIL},
+                ],
+            },
+        },
+    }
+
+
+def test_zero_token_empty_parse_is_retryable_infra() -> None:
+    """parse_reason=empty + completion_tokens=0 is a transport-level empty reply:
+    retryable infra that reaches the existing subprocess retry."""
+    from tests.live_agentic_harness.runner import (
+        _classify_retryable_infra_summary,
+        _is_retryable_infra_summary,
+    )
+
+    summary = _parse_failure_summary(completion_tokens=0, parse_reason="empty")
+
+    _classify_retryable_infra_summary(summary)
+
+    assert summary["retryable_infra"] is True
+    assert summary["failure_class"] == "infra_empty_response"
+    assert summary["score_class"] == "infra_blocked"
+    assert _is_retryable_infra_summary(summary) is True
+
+
+def test_nonzero_token_parse_failure_is_product_fail() -> None:
+    """A parser/contract failure with completion_tokens>0 (e.g. markdown instead
+    of JSON) stays product_fail — one attempt, no infra retry."""
+    from tests.live_agentic_harness.runner import (
+        _classify_retryable_infra_summary,
+        _is_retryable_infra_summary,
+    )
+
+    summary = _parse_failure_summary(completion_tokens=42, parse_reason="malformed_json")
+
+    _classify_retryable_infra_summary(summary)
+
+    assert summary.get("retryable_infra") is not True
+    assert summary.get("failure_class") is None
+    assert summary["guard"]["score_class"] == "product_fail"
+    assert _is_retryable_infra_summary(summary) is False
+
+
+def test_parse_phrase_without_evidence_is_product_fail() -> None:
+    """The phrase 'could not be parsed' alone — no typed parse_reason and no
+    zero-token evidence — is never retryable infra."""
+    from tests.live_agentic_harness.runner import (
+        _classify_retryable_infra_summary,
+        _is_retryable_infra_summary,
+    )
+
+    summary = _parse_failure_summary(completion_tokens=0, parse_reason="")
+    summary.pop("parse_reason", None)
+
+    _classify_retryable_infra_summary(summary)
+
+    assert summary.get("retryable_infra") is not True
+    assert summary.get("failure_class") is None
+    assert _is_retryable_infra_summary(summary) is False
+
+
+def test_zero_token_parse_with_nonempty_reason_is_product_fail() -> None:
+    """Zero tokens with a NON-empty parse reason (e.g. malformed_json) is a
+    contract failure, not an empty-response transport outcome."""
+    from tests.live_agentic_harness.runner import _classify_retryable_infra_summary
+
+    summary = _parse_failure_summary(completion_tokens=0, parse_reason="missing_batch_fence")
+
+    _classify_retryable_infra_summary(summary)
+
+    assert summary.get("retryable_infra") is not True
+    assert summary.get("failure_class") is None

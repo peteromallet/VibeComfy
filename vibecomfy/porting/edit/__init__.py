@@ -29,6 +29,7 @@ _EXPORT_MODULES = {
     "ReorderOp": "vibecomfy.porting.edit.ops",
     "SetModeOp": "vibecomfy.porting.edit.ops",
     "SetNodeFieldOp": "vibecomfy.porting.edit.ops",
+    "SetTitleOp": "vibecomfy.porting.edit.ops",
     "UpsertLinkOp": "vibecomfy.porting.edit.ops",
     "normalize_delta_agent_response": "vibecomfy.porting.edit.ops",
     "normalize_delta_test_client_response": "vibecomfy.porting.edit.ops",

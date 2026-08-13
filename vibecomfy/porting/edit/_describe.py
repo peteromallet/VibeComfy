@@ -685,6 +685,13 @@ class _DescribeMixin:
             return node.get("mode", 0)
         return _UNRESOLVED_OLD_VALUE
 
+    def _original_node_title(self, scope_path: str, uid: str) -> Any:
+        """Look up the original title of a node from the original ledger."""
+        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        if node is not None:
+            return node.get("title")
+        return _UNRESOLVED_OLD_VALUE
+
     def _original_link_value(self, scope_path: str, uid: str, input_field: str) -> Any:
         node = self.original_ledger.resolve_node(scope_path or "", uid)
         if node is None:

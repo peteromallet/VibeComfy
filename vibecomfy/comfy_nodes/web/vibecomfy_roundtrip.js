@@ -42,6 +42,7 @@ import {
   renderChatBubbleNode as renderChatBubbleNodeImpl,
   renderChatThread as renderChatThreadImpl,
   renderThreadSection as renderThreadSectionImpl,
+  WELCOME_EXAMPLE_PROMPTS,
 } from "./panel_thread.js";
 import {
   clearPreviewDomOverlay,
@@ -480,6 +481,10 @@ const submitFlow = createSubmitFlow({
   api,
   normalizeRoutePreference,
   agentPanelFailure,
+  // Non-terminal inactivity stall: surface "still working" in the thread and
+  // keep the watchdog waiting until the absolute deadline (see
+  // agent_submit_flow.js runSubmitFetchWithDeadline).
+  onSubmitStalled: notifySubmitStalled,
 });
 
 // ── T-062: Preview cache behind injected boundaries ────────────────────────
@@ -5616,6 +5621,30 @@ function updatePendingResponseProgress(panel, progress, label = null, canonicalA
   return true;
 }
 
+// ── Non-terminal submit stall notice (watchdog inactivity) ─────────────────
+// The submit watchdog no longer aborts a fetch that simply went quiet: while
+// the absolute deadline still has time it marks a stall, keeps waiting, and
+// calls back here so the thread shows "still working — last progress Xs ago"
+// instead of a terminal failure.  Heartbeat events (which reset the watchdog
+// via recordSubmitActivity) render the thread again, so a resumed turn replaces
+// this notice naturally.
+function notifySubmitStalled(panel, { stalledSinceMs = null, lastProgressAtMs = null } = {}) {
+  if (!panel?.state || panel.state.phase !== PANEL_STATE.SUBMITTING) {
+    return;
+  }
+  const stalledSince = Number.isFinite(stalledSinceMs) ? stalledSinceMs : Date.now();
+  const lastProgressAt = Number.isFinite(lastProgressAtMs) ? lastProgressAtMs : stalledSince;
+  const secondsAgo = Math.max(0, Math.round((stalledSince - lastProgressAt) / 1000));
+  const label = secondsAgo > 0
+    ? `Still working — last progress ${secondsAgo}s ago`
+    : "Still working — waiting on the provider";
+  const progress = (panel.state.executorProgress && typeof panel.state.executorProgress === "object")
+    ? panel.state.executorProgress
+    : createExecutorProgressSnapshot({ decide: "active" });
+  updatePendingResponseProgress(panel, progress, label);
+  scheduleRenderAgentPanel("submit-stall", panel, [RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD]);
+}
+
 function promotePendingResponseMessage(panel, result, options = {}) {
   if (!Array.isArray(panel?.state?.chatMessages)) {
     return false;
@@ -7911,6 +7940,51 @@ function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
   renderLifecycleTransition(panel, obligations);
 }
 
+// ── Paid-submit confirmation gate ─────────────────────────────────────────
+// The first agent-executor submit in a browser calls a real provider and
+// costs money (API/CLI quota). Ask once, persist the ack in localStorage, and
+// ALWAYS confirm the exact welcome-example prompts — clicking an example is a
+// demo, not a deliberate paid submission. Cancel = do not submit.
+const PAID_SUBMIT_ACK_KEY = "vibecomfy_paid_submit_ack";
+
+async function confirmPaidSubmitGate(panel, task) {
+  const isExamplePrompt = WELCOME_EXAMPLE_PROMPTS.includes(task);
+  if (!isExamplePrompt) {
+    try {
+      if (localStorage.getItem(PAID_SUBMIT_ACK_KEY) === "1") {
+        return true;
+      }
+    } catch (_error) {
+      // Storage unavailable: still ask so the cost is never hidden.
+    }
+  }
+  const route = normalizeRoutePreference(
+    panel?.state?.routeStatus?.requestedRoute || panel?.fields?.route?.value,
+  );
+  const model = (panel?.fields?.model?.value && String(panel.fields.model.value).trim())
+    || panel?.state?.routeStatus?.model
+    || "default";
+  const routeLabel = ROUTE_LABELS[route] || route;
+  let confirmed = true;
+  try {
+    if (typeof globalThis.confirm === "function") {
+      confirmed = globalThis.confirm(
+        `Submit this edit through ${routeLabel} (model: ${model})? This calls the provider and costs money.`,
+      );
+    }
+  } catch (_error) {
+    // Non-interactive contexts (tests/harnesses) proceed without blocking.
+  }
+  if (confirmed && !isExamplePrompt) {
+    try {
+      localStorage.setItem(PAID_SUBMIT_ACK_KEY, "1");
+    } catch (_error) {
+      // Best-effort persistence only.
+    }
+  }
+  return confirmed;
+}
+
 async function submitAgentEdit(panel, { taskOverride } = {}) {
   // A staged demo leaves panel.state.__demoMode set, which routes Apply/Reject
   // to the demo handlers and would mask this real edit with the demo's result.
@@ -8089,6 +8163,13 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
       renderLifecycleTransition(panel, obligations);
+      return;
+    }
+
+    // Paid-submit confirmation gate: ask once per browser, and always for the
+    // exact welcome-example prompts. Nothing has been mutated yet, so a cancel
+    // simply aborts the submit and leaves the draft prompt in place.
+    if (!(await confirmPaidSubmitGate(panel, task))) {
       return;
     }
 
@@ -9728,6 +9809,11 @@ app.registerExtension({
       };
     }
     ensureAgentPanel();
+    // Prefetch agent status at extension setup so the route/model controls are
+    // ready before the launcher is first clicked (same path as openAgentPanel).
+    // Safe on the not-yet-mounted shell: refreshAgentStatus mutates only
+    // panel.state/fields and its renders are guarded by isAgentPanelRootConnected.
+    pollerRefreshAgentStatus(currentAgentPanel(), { quiet: true }, agentStatusDeps());
     // The right-edge launcher is the sole production entry point. Keep the
     // historical ComfyUI sidebar mount available only to explicit test/dev
     // harnesses so users do not see duplicate VibeComfy controls on both sides.

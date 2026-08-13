@@ -2240,7 +2240,12 @@ class AgentTurnResult:
     disposition: str = ""
 
     def __post_init__(self) -> None:
+        # An empty route is the truthful "no classification decision" sentinel
+        # (failed classify → plan None → no invented route).  Unknown non-empty
+        # routes still fail closed to ``respond``.
         route = self.route if self.route in _PUBLIC_ROUTES else "respond"
+        if self.route == "":
+            route = ""
         object.__setattr__(self, "route", route)
 
         candidate = self.candidate

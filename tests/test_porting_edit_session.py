@@ -2859,6 +2859,19 @@ sampler = KSampler(
         assert dst is not None
         assert dst["mode"] == 2
 
+    def test_apply_batch_lowers_title_assignment_to_set_title_op(self) -> None:
+        from vibecomfy.porting.edit.ops import SetTitleOp
+
+        session = self._primitive_session()
+        result = session.apply_batch("dst.title = 'TestNode'\n")
+
+        assert result.ok is True
+        assert isinstance(result.landed_ops[0], SetTitleOp)
+        assert result.landed_ops[0].title == "TestNode"
+        dst = session.ledger.resolve_node("", "dst")
+        assert dst is not None
+        assert dst["title"] == "TestNode"
+
     @pytest.mark.parametrize("source", ["helper.mode = 'bypassed'\n", "del helper\n"])
     def test_apply_batch_rejects_original_virtual_node_mutation(self, source: str) -> None:
         session = self._primitive_session()

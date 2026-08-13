@@ -70,6 +70,18 @@ from vibecomfy.executor.profiler import profiler_log, profiler_span, short_text,
 LOGGER = logging.getLogger(__name__)
 
 
+class EmptyModelResponseError(ValueError):
+    """Typed marker: the model returned an empty (no-content) response.
+
+    Deliberately distinct from a bare ``ValueError`` / ``JSONDecodeError``:
+    an empty reply is a transport-level outcome (the call produced zero
+    completion tokens), while a nonempty-but-unparseable reply is a content
+    problem owned by the response-contract retry layer.  The parent runtime
+    uses ``error_type == \"EmptyModelResponseError\"`` to retry empty replies
+    as fresh transport attempts instead of re-prompting for JSON.
+    """
+
+
 def _extract_json_object(text: str) -> dict:
     stripped = (text or "").strip()
     if stripped.startswith("```"):
@@ -112,6 +124,8 @@ def _parse_failure_reason(exc: BaseException, raw_text: str | None) -> str:
     ``non_json_content`` — the same vocabulary the classify/reply evidence
     plumbing persists upstream.
     """
+    if isinstance(exc, EmptyModelResponseError):
+        return "empty"
     if raw_text is not None and not str(raw_text).strip():
         return "empty"
     if isinstance(exc, json.JSONDecodeError):
@@ -140,6 +154,11 @@ def _persist_parse_evidence(
     unchanged. Mirrors the batch-repl ``model_response`` detail capture
     (parse_reason + raw preview) and adds the observed usage, model, phase,
     endpoint, and finish reason so classify/reply attempts are diagnosable.
+
+    Empty output is typed distinctly: ``parse_reason == \"empty\"`` plus an
+    ``empty_response: True`` marker so the runtime can retry it as a fresh
+    transport attempt rather than a content/parse failure.  Credentials are
+    never persisted — only the resolved model/adapter/provider/endpoint.
     """
     agent_kwargs = (
         request.get("agent_kwargs")
@@ -150,15 +169,24 @@ def _persist_parse_evidence(
     if preview:
         out["raw_response_preview"] = preview
     out["parse_reason"] = _parse_failure_reason(exc, raw_text)
+    if out["parse_reason"] == "empty":
+        out["empty_response"] = True
     model = request.get("model") or agent_kwargs.get("model")
     if model:
         out["model"] = model
+        out["resolved_model"] = model
     phase = profiling_context.get("backend_phase") or "agent_turn"
     if phase:
         out["phase"] = phase
     endpoint = agent_kwargs.get("base_url")
     if endpoint:
         out["endpoint"] = endpoint
+    adapter = request.get("agent_id") or "hermes"
+    if adapter:
+        out["adapter"] = adapter
+    provider = agent_kwargs.get("provider")
+    if provider:
+        out["provider"] = provider
     if isinstance(worker_metadata, dict):
         finish_reason = worker_metadata.get("finish_reason")
         if isinstance(finish_reason, str) and finish_reason.strip():
@@ -170,6 +198,9 @@ def _persist_parse_evidence(
                 value = usage.get(key)
                 if isinstance(value, int):
                     out[key] = value
+            completion = usage.get("completion_tokens")
+            if isinstance(completion, int):
+                out["completion_tokens_zero"] = completion == 0
 
 
 def _anchor_agent_package_on_syspath() -> None:
@@ -478,15 +509,15 @@ def main() -> int:
             span.update(raw_text_length=len(text or ""))
             if response_contract == "batch_repl":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty batch_repl response.")
+                    raise EmptyModelResponseError("Agent returned an empty batch_repl response.")
                 out = {"content": text}
             elif response_contract == "text":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty text response.")
+                    raise EmptyModelResponseError("Agent returned an empty text response.")
                 out = {"content": text}
             elif response_contract == "json":
                 if not isinstance(text, str) or not text.strip():
-                    raise ValueError("Agent returned an empty json response.")
+                    raise EmptyModelResponseError("Agent returned an empty json response.")
                 payload = _extract_json_object(text)
                 out = {"content": text, "json": payload}
             elif response_contract in ("python", "delta"):
@@ -519,12 +550,19 @@ def main() -> int:
             model = request.get("model") or agent_kwargs.get("model")
             if model:
                 out["model"] = model
+                out["resolved_model"] = model
             phase = profiling_context.get("backend_phase") or "agent_turn"
             if phase:
                 out["phase"] = phase
             endpoint = agent_kwargs.get("base_url")
             if endpoint:
                 out["endpoint"] = endpoint
+            adapter = request.get("agent_id") or "hermes"
+            if adapter:
+                out["adapter"] = adapter
+            provider = agent_kwargs.get("provider")
+            if provider:
+                out["provider"] = provider
     except Exception as exc:  # noqa: BLE001 - report all failures to parent
         out = {"error": str(exc), "error_type": type(exc).__name__}
         # A LookupError means no adapter is registered for the requested agent id

@@ -625,7 +625,11 @@ class _ResolveMixin:
                 source=source,
                 ok=True,
                 landed=False,
-                op_kind="set_mode" if target.attr == "mode" else "set_node_field",
+                op_kind=(
+                    "set_mode" if target.attr == "mode"
+                    else "set_title" if target.attr == "title"
+                    else "set_node_field"
+                ),
                 detail={"resolved_target": field_target, "ast_node": statement, "constant_env": dict(env)},
             )
         assert isinstance(statement, ast.Delete)
@@ -1550,7 +1554,12 @@ class _ResolveMixin:
         schema_input = _input_spec_for_field(schema_inputs, field_name)
         raw_input = _find_named_slot(node_ref.node.get("inputs"), field_name)
         widget_value = _widget_value_for_field(node_ref.node, node_ref.class_type, field_name)
-        if raw_input is None and schema_input is None and widget_value is _MISSING_WIDGET_VALUE and field_name != "mode":
+        if (
+            raw_input is None
+            and schema_input is None
+            and widget_value is _MISSING_WIDGET_VALUE
+            and field_name not in {"mode", "title"}
+        ):
             detail: dict[str, Any] = {"name": node_ref.name, "uid": node_ref.uid, "field": target.attr}
             try:
                 fd = field_diagnostics_for_node(

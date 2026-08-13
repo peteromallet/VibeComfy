@@ -5,7 +5,7 @@ import time
 from typing import Any, Mapping
 
 from .ledger import EditLedger, ScopeState
-from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
+from .ops import AddNodeOp, EditOp, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, SetTitleOp, UpsertLinkOp
 from vibecomfy.porting.edit.apply_links import _link_endpoints, _link_id, _link_ids_targeting_input, _node_by_id
 from vibecomfy.porting.edit.apply_slots import _find_named_slot_index
 from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, GuardResult, ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, _issue
@@ -236,6 +236,9 @@ def _guard_attribution(
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")
+            continue
+        if isinstance(op, SetTitleOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "title")
             continue
         if isinstance(op, ReorderOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values")

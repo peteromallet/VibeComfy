@@ -30,6 +30,13 @@ comfy = [
   # vibecomfy.comfy_backend.ensure_nodes() falls back to pure-Python when this
   # extra is not installed. The package is published on AppMana's Python index;
   # pip callers must pass --extra-index-url https://nodes.appmana.com/simple/.
+  #
+  # Frontend pin conflict: comfyui 0.26.0 pins comfyui-frontend-package<1.46
+  # while a fresh ComfyUI checkout tracks a 1.48.x frontend. Installing this
+  # extra into a checkout venv can therefore surface a pip resolver conflict; it
+  # is benign because the checkout's own comfy/ package wins when running
+  # main.py, but keep checkout venvs and [comfy]-extra venvs separate. See the
+  # "Use VibeComfy Inside ComfyUI" section of the README.
   "comfyui==0.26.0",
 ]
 png = [

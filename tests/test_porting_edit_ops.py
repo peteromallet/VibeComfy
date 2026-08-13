@@ -8,11 +8,14 @@ from vibecomfy.porting.edit.ops import (
     DELTA_DIAGNOSTIC_LEGACY_SHAPE,
     DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
     EditOpParseError,
+    NodeTarget,
+    SetTitleOp,
     canonical_op_to_dict,
     ensure_root_scoped_delta_envelope,
     normalize_delta_agent_response,
     normalize_delta_envelope,
     normalize_delta_test_client_response,
+    op_to_dict,
     parse_edit_delta,
 )
 
@@ -275,6 +278,34 @@ def test_parse_edit_delta_rejects_raw_link_payloads(payload: list[dict[str, obje
 def test_parse_edit_delta_rejects_invalid_modes(mode: object) -> None:
     with pytest.raises(EditOpParseError, match=r"mode must be one of: 0, 2, 4"):
         parse_edit_delta([{"op": "set_mode", "target": ["", "u1"], "mode": mode}])
+
+
+def test_parse_edit_delta_set_title_roundtrips_canonical() -> None:
+    """set_title parses through the node-target path and round-trips canonically."""
+    payload = {"op": "set_title", "target": ["", "mute-node"], "title": "TestNode"}
+    op = parse_edit_delta([payload])[0]
+
+    assert isinstance(op, SetTitleOp)
+    assert op.target == NodeTarget(scope_path="", uid="mute-node")
+    assert op.title == "TestNode"
+    assert canonical_op_to_dict(op) == payload
+    assert op_to_dict(op) == payload
+
+
+def test_set_title_normalizes_through_canonical_envelope() -> None:
+    """A set_title op survives a full canonical envelope round-trip."""
+    payload = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "set_title", "target": ["", "mute-node"], "title": "TestNode"}],
+    }
+    envelope = normalize_delta_envelope(payload)
+    assert envelope.to_dict() == payload
+
+
+@pytest.mark.parametrize("title", ["", 42, None])
+def test_parse_edit_delta_rejects_invalid_titles(title: object) -> None:
+    with pytest.raises(EditOpParseError, match="title"):
+        parse_edit_delta([{"op": "set_title", "target": ["", "u1"], "title": title}])
 
 
 @pytest.mark.parametrize(

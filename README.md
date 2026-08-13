@@ -61,7 +61,9 @@ Treat them as read-only; copy one to a local `recipes/` workspace with
 
 Unlike ComfyScript-style exports that flatten a graph into Python calls,
 VibeComfy preserves a workflow contract for agents. See
-[VibeComfy And ComfyScript](docs/comparisons/comfyscript.md).
+[VibeComfy And ComfyScript](docs/comparisons/comfyscript.md), and
+[What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md) for the
+object at the center of that contract.
 
 ## Getting Started
 
@@ -75,34 +77,111 @@ panel also works from a normal install, but it needs the `agent` extra so the
 Arnold runtime package is present in the same Python environment as ComfyUI.
 
 ```text
-Install VibeComfy into my ComfyUI checkout. Use the same Python that runs ComfyUI, install VibeComfy editable with the agent extra if I want the in-editor agent panel, symlink `vibecomfy/comfy_nodes` into `ComfyUI/custom_nodes/vibecomfy`, restart ComfyUI, and verify that the VibeComfy node categories are available.
+Install ComfyUI fresh (clone https://github.com/comfyanonymous/ComfyUI.git, create a venv, install torch and requirements.txt, start it once), then install VibeComfy into that ComfyUI checkout with the agent extra using the same Python that runs ComfyUI, symlink `vibecomfy/comfy_nodes` into `ComfyUI/custom_nodes/vibecomfy`, restart ComfyUI, and verify that the VibeComfy node categories are available.
 ```
 
-Manual install:
+Fresh ComfyUI install (skip this block if you already have a working ComfyUI
+checkout):
+
+```bash
+git clone https://github.com/comfyanonymous/ComfyUI.git
+cd ComfyUI
+python3 -m venv venv
+venv/bin/pip install torch torchvision torchaudio
+venv/bin/pip install -r requirements.txt
+venv/bin/python main.py  # start once to verify; Ctrl-C once it has loaded
+```
+
+Manual install of VibeComfy into that checkout:
 
 ```bash
 cd /path/to/VibeComfy
 COMFYUI=/path/to/ComfyUI
 COMFY_PYTHON="$COMFYUI/venv/bin/python"  # replace with the Python that runs ComfyUI
-"$COMFY_PYTHON" -m pip install -e .
+"$COMFY_PYTHON" -m pip install -e ".[agent]"
 ln -sfn "$PWD/vibecomfy/comfy_nodes" "$COMFYUI/custom_nodes/vibecomfy"
 ```
 
-The `pip install -e .` step installs the VibeComfy Python package and
-extension-only dependencies into ComfyUI's interpreter. For the agent panel,
-install the optional runtime dependency as well:
-
-```bash
-"$COMFY_PYTHON" -m pip install -e ".[agent]"
-```
+The default install is `".[agent]"`: it installs the VibeComfy Python package,
+the extension-only dependencies, and the Arnold runtime that powers the
+in-editor agent panel into ComfyUI's interpreter.
 
 The symlink is what makes ComfyUI load `vibecomfy/comfy_nodes/__init__.py`,
 which registers the node classes and serves the bundled `web/` extension assets.
 
 After restart, look for nodes under `vibecomfy/exec`, `vibecomfy/intent`, and
-`conditioning/vibecomfy`.
+`conditioning/vibecomfy`. Install success means the VibeComfy nodes appear in
+node search and `/vibecomfy/agent/status` returns `ready: true`. Red "missing
+model" errors on the default workflow (e.g. `qwen_3_4b.safetensors`,
+`z_image_turbo_bf16.safetensors`) mean the models are not downloaded yet, not
+an install failure.
 
 The agent panel lets an agent edit a workflow from inside ComfyUI.
+
+#### Practically this is how this looks
+
+The default workflow a fresh install loads is the z-image text-to-image graph.
+Suppose you want the agent to change the save prefix. On the ComfyUI canvas
+that node is a box, but as text — what the agent actually reads — it is this:
+
+```json
+{
+  "id": 9,
+  "type": "SaveImage",
+  "inputs": [{"name": "images", "type": "IMAGE", "link": 86}],
+  "widgets_values": ["z-image"],
+  "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.3.64",
+    "Node name for S&R": "SaveImage"
+  }
+}
+```
+
+Accurate, but the agent's job is reconstruction: `link 86` lives elsewhere,
+`widgets_values[0]` is a positional array with no name, and "SaveImage" tells
+it nothing about where this sits in the graph. The VibeComfy layer says the
+same thing in ordinary code:
+
+```python
+save = SaveImage(_id="9", images=edited, filename_prefix="z-image")
+```
+
+Change the prefix by editing one named argument, validate with
+`vibecomfy validate`, and the compiler emits the API JSON ComfyUI queues. Both
+representations describe the same node; the Python one gives the agent names,
+call sites, and intent in one view — which is why the panel can act on
+"rename the SaveImage node" without first decoding a graph. For the full
+walkthrough — two connected nodes, subgraphs, and how this compares with
+ComfyScript-style exports — see
+[What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md).
+
+#### Advanced: nodes-only install (no agent panel)
+
+Skip the Arnold runtime if you only want the extension nodes:
+
+```bash
+"$COMFY_PYTHON" -m pip install -e .
+```
+
+The extension nodes and the panel's web assets work without the `agent` extra,
+but the in-editor agent panel has no runtime until it is installed.
+
+#### macOS: expected console noise
+
+On first load you may see 404s for `/api/userdata/*`, `user.css`,
+`comfy.templates.json`, and `/vibecomfy/demo/scenarios` (by design unless
+`VIBECOMFY_DEMO_PICKER=1`), plus objc duplicate-class warnings (cv2 vs av) and
+a comfy-kitchen CUDA backend "missing" message (expected on Mac; MPS is used).
+These are not install failures.
+
+#### `vibecomfy[comfy]` venv conflict
+
+Installing the `vibecomfy[comfy]` extra (`comfyui==0.26.0`) into a checkout
+venv, or reusing a venv that already has pip-installed comfyui, can produce a
+pip resolver conflict: `comfyui 0.26.0` wants `comfyui-frontend-package<1.46`
+while a fresh checkout pins 1.48.x. The checkout's own `comfy/` package wins
+when running `main.py`, so it is benign — but keep those venvs separate.
 
 ### Use VibeComfy Directly
 
@@ -194,6 +273,7 @@ evidence; do not make compiled API JSON the reusable source of truth.
 - [Porting workbench](docs/templates/porting_workbench.md)
 - [Adding templates and models](docs/templates/adding_templates_models.md)
 - [Testing user code](docs/testing/user_code.md)
+- [What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md)
 - [Why Python, not JSON?](docs/comparisons/why_python_not_json.md)
 - [ComfyScript comparison](docs/comparisons/comfyscript.md)
 

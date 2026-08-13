@@ -81,6 +81,8 @@ def _attach_model_turn_evidence(
         for name, value in (("model", model), ("phase", phase)):
             if getattr(exc, name, None) is None:
                 setattr(exc, name, value)
+        if getattr(exc, "requested_model", None) is None:
+            exc.requested_model = model  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001 - evidence attachment is best-effort
         pass
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Edit-op parsing plus canonical delta-envelope normalization.
 
 The canonical persisted/runtime-facing V2 contract is
-``{schema_version: "2.0.0", ops: [...]}`` with exactly six supported op kinds.
+``{schema_version: "2.0.0", ops: [...]}`` with exactly seven supported op kinds.
 
 Legacy handling is explicit:
 
@@ -58,6 +58,7 @@ DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "replay_mismatch"
 CANONICAL_DELTA_OP_NAMES = (
     "set_node_field",
     "set_mode",
+    "set_title",
     "add_node",
     "upsert_link",
     "remove_node",
@@ -111,6 +112,7 @@ EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
                         ]
                     },
                     {"type": "object", "required": ["op", "target", "mode"]},
+                    {"type": "object", "required": ["op", "target", "title"]},
                 ],
             },
         },
@@ -220,6 +222,13 @@ class SetModeOp:
     mode: Literal[0, 2, 4]
 
 
+@dataclass(frozen=True, slots=True)
+class SetTitleOp:
+    op: Literal["set_title"]
+    target: NodeTarget
+    title: str
+
+
 EditOp = (
     SetNodeFieldOp
     | AddNodeOp
@@ -228,6 +237,7 @@ EditOp = (
     | RemoveLinkOp
     | ReorderOp
     | SetModeOp
+    | SetTitleOp
 )
 
 
@@ -542,6 +552,13 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             mode=mode,  # type: ignore[arg-type]
         )
 
+    if op_name == "set_title":
+        return SetTitleOp(
+            op="set_title",
+            target=_parse_node_target(data.get("target"), path="target"),
+            title=_require_string(data.get("title"), path="title"),
+        )
+
     raise EditOpParseError(f"Unsupported edit op {op_name!r}.")
 
 
@@ -627,6 +644,12 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             "op": parsed.op,
             "target": [parsed.target.scope_path, parsed.target.uid],
             "mode": parsed.mode,
+        }
+    if isinstance(parsed, SetTitleOp):
+        return {
+            "op": parsed.op,
+            "target": [parsed.target.scope_path, parsed.target.uid],
+            "title": parsed.title,
         }
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
@@ -749,6 +772,8 @@ def ensure_root_scoped_delta_envelope(
         elif isinstance(op, RemoveLinkOp) and op.target is not None:
             scoped_paths.append(op.target.scope_path)
         elif isinstance(op, SetModeOp):
+            scoped_paths.append(op.target.scope_path)
+        elif isinstance(op, SetTitleOp):
             scoped_paths.append(op.target.scope_path)
         elif isinstance(op, ReorderOp):
             scoped_paths.append(op.target.scope_path)
@@ -892,6 +917,12 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
             "op": op.op,
             "target": [op.target.scope_path, op.target.uid],
             "mode": op.mode,
+        }
+    if isinstance(op, SetTitleOp):
+        return {
+            "op": op.op,
+            "target": [op.target.scope_path, op.target.uid],
+            "title": op.title,
         }
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
@@ -1120,6 +1151,7 @@ __all__ = [
     "ReorderOp",
     "SetModeOp",
     "SetNodeFieldOp",
+    "SetTitleOp",
     "UpsertLinkOp",
     "canonical_op_to_dict",
     "ensure_root_scoped_delta_envelope",

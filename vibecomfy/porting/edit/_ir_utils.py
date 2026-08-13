@@ -10,6 +10,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
@@ -263,6 +264,8 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
     if isinstance(op, SetNodeFieldOp):
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, SetModeOp):
+        return ((op.target.scope_path, op.target.uid),)
+    if isinstance(op, SetTitleOp):
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, RemoveNodeOp):
         return ((op.target.scope_path, op.target.uid),)

@@ -7013,3 +7013,54 @@ class TestRealBatchReplResearchIntegration:
         assert result.ok is True
         assert result.report.research is not None
         assert "alice in #ltx_chatter" in result.report.research.community_summary
+
+def _fake_handle_agent_edit_slow(payload: dict, **kwargs: Any) -> dict:
+    """Fake handle_agent_edit that blocks long enough for heartbeat ticks."""
+    import time
+
+    time.sleep(0.25)
+    return _fake_handle_agent_edit(payload, **kwargs)
+
+
+class TestImplementPhaseHeartbeat:
+    """The implement phase emits periodic status=\"working\" heartbeat events."""
+
+    @mock.patch("vibecomfy.executor.core._IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS", 0.05)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_slow)
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_edit)
+    def test_implement_phase_emits_working_heartbeat_events(
+        self, mock_reply, mock_classify, mock_edit, profile_dir: Path
+    ) -> None:
+        """While the implement phase runs, status='working' events are emitted."""
+        request = ExecutorRequest(
+            query="set seed to 42",
+            session_id="session-heartbeat",
+            graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+            profile="default",
+        )
+        with mock.patch("vibecomfy.executor.core._ws_send") as mock_ws_send:
+            result = run_executor(request, client_id="client-1")
+
+        assert result.ok is True
+        phase_payloads = [
+            call.args[1]
+            for call in mock_ws_send.call_args_list
+            if call.args[0] == "vibecomfy.executor.phase"
+        ]
+        implement_statuses = [
+            payload["status"]
+            for payload in phase_payloads
+            if payload["phase"] == "implement"
+        ]
+        assert "start" in implement_statuses
+        assert "working" in implement_statuses, (
+            "implement phase must emit status='working' heartbeat events while running"
+        )
+        working_payloads = [
+            payload
+            for payload in phase_payloads
+            if payload["phase"] == "implement" and payload["status"] == "working"
+        ]
+        assert all(payload["executor_id"] for payload in working_payloads)
+        assert all(payload["session_id"] == request.session_id for payload in working_payloads)

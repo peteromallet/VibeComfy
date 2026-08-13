@@ -3,19 +3,23 @@
 //
 // This module is a dev/demo-only, self-contained installer. It reads
 // `localStorage["vibecomfy_demo_picker_enabled"]`: when that key is not `"0"`,
-// the installer probes `/vibecomfy/demo/scenarios`. A successful manifest
-// response mounts a small "▦ Demo" toggle in the panel header and a hideable
-// toolbar that lists curated demo scenarios.
+// the installer consults `/vibecomfy/info` and — only when
+// `runtime_modes.demo_picker` is true — probes `/vibecomfy/demo/scenarios`. A
+// successful manifest response mounts a small "▦ Demo" toggle in the panel
+// header and a hideable toolbar that lists curated demo scenarios.
 // Selecting a scenario and clicking "Load & Play" replays it as a fake agent
 // turn: the original graph is applied to the canvas, a user query + agent reply
 // are pushed to the chat thread, and the panel state is populated to mirror a
 // normal AWAITING_REVIEW candidate (including `__demoMode` for the demo-only
 // Apply/Reject branches defined later in the lifecycle).
 //
-// The server endpoint is the source of truth for whether demo mode exists. A
+// The server endpoint is the source of truth for whether demo mode exists, and
+// `/vibecomfy/info` gates the scenarios probe so a demo-less backend never
+// receives the scenarios request at all (no 404 on every load). A
 // missing/disabled endpoint leaves no UI mounted and no panel state touched.
 
 import { app } from "../../scripts/app.js";
+import { buildVibeComfyInfoUrl } from "./agent_status_poller.js";
 import { applyGraphCandidateInPlace } from "./comfy_adapter.js";
 import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import { scheduleRenderAgentPanel } from "./panel_scheduler.js";
@@ -71,6 +75,26 @@ function isPickerEnabled() {
     return localStorage.getItem(LS_DEMO_PICKER_ENABLED) !== "0";
   } catch (_e) {
     return true;
+  }
+}
+
+/**
+ * Resolve the server-side demo picker gate: `/vibecomfy/info` must report
+ * `runtime_modes.demo_picker === true`. Any non-OK / malformed response is
+ * treated as "off" so a demo-less backend never receives the scenarios probe.
+ *
+ * @returns {Promise<boolean>}
+ */
+async function demoPickerEnabledByInfo() {
+  try {
+    const res = await fetch(buildVibeComfyInfoUrl());
+    if (!res.ok) {
+      return false;
+    }
+    const data = await res.json();
+    return data?.runtime_modes?.demo_picker === true;
+  } catch (_error) {
+    return false;
   }
 }
 
@@ -916,27 +940,37 @@ export function installPreviewPicker(panel, options = {}) {
     }
   }
 
-  // Load scenario list. This is the only network traffic the module emits,
-  // and it only happens when the picker is enabled and installed.
-  fetchScenarios()
-    .then((scenarios) => {
-      for (const scenario of scenarios) {
-        const option = el("option", scenario.title || scenario.id);
-        option.value = scenario.id;
-        select.appendChild(option);
-      }
-      mountPicker();
-      if (scenarios.length === 0) {
-        showError("No demo scenarios available");
-      }
-    })
-    .catch((error) => {
-      if (isDemoUnavailableError(error)) {
+  // Load scenario list. This is the only network traffic the module emits.
+  // The probe is gated first on /vibecomfy/info runtime_modes.demo_picker so a
+  // demo-less backend never receives a /vibecomfy/demo/scenarios 404 on every
+  // page load; the localStorage "0" opt-out is enforced by isPickerEnabled
+  // before this installer runs at all.
+  void demoPickerEnabledByInfo()
+    .then((infoAllowsPicker) => {
+      if (!infoAllowsPicker) {
         unmountPicker();
         return;
       }
-      mountPicker();
-      showError(error?.message || String(error));
+      return fetchScenarios()
+        .then((scenarios) => {
+          for (const scenario of scenarios) {
+            const option = el("option", scenario.title || scenario.id);
+            option.value = scenario.id;
+            select.appendChild(option);
+          }
+          mountPicker();
+          if (scenarios.length === 0) {
+            showError("No demo scenarios available");
+          }
+        })
+        .catch((error) => {
+          if (isDemoUnavailableError(error)) {
+            unmountPicker();
+            return;
+          }
+          mountPicker();
+          showError(error?.message || String(error));
+        });
     });
 
   // ── T8: Demo Apply/Reject handlers ──────────────────────────────────

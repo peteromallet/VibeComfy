@@ -117,6 +117,18 @@ def _make_set_mode_dict(
     }
 
 
+def _make_set_title_dict(
+    uid: str = "9",
+    title: str = "TestNode",
+    scope_path: str = "",
+) -> dict[str, Any]:
+    return {
+        "op": "set_title",
+        "target": [scope_path, uid],
+        "title": title,
+    }
+
+
 def _make_upsert_link_dict(
     source_uid: str = "n1",
     source_slot: str = "IMAGE",
@@ -671,11 +683,12 @@ class TestPreviewApplyParity:
         canonical2 = canonical_op_to_dict(parsed2)
         assert canonical == canonical2
 
-    def test_all_six_canonical_op_types_accepted(self) -> None:
-        """All six canonical op types pass normalization."""
+    def test_all_seven_canonical_op_types_accepted(self) -> None:
+        """All seven canonical op types pass normalization."""
         ops = [
             _make_set_node_field_dict("3", "seed", 42),
             _make_set_mode_dict("9", 4),
+            _make_set_title_dict("9", "TestNode"),
             _make_add_node_dict(
                 uid="n1", node_id="node_1", class_type="SaveImage",
                 inputs={"images": ["", "8", "IMAGE"]},
@@ -686,7 +699,7 @@ class TestPreviewApplyParity:
         ]
         envelope = _make_canonical_envelope(ops)
         result = normalize_delta_envelope(envelope)
-        assert len(result.ops) == 6
+        assert len(result.ops) == 7
         op_types = [op.op for op in result.ops]
         assert op_types == list(CANONICAL_DELTA_OP_NAMES)
 

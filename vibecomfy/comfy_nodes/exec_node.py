@@ -223,6 +223,8 @@ class VibeComfyExec:
     VIBECOMFY_RUNTIME_BACKED: bool = False
     VIBECOMFY_LOWERED: bool = False
 
+    SEARCH_ALIASES: list[str] = ["VibeComfy"]
+
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
         optional: dict[str, tuple[str, ...]] = {}

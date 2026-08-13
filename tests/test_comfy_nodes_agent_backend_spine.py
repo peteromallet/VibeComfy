@@ -3962,7 +3962,12 @@ def test_agent_provider_status_reports_unavailable_without_secret_values(monkeyp
 
         assert status["ok"] is False
         assert status["ready"] is False
-        assert status["reason"] == "not installed"
+        # The runtime failure surfaces as a user-facing install hint, never a
+        # raw import traceback; the original detail stays in the logs.
+        assert status["reason"] == agent_provider._ARNOLD_RUNTIME_UNAVAILABLE_REASON
+        assert "pip install -e '.[agent]'" in status["reason"]
+        assert "not installed" not in status["reason"]
+        assert status["error"] == status["reason"]
         assert status["provider_available"] is False
         assert status["route"] == "arnold"
         assert status["requested_route"] == "openai-codex"

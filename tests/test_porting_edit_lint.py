@@ -38,6 +38,7 @@ from vibecomfy.porting.edit.ops import (
     ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
+    SetTitleOp,
     UpsertLinkOp,
 )
 
@@ -315,6 +316,72 @@ def test_mode_change_passes() -> None:
     assert result.passed_count == 1
     assert result.dropped_count == 0
     assert result.rejected_count == 0
+
+
+# ── title no-op ─────────────────────────────────────────────────────────────
+
+def test_canonical_uid_set_title_passes_through() -> None:
+    """A set_title op referencing a valid canonical uid passes unchanged."""
+    idx = _index()
+    target = NodeTarget(scope_path="", uid="1")
+    # Node 1 has no title (None) in flat.json, so renaming it is a real change.
+    op = SetTitleOp(op="set_title", target=target, title="TestNode")
+    result = lint_delta([op], idx)
+
+    assert result.passed_count == 1
+    assert result.dropped_count == 0
+    assert result.rejected_count == 0
+    assert len(result.surviving) == 1
+    assert result.surviving[0] is op  # identity preserved when no rewrite needed
+
+
+def test_title_noop_dropped() -> None:
+    """Setting the title to the current title is a no-op and dropped."""
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "Test", "title": "TestNode", "properties": {},
+             "mode": 0, "inputs": [], "outputs": [], "widgets_values": []},
+        ],
+        "links": [],
+    }
+    idx = LintIndex.build(raw)
+    target = NodeTarget(scope_path="", uid="1")
+    op = SetTitleOp(op="set_title", target=target, title="TestNode")
+    result = lint_delta([op], idx)
+
+    assert result.passed_count == 0
+    assert result.dropped_count == 1
+    assert result.rejected_count == 0
+    assert len(result.surviving) == 0
+    assert len(result.issues) == 1
+    assert result.issues[0].code == "noop_title"
+    assert result.issues[0].severity == "info"
+
+
+def test_title_change_passes() -> None:
+    """Setting a different title passes."""
+    idx = _index()
+    target = NodeTarget(scope_path="", uid="1")
+    op = SetTitleOp(op="set_title", target=target, title="TestNode")
+    result = lint_delta([op], idx)
+
+    assert result.passed_count == 1
+    assert result.dropped_count == 0
+    assert result.rejected_count == 0
+
+
+def test_empty_title_rejected() -> None:
+    """A whitespace-only title is rejected before target resolution."""
+    idx = _index()
+    target = NodeTarget(scope_path="", uid="1")
+    op = SetTitleOp(op="set_title", target=target, title="   ")
+    result = lint_delta([op], idx)
+
+    assert result.passed_count == 0
+    assert result.rejected_count == 1
+    assert result.dropped_count == 0
+    assert len(result.issues) == 1
+    assert result.issues[0].code == "empty_title"
 
 
 # ── absent field ────────────────────────────────────────────────────────────
