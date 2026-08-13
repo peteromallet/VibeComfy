@@ -75,3 +75,4 @@ vibecomfy/comfy_nodes/web_dist/
 
 # Live agentic watchdog run artifacts (logs, backups, baselines, codex outputs)
 .watchdog-runs/
+.venv

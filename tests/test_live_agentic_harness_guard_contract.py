@@ -37,6 +37,7 @@ def _write_successful_candidate(output_dir: Path, **overrides: object) -> None:
         "graph_unchanged": False,
         "candidate_graph": {"nodes": [{"id": 1}], "links": []},
         "outcome": {"kind": "candidate"},
+        "change_details": {"landed_operation_count": 1},
         "gates": {
             "ir_validate_ok": True,
             "lower_ok": True,
@@ -194,8 +195,10 @@ def test_agentic_guard_catches_unchanged_graph_and_upstream_errors(tmp_path: Pat
     assert "graph_changed" in checks
     assert "outcome_kind" in checks
     assert "upstream_failure" in checks
-    assert "implementation_result" in checks
     assert "gates" in checks
+    # G0R: the residual implementation_result prose gate is removed — the
+    # "The graph is unchanged." message must not produce its own check.
+    assert "implementation_result" not in checks
 
 
 def test_agentic_guard_allows_explicit_safe_refusal_scenarios(tmp_path: Path) -> None:
@@ -363,6 +366,7 @@ def test_agentic_guard_rejects_oversized_model_request(tmp_path: Path) -> None:
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
                 "candidate": {"nodes": [{"id": 1}]},
+                "change_details": {"landed_operation_count": 1},
             }
         ),
         encoding="utf-8",
@@ -398,6 +402,7 @@ def test_agentic_guard_rejects_forbidden_model_request_substrings(tmp_path: Path
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
                 "candidate": {"nodes": [{"id": 1}]},
+                "change_details": {"landed_operation_count": 1},
             }
         ),
         encoding="utf-8",
@@ -820,6 +825,7 @@ def test_agentic_guard_false_validation_success_claim_still_fails_via_gates(
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
                 "candidate_graph": {"nodes": [{"id": 1}]},
+                "change_details": {"landed_operation_count": 1},
                 "gates": {
                     "ir_validate_ok": False,
                     "lower_ok": True,
@@ -850,6 +856,215 @@ def test_agentic_guard_false_validation_success_claim_still_fails_via_gates(
     }
     assert "gates" in error_checks
     assert "message_artifact" not in error_checks
+
+
+# ── G0R: structural expected-edit guard (landed_operation_count) ──────────
+#
+# A claimed edit (graph_unchanged is False) must be backed by a positive
+# integer change_details.landed_operation_count.  Missing, malformed, or
+# zero counts fail closed; accepted grounded refusals and explicitly
+# non-edit routes are exempt (they are scored by their own checks).
+
+
+@pytest.mark.parametrize(
+    "change_details",
+    [
+        pytest.param(None, id="missing-change-details"),
+        pytest.param({}, id="missing-landed-count"),
+        pytest.param({"landed_operation_count": 0}, id="zero-landed-count"),
+        pytest.param({"landed_operation_count": -1}, id="negative-landed-count"),
+        pytest.param({"landed_operation_count": "1"}, id="string-landed-count"),
+        pytest.param({"landed_operation_count": 1.5}, id="float-landed-count"),
+        pytest.param({"landed_operation_count": True}, id="bool-landed-count"),
+    ],
+)
+def test_agentic_guard_expected_edit_requires_positive_landed_count(
+    tmp_path: Path,
+    change_details: dict[str, object] | None,
+    request: pytest.FixtureRequest,
+) -> None:
+    """G0R negative control: graph_unchanged=false with a missing, malformed,
+    or zero landed_operation_count fails closed structurally."""
+    output_dir = tmp_path / f"landed-count-{request.node.callspec.id}"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    response = {
+        "ok": True,
+        "graph_unchanged": False,
+        "outcome": {"kind": "candidate"},
+        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "gates": _ALL_GATES_PASS,
+    }
+    if change_details is not None:
+        response["change_details"] = change_details
+    (output_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    scenario = {
+        "id": f"landed-count-{change_details!r}",
+        "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+    }
+    verdict = guard_output_dir(output_dir, scenario=scenario)
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "landed_operation_count" in error_checks, verdict["assessment"]["issues"]
+
+
+def test_agentic_guard_expected_edit_with_positive_landed_count_passes(
+    tmp_path: Path,
+) -> None:
+    """G0R positive control: graph_unchanged=false with a positive integer
+    landed_operation_count passes the structural guard."""
+    output_dir = tmp_path / "landed-count-positive"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": False,
+                "outcome": {"kind": "candidate"},
+                "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+                "change_details": {"landed_operation_count": 1},
+                "gates": _ALL_GATES_PASS,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "landed-count-positive",
+            "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+        },
+    )
+
+    assert verdict["live_agentic_success"] is True
+    assert verdict["assessment"]["passed"] is True
+    assert not [
+        issue
+        for issue in verdict["assessment"]["issues"]
+        if issue["check"] == "landed_operation_count"
+    ]
+
+
+def test_agentic_guard_exempts_grounded_refusal_from_landed_count(
+    tmp_path: Path,
+) -> None:
+    """G0R: an accepted grounded refusal (graph_unchanged=true, allowed
+    outcome kind) is exempt from the landed_operation_count requirement."""
+    output_dir = tmp_path / "landed-count-refusal-exempt"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "requires_custom_nodes"},
+                "message": "No schema-backed replacement node was found.",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "landed-count-refusal-exempt",
+            "assessment": {
+                "expect_graph_changed": True,
+                "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
+            },
+        },
+    )
+
+    assert verdict["live_agentic_success"] is True
+    assert verdict["assessment"]["passed"] is True
+    assert {issue["check"] for issue in verdict["assessment"]["issues"]} == {"safe_refusal"}
+    assert not [
+        issue
+        for issue in verdict["assessment"]["issues"]
+        if issue["check"] == "landed_operation_count"
+    ]
+
+
+def test_agentic_guard_exempts_explicit_non_edit_route_from_landed_count(
+    tmp_path: Path,
+) -> None:
+    """G0R: an explicitly non-edit route (outcome.kind=clarify, e.g. the
+    edit-clarify exit mode) is exempt from the landed_operation_count
+    requirement — the agent declared no landed edit, so there is nothing to
+    count."""
+    output_dir = tmp_path / "landed-count-clarify-exempt"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": False,
+                "outcome": {"kind": "clarify"},
+                "message": "Which node should I edit next?",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "landed-count-clarify-exempt",
+            "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+        },
+    )
+
+    assert verdict["assessment"]["passed"] is True
+    assert not [
+        issue
+        for issue in verdict["assessment"]["issues"]
+        if issue["check"] == "landed_operation_count"
+    ]
+
+
+def test_agentic_guard_non_edit_route_still_scored_by_own_structured_checks(
+    tmp_path: Path,
+) -> None:
+    """G0R control: an explicitly non-edit route (no_candidate_reason set)
+    is exempt from the landed-count guard but still fails through its own
+    structured check when an edit was expected."""
+    output_dir = tmp_path / "landed-count-noop-not-exempt-from-noop-check"
+    _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": False,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "noop"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    verdict = guard_output_dir(
+        output_dir,
+        scenario={
+            "id": "landed-count-noop-check",
+            "assessment": {"expect_graph_changed": True, "skip_intent_judge": True},
+        },
+    )
+
+    assert verdict["live_agentic_success"] is False
+    error_checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert "no_candidate_reason" in error_checks
+    assert "landed_operation_count" not in error_checks
 
 
 def test_agentic_guard_rejects_shared_linked_source_edit_by_default(tmp_path: Path) -> None:

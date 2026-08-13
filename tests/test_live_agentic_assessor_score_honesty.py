@@ -11,6 +11,7 @@ def test_recovered_upstream_500_is_warning_when_candidate_succeeded(tmp_path: Pa
         "ok": True,
         "graph_unchanged": False,
         "candidate_graph": {"1": {"class_type": "TestNode"}},
+        "change_details": {"landed_operation_count": 1},
         "warnings": ["Hivemind HTTP error 500: Internal Server Error"],
     }
     (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
@@ -50,6 +51,7 @@ def test_skipped_queue_validation_is_warning_when_candidate_succeeded(tmp_path: 
         "ok": True,
         "graph_unchanged": False,
         "candidate_graph": {"1": {"class_type": "SaveAudio"}},
+        "change_details": {"landed_operation_count": 1},
         "gates": {
             "ir_validate_ok": True,
             "lower_ok": True,
@@ -83,6 +85,7 @@ def test_skipped_queue_validation_does_not_hide_other_failed_gates(tmp_path: Pat
         "ok": True,
         "graph_unchanged": False,
         "candidate_graph": {"1": {"class_type": "SaveAudio"}},
+        "change_details": {"landed_operation_count": 1},
         "gates": {
             "ir_validate_ok": True,
             "lower_ok": False,
@@ -122,6 +125,7 @@ def test_queue_validation_stage_failure_still_fails(tmp_path: Path) -> None:
         "ok": True,
         "graph_unchanged": False,
         "candidate_graph": {"1": {"class_type": "SaveAudio"}},
+        "change_details": {"landed_operation_count": 1},
         "gates": {
             "ir_validate_ok": True,
             "lower_ok": True,
@@ -193,12 +197,19 @@ def test_message_prose_never_affects_score(tmp_path: Path) -> None:
             json.dumps({**base, "message": message}),
             encoding="utf-8",
         )
+        # G0R: the residual implementation_result prose gate is removed — the
+        # same "unchanged"-wording message in implementation_result.json must
+        # not affect scoring either.
+        (run_dir / "implementation_result.json").write_text(
+            json.dumps({"message": message}),
+            encoding="utf-8",
+        )
         assessment = assess_live_output_dir(run_dir, scenario=scenario)
         scores.append((assessment["passed"], assessment["error_count"]))
 
     assert scores == [(True, 0)] * len(passing_messages), scores
     assert all(
-        issue["check"] != "message_artifact"
+        issue["check"] not in {"message_artifact", "implementation_result"}
         for index in range(len(passing_messages))
         for issue in assess_live_output_dir(tmp_path / f"pass-{index}", scenario=scenario)["issues"]
     )
@@ -239,3 +250,46 @@ def test_message_prose_never_affects_score(tmp_path: Path) -> None:
     # Four structured errors: graph_changed, no_candidate_reason,
     # outcome_kind, and gates — identical for every message wording.
     assert failing_scores == [(False, 4)] * len(failing_messages), failing_scores
+
+
+def test_implementation_result_unchanged_prose_does_not_gate_scoring(tmp_path: Path) -> None:
+    """G0R counterexample: an implementation_result message saying other
+    nodes are unchanged must NOT affect scoring when the structured record
+    proves an edit landed.
+
+    The residual ``"unchanged"`` substring gate (assessor.py:774 pre-G0R)
+    turned this into an error-severity ``implementation_result`` issue; it is
+    gone — prose never gates scoring.
+    """
+    response = {
+        "ok": True,
+        "graph_unchanged": False,
+        "candidate_graph": {"1": {"class_type": "KSampler"}},
+        "outcome": {"kind": "candidate"},
+        "change_details": {"landed_operation_count": 1},
+        "gates": {
+            "ir_validate_ok": True,
+            "lower_ok": True,
+            "python_load_ok": True,
+            "queue_validate_ok": True,
+            "state_match_ok": True,
+            "ui_emit_ok": True,
+            "ui_fidelity_ok": True,
+            "ui_load_safe_ok": True,
+        },
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    (tmp_path / "implementation_result.json").write_text(
+        json.dumps({"message": "Updated the sampler; other nodes are unchanged."}),
+        encoding="utf-8",
+    )
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={"assessment": {"expect_graph_changed": True, "skip_intent_judge": True}},
+    )
+
+    assert assessment["passed"] is True, assessment["issues"]
+    assert not [
+        issue for issue in assessment["issues"] if issue["check"] == "implementation_result"
+    ]

@@ -9,7 +9,7 @@ run artifacts to catch failures that metadata alone cannot:
 * graph unchanged when an edit was expected
 * hard diagnostics (severity == error) from agent-edit turns
 * upstream dependency failures such as Hivemind HTTP 500
-* implementation_result.json reporting the graph is unchanged
+* implementation_result.ok == false
 * validation gates that failed for an apply/edit route
 * (when enabled) an LLM intent judge that scores the edit against the query
 
@@ -209,6 +209,39 @@ def _collect_pattern_matches(
                     issues.append(node)
                 break
     return issues
+
+
+def _explicitly_non_edit_route(response: Mapping[str, Any]) -> bool:
+    """Return True when the response itself declares that no edit was applied.
+
+    These routes are scored by their own structured checks
+    (``no_candidate_reason`` / ``outcome_kind``); demanding a positive landed
+    operation count for them would be wrong — an edit that was explicitly
+    refused or never attempted has no operations to count.
+    """
+    if response.get("no_candidate_reason") in {
+        "no_changes",
+        "no_candidate",
+        "route_not_applyable",
+    }:
+        return True
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping) and outcome.get("kind") in {
+        "noop",
+        "clarify",
+        "requires_custom_nodes",
+        "failure",
+    }:
+        return True
+    return False
+
+
+def _landed_operation_count(response: Mapping[str, Any]) -> Any:
+    """Return ``change_details.landed_operation_count`` (any JSON value)."""
+    change_details = response.get("change_details")
+    if isinstance(change_details, Mapping):
+        return change_details.get("landed_operation_count")
+    return None
 
 
 def _expects_graph_changed(
@@ -628,6 +661,35 @@ def assess_live_output_dir(
                     }
                 )
 
+            # G0R structural expected-edit guard: a claimed edit
+            # (graph_unchanged is False) must be backed by a positive integer
+            # change_details.landed_operation_count.  Missing, malformed, or
+            # zero counts fail closed.  Accepted grounded refusals
+            # (safe_refusal_accepted) and explicitly non-edit routes are
+            # exempt — they are scored by their own structured checks.
+            if (
+                not safe_refusal_accepted
+                and response.get("graph_unchanged") is False
+                and not _explicitly_non_edit_route(response)
+            ):
+                landed_count = _landed_operation_count(response)
+                if not (
+                    isinstance(landed_count, int)
+                    and not isinstance(landed_count, bool)
+                    and landed_count > 0
+                ):
+                    issues.append(
+                        {
+                            "check": "landed_operation_count",
+                            "severity": "error",
+                            "detail": (
+                                "Expected edit but change_details.landed_operation_count "
+                                f"is {landed_count!r}; a positive integer is required "
+                                "when graph_unchanged is false."
+                            ),
+                        }
+                    )
+
             no_reason = response.get("no_candidate_reason")
             if not safe_refusal_accepted and no_reason in {"no_changes", "no_candidate"}:
                 issues.append(
@@ -769,22 +831,18 @@ def assess_live_output_dir(
             )
 
     if impl_result is not None:
-        impl_message = impl_result.get("message", "")
-        if isinstance(impl_message, str):
-            if expect_graph_changed and not safe_refusal_accepted and "unchanged" in impl_message.lower():
-                issues.append(
-                    {
-                        "check": "implementation_result",
-                        "severity": "error",
-                        "detail": f"implementation_result reports unchanged: {impl_message}",
-                    }
-                )
+        # G0R: the residual "unchanged" substring gate over the
+        # implementation_result message is removed — prose never gates
+        # scoring.  Only the structured ok flag is authoritative.
         if impl_result.get("ok") is False:
             issues.append(
                 {
                     "check": "implementation_result_ok",
                     "severity": "error",
-                    "detail": f"implementation_result.ok is False: {impl_result.get('error') or impl_message}",
+                    "detail": (
+                        "implementation_result.ok is False: "
+                        f"{impl_result.get('error') or impl_result.get('message', '')}"
+                    ),
                 }
             )
 
