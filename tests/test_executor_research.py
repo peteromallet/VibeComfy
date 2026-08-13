@@ -2010,6 +2010,243 @@ class TestResearchIntegration:
         )
 
 
+# ── sources= tier gating (B02) ───────────────────────────────────────────────
+
+
+class TestResearchTierGating:
+    """``research(sources=...)`` runs exactly the listed tiers — no union.
+
+    ``sources is None`` is the legacy public API: today's default tiers run and
+    the messages tier stays off.  A non-None tuple nulls every unlisted tier.
+    """
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_only_invokes_messages_client_once_with_unchanged_query(
+        self, mock_corpus
+    ) -> None:
+        messages_calls: list[tuple[str, float]] = []
+
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            messages_calls.append((query, timeout))
+            return {
+                "results": [
+                    {
+                        "kind": "message",
+                        "title": "MiniMax H3 is amazing",
+                        "body": "loving the new model",
+                        "author_name": "alice",
+                        "channel_name": "minimax_h3_chatter",
+                        "message_id": "9007199254740993",
+                        "created_at": "2026-08-01T00:00:00Z",
+                    }
+                ]
+            }
+
+        def boom(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("workflow/web/registry tier must not run")
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_client=boom,
+            web_search_client=boom,
+            registry_resolver=boom,
+            hivemind_timeout=0.5,
+        )
+
+        assert [q for q, _t in messages_calls] == ["MiniMax H3"]
+        assert messages_calls[0][1] == 0.5
+        mock_corpus.assert_not_called()
+        assert any(s["source"] == "hivemind_message" for s in result.sources)
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_public_research_without_sources_never_touches_messages_client(
+        self, mock_corpus
+    ) -> None:
+        mock_corpus.return_value = [_make_entry("KSampler")]
+
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            raise AssertionError("messages tier must stay off for sources=None")
+
+        result = research(
+            "Hotshot XL",
+            hivemind_messages_client=messages_client,
+            hivemind_client=None,
+            web_search_client=None,
+            registry_resolver=None,
+        )
+
+        # The messages fake raises AssertionError if invoked; also confirm no
+        # message-kind source leaked into the result.
+        assert not any(
+            s.get("source") in {"hivemind_message", "hivemind_distillation"}
+            for s in result.sources
+        )
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_web_runs_exactly_those_tiers(self, mock_corpus) -> None:
+        messages_calls: list[str] = []
+        web_calls: list[str] = []
+
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            messages_calls.append(query)
+            return {
+                "results": [
+                    {
+                        "kind": "message",
+                        "title": "LTX 2.5 is great",
+                        "body": "wow",
+                        "author_name": "bob",
+                        "channel_name": "ltx_chatter",
+                        "message_id": "1",
+                        "created_at": "2026-08-02T00:00:00Z",
+                    }
+                ]
+            }
+
+        def web_client(query: str, timeout: float) -> dict[str, Any]:
+            web_calls.append(query)
+            return {
+                "results": [
+                    {
+                        "title": "LTX 2.5 page",
+                        "url": "https://example.com/ltx",
+                        "snippet": "LTX 2.5 notes",
+                    }
+                ]
+            }
+
+        def boom(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("workflow/registry tier must not run")
+
+        result = research(
+            "LTX 2.5",
+            sources=("messages", "web"),
+            hivemind_messages_client=messages_client,
+            web_search_client=web_client,
+            hivemind_client=boom,
+            registry_resolver=boom,
+            hivemind_timeout=0.5,
+            web_search_timeout=0.5,
+        )
+
+        assert messages_calls == ["LTX 2.5"]
+        assert web_calls == ["LTX 2.5"]
+        mock_corpus.assert_not_called()
+        sources = list(result.sources)
+        assert any(s["source"] == "hivemind_message" for s in sources)
+        assert any(s["source"] == "web" for s in sources)
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_workflows_only_nulls_web_registry_and_messages(
+        self, mock_corpus
+    ) -> None:
+        mock_corpus.return_value = [_make_entry("KSampler")]
+        workflow_calls: list[str] = []
+
+        def workflow_client(query: str, timeout: float) -> dict[str, Any]:
+            workflow_calls.append(query)
+            return {"results": []}
+
+        def boom(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("messages/web/registry tier must not run")
+
+        result = research(
+            "KSampler",
+            sources=("workflows",),
+            hivemind_client=workflow_client,
+            hivemind_messages_client=boom,
+            web_search_client=boom,
+            registry_resolver=boom,
+        )
+
+        assert workflow_calls == ["KSampler"]
+        mock_corpus.assert_called()
+        assert any(s["class_type"] == "KSampler" for s in result.sources)
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_web_only_nulls_workflows_messages_registry_and_local(
+        self, mock_corpus
+    ) -> None:
+        web_calls: list[str] = []
+
+        def web_client(query: str, timeout: float) -> dict[str, Any]:
+            web_calls.append(query)
+            return {"results": []}
+
+        def boom(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("workflow/messages/registry tier must not run")
+
+        result = research(
+            "Hotshot XL",
+            sources=("web",),
+            web_search_client=web_client,
+            hivemind_client=boom,
+            hivemind_messages_client=boom,
+            registry_resolver=boom,
+            hivemind_timeout=0.5,
+        )
+
+        assert web_calls == ["Hotshot XL"]
+        mock_corpus.assert_not_called()
+        assert "web search: no results" in result.warnings
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_env_kill_switch_disables_messages_tier(
+        self, mock_corpus, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("VIBECOMFY_MESSAGES_RESEARCH", "0")
+        messages_calls: list[str] = []
+
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            messages_calls.append(query)
+            return {"results": []}
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_timeout=0.5,
+        )
+
+        assert messages_calls == []
+        assert "messages tier disabled" in result.warnings
+        mock_corpus.assert_not_called()
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_explicit_none_messages_client_skips_silently(
+        self, mock_corpus
+    ) -> None:
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=None,
+            hivemind_timeout=0.5,
+        )
+
+        mock_corpus.assert_not_called()
+        assert "messages tier disabled" not in result.warnings
+        assert result.sources == ()
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_messages_client_error_is_non_fatal_warning(
+        self, mock_corpus
+    ) -> None:
+        def messages_client(query: str, timeout: float) -> dict[str, Any]:
+            raise HivemindError("messages unreachable")
+
+        result = research(
+            "MiniMax H3",
+            sources=("messages",),
+            hivemind_messages_client=messages_client,
+            hivemind_timeout=0.5,
+        )
+
+        assert any("hivemind messages" in w for w in result.warnings)
+        assert {"type": "HivemindError", "message": "messages unreachable"} in result.warning_details
+
+
 # ── HivemindClient protocol ──────────────────────────────────────────────────
 
 

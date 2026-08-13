@@ -4863,7 +4863,8 @@ def test_batch_repl_research_honors_web_plus_registry_sources(
     assert result.ok is True
     assert calls[0]["local_limit"] == 0
     assert callable(calls[0]["registry_resolver"])
-    assert calls[0]["hivemind_client"] is not None
+    assert calls[0]["hivemind_client"] is None
+    assert calls[0]["hivemind_messages_client"] is not None
     assert calls[0]["web_search_client"] is not None
     assert result.statements[0].detail["research_sources"] == ("web", "registry", "messages")
     assert "Research-order check" not in result.statements[0].detail["query_output"]

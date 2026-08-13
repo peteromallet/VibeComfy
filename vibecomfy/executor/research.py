@@ -5792,6 +5792,8 @@ def research(
     web_search_client: WebSearchClient | None | object = _USE_DEFAULT,
     web_search_timeout: float = _DEFAULT_WEB_SEARCH_TIMEOUT,
     local_limit: int = 10,
+    sources: tuple[str, ...] | None = None,
+    hivemind_messages_client: HivemindClient | None | object = _USE_DEFAULT,
 ) -> ResearchResult:
     """Execute the full research phase: local corpus + external fallback.
 
@@ -5825,7 +5827,20 @@ def research(
     web_search_timeout:
         Timeout in seconds for the web-search fallback.
     local_limit:
-        Maximum number of top-scoring local results to include.
+        Maximum number of top-scoring local results to include.  Forced to 0
+        when an explicit ``sources`` tuple omits ``"workflows"``.
+    sources:
+        Optional explicit tier tuple (``"workflows"`` / ``"registry"`` /
+        ``"messages"`` / ``"web"``).  ``None`` is the legacy public API:
+        today's default tiers run and the messages tier stays OFF.  A non-None
+        tuple runs ONLY the listed tiers (no union with defaults) and nulls
+        unlisted default injectables.
+    hivemind_messages_client:
+        Injectable community-messages client callable
+        ``(query: str, timeout: float) → dict`` with ``{"results": [...]}``.
+        By default, uses ``_default_hivemind_messages_client``.  Only consulted
+        when the messages tier is enabled; ``VIBECOMFY_MESSAGES_RESEARCH=0``
+        skips it with a warning.  Pass ``None`` to skip the tier.
 
     Returns
     -------
@@ -5833,6 +5848,24 @@ def research(
         Deterministic, local-corpus-first results with compactly normalized
         sources and non-fatal Hivemind warnings.
     """
+    # ── Tier gating from explicit sources= (B02) ────────────────────────────
+    # ``sources is None`` keeps today's legacy defaults (workflows/web/registry/
+    # local on, messages off).  A non-None tuple runs ONLY the listed tiers —
+    # never a union with defaults.  ``local_limit`` is forced to 0 when the
+    # local/workflows tier is not listed.
+    source_set = set(sources) if sources is not None else None
+    run_workflows = source_set is None or "workflows" in source_set
+    run_messages = source_set is not None and "messages" in source_set
+    run_web = source_set is None or "web" in source_set
+    run_registry = source_set is None or "registry" in source_set
+
+    messages_enabled = (
+        run_messages
+        and os.environ.get("VIBECOMFY_MESSAGES_RESEARCH", "1") != "0"
+    )
+    if source_set is not None and "workflows" not in source_set:
+        local_limit = 0
+
     # ── Phase 1: deterministic local corpus (best-effort) ─────────────────
     #
     # The external tiers below are intentionally independent of the local
@@ -5859,19 +5892,35 @@ def research(
 
     # ── Phase 2: injectable Hivemind (non-fatal on any failure) ───────────
     resolved_hivemind_client: HivemindClient | None
-    if hivemind_client is _USE_DEFAULT:
+    if not run_workflows:
+        resolved_hivemind_client = None
+    elif hivemind_client is _USE_DEFAULT:
         resolved_hivemind_client = _default_hivemind_client
     else:
         resolved_hivemind_client = hivemind_client  # type: ignore[assignment]
 
+    resolved_messages_client: HivemindClient | None
+    if not messages_enabled:
+        resolved_messages_client = None
+    elif hivemind_messages_client is _USE_DEFAULT:
+        resolved_messages_client = _default_hivemind_messages_client
+    else:
+        resolved_messages_client = hivemind_messages_client  # type: ignore[assignment]
+    if run_messages and not messages_enabled:
+        warnings.append("messages tier disabled")
+
     resolved_web_client: WebSearchClient | None
-    if web_search_client is _USE_DEFAULT:
+    if not run_web:
+        resolved_web_client = None
+    elif web_search_client is _USE_DEFAULT:
         resolved_web_client = _default_web_search_client
     else:
         resolved_web_client = web_search_client  # type: ignore[assignment]
 
     resolved_registry_resolver: RegistryResolver | None
-    if registry_resolver is _USE_DEFAULT:
+    if not run_registry:
+        resolved_registry_resolver = None
+    elif registry_resolver is _USE_DEFAULT:
         resolved_registry_resolver = resolve_missing_nodes
     else:
         resolved_registry_resolver = registry_resolver  # type: ignore[assignment]
@@ -5893,6 +5942,24 @@ def research(
             # produced and decide how much weight to give it.
             for hs in hivemind_sources:
                 sources.append(hs)
+
+    # ── Phase 2b: community messages tier (B02) ───────────────────────────
+    # A separate normalize-only runner on the injectable messages client.
+    # One call, one query string; no workflow-JSON fetching. Non-fatal.
+    if resolved_messages_client is not None and hivemind_timeout > 0:
+        try:
+            message_sources = _run_hivemind_messages_research(
+                query, client=resolved_messages_client, timeout=hivemind_timeout
+            )
+        except HivemindError as exc:
+            warnings.append(f"hivemind messages: {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
+        except Exception as exc:
+            warnings.append(f"hivemind messages (unexpected): {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
+        else:
+            for ms in message_sources:
+                sources.append(ms)
 
     # ── Phase 3: read-only Comfy Registry / Manager missing-node evidence ─
     if resolved_registry_resolver is not None:

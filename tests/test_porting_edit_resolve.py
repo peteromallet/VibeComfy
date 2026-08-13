@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from vibecomfy.porting.edit._resolve import (
+    _ResolveMixin,
     _format_research_query_output,
     _format_schema_input_hint,
     _format_workflow_schema_hints,
@@ -777,6 +778,115 @@ class TestHasUrlOnlyWebLeads:
         """Empty sources has no URL-only leads."""
         result = _FakeResult("Test.", ())
         assert _has_url_only_web_leads(result) is False
+
+
+# ── _resolve_query_statement research tier wiring (B02) ───────────────────────
+
+
+class TestResolveResearchStatementSources:
+    """research() resolution passes the resolved sources tuple + split clients.
+
+    Omitted ``sources=`` still resolves to ``("workflows",)`` in this batch
+    (the research-route omit default lands in B03).  Explicit tuples null
+    unlisted tiers; invalid explicit sources keep the existing diagnostic.
+    """
+
+    def _resolve(self, code: str, monkeypatch: pytest.MonkeyPatch):
+        import ast
+        import importlib
+
+        from vibecomfy.executor.contracts import ResearchResult
+
+        calls: list[dict[str, Any]] = []
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            calls.append({"query": query, **kwargs})
+            return ResearchResult(summary="Summary.", sources=())
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+        monkeypatch.setattr(research_module, "research", fake_research)
+
+        tree = ast.parse(code)
+        assert isinstance(tree.body[0], ast.Expr)
+        assert isinstance(tree.body[0].value, ast.Call)
+
+        resolver = _ResolveMixin()
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+        return result, calls
+
+    def test_omitted_sources_resolve_to_workflows_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("Hotshot XL ComfyUI 16 frames")', monkeypatch)
+
+        assert result.ok is True
+        assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
+        assert calls[0]["sources"] == ("workflows",)
+        assert calls[0]["local_limit"] == 5
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is None
+        assert result.detail["research_sources"] == ("workflows",)
+        assert result.detail["requested_research_sources"] == ("workflows",)
+
+    def test_messages_source_uses_messages_client_and_nulls_workflow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("MiniMax H3", sources=["messages"])', monkeypatch)
+
+        assert result.ok is True
+        assert calls[0]["query"] == "MiniMax H3"
+        assert calls[0]["sources"] == ("messages",)
+        assert calls[0]["local_limit"] == 0
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is not None
+        assert calls[0]["web_search_client"] is None
+        assert result.detail["research_sources"] == ("messages",)
+
+    def test_messages_web_combination_sets_both_clients(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("LTX 2.5", sources=["messages", "web"])', monkeypatch
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("messages", "web")
+        assert calls[0]["local_limit"] == 0
+        assert calls[0]["hivemind_client"] is None
+        assert calls[0]["hivemind_messages_client"] is not None
+        assert calls[0]["web_search_client"] is not None
+        assert result.detail["research_sources"] == ("messages", "web")
+
+    def test_workflows_web_keeps_workflow_client_and_nulls_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve(
+            'research("Hotshot XL", sources=["workflows", "web"])', monkeypatch
+        )
+
+        assert result.ok is True
+        assert calls[0]["sources"] == ("workflows", "web")
+        assert calls[0]["local_limit"] == 5
+        assert calls[0]["hivemind_client"] is not None
+        assert calls[0]["hivemind_messages_client"] is None
+        assert calls[0]["web_search_client"] is not None
+        assert result.detail["research_sources"] == ("workflows", "web")
+
+    def test_invalid_explicit_sources_diagnostic_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result, calls = self._resolve('research("q", sources=["bogus"])', monkeypatch)
+
+        assert result.ok is False
+        assert calls == []  # research() is never invoked for invalid sources
+        codes = [d.code for d in result.diagnostics]
+        assert "unsupported_research_source" in codes
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
