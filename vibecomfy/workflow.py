@@ -223,6 +223,7 @@ class VibeWorkflow:
     _id_map: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _manual_input_names: set[str] = field(default_factory=set, init=False, repr=False)
     _uid_counter: int = field(default=0, init=False, repr=False)
+    _workflow_context_token: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __enter__(self) -> "VibeWorkflow":
         from vibecomfy.workflow_context import active_workflow, bind_workflow
@@ -230,12 +231,9 @@ class VibeWorkflow:
         # If ``new_workflow()`` already eagerly bound this workflow (the post-
         # revert default for emitted templates), reuse that binding rather than
         # raising — the ``with`` form is purely scoping sugar in that case.
-        if (
-            getattr(self, "_workflow_context_token", None) is not None
-            and active_workflow() is self
-        ):
+        if self._workflow_context_token is not None and active_workflow() is self:
             return self
-        if getattr(self, "_workflow_context_token", None) is not None:
+        if self._workflow_context_token is not None:
             raise RuntimeError(
                 "Nested workflow contexts not supported. The outer `with new_workflow(...)` "
                 "block is still active."
@@ -246,7 +244,7 @@ class VibeWorkflow:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         from vibecomfy.workflow_context import reset_workflow
 
-        token = getattr(self, "_workflow_context_token", None)
+        token = self._workflow_context_token
         if token is not None:
             reset_workflow(token)
             self._workflow_context_token = None
@@ -280,14 +278,13 @@ class VibeWorkflow:
 
         The dataclass walk (``copy.deepcopy``) copies every public field —
         including ``groups`` and per-node ``mode`` — plus the private
-        bookkeeping (``_id_map``, ``_manual_input_names``, ``_uid_counter``),
-        so adding a field to the dataclass needs no ``copy()`` edit.  The
-        clone is not bound to any workflow context.
+        bookkeeping (``_id_map``, ``_manual_input_names``, ``_uid_counter``).
+        A bound workflow's live ``contextvars.Token`` cannot be meaningfully
+        deep-copied, so the deepcopy memo maps it to ``None`` up front; every
+        clone is therefore unbound (``_workflow_context_token is None``).
         """
-        cloned = copy.deepcopy(self)
-        if hasattr(cloned, "_workflow_context_token"):
-            del cloned._workflow_context_token
-        return cloned
+        memo = {id(self._workflow_context_token): None}
+        return copy.deepcopy(self, memo=memo)
 
     def to_envelope(self) -> dict[str, Any]:
         """Serialize this IR as the stored vibe envelope.
@@ -518,12 +515,36 @@ class VibeWorkflow:
 
         Counter always increments regardless of whether a seed is provided.
         When seed is given it becomes the local uid component (extrinsic identity).
-        When omitted, the counter value provides authored creation-order identity.
+        When omitted, the counter value provides authored creation-order identity;
+        before minting, the counter is reconciled with any pre-existing flat
+        auto-minted ``n<positive-integer>`` uids (e.g. imported via envelope
+        decode) so the minted uid never collides with one already present.
+        The counter only ever moves forward (monotonic).
         """
         from vibecomfy.identity.uid import make_uid
+        if seed is None:
+            self._reconcile_uid_counter()
         self._uid_counter += 1
         local = seed if seed is not None else f"n{self._uid_counter}"
         return make_uid("", local)
+
+    def _reconcile_uid_counter(self) -> None:
+        """Raise ``_uid_counter`` above any existing flat auto-minted ``n<N>`` uids.
+
+        Envelope decode preserves imported uids verbatim while
+        ``_uid_counter`` starts at zero, so an unseeded mint would otherwise
+        collide with an imported ``n<positive-integer>`` (e.g. ``n1``). Scan
+        existing node uids matching the auto-mint shape and move the counter
+        forward to the largest N found. Imported uids are never rewritten and
+        the counter never decreases (monotonic).
+        """
+        highest = 0
+        for node in self.nodes.values():
+            digits = node.uid[1:] if node.uid.startswith("n") else ""
+            if digits.isdecimal() and int(digits) > 0:
+                highest = max(highest, int(digits))
+        if highest >= self._uid_counter:
+            self._uid_counter = highest
 
     def add_node(
         self,
