@@ -15389,3 +15389,4 @@ The repository already labels these node IDs as legacy-baseline failures and exp
 One bookkeeping correction: I cannot ratify the count “9” as written. The three named families collect eight test items total, and direct baseline/HEAD checks show three failing items among them—two starter parameters plus the corpus test. Exact node IDs are needed for any additional six claimed failures. This does not change the pre-existing attribution of the observed failures.
 
 Also, `8a8300bb..0d2bb176` is diff-check clean; the requested broader `ec13a34e..0d2bb176` range is not, due to trailing whitespace in the approved generated check-in document. No files were edited.
+6e97450a PASS — Batch D+E (emit authority, groups, VibeEdge) after rework
