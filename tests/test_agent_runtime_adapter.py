@@ -55,6 +55,38 @@ def test_provider_preserves_openrouter_route_at_runtime_boundary() -> None:
     ) == "openrouter"
 
 
+def test_unsupported_route_plumbs_unknown_provenance_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = agent_provider._resolve_agent_route("unsupported-route")
+    assert descriptor.requested_route == "unsupported-route"
+    assert descriptor.normalized_route == "unknown"
+    assert agent_provider._runtime_dispatch_route(descriptor, descriptor.normalized_route) == "unknown"
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    with pytest.raises(ImportError) as raised:
+        agent_provider.run_model_turn(
+            "test unsupported route",
+            [{"role": "user", "content": "test unsupported route"}],
+            route="unsupported-route",
+            model="agent-edit",
+            response_contract="text",
+            profiling_context={"backend_phase": "classify"},
+        )
+
+    worker_result = raised.value.worker_result  # type: ignore[attr-defined]
+    attempt = worker_result["model_attempts"][0]
+    assert attempt["requested_model"] == "agent-edit"
+    assert attempt["resolved_model"] == "unknown"
+    assert attempt["adapter"] == "unknown"
+    assert attempt["provider"] == "unknown"
+    assert attempt["transport"] == "unknown"
+    assert attempt["endpoint"] == "unknown"
+    readiness = runtime.readiness(route="unsupported-route", model="agent-edit")
+    assert readiness["route"] == "unknown"
+    assert readiness["model"] == "unknown"
+
+
 def test_agent_edit_contract_model_uses_openrouter_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
 
@@ -418,6 +450,44 @@ def test_worker_failure_taxonomy_is_structural(
     assert worker._model_attempt_failure_type(exc, raw) == expected
 
 
+def test_worker_zero_filled_usage_without_calls_is_unavailable() -> None:
+    request = {
+        "agent_id": "hermes",
+        "requested_model": "requested",
+        "model": "resolved",
+        "agent_kwargs": {
+            "model": "resolved",
+            "base_url": "https://openrouter.ai/api/v1",
+        },
+    }
+    zero_usage = {
+        "deepseek_usage": {
+            "n_calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+    }
+
+    unavailable = worker._model_attempt(
+        request,
+        {"backend_phase": "classify"},
+        zero_usage,
+        outcome="failure",
+        failure_type="empty_response",
+    )
+    observed = worker._model_attempt(
+        request,
+        {"backend_phase": "classify"},
+        {"deepseek_usage": {**zero_usage["deepseek_usage"], "n_calls": 1}},
+        outcome="failure",
+        failure_type="empty_response",
+    )
+
+    assert unavailable["token_usage"]["completion_tokens"] == "unknown"
+    assert observed["token_usage"]["completion_tokens"] == 0
+
+
 def _canonical_success_attempt() -> dict:
     return {
         "phase": "batch",
@@ -485,6 +555,49 @@ def test_batch_provider_audit_merges_worker_attempt_provenance() -> None:
 
     assert result.audit_metadata["model_attempts"] == [attempt]
     assert result.audit_metadata["deepseek_usage"] == attempt["token_usage"]
+
+
+def test_batch_provider_retry_renumbers_all_worker_attempts_monotonically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    first_a = {**_canonical_success_attempt(), "outcome": "failure", "failure_type": "provider_failure"}
+    first_b = {
+        **_canonical_success_attempt(),
+        "attempt": 2,
+        "token_usage": {
+            "prompt_tokens": 8,
+            "completion_tokens": 0,
+            "total_tokens": 8,
+        },
+    }
+    second = _canonical_success_attempt()
+
+    class Runtime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):  # noqa: ANN003, ANN205, ARG004
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {"content": "", "model_attempts": [first_a, first_b]}
+            return {
+                "content": "done\n```batch\ndone()\n```",
+                "model_attempts": [second],
+            }
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.run_agent_turn_batch(
+        "edit it",
+        [{"role": "user", "content": "edit it"}],
+        route="openrouter",
+        model="requested/model",
+    )
+
+    attempts = result.audit_metadata["model_attempts"]
+    assert calls == 2
+    assert [attempt["attempt"] for attempt in attempts] == [1, 2, 3]
+    assert attempts[1]["failure_type"] == "empty_response"
 
 
 def test_successful_classify_and_reply_attempts_reach_executor_capture(

@@ -154,12 +154,7 @@ def _model_attempt(
         agent_kwargs = {}
     metadata = worker_metadata if isinstance(worker_metadata, dict) else {}
     usage = metadata.get("deepseek_usage")
-    if not isinstance(usage, dict) or not (
-        int(usage.get("n_calls") or 0) > 0
-        or any(isinstance(usage.get(key), (int, float)) for key in (
-            "prompt_tokens", "completion_tokens", "total_tokens"
-        ))
-    ):
+    if not isinstance(usage, dict) or int(usage.get("n_calls") or 0) <= 0:
         usage = {}
     provider, transport, endpoint = _worker_provider_transport(request)
     return ModelAttemptEvidence(

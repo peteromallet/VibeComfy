@@ -900,7 +900,7 @@ def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
         )
     return AgentRouteDescriptor(
         requested_route=requested,
-        normalized_route=requested,
+        normalized_route="unknown",
         browser_api_key_allowed=False,
     )
 
@@ -1389,6 +1389,8 @@ def _batch_failure_type(exc: BaseException) -> str:
 def _revise_failed_runtime_attempt(
     response: Any,
     exc: BaseException,
+    *,
+    attempt_offset: int,
 ) -> tuple[dict[str, Any], ...]:
     if not isinstance(response, Mapping):
         return ()
@@ -1401,16 +1403,20 @@ def _revise_failed_runtime_attempt(
         "failure_type": _batch_failure_type(exc),
         "raw_response_preview": getattr(exc, "raw_response", None),
     })
-    revised = ModelAttemptEvidence.from_mapping(latest).to_dict()
-    attempts[-1] = revised
+    attempts[-1] = latest
+    revised_attempts: list[dict[str, Any]] = []
+    for local_index, attempt in enumerate(attempts, start=1):
+        numbered = dict(attempt)
+        numbered["attempt"] = attempt_offset + local_index
+        revised_attempts.append(ModelAttemptEvidence.from_mapping(numbered).to_dict())
     try:
-        from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempt
+        from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
 
-        replace_last_model_attempt(revised)
+        replace_last_model_attempts(revised_attempts)
     except Exception:  # noqa: BLE001 - evidence capture is additive
         pass
-    exc.model_attempts = list(attempts)  # type: ignore[attr-defined]
-    return tuple(attempts)
+    exc.model_attempts = list(revised_attempts)  # type: ignore[attr-defined]
+    return tuple(revised_attempts)
 
 
 def _typed_empty_attempt(attempts: tuple[dict[str, Any], ...]) -> bool:
@@ -1489,7 +1495,11 @@ def run_agent_turn_batch(
                     audit_metadata=audit_metadata,
                 )
             except (MalformedModelJSON, MissingRequiredField) as exc:
-                failed_attempts = _revise_failed_runtime_attempt(response, exc)
+                failed_attempts = _revise_failed_runtime_attempt(
+                    response,
+                    exc,
+                    attempt_offset=len(attempt_log),
+                )
                 attempt_log.extend(failed_attempts)
                 last_exc = exc
                 if attempt_index >= attempts - 1 or not _typed_empty_attempt(failed_attempts):
@@ -1499,9 +1509,23 @@ def run_agent_turn_batch(
             current_attempts = list(
                 coerce_model_attempts((result.audit_metadata or {}).get("model_attempts"))
             )
-            if attempt_log:
+            numbered_current_attempts: list[dict[str, Any]] = []
+            for local_index, current_attempt in enumerate(current_attempts, start=1):
+                numbered = dict(current_attempt)
+                numbered["attempt"] = len(attempt_log) + local_index
+                numbered_current_attempts.append(
+                    ModelAttemptEvidence.from_mapping(numbered).to_dict()
+                )
+            if numbered_current_attempts:
+                try:
+                    from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
+
+                    replace_last_model_attempts(numbered_current_attempts)
+                except Exception:  # noqa: BLE001 - evidence capture is additive
+                    pass
+            if attempt_log or numbered_current_attempts != current_attempts:
                 metadata = dict(result.audit_metadata or {})
-                metadata["model_attempts"] = [*attempt_log, *current_attempts]
+                metadata["model_attempts"] = [*attempt_log, *numbered_current_attempts]
                 result = dataclasses.replace(result, audit_metadata=metadata)
             if retry_count:
                 metadata = dict(result.audit_metadata or {})

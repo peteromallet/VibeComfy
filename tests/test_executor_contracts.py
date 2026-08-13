@@ -43,6 +43,7 @@ from vibecomfy.executor.contracts import (
     adaptation_plan_actionability_payload,
     build_topology_manifest,
     format_route_options_for_prompt,
+    redact_model_preview,
     warning_detail_from_exception,
 )
 from vibecomfy.executor.prompts import (
@@ -664,6 +665,17 @@ class TestModelAttemptEvidence:
         }
         assert "raw_response_preview" not in payload
 
+    @pytest.mark.parametrize("scheme", ["Basic", "Bearer", "ApiKey", "Custom"])
+    def test_preview_redacts_entire_authorization_header(self, scheme: str) -> None:
+        credential = "dXNlcjpwYXNz"
+        preview = redact_model_preview(
+            f"request failed\nAuthorization: {scheme} {credential}\nresponse invalid"
+        )
+
+        assert preview == "request failed Authorization: <redacted> response invalid"
+        assert scheme not in preview
+        assert credential not in preview
+
 
 class TestReport:
     def test_default(self) -> None:
@@ -689,6 +701,19 @@ class TestReport:
         assert d["executor"]["plan"]["plan_summary"] == "p"
         assert d["executor"]["research"]["summary"] == "r"
         assert "implementation" not in d["executor"]
+
+    def test_model_response_compatibility_view_is_derived_not_serialized(self) -> None:
+        attempt = ModelAttemptEvidence(
+            phase="classify",
+            outcome="failure",
+            failure_type="malformed_json",
+        ).to_dict()
+        report = Report(model_attempts=(attempt,))
+
+        assert report.model_response == {"attempts": [attempt]}
+        payload = report.to_dict()["executor"]
+        assert payload["model_attempts"] == [attempt]
+        assert "model_response" not in payload
 
 
 # ── AgentTurnResult ──────────────────────────────────────────────────────────

@@ -24,7 +24,12 @@ from .prompts import (
     parse_classify_response,
     parse_reply_response,
 )
-from .contracts import ClassifyDecision, ModelAttemptEvidence, coerce_model_attempts
+from .contracts import (
+    ClassifyDecision,
+    ModelAttemptEvidence,
+    coerce_model_attempts,
+    redact_model_preview,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,14 +54,7 @@ def _extract_content(result: dict[str, Any]) -> str:
 
 def _preview_raw(text: str | None, *, limit: int = 1200) -> str | None:
     """Bounded, whitespace-normalized preview of raw model output."""
-    if not isinstance(text, str):
-        return None
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
+    return redact_model_preview(text, limit=limit)
 
 
 def _attach_model_turn_evidence(

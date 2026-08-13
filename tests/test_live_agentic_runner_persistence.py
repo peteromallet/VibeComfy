@@ -128,6 +128,7 @@ def test_runner_does_not_retry_outer_timeout(
     assert scenario["attempt_count"] == 1
     assert scenario["attempts"][0]["failure_class"] == "infra_timeout"
     assert scenario["attempts"][0]["score_class"] == "infra_blocked"
+    assert scenario["attempts"][0]["retryable_infra"] is False
     assert scenario["attempts"][0]["agent_exercised"] is False
     assert scenario["attempts"][0]["elapsed_s"] is not None
     assert (

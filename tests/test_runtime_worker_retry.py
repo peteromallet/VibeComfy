@@ -164,6 +164,22 @@ def test_typed_empty_with_nonzero_tokens_is_not_retried(
     assert len(calls) == 1
 
 
+def test_typed_empty_without_observed_usage_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unavailable = _attempt(
+        outcome="failure", failure_type="empty_response", completion_tokens=0
+    )
+    unavailable["token_usage"] = {}
+    first = {"error": "empty", "model_attempts": [unavailable]}
+    calls = _stub_once(monkeypatch, [first, {"content": "should not run"}])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result["model_attempts"][0]["token_usage"]["completion_tokens"] == "unknown"
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize(
     "error_type",
     ["ValueError", "JSONDecodeError", "AuthError", "AuthenticationError", "PermissionError"],

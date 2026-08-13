@@ -49,6 +49,9 @@ _MODEL_ATTEMPT_SECRET_ASSIGNMENT_RE = re.compile(
     r"(\s*[:=]\s*)([^\s,;]+)"
 )
 _MODEL_ATTEMPT_BEARER_RE = re.compile(r"(?i)\bBearer\s+[^\s,;]+")
+_MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE = re.compile(
+    r"(?im)\bauthorization\s*:\s*[^\r\n]*"
+)
 _MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 
@@ -85,7 +88,10 @@ def redact_model_preview(value: Any, *, limit: int = _MODEL_ATTEMPT_PREVIEW_LIMI
     """Return a bounded failure preview with credentials and URL queries removed."""
     if not isinstance(value, str):
         return None
-    normalized = " ".join(value.strip().split())
+    redacted = _MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE.sub(
+        "Authorization: <redacted>", value
+    )
+    normalized = " ".join(redacted.strip().split())
     if not normalized:
         return None
     normalized = _MODEL_ATTEMPT_URL_RE.sub(
@@ -2302,11 +2308,6 @@ class Report:
     # Canonical per-call evidence for every successful and failed model attempt
     # observed across classify, implement/batch, and reply.
     model_attempts: tuple[dict[str, Any], ...] = ()
-    # Mirrors the batch-repl model_response.json attempt artifact: parse-failure
-    # evidence (parse_reason, raw preview, usage, model, phase, endpoint) for the
-    # last classify/reply model attempt. None when the turn did not fail on a
-    # model response.
-    model_response: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -2322,12 +2323,15 @@ class Report:
             "model_attempts",
             tuple(_freeze_jsonish(item) for item in coerce_model_attempts(self.model_attempts)),
         )
-        if self.model_response is not None:
-            object.__setattr__(
-                self,
-                "model_response",
-                _freeze_jsonish(self.model_response),
-            )
+
+    @property
+    def model_response(self) -> dict[str, Any] | None:
+        """Compatibility view derived solely from canonical ``model_attempts``."""
+        if not self.model_attempts:
+            return None
+        return {
+            "attempts": [_thaw_jsonish(item) for item in self.model_attempts]
+        }
 
     def to_dict(self) -> dict[str, Any]:
         inner: dict[str, Any] = {}
@@ -2354,8 +2358,6 @@ class Report:
         inner["model_attempts"] = [
             _thaw_jsonish(item) for item in self.model_attempts
         ]
-        if self.model_response is not None:
-            inner["model_response"] = _thaw_jsonish(self.model_response)
         return {"executor": inner}
 
 

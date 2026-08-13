@@ -247,6 +247,62 @@ def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: P
     assert (output_dir / "model_response.json").is_file()
 
 
+def test_malformed_json_artifact_body_is_omitted(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "malformed-json"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    secret = "sk-malformed-json-secret"
+    (turn_dir / "model_request.json").write_text(
+        '{"api_key":"' + secret + '"', encoding="utf-8"
+    )
+    output_dir = tmp_path / "out"
+
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
+        output_dir=output_dir,
+        status="error",
+    )
+
+    assert _read_json(output_dir / "model_request.json") == {
+        "redacted_unparseable_artifact": True
+    }
+    assert secret not in "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+
+
+def test_malformed_jsonl_artifact_body_is_omitted(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "malformed-jsonl"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    credential = "dXNlcjpwYXNz"
+    (turn_dir / "messages.jsonl").write_text(
+        '{"role":"user","content":"safe"}\n'
+        '{"authorization":"Basic ' + credential + '"\n',
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
+        output_dir=output_dir,
+        status="error",
+    )
+
+    assert _read_json(output_dir / "messages.jsonl") == {
+        "redacted_unparseable_artifact": True
+    }
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert credential not in persisted
+    assert "Basic" not in persisted
+
+
 def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     result = ExecutorResult.success(
@@ -305,6 +361,7 @@ def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path)
     )
 
     assert "model_attempts.json" in manifest["manifest"]
+    assert manifest["optional_model_artifacts"]["model_attempts.json"] is True
     attempts = _read_json(output_dir / "model_attempts.json")["attempts"]
     assert attempts[0]["endpoint"] == "https://openrouter.ai/api/v1"
     assert "top-secret" not in attempts[0]["raw_response_preview"]

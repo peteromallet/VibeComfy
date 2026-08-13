@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -111,9 +110,10 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
                         rendered.append(json.dumps(_redact(json.loads(line)), sort_keys=True))
                     dest.write_text("\n".join(rendered) + ("\n" if rendered else ""), encoding="utf-8")
             except (OSError, json.JSONDecodeError):
-                # Preserve non-JSON diagnostic files for compatibility. Canonical
-                # model-attempt artifacts are always JSON and take the redacted path.
-                shutil.copy2(source, dest)
+                # Never raw-copy an unparseable model artifact: it may contain a
+                # credential in malformed structured text that free-text
+                # redaction cannot classify safely. Persist no source body.
+                _safe_write(dest, {"redacted_unparseable_artifact": True})
             copied.append(str(dest.relative_to(output_dir)))
     return copied
 
@@ -380,7 +380,7 @@ def synthesize_headless_artifacts(
 
     copied_set = set(copied)
     optional_model_artifacts = {
-        name: name in copied_set
+        name: name in copied_set or name in manifest
         for name in sorted(_MODEL_ARTIFACT_NAMES)
     }
 

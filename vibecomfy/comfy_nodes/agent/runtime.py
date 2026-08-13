@@ -137,16 +137,21 @@ def record_model_attempts(value: Any) -> None:
         state.append(attempt)
 
 
-def replace_last_model_attempt(value: Mapping[str, Any]) -> None:
-    """Replace the most recent captured transport-success after domain parse failure."""
+def replace_last_model_attempts(value: Any) -> None:
+    """Replace the matching captured suffix with normalized attempt evidence."""
     state = _MODEL_ATTEMPT_CAPTURE.get()
-    normalized = coerce_model_attempts([value])
+    normalized = coerce_model_attempts(value)
     if state is None or not normalized:
         return
-    if state:
-        state[-1] = normalized[0]
+    if len(state) >= len(normalized):
+        state[-len(normalized):] = normalized
     else:
-        state.append(normalized[0])
+        state.extend(normalized)
+
+
+def replace_last_model_attempt(value: Mapping[str, Any]) -> None:
+    """Replace the most recent captured transport-success after domain parse failure."""
+    replace_last_model_attempts([value])
 
 
 def _record_captured_deepseek_usage(result: Any) -> None:
@@ -303,7 +308,9 @@ def _normalize_route(route: str | None) -> str:
         return "arnold"
     if normalized == "hermes":
         return "openrouter"
-    return normalized or "arnold"
+    if normalized in {"arnold", "openrouter", "deepseek"}:
+        return "openrouter" if normalized == "deepseek" else normalized
+    return "unknown"
 
 
 # Panel route -> arnold dispatch agent id. The worker registers/dispatches under
@@ -330,13 +337,18 @@ def _agent_id_for_route(route: str | None) -> str:
         requested = "anthropic"
     elif requested == "codex":
         requested = "openai-codex"
-    return _ROUTE_TO_AGENT_ID.get(requested, "hermes")
+    if requested in {"", "auto", "arnold", "hermes"}:
+        return "hermes"
+    return _ROUTE_TO_AGENT_ID.get(requested, "unknown")
 
 
 def _default_model_for_route(route: str, model: str | None) -> str:
+    normalized_route = _normalize_route(route)
+    if normalized_route == "unknown":
+        return "unknown"
     if _is_real_model_override(model):
         return _strip_provider_prefix(model, "openrouter")
-    if route == "openrouter":
+    if normalized_route == "openrouter":
         return _strip_provider_prefix(_OPENROUTER_MODEL, "openrouter")
     return _ARNOLD_MODEL
 
@@ -354,6 +366,9 @@ def _runtime_model_for_route(route: str | None, model: str | None) -> str | None
     label.  That is not a valid OpenRouter/Anthropic/Codex model id, so keep it
     out of the provider seam and let the route resolve its real default.
     """
+    normalized_route = _normalize_route(route)
+    if normalized_route == "unknown":
+        return None
     # Explicit per-process force-override: when set, ignore the profile/judge
     # model slug and route everything through this model (e.g. swapping the
     # hermes backend to a non-DeepSeek OpenAI-compatible endpoint). No-op unset.
@@ -362,7 +377,6 @@ def _runtime_model_for_route(route: str | None, model: str | None) -> str | None
         return forced_model
     if _is_real_model_override(model):
         return model
-    normalized_route = _normalize_route(route)
     if normalized_route == "openrouter":
         return _OPENROUTER_MODEL
     if normalized_route in {"arnold", "anthropic", "openai-codex"}:
@@ -1092,7 +1106,11 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
     return {
         "ready": False,
         "backend": backend,
-        "route": requested or "arnold",
+        "route": (
+            "unknown"
+            if requested and _normalize_route(requested) == "unknown"
+            else requested or "arnold"
+        ),
         "model": _default_model_for_route(_normalize_route(route), model),
         "reason": (
             "No agent adapter is wired for this route yet; only the openrouter "
@@ -1199,7 +1217,7 @@ __all__ = [
     "begin_deepseek_usage_capture", "snapshot_deepseek_usage_capture",
     "end_deepseek_usage_capture", "begin_model_attempt_capture",
     "snapshot_model_attempt_capture", "end_model_attempt_capture",
-    "record_model_attempts", "replace_last_model_attempt",
+    "record_model_attempts", "replace_last_model_attempt", "replace_last_model_attempts",
     "run_agent_turn", "run_agent_turn_delta", "run_agent_turn_batch",
     "run_model_turn", "readiness", "get_agent_status",
 ]

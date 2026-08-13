@@ -137,7 +137,7 @@ def _failure_summary(
         ),
         "failure_class": failure_class,
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
-        "retryable_infra": failure_class.startswith("infra_"),
+        "retryable_infra": failure_class == "infra_empty_response",
         "agent_exercised": False,
         "attempt": attempt,
         "elapsed_s": elapsed_s,

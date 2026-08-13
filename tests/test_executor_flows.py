@@ -1713,6 +1713,46 @@ class TestExecutorFailureHandling:
         assert result.failure_kind == "ProviderError"
         assert len(result.failure_message) > 0
 
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    def test_classify_failure_persists_only_canonical_model_attempts(
+        self, mock_classify, profile_dir: Path
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import ProviderError
+
+        attempt = {
+            "phase": "classify",
+            "attempt": 1,
+            "outcome": "failure",
+            "failure_type": "malformed_json",
+            "requested_model": "requested",
+            "resolved_model": "resolved",
+            "adapter": "hermes",
+            "provider": "openrouter",
+            "transport": "openrouter",
+            "endpoint": "https://openrouter.ai/api/v1",
+            "finish_reason": "stop",
+            "token_usage": {
+                "prompt_tokens": 4,
+                "completion_tokens": 2,
+                "total_tokens": 6,
+            },
+            "raw_response_preview": "{broken",
+        }
+        error = ProviderError("bad classify response")
+        error.model_attempts = [attempt]  # type: ignore[attr-defined]
+        error.parse_reason = "legacy-must-not-persist"  # type: ignore[attr-defined]
+        error.completion_tokens = 999  # type: ignore[attr-defined]
+        mock_classify.side_effect = error
+
+        result = run_executor(ExecutorRequest(query="test", profile="default"))
+        executor_report = result.to_dict()["report"]["executor"]
+
+        assert executor_report["model_attempts"] == [attempt]
+        assert "model_response" not in executor_report
+        persisted = json.dumps(executor_report)
+        assert "legacy-must-not-persist" not in persisted
+        assert '"turns"' not in persisted
+
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_respond_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn")
     def test_reply_provider_error_is_captured(
