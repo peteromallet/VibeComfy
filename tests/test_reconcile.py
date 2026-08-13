@@ -450,6 +450,8 @@ def _twin_rn_workflow() -> VibeWorkflow:
         inputs={"noise_seed": 42},
         uid="",
         metadata={"_ui": {"id": 1, "pos": [0.0, 0.0], "size": [200.0, 100.0], "mode": 0, "properties": {}}},
+        pos=[0.0, 0.0],
+        size=[200.0, 100.0],
     )
     n2 = VibeNode(
         id="2",
@@ -457,6 +459,8 @@ def _twin_rn_workflow() -> VibeWorkflow:
         inputs={"noise_seed": 42},
         uid="",
         metadata={"_ui": {"id": 2, "pos": [1000.0, 0.0], "size": [200.0, 100.0], "mode": 0, "properties": {}}},
+        pos=[1000.0, 0.0],
+        size=[200.0, 100.0],
     )
     wf.nodes["1"] = n1
     wf.nodes["2"] = n2
@@ -508,7 +512,8 @@ def test_twin_randomnoise_no_swap():
     for uid, node_id in uid_for_node.items():
         node = wf.nodes[node_id]
         assigned_pos = result.matched[uid]["pos"]
-        node_pos = node.metadata["_ui"]["pos"]
+        node_pos = node.pos
+        assert node_pos is not None
         # Distance to assigned prior pos must be ≤ distance to the other prior pos.
         d_assigned = abs(node_pos[0] - assigned_pos[0])
         d_other = abs(node_pos[0] - (1000.0 if assigned_pos[0] == 0.0 else 0.0))
@@ -532,6 +537,8 @@ def _twin_sampler_workflow() -> VibeWorkflow:
         inputs={"width": 512, "height": 512, "batch_size": 1},
         uid="latent-shared",
         metadata={"_ui": {"id": 0, "pos": [0.0, 300.0], "size": [200.0, 100.0], "mode": 0, "properties": {}}},
+        pos=[0.0, 300.0],
+        size=[200.0, 100.0],
     )
     s1 = VibeNode(
         id="1",
@@ -539,6 +546,8 @@ def _twin_sampler_workflow() -> VibeWorkflow:
         inputs={"seed": 42, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0},
         uid="",
         metadata={"_ui": {"id": 1, "pos": [0.0, 0.0], "size": [300.0, 200.0], "mode": 0, "properties": {}}},
+        pos=[0.0, 0.0],
+        size=[300.0, 200.0],
     )
     s2 = VibeNode(
         id="2",
@@ -546,6 +555,8 @@ def _twin_sampler_workflow() -> VibeWorkflow:
         inputs={"seed": 42, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0},
         uid="",
         metadata={"_ui": {"id": 2, "pos": [1000.0, 0.0], "size": [300.0, 200.0], "mode": 0, "properties": {}}},
+        pos=[1000.0, 0.0],
+        size=[300.0, 200.0],
     )
     wf.nodes["0"] = latent
     wf.nodes["1"] = s1
@@ -598,7 +609,8 @@ def test_cloned_samplers_8b36a85a_no_swap():
     for uid, node_id in uid_for_node.items():
         node = wf.nodes[node_id]
         assigned_pos = result.matched[uid]["pos"]
-        node_pos = node.metadata["_ui"]["pos"]
+        node_pos = node.pos
+        assert node_pos is not None
         d_assigned = abs(node_pos[0] - assigned_pos[0])
         d_other = abs(node_pos[0] - (1000.0 if assigned_pos[0] == 0.0 else 0.0))
         assert d_assigned <= d_other, (

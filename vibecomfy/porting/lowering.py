@@ -350,14 +350,9 @@ def _clone_node(
     }
 
     # --- Deterministic clone layout positioning ---
-    # Read source node position from _ui metadata; default to (0, 0).
-    source_ui = source_node.metadata.get("_ui")
-    if isinstance(source_ui, dict):
-        source_pos = source_ui.get("pos", [0, 0])
-        source_size = source_ui.get("size")
-    else:
-        source_pos = [0, 0]
-        source_size = None
+    # Read first-class source geometry; a geometry-less source uses the existing
+    # deterministic clone-layout origin.
+    source_pos = source_node.pos if source_node.pos is not None else [0, 0]
     try:
         source_x = float(source_pos[0])
         source_y = float(source_pos[1])
@@ -366,14 +361,6 @@ def _clone_node(
     # Compute clone position: horizontal stride per iteration, same y.
     clone_pos = [source_x + HORIZONTAL_STRIDE * iteration_index, source_y]
     snapped_pos = snap_pos(clone_pos)
-    # Ensure _ui sub-dict exists and store the snapped position.
-    clone_ui: dict[str, Any] = cloned_metadata.setdefault("_ui", {})
-    clone_ui["pos"] = snapped_pos
-    if source_size is not None:
-        try:
-            clone_ui["size"] = source_size
-        except (TypeError, IndexError):
-            pass
     # --- End layout positioning ---
 
     cloned = source_node.__class__(
@@ -385,6 +372,9 @@ def _clone_node(
         metadata=cloned_metadata,
         uid=clone_uid,
         raw_widgets=copy.deepcopy(source_node.raw_widgets),
+        mode=source_node.mode,
+        pos=snapped_pos,
+        size=copy.deepcopy(source_node.size),
     )
     workflow.nodes[new_id] = cloned
     return cloned

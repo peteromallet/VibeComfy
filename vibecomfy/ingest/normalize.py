@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any
 
@@ -431,6 +432,46 @@ def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
     return 0
 
 
+def _geometry_pair(value: Any) -> list[float] | None:
+    """Return a detached finite numeric pair, or ``None`` when invalid/absent."""
+    if value is None or not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in value):
+        return None
+    try:
+        pair = [float(value[0]), float(value[1])]
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return pair if all(math.isfinite(coord) for coord in pair) else None
+
+
+def _decode_envelope_geometry(
+    entry: dict[str, Any], metadata: dict[str, Any], field_name: str, node_id: str
+) -> list[float] | None:
+    """Decode strict first-class geometry with an independent legacy ``_ui`` fallback."""
+    if field_name in entry:
+        node_value = entry[field_name]
+        if node_value is None:
+            return None
+        pair = _geometry_pair(node_value)
+        if pair is None:
+            raise ValueError(
+                f"node {node_id!r}: {field_name} must contain exactly two finite numeric coordinates or null"
+            )
+        return pair
+
+    ui = metadata.get("_ui")
+    legacy_value = ui.get(field_name) if isinstance(ui, dict) else None
+    if legacy_value is None:
+        return None
+    pair = _geometry_pair(legacy_value)
+    if pair is None:
+        raise ValueError(
+            f"node {node_id!r}: legacy _ui.{field_name} must contain exactly two finite numeric coordinates or null"
+        )
+    return pair
+
+
 def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     """Implementation of :meth:`VibeWorkflow.from_envelope`.
 
@@ -595,6 +636,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         node_mode = (
             entry_mode if isinstance(entry_mode, int) else _node_mode_from_metadata(node_metadata)
         )
+        node_pos = _decode_envelope_geometry(entry, node_metadata, "pos", node_id)
+        node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
         workflow.nodes[node_id] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -605,6 +648,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             uid=uid,
             raw_widgets=raw_widget_payload,
             mode=node_mode,
+            pos=node_pos,
+            size=node_size,
         )
 
     # ── edges ──────────────────────────────────────────────────────────────
@@ -948,6 +993,8 @@ def _from_api_impl(
             uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
             raw_widgets=raw_widgets,
             mode=_node_mode_from_metadata(metadata),
+            pos=_geometry_pair(_ui_node.get("pos")) if isinstance(_ui_raw, dict) else None,
+            size=_geometry_pair(_ui_node.get("size")) if isinstance(_ui_raw, dict) else None,
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:

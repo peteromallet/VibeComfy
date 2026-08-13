@@ -1901,6 +1901,25 @@ def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
         )
 
 
+def test_captured_geometry_requires_both_first_class_pairs() -> None:
+    from vibecomfy.porting.emit.ui import _captured_geometry
+
+    node = VibeNode(
+        "1",
+        "SaveImage",
+        metadata={"_ui": {"pos": [900, 900], "size": [300, 400]}},
+        pos=[10.0, 20.0],
+        size=None,
+    )
+    assert _captured_geometry(node) is None
+
+    node.size = [300.0, 180.0]
+    assert _captured_geometry(node) == {
+        "pos": [10.0, 20.0],
+        "size": [300.0, 180.0],
+    }
+
+
 def test_captured_properties_blob_re_emitted_verbatim_with_ir_keys_merged() -> None:
     """A node with captured cnr_id / ver in its sidecar properties re-emits them
     verbatim, with vibecomfy_uid / vibecomfy_id / 'Node name for S&R' overlaid."""
@@ -2634,18 +2653,18 @@ def test_virtual_wires_display_and_flat_modes() -> None:
     orphan_pos = [300.0, 250.0]
     reroute_pos = [500.0, 100.0]
 
-    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"}, pos=list(set_pos), size=[30, 30])
     wf.nodes["10"].metadata["_ui"] = {"pos": list(set_pos), "size": [30, 30]}
 
-    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"}, pos=list(get_pos), size=[30, 30])
     wf.nodes["11"].metadata["_ui"] = {"pos": list(get_pos), "size": [30, 30]}
 
     # Orphaned GetNode: broadcast name has no matching SetNode
-    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"})
+    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"}, pos=list(orphan_pos), size=[30, 30])
     wf.nodes["12"].metadata["_ui"] = {"pos": list(orphan_pos), "size": [30, 30]}
 
     # Reroute passthrough
-    wf.nodes["20"] = VibeNode("20", "Reroute")
+    wf.nodes["20"] = VibeNode("20", "Reroute", pos=list(reroute_pos), size=[20, 20])
     wf.nodes["20"].metadata["_ui"] = {"pos": list(reroute_pos), "size": [20, 20]}
 
     # Edges
@@ -2729,6 +2748,8 @@ def test_coordinates_canonicalized_to_m2_precision() -> None:
     wf.nodes["98"] = VibeNode(
         "98", "LoadImage",
         metadata={"_ui": {"pos": [123.456789, 987.654321], "size": [319.999999, 180.000001]}},
+        pos=[123.456789, 987.654321],
+        size=[319.999999, 180.000001],
     )
     wf.nodes["99"] = VibeNode("99", "SaveImage")
     wf.connect("98.0", "99.images")
@@ -2738,7 +2759,7 @@ def test_coordinates_canonicalized_to_m2_precision() -> None:
     })
     result = emit_ui_json(wf, schema_provider=provider)
 
-    # Node 98 uses _captured_geometry (from _ui metadata)
+    # Node 98 uses first-class _captured_geometry.
     n98 = next(n for n in result["nodes"] if n["id"] == 98)
     assert n98["pos"] == [123.46, 987.65], f"pos not M2-canonicalized: {n98['pos']}"
     assert n98["size"] == [320.0, 180.0], f"size not M2-canonicalized: {n98['size']}"

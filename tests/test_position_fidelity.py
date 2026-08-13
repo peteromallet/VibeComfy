@@ -768,16 +768,20 @@ def test_duplicate_safety_twin_randomnoise():
     with open(corpus_path) as fh:
         raw = _json.load(fh)
 
-    wf = from_ui(raw)
+    wf = from_ui(raw, use_comfy_converter=False)
 
     # ── Add two twin RandomNoise nodes ──
     rn1 = wf.add_node("RandomNoise")
     rn1.inputs["noise_seed"] = 42
     rn1.metadata["_ui"] = {"id": int(rn1.id), "pos": [0.0, 0.0], "size": [200.0, 100.0], "mode": 0, "properties": {}}
+    rn1.pos = [0.0, 0.0]
+    rn1.size = [200.0, 100.0]
 
     rn2 = wf.add_node("RandomNoise")
     rn2.inputs["noise_seed"] = 42
     rn2.metadata["_ui"] = {"id": int(rn2.id), "pos": [1000.0, 0.0], "size": [200.0, 100.0], "mode": 0, "properties": {}}
+    rn2.pos = [1000.0, 0.0]
+    rn2.size = [200.0, 100.0]
 
     # Verify they are structural twins.
     h1 = legacy_hash(rn1.id, wf)
@@ -816,7 +820,8 @@ def test_duplicate_safety_twin_randomnoise():
             f"twin node {node_id} (uid={uid}) must be in matched"
         )
         assigned_pos = result.matched[uid]["pos"]
-        node_pos = rn_node.metadata["_ui"]["pos"]
+        node_pos = rn_node.pos
+        assert node_pos is not None
         d_assigned = abs(node_pos[0] - assigned_pos[0])
         d_other = abs(node_pos[0] - (1000.0 if assigned_pos[0] == 0.0 else 0.0))
         assert d_assigned <= d_other, (

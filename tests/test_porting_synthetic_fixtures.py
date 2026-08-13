@@ -58,7 +58,7 @@ def _node_with_ui(
         metadata["_ui"] = ui
     if mode is not None:
         metadata["mode"] = mode
-    n = VibeNode(node_id, class_type, metadata=metadata)
+    n = VibeNode(node_id, class_type, metadata=metadata, pos=pos, size=size)
     n.uid = uid or node_id
     return n
 
@@ -79,7 +79,7 @@ def _virtual_node(
         ui["pos"] = pos
     if size is not None:
         ui["size"] = size
-    n = VibeNode(node_id, class_type, metadata={"_ui": ui})
+    n = VibeNode(node_id, class_type, metadata={"_ui": ui}, pos=pos, size=size)
     n.uid = node_id
     return n
 

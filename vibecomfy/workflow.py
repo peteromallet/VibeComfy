@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 from dataclasses import dataclass, field, replace
+import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,41 @@ def _to_plain(obj: Any) -> Any:
     return obj
 
 
+def _geometry_error(value: Any) -> str | None:
+    """Return why a first-class geometry value is invalid, if it is invalid."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 2:
+        return "must be a list containing exactly two coordinates"
+    if any(isinstance(coord, bool) or not isinstance(coord, (int, float)) for coord in value):
+        return "coordinates must be numeric (not booleans)"
+    try:
+        finite = all(math.isfinite(float(coord)) for coord in value)
+    except (OverflowError, TypeError, ValueError):
+        finite = False
+    if not finite:
+        return "coordinates must be finite"
+    return None
+
+
+def _invalid_geometry_details(workflow: "VibeWorkflow") -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for node_id, node in workflow.nodes.items():
+        for field_name in ("pos", "size"):
+            value = getattr(node, field_name)
+            error = _geometry_error(value)
+            if error is not None:
+                details.append(
+                    {
+                        "node_id": str(node_id),
+                        "field": field_name,
+                        "value": value,
+                        "reason": error,
+                    }
+                )
+    return details
+
+
 @dataclass(slots=True)
 class WorkflowSource:
     id: str
@@ -90,6 +126,8 @@ class VibeNode:
     uid: str = ""
     raw_widgets: RawWidgetPayload | None = None
     mode: int = 0
+    pos: list[float] | None = None
+    size: list[float] | None = None
 
     @property
     def provenance(self) -> str:
@@ -260,6 +298,12 @@ class VibeWorkflow:
         this, not here.
         """
         _raise_embedded_api_links(self, surface="envelope serialization")
+        invalid_geometry = _invalid_geometry_details(self)
+        if invalid_geometry:
+            detail = invalid_geometry[0]
+            raise ValueError(
+                f"node {detail['node_id']!r}: {detail['field']} {detail['reason']}"
+            )
         plain = _to_plain(self)
         plain["vibecomfy_format_version"] = FORMAT_VERSION
         return plain
@@ -696,6 +740,15 @@ class VibeWorkflow:
                 issues.append(ValidationIssue("missing_edge_source", f"Missing source node {edge.from_node}."))
             if edge.to_node not in self.nodes:
                 issues.append(ValidationIssue("missing_edge_target", f"Missing target node {edge.to_node}."))
+        for detail in _invalid_geometry_details(self):
+            issues.append(
+                ValidationIssue(
+                    "invalid_geometry",
+                    f"Node {detail['node_id']} {detail['field']} {detail['reason']}.",
+                    severity="error",
+                    detail=detail,
+                )
+            )
         embedded_links = _embedded_api_link_details(self)
         for detail in embedded_links:
             issues.append(

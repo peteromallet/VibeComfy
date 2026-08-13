@@ -307,17 +307,14 @@ def _resolve_furniture(
 
 
 def _captured_geometry(node: Any) -> dict[str, list[float]] | None:
-    """Return {pos, size} from ``node.metadata['_ui']``, or None when absent.
+    """Return first-class ``{pos, size}``, or ``None`` when either is absent.
 
     The ``None`` fallthrough is intentional: callers should chain through to
     ``_stub_layout`` when no captured geometry exists (e.g. programmatic nodes
     or workflows loaded from a .py file without a sidecar).
     """
-    _ui = getattr(node, "metadata", {}).get("_ui")
-    if not isinstance(_ui, dict):
-        return None
-    pos = _ui.get("pos")
-    size = _ui.get("size")
+    pos = getattr(node, "pos", None)
+    size = getattr(node, "size", None)
     if not isinstance(pos, (list, tuple)) or len(pos) < 2:
         return None
     if not isinstance(size, (list, tuple)) or len(size) < 2:
@@ -2479,9 +2476,8 @@ def emit_ui_json(
             furniture = _resolve_furniture(node, matched_entry)
         else:
             # Unmatched (new / unmatched_legacy / removed-then-readded).
-            # The captured _ui inline on the node (direct-ingest fallback) is the
-            # source of truth when present; the engine owns geometry only when
-            # no captured _ui exists (programmatic / scratchpad path).
+            # First-class node geometry is the direct-ingest source of truth; the
+            # engine owns geometry only when no complete captured pair exists.
             geometry = (
                 _captured_geometry(node)
                 or engine_positions.get(node.uid)

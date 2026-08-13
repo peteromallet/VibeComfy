@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from copy import deepcopy
 import importlib.util
 import json
 import sys
@@ -570,6 +571,95 @@ def test_copy_is_derived_and_preserves_mode_and_groups_deeply() -> None:
     assert workflow.groups == [
         {"title": "input-group", "nodes": [1, 2], "color": "#3f789e"}
     ]
+
+
+def test_geometry_copy_and_compile_are_deep_and_execution_invariant() -> None:
+    workflow = VibeWorkflow("geometry", WorkflowSource("geometry"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "SaveImage",
+        uid="uid-1",
+        pos=[10.0, 20.0],
+        size=[300.0, 180.0],
+    )
+    compiled = workflow.compile("api")
+
+    cloned = workflow.copy()
+    cloned.nodes["1"].pos[0] = 999.0  # type: ignore[index]
+    cloned.nodes["1"].size[1] = 999.0  # type: ignore[index]
+
+    assert workflow.nodes["1"].pos == [10.0, 20.0]
+    assert workflow.nodes["1"].size == [300.0, 180.0]
+    assert cloned.compile("api") == compiled == workflow.compile("api")
+
+
+def test_geometry_envelope_new_fields_win_and_legacy_fallback_is_independent() -> None:
+    workflow = VibeWorkflow("geometry-envelope", WorkflowSource("geometry-envelope"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "SaveImage",
+        uid="uid-1",
+        metadata={"_ui": {"pos": [1, 2], "size": [3, 4]}},
+        pos=[10.0, 20.0],
+        size=[300.0, 180.0],
+    )
+    envelope = workflow.to_envelope()
+    assert envelope["nodes"]["1"]["pos"] == [10.0, 20.0]
+    assert envelope["nodes"]["1"]["size"] == [300.0, 180.0]
+
+    restored = from_envelope(envelope)
+    assert restored.nodes["1"].pos == [10.0, 20.0]
+    assert restored.nodes["1"].size == [300.0, 180.0]
+
+    old_mixed = deepcopy(envelope)
+    del old_mixed["nodes"]["1"]["pos"]
+    old_mixed["nodes"]["1"]["size"] = [30, 40]
+    old_mixed["nodes"]["1"]["metadata"]["_ui"] = {
+        "pos": [5, 6],
+        "size": [500, 600],
+    }
+    restored_old = from_envelope(old_mixed)
+    assert restored_old.nodes["1"].pos == [5.0, 6.0]
+    assert restored_old.nodes["1"].size == [30.0, 40.0]
+
+    explicit_absence = deepcopy(old_mixed)
+    explicit_absence["nodes"]["1"]["pos"] = None
+    assert from_envelope(explicit_absence).nodes["1"].pos is None
+
+
+@pytest.mark.parametrize(
+    "field_name,value",
+    [
+        ("pos", [1]),
+        ("pos", [1, 2, 3]),
+        ("pos", [True, 2]),
+        ("size", ["1", 2]),
+        ("size", [float("inf"), 2]),
+        ("size", [float("nan"), 2]),
+    ],
+)
+def test_versioned_envelope_rejects_malformed_present_geometry(
+    field_name: str, value: object
+) -> None:
+    workflow = VibeWorkflow("bad-geometry", WorkflowSource("bad-geometry"))
+    workflow.nodes["1"] = VibeNode("1", "SaveImage", uid="uid-1")
+    envelope = workflow.to_envelope()
+    envelope["nodes"]["1"][field_name] = value
+
+    with pytest.raises(ValueError, match=field_name):
+        from_envelope(envelope)
+
+
+def test_validation_and_envelope_writer_reject_invalid_programmatic_geometry() -> None:
+    workflow = VibeWorkflow("bad-geometry", WorkflowSource("bad-geometry"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "SaveImage", uid="uid-1", pos=[1.0], size=[2.0, 3.0]
+    )
+
+    report = workflow.validate()
+    assert any(issue.code == "invalid_geometry" for issue in report.issues)
+    with pytest.raises(ValueError, match="pos"):
+        workflow.to_envelope()
 
 
 def test_node_mode_and_groups_survive_envelope_round_trip() -> None:

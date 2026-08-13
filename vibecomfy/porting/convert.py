@@ -179,9 +179,8 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
         if node.class_type not in _VIRTUAL_WIRE_CLASS_TYPES:
             continue
         uid = node.uid or str(node_id)
-        ui = node.metadata.get("_ui") if isinstance(node.metadata, dict) else None
-        pos = ui.get("pos") if isinstance(ui, dict) else None
-        size = ui.get("size") if isinstance(ui, dict) else None
+        pos = copy.deepcopy(node.pos)
+        size = copy.deepcopy(node.size)
         channel = (
             broadcast_name(node)
             if node.class_type in BROADCAST_HELPER_CLASS_TYPES

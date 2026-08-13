@@ -279,9 +279,8 @@ def _compute_hash(
 
 
 def _pos_from_node(node: Any) -> tuple[float, float]:
-    """Extract (x, y) from node.metadata['_ui']['pos'], fallback to (0, 0)."""
-    ui = node.metadata.get("_ui", {}) if hasattr(node, "metadata") else {}
-    pos = ui.get("pos", [0.0, 0.0])
+    """Extract first-class ``(x, y)`` from a node, falling back to ``(0, 0)``."""
+    pos = getattr(node, "pos", None)
     try:
         return (float(pos[0]), float(pos[1]))
     except (TypeError, IndexError, ValueError):

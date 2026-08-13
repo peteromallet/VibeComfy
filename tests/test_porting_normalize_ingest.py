@@ -326,6 +326,8 @@ def test_flat_pos_size_reachable_via_metadata_ui() -> None:
         assert _ui["size"] == expected["size"], (
             f"node {nid} size mismatch: {_ui['size']} != {expected['size']}"
         )
+        assert node.pos == [float(coord) for coord in expected["pos"]]
+        assert node.size == [float(coord) for coord in expected["size"]]
 
 
 def test_flat_determinism_same_source_identical_uids() -> None:
@@ -448,6 +450,69 @@ _MINIMAL_UI_RAW: dict = {
     "nodes": [{"id": 1, "type": "SaveImage", "inputs": [], "widgets_values": ["output"]}],
     "links": [],
 }
+
+
+def test_live_and_offline_ui_ingest_copy_identical_first_class_geometry() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "inputs": [],
+                "pos": [10, 20.5],
+                "size": [300.25, 180],
+            }
+        ],
+        "links": [],
+    }
+    converted = {"1": {"class_type": "SaveImage", "inputs": {}}}
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = MagicMock(return_value=deepcopy(converted))
+    compatible = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "expected", "version": None},
+        safe_families=[],
+    )
+
+    offline = from_ui(raw, use_comfy_converter=False)
+    with patch.dict(
+        "sys.modules",
+        {
+            "comfy": MagicMock(),
+            "comfy.component_model": MagicMock(),
+            "comfy.component_model.workflow_convert": fake_module,
+        },
+    ), patch(
+        "vibecomfy.ingest.normalize.check_comfy_compatibility",
+        return_value=compatible,
+    ):
+        live = from_ui(raw)
+
+    assert live.nodes["1"].pos == offline.nodes["1"].pos == [10.0, 20.5]
+    assert live.nodes["1"].size == offline.nodes["1"].size == [300.25, 180.0]
+    raw["nodes"][0]["pos"][0] = 999
+    raw["nodes"][0]["size"][0] = 999
+    assert live.nodes["1"].pos == offline.nodes["1"].pos == [10.0, 20.5]
+    assert live.nodes["1"].size == offline.nodes["1"].size == [300.25, 180.0]
+
+
+def test_api_ingest_tolerates_malformed_geometry_and_retains_raw_ui() -> None:
+    raw_ui = {"pos": [1], "size": [float("inf"), 2], "custom": {"keep": True}}
+    workflow = from_api(
+        {"1": {"class_type": "SaveImage", "inputs": {}, "_ui": raw_ui}}
+    )
+    node = workflow.nodes["1"]
+
+    assert node.pos is None
+    assert node.size is None
+    assert node.metadata["_ui"] == raw_ui
+    assert node.metadata["_ui"] is not raw_ui
 
 
 def test_comfy_converter_strict_absent_comfy_falls_through_to_offline() -> None:

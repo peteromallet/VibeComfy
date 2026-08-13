@@ -111,6 +111,14 @@ def _migrate_envelope(raw: dict[str, Any], *, filename: str) -> tuple[dict[str, 
 
     migrated = workflow.to_envelope()
 
+    # Batch A's migration contract permits only groups/mode additions and
+    # compiled_api removal. Newer optional IR fields must not make the already
+    # migrated corpus non-idempotent or force another corpus rewrite.
+    for node_id, raw_entry in raw_nodes.items():
+        for field_name in ("pos", "size"):
+            if field_name not in raw_entry:
+                migrated["nodes"][node_id].pop(field_name, None)
+
     if migrated.get("metadata") != raw.get("metadata"):
         raise ValueError(f"{filename}: top-level metadata changed during serialization")
     for node_id, entry in raw_nodes.items():

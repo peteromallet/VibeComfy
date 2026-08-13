@@ -38,7 +38,7 @@ def _node(node_id: str, uid: str = "", pos=None, size=None) -> VibeNode:
     if size is not None:
         ui["size"] = size
     metadata = {"_ui": ui} if ui else {}
-    n = VibeNode(node_id, "SaveImage", metadata=metadata)
+    n = VibeNode(node_id, "SaveImage", metadata=metadata, pos=pos, size=size)
     n.uid = uid
     return n
 
@@ -116,6 +116,8 @@ def test_envelope_full_round_trip(tmp_path: Path):
                 "properties": {"vibecomfy_uid": "abc", "extra": 1},
             }
         },
+        pos=[10, 20],
+        size=[300, 100],
     )
     n.uid = "1"
     wf.nodes["1"] = n
@@ -190,17 +192,46 @@ def test_skip_empty_uid(tmp_path: Path):
 
 
 def test_skip_no_pos(tmp_path: Path):
-    """Nodes with uid but no pos in _ui are skipped."""
+    """Nodes with uid but no first-class pos are skipped, despite legacy _ui."""
     py_path = tmp_path / "flat.py"
     wf = _wf()
-    # Node has uid but _ui has no pos
-    n = VibeNode("1", "SaveImage", metadata={"_ui": {"size": [100, 100]}})
+    n = VibeNode(
+        "1",
+        "SaveImage",
+        metadata={"_ui": {"pos": [9, 9], "size": [100, 100]}},
+        size=[100, 100],
+    )
     n.uid = "1"
     wf.nodes["1"] = n
     write_layout(py_path, wf)
 
     layout = read_layout(py_path)
     assert layout == {}
+
+
+def test_first_class_geometry_wins_and_size_is_optional(tmp_path: Path):
+    py_path = tmp_path / "first_class.py"
+    wf = _wf()
+    wf.nodes["1"] = VibeNode(
+        "1",
+        "SaveImage",
+        uid="uid-1",
+        pos=[10, 20],
+        size=None,
+        metadata={"_ui": {"pos": [900, 900], "size": [300, 400]}},
+    )
+
+    write_layout(py_path, wf)
+
+    assert read_layout(py_path)["uid-1"] == {
+        "pos": [10, 20],
+        "size": None,
+        "flags": None,
+        "color": None,
+        "bgcolor": None,
+        "mode": 0,
+        "properties": {},
+    }
 
 
 def test_skip_no_ui_metadata(tmp_path: Path):
