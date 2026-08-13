@@ -47,6 +47,11 @@ from vibecomfy.agent.deepseek_usage import (
     coerce_deepseek_usage,
     empty_deepseek_usage,
 )
+from vibecomfy.executor.contracts import (
+    ModelAttemptEvidence,
+    coerce_model_attempts,
+    normalize_model_endpoint,
+)
 from vibecomfy.executor.profiler import (
     new_profile_id,
     profiler_log,
@@ -58,35 +63,19 @@ from vibecomfy.executor.profiler import (
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "180"))
 _WORKER_PATH = str(Path(__file__).with_name("worker.py"))
 
-# A single model turn can stall on a transient provider/transport hiccup — a
-# connection that opens but never returns a byte. When that happens the whole
-# worker subprocess runs into the hard ``_TURN_TIMEOUT_SECONDS`` kill. Before
-# this retry layer existed, that one flaky network moment became a hard turn
-# failure (``TimeoutError``) the user had to re-submit by hand — exactly the
-# "make it img2img" symptom: one turn timed out at 180s, the identical retry
-# succeeded on a fresh connection. So: on a transient stall, spawn a fresh
-# worker (fresh connection) a bounded number of times before surfacing failure.
-# Worst case is ``_WORKER_TRANSIENT_MAX_ATTEMPTS`` * ``_TURN_TIMEOUT_SECONDS``.
+# A fresh worker/transport retry is deliberately narrow: only a canonical
+# empty-response failure with observed zero completion tokens may consume the
+# extra attempts. Timeouts, capacity/provider errors, and malformed content do
+# not retry here.
 _WORKER_TRANSIENT_MAX_ATTEMPTS = max(1, int(os.getenv("VIBECOMFY_AGENT_TURN_RETRIES", "3")))
 _WORKER_TRANSIENT_BACKOFF_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_RETRY_BACKOFF", "2.0"))
-
-# Worker-reported ``error_type`` values that are NOT transient infra failures
-# and so must not consume a retry slot. Auth and setup/import faults will not
-# recover by retrying; ``JSONDecodeError``/``ValueError`` are content problems
-# that the response-contract retry layer (``run_model_turn``) handles by
-# re-prompting with a JSON nudge, so they are excluded here to avoid double
-# handling. Everything else a worker reports (connection reset, read timeout,
-# 429, 5xx, ...) is treated as transient.
-_WORKER_NON_TRANSIENT_ERROR_TYPES = {
-    "AuthError",
-    "AuthenticationError",
-    "PermissionError",
-    "JSONDecodeError",
-    "ValueError",
-}
 LOGGER = logging.getLogger(__name__)
 _DEEPSEEK_USAGE_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "vibecomfy_deepseek_usage_capture",
+    default=None,
+)
+_MODEL_ATTEMPT_CAPTURE: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "vibecomfy_model_attempt_capture",
     default=None,
 )
 
@@ -94,12 +83,6 @@ _CANONICAL_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "2048"))
-
-_JSON_RETRY_NUDGE = (
-    "Your previous reply was not valid JSON. Reply with ONLY one strict JSON "
-    "object matching the requested schema. Do not include markdown fences, "
-    "comments, reasoning text, or trailing prose."
-)
 
 # Arnold/Hermes (Claude etc.) default model when a non-browser-key route is used.
 _ARNOLD_MODEL = os.getenv("VIBECOMFY_ARNOLD_MODEL", "anthropic/claude-opus-4.6")
@@ -129,6 +112,41 @@ def snapshot_deepseek_usage_capture() -> tuple[dict[str, int], bool]:
 
 def end_deepseek_usage_capture(token: contextvars.Token) -> None:
     _DEEPSEEK_USAGE_CAPTURE.reset(token)
+
+
+def begin_model_attempt_capture() -> contextvars.Token:
+    return _MODEL_ATTEMPT_CAPTURE.set([])
+
+
+def snapshot_model_attempt_capture() -> tuple[dict[str, Any], ...]:
+    return coerce_model_attempts(_MODEL_ATTEMPT_CAPTURE.get())
+
+
+def end_model_attempt_capture(token: contextvars.Token) -> None:
+    _MODEL_ATTEMPT_CAPTURE.reset(token)
+
+
+def record_model_attempts(value: Any) -> None:
+    """Append canonical attempts to the active executor capture, without duplicates."""
+    state = _MODEL_ATTEMPT_CAPTURE.get()
+    if state is None:
+        return
+    for attempt in coerce_model_attempts(value):
+        if state and state[-1] == attempt:
+            continue
+        state.append(attempt)
+
+
+def replace_last_model_attempt(value: Mapping[str, Any]) -> None:
+    """Replace the most recent captured transport-success after domain parse failure."""
+    state = _MODEL_ATTEMPT_CAPTURE.get()
+    normalized = coerce_model_attempts([value])
+    if state is None or not normalized:
+        return
+    if state:
+        state[-1] = normalized[0]
+    else:
+        state.append(normalized[0])
 
 
 def _record_captured_deepseek_usage(result: Any) -> None:
@@ -472,20 +490,60 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
     return dict(**common)
 
 
-def _is_transient_worker_result(result: Mapping[str, Any]) -> bool:
-    """True when a worker result is a transient failure worth retrying.
+def _is_typed_empty_worker_result(result: Mapping[str, Any]) -> bool:
+    """True only for typed empty responses with observed zero completion tokens."""
+    attempts = coerce_model_attempts(result.get("model_attempts"))
+    if not attempts:
+        return False
+    latest = attempts[-1]
+    usage = latest.get("token_usage")
+    return (
+        latest.get("outcome") == "failure"
+        and latest.get("failure_type") == "empty_response"
+        and isinstance(usage, Mapping)
+        and usage.get("completion_tokens") == 0
+    )
 
-    A worker reports failure by returning ``{"error": ..., "error_type": ...}``.
-    That is transient (and so retryable) unless it is a setup/auth fault that
-    will not recover (``runtime_unavailable``) or one of the content errors the
-    contract retry layer owns (see ``_WORKER_NON_TRANSIENT_ERROR_TYPES``).
-    """
-    if not isinstance(result, Mapping) or "error" not in result:
-        return False
-    if _is_runtime_unavailable(result):
-        return False
-    error_type = str(result.get("error_type") or "").strip()
-    return error_type not in _WORKER_NON_TRANSIENT_ERROR_TYPES
+
+def _runtime_provider_transport(
+    *, agent_id: str, agent_kwargs: Mapping[str, Any]
+) -> tuple[str, str, str]:
+    endpoint = normalize_model_endpoint(agent_kwargs.get("base_url"))
+    if agent_id != "hermes":
+        return "unknown", "unknown", endpoint
+    if "openrouter.ai" in endpoint:
+        return "openrouter", "openrouter", endpoint
+    if "deepseek.com" in endpoint:
+        return "deepseek", "native", endpoint
+    if endpoint != "unknown":
+        return "unknown", "openai_compatible", endpoint
+    return "unknown", "unknown", endpoint
+
+
+def _timeout_model_attempt(
+    *,
+    agent_kwargs: Mapping[str, Any],
+    agent_id: str,
+    requested_model: str | None,
+    resolved_model: str | None,
+    profiling_context: Mapping[str, Any] | None,
+    attempt: int,
+) -> dict[str, Any]:
+    provider, transport, endpoint = _runtime_provider_transport(
+        agent_id=agent_id, agent_kwargs=agent_kwargs
+    )
+    return ModelAttemptEvidence(
+        phase=(profiling_context or {}).get("backend_phase") or "agent_turn",
+        attempt=attempt,
+        outcome="failure",
+        failure_type="timeout",
+        requested_model=requested_model,
+        resolved_model=resolved_model or agent_kwargs.get("model"),
+        adapter=agent_id,
+        provider=provider,
+        transport=transport,
+        endpoint=endpoint,
+    ).to_dict()
 
 
 def _run_worker(
@@ -496,23 +554,17 @@ def _run_worker(
     response_contract: str = "python",
     agent_id: str = "hermes",
     model: str | None = None,
+    requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
 
-    Wraps :func:`_run_worker_once` with a bounded retry for transient stalls.
-    A single model turn can hang on a flaky provider connection until the hard
-    ``_TURN_TIMEOUT_SECONDS`` kill, or come back as a transient transport error
-    (connection reset, read timeout, 429, 5xx). Both used to surface immediately
-    as an unrecoverable turn failure. Retrying spawns a fresh subprocess — and
-    thus a fresh connection — which is what makes a manual re-submit recover. We
-    do that automatically here, with backoff, before giving up.
-
-    Non-transient results (success, auth faults, setup faults, content errors)
-    are returned immediately without consuming retry slots.
+    A fresh subprocess/transport is permitted only after a canonical
+    ``empty_response`` attempt with observed ``completion_tokens == 0``. Timeouts,
+    provider/capacity errors, and malformed non-empty content surface immediately.
     """
-    last_result: dict[str, Any] | None = None
+    accumulated_attempts: list[dict[str, Any]] = []
     for attempt in range(_WORKER_TRANSIENT_MAX_ATTEMPTS):
         attempt_profile = dict(profiling_context or {})
         if attempt:
@@ -525,38 +577,45 @@ def _run_worker(
                 response_contract=response_contract,
                 agent_id=agent_id,
                 model=model,
+                requested_model=requested_model,
                 effort=effort,
                 profiling_context=attempt_profile,
             )
-        except TimeoutError:
-            if attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS:
-                LOGGER.warning(
-                    "agent worker timed out after %ss (attempt %d/%d); retrying",
-                    _TURN_TIMEOUT_SECONDS,
-                    attempt + 1,
-                    _WORKER_TRANSIENT_MAX_ATTEMPTS,
-                )
-                time.sleep(_WORKER_TRANSIENT_BACKOFF_SECONDS * attempt)
-                continue
+        except TimeoutError as exc:
+            timeout_attempt = _timeout_model_attempt(
+                agent_kwargs=agent_kwargs,
+                agent_id=agent_id,
+                requested_model=requested_model,
+                resolved_model=model,
+                profiling_context=profiling_context,
+                attempt=len(accumulated_attempts) + 1,
+            )
+            accumulated_attempts.append(timeout_attempt)
+            record_model_attempts([timeout_attempt])
+            exc.model_attempts = list(accumulated_attempts)  # type: ignore[attr-defined]
             raise
-        # Worker returned a result dict. Hand non-transient results straight back.
-        if "error" not in result or not _is_transient_worker_result(result):
-            return result
-        last_result = result
-        if attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS:
+        attempts = list(coerce_model_attempts(result.get("model_attempts")))
+        for item in attempts:
+            item["attempt"] = len(accumulated_attempts) + 1
+            normalized = ModelAttemptEvidence.from_mapping(item).to_dict()
+            accumulated_attempts.append(normalized)
+            record_model_attempts([normalized])
+        if accumulated_attempts:
+            result["model_attempts"] = list(accumulated_attempts)
+        if (
+            "error" in result
+            and _is_typed_empty_worker_result(result)
+            and attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS
+        ):
             LOGGER.warning(
-                "agent worker returned transient %s (attempt %d/%d); retrying: %s",
-                result.get("error_type") or "error",
+                "agent worker returned typed empty response (attempt %d/%d); retrying",
                 attempt + 1,
                 _WORKER_TRANSIENT_MAX_ATTEMPTS,
-                str(result.get("error"))[:200],
             )
             time.sleep(_WORKER_TRANSIENT_BACKOFF_SECONDS * attempt)
             continue
         return result
-    # Exhausted every retry on a returned transient error.
-    assert last_result is not None
-    return last_result
+    raise RuntimeError("agent worker retry loop exited without a result")
 
 
 def _run_worker_once(
@@ -567,6 +626,7 @@ def _run_worker_once(
     response_contract: str = "python",
     agent_id: str = "hermes",
     model: str | None = None,
+    requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -586,6 +646,7 @@ def _run_worker_once(
                 {
                     "agent_id": agent_id,
                     "model": model,
+                    "requested_model": requested_model,
                     "effort": effort,
                     "agent_kwargs": agent_kwargs,
                     "system_message": system_msg,
@@ -697,11 +758,13 @@ def run_agent_turn(
         response_contract="python",
         agent_id=agent_id,
         model=_runtime_model_for_route(route, model),
+        requested_model=model,
         effort=effort,
+        profiling_context={"backend_phase": "implement"},
     )
     if "error" in result:
         _raise_worker_error(result)
-    return {"python": result["python"], "message": result["message"]}
+    return dict(result)
 
 
 def run_agent_turn_delta(
@@ -739,11 +802,13 @@ def run_agent_turn_delta(
         response_contract="delta",
         agent_id=agent_id,
         model=_runtime_model_for_route(route, model),
+        requested_model=model,
         effort=effort,
+        profiling_context={"backend_phase": "implement"},
     )
     if "error" in result:
         _raise_worker_error(result)
-    return {"delta": result["delta"], "message": result["message"]}
+    return dict(result)
 
 
 def run_agent_turn_batch(
@@ -775,11 +840,13 @@ def run_agent_turn_batch(
         response_contract="batch_repl",
         agent_id=agent_id,
         model=_runtime_model_for_route(route, model),
+        requested_model=model,
         effort=effort,
+        profiling_context={"backend_phase": "batch"},
     )
     if "error" in result:
         _raise_worker_error(result)
-    return {"content": result["content"]}
+    return dict(result)
 
 
 def _requested_route(route: str | None) -> str:
@@ -1108,41 +1175,17 @@ def run_model_turn(
             )
 
         agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
-        attempts = 3 if response_contract == "json" else 1
-        result: dict[str, Any] | None = None
-        last_error: Mapping[str, Any] | None = None
-        for attempt in range(attempts):
-            attempt_system_msg = system_msg
-            if attempt > 0:
-                attempt_system_msg = (
-                    f"{system_msg}\n\n{_JSON_RETRY_NUDGE}"
-                    if system_msg
-                    else _JSON_RETRY_NUDGE
-                )
-            result = _run_worker(
-                agent_kwargs,
-                attempt_system_msg,
-                user_msg,
-                response_contract=response_contract,
-                agent_id=agent_id,
-                model=_runtime_model_for_route(route, model),
-                effort=effort,
-                profiling_context={
-                    **effective_profile,
-                    **({"json_retry_count": attempt} if attempt else {}),
-                },
-            )
-            if "error" not in result:
-                break
-            last_error = result
-            if not (
-                response_contract == "json"
-                and attempt < attempts - 1
-                and result.get("error_type") in {"JSONDecodeError", "ValueError"}
-            ):
-                _raise_worker_error(result)
-        if result is None:
-            result = dict(last_error or {"error": "agent worker failed"})
+        result = _run_worker(
+            agent_kwargs,
+            system_msg,
+            user_msg,
+            response_contract=response_contract,
+            agent_id=agent_id,
+            model=_runtime_model_for_route(route, model),
+            requested_model=model,
+            effort=effort,
+            profiling_context=effective_profile,
+        )
         if "error" in result:
             _raise_worker_error(result)
 
@@ -1152,4 +1195,11 @@ def run_model_turn(
         )
         return result
 
-__all__ = ["run_agent_turn", "run_agent_turn_delta", "run_agent_turn_batch", "run_model_turn", "readiness", "get_agent_status"]
+__all__ = [
+    "begin_deepseek_usage_capture", "snapshot_deepseek_usage_capture",
+    "end_deepseek_usage_capture", "begin_model_attempt_capture",
+    "snapshot_model_attempt_capture", "end_model_attempt_capture",
+    "record_model_attempts", "replace_last_model_attempt",
+    "run_agent_turn", "run_agent_turn_delta", "run_agent_turn_batch",
+    "run_model_turn", "readiness", "get_agent_status",
+]

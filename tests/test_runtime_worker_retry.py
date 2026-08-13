@@ -1,12 +1,8 @@
-"""Tests for the transient-stall retry wrapper around ``_run_worker``.
+"""Tests for the typed-empty-only retry wrapper around ``_run_worker``.
 
-A single agent-edit model turn can stall on a flaky provider connection until
-the hard ``_TURN_TIMEOUT_SECONDS`` subprocess kill, or come back as a transient
-transport error (connection reset, read timeout, 429, 5xx). Historically both
-surfaced immediately as an unrecoverable turn failure the user had to re-submit
-by hand (the "make it img2img" symptom: one turn timed out at 180s, the identical
-retry succeeded on a fresh connection). ``_run_worker`` now retries those
-transient stalls a bounded number of times before giving up.
+Only a canonical ``empty_response`` attempt with observed zero completion
+tokens may receive a fresh subprocess/transport. Timeouts, provider failures,
+and malformed non-empty content surface without retry.
 
 These tests drive the wrapper directly by stubbing ``_run_worker_once`` (the
 single-shot subprocess call), so no real subprocess or network is involved.
@@ -52,54 +48,120 @@ def _common_kwargs():
     }
 
 
-def test_timeout_is_retried_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A transient timeout on the first attempt must not kill the whole turn."""
+def _attempt(
+    *, outcome: str, failure_type: str | None = None, completion_tokens: int = 1
+) -> dict:
+    return {
+        "phase": "batch",
+        "attempt": 1,
+        "outcome": outcome,
+        "failure_type": failure_type,
+        "requested_model": "requested-model",
+        "resolved_model": "resolved-model",
+        "adapter": "hermes",
+        "provider": "openrouter",
+        "transport": "openrouter",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "finish_reason": "stop" if outcome == "success" else "unknown",
+        "token_usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": completion_tokens,
+            "total_tokens": 10 + completion_tokens,
+        },
+    }
+
+
+def test_timeout_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     good = {"content": "ok", "_profiling": {}}
     calls = _stub_once(monkeypatch, [TimeoutError("Agent worker timed out after 180.0 seconds."), good])
 
-    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+    with pytest.raises(TimeoutError) as raised:
+        runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
 
-    assert result == good
-    assert len(calls) == 2  # one stall + one success
-    # The retry is stamped so observability can see it was a transient retry.
-    second_profiling = calls[1][1]["profiling_context"]
-    assert second_profiling["transient_retry_count"] == 1
-    # The original profiling context is preserved across the retry.
-    assert second_profiling["model_turn_id"] == "test-turn"
+    assert len(calls) == 1
+    assert raised.value.model_attempts[0]["failure_type"] == "timeout"  # type: ignore[attr-defined]
 
 
-def test_timeout_exhausting_retries_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If every attempt stalls, the timeout surfaces (no silent swallowing)."""
+def test_timeout_surfaces_after_one_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _stub_once(monkeypatch, [TimeoutError, TimeoutError, TimeoutError])
 
     with pytest.raises(TimeoutError):
         runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
 
-    assert len(calls) == runtime._WORKER_TRANSIENT_MAX_ATTEMPTS
+    assert len(calls) == 1
 
 
-def test_transient_worker_error_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A transport-class error returned by the worker is retried, not surfaced."""
+def test_untyped_transport_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     transient = {"error": "connection reset", "error_type": "ConnectionError"}
     good = {"content": "ok", "_profiling": {}}
     calls = _stub_once(monkeypatch, [transient, good])
 
     result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
 
-    assert result == good
-    assert len(calls) == 2
+    assert result == transient
+    assert len(calls) == 1
 
 
-def test_transient_worker_error_exhausting_retries_returns_last_error(
+def test_typed_provider_failure_is_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transient = {"error": "503", "error_type": "APIStatusError"}
+    transient = {
+        "error": "503",
+        "error_type": "APIStatusError",
+        "model_attempts": [_attempt(outcome="failure", failure_type="provider_failure")],
+    }
     calls = _stub_once(monkeypatch, [transient, transient, transient])
 
     result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
 
     assert result == transient
-    assert len(calls) == runtime._WORKER_TRANSIENT_MAX_ATTEMPTS
+    assert len(calls) == 1
+
+
+def test_typed_empty_zero_token_response_retries_on_fresh_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty = {
+        "error": "empty",
+        "error_type": "ValueError",
+        "model_attempts": [
+            _attempt(
+                outcome="failure",
+                failure_type="empty_response",
+                completion_tokens=0,
+            )
+        ],
+    }
+    good = {
+        "content": "ok",
+        "model_attempts": [_attempt(outcome="success")],
+    }
+    calls = _stub_once(monkeypatch, [empty, good])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert len(calls) == 2
+    assert [item["attempt"] for item in result["model_attempts"]] == [1, 2]
+    assert result["model_attempts"][0]["failure_type"] == "empty_response"
+    assert "raw_response_preview" not in result["model_attempts"][1]
+
+
+def test_typed_empty_with_nonzero_tokens_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inconsistent = {
+        "error": "empty",
+        "error_type": "ValueError",
+        "model_attempts": [
+            _attempt(outcome="failure", failure_type="empty_response", completion_tokens=2)
+        ],
+    }
+    calls = _stub_once(monkeypatch, [inconsistent])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result["model_attempts"][0]["failure_type"] == "empty_response"
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(

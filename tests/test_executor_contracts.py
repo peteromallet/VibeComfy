@@ -27,6 +27,7 @@ from vibecomfy.executor.contracts import (
     ManifestNode,
     ManifestOversized,
     ManifestValidation,
+    ModelAttemptEvidence,
     PrecedentAdaptationPlan,
     PrecedentOption,
     PrecedentPacket,
@@ -631,6 +632,37 @@ class TestImplementationResult:
 
 
 # ── Report ───────────────────────────────────────────────────────────────────
+
+
+class TestModelAttemptEvidence:
+    def test_preserves_requested_and_resolved_model_and_unknown_non_hermes_fields(self) -> None:
+        payload = ModelAttemptEvidence(
+            phase="reply",
+            attempt=2,
+            outcome="success",
+            requested_model="profile-alias",
+            resolved_model="provider/model-v2",
+            adapter="codex",
+            provider=None,  # type: ignore[arg-type]
+            transport=None,  # type: ignore[arg-type]
+            endpoint=None,  # type: ignore[arg-type]
+            finish_reason=None,  # type: ignore[arg-type]
+            token_usage={},
+            raw_response_preview="success content must be dropped",
+        ).to_dict()
+
+        assert payload["requested_model"] == "profile-alias"
+        assert payload["resolved_model"] == "provider/model-v2"
+        assert payload["provider"] == "unknown"
+        assert payload["transport"] == "unknown"
+        assert payload["endpoint"] == "unknown"
+        assert payload["finish_reason"] == "unknown"
+        assert payload["token_usage"] == {
+            "prompt_tokens": "unknown",
+            "completion_tokens": "unknown",
+            "total_tokens": "unknown",
+        }
+        assert "raw_response_preview" not in payload
 
 
 class TestReport:

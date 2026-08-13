@@ -203,6 +203,7 @@ def test_headless_artifacts_copy_only_real_durable_turn_files(tmp_path: Path) ->
     ]
     assert manifest["optional_model_artifacts"] == {
         "messages.jsonl": False,
+        "model_attempts.json": False,
         "model_request.json": False,
         "model_response.json": False,
     }
@@ -237,9 +238,85 @@ def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: P
 
     assert manifest["optional_model_artifacts"] == {
         "messages.jsonl": True,
+        "model_attempts.json": False,
         "model_request.json": True,
         "model_response.json": True,
     }
     assert (output_dir / "messages.jsonl").read_text(encoding="utf-8") == '{"role": "user"}\n'
     assert (output_dir / "model_request.json").is_file()
     assert (output_dir / "model_response.json").is_file()
+
+
+def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    result = ExecutorResult.success(
+        report=Report(
+            model_attempts=(
+                {
+                    "phase": "classify",
+                    "attempt": 1,
+                    "outcome": "failure",
+                    "failure_type": "malformed_json",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "hermes",
+                    "provider": "openrouter",
+                    "transport": "openrouter",
+                    "endpoint": (
+                        "https://user:password@OpenRouter.ai/api/v1/?api_key=sk-secret"
+                        "&signature=sig-secret"
+                    ),
+                    "finish_reason": "stop",
+                    "token_usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 4,
+                        "total_tokens": 15,
+                    },
+                    "raw_response_preview": (
+                        "Authorization: Bearer top-secret "
+                        "https://example.test/v1?token=url-secret"
+                    ),
+                },
+                {
+                    "phase": "reply",
+                    "attempt": 1,
+                    "outcome": "success",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "codex",
+                    "provider": "unknown",
+                    "transport": "unknown",
+                    "endpoint": "unknown",
+                    "finish_reason": "unknown",
+                    "token_usage": {},
+                    "raw_response_preview": "must never persist on success",
+                },
+            )
+        ),
+        reply="ok",
+    )
+
+    manifest = synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=result,
+        response={"ok": True},
+        output_dir=output_dir,
+        status="success",
+    )
+
+    assert "model_attempts.json" in manifest["manifest"]
+    attempts = _read_json(output_dir / "model_attempts.json")["attempts"]
+    assert attempts[0]["endpoint"] == "https://openrouter.ai/api/v1"
+    assert "top-secret" not in attempts[0]["raw_response_preview"]
+    assert "url-secret" not in attempts[0]["raw_response_preview"]
+    assert "raw_response_preview" not in attempts[1]
+    assert attempts[1]["provider"] == "unknown"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in output_dir.iterdir()
+        if path.is_file()
+    )
+    assert "sk-secret" not in persisted
+    assert "sig-secret" not in persisted
+    assert "top-secret" not in persisted
+    assert "url-secret" not in persisted

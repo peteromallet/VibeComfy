@@ -10,6 +10,7 @@ import pytest
 from vibecomfy.comfy_nodes.agent import runtime
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
 from vibecomfy.comfy_nodes.agent import worker
+from vibecomfy.executor.agent_backend import run_classify_turn, run_reply_turn
 
 
 def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -396,3 +397,126 @@ def test_openrouter_worker_401_error_is_permission_error(
             route="openrouter",
             messages=[{"role": "user", "content": "User request:\nmake it brighter"}],
         )
+
+
+@pytest.mark.parametrize(
+    ("exc", "raw", "expected"),
+    [
+        (ValueError("empty"), "", "empty_response"),
+        (json.JSONDecodeError("bad", "{bad", 1), "{bad", "malformed_json"),
+        (json.JSONDecodeError("bad", "plain prose", 0), "plain prose", "non_json_content"),
+        (ValueError("must include field reply"), '{"other":"x"}', "missing_required_fields"),
+        (TimeoutError("late"), None, "timeout"),
+        (RuntimeError("capacity"), None, "provider_failure"),
+    ],
+)
+def test_worker_failure_taxonomy_is_structural(
+    exc: BaseException,
+    raw: str | None,
+    expected: str,
+) -> None:
+    assert worker._model_attempt_failure_type(exc, raw) == expected
+
+
+def _canonical_success_attempt() -> dict:
+    return {
+        "phase": "batch",
+        "attempt": 1,
+        "outcome": "success",
+        "failure_type": None,
+        "requested_model": "openrouter:requested/model",
+        "resolved_model": "resolved/model",
+        "adapter": "hermes",
+        "provider": "openrouter",
+        "transport": "openrouter",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "finish_reason": "stop",
+        "token_usage": {
+            "prompt_tokens": 12,
+            "completion_tokens": 3,
+            "total_tokens": 15,
+        },
+    }
+
+
+def test_three_runtime_success_paths_preserve_worker_attempt_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_hermes_credential_for", lambda route, model: "key")
+    attempt = _canonical_success_attempt()
+
+    def fake_worker(*args, response_contract, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        base = {"model_attempts": [attempt], "deepseek_usage": attempt["token_usage"]}
+        if response_contract == "python":
+            return {**base, "python": "pass", "message": "ok"}
+        if response_contract == "delta":
+            return {**base, "delta": [], "message": "ok"}
+        return {**base, "content": "done\n```batch\ndone()\n```"}
+
+    monkeypatch.setattr(runtime, "_run_worker", fake_worker)
+
+    python_result = runtime.run_agent_turn(
+        task="x", python_source="", route="openrouter", model="requested/model"
+    )
+    delta_result = runtime.run_agent_turn_delta(
+        task="x", projection="{}", op_schema={}, route="openrouter", model="requested/model"
+    )
+    batch_result = runtime.run_agent_turn_batch(
+        task="x", route="openrouter", model="requested/model", messages=[]
+    )
+
+    for result in (python_result, delta_result, batch_result):
+        assert result["model_attempts"] == [attempt]
+        assert result["deepseek_usage"] == attempt["token_usage"]
+
+
+def test_batch_provider_audit_merges_worker_attempt_provenance() -> None:
+    attempt = _canonical_success_attempt()
+    result = agent_provider._normalize_batch_response(
+        {
+            "content": "Changed it.\n```batch\ndone()\n```",
+            "model_attempts": [attempt],
+            "deepseek_usage": attempt["token_usage"],
+        },
+        route="openrouter",
+        model="requested/model",
+        audit_metadata={"provider": "arnold"},
+    )
+
+    assert result.audit_metadata["model_attempts"] == [attempt]
+    assert result.audit_metadata["deepseek_usage"] == attempt["token_usage"]
+
+
+def test_successful_classify_and_reply_attempts_reach_executor_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        phase = "classify" if calls == 1 else "reply"
+        content = (
+            '{"research":false,"implement":false,"reply":true,"route":"respond"}'
+            if phase == "classify"
+            else '{"reply":"hello"}'
+        )
+        attempt = {**_canonical_success_attempt(), "phase": phase}
+        return {"content": content, "json": json.loads(content), "model_attempts": [attempt]}
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+    token = runtime.begin_model_attempt_capture()
+    try:
+        decision = run_classify_turn("hello", route="openrouter", model="requested/model")
+        assert run_reply_turn(
+            "hello",
+            route="openrouter",
+            model="requested/model",
+            plan=decision,
+        ) == "hello"
+        attempts = runtime.snapshot_model_attempt_capture()
+    finally:
+        runtime.end_model_attempt_capture(token)
+
+    assert [item["phase"] for item in attempts] == ["classify", "reply"]
+    assert all(item["outcome"] == "success" for item in attempts)

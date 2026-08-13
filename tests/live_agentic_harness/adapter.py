@@ -149,4 +149,5 @@ def run_headless_scenario(
         "deepseek_usage": result.response.get("deepseek_usage", {}),
         "deepseek_est_cost_usd": result.response.get("deepseek_est_cost_usd"),
         "deepseek_cost_basis": result.response.get("deepseek_cost_basis"),
+        "model_attempts": result.response.get("model_attempts", []),
     }

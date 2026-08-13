@@ -21,6 +21,28 @@ def _summary(tmp_path: Path, scenario_id: str, *, ok: bool) -> dict:
         "deepseek_usage": {},
         "deepseek_est_cost_usd": 0.0,
         "deepseek_cost_basis": "not_available",
+        "model_attempts": [],
+    }
+
+
+def _failed_attempt(failure_type: str, *, completion_tokens: int = 0) -> dict:
+    return {
+        "phase": "classify",
+        "attempt": 1,
+        "outcome": "failure",
+        "failure_type": failure_type,
+        "requested_model": "requested",
+        "resolved_model": "resolved",
+        "adapter": "hermes",
+        "provider": "openrouter",
+        "transport": "openrouter",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "finish_reason": "unknown",
+        "token_usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": completion_tokens,
+            "total_tokens": 10 + completion_tokens,
+        },
     }
 
 
@@ -63,7 +85,7 @@ def test_final_summary_replaces_partial_summary(tmp_path: Path) -> None:
     assert not (tmp_path / "tag" / "run_summary.partial.json").exists()
 
 
-def test_runner_retries_infra_timeout_and_preserves_attempts(
+def test_runner_does_not_retry_outer_timeout(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
@@ -100,12 +122,11 @@ def test_runner_retries_infra_timeout_and_preserves_attempts(
     )
 
     scenario = summary["scenarios"][0]
-    assert calls == 2
-    assert summary["passed"] == 1
+    assert calls == 1
+    assert summary["passed"] == 0
     assert summary["raw_first_attempt_passed"] == 0
-    assert scenario["attempt_count"] == 2
+    assert scenario["attempt_count"] == 1
     assert scenario["attempts"][0]["failure_class"] == "infra_timeout"
-    assert scenario["attempts"][1]["live_agentic_success"] is True
     assert scenario["attempts"][0]["score_class"] == "infra_blocked"
     assert scenario["attempts"][0]["agent_exercised"] is False
     assert scenario["attempts"][0]["elapsed_s"] is not None
@@ -114,7 +135,7 @@ def test_runner_retries_infra_timeout_and_preserves_attempts(
     ).exists()
 
 
-def test_runner_retries_provider_capacity_summary_and_preserves_attempts(
+def test_runner_types_provider_capacity_without_retry(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
@@ -144,6 +165,7 @@ def test_runner_retries_provider_capacity_summary_and_preserves_attempts(
                         "not have enough credits for the requested token budget."
                     ),
                     "output_dir": str(output_dir),
+                    "model_attempts": [_failed_attempt("provider_failure")],
                     "guard": {
                         "live_agentic_success": False,
                         "score_class": "product_fail",
@@ -183,14 +205,93 @@ def test_runner_retries_provider_capacity_summary_and_preserves_attempts(
     )
 
     scenario = summary["scenarios"][0]
-    assert calls == 2
-    assert summary["passed"] == 1
+    assert calls == 1
+    assert summary["passed"] == 0
     assert summary["raw_first_attempt_passed"] == 0
-    assert scenario["attempt_count"] == 2
+    assert scenario["attempt_count"] == 1
     assert scenario["attempts"][0]["failure_class"] == "infra_provider_capacity"
     assert scenario["attempts"][0]["score_class"] == "infra_blocked"
-    assert scenario["attempts"][0]["retryable_infra"] is True
+    assert scenario["attempts"][0]["retryable_infra"] is False
+
+
+def test_runner_retries_only_typed_empty_zero_token_attempt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "typed-empty.json"
+    scenario_path.write_text(json.dumps({"id": "typed-empty", "query": "do it"}), encoding="utf-8")
+    calls = 0
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "typed-empty", ok=calls > 1)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "typed-empty")
+        if calls == 1:
+            payload["error"] = "arbitrary wording that must not drive classification"
+            payload["model_attempts"] = [_failed_attempt("empty_response", completion_tokens=0)]
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        infra_retries=1,
+        progress_every=0,
+    )
+
+    scenario = summary["scenarios"][0]
+    assert calls == 2
+    assert scenario["attempts"][0]["failure_class"] == "infra_empty_response"
+    assert scenario["attempts"][0]["model_attempts"][0]["failure_type"] == "empty_response"
     assert scenario["attempts"][1]["live_agentic_success"] is True
+
+
+def test_runner_keeps_malformed_nonempty_as_product_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "malformed.json"
+    scenario_path.write_text(json.dumps({"id": "malformed", "query": "do it"}), encoding="utf-8")
+    calls = 0
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / tag, "malformed", ok=False)
+        payload["output_dir"] = str(tmp_path / "out" / tag / "malformed")
+        payload["error"] = "OpenRouter rejected / HTTP 429 wording is irrelevant"
+        payload["model_attempts"] = [_failed_attempt("malformed_json", completion_tokens=5)]
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        infra_retries=1,
+        progress_every=0,
+    )
+
+    scenario = summary["scenarios"][0]
+    assert calls == 1
+    assert scenario["score_class"] == "product_fail"
+    assert scenario.get("retryable_infra") is not True
 
 
 def test_runner_counts_persistent_provider_capacity_as_infra_blocked(
@@ -212,6 +313,7 @@ def test_runner_counts_persistent_provider_capacity_as_infra_blocked(
                 "status": "executor_failure",
                 "error": "HTTP Error 429: Too Many Requests",
                 "output_dir": str(output_dir),
+                "model_attempts": [_failed_attempt("provider_failure")],
                 "guard": {
                     "live_agentic_success": False,
                     "score_class": "product_fail",
@@ -235,7 +337,7 @@ def test_runner_counts_persistent_provider_capacity_as_infra_blocked(
     )
 
     scenario = summary["scenarios"][0]
-    assert scenario["attempt_count"] == 2
+    assert scenario["attempt_count"] == 1
     assert scenario["failure_class"] == "infra_provider_capacity"
     assert scenario["score_class"] == "infra_blocked"
     assert summary["passed"] == 0

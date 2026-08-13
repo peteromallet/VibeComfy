@@ -32,8 +32,11 @@ from vibecomfy.comfy_nodes.agent.provider import (
 )
 from vibecomfy.comfy_nodes.agent.runtime import (
     begin_deepseek_usage_capture,
+    begin_model_attempt_capture,
     end_deepseek_usage_capture,
+    end_model_attempt_capture,
     snapshot_deepseek_usage_capture,
+    snapshot_model_attempt_capture,
 )
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
@@ -107,6 +110,7 @@ def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
 # internals. The failure envelope's public shape is unchanged.
 
 _MODEL_RESPONSE_EVIDENCE_KEYS = (
+    "model_attempts",
     "parse_reason",
     "raw_response_preview",
     "finish_reason",
@@ -221,6 +225,9 @@ def _model_response_artifact(failure: Any) -> dict[str, Any] | None:
     context = getattr(failure, "agent_failure_context", None)
     if not isinstance(context, Mapping):
         return None
+    attempts = context.get("model_attempts")
+    if isinstance(attempts, (list, tuple)) and attempts:
+        return {"attempts": [dict(item) for item in attempts if isinstance(item, Mapping)]}
     evidence = {
         key: context[key]
         for key in _MODEL_RESPONSE_EVIDENCE_KEYS
@@ -1969,6 +1976,7 @@ def run_executor(
 
     profiler_log(LOGGER, "executor.request", **request_fields)
     usage_token = begin_deepseek_usage_capture()
+    attempt_token = begin_model_attempt_capture()
 
     def _build_report(
         *,
@@ -1979,6 +1987,13 @@ def run_executor(
         model_response: dict[str, Any] | None = None,
     ) -> Report:
         usage, cache_breakout_complete = snapshot_deepseek_usage_capture()
+        model_attempts = snapshot_model_attempt_capture()
+        if not model_attempts and isinstance(model_response, Mapping):
+            raw_attempts = model_response.get("attempts")
+            if isinstance(raw_attempts, (list, tuple)):
+                model_attempts = tuple(
+                    dict(item) for item in raw_attempts if isinstance(item, Mapping)
+                )
         est_cost_usd, cost_basis = estimate_deepseek_cost_usd(
             usage,
             cache_breakout_complete=cache_breakout_complete,
@@ -1991,11 +2006,13 @@ def run_executor(
             deepseek_est_cost_usd=est_cost_usd,
             deepseek_cost_basis=cost_basis,
             classification_status=classification_status,
+            model_attempts=model_attempts,
             model_response=model_response,
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
         end_deepseek_usage_capture(usage_token)
+        end_model_attempt_capture(attempt_token)
         return result
 
     # ── Resolve profile specs ────────────────────────────────────────────

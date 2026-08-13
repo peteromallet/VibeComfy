@@ -13,6 +13,7 @@ to the provider, ensuring the resolved profile specs reach the worker.
 from __future__ import annotations
 
 import logging
+import json
 from typing import Any, Mapping
 
 from vibecomfy.executor.profiler import new_profile_id, profiler_span, short_text
@@ -23,7 +24,7 @@ from .prompts import (
     parse_classify_response,
     parse_reply_response,
 )
-from .contracts import ClassifyDecision
+from .contracts import ClassifyDecision, ModelAttemptEvidence, coerce_model_attempts
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ def _attach_model_turn_evidence(
     try:
         if result is not None and getattr(exc, "worker_result", None) is None:
             exc.worker_result = dict(result)  # type: ignore[attr-defined]
+        if result is not None and getattr(exc, "model_attempts", None) is None:
+            exc.model_attempts = list(coerce_model_attempts(result.get("model_attempts")))  # type: ignore[attr-defined]
         if raw is not None and getattr(exc, "raw_response_preview", None) is None:
             exc.raw_response_preview = _preview_raw(raw)  # type: ignore[attr-defined]
         for name, value in (("model", model), ("phase", phase)):
@@ -83,6 +86,46 @@ def _attach_model_turn_evidence(
                 setattr(exc, name, value)
     except Exception:  # noqa: BLE001 - evidence attachment is best-effort
         pass
+
+
+def _downstream_failure_type(raw: str | None) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        return "empty_response"
+    stripped = raw.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```")
+        stripped = stripped.rsplit("```", 1)[0].strip()
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return "malformed_json" if "{" in stripped else "non_json_content"
+    return "missing_required_fields" if isinstance(parsed, dict) else "non_json_content"
+
+
+def _record_result_attempts(result: dict[str, Any]) -> None:
+    from vibecomfy.comfy_nodes.agent.runtime import record_model_attempts
+
+    record_model_attempts(result.get("model_attempts"))
+
+
+def _mark_last_attempt_failed(
+    result: dict[str, Any], *, raw: str | None, failure_type: str
+) -> None:
+    attempts = list(coerce_model_attempts(result.get("model_attempts")))
+    if not attempts:
+        return
+    latest = dict(attempts[-1])
+    latest.update({
+        "outcome": "failure",
+        "failure_type": failure_type,
+        "raw_response_preview": raw,
+    })
+    revised = ModelAttemptEvidence.from_mapping(latest).to_dict()
+    attempts[-1] = revised
+    result["model_attempts"] = attempts
+    from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempt
+
+    replace_last_model_attempt(revised)
 
 
 def run_classify_turn(
@@ -161,6 +204,11 @@ def run_classify_turn(
             raw = _extract_content(result)
             decision = parse_classify_response(raw)
         except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
+            _mark_last_attempt_failed(
+                result,
+                raw=raw,
+                failure_type=_downstream_failure_type(raw),
+            )
             _attach_model_turn_evidence(
                 exc,
                 result,
@@ -169,6 +217,7 @@ def run_classify_turn(
                 raw=raw,
             )
             raise
+        _record_result_attempts(result)
         span.update(
             content_length=len(raw),
             plan_research=decision.research,
@@ -276,6 +325,11 @@ def run_reply_turn(
             raw = _extract_content(result)
             reply = parse_reply_response(raw)
         except Exception as exc:  # noqa: BLE001 - attach evidence, then re-raise
+            _mark_last_attempt_failed(
+                result,
+                raw=raw,
+                failure_type=_downstream_failure_type(raw),
+            )
             _attach_model_turn_evidence(
                 exc,
                 result,
@@ -284,6 +338,7 @@ def run_reply_turn(
                 raw=raw,
             )
             raise
+        _record_result_attempts(result)
         span.update(content_length=len(raw), reply_preview=short_text(reply))
         return reply
 

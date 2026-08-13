@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 import tempfile
@@ -40,26 +39,6 @@ DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenari
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 REPO = Path(__file__).resolve().parents[2]
-
-_PROVIDER_INFRA_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"OpenRouter rejected", re.IGNORECASE),
-    re.compile(r"model provider is temporarily unavailable", re.IGNORECASE),
-    re.compile(r"provider is temporarily unavailable", re.IGNORECASE),
-    re.compile(r"not have enough credits", re.IGNORECASE),
-    re.compile(r"insufficient credits", re.IGNORECASE),
-    re.compile(r"insufficient balance", re.IGNORECASE),
-    re.compile(r"quota exceeded", re.IGNORECASE),
-    re.compile(r"rate limit", re.IGNORECASE),
-    re.compile(r"too many requests", re.IGNORECASE),
-    re.compile(r"HTTP Error 429", re.IGNORECASE),
-)
-
-# "The model response could not be parsed" is infra ONLY with zero-token
-# evidence (an empty/transport response) — never on the phrase alone.  A
-# nonzero-token parse failure (e.g. markdown instead of JSON) is a product
-# failure.  See ``_provider_infra_failure_class``.
-_PARSE_FAILURE_PATTERN = re.compile(r"The model response could not be parsed", re.IGNORECASE)
-
 
 def _scenario_paths(scenarios_dir: Path) -> list[Path]:
     if not scenarios_dir.is_dir():
@@ -207,29 +186,18 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "agent_exercised": summary.get("agent_exercised"),
         "elapsed_s": summary.get("elapsed_s"),
         "live_agentic_success": (summary.get("guard") or {}).get("live_agentic_success"),
+        "model_attempts": summary.get("model_attempts", []),
     }
 
 
-def _summary_text_for_infra_classification(summary: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("error", "stdout_tail", "stderr_tail"):
-        value = summary.get(key)
-        if isinstance(value, str):
-            parts.append(value)
-
-    guard = summary.get("guard")
-    if isinstance(guard, dict):
-        assessment = guard.get("assessment")
-        if isinstance(assessment, dict):
-            for issue in assessment.get("issues") or []:
-                if not isinstance(issue, dict):
-                    continue
-                if issue.get("check") == "soft_warning":
-                    continue
-                detail = issue.get("detail")
-                if isinstance(detail, str):
-                    parts.append(detail)
-    return "\n".join(parts)
+def _latest_failed_model_attempt(summary: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    attempts = summary.get("model_attempts")
+    if not isinstance(attempts, (list, tuple)):
+        return None
+    for attempt in reversed(attempts):
+        if isinstance(attempt, Mapping) and attempt.get("outcome") == "failure":
+            return attempt
+    return None
 
 
 def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
@@ -240,7 +208,8 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     structured evidence of an empty/transport response; absence of the record is
     NOT evidence, so it never classifies as infra.
     """
-    usage = summary.get("deepseek_usage")
+    attempt = _latest_failed_model_attempt(summary)
+    usage = attempt.get("token_usage") if isinstance(attempt, Mapping) else None
     if not isinstance(usage, Mapping):
         return None
     value = usage.get("completion_tokens")
@@ -250,18 +219,16 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
 
 
 def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
-    text = _summary_text_for_infra_classification(summary)
-    if not text:
+    """Map only canonical typed attempt evidence; never inspect response prose."""
+    attempt = _latest_failed_model_attempt(summary)
+    if attempt is None:
         return None
-    if _PARSE_FAILURE_PATTERN.search(text):
-        # The parse phrase alone is never infra: markdown instead of JSON is a
-        # product failure.  Only an empty model response — structured evidence
-        # that the call observed zero completion tokens (a transport-level
-        # reply) — is retryable infrastructure.
-        if _summary_completion_tokens(summary) == 0:
-            return "infra_empty_response"
-        return None
-    if any(pattern.search(text) for pattern in _PROVIDER_INFRA_PATTERNS):
+    failure_type = attempt.get("failure_type")
+    if failure_type == "empty_response" and _summary_completion_tokens(summary) == 0:
+        return "infra_empty_response"
+    if failure_type == "timeout":
+        return "infra_timeout"
+    if failure_type == "provider_failure":
         return "infra_provider_capacity"
     return None
 
@@ -269,7 +236,7 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
 def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
     summary["failure_class"] = failure_class
     summary["score_class"] = "infra_blocked"
-    summary["retryable_infra"] = True
+    summary["retryable_infra"] = failure_class == "infra_empty_response"
     guard = summary.get("guard")
     if isinstance(guard, dict):
         guard["failure_class"] = failure_class
@@ -281,7 +248,7 @@ def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
                     "check": "infra_classification",
                     "severity": "warning",
                     "detail": (
-                        f"{failure_class} failure was classified as retryable "
+                        f"{failure_class} failure was classified as "
                         "infrastructure, not product quality."
                     ),
                     "failure_class": failure_class,
@@ -298,7 +265,11 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
 
 def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
     _classify_retryable_infra_summary(summary)
-    return bool(summary.get("retryable_infra")) or str(summary.get("failure_class") or "").startswith("infra_")
+    return (
+        summary.get("failure_class") == "infra_empty_response"
+        and summary.get("retryable_infra") is True
+        and _summary_completion_tokens(summary) == 0
+    )
 
 
 def _build_run_summary(

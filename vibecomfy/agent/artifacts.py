@@ -12,6 +12,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
+from vibecomfy.executor.contracts import normalize_model_endpoint, redact_model_preview
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -27,6 +29,7 @@ _SENSITIVE_KEY_PARTS = frozenset({
 })
 _MODEL_ARTIFACT_NAMES = frozenset({
     "messages.jsonl",
+    "model_attempts.json",
     "model_request.json",
     "model_response.json",
 })
@@ -61,6 +64,10 @@ def _redact(value: Any, *, parent_key: str = "") -> Any:
     """Return a JSON-safe copy with credential-like values redacted."""
     if _is_sensitive_key(parent_key) and isinstance(value, str):
         return "<redacted>"
+    if parent_key.lower() == "endpoint" and isinstance(value, str):
+        return normalize_model_endpoint(value)
+    if parent_key.lower() == "raw_response_preview" and isinstance(value, str):
+        return redact_model_preview(value)
     if isinstance(value, Mapping):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -92,7 +99,21 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
     for source in sorted(turn_dir.iterdir()):
         if source.is_file() and source.suffix in {".json", ".jsonl"}:
             dest = output_dir / source.name
-            shutil.copy2(source, dest)
+            try:
+                if source.suffix == ".json":
+                    parsed = json.loads(source.read_text(encoding="utf-8"))
+                    _safe_write(dest, _redact(parsed))
+                else:
+                    rendered: list[str] = []
+                    for line in source.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        rendered.append(json.dumps(_redact(json.loads(line)), sort_keys=True))
+                    dest.write_text("\n".join(rendered) + ("\n" if rendered else ""), encoding="utf-8")
+            except (OSError, json.JSONDecodeError):
+                # Preserve non-JSON diagnostic files for compatibility. Canonical
+                # model-attempt artifacts are always JSON and take the redacted path.
+                shutil.copy2(source, dest)
             copied.append(str(dest.relative_to(output_dir)))
     return copied
 
@@ -312,6 +333,13 @@ def synthesize_headless_artifacts(
     _append_manifest(manifest, "flow_metadata.json")
 
     report = _executor_report(result)
+    model_attempts = report.get("model_attempts")
+    if isinstance(model_attempts, (list, tuple)) and model_attempts:
+        _safe_write(
+            output_dir / "model_attempts.json",
+            {"attempts": _redact(model_attempts)},
+        )
+        _append_manifest(manifest, "model_attempts.json")
     classification = report.get("plan")
     if isinstance(classification, Mapping):
         classification_payload = _redact(classification)
