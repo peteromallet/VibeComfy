@@ -5104,6 +5104,7 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
         response_contract="python",
         agent_id=None,
         model=None,
+        requested_model=None,
         effort=None,
         profiling_context=None,
     ):
@@ -5154,6 +5155,7 @@ def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> N
         response_contract="python",
         agent_id=None,
         model=None,
+        requested_model=None,
         effort=None,
         profiling_context=None,
     ):

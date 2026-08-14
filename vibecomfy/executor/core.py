@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -71,6 +72,10 @@ from .research import _default_hivemind_client, research as run_research_phase
 from .revision_evidence import collect_graph_facts
 
 LOGGER = logging.getLogger(__name__)
+
+# Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
+# events emitted while the implement phase is running.
+_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 _INSTALL_RESEARCH_TERMS = (
     "install",
@@ -2211,14 +2216,39 @@ def run_executor(
                 phase="implement",
                 **_spec_fields(implement_spec),
             ) as span:
-                implementation_result = _run_implement(
-                    request,
-                    implement_spec,
-                    plan=plan,
-                    research_result=research_result,
-                    client_id=client_id,
-                    additive=additive,
+                # Keep the panel alive during long model-backed implement turns:
+                # a daemon thread re-emits phase="implement" status="working" every
+                # ~15s until _run_implement returns. send_sync is thread-safe.
+                heartbeat_stop = threading.Event()
+
+                def _implement_heartbeat() -> None:
+                    while not heartbeat_stop.wait(_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS):
+                        _emit_executor_phase_event(
+                            request,
+                            executor_id=executor_id,
+                            phase="implement",
+                            status="working",
+                            client_id=client_id,
+                        )
+
+                heartbeat_thread = threading.Thread(
+                    target=_implement_heartbeat,
+                    name="vibecomfy-executor-implement-heartbeat",
+                    daemon=True,
                 )
+                try:
+                    heartbeat_thread.start()
+                    implementation_result = _run_implement(
+                        request,
+                        implement_spec,
+                        plan=plan,
+                        research_result=research_result,
+                        client_id=client_id,
+                        additive=additive,
+                    )
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=2.0)
                 # B04: hoist durable research findings onto report.research
                 # for the research route (agent-judgment evidence carry; NOT
                 # a latch and never a stop decision).

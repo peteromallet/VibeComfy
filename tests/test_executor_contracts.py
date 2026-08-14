@@ -1076,7 +1076,8 @@ class TestExecutorResult:
         r = ExecutorResult.failure(kind="TimeoutError", stage="classify", message="timed out")
         d = r.to_dict()
         assert d["ok"] is False
-        assert d["route"] == "respond"
+        # B01: a failed classification invents no route (nullable decision).
+        assert d["route"] == ""
         assert d["reply"] == "timed out"
         assert d["candidate"] is None
         assert d["apply_eligible"] is False
@@ -3994,6 +3995,21 @@ def test_classification_failure_is_nullable_and_truthful(
     exc.provider = "openrouter"
     exc.endpoint = "https://api.deepseek.com/v1"
     exc.raw_response_preview = "{not json"
+    # B01 canonical attempt evidence (the report only serializes model_attempts;
+    # loose fields on the exception are not captured).
+    exc.model_attempts = (
+        {
+            "phase": "classify",
+            "attempt": 1,
+            "failure_type": "malformed_json",
+            "token_usage": {"completion_tokens": 0, "total_tokens": 1},
+            "finish_reason": "stop",
+            "adapter": "hermes",
+            "provider": "openrouter",
+            "endpoint": "https://api.deepseek.com/v1",
+            "raw_response_preview": "{not json",
+        },
+    )
 
     def _raise(*args, **kwargs):
         raise exc
@@ -4015,11 +4031,14 @@ def test_classification_failure_is_nullable_and_truthful(
     turn_payload = result.turn.to_dict()
     assert turn_payload["route"] == ""
     assert turn_payload["evidence"]["classification"] == {}
-    # The typed parse evidence survives into the report artifact.
-    error = inner["model_response"]["turns"][0]["error"]
-    assert error["parse_reason"] == "malformed_json"
-    assert error["completion_tokens_zero"] is True
-    assert error["completion_tokens"] == 0
+    # The typed parse evidence survives into the report artifact (B01:
+    # canonical model_attempts; legacy model_response is derived, not serialized).
+    attempts = inner["model_attempts"]
+    assert attempts, "expected at least one canonical model attempt"
+    error = attempts[0]
+    # B01 canonical shape: failure_type + token_usage (no parse_reason key).
+    assert error["failure_type"] == "malformed_json"
+    assert error["token_usage"]["completion_tokens"] == 0
     assert error["phase"] == "classify"
     assert error["adapter"] == "hermes"
     assert error["provider"] == "openrouter"
