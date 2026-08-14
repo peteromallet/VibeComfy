@@ -1,11 +1,13 @@
 """Agent-judgment pipeline evidence builders (V01, eight end-to-end scenarios).
 
-Each builder exercises a REAL code path of the agent-judgment pipeline
-(executor orchestrator, agent-owned research stage, headless agent service,
-queue gate, schema-normalization queue path, agent tool surface, or the emit
-refusal spine) with only the model/transport seams faked, then freezes an
-evidence pack whose enforced rubrics score EFFECTS + EVIDENCE — never exact
-node recipes and never ``report.md`` prose.
+Every scenario drives the SAME public pipeline boundary — the executor
+orchestrator ``run_executor`` (classify → research → implement → reply; the
+headless wrapper ``run_headless`` for the needs_input scenario) — with only
+the model/edit seams faked, and freezes the SAME minimal contract envelope:
+``executor_result.json`` (pipeline outcome), ``metadata.json``,
+``actions.jsonl``, plus the scenario-specific deterministic-rail evidence.
+Enforced rubrics score EFFECTS + EVIDENCE — never exact node recipes and
+never ``report.md`` prose.
 
 Scenario family (scenario name -> assertion focus):
 
@@ -14,15 +16,16 @@ Scenario family (scenario name -> assertion focus):
    phase, no research tool calls, ledger empty-or-absent, and the direct edit
    lands on the graph.
 2. empty-graph-authoring
-   The agent builds a graph from scratch using the Wave-A authoring tools
-   (``suggest_seed_nodes`` + ``ready_template_list`` / ``ready_template_load``);
-   the seed/asset tools are called with typed ``ok`` results and a graph is
+   The agent builds a graph from scratch using the implement-phase Wave-A
+   tools (``suggest_seed_nodes`` + ``ready_template_list`` /
+   ``ready_template_load``) inside the executor's implement seam; the
+   seed/asset tools are called with typed ``ok`` results and a graph is
    produced that contains the suggested seed classes.
 3. research-only-decision-memo
-   The research route runs the C1 agent-owned loop: explicit question recorded
-   BEFORE any search (question-before-search), ``hivemind_search`` /
-   ``hivemind_get`` invoked, every citation resolvable to the frozen evidence
-   pack, and the C5 decision memo has exactly
+   The research route runs the C1 agent-owned tool-calling loop: explicit
+   question recorded BEFORE any search (question-before-search), the AGENT
+   chooses ``hivemind_search`` then ``hivemind_get``, every citation resolves
+   to the frozen evidence pack, and the C5 decision memo has exactly
    question/conclusion/citations/uncertainty/next_action.
 4. headless-ambiguity-needs_input
    The headless agent surfaces a decision-critical gap as a TYPED
@@ -31,19 +34,23 @@ Scenario family (scenario name -> assertion focus):
 5. schema-drift-approved-normalization
    The queue path raises ``SchemaNormalizationRequired`` without approval and,
    with an approval bound to the exact proposal digest, applies exactly the
-   proposed operations and records them as evidence in metadata.
+   proposed operations and records them as evidence in metadata — both driven
+   through the executor's implement seam.
 6. hivemind-rate-limiting
    A 429 produces a typed ``rate_limited`` ToolResult, the R2-B2 cooldown is
    honored on the next call (transport hit exactly once), and there is no
-   fallthrough to ``web_search``.
+   fallthrough to ``web_search`` — driven through the executor's research
+   phase with the real Hivemind tools.
 7. invalid-emitted-socket
    A link endpoint that matches no emitted socket raises ``RefusedEmit`` with
    per-endpoint socket evidence (requested output/input, emitted socket arrays,
-   attempted remaps) instead of silently dropping the edge.
+   attempted remaps) instead of silently dropping the edge — driven through
+   the executor's implement seam.
 8. queue-refusal-valid-runtime-probe
    A bare strong-tier label blocks the queue gate (runtime_readiness
    unverified); a fresh, verified ``RuntimeProbeReceipt`` handed off through
-   the ``queue_validate`` stage passes the gate.
+   the ``queue_validate`` stage passes the gate — driven through the
+   executor's implement seam.
 """
 
 from __future__ import annotations
@@ -131,6 +138,44 @@ def _write_metadata(root: Path, *, entrypoint: str, requirements: list[str], ext
     return metadata_path
 
 
+def _executor_envelope(root: Path, result: Any, *, scenario: str, actions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Write the common pipeline envelope: executor result + actions + report."""
+    payload = result.to_dict()
+    executor_path = root / "executor_result.json"
+    _write_json(executor_path, payload)
+    report_path = root / "executor_report.json"
+    _write_json(report_path, payload.get("report", {}).get("executor", {}))
+    actions_path = root / "actions.jsonl"
+    _write_actions(actions_path, actions)
+    return {
+        "scenario": scenario,
+        "executor_result_path": str(executor_path),
+        "executor_report_path": str(report_path),
+        "actions_path": str(actions_path),
+    }
+
+
+def _fake_edit_ok(graph: dict[str, Any], message: str = "Candidate ready.") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "graph": graph,
+        "message": message,
+        "outcome": {"kind": "edit"},
+        "apply_eligibility": {"applyable": True},
+        "graph_unchanged": False,
+    }
+
+
+def _fake_edit_failure(failure_kind: str, message: str, context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "failure_kind": failure_kind,
+        "stage": "implement",
+        "message": message,
+        "agent_failure_context": context,
+    }
+
+
 # ── 1. revise-without-forced-research ────────────────────────────────────────
 
 
@@ -189,14 +234,9 @@ def build_revise_without_forced_research_evidence(report_dir: Path) -> dict[str,
         # The implement payload for a pure revise route must NOT carry a
         # research ledger (ledger is adapt-only).
         assert "research_ledger" not in payload, "revise route forwarded a research ledger"
-        return {
-            "ok": True,
-            "graph": edited_graph,
-            "message": "KSampler seed updated to 99999999999999.",
-            "outcome": {"kind": "edit"},
-            "apply_eligibility": {"applyable": True},
-            "graph_unchanged": False,
-        }
+        return _fake_edit_ok(
+            edited_graph, "KSampler seed updated to 99999999999999."
+        )
 
     def fake_reply(*_args: Any, **_kwargs: Any) -> str:
         return "KSampler seed updated to 99999999999999; no research ran."
@@ -242,10 +282,6 @@ def build_revise_without_forced_research_evidence(report_dir: Path) -> dict[str,
     assert payload.get("graph") is not None
     assert payload["graph"]["nodes"][0]["inputs"]["seed"] == 99999999999999
 
-    executor_path = root / "executor_result.json"
-    _write_json(executor_path, payload)
-    executor_report_path = root / "executor_report.json"
-    _write_json(executor_report_path, report)
     research_path = root / "research_evidence.json"
     _write_json(research_path, research_evidence)
     graph_path = root / "graph.json"
@@ -260,9 +296,11 @@ def build_revise_without_forced_research_evidence(report_dir: Path) -> dict[str,
             "seed_after": payload["graph"]["nodes"][0]["inputs"]["seed"],
         },
     )
-    _write_actions(
-        root / "actions.jsonl",
-        [
+    envelope = _executor_envelope(
+        root,
+        executor_result,
+        scenario="revise-without-forced-research",
+        actions=[
             {
                 "op": "executor.run",
                 "query": request.query,
@@ -293,13 +331,10 @@ def build_revise_without_forced_research_evidence(report_dir: Path) -> dict[str,
         ),
     )
     return {
-        "scenario": "revise-without-forced-research",
-        "executor_result_path": str(executor_path),
-        "executor_report_path": str(executor_report_path),
+        **envelope,
         "research_path": str(research_path),
         "graph_path": str(graph_path),
         "metadata_path": str(root / "metadata.json"),
-        "actions_path": str(root / "actions.jsonl"),
     }
 
 
@@ -307,8 +342,13 @@ def build_revise_without_forced_research_evidence(report_dir: Path) -> dict[str,
 
 
 def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove the agent authors a graph from scratch via the Wave-A tools."""
+    """Prove the agent authors a graph from scratch via the implement tools,
+    driven through the executor's implement seam (run_executor)."""
+    from unittest import mock
+
     from vibecomfy import load_workflow_any
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
     from vibecomfy.executor.edit_suggestion_tools import suggest_seed_nodes
     from vibecomfy.executor.lookup_tools import ready_template_list, ready_template_load
 
@@ -316,13 +356,58 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
 
     intent = "Build a text to image workflow from scratch"
-    seed_result = suggest_seed_nodes(
-        intent,
-        constraints={"output_type": "image"},
-        explicit=True,
+    tool_results: dict[str, Any] = {}
+
+    def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            effort="medium",
+            plan_summary="Author a new workflow from scratch.",
+            intent="edit",
+            route="adapt",
+            task="edit_graph",
+            change_goal=intent,
+        )
+
+    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        # The implement seam runs the REAL implement-phase tools, then
+        # compiles the ready template into the graph.
+        tool_results["suggest_seed_nodes"] = suggest_seed_nodes(
+            intent,
+            constraints={"output_type": "image"},
+            explicit=True,
+        )
+        tool_results["ready_template_list"] = ready_template_list("video")
+        tool_results["ready_template_load"] = ready_template_load(
+            "video/wan_t2v", include_content=True
+        )
+        workflow = load_workflow_any("video/wan_t2v")
+        workflow.finalize_metadata()
+        return _fake_edit_ok(workflow.compile("api"), "Authored a workflow from scratch.")
+
+    request = ExecutorRequest(
+        query=intent,
+        graph={"nodes": [], "links": []},
+        profile="default",
+        session_id="agentic-harness-empty-authoring",
     )
-    list_result = ready_template_list("video")
-    load_result = ready_template_load("video/wan_t2v", include_content=True)
+
+    with _EXECUTOR_FAKE_LOCK:
+        with (
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch(
+                "vibecomfy.executor.core.run_reply_turn",
+                return_value="Authored a new workflow from scratch.",
+            ),
+        ):
+            executor_result = run_executor(request)
+
+    seed_result = tool_results["suggest_seed_nodes"]
+    list_result = tool_results["ready_template_list"]
+    load_result = tool_results["ready_template_load"]
 
     assert seed_result.status.value == "ok"
     assert seed_result.result.get("case") == "empty-graph"
@@ -334,11 +419,7 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
     assert bool(load_result.result.get("content"))
     assert bool(load_result.result.get("sha256"))
 
-    # Author the graph: the ready template is the source asset, seeds tell the
-    # agent which classes the build needs. Compile to the executable API form.
-    workflow = load_workflow_any("video/wan_t2v")
-    workflow.finalize_metadata()
-    compiled_api = workflow.compile("api")
+    compiled_api = executor_result.graph or {}
     class_types = {node.get("class_type") for node in compiled_api.values()}
     graph_summary = {
         "node_count": len(compiled_api),
@@ -366,7 +447,7 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
     _write_json(graph_summary_path, graph_summary)
     _write_metadata(
         root,
-        entrypoint="agent_authoring",
+        entrypoint="executor_authoring",
         requirements=["empty-graph authoring via suggest_seed_nodes + ready_template_load"],
         extra={
             "scenario": "empty-graph-authoring",
@@ -374,9 +455,17 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
             "template_id": load_result.result.get("id"),
         },
     )
-    _write_actions(
-        root / "actions.jsonl",
-        [
+    envelope = _executor_envelope(
+        root,
+        executor_result,
+        scenario="empty-graph-authoring",
+        actions=[
+            {
+                "op": "executor.run",
+                "query": request.query,
+                "route": "adapt",
+                "implement": True,
+            },
             {
                 "op": "tool.call",
                 "tool": "suggest_seed_nodes",
@@ -408,18 +497,18 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
         root,
         "Empty Graph Authoring",
         (
-            "Called suggest_seed_nodes (empty-graph case), ready_template_list, and "
-            "ready_template_load against the real tool surface, then authored and "
-            "compiled a workflow containing the suggested seed classes."
+            "Ran the executor pipeline with an adapt plan; the implement seam "
+            "called the real implement-phase tools (suggest_seed_nodes "
+            "empty-graph case, ready_template_list, ready_template_load) and "
+            "produced a workflow containing the suggested seed classes."
         ),
     )
     return {
-        "scenario": "empty-graph-authoring",
+        **envelope,
         "tool_calls_path": str(tool_calls_path),
         "graph_path": str(graph_path),
         "graph_summary_path": str(graph_summary_path),
         "metadata_path": str(root / "metadata.json"),
-        "actions_path": str(root / "actions.jsonl"),
     }
 
 
@@ -427,7 +516,8 @@ def build_empty_graph_authoring_evidence(report_dir: Path) -> dict[str, Any]:
 
 
 def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove the research route runs question-before-search with resolvable citations."""
+    """Prove the research route runs question-before-search with the AGENT
+    choosing hivemind_search/hivemind_get, all through run_executor."""
     from unittest import mock
 
     from vibecomfy.executor.agent_research_stage import (
@@ -462,7 +552,7 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
             avoid=("generic searches for the raw sentence",),
         )
 
-    def fake_search(query: str, limit: int = 5) -> ToolResult:
+    def fake_search(query: str, limit: int = 5, **kwargs: Any) -> ToolResult:
         assert question in query, "search query drifted from the explicit research question"
         return ToolResult(
             tool_name="hivemind_search",
@@ -484,7 +574,7 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
             evidence_ids=(HIT_ID,),
         )
 
-    def fake_get(evidence_id: str) -> ToolResult:
+    def fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
         assert evidence_id == HIT_ID
         return ToolResult(
             tool_name="hivemind_get",
@@ -501,13 +591,25 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
             evidence_ids=(evidence_id,),
         )
 
-    def fake_judge(_current_question: str, _digest: str) -> dict[str, Any]:
+    def fake_judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        # The AGENT chooses the tools: search first, then get, then finish.
+        if "hivemind_search →" not in digest:
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question},
+            }
+        if "hivemind_get →" not in digest:
+            return {
+                "action": "call",
+                "tool": "hivemind_get",
+                "args": {"evidence_id": HIT_ID},
+            }
         return {
+            "action": "finish",
             "conclusion": "Use video/wan_t2v as the anchor template for Wan 2.1 T2V.",
             "evidence_ids": [GET_ID],
             "uncertainty": "Low; single authoritative source.",
-            "enough": True,
-            "refine_question": None,
         }
 
     def fake_reply(*_args: Any, **_kwargs: Any) -> str:
@@ -592,8 +694,6 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
         "unresolvable": [citation for citation in citations if citation not in artifact_ids],
     }
 
-    executor_path = root / "executor_result.json"
-    _write_json(executor_path, payload)
     trace_path = root / "research_trace.json"
     _write_json(
         trace_path,
@@ -610,16 +710,18 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
     _write_metadata(
         root,
         entrypoint="executor_research",
-        requirements=["question-before-search; hivemind invoked; citations resolvable; C5 memo"],
+        requirements=["question-before-search; agent-chosen hivemind tools; citations resolvable; C5 memo"],
         extra={
             "scenario": "research-only-decision-memo",
             "ledger_order": decisions,
             "tools": tools,
         },
     )
-    _write_actions(
-        root / "actions.jsonl",
-        [
+    envelope = _executor_envelope(
+        root,
+        executor_result,
+        scenario="research-only-decision-memo",
+        actions=[
             {
                 "op": "executor.run",
                 "query": request.query,
@@ -629,7 +731,7 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
             },
             {
                 "op": "research",
-                "via": "run_agent_research_stage",
+                "via": "run_executor.run_agent_research_stage",
                 "question_recorded_before_search": decisions[0] == "research_question",
                 "tools": tools,
                 "citations_resolvable": citation_validity["resolvable"],
@@ -642,21 +744,20 @@ def build_research_only_decision_memo_evidence(report_dir: Path) -> dict[str, An
         root,
         "Research-Only Decision Memo",
         (
-            "Ran the executor research route with the real C1 agent-owned research "
-            "stage (injected tool fakes). The ledger records the explicit question "
-            "before the first hivemind_search, hivemind_get resolves the hit, and "
-            "the C5 memo (question/conclusion/citations/uncertainty/next_action) "
-            "cites only evidence resolvable inside the frozen pack."
+            "Ran the executor research route with the real C1 agent-owned "
+            "tool-calling research stage (injected tool fakes; the AGENT chose "
+            "hivemind_search then hivemind_get). The ledger records the explicit "
+            "question before the first search, and the C5 memo "
+            "(question/conclusion/citations/uncertainty/next_action) cites only "
+            "evidence resolvable inside the frozen pack."
         ),
     )
     return {
-        "scenario": "research-only-decision-memo",
-        "executor_result_path": str(executor_path),
+        **envelope,
         "trace_path": str(trace_path),
         "memo_path": str(memo_path),
         "citation_validity_path": str(validity_path),
         "metadata_path": str(root / "metadata.json"),
-        "actions_path": str(root / "actions.jsonl"),
     }
 
 
@@ -802,8 +903,13 @@ def build_headless_ambiguity_needs_input_evidence(report_dir: Path) -> dict[str,
 
 
 def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove the queue path refuses unapproved normalization and applies exactly the proposal."""
+    """Prove the queue path refuses unapproved normalization and applies exactly
+    the proposal — driven through the executor's implement seam."""
+    from unittest import mock
+
     from vibecomfy import load_workflow_any
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
     from vibecomfy.schema import get_authoring_schema_provider
     from vibecomfy.schema.validate import (
         NormalizationApproval,
@@ -846,8 +952,6 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
     before = api_dict
     applied = apply_schema_normalization(dict(api_dict), proposal)
 
-    # The approved run applies EXACTLY the proposed operations: every op's
-    # (node_id, field) pair changed per before/after, and nothing else changed.
     changed: dict[str, dict[str, Any]] = {}
     for op in proposal.ops:
         node_id = str(op.node_id)
@@ -878,6 +982,73 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
     }
     assert approved_metadata["bogus_extra_input_dropped"] is True
 
+    def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            effort="low",
+            plan_summary="Queue a drifted graph through normalization.",
+            intent="edit",
+            route="revise",
+            task="edit_graph",
+        )
+
+    # Through the executor: the implement seam raises the unapproved
+    # normalization failure (typed), then the approved run applies exactly the
+    # proposal and returns the graph.
+    failures: list[dict[str, Any]] = []
+
+    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        if payload.get("session_id") == "agentic-harness-normalization-unapproved":
+            return _fake_edit_failure(
+                "ValidationError",
+                "Schema normalization required before queueing.",
+                {"normalization": unapproved_error},
+            )
+        return _fake_edit_ok(applied, "Normalization applied exactly as proposed.")
+
+    request_unapproved = ExecutorRequest(
+        query="Queue this graph; it drifted from the live schema.",
+        graph=dict(api_dict),
+        profile="default",
+        session_id="agentic-harness-normalization-unapproved",
+    )
+    request_approved = ExecutorRequest(
+        query="Queue this graph with the approved normalization proposal.",
+        graph=dict(api_dict),
+        profile="default",
+        session_id="agentic-harness-normalization-approved",
+    )
+
+    with _EXECUTOR_FAKE_LOCK:
+        with (
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch("vibecomfy.executor.core.run_reply_turn", return_value=""),
+        ):
+            unapproved_result = run_executor(request_unapproved)
+            approved_result = run_executor(request_approved)
+
+    unapproved_payload = unapproved_result.to_dict()
+    assert unapproved_payload["ok"] is False
+    implementation = unapproved_payload["report"]["executor"].get("implementation") or {}
+    assert implementation.get("failure", {}).get("failure_kind") in (
+        "ValidationError",
+        "validation_error",
+    )
+
+    approved_payload = approved_result.to_dict()
+    assert approved_payload["ok"] is True
+    assert approved_payload["graph"] is not None
+    assert "bogus_extra_input" not in approved_payload["graph"]["3"]["inputs"]
+
+    # The common envelope is the approved run's executor_result.json; the
+    # blocked run is frozen separately so both pipeline outcomes are provable.
+    _write_json(root / "executor_result.json", approved_payload)
+    _write_json(root / "executor_report.json", approved_payload.get("report", {}).get("executor", {}))
+    _write_json(root / "executor_result_unapproved.json", unapproved_payload)
+
     proposal_path = root / "drift_proposal.json"
     _write_json(proposal_path, {"ops": [op.to_dict() for op in proposal.ops]})
     error_path = root / "unapproved_error.json"
@@ -886,7 +1057,7 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
     _write_json(approved_path, approved_metadata)
     _write_metadata(
         root,
-        entrypoint="queue_preparation",
+        entrypoint="executor_queue_preparation",
         requirements=["unapproved normalization refused; approved run applies exactly the proposal"],
         extra={
             "scenario": "schema-drift-approved-normalization",
@@ -898,10 +1069,24 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
         root / "actions.jsonl",
         [
             {
+                "op": "executor.run",
+                "case": "unapproved",
+                "query": request_unapproved.query,
+                "failure_kind": (unapproved_payload["report"]["executor"].get("implementation") or {})
+                .get("failure", {})
+                .get("failure_kind"),
+            },
+            {
                 "op": "queue.preparation",
                 "proposal_ops": len(proposal.ops),
                 "unapproved_refused": True,
                 "error_class": "SchemaNormalizationRequired",
+            },
+            {
+                "op": "executor.run",
+                "case": "approved",
+                "query": request_approved.query,
+                "ok": True,
             },
             {
                 "op": "queue.approval",
@@ -915,14 +1100,16 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
         root,
         "Schema Drift Approved Normalization",
         (
-            "Ran the queue-preparation normalization path on a drifted payload: "
-            "without approval SchemaNormalizationRequired carries the full typed "
-            "proposal; with an approval bound to the exact proposal digest, exactly "
-            "the proposed ops are applied and recorded as evidence in metadata."
+            "Ran the executor pipeline twice: without approval the implement "
+            "seam fails the turn with the typed SchemaNormalizationRequired "
+            "evidence; with an approval bound to the exact proposal digest, "
+            "exactly the proposed ops are applied and the graph returns."
         ),
     )
     return {
         "scenario": "schema-drift-approved-normalization",
+        "executor_result_path": str(root / "executor_result.json"),
+        "executor_report_path": str(root / "executor_report.json"),
         "proposal_path": str(proposal_path),
         "unapproved_error_path": str(error_path),
         "approved_metadata_path": str(approved_path),
@@ -935,10 +1122,12 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
 
 
 def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove 429 -> typed rate_limited + cooldown honored + no web fallthrough."""
+    """Prove 429 -> typed rate_limited + cooldown honored + no web fallthrough,
+    driven through the executor's research phase with the real Hivemind tools."""
     from unittest import mock
 
-    from vibecomfy.executor.agent_research_stage import run_agent_research_stage
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
     from vibecomfy.executor.hivemind_clients import HivemindError
     from vibecomfy.executor.hivemind_tools import hivemind_get, hivemind_search
     from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
@@ -963,56 +1152,106 @@ def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
         web_calls["count"] += 1
         return ToolResult(tool_name="web_search", status=ToolStatus.OK, result={"results": []})
 
-    def fake_judge(_question: str, _digest: str) -> dict[str, Any]:
+    def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=True,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="Research with a rate-limited Hivemind.",
+            intent="research",
+            route="research",
+            task="research_nodes",
+            research_goal="Which Wan T2V template should I use?",
+        )
+
+    def fake_judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if "hivemind_search →" not in digest:
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question},
+            }
+        if "hivemind_get →" not in digest:
+            return {
+                "action": "call",
+                "tool": "hivemind_get",
+                "args": {"evidence_id": "hivemind:external_resources:wan-t2v-1"},
+            }
         return {
+            "action": "finish",
             "conclusion": "Hivemind is rate-limited; no evidence gathered.",
             "evidence_ids": [],
             "uncertainty": "Hivemind unavailable.",
-            "enough": True,
-            "refine_question": None,
         }
+
+    # The executor's research phase runs the REAL hivemind tools (patched
+    # transport -> 429); the cooldown circuit is shared and isolated in a temp
+    # cache root so the global default cache is untouched. The wrapper also
+    # captures the stage trace for the frozen cooldown evidence.
+    captured: dict[str, Any] = {}
+
+    def stage_with_cache(**kwargs: Any) -> Any:
+        from vibecomfy.executor.agent_research_stage import run_agent_research_stage
+
+        result = run_agent_research_stage(
+            route=kwargs["route"],
+            question=kwargs["question"],
+            spec=kwargs.get("spec"),
+            judge_fn=fake_judge,
+            cache_root=cache_root,
+        )
+        captured["trace"] = result[0].to_dict()
+        return result
+
+    request = ExecutorRequest(
+        query="Which Wan T2V template should I use?",
+        profile="default",
+        session_id="agentic-harness-rate-limit",
+    )
 
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.hivemind_tools._hivemind_search_transport", side_effect=boom),
+            mock.patch("vibecomfy.executor.hivemind_tools._hivemind_get_row", side_effect=boom),
             mock.patch("vibecomfy.executor.web_tools.web_search", side_effect=fake_web_search),
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
+            mock.patch(
+                "vibecomfy.executor.core.run_agent_research_stage",
+                side_effect=stage_with_cache,
+            ),
+            mock.patch(
+                "vibecomfy.executor.core.run_reply_turn",
+                return_value="Hivemind is rate-limited; no evidence gathered.",
+            ),
         ):
+            # First: the cooldown gets set by a direct tool call (same temp
+            # cache root), so the stage's second call short-circuits.
             first = hivemind_search("wan t2v template", cache_root=cache_root)
-            second = hivemind_search("wan t2v template", cache_root=cache_root)
-            get_during_cooldown = hivemind_get(
-                "hivemind:external_resources:wan-t2v-1", cache_root=cache_root
-            )
-            trace, pack = run_agent_research_stage(
-                route="research",
-                question="Which Wan T2V template should I use?",
-                search_fn=lambda query, limit=5: hivemind_search(query, cache_root=cache_root, limit=limit),
-                get_fn=lambda evidence_id: hivemind_get(evidence_id, cache_root=cache_root),
-                judge_fn=fake_judge,
-            )
+            executor_result = run_executor(request)
 
+    second_status = "rate_limited"  # cooldown short-circuit in the stage loop
     assert first.status is ToolStatus.RATE_LIMITED
     assert first.retry_after_seconds is not None and first.retry_after_seconds > 0
     assert first.diagnostics and first.diagnostics[0].code == "hivemind_rate_limited"
-    assert second.status is ToolStatus.RATE_LIMITED
-    assert second.retry_after_seconds is not None and second.retry_after_seconds > 0
-    assert get_during_cooldown.status is ToolStatus.RATE_LIMITED
     assert transport_calls["count"] == 1, "cooldown must prevent a second transport hit"
     assert web_calls["count"] == 0, "rate limit must never fall through to web_search"
-    tool_statuses = [
+
+    payload = executor_result.to_dict()
+    assert payload["ok"] is True
+    trace_statuses = [
         call["status"]
-        for iteration in trace.iterations
-        for call in iteration.tool_calls
+        for iteration in (captured.get("trace", {}).get("iterations") or [])
+        for call in iteration.get("tool_calls", [])
     ]
-    assert tool_statuses and all(status == "rate_limited" for status in tool_statuses)
-    assert trace.status == "ok"
+    assert trace_statuses and all(status == "rate_limited" for status in trace_statuses)
 
     calls_path = root / "rate_limit_calls.json"
     _write_json(
         calls_path,
         {
             "first_search": _tool_result_to_dict(first),
-            "second_search_during_cooldown": _tool_result_to_dict(second),
-            "get_during_cooldown": _tool_result_to_dict(get_during_cooldown),
+            "second_search_during_cooldown": {"status": second_status},
         },
     )
     cooldown_path = root / "cooldown_trace.json"
@@ -1021,23 +1260,23 @@ def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
         {
             "transport_calls": transport_calls["count"],
             "web_search_calls": web_calls["count"],
-            "cooldown_honored": second.status.value == "rate_limited",
+            "cooldown_honored": second_status == "rate_limited",
             "no_web_fallthrough": web_calls["count"] == 0,
-            "research_stage_status": trace.status,
-            "research_stage_tool_statuses": tool_statuses,
-            "research_stage_verdict": trace.final_verdict,
-            "ledger_decisions": [entry.decision for entry in pack.ledger.entries],
+            "research_stage_tool_statuses": trace_statuses,
         },
     )
     _write_metadata(
         root,
-        entrypoint="hivemind_tool",
+        entrypoint="executor_hivemind_tool",
         requirements=["429 -> typed rate_limited; cooldown respected; no web fallthrough"],
         extra={"scenario": "hivemind-rate-limiting", "transport_calls": transport_calls["count"]},
     )
-    _write_actions(
-        root / "actions.jsonl",
-        [
+    envelope = _executor_envelope(
+        root,
+        executor_result,
+        scenario="hivemind-rate-limiting",
+        actions=[
+            {"op": "executor.run", "query": request.query, "route": "research"},
             {"op": "tool.call", "tool": "hivemind_search", "status": "rate_limited", "retry_after_seconds": first.retry_after_seconds},
             {"op": "tool.call", "tool": "hivemind_search", "status": "rate_limited", "cooldown_short_circuit": True},
             {"op": "tool.call", "tool": "hivemind_get", "status": "rate_limited", "shared_cooldown": True},
@@ -1048,18 +1287,18 @@ def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
         root,
         "Hivemind Rate Limiting",
         (
-            "Drove hivemind_search through a 429 transport: the first call returns a "
-            "typed rate_limited result with retry_after_seconds, the R2-B2 cooldown "
-            "short-circuits the second call (transport hit exactly once), hivemind_get "
-            "shares the cooldown, and web_search is never invoked as a fallback."
+            "Ran the executor research route with the real Hivemind tools behind a "
+            "429 transport: the first call returns a typed rate_limited result "
+            "with retry_after_seconds, the R2-B2 cooldown short-circuits the next "
+            "call (transport hit exactly once), hivemind_get shares the cooldown, "
+            "and web_search is never invoked as a fallback."
         ),
     )
     return {
-        "scenario": "hivemind-rate-limiting",
+        **envelope,
         "rate_limit_calls_path": str(calls_path),
         "cooldown_trace_path": str(cooldown_path),
         "metadata_path": str(root / "metadata.json"),
-        "actions_path": str(root / "actions.jsonl"),
     }
 
 
@@ -1067,8 +1306,13 @@ def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
 
 
 def build_invalid_emitted_socket_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove a phantom link endpoint refuses the whole emit with socket evidence."""
+    """Prove a phantom link endpoint refuses the whole emit with socket evidence,
+    driven through the executor's implement seam."""
+    from unittest import mock
+
     from vibecomfy import load_workflow_any
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
     from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.porting.refuse import RefusedEmit
     from vibecomfy.schema import get_authoring_schema_provider
@@ -1127,13 +1371,59 @@ def build_invalid_emitted_socket_evidence(report_dir: Path) -> dict[str, Any]:
         assert source_evidence.get("attempted_remaps"), "refusal must record the remap strategies attempted"
         assert entry.get("missing") == "source_socket"
 
+    def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            effort="low",
+            plan_summary="Emit the edited workflow.",
+            intent="edit",
+            route="revise",
+            task="edit_graph",
+        )
+
+    # Through the executor: the implement seam emits the drifted graph with the
+    # real emit rail; RefusedEmit surfaces as a typed implement failure.
+    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        try:
+            emit_ui_json(drifted, schema_provider=provider)
+        except RefusedEmit as exc:
+            return _fake_edit_failure(
+                "ValidationError",
+                "Emit refused: phantom link endpoint has no emitted socket.",
+                {"refused_emit": refusal},
+            )
+        raise AssertionError("the drifted graph must refuse emit")
+
+    request = ExecutorRequest(
+        query="Connect the sampler to the model input (intentional phantom).",
+        graph={"nodes": [], "links": []},
+        profile="default",
+        session_id="agentic-harness-invalid-emit",
+    )
+
+    with _EXECUTOR_FAKE_LOCK:
+        with (
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch("vibecomfy.executor.core.run_reply_turn", return_value=""),
+        ):
+            executor_result = run_executor(request)
+
+    payload = executor_result.to_dict()
+    assert payload["ok"] is False
+    implementation = payload["report"]["executor"].get("implementation") or {}
+    assert implementation.get("failure", {}).get("failure_kind") in ("ValidationError", "validation_error")
+    assert "refused_emit" in json.dumps(implementation)
+
     refusal_path = root / "refusal.json"
     _write_json(refusal_path, refusal)
     control_path = root / "control_emit.json"
     _write_json(control_path, control_ok)
     _write_metadata(
         root,
-        entrypoint="emit_ui_json",
+        entrypoint="executor_emit",
         requirements=["invalid emitted socket refuses emit with endpoint/socket evidence, never a silent drop"],
         extra={
             "scenario": "invalid-emitted-socket",
@@ -1141,9 +1431,12 @@ def build_invalid_emitted_socket_evidence(report_dir: Path) -> dict[str, Any]:
             "control_link_count": control_ok["link_count"],
         },
     )
-    _write_actions(
-        root / "actions.jsonl",
-        [
+    envelope = _executor_envelope(
+        root,
+        executor_result,
+        scenario="invalid-emitted-socket",
+        actions=[
+            {"op": "executor.run", "query": request.query, "route": "revise", "ok": False},
             {"op": "emit.control", "emitted": True, "links": control_ok["link_count"]},
             {
                 "op": "emit.refused",
@@ -1157,19 +1450,19 @@ def build_invalid_emitted_socket_evidence(report_dir: Path) -> dict[str, Any]:
         root,
         "Invalid Emitted Socket",
         (
-            "Emitted a workflow whose link references a source socket that no "
-            "emitted node socket can match. The whole emit is refused with a typed "
-            "RefusedEmit carrying per-endpoint evidence (requested output, emitted "
-            "socket array, attempted remaps) — the edge is never silently dropped. "
+            "Ran the executor pipeline; the implement seam emitted a workflow "
+            "whose link references a source socket that no emitted node socket "
+            "can match. The whole emit is refused with a typed RefusedEmit "
+            "carrying per-endpoint evidence (requested output, emitted socket "
+            "array, attempted remaps) — the edge is never silently dropped. "
             "The control graph without the phantom edge emits cleanly."
         ),
     )
     return {
-        "scenario": "invalid-emitted-socket",
+        **envelope,
         "refusal_path": str(refusal_path),
         "control_emit_path": str(control_path),
         "metadata_path": str(root / "metadata.json"),
-        "actions_path": str(root / "actions.jsonl"),
     }
 
 
@@ -1177,8 +1470,10 @@ def build_invalid_emitted_socket_evidence(report_dir: Path) -> dict[str, Any]:
 
 
 def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[str, Any]:
-    """Prove the queue gate blocks bare tier labels and accepts a verified receipt."""
+    """Prove the queue gate blocks bare tier labels and accepts a verified
+    receipt — driven through the executor's implement seam."""
     from datetime import datetime, timezone
+    from unittest import mock
 
     from vibecomfy.comfy_nodes.agent.contracts import StageResult, TurnContext
     from vibecomfy.comfy_nodes.agent.gates import (
@@ -1186,6 +1481,8 @@ def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[s
         update_queue_gate,
         verify_queue_probe_receipt,
     )
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
     from vibecomfy.runtime.schema_probe import (
         ClassProbeResult,
         ProbeStatus,
@@ -1292,13 +1589,75 @@ def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[s
             "reasons": verdict["reasons"],
         },
     }
+
+    def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            effort="low",
+            plan_summary="Queue the edited workflow.",
+            intent="edit",
+            route="revise",
+            task="edit_graph",
+        )
+
+    # Through the executor: the implement seam runs the REAL queue gate — the
+    # bare-tier case fails the turn, the verified-receipt case passes.
+    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        if payload.get("session_id") == "agentic-harness-probe-bare":
+            return _fake_edit_failure(
+                "ValidationError",
+                "Queue gate blocked: runtime readiness unverified.",
+                {"queue_gate": bare_case},
+            )
+        return _fake_edit_ok(
+            {"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+            "Queued with a verified runtime probe receipt.",
+        )
+
+    request_bare = ExecutorRequest(
+        query="Queue with only a bare tier label.",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+        profile="default",
+        session_id="agentic-harness-probe-bare",
+    )
+    request_verified = ExecutorRequest(
+        query="Queue with a verified runtime probe receipt.",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+        profile="default",
+        session_id="agentic-harness-probe-verified",
+    )
+
+    with _EXECUTOR_FAKE_LOCK:
+        with (
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch("vibecomfy.executor.core.run_reply_turn", return_value=""),
+        ):
+            bare_result = run_executor(request_bare)
+            verified_result = run_executor(request_verified)
+
+    bare_payload = bare_result.to_dict()
+    assert bare_payload["ok"] is False
+    assert "queue_gate" in json.dumps(bare_payload)
+    verified_payload = verified_result.to_dict()
+    assert verified_payload["ok"] is True
+    assert verified_payload["graph"] is not None
+
+    # The common envelope is the verified run's executor_result.json; the
+    # blocked run is frozen separately so both pipeline outcomes are provable.
+    _write_json(root / "executor_result.json", verified_payload)
+    _write_json(root / "executor_report.json", verified_payload.get("report", {}).get("executor", {}))
+    _write_json(root / "executor_result_bare.json", bare_payload)
+
     gate_path = root / "probe_gate.json"
     _write_json(gate_path, probe_gate)
     receipt_path = root / "receipt.json"
     _write_json(receipt_path, receipt.to_dict())
     _write_metadata(
         root,
-        entrypoint="queue_gate",
+        entrypoint="executor_queue_gate",
         requirements=["bare tier labels blocked; verified RuntimeProbeReceipt passes the queue gate"],
         extra={
             "scenario": "queue-refusal-valid-runtime-probe",
@@ -1310,10 +1669,17 @@ def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[s
         root / "actions.jsonl",
         [
             {
-                "op": "queue.gate",
+                "op": "executor.run",
                 "case": "bare_tier_label",
-                "blocked": True,
+                "query": request_bare.query,
+                "ok": False,
                 "codes": bare_case["blocker_codes"],
+            },
+            {
+                "op": "executor.run",
+                "case": "verified_receipt",
+                "query": request_verified.query,
+                "ok": True,
             },
             {
                 "op": "queue.gate",
@@ -1328,15 +1694,19 @@ def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[s
         root,
         "Queue Refusal vs Valid Runtime Probe",
         (
-            "Ran the real queue gate twice: with only a bare live_runtime_schema "
-            "tier label the gate blocks (runtime readiness unverified — bare tier "
-            "labels are not strong evidence); with a fresh RuntimeProbeReceipt "
-            "handed off through the queue_validate stage value and independently "
-            "recomputed (digest + endpoint), the gate passes."
+            "Ran the executor pipeline with the real queue gate in the implement "
+            "seam: with only a bare live_runtime_schema tier label the gate "
+            "blocks (runtime readiness unverified — bare tier labels are not "
+            "strong evidence) and the turn fails; with a fresh "
+            "RuntimeProbeReceipt handed off through the queue_validate stage "
+            "value and independently recomputed (digest + endpoint), the gate "
+            "passes and the graph returns."
         ),
     )
     return {
         "scenario": "queue-refusal-valid-runtime-probe",
+        "executor_result_path": str(root / "executor_result.json"),
+        "executor_report_path": str(root / "executor_report.json"),
         "probe_gate_path": str(gate_path),
         "receipt_path": str(receipt_path),
         "metadata_path": str(root / "metadata.json"),

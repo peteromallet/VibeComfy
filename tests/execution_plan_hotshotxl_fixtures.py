@@ -250,7 +250,6 @@ def hotshotxl_video_execution_plan() -> ExecutionPlan:
     return ExecutionPlan(
         plan_id="hotshotxl-video",
         goal="Generate an active 8-frame HotShotXL video output.",
-        selected_precedent_id="precedent-hotshotxl-8f",
         done_conditions=(
             PlanCondition(
                 condition_id="hotshotxl.loader.present",

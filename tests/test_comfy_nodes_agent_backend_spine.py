@@ -2481,7 +2481,12 @@ def test_gate_derivation_requires_canvas_gates_state_match_and_queue_without_blo
     assert blockers
     assert context.queue_allowed is False
 
-    derived = derive_gates(context, queue_blockers=(), plan_state="not_required")
+    derived = derive_gates(
+        context,
+        queue_blockers=(),
+        plan_state="not_required",
+        require_probe_receipt=False,  # offline authoring spine; no runtime probe
+    )
     assert derived.canvas_apply_allowed is True
     assert derived.queue_allowed is True
     assert context.gate_results["state_match_ok"].evidence["reason"] == "no_baseline_hash_required"
@@ -3836,7 +3841,12 @@ def test_queue_diagnostics_clean_recovery_allows_queue_when_canvas_passes() -> N
     assert diagnostics.ok is True
     assert len(diagnostics.issues) == 0
 
-    derived = derive_gates(context, queue_blockers=(), plan_state="not_required")
+    derived = derive_gates(
+        context,
+        queue_blockers=(),
+        plan_state="not_required",
+        require_probe_receipt=False,  # offline authoring spine; no runtime probe
+    )
 
     assert derived.canvas_apply_allowed is True
     assert derived.queue_allowed is True

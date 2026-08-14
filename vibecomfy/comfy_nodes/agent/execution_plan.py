@@ -86,17 +86,17 @@ STEP_STATUSES: tuple[str, ...] = (
     "blocked",
 )
 
+# The closed set of deterministic safety invariants an execution plan may
+# reference.  Plans are advisory text steps plus these invariants; anything
+# outside the set fails closed at evaluation time.
 SUPPORTED_CONDITION_KINDS: tuple[str, ...] = (
     "required_class",
     "required_value",
-    "direct_edge",
     "reachable_path",
-    "direct_edge_or_reachable_path",
     "terminal_consumes",
     "active_output_domain",
     "unconsumed_functional_outputs",
     "batch_frame_count",
-    "value_or_path_count",
 )
 
 UNKNOWN_PLAN_VERSION_CONDITION_ID = "execution_plan_contract_version"
@@ -211,29 +211,6 @@ class SocketRef:
 
 
 @dataclass(frozen=True)
-class RoleBinding:
-    """Binding from a semantic plan role to an observed graph node."""
-
-    role: str
-    node_ref: SocketRef
-    class_type: str | None = None
-    confidence: str = "unknown"
-    evidence: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "evidence", _freeze_jsonish(self.evidence))
-
-    def to_dict(self) -> dict[str, Any]:
-        return _omit_none({
-            "role": self.role,
-            "node_ref": self.node_ref.to_dict(),
-            "class_type": self.class_type,
-            "confidence": self.confidence,
-            "evidence": _thaw_jsonish(self.evidence),
-        })
-
-
-@dataclass(frozen=True)
 class PlanCondition:
     """A condition that must be evaluated against a candidate graph."""
 
@@ -277,26 +254,24 @@ class PlanCondition:
 
 @dataclass(frozen=True)
 class PlanStep:
-    """An authored action or obligation in an execution plan."""
+    """An advisory text step in an execution plan.
+
+    Steps are ADVISORY guidance (B3): a step that is not satisfied yields a
+    non-blocking diagnostic.  The only blocking surface in a step is its
+    declared invariant conditions.  ``kind`` / ``class_type`` describe the
+    step in prose terms; there is no role binding, schema, or value schema
+    attached to a step anymore.
+    """
 
     step_id: str
     kind: str
     criticality: str = "required"
     status: str = "planned"
     class_type: str | None = None
-    assign_to: str | None = None
-    schema_source: str | None = None
-    runtime_availability: str | None = None
-    inputs: Mapping[str, Any] = field(default_factory=dict)
-    values: Mapping[str, Any] = field(default_factory=dict)
     conditions: tuple[PlanCondition, ...] = ()
-    evidence_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "inputs", _freeze_jsonish(self.inputs))
-        object.__setattr__(self, "values", _freeze_jsonish(self.values))
         object.__setattr__(self, "conditions", tuple(self.conditions))
-        object.__setattr__(self, "evidence_refs", tuple(str(ref) for ref in self.evidence_refs))
 
     @property
     def is_required(self) -> bool:
@@ -309,13 +284,7 @@ class PlanStep:
             "criticality": self.criticality,
             "status": self.status,
             "class_type": self.class_type,
-            "assign_to": self.assign_to,
-            "schema_source": self.schema_source,
-            "runtime_availability": self.runtime_availability,
-            "inputs": _thaw_jsonish(self.inputs),
-            "values": _thaw_jsonish(self.values),
             "conditions": [condition.to_dict() for condition in self.conditions],
-            "evidence_refs": list(self.evidence_refs),
         })
 
 
@@ -353,14 +322,14 @@ class PlanRevision:
 
 @dataclass(frozen=True)
 class ExecutionPlan:
-    """Structural obligations for a candidate graph edit.
+    """Advisory text steps plus declared safety invariants for a graph edit.
 
     Steps are ADVISORY (B3): a step that is not satisfied produces a
     non-blocking diagnostic.  The blocking surface is the declared
     safety/invariant conditions (``done_conditions``, ``active_path_conditions``,
-    ``blocked_if``, step conditions).  ``provenance`` records authorship;
-    ``enforced`` is kept for provenance clarity and is ``False`` for both
-    executor-built (advisory) and agent-authored plans.
+    ``blocked_if``, step conditions).  ``provenance`` records authorship and
+    defaults to ``agent_authored``: initial plans are advisory agent-authored
+    guidance, never enforced obligations (``enforced`` stays ``False``).
     """
 
     plan_id: str
@@ -368,23 +337,18 @@ class ExecutionPlan:
     source_graph_hash: str | None = None
     candidate_graph_hash: str | None = None
     research_result_hash: str | None = None
-    selected_precedent_id: str | None = None
-    selected_precedent: Mapping[str, Any] = field(default_factory=dict)
-    role_bindings: tuple[RoleBinding, ...] = ()
     required_steps: tuple[PlanStep, ...] = ()
     done_conditions: tuple[PlanCondition, ...] = ()
     active_path_conditions: tuple[PlanCondition, ...] = ()
     blocked_if: tuple[PlanCondition, ...] = ()
     schema_provenance: Mapping[str, Any] = field(default_factory=dict)
     runtime_provenance: Mapping[str, Any] = field(default_factory=dict)
-    provenance: str = PLAN_PROVENANCE_ENFORCED
+    provenance: str = PLAN_PROVENANCE_AGENT_AUTHORED
     enforced: bool = False
     revision_history: tuple[PlanRevision, ...] = ()
     contract_version: str = EXECUTION_PLAN_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "selected_precedent", _freeze_jsonish(self.selected_precedent))
-        object.__setattr__(self, "role_bindings", tuple(self.role_bindings))
         object.__setattr__(self, "required_steps", tuple(self.required_steps))
         object.__setattr__(self, "done_conditions", tuple(self.done_conditions))
         object.__setattr__(self, "active_path_conditions", tuple(self.active_path_conditions))
@@ -393,7 +357,7 @@ class ExecutionPlan:
         object.__setattr__(self, "runtime_provenance", _freeze_jsonish(self.runtime_provenance))
         object.__setattr__(self, "revision_history", tuple(self.revision_history))
         if self.provenance not in PLAN_PROVENANCES:
-            object.__setattr__(self, "provenance", PLAN_PROVENANCE_ENFORCED)
+            object.__setattr__(self, "provenance", PLAN_PROVENANCE_AGENT_AUTHORED)
         if not isinstance(self.enforced, bool):
             object.__setattr__(self, "enforced", False)
 
@@ -413,9 +377,6 @@ class ExecutionPlan:
             "source_graph_hash": self.source_graph_hash,
             "candidate_graph_hash": self.candidate_graph_hash,
             "research_result_hash": self.research_result_hash,
-            "selected_precedent_id": self.selected_precedent_id,
-            "selected_precedent": _thaw_jsonish(self.selected_precedent),
-            "role_bindings": [binding.to_dict() for binding in self.role_bindings],
             "required_steps": [step.to_dict() for step in self.required_steps],
             "done_conditions": [condition.to_dict() for condition in self.done_conditions],
             "active_path_conditions": [
@@ -451,7 +412,6 @@ class PlanEvaluation:
     blocking: bool
     source_graph_hash: str | None = None
     candidate_graph_hash: str | None = None
-    selected_precedent_id: str | None = None
     step_status: tuple[Mapping[str, Any], ...] = ()
     failed_conditions: tuple[Mapping[str, Any], ...] = ()
     diagnostics: tuple[Mapping[str, Any], ...] = ()
@@ -492,7 +452,6 @@ class PlanEvaluation:
             "blocking": self.blocking,
             "source_graph_hash": self.source_graph_hash,
             "candidate_graph_hash": self.candidate_graph_hash,
-            "selected_precedent_id": self.selected_precedent_id,
             "step_status": _thaw_jsonish(self.step_status),
             "failed_conditions": _thaw_jsonish(self.failed_conditions),
             "diagnostics": _thaw_jsonish(self.diagnostics),
@@ -621,86 +580,6 @@ def _nodes_matching(
 
 def _node_by_id(evidence: GraphEvidence) -> dict[int | str, NodeEvidence]:
     return {node.node_id: node for node in evidence.nodes}
-
-
-def _slot_name_by_index(slots: tuple[Any, ...], index: Any) -> str | None:
-    if isinstance(index, int) and 0 <= index < len(slots):
-        name = getattr(slots[index], "name", None)
-        return str(name) if name is not None else None
-    return str(index) if index is not None else None
-
-
-def _edge_input_name(edge: EdgeEvidence, target: NodeEvidence | None) -> str | None:
-    if target is None:
-        return None
-    for slot in target.input_slots:
-        if slot.link_id == edge.link_id:
-            return slot.name
-    return _slot_name_by_index(target.input_slots, edge.target_slot)
-
-
-def _edge_output_name(edge: EdgeEvidence, source: NodeEvidence | None) -> str | None:
-    if source is None:
-        return None
-    return _slot_name_by_index(source.output_slots, edge.origin_slot)
-
-
-def _edge_matches_socket_names(
-    edge: EdgeEvidence,
-    *,
-    source_node: NodeEvidence | None,
-    target_node: NodeEvidence | None,
-    source_ref: SocketRef | Mapping[str, Any] | None,
-    target_ref: SocketRef | Mapping[str, Any] | None,
-    input_name: str | None = None,
-) -> bool:
-    expected_output = _socket_value(source_ref, "output_name") or _socket_value(source_ref, "socket")
-    if expected_output is not None:
-        actual_output = _edge_output_name(edge, source_node)
-        if actual_output is not None and actual_output != expected_output:
-            return False
-        if actual_output is None and len(source_node.output_slots if source_node else ()) != 1:
-            return False
-
-    expected_input = (
-        input_name
-        or _socket_value(target_ref, "input_name")
-        or _socket_value(target_ref, "socket")
-    )
-    if expected_input is not None:
-        actual_input = _edge_input_name(edge, target_node)
-        if actual_input != expected_input:
-            return False
-    return True
-
-
-def _has_direct_edge(
-    evidence: GraphEvidence,
-    source_ref: SocketRef | Mapping[str, Any] | None,
-    target_ref: SocketRef | Mapping[str, Any] | None,
-    *,
-    input_name: str | None = None,
-) -> bool:
-    nodes_by_id = _node_by_id(evidence)
-    for edge in evidence.edges:
-        source_node = nodes_by_id.get(edge.origin_node)
-        target_node = nodes_by_id.get(edge.target_node)
-        if source_node is None or target_node is None:
-            continue
-        if not _node_matches_ref(source_node, source_ref):
-            continue
-        if not _node_matches_ref(target_node, target_ref):
-            continue
-        if _edge_matches_socket_names(
-            edge,
-            source_node=source_node,
-            target_node=target_node,
-            source_ref=source_ref,
-            target_ref=target_ref,
-            input_name=input_name,
-        ):
-            return True
-    return False
 
 
 def _reachable_nodes(
@@ -1010,29 +889,17 @@ def _condition_satisfied(
         return _required_class_satisfied(evidence, condition)
     if kind == "required_value":
         return _required_value_satisfied(evidence, condition)
-    if kind == "direct_edge":
-        if source_ref is None or target_ref is None:
-            return False
-        return _has_direct_edge(evidence, source_ref, target_ref, input_name=input_name)
     if kind == "reachable_path":
         if source_ref is None or target_ref is None:
             return False
         return _has_reachable_path(evidence, source_ref, target_ref)
-    if kind == "direct_edge_or_reachable_path":
-        if source_ref is None or target_ref is None:
-            return False
-        return _has_direct_edge(evidence, source_ref, target_ref, input_name=input_name) or _has_reachable_path(
-            evidence,
-            source_ref,
-            target_ref,
-        )
     if kind == "terminal_consumes":
         return _terminal_consumes_satisfied(evidence, condition)
     if kind == "active_output_domain":
         return _active_output_domain_satisfied(evidence, condition)
     if kind == "unconsumed_functional_outputs":
         return _unconsumed_functional_outputs_satisfied(evidence, condition)
-    if kind in {"batch_frame_count", "value_or_path_count"}:
+    if kind == "batch_frame_count":
         return _batch_frame_count_satisfied(evidence, condition)
     return False
 
@@ -1130,7 +997,6 @@ def fail_closed_evaluation_for_plan_version(
         blocking=True,
         source_graph_hash=_mapping_value(plan, "source_graph_hash"),
         candidate_graph_hash=candidate_graph_hash or _mapping_value(plan, "candidate_graph_hash"),
-        selected_precedent_id=_mapping_value(plan, "selected_precedent_id"),
         step_status=(),
         failed_conditions=(
             _version_failure_condition(
@@ -1160,7 +1026,6 @@ def fail_closed_evaluation_for_evaluation_version(
         blocking=True,
         source_graph_hash=_mapping_value(evaluation, "source_graph_hash"),
         candidate_graph_hash=_mapping_value(evaluation, "candidate_graph_hash"),
-        selected_precedent_id=_mapping_value(evaluation, "selected_precedent_id"),
         step_status=_mapping_value(evaluation, "step_status") or (),
         failed_conditions=(
             _version_failure_condition(
@@ -1205,7 +1070,6 @@ def fail_closed_if_unsupported_evaluation_version(
             blocking=bool(_mapping_value(evaluation, "blocking")),
             source_graph_hash=_mapping_value(evaluation, "source_graph_hash"),
             candidate_graph_hash=_mapping_value(evaluation, "candidate_graph_hash"),
-            selected_precedent_id=_mapping_value(evaluation, "selected_precedent_id"),
             step_status=tuple(_mapping_value(evaluation, "step_status") or ()),
             failed_conditions=tuple(_mapping_value(evaluation, "failed_conditions") or ()),
             feedback=str(_mapping_value(evaluation, "feedback") or ""),
@@ -1449,7 +1313,6 @@ def evaluate_execution_plan(
         blocking=blocking,
         source_graph_hash=_mapping_value(plan, "source_graph_hash"),
         candidate_graph_hash=actual_graph_hash,
-        selected_precedent_id=_mapping_value(plan, "selected_precedent_id"),
         step_status=tuple(step_status),
         failed_conditions=tuple(failed_conditions),
         diagnostics=tuple(diagnostics),
@@ -1603,7 +1466,6 @@ __all__ = (
     "PlanEvaluation",
     "PlanRevision",
     "PlanStep",
-    "RoleBinding",
     "SocketRef",
     "_RUNTIME_READINESS_STRONG_TIERS",
     "collect_plan_runtime_evidence_tiers",

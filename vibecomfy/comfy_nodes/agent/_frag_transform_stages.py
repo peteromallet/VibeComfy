@@ -494,7 +494,11 @@ def _stage_summarize(state: AgentEditState, context: TurnContext) -> StageResult
         change_report=(state.report or {}).get("change"),
     )
     _record(context, queue_result)
-    derive_gates(context, queue_blockers=queue_result.issues)
+    derive_gates(
+        context,
+        queue_blockers=queue_result.issues,
+        require_probe_receipt=False,  # offline authoring validation; no live runtime probe here
+    )
     state.report["queue_blockers"] = [dict(issue) for issue in queue_result.issues]
     state.messages_path.open("a", encoding="utf-8").write(
         json.dumps({"task": state.task, "message": state.user_message}, sort_keys=True) + "\n"
@@ -1029,7 +1033,11 @@ def _stage_summarize_v2(state: AgentEditState, context: TurnContext) -> StageRes
         change_report=(state.report or {}).get("change"),
     )
     _record(context, queue_result)
-    derive_gates(context, queue_blockers=queue_result.issues)
+    derive_gates(
+        context,
+        queue_blockers=queue_result.issues,
+        require_probe_receipt=False,  # offline authoring validation; no live runtime probe here
+    )
     state.report["queue_blockers"] = [dict(issue) for issue in queue_result.issues]
     state.messages_path.open("a", encoding="utf-8").write(
         json.dumps({"task": state.task, "message": state.user_message}, sort_keys=True) + "\n"

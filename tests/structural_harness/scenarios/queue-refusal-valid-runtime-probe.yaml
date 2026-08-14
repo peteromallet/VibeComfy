@@ -15,6 +15,7 @@ tags:
 assessment:
   subjective: false
   enforced:
+    - "executor_result.json parses as valid JSON and records ok=false with report.executor.plan.route=revise for the bare-tier run (the gate blocker surfaced through the pipeline)."
     - "probe_gate.json parses as valid JSON with bare_tier_label_case.queue_allowed=false."
     - "probe_gate.json bare_tier_label_case.blocker_codes includes runtime_readiness_unverified_evidence (bare tier labels are not strong evidence)."
     - "probe_gate.json verdict.verified=true and verdict.strong_tier_eligible=true for the fresh receipt."
@@ -25,10 +26,12 @@ assessment:
     - "Strong runtime evidence exists only as a verified probe receipt; a bare tier label — even live_runtime_schema — is recorded as unverified."
     - "The gate consumes the receipt through the queue_validate stage handoff and independently recomputes digest + endpoint identity."
   observed:
-    - "actions.jsonl records both queue.gate outcomes (bare blocked, verified receipt passed)."
+    - "actions.jsonl records both executor.run outcomes (bare blocked, verified receipt passed) plus queue.gate evidence."
 extras:
   flow_kind: agent_judgment_pipeline_scripted
   required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
     - evidence/probe_gate.json
     - evidence/receipt.json
     - evidence/metadata.json

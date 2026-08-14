@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -15,7 +14,6 @@ from .evidence_pack import (
     _required_text,
     _text_tuple,
     _thaw_json,
-    canonical_json,
     normalize_artifacts,
 )
 from .tool_contracts import ToolStatus, normalize_tool_status
@@ -33,79 +31,6 @@ def _canonical_timestamp(value: Any) -> str:
     utc = parsed.astimezone(timezone.utc)
     rendered = utc.isoformat(timespec="microseconds" if utc.microsecond else "seconds")
     return rendered.replace("+00:00", "Z")
-
-
-@dataclass(frozen=True)
-class StageRequest:
-    """GOAL + advisory PRIORITY + explicit previous PACKAGE references."""
-
-    goal: str
-    priorities: tuple[str, ...]
-    route: str
-    interaction_mode: str
-    previous_package_refs: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "goal", _required_text(self.goal, "goal"))
-        object.__setattr__(self, "priorities", _text_tuple(self.priorities, "priorities"))
-        object.__setattr__(self, "route", _required_text(self.route, "route"))
-        object.__setattr__(
-            self,
-            "interaction_mode",
-            _required_text(self.interaction_mode, "interaction_mode"),
-        )
-        object.__setattr__(
-            self,
-            "previous_package_refs",
-            _text_tuple(self.previous_package_refs, "previous_package_refs"),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        # All five keys are deliberately mandatory on the wire. In particular,
-        # an empty list is the classify stage's explicit "no previous package".
-        return {
-            "goal": self.goal,
-            "priorities": list(self.priorities),
-            "route": self.route,
-            "interaction_mode": self.interaction_mode,
-            "previous_package_refs": list(self.previous_package_refs),
-        }
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "StageRequest":
-        if not isinstance(payload, Mapping):
-            raise ValueError("StageRequest must be an object.")
-        _check_keys(
-            payload,
-            required=frozenset({
-                "goal",
-                "priorities",
-                "route",
-                "interaction_mode",
-                "previous_package_refs",
-            }),
-            contract="StageRequest",
-        )
-        return cls(
-            goal=payload["goal"],
-            priorities=payload["priorities"],
-            route=payload["route"],
-            interaction_mode=payload["interaction_mode"],
-            previous_package_refs=payload["previous_package_refs"],
-        )
-
-    def deterministic_gate_payload(self) -> dict[str, Any]:
-        """Return safety/gate inputs, excluding advisory priority semantics."""
-        return {
-            "goal": self.goal,
-            "route": self.route,
-            "interaction_mode": self.interaction_mode,
-            "previous_package_refs": list(self.previous_package_refs),
-        }
-
-    def deterministic_gate_digest(self) -> str:
-        payload = canonical_json(self.deterministic_gate_payload()).encode()
-        return hashlib.sha256(payload).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -325,35 +250,8 @@ class StagePackage:
         )
 
 
-def validate_stage_handoff(
-    request: StageRequest,
-    previous_packages: Mapping[str, StagePackage],
-) -> dict[str, Any]:
-    """Resolve PACKAGE refs and return a deterministic, priority-blind gate result."""
-    if not isinstance(request, StageRequest):
-        raise ValueError("`request` must be a StageRequest.")
-    if not isinstance(previous_packages, Mapping):
-        raise ValueError("`previous_packages` must be an object keyed by package ref.")
-    unresolved = sorted(set(request.previous_package_refs) - set(previous_packages))
-    if unresolved:
-        raise ValueError("Unresolved previous package ref(s): " + ", ".join(unresolved) + ".")
-    package_statuses: dict[str, str] = {}
-    for package_ref in request.previous_package_refs:
-        package = previous_packages[package_ref]
-        if not isinstance(package, StagePackage):
-            raise ValueError(f"Previous package {package_ref!r} must be a StagePackage.")
-        package_statuses[package_ref] = package.status.value
-    return {
-        "valid": True,
-        "request_gate_digest": request.deterministic_gate_digest(),
-        "package_statuses": package_statuses,
-    }
-
-
 __all__ = [
     "NeedsInput",
     "StageDiagnostic",
     "StagePackage",
-    "StageRequest",
-    "validate_stage_handoff",
 ]

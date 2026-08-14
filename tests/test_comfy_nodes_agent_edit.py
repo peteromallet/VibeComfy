@@ -3164,22 +3164,24 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert "Bare ambiguous refs are rejected." in system
     assert "for a NEW node TYPE you want to ADD" in system
     assert "schema lookup" in system
-    assert 'research("query words", sources=["workflows", "registry", "messages", "web"])' in system
-    assert "if sources are omitted it searches internal workflows/templates only" in system
+    # research() is removed (Wave D): the implement prompt documents the named
+    # tool calls, never the legacy statement or its sources= surface.
+    assert 'research("query words", sources=' not in system
+    assert "if sources are omitted it searches internal workflows/templates only" not in system
     assert "factual current authoring-schema lookup" in system
     assert "no edit lands" in system
     assert "workflow context is mandatory" in system
     assert "smallest named class/field/socket" in system
-    assert "research workflow precedents and community knowledge" in system
-    assert "use `workflows` first" in system
-    assert "Use `registry` only when the user explicitly asks" in system
-    assert "tentative retrieval hints, not findings, implementation instructions, or validation tasks" in system
+    # C01/I01 partition: the implement prompt has NO research/search tools —
+    # the research phase gathered workflow/community evidence as ledger
+    # entries + evidence IDs; implement documents only its own tool set.
+    assert "implement phase has NO research/search tools" in system
+    assert "node_schema" in system
+    assert "ready_template_load" in system
     assert "Do not research installation, provider packs, registry, or local addability" in system
     assert "reinterpret such a hint as a request to find workflow precedents" in system
     assert "A local miss is not a product-level failure" in system
     assert "choose the smallest defensible edit" in system
-    assert '`workflows` searches internal templates plus Hivemind external workflows' in system
-    assert 'choose evidence tiers' in system
     assert "never search the raw user sentence or guess class names" in system
     assert "never justifies substituting a merely similar node" in system
     assert "no `search(focus_types=[...])` for guessed names" in system
@@ -6135,14 +6137,14 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     assert captured_messages
     system_prompt = captured_messages[0][0]["content"]
     user_prompt = captured_messages[0][1]["content"]
-    assert "research(" in system_prompt
+    assert "research(" not in system_prompt
     assert "You are answering a research question" in system_prompt
     assert "Do not edit the graph" in system_prompt
     assert "Gather auditable evidence" in system_prompt
-    # B03 research-only prompt: omit default documented, search-again-vs-done
+    # B03 research-only prompt: the removed research() statement and its
+    # sources= omit-default are no longer documented; search-again-vs-done is
     # left to agent judgment (construction strategy block removed)
-    assert "If sources are omitted on this informational route" in system_prompt
-    assert "messages and web" in system_prompt
+    assert "If sources are omitted on this informational route" not in system_prompt
     assert "search again" in system_prompt
     assert "call `done()`" in system_prompt
     # D03: the research brief and full research summaries are NOT injected into
@@ -16684,208 +16686,6 @@ def test_classify_genuine_provider_outage_stays_retryable_provider_error():
     assert env.retryable is True
 
 
-# ── Precedent adaptation prompt assembly tests (T14) ────────────────────────
-# Verify that prompt assembly injects precedent context only for
-# precedent_research route and keeps direct-edit prompts clean.
-
-
-def test_build_precedent_adaptation_prompt_returns_empty_for_none_plan() -> None:
-    """_build_precedent_adaptation_prompt returns '' when adaptation_plan is None."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    result = _build_precedent_adaptation_prompt(None)
-    assert result == ""
-
-    result = _build_precedent_adaptation_prompt(None, precedent_slices=())
-    assert result == ""
-
-
-def test_build_precedent_adaptation_prompt_returns_empty_for_empty_dict() -> None:
-    """_build_precedent_adaptation_prompt returns '' when adaptation_plan is empty dict."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    result = _build_precedent_adaptation_prompt({})
-    assert result == ""
-
-
-def test_build_precedent_adaptation_prompt_returns_empty_for_failed_empty_plan() -> None:
-    """Failed plans with no concrete edits must not enter implementation prompts."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {"source_class_type": "HotShotWorkflow", "node_ids": []},
-        "anchor_bindings": [],
-        "required_new_nodes": [],
-        "required_rewires": [],
-        "edit_ops": [],
-        "structural_validation": "fail",
-        "semantic_validation": "not_evaluated",
-    }
-
-    assert _build_precedent_adaptation_prompt(plan) == ""
-
-
-def test_build_precedent_adaptation_prompt_includes_selected_slice_info() -> None:
-    """_build_precedent_adaptation_prompt includes selected_slice details."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {
-            "source_class_type": "AudioLipsyncWorkflow",
-            "node_ids": [1, 2, 3],
-            "entry_anchor": "input_audio",
-            "exit_anchor": "output_video",
-            "python_path": "/templates/audio_lipsync.py",
-        },
-        "edit_ops": [
-            {"kind": "add_node", "target": "audio_loader"},
-        ],
-    }
-    result = _build_precedent_adaptation_prompt(plan)
-    assert "AudioLipsyncWorkflow" in result
-    assert "3 node(s)" in result
-    assert "entry_anchor=input_audio" in result
-    assert "exit_anchor=output_video" in result
-    assert "path=/templates/audio_lipsync.py" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_anchor_bindings() -> None:
-    """_build_precedent_adaptation_prompt includes anchor bindings section."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {"source_class_type": "TestWorkflow"},
-        "anchor_bindings": [
-            {"input_audio": "node_5"},
-            {"output_video": "node_10"},
-        ],
-        "required_rewires": [
-            {"from": "node_5", "to": "node_10", "slot": "audio"},
-        ],
-    }
-    result = _build_precedent_adaptation_prompt(plan)
-    assert "Anchor bindings:" in result
-    assert "input_audio → node_5" in result
-    assert "output_video → node_10" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_required_new_nodes() -> None:
-    """_build_precedent_adaptation_prompt includes required new nodes."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {"source_class_type": "TestWorkflow"},
-        "required_new_nodes": [
-            {"class_type": "VAEDecode", "id": "node_new_1"},
-            {"class_type": "SaveImage", "id": "node_new_2"},
-        ],
-    }
-    result = _build_precedent_adaptation_prompt(plan)
-    assert "Required new nodes:" in result
-    assert "VAEDecode" in result
-    assert "SaveImage" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_required_rewires() -> None:
-    """_build_precedent_adaptation_prompt includes required rewires."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {"source_class_type": "TestWorkflow"},
-        "required_rewires": [
-            {"from": "node_1", "to": "node_new_1", "slot": "LATENT"},
-        ],
-    }
-    result = _build_precedent_adaptation_prompt(plan)
-    assert "Required rewires:" in result
-    assert "node_1 → node_new_1.LATENT" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_edit_ops() -> None:
-    """_build_precedent_adaptation_prompt includes edit ops."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {
-        "selected_slice": {"source_class_type": "TestWorkflow"},
-        "edit_ops": [
-            {"kind": "set_field", "target": "node_1.seed", "value": 42},
-        ],
-    }
-    result = _build_precedent_adaptation_prompt(plan)
-    assert "Edit ops:" in result
-    assert "set_field" in result
-    assert "42" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_socket_evidence_from_slices() -> None:
-    """_build_precedent_adaptation_prompt includes socket evidence from precedent_slices."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan = {"selected_slice": {"source_class_type": "MainWorkflow"}}
-    plan["required_new_nodes"] = [{"class_type": "HelperNode", "id": "new_1"}]
-    slices = (
-        {"source_class_type": "HelperA", "entry_anchor": "in1", "exit_anchor": "out1"},
-        {"source_class_type": "HelperB"},
-    )
-    result = _build_precedent_adaptation_prompt(plan, precedent_slices=slices)
-    assert "Socket evidence" in result
-    assert "HelperA (in=in1, out=out1)" in result
-    assert "HelperB" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_structural_validation() -> None:
-    """Actionable failed plans keep validation warnings; empty failed plans do not render."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan_fail = {"selected_slice": {"source_class_type": "BadWF"}, "structural_validation": "fail"}
-    result = _build_precedent_adaptation_prompt(plan_fail)
-    assert result == ""
-
-    plan_fail_with_ops = {
-        "selected_slice": {"source_class_type": "BadWF"},
-        "structural_validation": "fail",
-        "edit_ops": [{"kind": "set_field", "target": "node_1.seed", "value": 42}],
-    }
-    result = _build_precedent_adaptation_prompt(plan_fail_with_ops)
-    assert "AVOID" in result
-    assert "structural validation FAILED" in result
-
-    plan_advisory = {
-        "selected_slice": {"source_class_type": "WarnWF"},
-        "structural_validation": "advisory",
-        "required_new_nodes": [{"class_type": "WarnNode", "id": "new_1"}],
-    }
-    result = _build_precedent_adaptation_prompt(plan_advisory)
-    assert "NOTE:" in result
-    assert "structural validation has advisories" in result
-
-
-def test_build_precedent_adaptation_prompt_includes_semantic_validation() -> None:
-    """_build_precedent_adaptation_prompt includes semantic validation status."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    plan_pass = {
-        "selected_slice": {"source_class_type": "GoodWF"},
-        "semantic_validation": "pass",
-        "edit_ops": [{"kind": "set_field", "target": "node_1.seed", "value": 42}],
-    }
-    result = _build_precedent_adaptation_prompt(plan_pass)
-    assert "Semantic validation: PASS" in result
-
-    plan_fail = {"selected_slice": {"source_class_type": "BadWF"}, "semantic_validation": "fail"}
-    result = _build_precedent_adaptation_prompt(plan_fail)
-    assert result == ""
-
-    plan_fail_with_ops = {
-        "selected_slice": {"source_class_type": "BadWF"},
-        "semantic_validation": "fail",
-        "edit_ops": [{"kind": "set_field", "target": "node_1.seed", "value": 42}],
-    }
-    result = _build_precedent_adaptation_prompt(plan_fail_with_ops)
-    assert "AVOID" in result
-    assert "semantic validation FAILED" in result
-
-
 def test_build_batch_messages_no_precedent_text_when_empty() -> None:
     """D03: build_batch_messages never renders a precedent adaptation plan
     block — the parameter and its prompt block are removed."""
@@ -17042,208 +16842,6 @@ def test_compact_execution_protocol_notes_preserves_actionable_splice() -> None:
 # ── W-06 Manifest-aware adapt prompt tests ──────────────────────────────────
 
 
-class TestManifestAwarePrompt:
-    """W-06: the adapt-route prompt injects ONE bounded TopologyManifest JSON
-    block with preserve-instructions when the plan carries a manifest; legacy
-    prose is byte-identical when the manifest is None; revise is unchanged;
-    boundary anchors stay ID-free; the anti-gaming scanner bites on a poisoned
-    manifest."""
-
-    @staticmethod
-    def _build_manifest(*, target_class_type: str = "SaveImage") -> dict:
-        from vibecomfy.executor.contracts import (
-            ManifestBoundaryAnchor,
-            ManifestInquiryCoverage,
-            ManifestInternalEdge,
-            ManifestNode,
-            ManifestValidation,
-            build_topology_manifest,
-        )
-
-        manifest = build_topology_manifest(
-            manifest_id="adapt:TestWorkflow",
-            source_content_hash="abc123",
-            source_retrieval_rank=1,
-            source_tier="curated",
-            nodes=(
-                ManifestNode(
-                    symbol="loader",
-                    canonical_class_type="LoadImage",
-                    resolver_status="resolved",
-                    evidence_ref="ev1",
-                    confidence=0.9,
-                ),
-                ManifestNode(
-                    symbol="decode",
-                    canonical_class_type="VAEDecode",
-                    resolver_status="resolved",
-                    evidence_ref="ev2",
-                    confidence=0.9,
-                ),
-            ),
-            internal_edges=(
-                ManifestInternalEdge(
-                    from_symbol="loader",
-                    output_socket="IMAGE",
-                    to_symbol="decode",
-                    input_socket="samples",
-                    evidence_ref="ev3",
-                    confidence=0.9,
-                ),
-            ),
-            boundary_anchors=(
-                ManifestBoundaryAnchor(
-                    direction="outbound",
-                    symbol="decode",
-                    symbol_socket="IMAGE",
-                    target_role="save",
-                    target_class_type=target_class_type,
-                    target_socket="images",
-                    source_anchor_ref="ev4",
-                    confidence=0.8,
-                ),
-            ),
-            inquiry_coverage=ManifestInquiryCoverage(
-                required_roles=("save",),
-                covered_roles=("save",),
-            ),
-            validation=ManifestValidation(
-                verdict="pass",
-                class_resolution="pass",
-                socket_checks="pass",
-                cut_edge_coverage="pass",
-                anchor_binding="pass",
-                reasons=(),
-            ),
-            evidence_hash="hash999",
-            confidence=0.85,
-        )
-        assert manifest is not None
-        return manifest.to_dict()
-
-    @staticmethod
-    def _base_plan() -> dict:
-        return {
-            "selected_slice": {
-                "source_class_type": "TestWorkflow",
-                "node_ids": [1, 2],
-                "entry_anchor": "in1",
-                "exit_anchor": "out1",
-                "python_path": "/secret/templates/leak.py",
-            },
-            "edit_ops": [{"kind": "add_node", "target": "loader"}],
-            "required_new_nodes": [{"class_type": "LoadImage", "id": "new_1"}],
-            "structural_validation": "pass",
-            "semantic_validation": "pass",
-        }
-
-    def test_manifest_bearing_adapt_prompt_contains_manifest_and_instructions(self) -> None:
-        """Manifest-bearing adapt prompt has the JSON, instructions, no raw
-        candidate_graph, no path block, no slice paths."""
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = dict(self._base_plan())
-        plan["topology_manifest"] = self._build_manifest()
-        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
-
-        # Manifest JSON present.
-        assert "adapt:TestWorkflow" in prompt
-        assert '"canonical_class_type": "LoadImage"' in prompt
-        assert '"from_symbol": "loader"' in prompt
-        assert '"target_role": "save"' in prompt
-        # Preserve-instructions present.
-        assert "not a prescribed winner" in prompt
-        assert "never invent topology" in prompt
-        # Raw candidate_graph never appears.
-        assert "candidate_graph" not in prompt
-        # Path-bearing selected-slice + provenance blocks suppressed.
-        assert "Reference slice" not in prompt
-        assert "/secret/templates/leak.py" not in prompt
-        assert "node(s)" not in prompt  # selected-slice node_ids suppressed
-        assert "Role-preserving provenance priors" not in prompt
-
-    def test_manifest_bearing_prompt_passes_antigaming_scanner(self) -> None:
-        from tests._splice_antigaming import assert_no_forbidden_fields
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = dict(self._base_plan())
-        plan["topology_manifest"] = self._build_manifest()
-        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
-        # Production manifests never carry forbidden tokens; scanner must pass.
-        assert_no_forbidden_fields(prompt, context="adapt_prompt")
-
-    def test_topology_manifest_none_is_byte_identical_to_legacy(self) -> None:
-        """topology_manifest=None keeps the EXACT legacy adapt prose."""
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = self._base_plan()
-        # No topology_manifest key at all -> legacy.
-        legacy = _build_precedent_adaptation_prompt(plan, route="adapt")
-        # Explicit None -> legacy.
-        plan_none = dict(plan)
-        plan_none["topology_manifest"] = None
-        none_prompt = _build_precedent_adaptation_prompt(plan_none, route="adapt")
-        assert none_prompt == legacy
-        # route=None (default) -> legacy too.
-        assert _build_precedent_adaptation_prompt(plan) == legacy
-
-    def test_revise_route_unchanged_regardless_of_manifest(self) -> None:
-        """REPAIR/DEBUG revise prompt is identical with or without a manifest."""
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = self._base_plan()
-        revise_without = _build_precedent_adaptation_prompt(plan, route="revise")
-        plan_with = dict(plan)
-        plan_with["topology_manifest"] = self._build_manifest()
-        revise_with = _build_precedent_adaptation_prompt(plan_with, route="revise")
-        # revise never injects the manifest, and never suppresses the slice block.
-        assert revise_with == revise_without
-        assert "adapt:TestWorkflow" not in revise_with
-        assert "not a prescribed winner" not in revise_with
-        # The path-bearing slice block is still rendered on revise.
-        assert "Reference slice" in revise_with
-
-    def test_boundary_anchors_are_id_free(self) -> None:
-        """Boundary anchors carry role/class/socket only — no raw node ids."""
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = dict(self._base_plan())
-        plan["topology_manifest"] = self._build_manifest()
-        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
-
-        # Isolate the manifest JSON region.
-        assert "Ranked candidate topology manifest (JSON):" in prompt
-        _, _, manifest_region = prompt.partition("Ranked candidate topology manifest (JSON):")
-        # Anchor fields are role/class/socket — no node-id-bearing keys.
-        assert '"target_role": "save"' in manifest_region
-        assert '"target_class_type": "SaveImage"' in manifest_region
-        assert '"target_socket": "images"' in manifest_region
-        # No source/target node ids, broken_graph_node_id, or path keys.
-        for forbidden_key in (
-            "broken_graph_node_id",
-            "target_node_id",
-            "source_node_id",
-            "python_path",
-            "source_template",
-            "prior_path",
-        ):
-            assert forbidden_key not in manifest_region
-
-    def test_poisoned_manifest_is_caught_by_scanner(self) -> None:
-        """A deliberately-poisoned manifest (forbidden target_class_type) must
-        make assert_no_forbidden_fields fire — proving the scanner bites."""
-        from tests._splice_antigaming import assert_no_forbidden_fields
-        from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-        plan = dict(self._base_plan())
-        plan["topology_manifest"] = self._build_manifest(
-            target_class_type="depth_controlnet"  # forbidden token
-        )
-        prompt = _build_precedent_adaptation_prompt(plan, route="adapt")
-        with pytest.raises(pytest.fail.Exception, match="forbidden token"):
-            assert_no_forbidden_fields(prompt, context="adapt_prompt")
-
-
 # ── W-01 Anti-gaming scanner and perturbation tests ─────────────────────────
 
 
@@ -17315,8 +16913,9 @@ class TestBuildBatchMessagesResearchToolExposure:
     evidence/context labeling, and neutral formatting."""
 
     def test_research_tool_parameter_schema_is_clear(self) -> None:
-        """System prompt includes research() with explicit parameter schema:
-        query string + sources list with allowed values."""
+        """System prompt no longer advertises research(): the removed legacy
+        statement and its sources= parameter schema are absent; the implement
+        prompt documents only the implement-phase tool set."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
@@ -17327,28 +16926,25 @@ class TestBuildBatchMessagesResearchToolExposure:
         )
         system = messages[0]["content"]
 
-        # Parameter schema: contains research() invocation pattern in system prompt
-        rq = 'research("query words", sources='
-        rq_alt = "research(\"query words\", sources="
-        assert rq in system or rq_alt in system, (
-            "System prompt must contain research() tool signature with query + sources"
-        )
-
-        # All four allowed source tiers are in the schema example
-        assert "workflows" in system
-        assert "registry" in system
-        assert "messages" in system
-        assert "web" in system
-
-        # Sources list shows the explicit parameter
-        assert "sources=[" in system
-
-        # Default behavior described
-        assert "if sources are omitted" in system
-        assert "internal workflows/templates only" in system
+        # research() is removed (Wave D): no invocation pattern, no sources=
+        # parameter schema, no omit-default wording.
+        assert 'research("query words", sources=' not in system
+        assert "research(" not in system
+        assert "sources=[" not in system
+        assert "if sources are omitted" not in system
+        assert "internal workflows/templates only" not in system
+        # C01/I01 partition: implement-phase tools only — the research-phase
+        # tools (hivemind_search/hivemind_get/registry_lookup/web_search) are
+        # not documented in the implement prompt.
+        assert "node_schema" in system
+        assert "ready_template_list" in system
+        assert "ready_template_load" in system
+        assert "hivemind_search" not in system
+        assert "hivemind_get" not in system
+        assert "implement phase has NO research/search tools" in system
 
     def test_bounded_guidance_label_present(self) -> None:
-        """The research strategy section is labeled as bounded guidance."""
+        """The authoring strategy section is labeled as bounded guidance."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
@@ -17356,10 +16952,10 @@ class TestBuildBatchMessagesResearchToolExposure:
             python_source="x = LoadImage()",
         )
         system = messages[0]["content"]
-        assert "Research strategy (bounded guidance):" in system
+        assert "Authoring strategy (bounded guidance):" in system
 
     def test_bounded_guidance_contains_evidence_tier_strategy(self) -> None:
-        """Bounded guidance describes evidence-tier call strategy."""
+        """Bounded guidance describes the implement-only tool strategy."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
@@ -17367,12 +16963,11 @@ class TestBuildBatchMessagesResearchToolExposure:
             python_source="x = LoadImage()",
         )
         system = messages[0]["content"]
-        # Key bounded guidance phrases
-        assert "tentative retrieval hints" in system
-        assert "research workflow precedents and community knowledge" in system
-        assert "use `workflows` first" in system
-        assert "then `messages` or `web`" in system
-        assert "Use `registry` only when the user explicitly asks" in system
+        # Key bounded-guidance phrases: research evidence arrives as compact
+        # ledger entries + evidence IDs; the implement phase has no
+        # research/search tools.
+        assert "compact ledger entries + evidence IDs" in system
+        assert "implement phase has NO research/search tools" in system
         assert "Do not research installation, provider packs, registry, or local addability" in system
 
     def test_effective_surface_guidance_is_execute_only(self) -> None:
@@ -17417,10 +17012,10 @@ class TestBuildBatchMessagesResearchToolExposure:
 
         assert "Do not edit the graph" in system
         assert "Gather auditable evidence" in system
-        # omit default documented
-        assert "If sources are omitted on this informational route" in system
-        assert "messages and web" in system
-        assert "NOT workflows" in system
+        # the removed research() statement and its sources= omit-default are
+        # no longer documented
+        assert "If sources are omitted on this informational route" not in system
+        assert "research(" not in system
         # no deterministic research-turn cap wording
         assert "Research cap:" not in system
         assert "after 4 consecutive turns" not in system
@@ -17519,7 +17114,9 @@ class TestBuildBatchMessagesResearchToolExposure:
             )
 
     def test_system_prompt_frames_research_as_evidence_not_recommendation(self) -> None:
-        """The research tool description frames output as evidence/context."""
+        """research() is removed: the implement prompt no longer documents the
+        legacy statement, and tool calls are framed as no-edit evidence
+        gathering, not as picking recommendations."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
@@ -17527,9 +17124,9 @@ class TestBuildBatchMessagesResearchToolExposure:
             python_source="x = LoadImage()",
         )
         system = messages[0]["content"]
-        # The research() call description should be neutral
-        assert "research(" in system
-        # Should frame as evidence-gathering, not as picking recommendations
+        # research() is not advertised anywhere in the implement prompt
+        assert "research(" not in system
+        # tool calls are framed as evidence-gathering, not recommendations
         lower = system.lower()
         assert "no edit lands" in lower
 

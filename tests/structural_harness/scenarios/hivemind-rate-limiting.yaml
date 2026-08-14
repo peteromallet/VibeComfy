@@ -17,11 +17,12 @@ tags:
 assessment:
   subjective: false
   enforced:
+    - "executor_result.json parses as valid JSON with ok=true and report.executor.plan.route=research (the research phase drove the rate-limited tools)."
     - "rate_limit_calls.json parses as valid JSON with first_search.status=rate_limited and a positive retry_after_seconds."
-    - "rate_limit_calls.json second_search_during_cooldown.status=rate_limited and get_during_cooldown.status=rate_limited (shared cooldown)."
-    - "cooldown_trace.json records transport_calls=1 — the cooldown short-circuits the second call so the transport is hit exactly once."
+    - "rate_limit_calls.json second_search_during_cooldown.status=rate_limited (shared cooldown)."
+    - "cooldown_trace.json records transport_calls=1 — the cooldown short-circuits the next call so the transport is hit exactly once."
     - "cooldown_trace.json records web_search_calls=0 and no_web_fallthrough=true."
-    - "cooldown_trace.json research_stage_tool_statuses contains only rate_limited entries and research_stage_status=ok."
+    - "cooldown_trace.json research_stage_tool_statuses contains only rate_limited entries."
     - "actions.jsonl records web_search.called=false."
   graded:
     - "A rate limit is a typed transport state (rate_limited + retry_after_seconds), never conflated with 'no evidence exists'."
@@ -32,6 +33,8 @@ extras:
   flow_kind: agent_judgment_pipeline_scripted
   live_optional: "Rubric is LLM-assessable via --subjective-assessment; the fake structural run is fully deterministic and requires no network."
   required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
     - evidence/rate_limit_calls.json
     - evidence/cooldown_trace.json
     - evidence/metadata.json

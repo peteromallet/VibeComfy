@@ -209,7 +209,11 @@ def _run_batch_repl_queue_validate_if_needed(
         context,
         _stage_batch_repl_queue_validate,
     )
-    derive_gates(context, queue_blockers=queue_result.issues)
+    derive_gates(
+        context,
+        queue_blockers=queue_result.issues,
+        require_probe_receipt=False,  # offline authoring validation; no live runtime probe here
+    )
     if state.report is None:
         state.report = {}
     state.report["queue_blockers"] = [dict(issue) for issue in queue_result.issues]

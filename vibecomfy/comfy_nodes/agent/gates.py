@@ -46,10 +46,14 @@ EXPLICIT_QUEUE_BLOCKER_CODES = frozenset(
 # label (e.g. ``live_runtime_schema``) is claimed without a verifiable probe
 # receipt; ``runtime_probe_not_verified`` fires when a receipt fails
 # independent verification; ``runtime_probe_receipt_invalid`` fires when the
-# receipt payload cannot even be parsed.
+# receipt payload cannot even be parsed; ``runtime_probe_receipt_required``
+# fires when a real queue attempt supplies no receipt and no evidence tiers at
+# all (fail-closed: queueing always needs verified runtime evidence unless the
+# caller explicitly declares the evaluation non-runtime/offline validation).
 RUNTIME_READINESS_UNVERIFIED_CODE = "runtime_readiness_unverified_evidence"
 RUNTIME_PROBE_NOT_VERIFIED_CODE = "runtime_probe_not_verified"
 RUNTIME_PROBE_RECEIPT_INVALID_CODE = "runtime_probe_receipt_invalid"
+RUNTIME_PROBE_RECEIPT_REQUIRED_CODE = "runtime_probe_receipt_required"
 
 # A queue gate accepts a probe receipt only within this freshness window.
 # Receipts older than this are treated as stale evidence even when the
@@ -432,6 +436,7 @@ def _runtime_evidence_blockers(
     *,
     evidence_tiers: frozenset[str] | None,
     probe_receipt: RuntimeProbeReceipt | Mapping[str, Any] | None,
+    require_probe_receipt: bool,
     verify_live: bool,
     object_info: Mapping[str, Any] | None,
     endpoint_identity: str | None,
@@ -443,7 +448,10 @@ def _runtime_evidence_blockers(
     Fail-closed contract (H02): strong runtime evidence exists **only** as a
     verified probe receipt.  A bare tier label — even ``live_runtime_schema``
     or ``object_info`` — is no longer accepted as proof; it is recorded as
-    unverified (fabrication) evidence.  Returns ``(blockers, verdict)`` where
+    unverified (fabrication) evidence.  When a queue attempt supplies neither
+    a receipt nor any evidence tier, the gate still blocks unless the caller
+    declares the evaluation non-runtime/offline validation
+    (``require_probe_receipt=False``).  Returns ``(blockers, verdict)`` where
     *verdict* is the last probe verification result (``None`` when no receipt
     was supplied).
     """
@@ -532,6 +540,28 @@ def _runtime_evidence_blockers(
                     },
                 }
             )
+    elif require_probe_receipt:
+        # No receipt AND no claimed tiers: a real queue attempt still has no
+        # runtime-readiness evidence at all.  Fail-closed unless the caller
+        # explicitly declared this a non-runtime/offline validation.
+        blockers.append(
+            {
+                "code": RUNTIME_PROBE_RECEIPT_REQUIRED_CODE,
+                "severity": "error",
+                "message": (
+                    "Queue blocked: queueing requires a verified runtime "
+                    "schema probe receipt (RuntimeProbeReceipt); none was "
+                    "supplied and no runtime-readiness evidence was claimed. "
+                    "Non-runtime/offline validation may opt out explicitly "
+                    "with require_probe_receipt=False."
+                ),
+                "evidence": {
+                    "provided_tiers": [],
+                    "required_contract": "RuntimeProbeReceipt",
+                    "receipt_present": False,
+                },
+            }
+        )
     return blockers, verdict
 
 
@@ -542,6 +572,7 @@ def update_queue_gate(
     queue_blockers: tuple[dict[str, Any], ...] | None = None,
     evidence_tiers: frozenset[str] | None = None,
     probe_receipt: RuntimeProbeReceipt | Mapping[str, Any] | None = None,
+    require_probe_receipt: bool = True,
     verify_live: bool = True,
     object_info: Mapping[str, Any] | None = None,
     endpoint_identity: str | None = None,
@@ -559,6 +590,7 @@ def update_queue_gate(
     evidence_blockers, probe_verdict = _runtime_evidence_blockers(
         evidence_tiers=evidence_tiers,
         probe_receipt=probe_receipt,
+        require_probe_receipt=require_probe_receipt,
         verify_live=verify_live,
         object_info=object_info,
         endpoint_identity=endpoint_identity,
@@ -593,6 +625,7 @@ def update_queue_gate(
                 "probe_receipt_verified": (
                     bool(probe_verdict["verified"]) if probe_verdict is not None else None
                 ),
+                "probe_receipt_required": bool(require_probe_receipt),
                 "probe_receipt_strong_tier_eligible": (
                     bool(probe_verdict["strong_tier_eligible"])
                     if probe_verdict is not None
@@ -626,6 +659,7 @@ def derive_gates(
     plan_state: str | None = None,
     evidence_tiers: frozenset[str] | None = None,
     probe_receipt: RuntimeProbeReceipt | Mapping[str, Any] | None = None,
+    require_probe_receipt: bool = True,
     verify_live: bool = True,
     object_info: Mapping[str, Any] | None = None,
     endpoint_identity: str | None = None,
@@ -649,6 +683,7 @@ def derive_gates(
         queue_blockers=queue_blockers,
         evidence_tiers=evidence_tiers,
         probe_receipt=probe_receipt,
+        require_probe_receipt=require_probe_receipt,
         verify_live=verify_live,
         object_info=object_info,
         endpoint_identity=endpoint_identity,
@@ -671,6 +706,7 @@ __all__ = [
     "PROBE_RECEIPT_MAX_AGE_SECONDS",
     "RUNTIME_PROBE_NOT_VERIFIED_CODE",
     "RUNTIME_PROBE_RECEIPT_INVALID_CODE",
+    "RUNTIME_PROBE_RECEIPT_REQUIRED_CODE",
     "RUNTIME_READINESS_UNVERIFIED_CODE",
     "_RUNTIME_READINESS_STRONG_TIERS",
     "_RUNTIME_AVAILABILITY_WEAK_LABELS",

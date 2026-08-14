@@ -5,53 +5,65 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.agent.artifacts import _execute_research_sources, synthesize_headless_artifacts
+from vibecomfy.agent.artifacts import synthesize_headless_artifacts
+from vibecomfy.executor.agent_research_stage import AgentResearchTrace
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorResult,
     ImplementationResult,
     Report,
 )
-
-
-class _LegacyResearchResult:
-    """Duck-typed stand-in for the deleted legacy ``ResearchResult`` contract.
-
-    The class was removed by the agent-judgment rework (D02); artifact
-    serialization consumes this shape via ``to_dict()`` / ``getattr``.
-    """
-
-    def __init__(
-        self,
-        *,
-        summary: str = "",
-        sources: tuple = (),
-        warnings: tuple = (),
-        community_summary: str = "",
-        precedent_sources: tuple = (),
-        workflow_precedent_status: str = "",
-    ) -> None:
-        self.summary = summary
-        self.sources = sources
-        self.warnings = warnings
-        self.community_summary = community_summary
-        self.precedent_sources = precedent_sources
-        self.workflow_precedent_status = workflow_precedent_status
-
-    def to_dict(self) -> dict:
-        return {
-            "summary": self.summary,
-            "sources": list(self.sources),
-            "warnings": list(self.warnings),
-            "community_summary": self.community_summary,
-            "precedent_sources": list(self.precedent_sources),
-            "workflow_precedent_status": self.workflow_precedent_status,
-        }
-
+from vibecomfy.executor.core import AgentResearchResult
+from vibecomfy.executor.evidence_pack import (
+    EvidenceArtifact,
+    EvidenceLedger,
+    EvidenceLedgerEntry,
+    EvidencePack,
+)
 
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _agent_research_result(
+    *,
+    decision: str = "hivemind_search",
+    conclusion: str = "2 hit(s)",
+) -> AgentResearchResult:
+    """Real C1 research result: edit routes serialize ONLY the compact ledger."""
+    trace = AgentResearchTrace(
+        route="adapt",
+        question="Find useful precedent.",
+        iterations=(),
+        final_verdict="enough",
+        summary="Found precedent.",
+        citations=("hivemind:workflows:111",),
+        uncertainty="",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    pack = EvidencePack(
+        artifacts={
+            "hivemind:workflows:111": EvidenceArtifact(
+                evidence_id="hivemind:workflows:111",
+                kind="hivemind_search_hit",
+                body={"title": "Found precedent."},
+                source="hivemind",
+            ),
+        },
+        ledger=EvidenceLedger(
+            entries=(
+                EvidenceLedgerEntry(
+                    decision=decision,
+                    conclusion=conclusion,
+                    evidence_ids=("hivemind:workflows:111",),
+                    uncertainty="",
+                ),
+            )
+        ),
+    )
+    return AgentResearchResult(route="adapt", trace=trace, evidence_pack=pack)
 
 
 def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: Path) -> None:
@@ -74,15 +86,7 @@ def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: P
                 task="research_precedent",
                 research_goal="Find useful precedent.",
             ),
-            research=_LegacyResearchResult(
-                summary="Found precedent.",
-                sources=(
-                    {"class_type": "wrong_ltx", "api_key": "source-secret"},
-                    {"class_type": "right_hotshot"},
-                ),
-                precedent_sources=({"class_type": "right_hotshot"},),
-                workflow_precedent_status="compatible_workflow_found",
-            ),
+            research=_agent_research_result(),
             implementation=ImplementationResult(
                 graph={"nodes": [{"id": 2}]},
                 message="Applied edit.",
@@ -131,52 +135,34 @@ def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: P
     assert _read_json(output_dir / "flow_metadata.json")["readiness"]["api_key"] == "<redacted>"
     assert _read_json(output_dir / "response.json")["debug"]["provider_token"] == "<redacted>"
     research_json = _read_json(output_dir / "research.json")
-    assert research_json["sources"][0]["api_key"] == "<redacted>"
-    assert [s["class_type"] for s in research_json["sources"]] == ["wrong_ltx", "right_hotshot"]
+    assert research_json["mode"] == "agent_owned"
+    assert research_json["ledger"]["entries"]
 
     implementation_payload = _read_json(output_dir / "implementation_payload.json")
     assert implementation_payload["route"] == "adapt"
     assert implementation_payload["executor_route"] == "adapt"
     assert implementation_payload["executor_classification"]["route"] == "adapt"
     assert implementation_payload["graph"] == request["graph"]
-    assert implementation_payload["execution_protocol_notes"]["research_goal"] == (
-        "Find useful precedent."
-    )
-    assert implementation_payload["execution_protocol_notes"]["research_summary"] == (
-        "Found precedent."
-    )
-    assert implementation_payload["execution_protocol_notes"]["research_sources"] == [
-        {"class_type": "right_hotshot"}
-    ]
-    assert (
-        implementation_payload["execution_protocol_notes"]["workflow_precedent_status"]
-        == "compatible_workflow_found"
-    )
+    notes = implementation_payload["execution_protocol_notes"]
+    # D03: notes carry ONLY the compact F01 ledger (research_sources is a
+    # passthrough for payloads that carry it; the C1 result serializes ledger
+    # only, so notes == {"ledger": ...}).
+    assert set(notes) == {"ledger"}
+    assert notes["ledger"]["entries"]
+    for legacy_key in (
+        "research_goal",
+        "research_summary",
+        "workflow_precedent_status",
+        "research_warnings",
+        "precedent_packet",
+        "_discardability",
+    ):
+        assert legacy_key not in notes, legacy_key
+    assert "research_context_packet" not in implementation_payload
     assert _read_json(output_dir / "implementation_result.json")["message"] == "Applied edit."
 
 
-def test_execute_research_sources_derive_from_packet_without_full_fallback() -> None:
-    research = {
-        "sources": [
-            {"class_type": "wrong_ltx", "source": "ready_template"},
-            {"class_type": "right_hotshot", "source": "hivemind_workflow"},
-        ],
-        "precedent_packet": {
-            "options": [
-                {"source_class_type": "right_hotshot"},
-            ],
-        },
-        "precedent_slices": [
-            {"source_class_type": "right_hotshot"},
-        ],
-    }
-
-    assert _execute_research_sources(research) == [
-        {"class_type": "right_hotshot", "source": "hivemind_workflow"}
-    ]
-
-
-def test_adapt_artifacts_do_not_emit_packet_without_compatible_workflow(tmp_path: Path) -> None:
+def test_adapt_artifacts_carry_only_compact_ledger_without_sources(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     request = {
         "query": "adapt this graph",
@@ -190,11 +176,7 @@ def test_adapt_artifacts_do_not_emit_packet_without_compatible_workflow(tmp_path
                 route="adapt",
                 research_goal="Find precedent.",
             ),
-            research=_LegacyResearchResult(
-                summary="Found supplemental docs only.",
-                sources=({"class_type": "wrong_ltx", "source": "object_info"},),
-                workflow_precedent_status="no_compatible_workflow_found",
-            ),
+            research=_agent_research_result(decision="hivemind_get", conclusion="record fetched"),
             implementation=ImplementationResult(message="No compatible precedent."),
         ),
         graph=request["graph"],
@@ -212,7 +194,8 @@ def test_adapt_artifacts_do_not_emit_packet_without_compatible_workflow(tmp_path
     implementation_payload = _read_json(output_dir / "implementation_payload.json")
     assert "research_context_packet" not in implementation_payload
     notes = implementation_payload["execution_protocol_notes"]
-    assert notes["workflow_precedent_status"] == "no_compatible_workflow_found"
+    assert set(notes) == {"ledger"}
+    assert notes["ledger"]["entries"]
     assert "research_sources" not in notes
 
 

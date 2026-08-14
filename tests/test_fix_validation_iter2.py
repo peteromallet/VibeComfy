@@ -107,7 +107,7 @@ def test_queue_validate_stage_passes_when_validate_stage_is_absent() -> None:
         )
     )
 
-    blockers = update_queue_gate(context)
+    blockers = update_queue_gate(context, require_probe_receipt=False)
 
     assert blockers == ()
     assert context.gate_results["queue_validate_ok"].ok is True
@@ -132,6 +132,7 @@ def test_queue_validate_stage_still_fails_with_real_blockers() -> None:
     derived = derive_gates(
         context,
         queue_blockers=({"code": "schema_less_queue_blocker", "severity": "error"},),
+        require_probe_receipt=False,  # offline validation; pins explicit-blocker behavior
     )
 
     assert context.gate_results["queue_validate_ok"].ok is False

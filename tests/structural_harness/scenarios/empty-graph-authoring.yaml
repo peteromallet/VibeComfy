@@ -14,6 +14,7 @@ tags:
 assessment:
   subjective: false
   enforced:
+    - "executor_result.json parses as valid JSON with ok=true and report.executor.plan.route=adapt (the pipeline drove the authoring)."
     - "tool_calls.json parses as valid JSON with tools[0].tool_name=suggest_seed_nodes, status=ok and case=empty-graph."
     - "tool_calls.json records a ready_template_load call with status=ok, id=video/wan_t2v and a non-empty sha256."
     - "tool_calls.json records a ready_template_list call with status=ok."
@@ -21,13 +22,15 @@ assessment:
     - "graph_summary.json node_count is a positive integer and suggested_seed_classes_present is non-empty."
     - "actions.jsonl records tool.call for suggest_seed_nodes, ready_template_list, and ready_template_load, plus a graph.produced action."
   graded:
-    - "Empty-graph authoring uses the Wave-A authoring tools (seed suggestions + ready-template assets) rather than a hardcoded recipe."
+    - "Empty-graph authoring uses the implement-phase Wave-A tools (seed suggestions + ready-template assets) rather than a hardcoded recipe."
     - "The frozen evidence shows the authored graph actually contains the suggested seed classes."
   observed:
     - "graph_summary.json lists every seed class present in the authored graph."
 extras:
   flow_kind: agent_judgment_pipeline_scripted
   required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
     - evidence/tool_calls.json
     - evidence/graph.json
     - evidence/graph_summary.json

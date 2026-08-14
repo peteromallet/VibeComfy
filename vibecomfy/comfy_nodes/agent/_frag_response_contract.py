@@ -806,6 +806,7 @@ def _legacy_failure_response(
         context,
         baseline_graph_hash=state.baseline_graph_hash,
         client_graph_hash=state.submit_structural_graph_hash,
+        require_probe_receipt=False,  # failure-envelope reporting, not a runtime queue attempt
     )
     failure = dataclasses.replace(
         failure,
@@ -926,18 +927,70 @@ def _session_artifact_response_fields(state: AgentEditState) -> dict[str, Any]:
     }
 
 
+def format_community_summary(
+    sources: tuple[Mapping[str, Any], ...],
+    *,
+    query: str = "",
+) -> str:
+    """Extractive display paragraph. No polarity, no strength, no stop_reason.
+
+    Empty message/distillation sources →
+      'No community discussion found for "<query>".'
+    Otherwise list up to 6 items, cap ~800 chars:
+      - hivemind_message: '{author} in #{channel}: {excerpt}'
+      - hivemind_distillation: '{title} ({status}/{confidence}): {excerpt}'
+    Never invents quotes.
+    """
+    community = [
+        src
+        for src in sources
+        if isinstance(src, Mapping)
+        and str(src.get("source") or "") in {"hivemind_message", "hivemind_distillation"}
+    ]
+    if not community:
+        return f'No community discussion found for "{query}".'
+
+    lines: list[str] = []
+    for src in community[:6]:
+        title = str(src.get("title") or src.get("class_type") or "").strip()
+        excerpt = str(src.get("description") or "").strip()
+        if src.get("source") == "hivemind_distillation":
+            status = str(src.get("distillation_status") or "pending").strip() or "pending"
+            confidence = src.get("confidence")
+            conf = f"/{confidence}" if confidence not in (None, "") else ""
+            line = f"{title} ({status}{conf})"
+            if excerpt:
+                line += f": {excerpt}"
+            lines.append(line)
+        else:
+            author = str(src.get("author") or "").strip()
+            channel = str(src.get("channel") or "").strip()
+            if author and channel:
+                prefix = f"{author} in #{channel}"
+            elif author:
+                prefix = author
+            elif channel:
+                prefix = f"#{channel}"
+            else:
+                prefix = ""
+            lines.append(f"{prefix}: {excerpt}" if prefix and excerpt else (prefix or excerpt))
+
+    text = "\n".join(lines)
+    if len(text) > 800:
+        text = text[:797].rstrip() + "…"
+    return text
+
+
 def _build_research_findings_payload(state: AgentEditState) -> dict[str, Any]:
     """Build the durable ``research_findings`` packet for the research route.
 
     Re-synthesizes ``summary`` and ``community_summary`` via
-    ``format_community_summary`` from the deduplicated collected union
+    :func:`format_community_summary` from the deduplicated collected union
     (``state.collected_research_sources``, already deduped at fold time),
     capped at 12 for presentation, with transport-only warnings.  No ranking,
     no evidence strength, no latch, and never a stop decision — the agent
     already judged every row in ``query_output``.
     """
-    from vibecomfy.executor.hivemind_clients import format_community_summary
-
     all_sources = tuple(
         dict(source)
         for source in (getattr(state, "collected_research_sources", ()) or ())

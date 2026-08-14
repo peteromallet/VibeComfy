@@ -15,6 +15,7 @@ tags:
 assessment:
   subjective: false
   enforced:
+    - "executor_result.json parses as valid JSON and records ok=false with report.executor.plan.route=revise for the unapproved run (the refusal surfaced through the pipeline)."
     - "unapproved_error.json parses as valid JSON with raised=true and error_class=SchemaNormalizationRequired."
     - "unapproved_error.json records approved_without_approval=false (a bare None approval never applies)."
     - "unapproved_error.json normalization.ops is a non-empty list of typed ops (node_id/class_type/field/kind/before/after/reason)."
@@ -30,6 +31,8 @@ assessment:
 extras:
   flow_kind: agent_judgment_pipeline_scripted
   required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
     - evidence/drift_proposal.json
     - evidence/unapproved_error.json
     - evidence/approved_metadata.json

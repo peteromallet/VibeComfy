@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import importlib
 import json
 import re
@@ -50,6 +49,17 @@ from vibecomfy.porting.edit._parse import (
     _is_graph_reference_value,
     _resolve_vibecomfy_constructor,
     _unsafe,
+)
+from vibecomfy.executor.tool_specs import (
+    PHASE_IMPLEMENT,
+    PHASE_RESEARCH,
+    TOOL_SPEC_BY_NAME,
+    TOOL_SPECS,
+    invoke_tool,
+    phase_allows,
+    project_tool_evidence,
+    _shorten_query_text,
+    _tool_arg_summary,
 )
 from vibecomfy.porting.edit._ir_utils import (
     _MISSING_WIDGET_VALUE,
@@ -194,13 +204,6 @@ def _exec_semantic_slot_name_for_node(
     )
 
 
-def _shorten_query_text(value: Any, *, max_chars: int = 260) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= max_chars:
-        return text
-    return text[: max(0, max_chars - 3)].rstrip() + "..."
-
-
 def _format_compact_sequence(values: Any, *, max_items: int = 16, max_chars: int = 420) -> str:
     if not isinstance(values, (list, tuple)):
         return ""
@@ -215,325 +218,6 @@ def _format_compact_sequence(values: Any, *, max_items: int = 16, max_chars: int
     if len(values) > len(rendered):
         suffix = f", and {len(values) - len(rendered)} more"
     return _shorten_query_text(", ".join(rendered) + suffix, max_chars=max_chars)
-
-
-def _format_research_query_output(result: Any) -> str:
-    lines: list[str] = []
-    summary = _shorten_query_text(getattr(result, "summary", ""), max_chars=1200)
-    if summary:
-        lines.append(summary)
-    community_summary = str(getattr(result, "community_summary", "") or "").strip()
-    if community_summary:
-        lines.append(community_summary)
-    sources = getattr(result, "sources", ()) or ()
-    if sources:
-        lines.append("Sources:")
-        message_kinds = {"hivemind_message", "hivemind_distillation"}
-        has_message_kinds = any(
-            isinstance(source, Mapping)
-            and str(source.get("source") or "") in message_kinds
-            for source in sources
-        )
-        # B03: message/distillation rows get the full 12-cap so the model can
-        # judge the same rows that get folded and hoisted.  Non-message
-        # results keep today's 5/8 structure.
-        first_cap = 12 if has_message_kinds else 5
-        total_cap = 12 if has_message_kinds else 8
-        selected_sources: list[Any] = []
-        seen_source_kinds: set[str] = set()
-        for source in sources:
-            if not isinstance(source, Mapping):
-                continue
-            selected_sources.append(source)
-            seen_source_kinds.add(str(source.get("source") or ""))
-            if len(selected_sources) >= first_cap:
-                break
-        for source in sources:
-            if len(selected_sources) >= total_cap:
-                break
-            if not isinstance(source, Mapping):
-                continue
-            source_kind = str(source.get("source") or "")
-            if source_kind and source_kind not in seen_source_kinds:
-                selected_sources.append(source)
-                seen_source_kinds.add(source_kind)
-        for index, source in enumerate(selected_sources, start=1):
-            if not isinstance(source, Mapping):
-                continue
-            title = _shorten_query_text(
-                source.get("title")
-                or source.get("class_type")
-                or source.get("path")
-                or source.get("url")
-                or source.get("source")
-                or f"source {index}",
-                max_chars=140,
-            )
-            source_kind = str(source.get("source") or "")
-            # B03: message/distillation rows carry author / channel /
-            # distillation_status in the descriptor parts so the agent can
-            # cite them without a second lookup.
-            descriptor_keys = ["kind", "source_type", "pack", "source_workflow_path", "path", "url"]
-            if source_kind in message_kinds:
-                descriptor_keys = ["author", "channel", "distillation_status"] + descriptor_keys
-            descriptor_parts = [
-                _shorten_query_text(source.get(key), max_chars=180)
-                for key in descriptor_keys
-                if source.get(key)
-            ]
-            descriptor = f" ({'; '.join(descriptor_parts[:4])})" if descriptor_parts else ""
-            description = _shorten_query_text(
-                source.get("description") or source.get("snippet") or source.get("summary"),
-                max_chars=260,
-            )
-            line = f"- {title}{descriptor}"
-            if description:
-                line += f": {description}"
-            lines.append(line)
-            node_types = _format_compact_sequence(source.get("node_types"))
-            if node_types:
-                lines.append(f"  node_types: {node_types}")
-            key_values = _format_compact_sequence(source.get("key_values"), max_items=12, max_chars=320)
-            if key_values:
-                lines.append(f"  key_values: {key_values}")
-            workflow_schemas = _format_workflow_schema_hints(source.get("workflow_schema"))
-            if workflow_schemas:
-                lines.extend(f"  {line}" for line in workflow_schemas)
-    warnings = getattr(result, "warnings", ()) or ()
-    if warnings:
-        lines.append("Warnings:")
-        for warning in warnings[:5]:
-            lines.append(f"- {_shorten_query_text(warning, max_chars=260)}")
-    return "\n".join(lines).strip() or "No research findings returned."
-
-
-def _format_workflow_schema_hints(value: Any, *, max_classes: int = 5) -> list[str]:
-    if not isinstance(value, Mapping):
-        return []
-    lines: list[str] = []
-    # Stable neutral presentation order: alphabetical by class_type.
-    # No family-token ranking — every entry gets equal presentation weight.
-    class_types = sorted(str(key) for key in value)
-    for class_type in class_types[:max_classes]:
-        info = value.get(class_type)
-        if not isinstance(info, Mapping):
-            continue
-        input_groups = info.get("input")
-        required_names: list[str] = []
-        optional_names: list[str] = []
-        if isinstance(input_groups, Mapping):
-            required = input_groups.get("required")
-            optional = input_groups.get("optional")
-            if isinstance(required, Mapping):
-                required_names = sorted(str(name) for name in required)[:8]
-            if isinstance(optional, Mapping):
-                optional_names = [
-                    _format_schema_input_hint(str(name), optional.get(name))
-                    for name in sorted(str(name) for name in optional)[:8]
-                ]
-        outputs = info.get("outputs")
-        output_names: list[str] = []
-        if isinstance(outputs, list):
-            for item in outputs[:8]:
-                if isinstance(item, Mapping):
-                    output_names.append(str(item.get("name") or item.get("type") or "*"))
-                elif item is not None:
-                    output_names.append(str(item))
-        parts = []
-        if required_names:
-            parts.append(f"inputs={', '.join(required_names)}")
-        if optional_names:
-            parts.append(f"widgets={', '.join(optional_names)}")
-        if output_names:
-            parts.append(f"outputs={', '.join(output_names)}")
-        if parts:
-            lines.append(f"workflow_schema {class_type}: {'; '.join(parts)}")
-    remaining = max(0, len(value) - max_classes)
-    if remaining > 0:
-        lines.append(f"workflow_schema: and {remaining} more class(es)")
-    return lines
-
-
-def _format_schema_input_hint(name: str, raw_spec: Any) -> str:
-    if not isinstance(raw_spec, Mapping) or "default" not in raw_spec:
-        return name
-    default = raw_spec.get("default")
-    if isinstance(default, str):
-        rendered = repr(default)
-    elif isinstance(default, (int, float, bool)) or default is None:
-        rendered = repr(default)
-    else:
-        return name
-    if len(rendered) > 48:
-        rendered = rendered[:45] + "..."
-    return f"{name}={rendered}"
-
-
-def _has_concrete_workflow_pattern(result: Any) -> bool:
-    for source in getattr(result, "sources", ()) or ():
-        if not isinstance(source, Mapping):
-            continue
-        if source.get("node_types") or source.get("source_workflow_path"):
-            return True
-        source_kind = str(source.get("source") or "")
-        source_type = str(source.get("source_type") or "")
-        if source_kind in {"external_workflow", "ready_template", "source_workflow", "hivemind_workflow"}:
-            if source_type == "github_workflow_json" or source.get("path"):
-                return True
-    return False
-
-
-def _concrete_workflow_node_types(result: Any, *, limit: int = 10) -> tuple[str, ...]:
-    node_types: list[str] = []
-    for source in getattr(result, "sources", ()) or ():
-        if not isinstance(source, Mapping):
-            continue
-        raw_node_types = source.get("node_types")
-        if not isinstance(raw_node_types, (list, tuple)):
-            continue
-        for raw_node_type in raw_node_types:
-            node_type = str(raw_node_type or "").strip()
-            if node_type and node_type not in node_types:
-                node_types.append(node_type)
-            if len(node_types) >= limit:
-                return tuple(node_types)
-    return tuple(node_types)
-
-
-def _has_url_only_web_leads(result: Any) -> bool:
-    for source in getattr(result, "sources", ()) or ():
-        if not isinstance(source, Mapping):
-            continue
-        if str(source.get("source") or "") != "web":
-            continue
-        if source.get("url") and not source.get("node_types") and not source.get("source_workflow_path"):
-            return True
-    return False
-
-
-_MESSAGES_FOLLOWUP = (
-    "If the community evidence is thin or off-topic, search again with "
-    "different terms (model name + version, or a complaint/praise phrase). "
-    "Candidate terms in the Research brief's search_directions are suggestions "
-    "you may use; they are not a checklist. When you have citable community "
-    "answers, call done(). Cite author/channel for messages and title+status "
-    "for distillations. Do not invent quotes. Do not treat workflow templates "
-    "as community opinion."
-)
-
-
-def _research_followup_guidance(query: str, sources: tuple[str, ...], result: Any) -> str:
-    notes: list[str] = []
-    source_set = set(sources)
-    # B03: when messages are actually in play (and workflows/registry are not),
-    # emit ONLY the static messages followup — no Workflow-first / Research
-    # order / External workflow / Concrete pattern / Registry check notes.
-    # This is static prompt text, never gated on hit count or any strength
-    # helper.  Explicit sources=["web"] is NOT messages_in_play, so External
-    # workflow check still fires there.
-    messages_in_play = (
-        "messages" in source_set
-        and "workflows" not in source_set
-        and "registry" not in source_set
-    )
-    if messages_in_play:
-        return "\n\n" + _MESSAGES_FOLLOWUP
-    if "workflows" in source_set:
-        notes.append(
-            "Workflow-first check: treat workflow/template results as usable precedent only if they mention "
-            "the user's named target technology/model/node family. If results are generic or for another "
-            "family, search external workflow/examples next using the named target."
-        )
-    if "workflows" in source_set and "registry" in source_set:
-        notes.append(
-            "Research-order check: registry evidence was requested in the same call as workflow evidence. "
-            "Do not use registry results as a substitute for workflow context; after an insufficient internal "
-            "workflow search, make a separate external workflow/examples call before using registry evidence."
-        )
-    if "web" in source_set and _has_url_only_web_leads(result) and not _has_concrete_workflow_pattern(result):
-        notes.append(
-            "External workflow check: these web results are URL/title leads, not yet a workflow pattern. "
-            "Before concluding there is no usable precedent, search externally for a workflow JSON, repo example, or page result "
-            "that exposes concrete node types and wiring for the named target."
-        )
-    if "web" in source_set and _has_concrete_workflow_pattern(result):
-        node_types = _concrete_workflow_node_types(result)
-        node_hint = f" Concrete workflow node types found: {', '.join(node_types)}." if node_types else ""
-        notes.append(
-            "Concrete workflow pattern found: treat this workflow/example as the pattern evidence now."
-            f"{node_hint} Next, apply the smallest defensible adaptation of this pattern to the current graph, "
-            "using only authoring signatures exposed in this edit session. "
-            "The listed source_workflow_path/path is evidence for the fetched workflow; python() only shows the "
-            "current graph. Do not run another research(...) call for the same workflow JSON, switch back to generic "
-            "local workflow searches, or use broad custom-node queries such as only the model name."
-        )
-    if "registry" in source_set and "workflows" not in source_set and "web" not in source_set:
-        notes.append(
-            "Registry check: use registry/schema evidence to verify node packs or classes already suggested by "
-            "workflow/example evidence, not to invent a workflow pattern by itself."
-        )
-    if not notes:
-        return ""
-    return "\n\n" + "\n".join(f"{index}. {note}" for index, note in enumerate(notes, start=1))
-
-
-_RESEARCH_SOURCE_ALIASES: dict[str, str] = {
-    "local": "workflows",
-    "workflow": "workflows",
-    "workflows": "workflows",
-    "template": "workflows",
-    "templates": "workflows",
-    "registry": "registry",
-    "comfy-registry": "registry",
-    "comfy_registry": "registry",
-    "manager": "registry",
-    "comfyui-manager": "registry",
-    "custom_nodes": "registry",
-    "custom-nodes": "registry",
-    "hivemind": "messages",
-    "message": "messages",
-    "messages": "messages",
-    "discord": "messages",
-    "web": "web",
-    "github": "web",
-    "internet": "web",
-}
-
-
-def _normalize_research_sources(value: Any) -> tuple[tuple[str, ...] | None, CompactDiagnostic | None]:
-    if value is None:
-        return None, None
-    if isinstance(value, str):
-        raw_items = [value]
-    elif isinstance(value, (list, tuple, set)):
-        raw_items = list(value)
-    else:
-        return None, _diag(
-            "research_sources_not_strings",
-            "research(...) sources must be a string or list of strings.",
-            severity="error",
-        )
-    normalized: list[str] = []
-    invalid: list[str] = []
-    for item in raw_items:
-        if not isinstance(item, str):
-            invalid.append(repr(item))
-            continue
-        key = item.strip().casefold()
-        source = _RESEARCH_SOURCE_ALIASES.get(key)
-        if source is None:
-            invalid.append(item)
-            continue
-        if source not in normalized:
-            normalized.append(source)
-    if invalid:
-        return None, _diag(
-            "unsupported_research_source",
-            "research(...) sources must be chosen from workflows, registry, messages, or web.",
-            severity="error",
-            detail={"invalid": invalid, "allowed": ["workflows", "registry", "messages", "web"]},
-        )
-    return tuple(normalized), None
 
 
 # ── I01: Wave-A agent tool surface (budgets + F01 ledger) ────────────────────
@@ -553,86 +237,11 @@ TOOL_FETCH_BUDGET = 6
 TOOL_REGISTRY_BUDGET = 1
 TOOL_PHASE_DEADLINE_SECONDS = 90.0
 
-# Budget class per tool: "search" and "fetch" share their pools;
-# "registry" is exactly one batch per session; None = local advisory tools
-# that are still gated by the phase deadline.
-_TOOL_BUDGET_CLASS: dict[str, str | None] = {
-    "hivemind_search": "search",
-    "web_search": "search",
-    "hivemind_get": "fetch",
-    "node_schema": "fetch",
-    "ready_template_load": "fetch",
-    "registry_lookup": "registry",
-    "ready_template_list": None,
-    "rank_edit_targets": None,
-    "suggest_seed_nodes": None,
-    "layout_hints": None,
-}
-
-# Argument contract per tool: positional names, allowed keywords, required
-# names.  Positional args map onto positional_names in order.
-_TOOL_ARGS: dict[str, dict[str, Any]] = {
-    "hivemind_search": {
-        "positional_names": ("query",),
-        "keywords": frozenset({"query", "filters", "cursor", "limit", "timeout"}),
-        "required": (),
-        "budget": "search",
-    },
-    "hivemind_get": {
-        "positional_names": ("evidence_id",),
-        "keywords": frozenset({"evidence_id", "timeout"}),
-        "required": ("evidence_id",),
-        "budget": "fetch",
-    },
-    "registry_lookup": {
-        "positional_names": ("node_class",),
-        "keywords": frozenset({"node_class"}),
-        "required": ("node_class",),
-        "budget": "registry",
-    },
-    "node_schema": {
-        "positional_names": ("node_class",),
-        "keywords": frozenset({"node_class"}),
-        "required": ("node_class",),
-        "budget": "fetch",
-    },
-    "ready_template_list": {
-        "positional_names": ("capability",),
-        "keywords": frozenset({"capability", "include_dynamic"}),
-        "required": (),
-        "budget": None,
-    },
-    "ready_template_load": {
-        "positional_names": ("template_id",),
-        "keywords": frozenset({"template_id", "include_dynamic", "include_content"}),
-        "required": ("template_id",),
-        "budget": "fetch",
-    },
-    "rank_edit_targets": {
-        "positional_names": ("intent",),
-        "keywords": frozenset({"intent", "max_targets"}),
-        "required": ("intent",),
-        "budget": None,
-    },
-    "suggest_seed_nodes": {
-        "positional_names": ("intent", "constraints"),
-        "keywords": frozenset({"intent", "constraints", "max_suggestions"}),
-        "required": ("intent",),
-        "budget": None,
-    },
-    "layout_hints": {
-        "positional_names": ("operation", "anchors"),
-        "keywords": frozenset({"operation", "anchors"}),
-        "required": ("operation",),
-        "budget": None,
-    },
-    "web_search": {
-        "positional_names": ("query",),
-        "keywords": frozenset({"query", "unresolved_question", "timeout"}),
-        "required": ("query",),
-        "budget": "search",
-    },
-}
+# The per-tool argument contract and budget class live ONCE in the declarative
+# ToolSpec registry (_tool_specs.TOOL_SPECS): ``spec.positional_names`` /
+# ``spec.keywords`` / ``spec.required`` describe the call surface and
+# ``spec.budget_class`` ("search"/"fetch"/"registry"/None) the effort pool.
+# Nothing below re-declares a tool.
 
 _TOOL_REFUSAL_MESSAGES: dict[str, str] = {
     "tool_search_budget_exhausted": (
@@ -650,6 +259,11 @@ _TOOL_REFUSAL_MESSAGES: dict[str, str] = {
     "tool_deadline_exceeded": (
         f"Tool-phase deadline exceeded (about {TOOL_PHASE_DEADLINE_SECONDS:g}s); "
         "further tool calls are refused. Gathered evidence is preserved in the ledger."
+    ),
+    "tool_phase_not_allowed": (
+        "This tool is not available in the current pipeline phase. Research phase "
+        "tools and implement phase tools are strictly partitioned; use only the "
+        "tools documented for your phase and synthesize from the ledger."
     ),
 }
 
@@ -721,30 +335,19 @@ class _AgentToolSurface:
                 self.artifacts[evidence_id] = artifact
 
 
-def _safe_token(value: Any, *, max_chars: int = 48) -> str:
-    """Deterministic slug for generated evidence IDs."""
-    text = re.sub(r"[^a-z0-9_\-]+", "-", str(value or "").strip().casefold()).strip("-")
-    if not text:
-        text = "value"
-    if len(text) > max_chars:
-        text = text[: max_chars - 9] + "-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
-    return text
+def _session_phase(session: Any) -> str | None:
+    """Resolve the session's pipeline phase for tool-call enforcement.
 
-
-def _tool_evidence_id(*parts: str) -> str:
-    return "tool:" + "-".join(_safe_token(part) for part in parts)
-
-
-def _tool_arg_summary(args: Mapping[str, Any], *, max_chars: int = 140) -> str:
-    """Compact, deterministic argument summary for digests."""
-    items: list[str] = []
-    for key in ("query", "evidence_id", "node_class", "template_id", "capability", "intent", "operation"):
-        if key in args:
-            value = str(args[key])
-            items.append(f"{key}={value!r}")
-    if not items:
-        items.extend(f"{key}={value!r}" for key, value in sorted(args.items()))
-    return _shorten_query_text(", ".join(items), max_chars=max_chars)
+    The live batch REPL sets ``session.research_only`` for every route
+    (``edit_batch_repl``), so the phase is always known there.  ``None``
+    (offline/standalone validation without a phase marker) is permissive.
+    """
+    research_only = getattr(session, "research_only", None)
+    if research_only is True:
+        return PHASE_RESEARCH
+    if research_only is False:
+        return PHASE_IMPLEMENT
+    return None
 
 
 def _validate_tool_call_shape(
@@ -753,25 +356,25 @@ def _validate_tool_call_shape(
     kwargs: Mapping[str, Any],
 ) -> list[CompactDiagnostic]:
     """Shape-check one tool call (arity, allowed keywords, required args)."""
-    spec = _TOOL_ARGS[call_name]
+    spec = TOOL_SPEC_BY_NAME[call_name]
     diagnostics: list[CompactDiagnostic] = []
-    if len(args) > len(spec["positional_names"]):
+    if len(args) > len(spec.positional_names):
         diagnostics.append(
             _diag(
                 "tool_too_many_args",
-                f"{call_name}(...) accepts at most {len(spec['positional_names'])} "
+                f"{call_name}(...) accepts at most {len(spec.positional_names)} "
                 "positional argument(s).",
                 severity="error",
             )
         )
-    unknown = sorted(set(kwargs) - spec["keywords"])
+    unknown = sorted(set(kwargs) - spec.keywords)
     if unknown:
         diagnostics.append(
             _diag(
                 "tool_unknown_keyword",
                 f"{call_name}(...) does not accept keyword(s): {', '.join(unknown)}.",
                 severity="error",
-                detail={"keyword": unknown, "allowed": sorted(spec["keywords"])},
+                detail={"keyword": unknown, "allowed": sorted(spec.keywords)},
             )
         )
     duplicated = sorted(set(kwargs) & set(args))
@@ -785,21 +388,21 @@ def _validate_tool_call_shape(
                 severity="error",
             )
         )
-    missing = sorted(set(spec["required"]) - set(args) - set(kwargs))
+    missing = sorted(set(spec.required) - set(args) - set(kwargs))
     if missing:
         diagnostics.append(
             _diag(
                 "tool_arg_required",
                 f"{call_name}(...) requires argument(s): {', '.join(missing)}.",
                 severity="error",
-                detail={"required": list(spec["required"])},
+                detail={"required": list(spec.required)},
             )
         )
     return diagnostics
 
 
 def _consume_tool_budget(
-    call_name: str,
+    spec: ToolSpec,
     surface: _AgentToolSurface,
 ) -> tuple[str | None, Any]:
     """Consume the tool's budget class; return (refusal_code, payload).
@@ -810,7 +413,7 @@ def _consume_tool_budget(
     """
     if surface.deadline_exceeded:
         return "tool_deadline_exceeded", None
-    budget_class = _TOOL_BUDGET_CLASS[call_name]
+    budget_class = spec.budget_class
     if budget_class is None:
         return None, None
     if budget_class == "search":
@@ -830,539 +433,18 @@ def _consume_tool_budget(
     return None, lookup_tools.RegistryLookupBudget(remaining=1)
 
 
-def _invoke_agent_tool(
-    call_name: str,
-    args: Mapping[str, Any],
-    session: Any,
-    surface: _AgentToolSurface,
-    budget_payload: Any,
-) -> ToolResult:
-    """Invoke the Wave-A tool function for one validated tool call."""
-    if call_name == "hivemind_search":
-        mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
-        return mod.hivemind_search(
-            args["query"],
-            filters=args.get("filters"),
-            cursor=args.get("cursor"),
-            limit=args.get("limit", 10),
-            timeout=args.get("timeout", 5.0),
-        )
-    if call_name == "hivemind_get":
-        mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
-        return mod.hivemind_get(args["evidence_id"], timeout=args.get("timeout", 5.0))
-    if call_name == "registry_lookup":
-        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
-        return mod.registry_lookup(args["node_class"], budget=budget_payload)
-    if call_name == "node_schema":
-        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
-        provider = getattr(session, "schema_provider", None)
-        if provider is None:
-            return mod.node_schema(args["node_class"])
-        return mod.node_schema(args["node_class"], provider=provider)
-    if call_name == "ready_template_list":
-        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
-        return mod.ready_template_list(
-            args.get("capability"),
-            include_dynamic=bool(args.get("include_dynamic", False)),
-        )
-    if call_name == "ready_template_load":
-        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
-        return mod.ready_template_load(
-            args["template_id"],
-            include_dynamic=bool(args.get("include_dynamic", False)),
-            include_content=bool(args.get("include_content", True)),
-        )
-    if call_name == "rank_edit_targets":
-        mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
-        return mod.rank_edit_targets(
-            getattr(session, "working_ui", None),
-            args["intent"],
-            explicit=True,
-            max_targets=args.get("max_targets", 4),
-        )
-    if call_name == "suggest_seed_nodes":
-        mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
-        return mod.suggest_seed_nodes(
-            args["intent"],
-            args.get("constraints"),
-            graph=getattr(session, "working_ui", None),
-            explicit=True,
-            max_suggestions=args.get("max_suggestions", 4),
-        )
-    if call_name == "layout_hints":
-        mod = importlib.import_module("vibecomfy.executor.layout_hints")
-        return mod.layout_hints_tool(
-            getattr(session, "working_ui", None),
-            args["operation"],
-            anchors=args.get("anchors"),
-        )
-    if call_name == "web_search":
-        mod = importlib.import_module("vibecomfy.executor.web_tools")
-        enabled = bool(getattr(session, "web_search_enabled", True))
-        return mod.web_search(
-            args["query"],
-            unresolved_question=args.get("unresolved_question"),
-            enabled=enabled,
-            timeout=args.get("timeout", 5.0),
-        )
-    raise ValueError(f"Unknown agent tool {call_name!r}.")
-
-
-# ── Evidence extraction + compact digests (one per tool) ─────────────────────
-
-
-def _status_ledger_entry(call_name: str, result: ToolResult) -> dict[str, Any]:
-    """Compact ledger entry for a non-ok tool result (typed state preserved)."""
-    status = result.status.value
-    message = result.diagnostics[0].message if result.diagnostics else status
-    retry = ""
-    if result.retry_after_seconds is not None:
-        retry = f" (retry_after={result.retry_after_seconds:g}s)"
-    return _ledger_entry_dict(
-        decision=f"{call_name}",
-        conclusion=f"{status}{retry}: {message}",
-        evidence_ids=(),
-        uncertainty="",
-    )
-
-
-def _ledger_entry_dict(
-    decision: str,
-    conclusion: str,
-    evidence_ids: tuple[str, ...],
-    uncertainty: str = "",
-) -> dict[str, Any]:
-    return {
-        "decision": decision,
-        "conclusion": conclusion,
-        "evidence_ids": list(evidence_ids),
-        "uncertainty": uncertainty,
-    }
-
-
-def _hit_line(hit: Mapping[str, Any], index: int) -> str:
-    title = _shorten_query_text(
-        hit.get("title") or hit.get("body") or "(untitled)", max_chars=90
-    )
-    url = str(hit.get("url") or "")
-    suffix = f" {url}" if url else ""
-    return f"  hit {index}: {title} [{hit.get('evidence_id') or '?'}]{suffix}"
-
-
-def _hivemind_search_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    hits = [hit for hit in (body.get("hits") or ()) if isinstance(hit, Mapping)]
-    artifacts: dict[str, EvidenceArtifact] = {}
-    for hit in hits:
-        evidence_id = str(hit.get("evidence_id") or "")
-        if not evidence_id:
-            continue
-        artifacts[evidence_id] = EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="hivemind_search_hit",
-            body=dict(hit),
-            source="hivemind",
-        )
-    ids = tuple(artifacts)
-    titles = [_shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80) for hit in hits]
-    conclusion = f"{len(hits)} hit(s)"
-    if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
-    entry = _ledger_entry_dict(
-        decision=f"hivemind_search {_tool_arg_summary(args)}",
-        conclusion=conclusion,
-        evidence_ids=ids,
-        uncertainty="",
-    )
-    lines = [f"hivemind_search({_tool_arg_summary(args)}) — ok: {len(hits)} hit(s)"]
-    lines.extend(_hit_line(hit, index) for index, hit in enumerate(hits, start=1))
-    if body.get("has_more") and body.get("next_cursor"):
-        lines.append(f"  more available; next_cursor={body.get('next_cursor')!r}")
-    return artifacts, entry, "\n".join(lines)
-
-
-def _hivemind_get_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    row = body.get("row") if isinstance(body.get("row"), Mapping) else {}
-    evidence_id = str(
-        body.get("evidence_id")
-        or (result.evidence_ids[0] if result.evidence_ids else "")
-        or ""
-    )
-    artifacts: dict[str, EvidenceArtifact] = {}
-    if evidence_id:
-        artifacts[evidence_id] = EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="hivemind_record",
-            body=dict(row) if row else {},
-            source=str(body.get("source_type") or "hivemind"),
-        )
-    ids = (evidence_id,) if evidence_id else ()
-    source_type = str(body.get("source_type") or "record")
-    title = _shorten_query_text(
-        row.get("title") or row.get("name") or row.get("class_type") or "", max_chars=120
-    )
-    conclusion = f"{source_type} record {evidence_id}" + (f": {title}" if title else "")
-    entry = _ledger_entry_dict(
-        decision=f"hivemind_get {evidence_id!r}",
-        conclusion=conclusion,
-        evidence_ids=ids,
-        uncertainty="",
-    )
-    lines = [f"hivemind_get({_tool_arg_summary(args)}) — ok: {source_type} record"]
-    if title:
-        lines.append(f"  title: {title}")
-    for key in ("url", "author", "channel", "created_at", "status", "confidence", "score"):
-        if key in row and row[key] is not None and str(row[key]).strip():
-            lines.append(f"  {key}: {_shorten_query_text(str(row[key]), max_chars=140)}")
-    return artifacts, entry, "\n".join(lines)
-
-
-def _web_search_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    results = [item for item in (body.get("results") or ()) if isinstance(item, Mapping)]
-    artifacts: dict[str, EvidenceArtifact] = {}
-    for rank, item in enumerate(results):
-        evidence_id = result.evidence_ids[rank] if rank < len(result.evidence_ids) else ""
-        if not evidence_id:
-            continue
-        artifacts[evidence_id] = EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="web_search_result",
-            body=dict(item),
-            source="web",
-        )
-    ids = tuple(artifacts)
-    titles = [_shorten_query_text(item.get("title") or "", max_chars=80) for item in results]
-    conclusion = f"{len(results)} result(s)"
-    if titles:
-        conclusion += ": " + " | ".join(titles)[:380]
-    entry = _ledger_entry_dict(
-        decision=f"web_search {_tool_arg_summary(args)}",
-        conclusion=conclusion,
-        evidence_ids=ids,
-        uncertainty="",
-    )
-    lines = [f"web_search({_tool_arg_summary(args)}) — ok: {len(results)} result(s)"]
-    for index, item in enumerate(results, start=1):
-        evidence_id = result.evidence_ids[index - 1] if index - 1 < len(result.evidence_ids) else ""
-        lines.append(
-            f"  result {index}: {_shorten_query_text(item.get('title') or '(untitled)', max_chars=90)} "
-            f"[{evidence_id or '?'}] {item.get('url') or ''}".rstrip()
-        )
-        snippet = str(item.get("snippet") or "").strip()
-        if snippet:
-            lines.append(f"    {_shorten_query_text(snippet, max_chars=180)}")
-    return artifacts, entry, "\n".join(lines)
-
-
-def _registry_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    node_class = str(body.get("node_class") or args.get("node_class") or "class")
-    evidence_id = _tool_evidence_id("registry_lookup", node_class)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="registry_resolution",
-            body=dict(body),
-            source="comfy-registry",
-        )
-    }
-    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
-    candidate_text = "; ".join(
-        _shorten_query_text(
-            str(c.get("ref", {}).get("slug") or c.get("ref", {}).get("name") or "pack"), max_chars=60
-        )
-        for c in candidates
-    )
-    conclusion = (
-        f"exact ownership: {bool(body.get('exact_ownership'))}"
-        + (f"; candidates: {candidate_text}" if candidate_text else "")
-    )
-    entry = _ledger_entry_dict(
-        decision=f"registry_lookup {node_class!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [
-        f"registry_lookup({_tool_arg_summary(args)}) — ok: exact ownership "
-        f"{bool(body.get('exact_ownership'))}"
-    ]
-    for candidate in candidates:
-        ref = candidate.get("ref") if isinstance(candidate.get("ref"), Mapping) else {}
-        expected = candidate.get("expected_classes") or ()
-        lines.append(
-            f"  pack {ref.get('slug') or ref.get('name') or '?'} ({ref.get('source') or '?'}) "
-            f"expected_classes={list(expected) if isinstance(expected, (list, tuple)) else expected}"
-        )
-    return artifacts, entry, "\n".join(lines)
-
-
-def _node_schema_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    class_type = str(body.get("class_type") or args.get("node_class") or "class")
-    evidence_id = _tool_evidence_id("node_schema", class_type)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="node_schema",
-            body=dict(body),
-            source="schema",
-        )
-    }
-    inputs = body.get("input_names") or ()
-    outputs = body.get("outputs") or ()
-    output_text = ", ".join(
-        str(output.get("type") or "") for output in outputs if isinstance(output, Mapping)
-    )
-    conclusion = (
-        f"class {class_type} available: {bool(body.get('available'))}"
-        + (f"; inputs: {len(inputs)}; outputs: [{output_text}]" if output_text else "")
-    )
-    entry = _ledger_entry_dict(
-        decision=f"node_schema {class_type!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [
-        f"node_schema({_tool_arg_summary(args)}) — ok: available={bool(body.get('available'))}",
-        f"  inputs: {', '.join(str(item) for item in inputs) or '(none)'}",
-        f"  outputs: [{output_text}]",
-    ]
-    return artifacts, entry, "\n".join(lines)
-
-
-def _ready_template_list_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    filter_text = str(body.get("filter") or args.get("capability") or "all")
-    evidence_id = _tool_evidence_id("ready_template_list", filter_text or "all")
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="ready_template_inventory",
-            body=dict(body),
-            source="ready_templates",
-        )
-    }
-    rows = [row for row in (body.get("templates") or ()) if isinstance(row, Mapping)]
-    ids = [str(row.get("id") or "") for row in rows]
-    conclusion = f"{body.get('count', len(rows))} template(s) for filter {filter_text!r}"
-    if ids:
-        conclusion += ": " + ", ".join(ids)[:380]
-    entry = _ledger_entry_dict(
-        decision=f"ready_template_list {filter_text!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [
-        f"ready_template_list({_tool_arg_summary(args)}) — ok: {len(rows)} template(s)",
-        *[f"  - {template_id}" for template_id in ids],
-    ]
-    return artifacts, entry, "\n".join(lines)
-
-
-def _ready_template_load_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    template_id = str(body.get("id") or args.get("template_id") or "template")
-    evidence_id = _tool_evidence_id("ready_template_load", template_id)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="ready_template",
-            body=dict(body),
-            source="ready_templates",
-        )
-    }
-    conclusion = (
-        f"template {template_id} sha256={body.get('sha256')} size={body.get('size_bytes')}"
-    )
-    entry = _ledger_entry_dict(
-        decision=f"ready_template_load {template_id!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [
-        f"ready_template_load({_tool_arg_summary(args)}) — ok",
-        f"  id: {template_id} path: {body.get('path') or ''} scope: {body.get('scope') or ''}",
-        f"  sha256: {body.get('sha256')} size: {body.get('size_bytes')} bytes",
-    ]
-    content = body.get("content")
-    if isinstance(content, str) and content.strip():
-        excerpt = _shorten_query_text(content, max_chars=1200)
-        truncated = " [truncated]" if len(content) > 1200 else ""
-        lines.append(f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}")
-    return artifacts, entry, "\n".join(lines)
-
-
-def _rank_edit_targets_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    intent = str(body.get("intent") or args.get("intent") or "intent")
-    evidence_id = _tool_evidence_id("rank_edit_targets", intent)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="edit_target_ranking",
-            body=dict(body),
-            source="graph",
-        )
-    }
-    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
-    labels = [_shorten_query_text(str(c.get("class_type") or c.get("node_id") or "?"), max_chars=60) for c in candidates]
-    conclusion = f"case={body.get('case')}; {len(candidates)} candidate(s)"
-    if labels:
-        conclusion += ": " + ", ".join(labels)[:380]
-    entry = _ledger_entry_dict(
-        decision=f"rank_edit_targets {intent!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [f"rank_edit_targets({_tool_arg_summary(args)}) — ok: case={body.get('case')}"]
-    for candidate in candidates:
-        lines.append(
-            f"  - {candidate.get('class_type')} [{candidate.get('node_id')}] "
-            f"score={candidate.get('score')}: {_shorten_query_text(str(candidate.get('reason') or ''), max_chars=140)}"
-        )
-    return artifacts, entry, "\n".join(lines)
-
-
-def _suggest_seed_nodes_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    intent = str(body.get("intent") or args.get("intent") or "intent")
-    evidence_id = _tool_evidence_id("suggest_seed_nodes", intent)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="seed_suggestions",
-            body=dict(body),
-            source="seed_index",
-        )
-    }
-    suggestions = [s for s in (body.get("suggestions") or ()) if isinstance(s, Mapping)]
-    classes = [_shorten_query_text(str(s.get("class_type") or "?"), max_chars=60) for s in suggestions]
-    conclusion = f"case={body.get('case')}; {len(suggestions)} suggestion(s)"
-    if classes:
-        conclusion += ": " + ", ".join(classes)[:380]
-    entry = _ledger_entry_dict(
-        decision=f"suggest_seed_nodes {intent!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [f"suggest_seed_nodes({_tool_arg_summary(args)}) — ok: case={body.get('case')}"]
-    for suggestion in suggestions:
-        lines.append(
-            f"  - {suggestion.get('class_type')} ({suggestion.get('role')}) "
-            f"score={suggestion.get('score')}: {_shorten_query_text(str(suggestion.get('reason') or ''), max_chars=140)}"
-        )
-    return artifacts, entry, "\n".join(lines)
-
-
-def _layout_hints_evidence(
-    args: Mapping[str, Any], result: ToolResult
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    operation = str(body.get("operation") or args.get("operation") or "operation")
-    evidence_id = _tool_evidence_id("layout_hints", operation)
-    artifacts = {
-        evidence_id: EvidenceArtifact(
-            evidence_id=evidence_id,
-            kind="layout_hints",
-            body=dict(body),
-            source="graph",
-        )
-    }
-    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
-    candidate_text = "; ".join(
-        _shorten_query_text(f"{c.get('target')} ({c.get('kind')})", max_chars=60)
-        for c in candidates
-    )
-    conclusion = (
-        f"operation={operation}; {len(candidates)} candidate(s)"
-        + (f": {candidate_text}" if candidate_text else "")
-    )
-    entry = _ledger_entry_dict(
-        decision=f"layout_hints {operation!r}",
-        conclusion=conclusion,
-        evidence_ids=(evidence_id,),
-        uncertainty="",
-    )
-    lines = [f"layout_hints({_tool_arg_summary(args)}) — ok: {len(candidates)} candidate(s)"]
-    for candidate in candidates:
-        position = candidate.get("position")
-        position_text = f" position={position}" if position is not None else ""
-        lines.append(
-            f"  - {candidate.get('target')} ({candidate.get('kind')}){position_text}: "
-            f"{_shorten_query_text(str(candidate.get('reason') or ''), max_chars=140)}"
-        )
-    return artifacts, entry, "\n".join(lines)
-
-
-def _tool_evidence(
-    call_name: str,
-    args: Mapping[str, Any],
-    result: ToolResult,
-    session: Any,
-) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
-    """Return (artifacts, ledger_entry, digest) for one completed tool call."""
-    if result.status is not ToolStatus.OK:
-        return {}, _status_ledger_entry(call_name, result), _format_tool_digest(call_name, args, result)
-    if call_name == "hivemind_search":
-        return _hivemind_search_evidence(args, result)
-    if call_name == "hivemind_get":
-        return _hivemind_get_evidence(args, result)
-    if call_name == "web_search":
-        return _web_search_evidence(args, result)
-    if call_name == "registry_lookup":
-        return _registry_evidence(args, result)
-    if call_name == "node_schema":
-        return _node_schema_evidence(args, result)
-    if call_name == "ready_template_list":
-        return _ready_template_list_evidence(args, result)
-    if call_name == "ready_template_load":
-        return _ready_template_load_evidence(args, result)
-    if call_name == "rank_edit_targets":
-        return _rank_edit_targets_evidence(args, result)
-    if call_name == "suggest_seed_nodes":
-        return _suggest_seed_nodes_evidence(args, result)
-    if call_name == "layout_hints":
-        return _layout_hints_evidence(args, result)
-    raise ValueError(f"Unknown agent tool {call_name!r}.")
-
-
-def _format_tool_digest(call_name: str, args: Mapping[str, Any], result: ToolResult) -> str:
-    """Compact digest for the CURRENT turn; never raw result bodies."""
-    if result.status is ToolStatus.OK:
-        # ok digests are built by the per-tool evidence helpers
-        return ""
+def _format_tool_phase_refusal_output(
+    call_name: str, args: Mapping[str, Any], phase: str, surface: _AgentToolSurface
+) -> str:
     summary = _tool_arg_summary(args)
-    message = result.diagnostics[0].message if result.diagnostics else result.status.value
-    retry = ""
-    if result.retry_after_seconds is not None:
-        retry = f" (retry_after={result.retry_after_seconds:g}s)"
-    return f"{call_name}({summary}) — {result.status.value}{retry}: {message}"
+    allowed = ", ".join(sorted(spec.name for spec in TOOL_SPECS if spec.phase == phase))
+    return (
+        f"{call_name}({summary}) — refused: tool_phase_not_allowed\n"
+        f"  {_TOOL_REFUSAL_MESSAGES['tool_phase_not_allowed']}\n"
+        f"  Tools available in the {phase} phase: {allowed}.\n"
+        f"  Gathered evidence is preserved: {surface.snapshot()['ledger_entries']} ledger "
+        f"entry/entries — synthesize from the ledger and call done()."
+    )
 
 
 def _format_tool_refusal_output(
@@ -1525,7 +607,7 @@ class _ResolveMixin:
                 diagnostics=(
                     _diag(
                         "unsupported_query_call",
-                        "Only search(...), research(...), python(), done(), and the ten "
+                        "Only search(...), python(), done(), and the ten "
                         "agent tool calls (hivemind_search, hivemind_get, registry_lookup, "
                         "ready_template_list, ready_template_load, rank_edit_targets, "
                         "suggest_seed_nodes, layout_hints, web_search) are supported as "
@@ -1603,202 +685,36 @@ class _ResolveMixin:
             )
 
         if call_name == "research":
-            diagnostics: list[CompactDiagnostic] = []
+            # Wave D: the deterministic research engine is gone; the agent-owned
+            # research surface is the named tool calls.  This legacy statement is
+            # an unconditional typed refusal — no argument validation, no source
+            # machinery.  A best-effort constant fold keeps the query in the
+            # detail for consumers that pinned the legacy refusal shape.
             query: str | None = None
-            requested_sources: tuple[str, ...] | None = None
-            if len(call.args) > 1:
-                diagnostics.append(
-                    _diag(
-                        "research_arguments_not_allowed",
-                        "research(...) accepts exactly one string query.",
-                        severity="error",
-                    )
-                )
-            elif call.args:
-                value, diagnostic = _fold_constant(call.args[0], env=env)
-                if diagnostic is not None:
-                    diagnostics.append(diagnostic)
-                elif not isinstance(value, str) or not value.strip():
-                    diagnostics.append(
-                        _diag(
-                            "research_query_not_string",
-                            "research(...) query must be a non-empty string.",
-                            severity="error",
-                        )
-                    )
-                else:
+            if call.args:
+                value, _ = _fold_constant(call.args[0], env=env)
+                if isinstance(value, str) and value.strip():
                     query = value.strip()
-            for keyword in call.keywords:
-                if keyword.arg is None:
-                    diagnostics.append(
-                        _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
-                    )
-                    continue
-                if keyword.arg not in {"query", "sources"}:
-                    diagnostics.append(
-                        _diag(
-                            "unsupported_research_keyword",
-                            f"research(...) does not accept keyword {keyword.arg!r}.",
-                            severity="error",
-                            detail={"keyword": keyword.arg, "allowed": ["query", "sources"]},
-                        )
-                    )
-                    continue
-                if keyword.arg == "sources":
-                    value, diagnostic = _fold_constant(keyword.value, env=env)
-                    if diagnostic is not None:
-                        diagnostics.append(diagnostic)
-                        continue
-                    requested_sources, source_diagnostic = _normalize_research_sources(value)
-                    if source_diagnostic is not None:
-                        diagnostics.append(source_diagnostic)
-                    continue
-                if query is not None:
-                    diagnostics.append(
-                        _diag(
-                            "research_query_duplicated",
-                            "research(...) accepts the query either positionally or as query=, not both.",
-                            severity="error",
-                        )
-                    )
-                    continue
-                value, diagnostic = _fold_constant(keyword.value, env=env)
-                if diagnostic is not None:
-                    diagnostics.append(diagnostic)
-                elif not isinstance(value, str) or not value.strip():
-                    diagnostics.append(
-                        _diag(
-                            "research_query_not_string",
-                            "research(...) query must be a non-empty string.",
-                            severity="error",
-                        )
-                    )
-                else:
-                    query = value.strip()
-            if query is None and not diagnostics:
-                diagnostics.append(
-                    _diag(
-                        "research_query_required",
-                        "research(...) requires a non-empty string query.",
-                        severity="error",
-                    )
-                )
-            if diagnostics:
-                return StatementResult(
-                    statement_index=statement_index,
-                    source=source,
-                    ok=False,
-                    landed=False,
-                    op_kind="query",
-                    diagnostics=tuple(diagnostics),
-                    detail={"query": "research"},
-                )
-            assert query is not None
-            try:
-                # The deterministic research engine was deleted (Wave D). The
-                # agent-owned research surface is the ten named tool calls
-                # (hivemind_search/hivemind_get/registry_lookup/node_schema/
-                # ready_template_list/ready_template_load/rank_edit_targets/
-                # suggest_seed_nodes/layout_hints/web_search) integrated by I01.
-                # This legacy statement fails closed with guidance instead of
-                # ImportError so agents migrate off it.
-                raise RuntimeError(
-                    "research(...) is no longer supported: the deterministic research "
-                    "engine was removed (agent-judgment rework). Use the named tool "
-                    "statements instead: hivemind_search/hivemind_get/registry_lookup/"
-                    "node_schema/ready_template_list/ready_template_load/"
-                    "rank_edit_targets/suggest_seed_nodes/layout_hints/web_search."
-                )
-            except Exception as exc:  # noqa: BLE001 - report query failures in-band
-                return StatementResult(
-                    statement_index=statement_index,
-                    source=source,
-                    ok=False,
-                    landed=False,
-                    op_kind="query",
-                    diagnostics=(
-                        _diag(
-                            "research_query_failed",
-                            f"research(...) failed: {exc}",
-                            severity="error",
-                        ),
-                    ),
-                    detail={"query": "research", "research_query": query},
-                )
-            # ── build inline research detail ────────────────────────────
-            detail: dict[str, Any] = {
-                "query": "research",
-                "research_query": query,
-                # I01/H01: research() is legacy and remains callable ONLY for
-                # shadow comparison against the named tool calls; it is flagged
-                # here and in the prompt so consumers can ignore its output.
-                "legacy_shadow_only": True,
-                "research_sources": tuple(source for source in requested_source_tuple if source in source_set),
-                "requested_research_sources": requested_source_tuple,
-                # B03 structured carry: message/distillation sources (cap 12),
-                # community paragraph, and summary survive into next-turn
-                # memory + the REPL fold.  Underscore audit keys are dropped
-                # except the three public stamp keys.  No evidence_card.
-                "research_result_sources": [
-                    {
-                        k: v
-                        for k, v in src.items()
-                        if not str(k).startswith("_")
-                        or k in {"_tier", "_freshness_status", "_retrieval_time"}
-                    }
-                    for src in (getattr(output, "sources", ()) or ())[:12]
-                ],
-                "community_summary": getattr(output, "community_summary", "") or "",
-                "research_summary": getattr(output, "summary", "") or "",
-                "resolver_candidates": [
-                    source.get("resolver_candidate")
-                    for source in getattr(output, "sources", ()) or ()
-                    if isinstance(source, Mapping) and isinstance(source.get("resolver_candidate"), Mapping)
-                ],
-                "workflow_schema_candidates": [
-                    {
-                        "pack": {
-                            "name": source.get("class_type") or source.get("pack") or "workflow_json",
-                            "slug": source.get("pack") or "workflow_json",
-                            "source": source.get("source") or "external_workflow",
-                            "url": source.get("url") or "",
-                        },
-                        "provisional_schema": {
-                            "version": "workflow-json",
-                            "schema": {"nodes": source.get("workflow_schema")},
-                            "runnable": False,
-                        },
-                        "expected_classes": source.get("workflow_schema_classes") or [],
-                        "validation_mode": "workflow_json_provisional",
-                        "warnings": ["Schema derived from workflow JSON UI sockets; runtime node pack is not installed."],
-                    }
-                    for source in getattr(output, "sources", ()) or ()
-                    if isinstance(source, Mapping) and isinstance(source.get("workflow_schema"), Mapping)
-                ],
-            }
-            # ── structured evidence fields (neutral, no recommendation) ─
-            precedent_packet = getattr(output, "precedent_packet", None)
-            if precedent_packet is not None:
-                detail["precedent_packet"] = precedent_packet.to_dict()
-            precedent_slices = getattr(output, "precedent_slices", ()) or ()
-            if precedent_slices:
-                detail["precedent_slices"] = [
-                    s.to_dict() for s in precedent_slices
-                ]
-            adaptation_plan = getattr(output, "adaptation_plan", None)
-            if adaptation_plan is not None:
-                detail["adaptation_plan"] = adaptation_plan.to_dict()
-            # ── formatted evidence/context output ────────────────────────
-            detail["query_output"] = (
-                _format_research_query_output(output)
-                + _research_followup_guidance(query, requested_source_tuple, output)
-            )
+            detail: dict[str, Any] = {"query": "research"}
+            if query is not None:
+                detail["research_query"] = query
             return StatementResult(
                 statement_index=statement_index,
                 source=source,
-                ok=True,
+                ok=False,
                 landed=False,
                 op_kind="query",
+                diagnostics=(
+                    _diag(
+                        "research_query_failed",
+                        "research(...) is no longer supported: the deterministic research "
+                        "engine was removed (agent-judgment rework). Use the named tool "
+                        "statements instead: hivemind_search/hivemind_get/registry_lookup/"
+                        "node_schema/ready_template_list/ready_template_load/"
+                        "rank_edit_targets/suggest_seed_nodes/layout_hints/web_search.",
+                        severity="error",
+                    ),
+                ),
                 detail=detail,
             )
 
@@ -1896,18 +812,20 @@ class _ResolveMixin:
         env: Mapping[str, Any],
         call_name: str,
     ) -> StatementResult:
-        """Resolve one Wave-A agent tool call (I01).
+        """Resolve one agent tool call (I01/C01).
 
         Folds arguments (constants only — parse already validated), shape
-        checks against ``_TOOL_ARGS``, enforces the effort budget (typed
-        refusal, evidence preserved), invokes the Wave-A tool, and records a
-        compact F01 ledger entry plus evidence artifacts on the session's
-        :class:`_AgentToolSurface`.  The statement detail carries the typed
-        status, ledger entry, budget snapshot, and a compact current-turn
-        digest — never the raw result body.
+        checks the declarative :class:`ToolSpec`, enforces the per-phase
+        allowlist (research vs implement — a tool outside the session's phase
+        is a typed refusal, never a leak), enforces the effort budget (typed
+        refusal, evidence preserved), invokes the tool through its registered
+        handler, and records a compact F01 ledger entry plus evidence
+        artifacts on the session's :class:`_AgentToolSurface`.  The statement
+        detail carries the typed status, ledger entry, budget snapshot, and a
+        compact current-turn digest — never the raw result body.
         """
-        spec = _TOOL_ARGS[call_name]
-        positional_names = spec["positional_names"]
+        spec = TOOL_SPEC_BY_NAME[call_name]
+        positional_names = spec.positional_names
         args: dict[str, Any] = {}
         kwargs: dict[str, Any] = {}
         diagnostics: list[CompactDiagnostic] = []
@@ -1952,7 +870,29 @@ class _ResolveMixin:
         merged = dict(args)
         merged.update(kwargs)
         surface = self._agent_tool_surface()
-        refusal_code, budget_payload = _consume_tool_budget(call_name, surface)
+        phase = _session_phase(self)
+        if phase is not None and not phase_allows(phase, call_name):
+            return StatementResult(
+                statement_index=statement_index,
+                source=source,
+                ok=True,
+                landed=False,
+                op_kind="query",
+                detail={
+                    "query": call_name,
+                    "tool_call": call_name,
+                    "tool_status": ToolStatus.REFUSED.value,
+                    "tool_code": "tool_phase_not_allowed",
+                    "tool_message": _TOOL_REFUSAL_MESSAGES["tool_phase_not_allowed"],
+                    "tool_evidence_ids": list(surface.ledger_evidence_ids()),
+                    "ledger_entry": None,
+                    "tool_budget": surface.snapshot(),
+                    "query_output": _format_tool_phase_refusal_output(
+                        call_name, merged, phase, surface
+                    ),
+                },
+            )
+        refusal_code, budget_payload = _consume_tool_budget(spec, surface)
         if refusal_code is not None:
             return self._tool_refusal_statement(
                 statement_index=statement_index,
@@ -1963,7 +903,7 @@ class _ResolveMixin:
                 refusal_code=refusal_code,
             )
         try:
-            result = _invoke_agent_tool(call_name, merged, self, surface, budget_payload)
+            result = invoke_tool(spec, self, merged, budget_payload)
         except Exception as exc:  # noqa: BLE001 - report tool failures in-band
             return StatementResult(
                 statement_index=statement_index,
@@ -1980,7 +920,7 @@ class _ResolveMixin:
                 ),
                 detail={"query": call_name, "tool_call": call_name},
             )
-        artifacts, entry, digest = _tool_evidence(call_name, merged, result, self)
+        artifacts, entry, digest = project_tool_evidence(spec, merged, result, self)
         surface.append(entry, artifacts)
         code = result.diagnostics[0].code if result.diagnostics else None
         message = result.diagnostics[0].message if result.diagnostics else ""

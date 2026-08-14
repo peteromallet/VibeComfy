@@ -1,25 +1,25 @@
-"""H01 — Agent-owned research in shadow/dual-evaluation mode.
+"""C1 — Agent-owned research stage (tool-calling agent phase).
 
-Covers the four H01 acceptance criteria:
+Covers the active research-phase contract:
 
-1. The shadow result cannot alter route, graph, reply, or queue decisions —
-   the legacy path output stays byte-identical whether the shadow succeeds
-   or fails.
-2. The agent trace proves an explicit question and an enough/refine judgment
-   (recorded in the F01 evidence ledger).
-3. No full legacy result or workflow schema dump is injected into the model
-   request (behavioral capture + source grep).
-4. The dual report compares evidence coverage, citation validity, and
-   lifecycle assertions; the headless artifact writer persists the shadow
-   report and BOTH evidence packs.
+1. The agent trace proves an explicit question recorded BEFORE any tool call
+   (question-before-search) and an enough/refine verdict in the F01 ledger.
+2. The AGENT chooses every tool call (call/finish decisions); deterministic
+   Python only executes the chosen calls and enforces the research-phase
+   allowlist (hivemind_search / hivemind_get / registry_lookup — never
+   implement-phase tools).
+3. No full research result or workflow schema dump is injected into the model
+   request (behavioral capture + source grep); the digest carries only compact
+   tool statuses, evidence IDs, and previews.
+4. Effort budgets (3 searches / 6 fetches / 1 registry / ~90s) and the phase
+   deadline terminate the loop deterministically.
 
-All model calls, Hivemind tools, and the legacy research phase are faked and
-deterministic — no network, no ComfyUI boot, no Arnold imports.
+All model calls and Hivemind tools are faked and deterministic — no network,
+no ComfyUI boot, no Arnold imports.
 """
 
 from __future__ import annotations
 
-import json
 import textwrap
 from pathlib import Path
 from typing import Any, Callable
@@ -31,39 +31,9 @@ from vibecomfy.executor import agent_research_stage as stage
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
-    ExecutorResult,
-    Report,
 )
 from vibecomfy.executor.profiles import AgentSpecShape, set_profile_override_dir
 from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
-
-
-class _LegacyResult:
-    """Duck-typed stand-in for the deleted legacy research-result contract.
-
-    The legacy ``ResearchResult`` class was removed by the agent-judgment
-    rework (D02); the shadow/dual-evaluation seam consumes this shape via
-    ``getattr`` and ``Report`` requires a ``to_dict()``-bearing research
-    result, so the fixture keeps a minimal local replica for test patching.
-    """
-
-    def __init__(
-        self,
-        summary: str = "",
-        sources: tuple = (),
-        warnings: tuple = (),
-        community_summary: str = "",
-    ) -> None:
-        self.summary = summary
-        self.sources = sources
-        self.warnings = warnings
-        self.community_summary = community_summary
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "summary": self.summary,
-            "sources": list(self.sources),
-        }
 
 # ── Profile fixture (research/adapt routes need a resolved research spec) ────
 
@@ -105,7 +75,6 @@ def profile_dir(tmp_path: Path) -> Path:
 # ── Deterministic fakes ──────────────────────────────────────────────────────
 
 _EXPLICIT_QUESTION = "Which node chain produces audio-conditioned Wan video?"
-_REFINED_QUESTION = "Which LoadAudio node chain produces audio-conditioned Wan video?"
 
 
 def _research_plan() -> ClassifyDecision:
@@ -121,22 +90,6 @@ def _research_plan() -> ClassifyDecision:
         research_goal=_EXPLICIT_QUESTION,
         search_directions=("audio-conditioned Wan video node chains",),
         source_preferences=("workflows", "messages", "web"),
-    )
-
-
-def _adapt_plan() -> ClassifyDecision:
-    """Adapt classifier plan (research + implement) with a change goal."""
-    return ClassifyDecision(
-        research=True,
-        implement=True,
-        reply=True,
-        effort="medium",
-        plan_summary="adapt graph to add audio conditioning",
-        route="adapt",
-        task="edit_graph",
-        research_goal=_EXPLICIT_QUESTION,
-        change_goal="add audio conditioning to the Wan video graph",
-        intent="edit",
     )
 
 
@@ -195,88 +148,35 @@ def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
     )
 
 
-def _judge(judge_log: list[dict[str, Any]]) -> Callable[[str, str], dict[str, Any]]:
-    """Synthesize/enough judgment: refine once, then enough on the refined q."""
+def _agent_judge(judge_log: list[dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Tool-calling agent: search → get → finish (each decision is the AGENT's).
 
-    def judge(question: str, digest: str) -> dict[str, Any]:
+    The first turn calls ``hivemind_search``, the second resolves the top hit
+    with ``hivemind_get``, and the third finishes with resolvable citations.
+    """
+
+    def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         judge_log.append({"question": question, "digest": digest})
-        if "LoadAudio" in question:
+        if "hivemind_search →" not in digest:
             return {
-                "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
-                "evidence_ids": ["hivemind:workflows:111", "hivemind_get:workflows:111"],
-                "uncertainty": "low",
-                "enough": True,
-                "refine_question": None,
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question},
+            }
+        if "hivemind_get →" not in digest:
+            return {
+                "action": "call",
+                "tool": "hivemind_get",
+                "args": {"evidence_id": "hivemind:workflows:111"},
             }
         return {
-            "conclusion": "evidence too broad; need audio-conditioned Wan specifics",
-            "evidence_ids": [],
-            "uncertainty": "medium",
-            "enough": False,
-            "refine_question": _REFINED_QUESTION,
+            "action": "finish",
+            "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
+            "evidence_ids": ["hivemind:workflows:111", "hivemind_get:workflows:111"],
+            "uncertainty": "low",
         }
 
     return judge
-
-
-def _raising_judge(question: str, digest: str) -> dict[str, Any]:
-    raise RuntimeError("shadow judge crashed")
-
-
-def _fake_classify_research_only(*args: Any, **kwargs: Any) -> ClassifyDecision:
-    return _research_plan()
-
-
-def _fake_classify_adapt(*args: Any, **kwargs: Any) -> ClassifyDecision:
-    return _adapt_plan()
-
-
-def _fake_reply(
-    query: str,
-    *,
-    route: str = "",
-    model: str = "",
-    plan: ClassifyDecision | None = None,
-    research_summary: str | None = None,
-    implementation_message: str | None = None,
-    **kwargs: Any,
-) -> str:
-    return "Audio-conditioned Wan uses LoadAudio before the video model."
-
-
-def _fake_legacy_research(query: str, **kwargs: Any) -> _LegacyResult:
-    """Fake legacy deterministic research with distinctive marker text."""
-    return _LegacyResult(
-        summary=f"Deterministic research for: {query}",
-        sources=(
-            {
-                "source": "object_info",
-                "kind": "node",
-                "title": "KSampler",
-                "class_type": "KSampler",
-                "description": "K-Sampler node for ComfyUI",
-                "pack": "core",
-            },
-        ),
-        warnings=(),
-    )
-
-
-def _fake_edit_response(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "ok": True,
-        "graph": {"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
-        "message": "Candidate ready.",
-        "graph_unchanged": False,
-        "outcome": {"kind": "candidate"},
-        "apply_eligibility": {"applyable": True},
-        "session_id": "sess-h01",
-        "turn_id": "0001",
-    }
-
-
-def _canonical_bytes(payload: Any) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _all_strings(payload: Any) -> list[str]:
@@ -293,309 +193,252 @@ def _all_strings(payload: Any) -> list[str]:
     return out
 
 
-# ── Acceptance 1: shadow cannot alter route/graph/reply/queue decisions ──────
-
-
-class LegacyShadowCannotAlterDecisions:
-    def test_research_route_output_byte_identical_shadow_ok_vs_failed(
-        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A shadow success vs a shadow failure leaves the legacy path output
-        byte-identical (route/graph/reply unchanged; shadow invisible on the
-        legacy wire)."""
-        from vibecomfy.executor import core as executor_core
-
-        monkeypatch.setenv("VIBECOMFY_RESEARCH_SHADOW", "1")
-        monkeypatch.setattr(executor_core, "run_classify_turn", _fake_classify_research_only)
-        monkeypatch.setattr(executor_core, "run_reply_turn", _fake_reply)
-        monkeypatch.setattr(executor_core, "run_research_phase", _fake_legacy_research)
-        # The real C1 stage runs inside run_executor with its default tool and
-        # judgment seams, so the module-level defaults must be patched.
-        monkeypatch.setattr(stage, "_default_hivemind_search", _fake_search)
-        monkeypatch.setattr(stage, "_default_hivemind_get", _fake_get)
-
-        request = ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default")
-
-        monkeypatch.setattr(stage, "_default_judge_fn", lambda spec: _judge([]))
-        result_ok = executor_core.run_executor(request)
-        assert getattr(result_ok.report.research, "research_shadow").trace.status == "ok"
-
-        monkeypatch.setattr(stage, "_default_judge_fn", lambda spec: _raising_judge)
-        result_failed = executor_core.run_executor(request)
-        shadow_failed = getattr(result_failed.report.research, "research_shadow")
-        assert shadow_failed.trace.status == "failed"
-
-        assert _canonical_bytes(result_ok.to_dict()) == _canonical_bytes(result_failed.to_dict())
-        # The shadow never appears on the legacy wire (it rides as a private
-        # attribute, not in any serialized payload).
-        assert "research_shadow" not in _canonical_bytes(result_ok.to_dict())
-        # Legacy behavioral outputs are identical.
-        assert result_ok.reply == result_failed.reply
-        assert result_ok.graph == result_failed.graph
-        assert result_ok.to_dict()["route"] == "research"
-        assert result_ok.report.research is not None
-
-    def test_adapt_route_implement_payload_identical_shadow_ok_vs_failed(
-        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """On the adapt route the implement payload (the queue-relevant input
-        built from LEGACY research) is byte-identical whether the shadow
-        succeeds or fails."""
-        from vibecomfy.executor import core as executor_core
-
-        monkeypatch.setenv("VIBECOMFY_RESEARCH_SHADOW", "1")
-        captured: dict[str, Any] = {"payloads": []}
-        monkeypatch.setattr(executor_core, "run_classify_turn", _fake_classify_adapt)
-        monkeypatch.setattr(executor_core, "run_reply_turn", _fake_reply)
-        monkeypatch.setattr(executor_core, "run_research_phase", _fake_legacy_research)
-
-        def recording_edit(payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-            captured["payloads"].append(dict(payload))
-            return _fake_edit_response(payload)
-
-        monkeypatch.setattr(executor_core, "handle_agent_edit", recording_edit)
-        monkeypatch.setattr(stage, "_default_hivemind_search", _fake_search)
-        monkeypatch.setattr(stage, "_default_hivemind_get", _fake_get)
-
-        request = ExecutorRequest(
-            query="add audio conditioning to my Wan video",
-            graph={"nodes": [{"id": 1, "type": "WanImageToVideo"}], "links": []},
-            profile="default",
-        )
-
-        monkeypatch.setattr(stage, "_default_judge_fn", lambda spec: _judge([]))
-        result_ok = executor_core.run_executor(request)
-        assert getattr(result_ok.report.research, "research_shadow").trace.status == "ok"
-
-        monkeypatch.setattr(stage, "_default_judge_fn", lambda spec: _raising_judge)
-        result_failed = executor_core.run_executor(request)
-        assert getattr(result_failed.report.research, "research_shadow").trace.status == "failed"
-
-        assert _canonical_bytes(result_ok.to_dict()) == _canonical_bytes(result_failed.to_dict())
-        assert result_ok.reply == result_failed.reply
-        assert result_ok.graph == result_failed.graph
-        assert len(captured["payloads"]) == 2
-        # The implement payload handed to the edit engine (execution protocol
-        # notes, research context, classification) is identical: the shadow
-        # fed nothing into it.
-        assert _canonical_bytes(captured["payloads"][0]) == _canonical_bytes(
-            captured["payloads"][1]
-        )
-
-    def test_shadow_opt_in_keeps_default_executor_hermetic(
-        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Without VIBECOMFY_RESEARCH_SHADOW the executor never invokes the
-        shadow stage (no extra tool/model I/O) and never attaches a shadow."""
-        from vibecomfy.executor import core as executor_core
-
-        monkeypatch.delenv("VIBECOMFY_RESEARCH_SHADOW", raising=False)
-        assert executor_core._research_shadow_enabled() is False
-
-        monkeypatch.setattr(executor_core, "run_classify_turn", _fake_classify_research_only)
-        monkeypatch.setattr(executor_core, "run_reply_turn", _fake_reply)
-        monkeypatch.setattr(executor_core, "run_research_phase", _fake_legacy_research)
-        shadow_calls: list[Any] = []
-        monkeypatch.setattr(
-            executor_core,
-            "run_agent_research_shadow",
-            mock.Mock(side_effect=lambda *a, **k: shadow_calls.append((a, k))),
-        )
-
-        result = executor_core.run_executor(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default")
-        )
-        assert result.ok is True
-        assert shadow_calls == []
-        assert getattr(result.report.research, "research_shadow", None) is None
-        assert "research_shadow" not in _canonical_bytes(result.to_dict())
-
-        # Opting in flips it on.
-        monkeypatch.setenv("VIBECOMFY_RESEARCH_SHADOW", "1")
-        assert executor_core._research_shadow_enabled() is True
-
-    def test_shadow_stage_exception_is_contained_by_executor(
-        self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Even a bare exception escaping run_agent_research_shadow is caught
-        by core and never fails the executor turn."""
-        from vibecomfy.executor import core as executor_core
-
-        monkeypatch.setenv("VIBECOMFY_RESEARCH_SHADOW", "1")
-        monkeypatch.setattr(executor_core, "run_classify_turn", _fake_classify_research_only)
-        monkeypatch.setattr(executor_core, "run_reply_turn", _fake_reply)
-        monkeypatch.setattr(executor_core, "run_research_phase", _fake_legacy_research)
-        monkeypatch.setattr(
-            executor_core,
-            "run_agent_research_shadow",
-            mock.Mock(side_effect=RuntimeError("shadow integration exploded")),
-        )
-
-        result = executor_core.run_executor(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default")
-        )
-        assert result.ok is True
-        assert result.reply == _fake_reply(_EXPLICIT_QUESTION)
-        assert result.report.research is not None
-        assert "research_shadow" not in _canonical_bytes(result.to_dict())
-
-
-# ── Acceptance 2: explicit question + enough/refine judgment in the ledger ───
+# ── Acceptance 2: explicit question + enough verdict in the ledger ───────────
 
 
 class TestTraceRecordsQuestionAndJudgment:
-    def test_trace_and_ledger_prove_question_and_enough_refine(
+    def test_trace_and_ledger_prove_question_and_agent_chosen_tools(
         self, profile_dir: Path
     ) -> None:
         judge_log: list[dict[str, Any]] = []
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = _LegacyResult(
-            summary="legacy summary",
-            sources=({"source": "object_info", "title": "KSampler"},),
-            warnings=(),
-        )
 
-        result = stage.run_agent_research_shadow(
-            ExecutorRequest(query="make my wan video audio conditioned", profile="default"),
-            plan=_research_plan(),
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
             spec=spec,
-            legacy_result=legacy,
             search_fn=_fake_search,
             get_fn=_fake_get,
-            judge_fn=_judge(judge_log),
+            judge_fn=_agent_judge(judge_log),
         )
 
-        assert result.trace.status == "ok"
-        # Explicit question comes from the classifier's research_goal, not the
-        # raw user query.
-        assert result.trace.question == _EXPLICIT_QUESTION
-        assert result.trace.final_verdict == "enough"
-        assert len(result.trace.iterations) == 2
-        assert [i.question for i in result.trace.iterations] == [
+        assert trace.status == "ok"
+        # Explicit question comes from the classifier's research_goal.
+        assert trace.question == _EXPLICIT_QUESTION
+        assert trace.final_verdict == "enough"
+        # One iteration per agent decision: search, get, finish.
+        assert len(trace.iterations) == 3
+        assert [i.question for i in trace.iterations] == [
             _EXPLICIT_QUESTION,
-            _REFINED_QUESTION,
+            _EXPLICIT_QUESTION,
+            _EXPLICIT_QUESTION,
         ]
 
-        ledger = result.agent_evidence_pack.ledger
+        ledger = pack.ledger
         decisions = [entry.decision for entry in ledger.entries]
         # Question recorded BEFORE any tool call (question-before-search).
         assert decisions[0] == stage.DECISION_QUESTION
-        assert decisions.count(stage.DECISION_SYNTHESIZE) == 2
-        assert decisions.count(stage.DECISION_ENOUGH_REFINE) == 2
+        assert decisions.count(stage.DECISION_SEARCH) == 1
+        assert decisions.count(stage.DECISION_GET) == 1
+        assert decisions.count(stage.DECISION_SYNTHESIZE) == 1
+        assert decisions.count(stage.DECISION_ENOUGH_REFINE) == 1
         assert ledger.entries[0].conclusion == _EXPLICIT_QUESTION
-        # Enough/refine judgment text records the verdict and the refinement.
-        refine_entry = next(
-            entry for entry in ledger.entries if entry.decision == stage.DECISION_ENOUGH_REFINE
-        )
-        assert "enough=False" in refine_entry.conclusion
-        assert _REFINED_QUESTION in refine_entry.conclusion
+        # The verdict is recorded as enough=True.
         enough_entry = [
             entry for entry in ledger.entries if entry.decision == stage.DECISION_ENOUGH_REFINE
         ][-1]
         assert "enough=True" in enough_entry.conclusion
 
+        # The first tool call was the agent's hivemind_search choice.
+        assert trace.iterations[0].tool_calls[0]["tool"] == "hivemind_search"
+        # The second iteration was the agent's hivemind_get choice.
+        assert trace.iterations[1].tool_calls[0]["tool"] == "hivemind_get"
+
         # Every ledger citation resolves to an artifact in the same pack
         # (already enforced by EvidencePack construction; re-assert here).
-        assert result.agent_evidence_pack.ledger.validate_references(
-            set(result.agent_evidence_pack.artifacts)
-        ) is None
-        for evidence_id in result.trace.citations:
-            assert evidence_id in result.agent_evidence_pack.artifacts
-        # The synthesize ledger entry cites only returned evidence ids.
-        synthesize_entries = [
-            entry for entry in ledger.entries if entry.decision == stage.DECISION_SYNTHESIZE
-        ]
-        assert "hivemind:workflows:111" in synthesize_entries[-1].evidence_ids
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+        for evidence_id in trace.citations:
+            assert evidence_id in pack.artifacts
         # Tool results were captured as evidence artifacts.
-        assert "hivemind:workflows:111" in result.agent_evidence_pack.artifacts
-        assert "hivemind_get:workflows:111" in result.agent_evidence_pack.artifacts
+        assert "hivemind:workflows:111" in pack.artifacts
+        assert "hivemind_get:workflows:111" in pack.artifacts
+        # The digest the agent saw carried only compact evidence, never raw
+        # bodies (RAW body markers absent).
+        for entry in judge_log:
+            assert "expanded record body" not in entry["digest"]
 
     def test_budget_exhaustion_terminates_with_refine_verdict(
         self, profile_dir: Path
     ) -> None:
-        """A judge that never says enough still terminates (bounded), leaving
-        a refine verdict and a recorded trace."""
+        """An agent that never finishes still terminates (bounded), leaving a
+        refine verdict and a recorded trace."""
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
 
-        def never_enough(question: str, digest: str) -> dict[str, Any]:
+        def always_search(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
             return {
-                "conclusion": "still unresolved",
-                "evidence_ids": [],
-                "uncertainty": "high",
-                "enough": False,
-                "refine_question": "refined question",
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question},
             }
 
-        result = stage.run_agent_research_shadow(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default"),
-            plan=_research_plan(),
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
             spec=spec,
-            legacy_result=_LegacyResult(summary="s", sources=()),
             search_fn=_fake_search,
             get_fn=_fake_get,
-            judge_fn=never_enough,
+            judge_fn=always_search,
         )
-        assert result.trace.status == "ok"
-        assert result.trace.final_verdict == "refine"
-        assert len(result.trace.iterations) == stage.TOOL_SEARCH_BUDGET
-        assert result.agent_evidence_pack.ledger.validate_references(
-            set(result.agent_evidence_pack.artifacts)
-        ) is None
+        assert trace.status == "ok"
+        assert trace.final_verdict == "refine"
+        # Exactly the search budget was consumed by successful agent-chosen
+        # calls; every later call was a typed refusal (visible to the agent)
+        # and the loop still terminated bounded at max_turns.
+        ok_searches = [
+            it
+            for it in trace.iterations
+            if it.tool_calls and it.tool_calls[0]["tool"] == "hivemind_search"
+            and it.tool_calls[0]["status"] == "ok"
+        ]
+        refused = [
+            it
+            for it in trace.iterations
+            if it.tool_calls and it.tool_calls[0]["status"] == "refused"
+        ]
+        assert len(ok_searches) == stage.TOOL_SEARCH_BUDGET
+        assert refused, "exhausted search calls must be recorded as typed refusals"
+        assert len(trace.iterations) == stage._MAX_TURNS
+        assert "search budget exhausted" in " ".join(trace.warnings)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_phase_allowlist_refuses_implement_tools(self, profile_dir: Path) -> None:
+        """An agent that tries an implement-phase tool gets a typed refusal —
+        the call is never executed and the ledger records the refusal."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        def out_of_phase(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "allowlist" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "node_schema",
+                    "args": {"node_class": "KSampler"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "no research evidence gathered",
+                "evidence_ids": [],
+                "uncertainty": "implement-phase tool was refused",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=out_of_phase,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        refusals = [e for e in pack.ledger.entries if e.decision == "node_schema"]
+        assert refusals, "implement-phase tool call must be refused, not executed"
+        assert "allowlist" in refusals[0].conclusion
+        # No node_schema artifact was produced (never executed).
+        assert not any(key.startswith("tool:node-schema") for key in pack.artifacts)
+
+    def test_registry_lookup_is_agent_callable(self, profile_dir: Path) -> None:
+        """registry_lookup is a research-phase tool the agent may choose."""
+        from vibecomfy.executor.lookup_tools import registry_lookup as _real_registry_lookup
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        calls: list[str] = []
+
+        def fake_registry(node_class: str, **kwargs: Any) -> ToolResult:
+            calls.append(node_class)
+            return ToolResult(
+                tool_name="registry_lookup",
+                status=ToolStatus.OK,
+                result={
+                    "node_class": node_class,
+                    "exact_ownership": True,
+                    "candidates": [
+                        {
+                            "ref": {"slug": "comfyui-core", "name": "comfyui-core", "source": "registry"},
+                            "expected_classes": [node_class],
+                        }
+                    ],
+                },
+            )
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "registry_lookup" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "registry_lookup",
+                    "args": {"node_class": "KSampler"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "KSampler is owned by comfyui-core.",
+                "evidence_ids": ["tool:registry-lookup-KSampler"],
+                "uncertainty": "",
+            }
+
+        with mock.patch(
+            "vibecomfy.executor.lookup_tools.registry_lookup",
+            side_effect=fake_registry,
+        ) as patched:
+            trace, pack = stage.run_agent_research_stage(
+                route="research",
+                question=_EXPLICIT_QUESTION,
+                spec=spec,
+                search_fn=_fake_search,
+                get_fn=_fake_get,
+                judge_fn=judge,
+            )
+
+        assert patched.called
+        assert calls == ["KSampler"]
+        assert trace.final_verdict == "enough"
+        decisions = [entry.decision for entry in pack.ledger.entries]
+        assert stage.DECISION_REGISTRY in decisions
+        assert "tool:registry-lookup-KSampler" in pack.artifacts
 
 
-# ── Acceptance 3: no full legacy result / workflow schema in the model request ─
+# ── Acceptance 3: no full research result / workflow schema in the model request ─
 
 
 class TestNoLegacyInjectionIntoModelRequest:
     def test_judgment_digest_contains_only_question_and_compact_evidence(
         self, profile_dir: Path
     ) -> None:
-        """The digest handed to the judgment model contains the explicit
-        question and compact tool evidence — never the legacy result body and
-        never a workflow/graph schema dump."""
+        """The digest handed to the agent contains the explicit question and
+        compact tool evidence — never raw result bodies and never a
+        workflow/graph schema dump."""
         captured: dict[str, Any] = {}
 
-        def recording_judge(question: str, digest: str) -> dict[str, Any]:
+        def recording_judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
             captured["question"] = question
             captured["digest"] = digest
+            if "hivemind_search" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question},
+                }
             return {
+                "action": "finish",
                 "conclusion": "Use LoadAudio before the video model",
                 "evidence_ids": ["hivemind:workflows:111"],
                 "uncertainty": "low",
-                "enough": True,
-                "refine_question": None,
             }
 
-        legacy = _LegacyResult(
-            summary="LEGACY_MARKER_SUMMARY deterministic research",
-            sources=(
-                {
-                    "source": "object_info",
-                    "title": "LEGACY_MARKER_SOURCE",
-                    "class_type": "LEGACY_MARKER_CLASS",
-                    "description": "LEGACY_MARKER_BODY",
-                },
-            ),
-            warnings=("LEGACY_MARKER_WARNING",),
-        )
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
 
-        result = stage.run_agent_research_shadow(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default"),
-            plan=_research_plan(),
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
             spec=spec,
-            legacy_result=legacy,
             search_fn=_fake_search,
             get_fn=_fake_get,
             judge_fn=recording_judge,
         )
-        assert result.trace.status == "ok"
+        assert trace.status == "ok"
         digest = captured["digest"]
         assert _EXPLICIT_QUESTION in digest
         assert "hivemind:workflows:111" in digest
-        # No legacy result marker, no full source body, no graph schema dump.
-        assert "LEGACY_MARKER" not in digest
-        assert "Deterministic research" not in digest
+        # Raw hit bodies never enter the digest; no graph schema dump.
+        assert "LoadAudio -> ConditioningCombine" not in digest
         assert '"nodes"' not in digest
         assert '"links"' not in digest
 
@@ -607,18 +450,16 @@ class TestNoLegacyInjectionIntoModelRequest:
         )
         all_text = " ".join(_all_strings(messages))
         assert _EXPLICIT_QUESTION in all_text
-        assert "LEGACY_MARKER" not in all_text
         assert '"nodes"' not in all_text
 
     def test_end_to_end_model_request_never_contains_legacy_or_graph(
         self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Through the real run_executor integration, the model request built
-        by the stage carries neither the legacy result nor the workflow
+        by the stage carries neither legacy research content nor the workflow
         graph."""
         from vibecomfy.executor import core as executor_core
 
-        monkeypatch.setenv("VIBECOMFY_RESEARCH_SHADOW", "1")
         captured: dict[str, Any] = {"messages": None}
 
         def recording_turn(
@@ -635,16 +476,18 @@ class TestNoLegacyInjectionIntoModelRequest:
             )
             captured["messages"] = built
             return {
+                "action": "finish",
                 "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
                 "evidence_ids": ["hivemind:workflows:111"],
                 "uncertainty": "low",
-                "enough": True,
-                "refine_question": None,
             }
 
-        monkeypatch.setattr(executor_core, "run_classify_turn", _fake_classify_research_only)
-        monkeypatch.setattr(executor_core, "run_reply_turn", _fake_reply)
-        monkeypatch.setattr(executor_core, "run_research_phase", _fake_legacy_research)
+        monkeypatch.setattr(executor_core, "run_classify_turn", lambda *a, **k: _research_plan())
+        monkeypatch.setattr(
+            executor_core,
+            "run_reply_turn",
+            lambda *a, **k: "Audio-conditioned Wan uses LoadAudio before the video model.",
+        )
         monkeypatch.setattr(stage, "_default_hivemind_search", _fake_search)
         monkeypatch.setattr(stage, "_default_hivemind_get", _fake_get)
         monkeypatch.setattr(stage, "run_agent_research_turn", recording_turn)
@@ -659,180 +502,19 @@ class TestNoLegacyInjectionIntoModelRequest:
         assert captured["messages"] is not None
         all_text = " ".join(_all_strings(captured["messages"]))
         assert _EXPLICIT_QUESTION in all_text
-        # Legacy research markers are absent.
-        assert "Deterministic research" not in all_text
-        assert "KSampler" not in all_text
         # The attached workflow graph never enters the model request.
         assert "WanImageToVideo" not in all_text
         assert '"nodes"' not in all_text
 
-    def test_stage_source_never_injects_legacy_result_into_prompt(self) -> None:
-        """Source-level grep: the legacy result may only feed the evidence-pack
-        capture and dual-report builders — never the prompt/digest builders —
+    def test_stage_source_never_injects_research_result_into_prompt(self) -> None:
+        """Source-level grep: the research result (Trace/EvidencePack) may feed
+        only the evidence-pack capture — never the prompt/digest builders —
         and the stage never calls the legacy research engine."""
         source = Path(stage.__file__).read_text(encoding="utf-8")
         # The stage never invokes the legacy research phase.
         assert "run_research_phase" not in source
-        # Every use of the legacy result must be in the capture/report path,
-        # not in prompt or digest construction.
         for lineno, line in enumerate(source.splitlines(), start=1):
             if "legacy_result" in line:
-                assert "digest" not in line, (
-                    f"agent_research_stage.py:{lineno}: legacy_result feeds the prompt digest"
+                raise AssertionError(
+                    f"agent_research_stage.py:{lineno}: legacy result content is still referenced"
                 )
-                assert "messages" not in line, (
-                    f"agent_research_stage.py:{lineno}: legacy_result feeds model messages"
-                )
-                assert "prompt" not in line, (
-                    f"agent_research_stage.py:{lineno}: legacy_result feeds the prompt"
-                )
-
-
-# ── Acceptance 4: dual report + persisted artifacts ──────────────────────────
-
-
-class TestDualReportAndArtifacts:
-    def test_dual_report_compares_coverage_citations_lifecycle(
-        self, profile_dir: Path
-    ) -> None:
-        judge_log: list[dict[str, Any]] = []
-        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = _LegacyResult(
-            summary="legacy summary",
-            sources=(
-                {
-                    "source": "hivemind_message",
-                    "title": "community note",
-                    "hivemind_id": "hivemind:discord:222",
-                },
-                {"source": "object_info", "title": "KSampler"},
-            ),
-            warnings=("legacy warning",),
-        )
-
-        result = stage.run_agent_research_shadow(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default"),
-            plan=_research_plan(),
-            spec=spec,
-            legacy_result=legacy,
-            search_fn=_fake_search,
-            get_fn=_fake_get,
-            judge_fn=_judge(judge_log),
-        )
-        assert result.trace.status == "ok"
-        dual = result.dual_report
-        assert dual["route"] == "research"
-
-        # Coverage: agent ids, legacy ids, and a genuine overlap where the
-        # legacy source exposes a Hivemind evidence id.
-        coverage = dual["coverage"]
-        assert "hivemind:workflows:111" in coverage["agent_evidence_ids"]
-        assert "legacy_source:1" in coverage["legacy_evidence_ids"]
-        assert "hivemind:discord:222" in coverage["legacy_hivemind_references"]
-        assert "hivemind:discord:222" in coverage["shared"]
-        assert "hivemind:workflows:111" in coverage["agent_only"]
-        assert coverage["legacy_artifact_count"] == 3  # 2 sources + summary
-
-        # Citation validity: every ledger citation resolves inside its pack.
-        agent_validity = dual["citation_validity"]["agent"]
-        assert agent_validity["total"] == agent_validity["resolvable"]
-        assert agent_validity["unresolvable"] == []
-        legacy_validity = dual["citation_validity"]["legacy"]
-        assert legacy_validity["total"] == legacy_validity["resolvable"]
-        assert legacy_validity["unresolvable"] == []
-
-        # Lifecycle assertions.
-        lifecycle = dual["lifecycle"]
-        assert lifecycle["question_recorded"] is True
-        assert lifecycle["synthesize_recorded"] is True
-        assert lifecycle["enough_refine_recorded"] is True
-        assert lifecycle["legacy_behavior_used"] is True
-        assert lifecycle["status"] == "ok"
-        assert lifecycle["final_verdict"] == "enough"
-        assert lifecycle["searches"] == 2
-        assert lifecycle["fetches"] == 4  # 2 hits fetched per iteration x 2 iterations
-
-    def test_headless_artifacts_persist_shadow_report_and_both_packs(
-        self, tmp_path: Path, profile_dir: Path
-    ) -> None:
-        from vibecomfy.agent.artifacts import synthesize_headless_artifacts
-
-        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = _LegacyResult(
-            summary="legacy summary",
-            sources=({"source": "object_info", "title": "KSampler"},),
-            warnings=(),
-        )
-        shadow = stage.run_agent_research_shadow(
-            ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default"),
-            plan=_research_plan(),
-            spec=spec,
-            legacy_result=legacy,
-            search_fn=_fake_search,
-            get_fn=_fake_get,
-            judge_fn=_judge([]),
-        )
-        assert shadow.legacy_evidence_pack is not None
-
-        research = _LegacyResult(summary="legacy summary")
-        object.__setattr__(research, "research_shadow", shadow)
-        result = ExecutorResult.success(
-            report=Report(plan=_research_plan(), research=research),
-            reply="ok",
-        )
-
-        summary = synthesize_headless_artifacts(
-            request={"query": _EXPLICIT_QUESTION},
-            result=result,
-            response={},
-            output_dir=tmp_path,
-            status="ok",
-        )
-        manifest = summary["manifest"]
-        for name in (
-            "research_shadow.json",
-            "research_shadow_agent_pack.json",
-            "research_shadow_legacy_pack.json",
-        ):
-            assert name in manifest
-            assert (tmp_path / name).is_file()
-
-        shadow_json = json.loads((tmp_path / "research_shadow.json").read_text(encoding="utf-8"))
-        assert shadow_json["shadow_mode"] is True
-        assert shadow_json["legacy_behavior_used"] is True
-        assert shadow_json["route"] == "research"
-        assert shadow_json["trace"]["question"] == _EXPLICIT_QUESTION
-        assert shadow_json["dual_report"]["lifecycle"]["enough_refine_recorded"] is True
-        assert shadow_json["dual_report"]["lifecycle"]["question_recorded"] is True
-
-        agent_pack = json.loads(
-            (tmp_path / "research_shadow_agent_pack.json").read_text(encoding="utf-8")
-        )
-        assert agent_pack["ledger"]["entries"]
-        assert "hivemind:workflows:111" in agent_pack["artifacts"]
-
-        legacy_pack = json.loads(
-            (tmp_path / "research_shadow_legacy_pack.json").read_text(encoding="utf-8")
-        )
-        assert legacy_pack["ledger"]["entries"]
-        assert "legacy_summary" in legacy_pack["artifacts"]
-
-    def test_artifacts_without_shadow_emit_no_shadow_files(
-        self, tmp_path: Path, profile_dir: Path
-    ) -> None:
-        from vibecomfy.agent.artifacts import synthesize_headless_artifacts
-
-        research = _LegacyResult(summary="legacy summary")
-        result = ExecutorResult.success(
-            report=Report(plan=_research_plan(), research=research),
-            reply="ok",
-        )
-        summary = synthesize_headless_artifacts(
-            request={"query": _EXPLICIT_QUESTION},
-            result=result,
-            response={},
-            output_dir=tmp_path,
-            status="ok",
-        )
-        assert "research_shadow.json" not in summary["manifest"]
-        assert not (tmp_path / "research_shadow.json").exists()

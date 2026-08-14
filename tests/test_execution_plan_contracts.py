@@ -14,7 +14,6 @@ from vibecomfy.comfy_nodes.agent.execution_plan import (
     PlanEvaluation,
     PlanRevision,
     PlanStep,
-    RoleBinding,
     SocketRef,
     execution_plan_version_status,
     fail_closed_if_unsupported_evaluation_version,
@@ -47,17 +46,6 @@ def test_execution_plan_to_dict_is_deterministic_and_json_safe() -> None:
         source_graph_hash="source-hash",
         candidate_graph_hash="candidate-hash",
         research_result_hash="research-hash",
-        selected_precedent_id="precedent-1",
-        selected_precedent={"z": ("late",), "a": {"id": 7}},
-        role_bindings=(
-            RoleBinding(
-                role="video_terminal",
-                node_ref=SocketRef(node_id="15", class_type="VHS_VideoCombine"),
-                class_type="VHS_VideoCombine",
-                confidence="high",
-                evidence={"z": (2, 1), "a": {"source": "fixture"}},
-            ),
-        ),
         required_steps=(
             PlanStep(
                 step_id="S1",
@@ -65,13 +53,7 @@ def test_execution_plan_to_dict_is_deterministic_and_json_safe() -> None:
                 criticality="required",
                 status="planned",
                 class_type="HotshotXLLoader",
-                assign_to="hotshot",
-                schema_source="object_info",
-                runtime_availability="available",
-                inputs={"z": ("motion_model",), "a": {"model": "required"}},
-                values={"frames": 8},
                 conditions=(condition,),
-                evidence_refs=("graph-inspection",),
             ),
         ),
         done_conditions=(condition,),
@@ -105,10 +87,6 @@ def test_execution_plan_to_dict_is_deterministic_and_json_safe() -> None:
     assert first["source_graph_hash"] == "source-hash"
     assert first["candidate_graph_hash"] == "candidate-hash"
     assert first["research_result_hash"] == "research-hash"
-    assert first["selected_precedent_id"] == "precedent-1"
-    assert first["selected_precedent"] == {"a": {"id": 7}, "z": ["late"]}
-    assert first["role_bindings"][0]["role"] == "video_terminal"
-    assert first["role_bindings"][0]["evidence"] == {"a": {"source": "fixture"}, "z": [2, 1]}
     assert first["required_steps"][0]["criticality"] == "required"
     assert first["required_steps"][0]["status"] == "planned"
     assert first["required_steps"][0]["conditions"][0]["criticality"] == "critical"
@@ -126,7 +104,6 @@ def test_plan_evaluation_to_dict_is_deterministic_and_json_safe() -> None:
         blocking=True,
         source_graph_hash="source-hash",
         candidate_graph_hash="candidate-hash",
-        selected_precedent_id="precedent-1",
         step_status=(
             {
                 "step_id": "S1",
@@ -161,7 +138,6 @@ def test_plan_evaluation_to_dict_is_deterministic_and_json_safe() -> None:
     assert first["blocking"] is True
     assert first["source_graph_hash"] == "source-hash"
     assert first["candidate_graph_hash"] == "candidate-hash"
-    assert first["selected_precedent_id"] == "precedent-1"
     assert first["step_status"] == [
         {
             "criticality": "required",
@@ -184,7 +160,6 @@ def test_unknown_newer_versions_fail_closed() -> None:
         plan_id="future-plan",
         source_graph_hash="source-hash",
         candidate_graph_hash="candidate-hash",
-        selected_precedent_id="precedent-1",
         schema_provenance={"schema": "future"},
         runtime_provenance={"runtime": "future"},
         contract_version="execution_plan_v2",
@@ -197,7 +172,6 @@ def test_unknown_newer_versions_fail_closed() -> None:
     assert plan_payload["ok"] is False
     assert plan_payload["blocking"] is True
     assert plan_payload["candidate_graph_hash"] == "actual-hash"
-    assert plan_payload["selected_precedent_id"] == "precedent-1"
     assert plan_payload["failed_conditions"][0]["condition_id"] == UNKNOWN_PLAN_VERSION_CONDITION_ID
     assert "execution_plan_v2" in plan_payload["failed_conditions"][0]["message"]
     assert plan_payload["feedback"].startswith("plan evaluation blocked")
@@ -209,7 +183,6 @@ def test_unknown_newer_versions_fail_closed() -> None:
         blocking=False,
         source_graph_hash="source-hash",
         candidate_graph_hash="candidate-hash",
-        selected_precedent_id="precedent-1",
         step_status=({"step_id": "S1", "status": "satisfied"},),
         contract_version="plan_evaluation_v2",
     )
@@ -230,18 +203,18 @@ def test_unknown_newer_versions_fail_closed() -> None:
     _assert_json_safe_and_stable(evaluation_payload)
 
 
-def test_execution_plan_default_provenance_is_enforced_advisory() -> None:
+def test_execution_plan_default_provenance_is_agent_authored_advisory() -> None:
     plan = ExecutionPlan(plan_id="plan.executor-built")
 
-    assert plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert plan.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
     assert plan.enforced is False
     assert plan.revision_history == ()
-    assert plan.is_agent_authored is False
+    assert plan.is_agent_authored is True
     assert plan.supported_contract_version is True
 
     payload = plan.to_dict()
     _assert_json_safe_and_stable(payload)
-    assert payload["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert payload["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
     assert payload["enforced"] is False
     assert payload["revision_history"] == []
 
@@ -249,6 +222,7 @@ def test_execution_plan_default_provenance_is_enforced_advisory() -> None:
 def test_revise_execution_plan_flips_provenance_and_records_auditable_revision() -> None:
     plan = ExecutionPlan(
         plan_id="plan.revisable",
+        provenance=PLAN_PROVENANCE_ENFORCED,
         required_steps=(
             PlanStep(
                 step_id="S1",

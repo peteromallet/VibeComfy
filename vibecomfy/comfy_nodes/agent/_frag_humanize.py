@@ -751,10 +751,15 @@ def _validation_summary_payload(context: TurnContext) -> dict[str, Any]:
 
 def _narrative_research_payload(state: AgentEditState) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    summary = " ".join((state.executor_research_summary or "").split())
+    summary = " ".join((state.collected_research_summary or "").split())
     if summary:
         payload["summary"] = summary[:240]
-    warnings = [str(item).strip() for item in state.executor_research_warnings if str(item).strip()]
+    warnings: list[str] = []
+    for source in getattr(state, "collected_research_sources", ()) or ():
+        if isinstance(source, Mapping) and str(source.get("tier", "")).strip():
+            warnings.append(str(source.get("tier")).strip())
+        elif isinstance(source, str) and source.strip():
+            warnings.append(source.strip())
     if warnings:
         payload["warnings"] = warnings[:3]
     plan = state.execution_plan

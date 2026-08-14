@@ -9,13 +9,11 @@ from .audit import write_json_artifact
 from .contracts import ArtifactRef
 from .execution_plan import (
     PLAN_PROVENANCE_AGENT_AUTHORED,
-    PLAN_PROVENANCE_ENFORCED,
     ExecutionPlan,
     PlanCondition,
     PlanEvaluation,
     PlanRevision,
     PlanStep,
-    RoleBinding,
     SocketRef,
     evaluate_execution_plan,
     revise_execution_plan,
@@ -104,20 +102,13 @@ def _plan_revisions_from_payload(value: Any) -> tuple[PlanRevision, ...]:
 
 def _plan_step_from_payload(value: Any) -> PlanStep:
     payload = _mapping_or_empty(value)
-    evidence_refs = payload.get("evidence_refs")
     return PlanStep(
         step_id=str(payload.get("step_id") or payload.get("id") or "unknown_step"),
         kind=str(payload.get("kind") or ""),
         criticality=str(payload.get("criticality") or "required"),
         status=str(payload.get("status") or "planned"),
         class_type=_str_or_none(payload.get("class_type")),
-        assign_to=_str_or_none(payload.get("assign_to")),
-        schema_source=_str_or_none(payload.get("schema_source")),
-        runtime_availability=_str_or_none(payload.get("runtime_availability")),
-        inputs=_mapping_or_empty(payload.get("inputs")),
-        values=_mapping_or_empty(payload.get("values")),
         conditions=_plan_conditions_from_payload(payload.get("conditions")),
-        evidence_refs=tuple(str(ref) for ref in evidence_refs) if isinstance(evidence_refs, list) else (),
     )
 
 
@@ -125,24 +116,6 @@ def _plan_steps_from_payload(value: Any) -> tuple[PlanStep, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(_plan_step_from_payload(item) for item in value)
-
-
-def _role_binding_from_payload(value: Any) -> RoleBinding:
-    payload = _mapping_or_empty(value)
-    role = str(payload.get("role") or "unknown_role")
-    return RoleBinding(
-        role=role,
-        node_ref=_socket_ref_from_payload(payload.get("node_ref")) or SocketRef(role=role),
-        class_type=_str_or_none(payload.get("class_type")),
-        confidence=str(payload.get("confidence") or "unknown"),
-        evidence=_mapping_or_empty(payload.get("evidence")),
-    )
-
-
-def _role_bindings_from_payload(value: Any) -> tuple[RoleBinding, ...]:
-    if not isinstance(value, list):
-        return ()
-    return tuple(_role_binding_from_payload(item) for item in value)
 
 
 def extract_execution_plan_payload(protocol_notes: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -161,16 +134,13 @@ def execution_plan_from_payload(value: Mapping[str, Any]) -> ExecutionPlan:
         source_graph_hash=_str_or_none(value.get("source_graph_hash")),
         candidate_graph_hash=_str_or_none(value.get("candidate_graph_hash")),
         research_result_hash=_str_or_none(value.get("research_result_hash")),
-        selected_precedent_id=_str_or_none(value.get("selected_precedent_id")),
-        selected_precedent=_mapping_or_empty(value.get("selected_precedent")),
-        role_bindings=_role_bindings_from_payload(value.get("role_bindings")),
         required_steps=_plan_steps_from_payload(value.get("required_steps")),
         done_conditions=_plan_conditions_from_payload(value.get("done_conditions")),
         active_path_conditions=_plan_conditions_from_payload(value.get("active_path_conditions")),
         blocked_if=_plan_conditions_from_payload(value.get("blocked_if")),
         schema_provenance=_mapping_or_empty(value.get("schema_provenance")),
         runtime_provenance=_mapping_or_empty(value.get("runtime_provenance")),
-        provenance=str(value.get("provenance") or PLAN_PROVENANCE_ENFORCED),
+        provenance=str(value.get("provenance") or PLAN_PROVENANCE_AGENT_AUTHORED),
         enforced=bool(value.get("enforced", False)),
         revision_history=_plan_revisions_from_payload(value.get("revision_history")),
         contract_version=contract_version if isinstance(contract_version, str) else "",
@@ -193,11 +163,6 @@ def _merge_plan_payload(base: ExecutionPlan, value: Mapping[str, Any]) -> Execut
         source_graph_hash=_str_or_none(_pick("source_graph_hash", base.source_graph_hash)),
         candidate_graph_hash=_str_or_none(_pick("candidate_graph_hash", base.candidate_graph_hash)),
         research_result_hash=_str_or_none(_pick("research_result_hash", base.research_result_hash)),
-        selected_precedent_id=_str_or_none(_pick("selected_precedent_id", base.selected_precedent_id)),
-        selected_precedent=_mapping_or_empty(_pick("selected_precedent", base.selected_precedent)),
-        role_bindings=_role_bindings_from_payload(
-            _pick("role_bindings", [binding.to_dict() for binding in base.role_bindings])
-        ),
         required_steps=_plan_steps_from_payload(
             _pick("required_steps", [step.to_dict() for step in base.required_steps])
         ),
@@ -215,7 +180,7 @@ def _merge_plan_payload(base: ExecutionPlan, value: Mapping[str, Any]) -> Execut
         ),
         schema_provenance=_mapping_or_empty(_pick("schema_provenance", base.schema_provenance)),
         runtime_provenance=_mapping_or_empty(_pick("runtime_provenance", base.runtime_provenance)),
-        provenance=str(_pick("provenance", base.provenance) or PLAN_PROVENANCE_ENFORCED),
+        provenance=str(_pick("provenance", base.provenance) or PLAN_PROVENANCE_AGENT_AUTHORED),
         enforced=bool(_pick("enforced", base.enforced)),
         revision_history=_plan_revisions_from_payload(
             _pick("revision_history", [revision.to_dict() for revision in base.revision_history])
@@ -277,7 +242,6 @@ def malformed_execution_plan_evaluation(
         blocking=True,
         source_graph_hash=plan.source_graph_hash,
         candidate_graph_hash=candidate_graph_hash or plan.candidate_graph_hash,
-        selected_precedent_id=plan.selected_precedent_id,
         failed_conditions=(
             {
                 "condition_id": MALFORMED_PLAN_CONDITION_ID,

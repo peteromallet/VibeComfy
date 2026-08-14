@@ -4,7 +4,7 @@
 
 - Batch: 0 — serial foundation.
 - Files: new `vibecomfy/executor/stage_contracts.py`, `tool_contracts.py`, `evidence_pack.py`; new JSON schemas under `vibecomfy/executor/schemas/`; new `tests/test_executor_stage_contracts.py`.
-- Change: define `StageRequest`, `StagePackage`, compact ledger, artifact references, structured diagnostics, `needs_input`, and tool statuses `ok|no_results|rate_limited|timeout|unavailable|invalid_request|refused`.
+- Change: define the typed `StagePackage` handoff, compact ledger, artifact references, structured diagnostics, `needs_input`, and tool statuses `ok|no_results|rate_limited|timeout|unavailable|invalid_request|refused`. (`StageRequest` was dropped in R1 as ornamental — the classify decision carries goal/route and nothing constructed it.)
 - Acceptance:
   - Round-trip serialization is deterministic and JSON-safe.
   - Missing GOAL/PRIORITY/PACKAGE or unresolved evidence IDs fails typed validation.
@@ -394,7 +394,7 @@ Handoffs:
 
 - Batch: 0 — serial foundation.
 - Files: new `vibecomfy/executor/stage_contracts.py`, `tool_contracts.py`, `evidence_pack.py`; new JSON schemas under `vibecomfy/executor/schemas/`; new `tests/test_executor_stage_contracts.py`.
-- Change: define `StageRequest`, `StagePackage`, compact ledger, artifact references, structured diagnostics, `needs_input`, and tool statuses `ok|no_results|rate_limited|timeout|unavailable|invalid_request|refused`.
+- Change: define the typed `StagePackage` handoff, compact ledger, artifact references, structured diagnostics, `needs_input`, and tool statuses `ok|no_results|rate_limited|timeout|unavailable|invalid_request|refused`. (`StageRequest` was dropped in R1 as ornamental — the classify decision carries goal/route and nothing constructed it.)
 - Acceptance:
   - Round-trip serialization is deterministic and JSON-safe.
   - Missing GOAL/PRIORITY/PACKAGE or unresolved evidence IDs fails typed validation.
@@ -739,11 +739,40 @@ Serial barriers:
 Coverage: B1/B8→S01; B2→S02; B3→H03/C01; B4/B5/B6/B11/B14→A04/I01/C02; B7/B9/B10→C01; B12/B13→A07; M1→A03/H02; M2→A05/I01/C02; full research A-track→F01, A01/A02/A06/A07, I01, H01, C01, D01–D03, V01.
 
 # Status
-- F01: in progress (contract foundation)
-- Wave A (A01-A07): pending
-- Wave B (I01, S01, S02): pending
-- Wave H (H01, H02, H03): pending
-- Wave C (C01, C02): pending
-- Wave D (D01-D03): pending
-- V01, V02: pending
-- Execution tracker: 7 waves, forks from same SHA per wave, disjoint file ownership, merges per the table above.
+
+All seven waves + closeout are **DONE** and merged on main (see
+`docs/agent-judgment-pipeline.md` §10 for the delivered-vs-design mapping).
+The sense-check round-1 fixes (R1) landed on top:
+
+- **F01: done** — typed `StagePackage` (ledger + artifacts + diagnostics +
+  `needs_input`) is the live research→implement handoff constructed by
+  `core._run_agent_owned_research`; `StageRequest` was deleted as ornamental
+  (the classify decision carries goal/route; nothing constructed it).
+- **Wave A (A01–A07): done** — A06 web-search default flipped to DISABLED at
+  the live resolver (`tool_specs` handler, `web_search_enabled=False` default).
+- **Wave B (I01, S01, S02): done** — the tool surface is now ONE declarative
+  `ToolSpec` registry (`vibecomfy/executor/tool_specs.py`): phase/args/budget/
+  handler/ledger-projector, with parser admission and prompt catalogs derived
+  from it.
+- **Wave H (H01, H02, H03): done** — the H01 shadow/dual machinery was
+  deleted (fix 8); H02 receipt verification is wired into the queue gate.
+- **Wave C (C01, C02): done** — research is ONE genuine tool-calling agent
+  phase (`agent_research_stage.run_agent_research_stage`): the agent chooses
+  every `hivemind_search`/`hivemind_get`/`registry_lookup` call and decides
+  when to finish; per-phase allowlists are enforced at resolve time
+  (research: search/get/registry; implement: node_schema/ready_template_list/
+  ready_template_load/rank_edit_targets/suggest_seed_nodes/layout_hints — no
+  search tools); implementation receives only the research package's compact
+  ledger. The legacy `research()` statement is a single minimal refusal.
+- **Wave D (D01–D03): done** — legacy research engine and `ResearchResult`
+  contracts deleted; precedent/adaptation payload construction and artifact
+  compatibility serialization removed (fix 5).
+- **V01: done** — all eight scenarios drive the same public pipeline boundary
+  (`run_executor` / `run_headless`) and freeze the same contract envelope
+  (`executor_result.json` + metadata + actions + scenario rail evidence).
+- **V02: done** — this task list and `docs/agent-judgment-pipeline.md` are
+  the release proof; statuses here are a record, not an open list.
+
+Execution tracker: 7 waves, forks from the same SHA per wave, disjoint file
+ownership, merges per the table above; round-1 sense-check fixes merged as
+R1-A/B/C with disjoint file ownership.

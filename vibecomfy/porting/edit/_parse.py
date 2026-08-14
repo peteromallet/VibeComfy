@@ -12,6 +12,9 @@ from vibecomfy.porting.edit._session_types import (
     _ParsedBatch,
     _diag,
 )
+from vibecomfy.executor.tool_specs import (
+    AGENT_TOOL_CALL_NAMES as _AGENT_TOOL_CALL_NAMES,
+)
 
 _FORBIDDEN_CALL_NAMES = frozenset(
     {
@@ -26,24 +29,10 @@ _FORBIDDEN_CALL_NAMES = frozenset(
 )
 _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES = frozenset({"vibecomfy.exec"})
 _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
-# I01: Wave-A named agent tool calls admitted to the batch protocol as
-# standalone top-level query statements.  Each name is resolved by
-# _resolve.py against the Wave-A tool modules and produces a typed
-# ToolResult plus a compact F01 ledger entry (see _resolve._AgentToolSurface).
-_AGENT_TOOL_CALL_NAMES = frozenset(
-    {
-        "hivemind_search",
-        "hivemind_get",
-        "registry_lookup",
-        "node_schema",
-        "ready_template_list",
-        "ready_template_load",
-        "rank_edit_targets",
-        "suggest_seed_nodes",
-        "layout_hints",
-        "web_search",
-    }
-)
+# I01/C01: the named agent tool calls admitted to the batch protocol as
+# standalone top-level query statements.  Names, per-phase partition, argument
+# contract, budgets, handlers, and ledger projectors are declared ONCE in
+# _tool_specs.TOOL_SPECS; parser admission is derived from that registry.
 _QUERY_CALL_NAMES = frozenset({"python", "research", "search"}) | _AGENT_TOOL_CALL_NAMES
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
@@ -314,7 +303,7 @@ def _validate_call(
             _unsafe(
                 node,
                 "unsupported_query_call",
-                "Only search(...), research(...), python(), done(), and the ten agent "
+                "Only search(...), python(), done(), and the ten agent "
                 "tool calls (hivemind_search, hivemind_get, registry_lookup, "
                 "ready_template_list, ready_template_load, rank_edit_targets, "
                 "suggest_seed_nodes, layout_hints, web_search) are supported as "

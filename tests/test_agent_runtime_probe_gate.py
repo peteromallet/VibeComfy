@@ -6,6 +6,9 @@ Covers the acceptance contract:
   evidence and the queue proceeds;
 - missing (bare tier label), stale, mismatched-runtime, unavailable, expired,
   and fabricated receipts block queueing with typed diagnostics;
+- a queue attempt with neither a receipt nor any evidence tier is blocked too
+  (fail-closed), with a narrow named opt-out for non-runtime/offline
+  validation (`require_probe_receipt=False`);
 - a bare tier label (``live_runtime_schema``) no longer satisfies the gate —
   strong evidence exists only as a verified probe receipt;
 - both verification entry points are exercised: live re-fetch
@@ -30,6 +33,7 @@ from vibecomfy.comfy_nodes.agent.contracts import StageResult, TurnContext
 from vibecomfy.comfy_nodes.agent.gates import (
     RUNTIME_PROBE_NOT_VERIFIED_CODE,
     RUNTIME_PROBE_RECEIPT_INVALID_CODE,
+    RUNTIME_PROBE_RECEIPT_REQUIRED_CODE,
     RUNTIME_READINESS_UNVERIFIED_CODE,
     derive_gates,
     initialize_gates,
@@ -464,19 +468,47 @@ def test_pure_recomputation_without_observed_payload_blocks(tmp_path: Path) -> N
 
 
 # ---------------------------------------------------------------------------
-# Regression guards: existing flows with no evidence claim keep working
+# Regression guards: missing receipt + no tiers is fail-closed, with a narrow
+# named opt-out for non-runtime/offline validation
 # ---------------------------------------------------------------------------
 
 
-def test_no_evidence_claim_preserves_legacy_queue_behavior(tmp_path: Path) -> None:
+def test_missing_receipt_and_tiers_blocks_fail_closed(tmp_path: Path) -> None:
+    """H02: a queue attempt with neither a probe receipt nor any evidence tier
+    is blocked — absence of both must not silently permit queueing."""
     context = _gate_context()
     blockers = update_queue_gate(context)
 
-    assert blockers == ()
-    assert context.gate_results["queue_validate_ok"].ok is True
+    assert _blocker_codes(blockers) == [RUNTIME_PROBE_RECEIPT_REQUIRED_CODE]
+    blocker = blockers[0]
+    assert blocker["severity"] == "error"
+    assert blocker["evidence"]["receipt_present"] is False
+    assert blocker["evidence"]["required_contract"] == "RuntimeProbeReceipt"
+    assert context.gate_results["queue_validate_ok"].ok is False
+    assert context.queue_allowed is False
     evidence = context.gate_results["queue_validate_ok"].evidence
     assert evidence["probe_receipt_present"] is False
     assert evidence["probe_receipt_verified"] is None
+    assert evidence["probe_receipt_required"] is True
+
+
+def test_derive_gates_blocks_without_receipt_unless_offline_opt_out(tmp_path: Path) -> None:
+    """The fail-closed default propagates through derive_gates; the narrow
+    non-runtime/offline validation opt-out is the only way to pass without a
+    verified receipt."""
+    context = _gate_context()
+    derived = derive_gates(context, plan_state="not_required")
+    assert _blocker_codes(derived.queue_blockers) == [RUNTIME_PROBE_RECEIPT_REQUIRED_CODE]
+    assert context.queue_allowed is False
+
+    offline_context = _gate_context()
+    offline_derived = derive_gates(
+        offline_context,
+        plan_state="not_required",
+        require_probe_receipt=False,
+    )
+    assert offline_derived.queue_blockers == ()
+    assert offline_context.gate_results["queue_validate_ok"].ok is True
 
 
 def test_explicit_queue_blockers_still_block_even_with_verified_receipt(tmp_path: Path) -> None:

@@ -212,35 +212,21 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
 
 
 def _executor_report(result: Any) -> dict[str, Any]:
-    # H01 shadow/dual-evaluation: the agent research stage rides on the
-    # AgentResearchResult as a private attribute (attached by core.run_executor).
-    # It is persisted as evidence only — it never feeds routing, reply text,
-    # graphs, or queue decisions.
-    research_shadow = None
-    report_obj = getattr(result, "report", None)
-    if report_obj is not None:
-        research_obj = getattr(report_obj, "research", None)
-        research_shadow = getattr(research_obj, "research_shadow", None)
-
-    def _with_shadow(executor: Mapping[str, Any]) -> dict[str, Any]:
-        merged = dict(executor)
-        if research_shadow is not None:
-            merged["research_shadow"] = _json_safe(research_shadow)
-        return merged
-
+    """Extract the serialized ``report.executor`` mapping from a result."""
     result_payload = _json_safe(result)
     if isinstance(result_payload, Mapping):
         report = result_payload.get("report")
         if isinstance(report, Mapping):
             executor = report.get("executor")
             if isinstance(executor, Mapping):
-                return _with_shadow(executor)
+                return dict(executor)
 
+    report_obj = getattr(result, "report", None)
     report_payload = _json_safe(report_obj)
     if isinstance(report_payload, Mapping):
         executor = report_payload.get("executor")
         if isinstance(executor, Mapping):
-            return _with_shadow(executor)
+            return dict(executor)
     return {}
 
 
@@ -270,48 +256,25 @@ def _implementation_payload_from_report(
         payload["session_id"] = request["session_id"]
 
     if research:
-        if route_text == "adapt":
-            notes: dict[str, Any] = {}
-            execute_sources = _execute_research_sources(research)
-            for key in ("research_goal", "pattern_category", "change_goal", "model_families"):
-                value = classification.get(key)
-                if value:
-                    notes[key] = value
-            if research.get("summary"):
-                notes["research_summary"] = research["summary"]
-            status = research.get("workflow_precedent_status")
-            if status:
-                notes["workflow_precedent_status"] = status
-            if execute_sources:
-                notes["research_sources"] = execute_sources
-            if research.get("warnings"):
-                notes["research_warnings"] = research["warnings"]
-            if notes:
-                notes["_discardability"] = (
-                    "This research context is provided as evidence only. "
-                    "It is NOT authoritative guidance or a required implementation."
-                )
-                payload["execution_protocol_notes"] = notes
-            packet = research.get("precedent_packet")
-            compatible_workflow = (
-                research.get("workflow_precedent_status") == "compatible_workflow_found"
-            )
-            if compatible_workflow and isinstance(packet, Mapping):
-                payload["research_context_packet"] = dict(packet)
-            elif compatible_workflow:
-                context_packet = {
-                    key: research[key]
-                    for key in ("summary", "warnings", "precedent_slices")
-                    if research.get(key)
-                }
-                if execute_sources:
-                    context_packet["sources"] = execute_sources
-                if context_packet:
-                    payload["research_context_packet"] = context_packet
-        else:
-            payload["research_summary"] = research.get("summary", "")
-            payload["research_sources"] = research.get("sources", [])
-            payload["executor_research"] = dict(research)
+        # D03: execution_protocol_notes carries ONLY the compact F01
+        # EvidenceLedger plus the agent-facing research sources.  Precedent /
+        # adaptation material (research_summary, workflow_precedent_status,
+        # research_warnings, research_context_packet, precedent packets and
+        # slices) is never constructed here; full evidence bodies live in the
+        # evidence-pack artifact behind resolvable evidence IDs.
+        notes: dict[str, Any] = {}
+        raw_sources = research.get("research_sources")
+        if not isinstance(raw_sources, (list, tuple)):
+            raw_sources = research.get("sources")
+        if isinstance(raw_sources, (list, tuple)):
+            source_rows = [item for item in raw_sources if isinstance(item, dict)]
+            if source_rows:
+                notes["research_sources"] = source_rows
+        ledger = research.get("ledger")
+        if isinstance(ledger, Mapping):
+            notes["ledger"] = ledger
+        if notes:
+            payload["execution_protocol_notes"] = notes
 
     if route_text in {"research", "adapt"}:
         brief = {
@@ -323,73 +286,6 @@ def _implementation_payload_from_report(
             payload["research_brief"] = brief
 
     return payload
-
-
-def _execute_research_sources(research: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Return the execute-facing source subset for adapt payloads.
-
-    Prefer explicit `precedent_sources`. Some artifact paths receive serialized
-    research that has packet/slice identities but not that newer field; derive a
-    subset from those identities. Do not fall back to full `sources` for adapt.
-    """
-    precedent_sources = research.get("precedent_sources")
-    if isinstance(precedent_sources, (list, tuple)):
-        return [source for source in precedent_sources if isinstance(source, dict)]
-
-    raw_sources = research.get("sources")
-    if not isinstance(raw_sources, (list, tuple)):
-        return []
-    sources = [source for source in raw_sources if isinstance(source, dict)]
-    if not sources:
-        return []
-
-    wanted_class_types: set[str] = set()
-    wanted_paths: set[str] = set()
-
-    packet = research.get("precedent_packet")
-    options = packet.get("options") if isinstance(packet, Mapping) else None
-    if isinstance(options, (list, tuple)):
-        for option in options:
-            if not isinstance(option, Mapping):
-                continue
-            class_type = option.get("source_class_type")
-            path = option.get("source_workflow_path")
-            if isinstance(class_type, str) and class_type:
-                wanted_class_types.add(class_type)
-            if isinstance(path, str) and path:
-                wanted_paths.add(path)
-
-    slices = research.get("precedent_slices")
-    if isinstance(slices, (list, tuple)):
-        for slice_obj in slices:
-            if not isinstance(slice_obj, Mapping):
-                continue
-            class_type = slice_obj.get("source_class_type")
-            path = slice_obj.get("source_workflow_path")
-            if isinstance(class_type, str) and class_type:
-                wanted_class_types.add(class_type)
-            if isinstance(path, str) and path:
-                wanted_paths.add(path)
-
-    if not wanted_class_types and not wanted_paths:
-        return []
-
-    out: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for source in sources:
-        class_type = source.get("class_type")
-        path = source.get("source_workflow_path") or source.get("path")
-        if (
-            isinstance(class_type, str) and class_type in wanted_class_types
-        ) or (
-            isinstance(path, str) and path in wanted_paths
-        ):
-            key = (str(class_type or ""), str(path or ""))
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(source)
-    return out
 
 
 def _append_manifest(manifest: list[str], file_name: str) -> None:
@@ -570,28 +466,6 @@ def synthesize_headless_artifacts(
             research_payload = _redact(research)
             _safe_write(output_dir / "research.json", research_payload)
             _append_manifest(manifest, "research.json")
-
-        # H01 dual evaluation: persist the shadow trace + dual report and BOTH
-        # evidence packs when the C1 agent research stage ran beside legacy
-        # research.  These are inert comparison artifacts.
-        research_shadow = report.get("research_shadow")
-        if isinstance(research_shadow, Mapping):
-            _safe_write(output_dir / "research_shadow.json", _redact(research_shadow))
-            _append_manifest(manifest, "research_shadow.json")
-            agent_pack = research_shadow.get("agent_evidence_pack")
-            if isinstance(agent_pack, Mapping):
-                _safe_write(
-                    output_dir / "research_shadow_agent_pack.json",
-                    _redact(agent_pack),
-                )
-                _append_manifest(manifest, "research_shadow_agent_pack.json")
-            legacy_pack = research_shadow.get("legacy_evidence_pack")
-            if isinstance(legacy_pack, Mapping):
-                _safe_write(
-                    output_dir / "research_shadow_legacy_pack.json",
-                    _redact(legacy_pack),
-                )
-                _append_manifest(manifest, "research_shadow_legacy_pack.json")
 
         implementation = report.get("implementation")
         if isinstance(implementation, Mapping):

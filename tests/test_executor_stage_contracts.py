@@ -19,8 +19,6 @@ from vibecomfy.executor.stage_contracts import (
     NeedsInput,
     StageDiagnostic,
     StagePackage,
-    StageRequest,
-    validate_stage_handoff,
 )
 from vibecomfy.executor.tool_contracts import TOOL_STATUSES, ToolResult, ToolStatus
 
@@ -69,27 +67,6 @@ def _package(*, status: str = "ok") -> StagePackage:
     )
 
 
-def _request(*, priorities: tuple[str, ...] = ("Preserve the current graph.",)) -> StageRequest:
-    return StageRequest(
-        goal="Add audio conditioning to the current Wan workflow.",
-        priorities=priorities,
-        route="adapt",
-        interaction_mode="interactive",
-        previous_package_refs=("research:1",),
-    )
-
-
-def test_stage_request_round_trip_is_deterministic_and_json_safe() -> None:
-    request = _request()
-    wire = request.to_dict()
-
-    encoded = json.dumps(wire, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    restored = StageRequest.from_dict(json.loads(encoded))
-
-    assert restored.to_dict() == wire
-    assert canonical_json(restored) == encoded
-
-
 def test_stage_package_round_trip_is_deterministic_and_json_safe() -> None:
     package = _package()
     wire = package.to_dict()
@@ -100,20 +77,6 @@ def test_stage_package_round_trip_is_deterministic_and_json_safe() -> None:
     assert restored.to_dict() == wire
     assert restored.produced_at == "2026-08-14T12:00:00Z"
     assert canonical_json(restored) == encoded
-
-
-@pytest.mark.parametrize("missing", ["goal", "priorities", "previous_package_refs"])
-def test_stage_request_rejects_missing_goal_priority_or_package(missing: str) -> None:
-    payload = _request().to_dict()
-    payload.pop(missing)
-
-    with pytest.raises(ValueError, match="missing required field"):
-        StageRequest.from_dict(payload)
-
-
-def test_stage_handoff_rejects_unresolved_previous_package_ref() -> None:
-    with pytest.raises(ValueError, match="Unresolved previous package ref"):
-        validate_stage_handoff(_request(), {})
 
 
 def test_stage_package_rejects_unresolved_ledger_evidence_id() -> None:
@@ -169,34 +132,22 @@ def test_stage_package_rejects_unresolved_diagnostic_and_needs_input_ids() -> No
             StagePackage(**values)
 
 
-def test_changing_priority_alone_cannot_change_deterministic_gate_result() -> None:
+def test_research_stage_package_is_the_typed_research_handoff() -> None:
+    """C01/F01: the research stage hands the implement phase a StagePackage
+    whose status + ledger are deterministic and serialization-stable — the
+    typed envelope the executor now constructs at the research→implement
+    seam (StageRequest was ornamental and is deleted)."""
     package = _package()
-    packages = {"research:1": package}
-    preserve = validate_stage_handoff(
-        _request(priorities=("Preserve existing nodes.",)), packages
-    )
-    simplify = validate_stage_handoff(
-        _request(priorities=("Prefer the simplest graph.",)), packages
-    )
+    wire = json.loads(json.dumps(package.to_dict(), default=str))
 
-    assert dict(preserve) == dict(simplify)
-    json.dumps(preserve, allow_nan=False)
-    assert _request(priorities=("A",)).deterministic_gate_digest() == _request(
-        priorities=("B",)
-    ).deterministic_gate_digest()
+    assert wire["stage_id"] == "research"
+    assert wire["status"] == package.status.value
+    assert wire["ledger"]["entries"][0]["evidence_ids"] == ["ev:hivemind:42"]
+    assert wire["diagnostics"][0]["code"] == "source_inspected"
 
-
-def test_deterministic_gate_digest_still_binds_the_goal() -> None:
-    original = _request()
-    different_goal = StageRequest(
-        goal="Explain the current Wan workflow without editing it.",
-        priorities=original.priorities,
-        route=original.route,
-        interaction_mode=original.interaction_mode,
-        previous_package_refs=original.previous_package_refs,
-    )
-
-    assert original.deterministic_gate_digest() != different_goal.deterministic_gate_digest()
+    # The same envelope round-trips byte-for-byte (deterministic handoff).
+    restored = StagePackage.from_dict(wire)
+    assert canonical_json(restored) == canonical_json(package)
 
 
 def test_full_source_bodies_live_only_behind_evidence_ids() -> None:

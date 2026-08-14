@@ -17,6 +17,11 @@ from vibecomfy.executor.contracts import (
     coerce_model_attempts,
     redact_model_preview,
 )
+from vibecomfy.executor.tool_specs import (
+    PHASE_IMPLEMENT,
+    PHASE_RESEARCH,
+    tool_catalog_docs,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -409,24 +414,21 @@ def build_batch_messages(
         if not research_only
         else ""
     )
-    mission = (
-        "You are answering a research question for a ComfyUI canvas. Gather auditable evidence with `research(...)`, refine weak searches, answer in prose, then call `done()`. Do not edit the graph.\n"
-        if research_only
-        else "You edit a ComfyUI canvas as live Python objects.\n"
-    )
+    # The research_only branch builds its own system prompt below and never
+    # references ``mission``; research() is removed, so there is no separate
+    # research mission to advertise.
+    mission = "You edit a ComfyUI canvas as live Python objects.\n"
     if research_only:
-        # B03 research-only prompt: no graph-construction surface; the
-        # resolver (not this prompt) selects the corpus.
+        # C01 research-only prompt: no graph-construction surface; the agent
+        # gathers auditable evidence with the research-phase tool catalog
+        # (hivemind_search / hivemind_get / registry_lookup / web_search),
+        # then calls done().  The catalog is derived from the declarative
+        # ToolSpec registry — never hand-maintained prose.
         system = (
             "You are answering a research question for a ComfyUI canvas. Gather auditable "
-            "evidence with the agent tool calls (`hivemind_search`, `hivemind_get`, "
-            "`registry_lookup`, `node_schema`, `ready_template_list`, `ready_template_load`, "
-            "`web_search`), then call `done()`. Do not edit the graph.\n\n"
-            "`research(\"query words\", sources=[\"workflows\",\"registry\",\"messages\",\"web\"])` — "
-            "LEGACY shadow-only (H01); prefer the tool calls above.\n"
-            "  — `messages` searches Banodoco Discord / unified_feed community knowledge, NOT workflows.\n"
-            "If sources are omitted on this informational route, the executor searches "
-            "messages and web. Do not pass sources=[\"workflows\"] for community opinion. "
+            "evidence with the agent tool calls:\n"
+            f"{tool_catalog_docs(PHASE_RESEARCH)}\n"
+            "then call `done()`. Do not edit the graph.\n\n"
             "Do not emit Add/Change statements or code-node construction.\n\n"
             "If the community evidence is thin or off-topic, search again with different "
             "terms (model name + version, or a complaint/praise phrase). When you have "
@@ -449,9 +451,9 @@ def build_batch_messages(
         "- `del x`\n"
         "- `node.mode = \"bypassed\" | \"muted\" | \"enabled\"` (bypass does NOT pass input through)\n"
         "- `search(focus_types=[\"ClassName\"])` — exact current authoring-schema lookup only; no internet/precedent search and no edit lands\n"
-        "- `research(\"query words\", sources=[\"workflows\", \"registry\", \"messages\", \"web\"])` — choose evidence tiers; LEGACY shadow-only (H01); `workflows` searches internal templates plus Hivemind external workflows; if sources are omitted it searches internal workflows/templates only; no edit lands\n"
-        "- Agent tool calls (no edit lands): `hivemind_search(\"query\")`, `hivemind_get(\"hivemind:<table>:<row_id>\")`, `registry_lookup(\"ClassName\")`, `node_schema(\"ClassName\")`, `ready_template_list(\"wan\")`, `ready_template_load(\"video/wan_t2v\")`, `rank_edit_targets(\"intent\")`, `suggest_seed_nodes(\"intent\")`, `layout_hints(\"insert\")`, `web_search(\"query\", unresolved_question=\"...\")` (last resort only)\n"
-        "Tool budget: 3 searches, 6 fetches, 1 registry lookup, ~90s; exhaustion is a typed refusal that preserves gathered evidence — then synthesize and `done()`. Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
+        "- Agent tool calls (no edit lands) — implement phase only:\n"
+        f"{tool_catalog_docs(PHASE_IMPLEMENT)}\n"
+        "Tool budget: 6 fetches and a ~90s phase deadline; exhaustion is a typed refusal that preserves gathered evidence — then synthesize and `done()`. Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
@@ -485,23 +487,23 @@ def build_batch_messages(
         "Do this before guessing branded output-node class names. Use exact `focus_types` only after a class name appears in those compatibility results or other evidence. "
         "For seed-variation grids, contact sheets, preview montages, format/export changes, or other graph-local output/composition edits, preserve the existing generation/custom-node core and add or rewire only deterministic local consumer/composition nodes after the visible terminal outputs. "
         "Prefer local `search(compatible_output_type=...)` or exact visible sink/compositor schema over workflow precedent; do not replace a working custom model stack just to make a layout/export edit.\n\n"
-        "Research strategy (bounded guidance): for edit-by-precedent, research "
-        "workflow precedents and community knowledge with the agent tools: use "
-        "`hivemind_search`/`hivemind_get` (workflows) first, then `messages` or `web_search` "
-        "when more context is needed. "
+        "Authoring strategy (bounded guidance): for edit-by-precedent, the "
+        "research phase already gathered workflow and community evidence and "
+        "handed it to you as compact ledger entries + evidence IDs — the "
+        "implement phase has NO research/search tools. Use `node_schema` for "
+        "the exact classes you intend to add and `ready_template_load` for a "
+        "direct-load asset when the request names one. "
         "Do not research installation, provider packs, registry, or local addability unless "
         "the user explicitly asks for installation/provider information; reinterpret such a "
-        "hint as a request to find workflow precedents for the named technology. Use `registry_lookup` "
-        "only when the user explicitly asks which node pack provides a class. Anchor each "
+        "hint as a request to find workflow precedents for the named technology. Anchor each "
         "query on the smallest named class/field/socket visible in the graph — never search the "
         "raw user sentence or guess class names (no `search(focus_types=[...])` for guessed "
         "names); workflow context is mandatory for named external requests. Before editing, "
         "extract a concrete node-combination reference (class types, roles, "
-        "terminal consumer, visible params); if none is defensible, keep researching or "
-        "`clarify()` instead of splicing. "
+        "terminal consumer, visible params); if none is defensible, use `rank_edit_targets` "
+        "or `clarify()` instead of splicing. "
         "Prior tool results reach you only as compact ledger entries + evidence IDs; "
-        "resolve an ID with `hivemind_get(...)` when you need its full body — never repeat "
-        "raw bodies back into the conversation. "
+        "never repeat raw bodies back into the conversation. "
         "Workflow_schema classes from selected workflow precedent are provisional constructor permission "
         "when they appear in the signature catalog. Do not invent replacement classes. Supported node setup is automatic; "
         "do not request installation. Never write a field/socket not visible in "

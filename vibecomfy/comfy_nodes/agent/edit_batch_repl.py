@@ -114,7 +114,6 @@ class EditBatchReplDeps:
     _batch_candidate_graph_changed: Any  # host: _frag_humanize
     _batch_research_memory_summary: Any  # host: _frag_batch_memory
     _build_graph_report: Any  # host: _frag_research
-    _build_precedent_adaptation_prompt: Any  # host: _frag_research
     _candidate_dict: Any  # host: _frag_research
     _candidate_stable_key: Any  # host: _frag_response_contract
     _canonical_agent_edit_route: Any  # host: _frag_research

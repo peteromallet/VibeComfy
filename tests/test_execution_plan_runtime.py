@@ -284,9 +284,9 @@ def test_runtime_invariant_failure_still_blocks(tmp_path: Path) -> None:
     assert "sampler.present" in update.compact_status["failed_condition_ids"]
 
 
-def test_runtime_hydrated_plan_provenance_is_enforced_advisory(tmp_path: Path) -> None:
-    """B3: executor-built plans are provenance 'enforced' with enforced=false."""
-    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_ENFORCED
+def test_runtime_hydrated_plan_provenance_defaults_agent_authored_advisory(tmp_path: Path) -> None:
+    """B3: hydrated plans default to agent_authored with enforced=false."""
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_AGENT_AUTHORED
 
     state = _state(tmp_path)
     hydrate_execution_plan_from_protocol_notes(
@@ -309,11 +309,11 @@ def test_runtime_hydrated_plan_provenance_is_enforced_advisory(tmp_path: Path) -
     )
 
     assert state.execution_plan is not None
-    assert state.execution_plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
     assert state.execution_plan.enforced is False
     assert state.execution_plan.revision_history == ()
     persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
-    assert persisted["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert persisted["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
     assert persisted["enforced"] is False
     assert persisted["revision_history"] == []
 

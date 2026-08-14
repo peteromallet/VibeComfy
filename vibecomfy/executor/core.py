@@ -55,6 +55,8 @@ from .agent_research_stage import (
     run_agent_research_stage,
 )
 from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
+from .stage_contracts import StageDiagnostic, StagePackage
+from .tool_contracts import ToolStatus
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
@@ -279,40 +281,6 @@ def _should_research(plan: ClassifyDecision) -> bool:
 def _should_implement(plan: ClassifyDecision) -> bool:
     """Determine if the implement phase should run for *plan*."""
     return _route_behavior(plan).needs_implement
-
-
-def _phase_2_research_deadline() -> float | None:
-    """Absolute monotonic deadline for the synchronous Phase-2 research wait.
-
-    R2-B1: bounds the in-process research phase so a slow external tier cannot
-    eat the whole scenario budget under concurrency.  Overridable with
-    ``VIBECOMFY_RESEARCH_PHASE_DEADLINE`` (seconds; default 60; 0 disables).
-    The deadline is cooperative: research() propagates the remaining time to
-    every external tier and returns partial evidence when it expires.
-    """
-    try:
-        seconds = float(os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "60") or 0)
-    except ValueError:
-        seconds = 60.0
-    if seconds <= 0:
-        return None
-    return time.monotonic() + seconds
-
-
-_RESEARCH_SHADOW_ENV = "VIBECOMFY_RESEARCH_SHADOW"
-_RESEARCH_SHADOW_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
-
-def _research_shadow_enabled() -> bool:
-    """Return True when the H01 agent research shadow stage is enabled.
-
-    Opt-in via ``VIBECOMFY_RESEARCH_SHADOW`` (default off) so ordinary
-    executor runs — and unpatched test environments — never perform the
-    shadow stage's tool/model I/O.  Dual-evaluation harness runs set the flag
-    to capture both evidence packs beside legacy research; the C01 cutover
-    decides when the shadow becomes authoritative.
-    """
-    return os.environ.get(_RESEARCH_SHADOW_ENV, "").strip().casefold() in _RESEARCH_SHADOW_TRUTHY
 
 
 # ── graph summary helpers ────────────────────────────────────────────────────
@@ -814,6 +782,7 @@ class AgentResearchResult:
     route: str
     trace: AgentResearchTrace
     evidence_pack: EvidencePack
+    package: StagePackage | None = None
     policy_diagnostics: tuple[dict[str, Any], ...] = ()
     decision_memo: Mapping[str, Any] | None = None
 
@@ -910,6 +879,56 @@ def _research_decision_memo(
     }
 
 
+def _research_stage_package(
+    *,
+    route: str,
+    trace: AgentResearchTrace,
+    pack: EvidencePack,
+    policy_diagnostics: tuple[dict[str, Any], ...],
+) -> StagePackage:
+    """Build the F01 research :class:`StagePackage` handed to implement.
+
+    The typed envelope carries the evidence artifacts, the compact ledger,
+    and typed diagnostics (policy warnings, trace failures) — the only
+    research content the implement phase may consume.  ``StageRequest`` is
+    not part of this seam: the classify decision (goal/route) is authoritative
+    and the package references are explicit on the wire.
+    """
+    diagnostics: list[StageDiagnostic] = [
+        StageDiagnostic(
+            code=str(item.get("code") or "research_policy_warning"),
+            message=str(item.get("message") or ""),
+            severity="warning",
+        )
+        for item in policy_diagnostics
+        if item.get("message")
+    ]
+    if trace.status == "failed":
+        diagnostics.append(
+            StageDiagnostic(
+                code="research_stage_failed",
+                message=str(trace.error or "research stage failed"),
+                severity="error",
+            )
+        )
+    status = (
+        ToolStatus.OK
+        if trace.status == "ok"
+        else ToolStatus.UNAVAILABLE
+    )
+    return StagePackage(
+        stage_id="research",
+        produced_at=datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
+        artifacts=pack.artifacts,
+        diagnostics=tuple(diagnostics),
+        status=status,
+        next_stage_hints=("implement",) if route == "adapt" else (),
+        ledger=pack.ledger,
+    )
+
+
 def _run_agent_owned_research(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -930,6 +949,12 @@ def _run_agent_owned_research(
         route=route,
         trace=trace,
         evidence_pack=pack,
+        package=_research_stage_package(
+            route=route,
+            trace=trace,
+            pack=pack,
+            policy_diagnostics=diagnostics,
+        ),
         policy_diagnostics=diagnostics,
         decision_memo=memo,
     )
@@ -981,9 +1006,18 @@ def _run_implement(
     graph_inspection = _graph_inspection(request.graph)
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         payload["graph_inspection"] = graph_inspection
+    research_package = getattr(research_result, "package", None)
     research_ledger = getattr(research_result, "ledger", None)
-    if isinstance(research_ledger, EvidenceLedger) and executor_route == "adapt":
-        payload["research_ledger"] = research_ledger.to_dict()
+    if executor_route == "adapt":
+        # C01: the implement phase receives ONLY the research package's
+        # compact ledger (decisions + evidence IDs); artifact bodies stay
+        # server-side.  The typed StagePackage is the seam handoff; the
+        # ledger fallback covers manually-constructed results without a
+        # package (the live path always builds one).
+        if isinstance(research_package, StagePackage):
+            payload["research_ledger"] = research_package.ledger.to_dict()
+        elif isinstance(research_ledger, EvidenceLedger):
+            payload["research_ledger"] = research_ledger.to_dict()
     research_brief = _research_brief_from_plan(
         plan,
         query=request.query,

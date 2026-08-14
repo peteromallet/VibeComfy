@@ -97,7 +97,7 @@ def test_absent_nested_execution_plan_leaves_runtime_plan_empty(tmp_path: Path) 
 
 
 def test_hydration_carries_provenance_defaults(tmp_path: Path) -> None:
-    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_ENFORCED
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_AGENT_AUTHORED
 
     state = _state(tmp_path)
     protocol_notes = {
@@ -112,12 +112,12 @@ def test_hydration_carries_provenance_defaults(tmp_path: Path) -> None:
     _hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
 
     assert state.execution_plan is not None
-    assert state.execution_plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
     assert state.execution_plan.enforced is False
     assert state.execution_plan.revision_history == ()
 
     persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
-    assert persisted["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert persisted["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
     assert persisted["enforced"] is False
     assert persisted["revision_history"] == []
 

@@ -15,6 +15,7 @@ tags:
 assessment:
   subjective: false
   enforced:
+    - "executor_result.json parses as valid JSON and records ok=false with report.executor.plan.route=revise (the refusal surfaced through the pipeline)."
     - "refusal.json parses as valid JSON with raised=true and error_class=RefusedEmit."
     - "refusal.json diff.links is non-empty and every entry carries source.requested_output, source.emitted_sockets, and source.attempted_remaps."
     - "refusal.json diff.links entries record missing=source_socket (the phantom source endpoint)."
@@ -29,6 +30,8 @@ assessment:
 extras:
   flow_kind: agent_judgment_pipeline_scripted
   required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
     - evidence/refusal.json
     - evidence/control_emit.json
     - evidence/metadata.json

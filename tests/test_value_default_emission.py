@@ -565,21 +565,3 @@ def test_value_default_alias_unmatched_prior_does_not_block_case01_literal() -> 
     )
 
 
-def test_value_default_precedent_prompt_keeps_normal_construction_additive() -> None:
-    from vibecomfy.comfy_nodes.agent.edit import _build_precedent_adaptation_prompt
-
-    prompt = _build_precedent_adaptation_prompt(
-        None,
-        precedent_slices=(
-            {
-                "source_class_type": "ValueDefaultNode",
-                "node_ids": ["source-1"],
-                "binding_envelope": {"version": 1},
-            },
-        ),
-    )
-
-    assert "construct and wire the node normally" in prompt
-    assert "supply a schema-valid literal yourself" in prompt
-    assert "never a reason to clarify, defer, or leave the graph unchanged" in prompt
-    assert "Do not copy binding JSON back" in prompt

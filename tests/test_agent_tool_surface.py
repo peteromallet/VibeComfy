@@ -677,7 +677,7 @@ class TestEffortBudgets:
 
 
 class TestResolveWebSearch:
-    def test_enabled_by_default_and_requires_unresolved_question(
+    def test_disabled_by_default_and_requires_unresolved_question(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import vibecomfy.executor.web_tools as web_tools
@@ -696,8 +696,11 @@ class TestResolveWebSearch:
 
         result = _resolve('web_search("wan settings", unresolved_question="what step count?")')
 
+        # A06: web search is opt-in — a missing session flag defaults to
+        # DISABLED, never to enabled. The tool module receives enabled=False
+        # and decides the typed refusal.
         assert result.detail["tool_status"] == "ok"
-        assert calls[0]["enabled"] is True
+        assert calls[0]["enabled"] is False
         assert calls[0]["unresolved_question"] == "what step count?"
         assert result.detail["tool_budget"]["searches_remaining"] == TOOL_SEARCH_BUDGET - 1
 
@@ -807,38 +810,48 @@ class TestLedgerOnlyMemory:
 
 
 class TestPromptSurface:
-    def test_system_prompt_documents_tools_and_legacy_research(self) -> None:
+    def test_implement_prompt_documents_only_implement_tools(self) -> None:
         messages = build_batch_messages(task="research", python_source="x = LoadImage()")
         system = messages[0]["content"]
 
-        assert "hivemind_search" in system
-        assert "hivemind_get" in system
-        assert "registry_lookup" in system
+        # C01: the implement prompt documents ONLY the implement-phase tools.
         assert "node_schema" in system
         assert "ready_template_list" in system
         assert "ready_template_load" in system
         assert "rank_edit_targets" in system
         assert "suggest_seed_nodes" in system
         assert "layout_hints" in system
-        assert "web_search" in system
-        assert "LEGACY shadow-only" in system
-        assert "3 searches" in system
+        # The research-phase tools are strictly partitioned out of implement.
+        assert "hivemind_search" not in system
+        assert "hivemind_get" not in system
+        assert "registry_lookup" not in system
+        assert "web_search" not in system
         assert "6 fetches" in system
-        assert "1 registry lookup" in system
         assert "evidence IDs" in system
-        # pinned legacy behavior stays documented
-        assert 'research("query words", sources=' in system
-        assert "if sources are omitted" in system
-        assert "internal workflows/templates only" in system
+        # research() is removed: prompts no longer advertise the legacy
+        # statement or its sources= surface.
+        assert "research(" not in system
+        assert "LEGACY shadow-only" not in system
+        assert "if sources are omitted" not in system
+        assert "internal workflows/templates only" not in system
 
-    def test_research_only_prompt_mentions_tools(self) -> None:
+    def test_research_only_prompt_documents_only_research_tools(self) -> None:
         messages = build_batch_messages(
             task="question", python_source="", research_only=True, max_batches=4, budget_remaining=4
         )
         system = messages[0]["content"]
+        # C01: the research-only prompt documents the research-phase tools.
         assert "hivemind_search" in system
-        assert "LEGACY shadow-only" in system
+        assert "hivemind_get" in system
+        assert "registry_lookup" in system
+        assert "web_search" in system
         assert "Gather auditable evidence" in system
+        # Implement-phase tools are not advertised on the research route.
+        assert "node_schema" not in system
+        assert "rank_edit_targets" not in system
+        # the research-only prompt no longer documents the removed research()
+        assert "research(" not in system
+        assert "LEGACY shadow-only" not in system
 
     def test_evidence_ledger_block_rendered_in_user_message(self) -> None:
         ledger = (
@@ -1017,7 +1030,10 @@ class TestEndToEndInterleave:
             user = messages[1]["content"]
             if turn["n"] == 1:
                 assert "hivemind_search" in system
-                assert "LEGACY shadow-only" in system
+                # research() is removed; the research-phase prompt documents
+                # only the named tool calls, never the legacy statement.
+                assert "LEGACY shadow-only" not in system
+                assert "research(" not in system
                 return {"message": "Searching.", "batch": 'hivemind_search("wan t2v")'}
             if turn["n"] == 2:
                 # the prior turn's tool output crosses turns as ledger entries
@@ -1038,6 +1054,11 @@ class TestEndToEndInterleave:
                 "workflow_id": "713b5d5c-87f4-51b6-921a-a9acfa74e43c",
                 "task": "research wan t2v then finish",
                 "session_id": "i01-e2e-interleave",
+                # C01: search/get are research-phase tools. The implement
+                # phase is strictly partitioned (no hivemind tools); this
+                # flow is a research-phase batch session.
+                "route": "research",
+                "executor_route": "research",
             },
             schema_provider=_test_provider(),
             deepseek_client=client,
@@ -1047,11 +1068,15 @@ class TestEndToEndInterleave:
         assert result["ok"] is True
         assert result["internal_outcome"]["kind"] in {"noop", "candidate"}
         # budgets persisted across turns: search consumed once, fetch once.
-        # turns: 0 search, 1 get, 2/3 done() refused by the no-op confirmation
-        # gate (total_landed == 0), 4 done() accepted.
+        # research-only phase: 0 search, 1 get, 2 done() accepted (no no-op
+        # confirmation gate on the research route).
         turns = result.get("batch_turns") or []
-        assert len(turns) == 5, [t.get("turn_number") for t in turns]
-        assert [t["batch"] for t in turns][2:] == ["done()", "done()", "done()"]
+        assert len(turns) == 3, [t.get("turn_number") for t in turns]
+        assert [t["batch"] for t in turns] == [
+            'hivemind_search("wan t2v")',
+            'hivemind_get("hivemind:external_resources:1")',
+            "done()",
+        ]
         tool_details = [
             (t["turn_number"], s["detail"]["tool_call"], s["detail"]["tool_status"])
             for t in turns
