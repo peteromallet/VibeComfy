@@ -19,7 +19,7 @@
       "properties": {
         "vibecomfy_id": "StringConcatenate_0",
         "Node name for S&R": "StringConcatenate",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n48"
       }
     },
@@ -39,7 +39,7 @@
       "properties": {
         "vibecomfy_id": "TextGenerateLTX2Prompt_1",
         "Node name for S&R": "TextGenerateLTX2Prompt",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n49"
       }
     },
@@ -59,7 +59,7 @@
       "properties": {
         "vibecomfy_id": "LTXVConditioning_2",
         "Node name for S&R": "LTXVConditioning",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n55"
       }
     },
@@ -79,7 +79,7 @@
       "properties": {
         "vibecomfy_id": "LTXVConcatAVLatent_3",
         "Node name for S&R": "LTXVConcatAVLatent",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n56"
       }
     },
@@ -99,7 +99,7 @@
       "properties": {
         "vibecomfy_id": "CLIPTextEncode_4",
         "Node name for S&R": "CLIPTextEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n16"
       }
     },
@@ -119,7 +119,7 @@
       "properties": {
         "vibecomfy_id": "SamplerCustomAdvanced_5",
         "Node name for S&R": "SamplerCustomAdvanced",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n58"
       }
     },
@@ -139,7 +139,7 @@
       "properties": {
         "vibecomfy_id": "RandomNoise_6",
         "Node name for S&R": "RandomNoise",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n1"
       }
     },
@@ -159,7 +159,7 @@
       "properties": {
         "vibecomfy_id": "LTXVSeparateAVLatent_7",
         "Node name for S&R": "LTXVSeparateAVLatent",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n66"
       }
     },
@@ -179,7 +179,7 @@
       "properties": {
         "vibecomfy_id": "CFGGuider_8",
         "Node name for S&R": "CFGGuider",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n57"
       }
     },
@@ -199,7 +199,7 @@
       "properties": {
         "vibecomfy_id": "KSamplerSelect_9",
         "Node name for S&R": "KSamplerSelect",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n2"
       }
     },
@@ -219,7 +219,7 @@
       "properties": {
         "vibecomfy_id": "BasicScheduler_10",
         "Node name for S&R": "BasicScheduler",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n45"
       }
     },
@@ -259,7 +259,7 @@
       "properties": {
         "vibecomfy_id": "LTXVAudioVAEEncode_12",
         "Node name for S&R": "LTXVAudioVAEEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n34"
       }
     },
@@ -299,7 +299,7 @@
       "properties": {
         "vibecomfy_id": "RandomNoise_14",
         "Node name for S&R": "RandomNoise",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n4"
       }
     },
@@ -319,7 +319,7 @@
       "properties": {
         "vibecomfy_id": "LTXVLatentUpsampler_15",
         "Node name for S&R": "LTXVLatentUpsampler",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n61"
       }
     },
@@ -339,7 +339,7 @@
       "properties": {
         "vibecomfy_id": "LTXVSeparateAVLatent_16",
         "Node name for S&R": "LTXVSeparateAVLatent",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n59"
       }
     },
@@ -359,7 +359,7 @@
       "properties": {
         "vibecomfy_id": "LTXVConcatAVLatent_17",
         "Node name for S&R": "LTXVConcatAVLatent",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n64"
       }
     },
@@ -379,7 +379,7 @@
       "properties": {
         "vibecomfy_id": "KSamplerSelect_18",
         "Node name for S&R": "KSamplerSelect",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n5"
       }
     },
@@ -399,7 +399,7 @@
       "properties": {
         "vibecomfy_id": "CFGGuider_19",
         "Node name for S&R": "CFGGuider",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n62"
       }
     },
@@ -419,7 +419,7 @@
       "properties": {
         "vibecomfy_id": "SamplerCustomAdvanced_20",
         "Node name for S&R": "SamplerCustomAdvanced",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n65"
       }
     },
@@ -459,7 +459,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_22",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n71"
       }
     },
@@ -539,7 +539,7 @@
       "properties": {
         "vibecomfy_id": "TrimAudioDuration_26",
         "Node name for S&R": "TrimAudioDuration",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n31"
       }
     },
@@ -559,7 +559,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_27",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n38"
       }
     },
@@ -639,7 +639,7 @@
       "properties": {
         "vibecomfy_id": "AudioConcat_31",
         "Node name for S&R": "AudioConcat",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n72"
       }
     },
@@ -659,7 +659,7 @@
       "properties": {
         "vibecomfy_id": "TrimAudioDuration_32",
         "Node name for S&R": "TrimAudioDuration",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n69"
       }
     },
@@ -699,7 +699,7 @@
       "properties": {
         "vibecomfy_id": "LTXVAudioVAEDecode_34",
         "Node name for S&R": "LTXVAudioVAEDecode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n67"
       }
     },
@@ -719,7 +719,7 @@
       "properties": {
         "vibecomfy_id": "ResizeImageMaskNode_35",
         "Node name for S&R": "ResizeImageMaskNode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n40"
       }
     },
@@ -739,7 +739,7 @@
       "properties": {
         "vibecomfy_id": "LTXVImgToVideoInplace_36",
         "Node name for S&R": "LTXVImgToVideoInplace",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n63"
       }
     },
@@ -759,7 +759,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_37",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n39"
       }
     },
@@ -799,7 +799,7 @@
       "properties": {
         "vibecomfy_id": "VAELoader_39",
         "Node name for S&R": "VAELoader",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n8"
       }
     },
@@ -819,7 +819,7 @@
       "properties": {
         "vibecomfy_id": "LoraLoaderModelOnly_40",
         "Node name for S&R": "LoraLoaderModelOnly",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n19"
       }
     },
@@ -839,7 +839,7 @@
       "properties": {
         "vibecomfy_id": "LatentUpscaleModelLoader_41",
         "Node name for S&R": "LatentUpscaleModelLoader",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n9"
       }
     },
@@ -859,7 +859,7 @@
       "properties": {
         "vibecomfy_id": "DualCLIPLoader_42",
         "Node name for S&R": "DualCLIPLoader",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n10"
       }
     },
@@ -899,7 +899,7 @@
       "properties": {
         "vibecomfy_id": "VAELoader_44",
         "Node name for S&R": "VAELoader",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n12"
       }
     },
@@ -919,7 +919,7 @@
       "properties": {
         "vibecomfy_id": "UNETLoader_45",
         "Node name for S&R": "UNETLoader",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n13"
       }
     },
@@ -939,7 +939,7 @@
       "properties": {
         "vibecomfy_id": "ManualSigmas_46",
         "Node name for S&R": "ManualSigmas",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n14"
       }
     },
@@ -979,7 +979,7 @@
       "properties": {
         "vibecomfy_id": "ResizeImagesByLongerEdge_48",
         "Node name for S&R": "ResizeImagesByLongerEdge",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n41"
       }
     },
@@ -1059,7 +1059,7 @@
       "properties": {
         "vibecomfy_id": "ResizeImagesByLongerEdge_52",
         "Node name for S&R": "ResizeImagesByLongerEdge",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n21"
       }
     },
@@ -1199,7 +1199,7 @@
       "properties": {
         "vibecomfy_id": "ModelSamplingSD3_59",
         "Node name for S&R": "ModelSamplingSD3",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n42"
       }
     },
@@ -1219,7 +1219,7 @@
       "properties": {
         "vibecomfy_id": "VAEDecode_60",
         "Node name for S&R": "VAEDecode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n70"
       }
     },
@@ -1279,7 +1279,7 @@
       "properties": {
         "vibecomfy_id": "VAEEncode_63",
         "Node name for S&R": "VAEEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n52"
       }
     },
@@ -1299,7 +1299,7 @@
       "properties": {
         "vibecomfy_id": "LTXVCropGuides_64",
         "Node name for S&R": "LTXVCropGuides",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n60"
       }
     },
@@ -1319,7 +1319,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_65",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n46"
       }
     },
@@ -1359,7 +1359,7 @@
       "properties": {
         "vibecomfy_id": "VAEEncode_67",
         "Node name for S&R": "VAEEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n47"
       }
     },
@@ -1379,7 +1379,7 @@
       "properties": {
         "vibecomfy_id": "GetImageRangeFromBatch_68",
         "Node name for S&R": "GetImageRangeFromBatch",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n44"
       }
     },
@@ -1399,7 +1399,7 @@
       "properties": {
         "vibecomfy_id": "LTXVCropGuides_69",
         "Node name for S&R": "LTXVCropGuides",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n68"
       }
     },
@@ -1439,7 +1439,7 @@
       "properties": {
         "vibecomfy_id": "CLIPTextEncode_71",
         "Node name for S&R": "CLIPTextEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n53"
       }
     },
@@ -1479,7 +1479,7 @@
       "properties": {
         "vibecomfy_id": "CLIPTextEncode_73",
         "Node name for S&R": "CLIPTextEncode",
-        "_vibecomfy_schema_provider": "node_index",
+        "_vibecomfy_schema_provider": "object_info_index",
         "vibecomfy_uid": "n23"
       }
     },
@@ -1529,7 +1529,7 @@
     "vibecomfy": {
       "layout_version": "m4",
       "source_template": "video/ltx2_3_runexx_video_to_video_extend",
-      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/video/ltx2_3_runexx_video_to_video_extend.py"
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/ready_templates/video/ltx2_3_runexx_video_to_video_extend.py"
     }
   },
   "lastRerouteId": null,

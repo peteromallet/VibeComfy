@@ -468,7 +468,7 @@
     "vibecomfy": {
       "layout_version": "m4",
       "source_template": "video/wanvideo_wrapper_22_5b_t2v_controlnet",
-      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/video/wanvideo_wrapper_22_5b_t2v_controlnet.py"
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/ready_templates/video/wanvideo_wrapper_22_5b_t2v_controlnet.py"
     }
   },
   "lastRerouteId": null,

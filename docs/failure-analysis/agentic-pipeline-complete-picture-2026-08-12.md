@@ -1,8 +1,17 @@
 # Agent-Edit Pipeline — Complete Picture & Grok Recommendation Brief
 
-**Date:** 2026-08-12 · **Status:** ACTIVE — quick wins landed, representation work in flight, heavy batches pending
+**Date:** 2026-08-12 · **Status:** SUPERSEDED — historical consultation brief (read-only snapshot)
 **Audience:** Grok consultation on what to do next (read-only; do NOT modify code)
 **Sources:** `docs/failure-analysis/agentic-pipeline-improvement-2026-08.md`, `.oracle/tasklist.md`, `.oracle/checkins/G0.md`, `docs/architecture/canonical-graph-elegance-plan.md`
+
+> ## ⚠️ SUPERSEDED — do not use for current status
+>
+> This 2026-08-12 brief is a **historical snapshot**. All batches it lists as
+> "in flight" or "pending" have since **landed and passed their oracle
+> checkpoints** (G0R → B01 → D13 → B04 → B03 → B05-lite → B06 → B07-lite →
+> B08-cut, culminating in **B09, cumulative oracle verdict: PASS**). Current
+> status lives in `.oracle/checkins/*.md` and `.oracle/tasklist.md`; this file
+> is retained for the consultation record only.
 
 ---
 
@@ -21,9 +30,9 @@ The 11-item forward plan (3 lenses: stop-the-bleeding / great-engineering / eleg
 
 ## 1. Each change — complete picture and status
 
-### 1.1 G0 — Quick-win gate (5 items) — LANDED, gate NOT yet passed
+### 1.1 G0 — Quick-win gate (5 items) — LANDED, gate PASSED (G0R rework)
 
-All five tasks were implemented and committed (`5daad9e6`, pushed `fa06a300..8f13abbc`). The **G0 oracle checkpoint FAILED** with 7 issues; rework partially landed (see 1.1.6). No re-verdict has been recorded.
+All five tasks were implemented and committed (`5daad9e6`, pushed `fa06a300..8f13abbc`). The **G0 oracle checkpoint FAILED** with 7 issues; the G0R rework (scorer/narrator, `tests/test_live_agentic_harness_guard_contract.py` + `test_live_agentic_assessor_score_honesty.py` + `test_edit_narrative.py` green) **passed the G0R oracle checkpoint — gate verdict is now PASS** (see `.oracle/checkins/batch-G0R.md`). Historical detail below is retained for the record.
 
 | Task | What | Root it fixes | Status |
 |---|---|---|---|
@@ -49,9 +58,11 @@ All five tasks were implemented and committed (`5daad9e6`, pushed `fa06a300..8f1
 
 ⚠️ `bfcde5a9`'s diff contains **only `.oracle/` files — zero code changes**, despite its message claiming issues 1–4 resolved. The gate formally remains **FAIL**.
 
-### 1.2 B02 — Lossless canonical graph representation — IN FLIGHT (this is the "elegance/representation" work)
+### 1.2 B02 — Lossless canonical graph representation — LANDED (oracle PASS)
 
 **Plan item 3** (Class B). Goal: one lossless canonical representation — the `VibeWorkflow` IR built from the envelope's rich `nodes` is the authority; `compiled_api` demoted to a derived execution view; UI JSON stays the JS boundary; close the `executor_durable` bypass; pinned-opaque emission always carries `properties.vibecomfy_uid`.
+
+**Status: LANDED.** Commits `192d4b8f` (megado B02: lossless canonical graph boundary) and `0f515870` (elegant VibeWorkflow declaration, P0–P10) landed the rich-envelope decoder (`_decode_serialized_vibe`, `normalize.py:382-395`) as the sole structural authority, closed the compile-mode leak and the `executor_durable` bypass, preserved emitter topology, and reached uidless=0 across the corpus. The elegance plan (`docs/architecture/canonical-graph-elegance-plan.md`) is marked LANDED; the B02/elegance preservation suite (`tests/test_b02_rich_preservation.py`) is **4/4 with 0 corpus mismatches**. Historical detail below (fixer grok, 16 regressions, uncommitted work) is retained for the record.
 
 **Status:**
 - A B02 fixer grok ran (resumed via `--continue`, detached `nohup`+`disown`, PID 4698) — it fixed the uid-less emission issue (preservation test 4/4 mid-run) but its own changes introduced **16 regressions** (compile-mode drop: `compile('api')` loses nodes with mode metadata; topology-loss: emitter drops links on round-trip). Log stopped at 23:02 — process gone, **uncommitted work on main's working tree** (12 files, +1035/−167: `ingest/normalize.py`, `porting/emit/ui.py`, `porting/refuse.py`, `graph_normalization.py`, `executor_durable.py`, 5 test files).
@@ -59,19 +70,19 @@ All five tasks were implemented and committed (`5daad9e6`, pushed `fa06a300..8f1
 - A **separate grok (PID 55603) is running the elegance transformation** in the `vibecomfy-elegance` worktree (branch `elegance-transform`), as the megado hard-task doer/oracle per the user's request.
 - B02 acceptance (frozen): rich ingest preserves exactly 15 nodes/10 edges/15 UIDs/mode distribution on 90a1d5; idempotent round-trip; all agent-edit allocation paths canonical; zero uid-less `pin_opaque`; malformed input fails closed. 16 regressions must be resolved.
 
-### 1.3 B01–B09 — Remaining heavy batches — NOT STARTED
+### 1.3 B01–B09 — Remaining heavy batches — ALL LANDED (oracle PASS each)
 
 | Batch | What | Plan items | Executor | Status |
 |---|---|---|---|---|
-| **B01** | Truthful classification + typed model-failure evidence (nullable `classification_status`, typed `empty_response` vs malformed, evidence-based retry) | 2, 11 (deep halves) | Grok/Sol `[HARD]` | Pending |
-| **B02** | Lossless canonical graph boundary (see 1.2) | 3 | Grok/Sol `[HARD]` | **In flight** |
-| **B03** | Semantic pinned-consumer guard — terminal-consumer sets `{(target_uid, target_input)}` instead of raw link cardinality | 6 | Grok/Sol `[HARD]` | Pending |
-| **B04** | Real-schema authority + apply-time combo validation (`:874`, `edit_batch_repl:1115`, `value_not_in_enum` at apply) | 7 (rest) | Flash | Pending |
-| **B05** | Transactional batch (snapshot/rollback) + one bounded semantic repair turn for NameError-class, fingerprint abort | 5 | Grok/Sol `[HARD]` | Pending |
-| **B06** | Grounded-refusal adjudication (4-part rubric; outage = undetermined) + universal `original/final.ui.json` | 8 | Grok/Sol `[HARD]` | Pending |
-| **B07** | Explicit transport selection (`--transport openrouter|native`) + actual stage-resolved provenance, redacted | 9 | Flash | Pending |
-| **B08** | All-Flash profile (`all_flash.toml`, `--profile` override) + compress +27% prompt drift into decision tables with byte ceiling | 10 | Grok/Sol `[HARD]` | Pending |
-| **B09** | Deterministic full gate + 2×2 matrix (openrouter/native × default/all_flash, 100 scenarios × 4 lanes) + durable comparison report | 9, 10 measurement; validates 1–11 | Flash | Pending |
+| **B01** | Truthful classification + typed model-failure evidence (nullable `classification_status`, typed `empty_response` vs malformed, evidence-based retry) | 2, 11 (deep halves) | Grok/Sol `[HARD]` | **Landed — PASS** (`.oracle/checkins/batch-B01.md`) |
+| **B02** | Lossless canonical graph boundary (see 1.2) | 3 | Grok/Sol `[HARD]` | **Landed — PASS** |
+| **B03** | Semantic pinned-consumer guard — terminal-consumer sets `{(target_uid, target_input)}` instead of raw link cardinality | 6 | Grok/Sol `[HARD]` | **Landed — PASS** (`.oracle/checkins/batch-B03.md`) |
+| **B04** | Real-schema authority + apply-time combo validation (`:874`, `edit_batch_repl:1115`, `value_not_in_enum` at apply) | 7 (rest) | Flash | **Landed — PASS** (`.oracle/checkins/batch-B04.md`) |
+| **B05** | Transactional batch (snapshot/rollback) + one bounded semantic repair turn for NameError-class, fingerprint abort | 5 | Grok/Sol `[HARD]` | **Landed — PASS** (B05-lite; `.oracle/checkins/batch-B05.md`) |
+| **B06** | Grounded-refusal adjudication (4-part rubric; outage = undetermined) + universal `original/final.ui.json` | 8 | Grok/Sol `[HARD]` | **Landed — PASS** (`.oracle/checkins/batch-B06.md`) |
+| **B07** | Explicit transport selection (`--transport openrouter|native`) + actual stage-resolved provenance, redacted | 9 | Flash | **Landed — PASS** (B07-lite; `.oracle/checkins/batch-B07.md`) |
+| **B08** | One shared endpoint invariant across resolution/mutation/materialization/projection (B08-cut) | 10 | Grok/Sol `[HARD]` | **Landed — PASS** (`.oracle/checkins/batch-B08.md`) |
+| **B09** | Reproducible final gate + canonical 100-scenario lane + durable comparison report | 9, 10 measurement; validates 1–11 | Flash | **LANDED — cumulative oracle verdict PASS** |
 
 Sequencing note from the tasklist: linear on purpose — each oracle checkpoint establishes authority for the next (B02 UIDs → B03 semantic guards → B04 schema → B05 rollback/repair → B06 refusals → B07/B08 experiments → B09 measurement).
 
