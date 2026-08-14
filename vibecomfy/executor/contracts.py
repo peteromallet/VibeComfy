@@ -12,10 +12,13 @@ import logging
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
+
+if TYPE_CHECKING:  # pragma: no cover - type checkers only (avoids core import cycle)
+    from .core import AgentResearchResult
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1123,229 +1126,6 @@ class ExecutorRequest:
 
 
 
-# ── structured precedent contracts (SD2) ──────────────────────────────────────
-
-@dataclass(frozen=True)
-class InspectionSummary:
-    """Minimal typed contract for a graph inspection pass.
-
-    Produced by graph-native inspection (``_graph_inspection``) and carried
-    alongside research results so downstream phases can reference concrete
-    node-level findings without re-parsing the raw graph dict.
-    """
-
-    node_count: int = 0
-    node_types: tuple[str, ...] = ()
-    has_dangling_inputs: bool = False
-    has_dangling_outputs: bool = False
-    key_widget_values: tuple[dict[str, Any], ...] = ()
-    summary: str = ""
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "node_types", tuple(self.node_types))
-        object.__setattr__(self, "key_widget_values", tuple(
-            MappingProxyType({str(k): v for k, v in w.items()})
-            if isinstance(w, Mapping) else w
-            for w in self.key_widget_values
-        ))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node_count": self.node_count,
-            "node_types": list(self.node_types),
-            "has_dangling_inputs": self.has_dangling_inputs,
-            "has_dangling_outputs": self.has_dangling_outputs,
-            "key_widget_values": _thaw_jsonish(self.key_widget_values),
-            "summary": self.summary,
-        }
-
-
-@dataclass(frozen=True)
-class WorkflowSlice:
-    """Identifies a selected slice of a workflow (precedent or current graph).
-
-    Points at a specific region of a workflow — a contiguous set of nodes and
-    their internal wiring — that can be adapted into the current graph.  The
-    *entry_anchor* and *exit_anchor* describe where the slice connects to the
-    rest of the graph; they are node ids in the source workflow that map to
-    node ids in the target graph via anchor bindings.
-    """
-
-    source_class_type: str = ""
-    node_ids: tuple[str, ...] = ()
-    node_types: tuple[str, ...] = ()
-    entry_anchor: str | None = None
-    exit_anchor: str | None = None
-    source_workflow_path: str | None = None
-    python_path: str | None = None
-    source_template: str = ""
-    role_label: str = ""
-    role_confidence: str = "low"
-    widget_values: tuple[dict[str, Any], ...] = ()
-    binding_envelope: Mapping[str, Any] = field(default_factory=dict)
-    incident_edges: tuple[dict[str, Any], ...] = ()
-    warnings: tuple[dict[str, Any], ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "node_ids", tuple(self.node_ids))
-        object.__setattr__(self, "node_types", tuple(self.node_types))
-        if self.role_confidence not in {"low", "medium", "high"}:
-            object.__setattr__(self, "role_confidence", "low")
-        object.__setattr__(self, "widget_values", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in value.items()})
-            if isinstance(value, Mapping) else value
-            for value in self.widget_values
-        ))
-        object.__setattr__(
-            self,
-            "binding_envelope",
-            _freeze_jsonish(self.binding_envelope)
-            if isinstance(self.binding_envelope, Mapping)
-            else MappingProxyType({}),
-        )
-        object.__setattr__(self, "incident_edges", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in edge.items()})
-            if isinstance(edge, Mapping) else edge
-            for edge in self.incident_edges
-        ))
-        object.__setattr__(self, "warnings", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in warning.items()})
-            if isinstance(warning, Mapping) else warning
-            for warning in self.warnings
-        ))
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "source_class_type": self.source_class_type,
-            "node_ids": list(self.node_ids),
-        }
-        if self.source_template:
-            payload["source_template"] = self.source_template
-        if self.role_label:
-            payload["role_label"] = self.role_label
-            payload["role_confidence"] = self.role_confidence
-        if self.widget_values:
-            payload["widget_values"] = _thaw_jsonish(self.widget_values)
-        if self.binding_envelope:
-            payload["binding_envelope"] = _thaw_jsonish(self.binding_envelope)
-        if self.incident_edges:
-            payload["incident_edges"] = _thaw_jsonish(self.incident_edges)
-        if self.node_types:
-            payload["node_types"] = list(self.node_types)
-        if self.entry_anchor is not None:
-            payload["entry_anchor"] = self.entry_anchor
-        if self.exit_anchor is not None:
-            payload["exit_anchor"] = self.exit_anchor
-        if self.source_workflow_path is not None:
-            payload["source_workflow_path"] = self.source_workflow_path
-        if self.python_path is not None:
-            payload["python_path"] = self.python_path
-        if self.warnings:
-            payload["warnings"] = _thaw_jsonish(self.warnings)
-        return payload
-
-
-@dataclass(frozen=True)
-class PrecedentAdaptationPlan:
-    """Structured plan for adapting a workflow precedent into the current graph.
-
-    This is the typed handoff between precedent research and implementation
-    (SD2).  It records exactly which slice was selected, how its anchors bind
-    to the current graph, what new nodes/rewires are required, and the concrete
-    edit operations needed to produce the candidate graph.
-
-    *structural_validation* and *semantic_validation* capture validation notes
-    (may be ``"not_evaluated"`` when validation is deferred to a later sprint).
-    """
-
-    selected_slice: WorkflowSlice = field(default_factory=WorkflowSlice)
-    anchor_bindings: tuple[dict[str, str], ...] = ()
-    required_new_nodes: tuple[dict[str, Any], ...] = ()
-    required_rewires: tuple[dict[str, Any], ...] = ()
-    edit_ops: tuple[dict[str, Any], ...] = ()
-    candidate_graph: dict[str, Any] | None = None
-    structural_validation: str = "not_evaluated"
-    semantic_validation: str = "not_evaluated"
-    warnings: tuple[dict[str, Any], ...] = ()
-    # SD1 migration: all available precedent slices preserved as neutral context.
-    # The first item (selected_slice) is presentation context only — it is not
-    # a winner, recommendation, or required implementation.
-    all_slices: tuple[WorkflowSlice, ...] = ()
-    context_note: str = ""
-    # W-02: singular focused-manifest contract — at most ONE, default None
-    topology_manifest: TopologyManifest | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "anchor_bindings", tuple(
-            MappingProxyType({str(k): str(v) for k, v in b.items()})
-            if isinstance(b, Mapping) else b
-            for b in self.anchor_bindings
-        ))
-        object.__setattr__(self, "required_new_nodes", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in n.items()})
-            if isinstance(n, Mapping) else n
-            for n in self.required_new_nodes
-        ))
-        object.__setattr__(self, "required_rewires", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in r.items()})
-            if isinstance(r, Mapping) else r
-            for r in self.required_rewires
-        ))
-        object.__setattr__(self, "edit_ops", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in op.items()})
-            if isinstance(op, Mapping) else op
-            for op in self.edit_ops
-        ))
-        object.__setattr__(self, "warnings", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in warning.items()})
-            if isinstance(warning, Mapping) else warning
-            for warning in self.warnings
-        ))
-        object.__setattr__(self, "all_slices", tuple(self.all_slices))
-        if self.structural_validation not in ("not_evaluated", "pass", "fail", "advisory"):
-            object.__setattr__(self, "structural_validation", "not_evaluated")
-        if self.semantic_validation not in ("not_evaluated", "pass", "fail", "advisory"):
-            object.__setattr__(self, "semantic_validation", "not_evaluated")
-        if (
-            self.candidate_graph is not None
-            and (
-                self.structural_validation != "pass"
-                or self.semantic_validation == "fail"
-            )
-        ):
-            object.__setattr__(self, "candidate_graph", None)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            # selected_slice is presentation context only — it is not a winner,
-            # recommendation, or required implementation.  See all_slices and
-            # context_note for the full neutral precedent context.
-            "selected_slice": self.selected_slice.to_dict(),
-            "anchor_bindings": _thaw_jsonish(self.anchor_bindings),
-            "required_new_nodes": _thaw_jsonish(self.required_new_nodes),
-            "required_rewires": _thaw_jsonish(self.required_rewires),
-            "edit_ops": _thaw_jsonish(self.edit_ops),
-            "structural_validation": self.structural_validation,
-            "semantic_validation": self.semantic_validation,
-        }
-        payload.update(adaptation_plan_actionability_payload(self))
-        if self.warnings:
-            payload["warnings"] = _thaw_jsonish(self.warnings)
-        if (
-            self.structural_validation == "pass"
-            and self.semantic_validation != "fail"
-            and self.candidate_graph is not None
-        ):
-            payload["candidate_graph"] = self.candidate_graph
-        if self.all_slices:
-            payload["all_slices"] = [s.to_dict() for s in self.all_slices]
-        if self.context_note:
-            payload["context_note"] = self.context_note
-        if self.topology_manifest is not None:
-            payload["topology_manifest"] = self.topology_manifest.to_dict()
-        return payload
-
-
 # ── topology manifest (W-02) ──────────────────────────────────────────────────
 
 class ManifestOversized(ValueError):
@@ -1579,258 +1359,6 @@ def build_topology_manifest(
         evidence_hash=evidence_hash,
         confidence=confidence,
     )
-
-
-# ── neutral precedent packet (SD1 successor) ──────────────────────────────────
-
-
-@dataclass(frozen=True)
-class PrecedentOption:
-    """Neutral representation of a single precedent workflow slice.
-
-    Describes one discovered workflow slice without asserting any ranking,
-    selection preference, or winner.  The packet consumer (not this type)
-    decides which option to act on.
-
-    All keys emitted by ``to_dict()`` are descriptive/contextual only —
-    forbidden public-key names (``winner``, ``best``, ``selected``,
-    ``score``, ``rank``, ``primary``, ``preferred``, ``chosen``, ``pick``,
-    ``choice``, ``top``, ``recommended``) are never present in the
-    serialized payload.
-    """
-
-    source_class_type: str = ""
-    source_workflow_path: str | None = None
-    node_ids: tuple[str, ...] = ()
-    node_types: tuple[str, ...] = ()
-    description: str = ""
-    notes: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "node_ids", tuple(self.node_ids))
-        object.__setattr__(self, "node_types", tuple(self.node_types))
-        object.__setattr__(self, "notes", tuple(self.notes))
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "source_class_type": self.source_class_type,
-            "description": self.description,
-        }
-        if self.source_workflow_path is not None:
-            payload["source_workflow_path"] = self.source_workflow_path
-        if self.node_ids:
-            payload["node_ids"] = list(self.node_ids)
-        if self.node_types:
-            payload["node_types"] = list(self.node_types)
-        if self.notes:
-            payload["notes"] = list(self.notes)
-        return payload
-
-
-@dataclass(frozen=True)
-class PrecedentPacket:
-    """Neutral packet of precedent options for adaptation.
-
-    Carries every discovered precedent option without selecting a winner.
-    The ``options`` tuple is intentionally unordered and carries no score
-    or ranking metadata.  This is the neutral successor to
-    ``PrecedentAdaptationPlan`` — the old plan carries a single selected
-    slice while the packet preserves every option for the downstream
-    consumer.
-
-    Forbidden public-key names are absent from serialized output (see
-    ``PrecedentOption`` for the full list).
-    """
-
-    options: tuple[PrecedentOption, ...] = ()
-    context_note: str = ""
-    warnings: tuple[dict[str, Any], ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "options", tuple(self.options))
-        object.__setattr__(self, "warnings", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in w.items()})
-            if isinstance(w, Mapping) else w
-            for w in self.warnings
-        ))
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "options": [opt.to_dict() for opt in self.options],
-        }
-        if self.context_note:
-            payload["context_note"] = self.context_note
-        if self.warnings:
-            payload["warnings"] = _thaw_jsonish(self.warnings)
-        return payload
-
-
-# ── freshness / evidence-metadata vocabulary ──────────────────────────────────
-
-# Per-tier TTL defaults (seconds) with environment override hooks.
-# These are consumed by research.py and govern staleness marking;
-# contracts.py defines the field vocabulary so all consumers share
-# a single source of truth for serialization shapes.
-
-_ALLOWED_FRESHNESS_STATUSES = frozenset({"fresh", "stale", "unknown"})
-_ALLOWED_EVIDENCE_TIERS = frozenset({
-    "local_corpus",
-    "hivemind",
-    "hivemind_workflow",
-    "comfy-registry",
-    "github",
-    "git",
-    "web",
-    "civitai",
-    "external_workflow",
-    "live_runtime_schema",
-    "curated",
-    "ready_template",
-    "source_workflow",
-    "custom_node_examples",
-    "object_info",
-})
-
-
-@dataclass(frozen=True)
-class SelectedPrecedent:
-    """Research-grounded workflow interpretation for edit-by-precedent.
-
-    Unlike :class:`PrecedentPacket`, this is intentionally directive: it records
-    the workflow pattern research found to be compatible enough to ground the
-    later authoring/resolution step.  It is still evidence, not an applied edit.
-
-    **Freshness / evidence metadata (SD1)**
-    Every precedent now carries retrieval-time, content-hash, tier, freshness
-    status, and deterministic selection reasons so downstream consumers can
-    audit why a particular precedent was selected and whether its cached data
-    is still current relative to the tier's TTL.
-    """
-
-    name: str = ""
-    source: str = ""
-    source_workflow_path: str | None = None
-    match_reasons: tuple[str, ...] = ()
-    requested_terms: tuple[str, ...] = ()
-    model_families: tuple[str, ...] = ()
-    implementation_ecosystems: tuple[str, ...] = ()
-    models: tuple[str, ...] = ()
-    minimal_spine: tuple[str, ...] = ()
-    terminal_output_path: tuple[str, ...] = ()
-    promotion_gates: Mapping[str, Any] = field(default_factory=dict)
-    interpretation_notes: tuple[str, ...] = ()
-    avoid_searches: tuple[str, ...] = ()
-
-    # ── freshness / evidence metadata (SD1) ─────────────────────────────────
-    retrieval_time: str = ""          # ISO-8601 timestamp of source retrieval
-    content_hash: str = ""            # SHA-256 hex digest of source content
-    query_transform_trace: str = ""   # how the query was transformed for this tier
-    tier: str = ""                    # evidence tier (e.g. "web", "hivemind")
-    freshness_status: str = "unknown" # "fresh" | "stale" | "unknown"
-    selection_reasons: tuple[str, ...] = ()  # deterministic selection rationale
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "match_reasons",
-            tuple(str(v) for v in self.match_reasons if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "requested_terms",
-            tuple(str(v) for v in self.requested_terms if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "model_families",
-            tuple(str(v) for v in self.model_families if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "implementation_ecosystems",
-            tuple(str(v) for v in self.implementation_ecosystems if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "models",
-            tuple(str(v) for v in self.models if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "minimal_spine",
-            tuple(str(v) for v in self.minimal_spine if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "terminal_output_path",
-            tuple(str(v) for v in self.terminal_output_path if str(v).strip()),
-        )
-        object.__setattr__(self, "promotion_gates", MappingProxyType({
-            str(k): _freeze_jsonish(v)
-            for k, v in self.promotion_gates.items()
-        }))
-        object.__setattr__(
-            self,
-            "interpretation_notes",
-            tuple(str(v) for v in self.interpretation_notes if str(v).strip()),
-        )
-        object.__setattr__(
-            self,
-            "avoid_searches",
-            tuple(str(v) for v in self.avoid_searches if str(v).strip()),
-        )
-        # ── clamp freshness / evidence metadata ──────────────────────────
-        object.__setattr__(
-            self,
-            "selection_reasons",
-            tuple(str(v) for v in self.selection_reasons if str(v).strip()),
-        )
-        if self.tier not in _ALLOWED_EVIDENCE_TIERS:
-            object.__setattr__(self, "tier", "")
-        if self.freshness_status not in _ALLOWED_FRESHNESS_STATUSES:
-            object.__setattr__(self, "freshness_status", "unknown")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "name": self.name,
-            "source": self.source,
-        }
-        if self.source_workflow_path:
-            payload["source_workflow_path"] = self.source_workflow_path
-        if self.match_reasons:
-            payload["match_reasons"] = list(self.match_reasons)
-        if self.requested_terms:
-            payload["requested_terms"] = list(self.requested_terms)
-        if self.model_families:
-            payload["model_families"] = list(self.model_families)
-        if self.implementation_ecosystems:
-            payload["implementation_ecosystems"] = list(self.implementation_ecosystems)
-        if self.models:
-            payload["models"] = list(self.models)
-        if self.minimal_spine:
-            payload["minimal_spine"] = list(self.minimal_spine)
-        if self.terminal_output_path:
-            payload["terminal_output_path"] = list(self.terminal_output_path)
-        if self.promotion_gates:
-            payload["promotion_gates"] = _thaw_jsonish(self.promotion_gates)
-        if self.interpretation_notes:
-            payload["interpretation_notes"] = list(self.interpretation_notes)
-        if self.avoid_searches:
-            payload["avoid_searches"] = list(self.avoid_searches)
-        # ── freshness / evidence metadata ──────────────────────────────────
-        if self.retrieval_time:
-            payload["retrieval_time"] = self.retrieval_time
-        if self.content_hash:
-            payload["content_hash"] = self.content_hash
-        if self.query_transform_trace:
-            payload["query_transform_trace"] = self.query_transform_trace
-        if self.tier:
-            payload["tier"] = self.tier
-        if self.freshness_status != "unknown":
-            payload["freshness_status"] = self.freshness_status
-        if self.selection_reasons:
-            payload["selection_reasons"] = list(self.selection_reasons)
-        return payload
 
 
 # ── revision evidence contracts (M3) ──────────────────────────────────────────
@@ -2211,81 +1739,6 @@ class GraphFacts:
         return payload
 
 
-# ── research result ──────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class ResearchResult:
-    """Aggregated research output from local corpus + optional Hivemind.
-
-    ``sources`` is a bounded, score-ordered list of source references.
-    ``warnings`` captures non-fatal problems (e.g. Hivemind timeout) so the
-    executor can still proceed with local-only results.
-    """
-
-    summary: str = ""
-    sources: tuple[dict[str, Any], ...] = ()
-    warnings: tuple[str, ...] = ()
-    warning_details: tuple[dict[str, Any], ...] = ()
-
-    # Extractive community display paragraph (messages tier).  Written by
-    # research() whenever the messages tier ran — including the literal
-    # "No community discussion found ..." sentence when it produced nothing.
-    # Display-only; never a score / strength / stop_reason.
-    community_summary: str = ""
-
-    # ── structured precedent fields (SD2, optional) ──────────────────
-    precedent_slices: tuple[WorkflowSlice, ...] = ()
-    adaptation_plan: PrecedentAdaptationPlan | None = None
-    # SD1: neutral precedent packet carrying all discovered options without
-    # ranking or winner selection.
-    precedent_packet: PrecedentPacket | None = None
-    # Execute-facing source subset after precedent compatibility gates. The
-    # full `sources` tuple remains the audit trail.
-    precedent_sources: tuple[dict[str, Any], ...] = ()
-    workflow_precedent_status: str = ""
-    selected_precedent: SelectedPrecedent | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "sources", tuple(self.sources))
-        object.__setattr__(self, "warnings", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in warning.items()})
-            if isinstance(warning, Mapping) else str(warning)
-            for warning in self.warnings
-        ))
-        object.__setattr__(self, "warning_details", tuple(
-            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in detail.items()})
-            for detail in self.warning_details
-            if isinstance(detail, Mapping)
-        ))
-        object.__setattr__(self, "precedent_slices", tuple(self.precedent_slices))
-        object.__setattr__(self, "precedent_sources", tuple(self.precedent_sources))
-
-    def to_dict(self) -> dict[str, Any]:
-        result = {
-            "summary": self.summary,
-            "sources": _thaw_jsonish(self.sources),
-            "warnings": _thaw_jsonish(self.warnings),
-        }
-        if self.community_summary:
-            result["community_summary"] = self.community_summary
-        if self.warning_details:
-            result["warning_details"] = _thaw_jsonish(self.warning_details)
-        if self.precedent_slices:
-            result["precedent_slices"] = [s.to_dict() for s in self.precedent_slices]
-        if self.adaptation_plan is not None:
-            result["adaptation_plan"] = self.adaptation_plan.to_dict()
-        if self.precedent_packet is not None:
-            result["precedent_packet"] = self.precedent_packet.to_dict()
-        if self.precedent_sources:
-            result["precedent_sources"] = _thaw_jsonish(self.precedent_sources)
-        if self.workflow_precedent_status:
-            result["workflow_precedent_status"] = self.workflow_precedent_status
-        if self.selected_precedent is not None:
-            result["selected_precedent"] = self.selected_precedent.to_dict()
-        return result
-
-
 # ── implementation result ────────────────────────────────────────────────────
 
 
@@ -2385,10 +1838,16 @@ class Report:
     Every phase's output is captured here so the envelope stays a stable
     ``{message, outcome, candidate, eligibility, report}`` shape without
     new top-level fields.
+
+    ``research`` carries the H01 :class:`~vibecomfy.executor.core.AgentResearchResult`
+    (F01 evidence pack + C5 decision memo).  Legacy research-result payloads
+    (``precedent_packet`` / ``adaptation_plan`` / ``precedent_slices``) were
+    removed by the agent-judgment rework (D02) and are rejected explicitly
+    instead of being silently rewritten.
     """
 
     plan: ClassifyDecision | None = None
-    research: ResearchResult | None = None
+    research: "AgentResearchResult | None" = None
     implementation: ImplementationResult | None = None
     deepseek_usage: dict[str, Any] = field(default_factory=dict)
     deepseek_est_cost_usd: float | None = None
@@ -2402,6 +1861,13 @@ class Report:
     model_attempts: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
+        if self.research is not None and not callable(getattr(self.research, "to_dict", None)):
+            raise TypeError(
+                "Report.research must be an AgentResearchResult (or None). "
+                "Legacy research-result payloads were removed (D02); serialize "
+                "the F01 evidence pack / C5 decision memo instead. "
+                f"got {type(self.research).__name__}"
+            )
         object.__setattr__(
             self,
             "deepseek_usage",
@@ -2781,16 +2247,10 @@ __all__ = [
     "ExecutorResult",
     "GraphFacts",
     "ImplementationResult",
-    "InspectionSummary",
-    "PrecedentAdaptationPlan",
-    "PrecedentOption",
-    "PrecedentPacket",
     "ReadinessReport",
     "Report",
-    "ResearchResult",
     "RevisionEvidence",
     "ScopedDiff",
-    "SelectedPrecedent",
     "ManifestBoundaryAnchor",
     "ManifestInquiryCoverage",
     "ManifestInternalEdge",
@@ -2800,7 +2260,6 @@ __all__ = [
     "ModelAttemptEvidence",
     "TopologyFindings",
     "TopologyManifest",
-    "WorkflowSlice",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",

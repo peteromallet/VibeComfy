@@ -199,12 +199,10 @@ class AgentEditState:
     # Batch REPL state (gated behind VIBECOMFY_AGENT_EDIT_BATCH_REPL=1)
     batch_session: EditSession | None = None
     batch_signature_catalog: str = ""
-    executor_research_summary: str = ""
-    executor_research_warnings: tuple[str, ...] = ()
-    executor_research_sources: tuple[dict[str, Any], ...] = ()
-    executor_precedent_slices: tuple[dict[str, Any], ...] = ()
-    executor_adaptation_plan: dict[str, Any] | None = None
-    executor_research_brief: dict[str, Any] | None = None
+    # D03: executor_research_* fields removed — research crosses into the
+    # model request only as compact ledger entries + resolvable evidence IDs
+    # (_frag_batch_memory._tool_evidence_ledger_records); full evidence stays
+    # in the evidence-pack artifact, never in prompt state.
     # B03: cross-turn research collection (folded from live StatementResult.detail
     # after each resolve).  Prompt-memory + structured evidence carry; NOT a latch,
     # NOT an evidence card, and never read as a stop decision.
@@ -215,8 +213,8 @@ class AgentEditState:
     execution_protocol_notes: dict[str, Any] | None = None
     execution_plan: ExecutionPlan | None = None
     plan_evaluation: PlanEvaluation | None = None
-    # SD3: neutral precedent packet as discardable research context.
-    research_context_packet: dict[str, Any] | None = None
+    # D03: research_context_packet removed — precedent evidence never enters
+    # the model request; it lives in the evidence-pack artifact only.
     # SD2: compact graph facts from topology/readiness collectors for adapt context.
     graph_facts: dict[str, Any] | None = None
     graph_inspection: str = ""

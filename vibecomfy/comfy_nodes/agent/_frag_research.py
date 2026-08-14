@@ -451,7 +451,10 @@ def _build_precedent_semantic_check_entries(
     or not_evaluated (for fields the plan did not evaluate).  These entries
     provide route-level observability without blocking Apply or Queue.
     """
-    plan = state.executor_adaptation_plan
+    # D03: executor_adaptation_plan removed; the adaptation plan rides in
+    # execution_protocol_notes (H03 hydration source).
+    notes = state.execution_protocol_notes
+    plan = notes.get("adaptation_plan") if isinstance(notes, Mapping) else None
     if not isinstance(plan, dict):
         return []
 
@@ -585,7 +588,10 @@ def _adaptation_slice_domain_mismatch_diagnostic(
     request_payload = state.request_payload if isinstance(state.request_payload, Mapping) else {}
     if request_payload.get("apply") is not False:
         return None
-    adaptation_plan = state.executor_adaptation_plan
+    # D03: executor_adaptation_plan removed; the plan rides in
+    # execution_protocol_notes (H03 hydration source).
+    notes = state.execution_protocol_notes
+    adaptation_plan = notes.get("adaptation_plan") if isinstance(notes, Mapping) else None
     if not isinstance(adaptation_plan, Mapping):
         return None
     selected_slice = adaptation_plan.get("selected_slice")
@@ -680,10 +686,9 @@ def _resolver_candidate_supports_class(
 
 
 def _iter_research_precedent_sources(state: AgentEditState) -> tuple[Mapping[str, Any], ...]:
+    # D03: executor_research_sources removed; workflow precedent sources come
+    # from execution_protocol_notes.research_sources only.
     sources: list[Mapping[str, Any]] = []
-    for source in getattr(state, "executor_research_sources", ()) or ():
-        if isinstance(source, Mapping):
-            sources.append(source)
     notes = getattr(state, "execution_protocol_notes", None)
     if isinstance(notes, Mapping):
         raw_sources = notes.get("research_sources")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -966,3 +968,239 @@ def test_resolve_missing_nodes_is_read_only_for_external_evidence(tmp_path: Path
     assert result.candidates[0].ref.slug == "ComfyUI-VideoHelperSuite"
     assert all(url.startswith(("https://api.comfy.org/", "https://raw.githubusercontent.com/")) for url in called_urls)
     assert not any(part.name in {"custom_nodes", "ComfyUI-VideoHelperSuite"} for part in tmp_path.rglob("*"))
+
+
+# ── R2-B1/R2-B2: cooperative deadline + rate-limit circuit (moved from
+# ── tests/test_research_deadline.py / test_research_rate_limit.py when the
+# ── legacy research engine was deleted; pack_resolver is the live owner).
+
+
+class _FakeRouteClient:
+    """Route-driven httpx-like client for injected resolver clients."""
+
+    def __init__(self, routes: dict[tuple[str, tuple[tuple[str, str], ...]], Any]):
+        self.routes = routes
+        self.calls: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        params = tuple(sorted((kwargs.get("params") or {}).items()))
+        key = (url, params)
+        self.calls.append(key)
+        request = httpx.Request("GET", url)
+        payload = self.routes.get(key)
+        if isinstance(payload, httpx.Response):
+            return payload
+        if payload is None:
+            return httpx.Response(404, request=request, json={"error": "not found"})
+        return httpx.Response(200, request=request, json=payload)
+
+
+_MANAGER_MAP = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json"
+_MANAGER_LIST = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json"
+_CODE_SEARCH_URL = "https://api.github.com/search/code"
+
+
+def _manager_client() -> _FakeRouteClient:
+    return _FakeRouteClient(
+        {
+            (_MANAGER_MAP, ()): {},
+            (_MANAGER_LIST, ()): [],
+        }
+    )
+
+
+def test_resolve_missing_nodes_honors_deadline_with_slow_http_client(tmp_path: Path) -> None:
+    """A slow registry HTTP client cannot blow past the phase deadline: the
+    resolver checks its budget between requests, stops after the first slow
+    request, and returns partial (empty) evidence with a warning."""
+    calls: list[str] = []
+
+    class SlowClient:
+        def get(self, url: str, **kwargs: Any) -> httpx.Response:
+            calls.append(url)
+            time.sleep(0.4)
+            request = httpx.Request("GET", url)
+            if "custom-node-map" in url:
+                return httpx.Response(200, request=request, json={})
+            if "custom-node-list" in url:
+                return httpx.Response(200, request=request, json=[])
+            return httpx.Response(404, request=request, json={"error": "not found"})
+
+    result = resolve_missing_nodes(
+        "ADE_AnimateDiffLoaderWithContext",
+        cache_root=tmp_path,
+        manager_client=SlowClient(),
+        registry_client=SlowClient(),
+        github_client=SlowClient(),
+        deadline=time.monotonic() + 0.15,
+    )
+
+    assert len(calls) == 1  # only the first manager request; budget stopped the rest
+    assert result.candidates == ()
+    assert any("sub-budget" in warning or "budget" in warning for warning in result.warnings)
+
+
+def test_registry_resolver_budget_uses_env_sub_budget(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """VIBECOMFY_REGISTRY_SUB_BUDGET bounds the resolver even without an outer
+    deadline: with a tiny budget, the slow second request is never attempted."""
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_SUB_BUDGET", "0.1")
+    calls: list[str] = []
+
+    class SlowClient:
+        def get(self, url: str, **kwargs: Any) -> httpx.Response:
+            calls.append(url)
+            time.sleep(0.3)
+            request = httpx.Request("GET", url)
+            if "custom-node-map" in url:
+                return httpx.Response(200, request=request, json={})
+            if "custom-node-list" in url:
+                return httpx.Response(200, request=request, json=[])
+            return httpx.Response(404, request=request, json={"error": "not found"})
+
+    started = time.monotonic()
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=SlowClient(),
+        registry_client=SlowClient(),
+        github_client=SlowClient(),
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.8
+    assert len(calls) == 1
+    assert any("sub-budget" in warning for warning in result.warnings)
+
+
+class _NoRepoSearchClient:
+    """GitHub client that hard-fails if repository search is attempted."""
+
+    def __init__(self, code_response: httpx.Response):
+        self.code_response = code_response
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        if url == _CODE_SEARCH_URL:
+            return self.code_response
+        raise AssertionError(f"repository search must not run after a code-search rate limit: {url}")
+
+
+class _BoomClient:
+    """GitHub client that fails if ANY request is attempted."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        raise AssertionError(f"no GitHub request expected, got {url}")
+
+
+class _Flaky422Client:
+    """GitHub client that rejects every code-search query with 422."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        if url == _CODE_SEARCH_URL:
+            request = httpx.Request("GET", url)
+            return httpx.Response(422, request=request, json={"message": "Validation Failed"})
+        raise AssertionError(f"repository search must not run after a 422: {url}")
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_github_rate_limit_writes_cooldown_and_skips_repo_search(
+    tmp_path: Path, status: int
+) -> None:
+    """403/429 code-search responses write a shared cooldown sentinel honoring
+    Retry-After and never fall through to repository search."""
+    response = httpx.Response(
+        status,
+        request=httpx.Request("GET", _CODE_SEARCH_URL),
+        headers={"Retry-After": "10"},
+        json={"message": "rate limited"},
+    )
+    github = _NoRepoSearchClient(response)
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=github,
+    )
+
+    assert github.calls == [_CODE_SEARCH_URL]  # no repository-search fall-through
+    assert result.candidates == ()
+    assert any("rate-limited" in warning or "rate limit" in warning for warning in result.warnings)
+    cooldown_file = tmp_path / ".cooldown.json"
+    assert cooldown_file.exists()
+    payload = json.loads(cooldown_file.read_text(encoding="utf-8"))
+    assert _CODE_SEARCH_URL in payload
+    assert payload[_CODE_SEARCH_URL]["retry_after"] == 10.0
+
+
+def test_github_cooldown_honored_across_calls_in_process(tmp_path: Path) -> None:
+    """After a 429, a second resolution against the same cache root skips the
+    GitHub tier entirely (process-wide + on-disk sentinel) — zero HTTP."""
+    response = httpx.Response(
+        429,
+        request=httpx.Request("GET", _CODE_SEARCH_URL),
+        headers={"Retry-After": "10"},
+        json={"message": "rate limited"},
+    )
+    resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=_NoRepoSearchClient(response),
+    )
+
+    github = _BoomClient()
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=github,
+    )
+
+    assert github.calls == []  # cooldown honored before any HTTP
+    assert result.candidates == ()
+    assert any("cooldown" in warning for warning in result.warnings)
+
+
+def test_github_422_sanitizes_retries_once_and_negative_caches(tmp_path: Path) -> None:
+    """422 query-shape rejections are sanitized and retried exactly once, then
+    briefly negative-cached so identical queries short-circuit without HTTP."""
+    github = _Flaky422Client()
+    query = 'VHS_VideoCombine "weird:query"'
+
+    result = resolve_missing_nodes(
+        query,
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=github,
+    )
+
+    # Original attempt + one sanitized retry; no repository search.
+    assert github.calls == [_CODE_SEARCH_URL, _CODE_SEARCH_URL]
+    assert result.candidates == ()
+    assert any("422" in warning for warning in result.warnings)
+
+    # Second resolution: both the original and sanitized queries are
+    # negative-cached, so zero code-search HTTP calls.
+    github2 = _Flaky422Client()
+    resolve_missing_nodes(
+        query,
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=github2,
+    )
+    assert github2.calls == []

@@ -15,8 +15,6 @@ from vibecomfy.porting.edit.apply_types import (
 from vibecomfy.porting.edit.ops import AddNodeOp, NodeFieldTarget, SetNodeFieldOp
 from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema
-from vibecomfy.executor.research import _build_precedent_slices
-
 
 class _Provider:
     def __init__(self, schema: NodeSchema) -> None:
@@ -565,85 +563,6 @@ def test_value_default_alias_unmatched_prior_does_not_block_case01_literal() -> 
         issue.code == "value_default_literal_normalized"
         for issue in result.diagnostics
     )
-
-
-def test_binding_envelope_preserves_conflicting_same_class_instances_until_selected() -> None:
-    slices = _build_precedent_slices((
-        {
-            "source": "source_workflow",
-            "class_type": "ValueDefaultNode",
-            "source_template": "fixture/template",
-            "provenance_instances": (
-                {
-                    "node_id": "source-1",
-                    "widget_values": ({"name": "steps", "value": 31},),
-                    "incident_edges": (),
-                },
-                {
-                    "node_id": "source-2",
-                    "widget_values": ({"name": "steps", "value": 47},),
-                    "incident_edges": (),
-                },
-            ),
-        },
-    ))
-
-    assert len(slices) == 2
-    assert {
-        slice_.binding_envelope["selector"]["source_instance_id"]
-        for slice_ in slices
-    } == {"source-1", "source-2"}
-    assert all(
-        slice_.binding_envelope["fields"][0]["conflict_status"] == "conflicting"
-        and slice_.binding_envelope["fields"][0]["eligibility_status"]
-        == "pending_source_selection"
-        for slice_ in slices
-    )
-
-    context = ValueDefaultContext.from_precedent_slices(
-        tuple(slice_.to_dict() for slice_ in slices),
-        adaptation_plan={
-            "selected_slice": {
-                "source_class_type": "ValueDefaultNode",
-                "node_ids": ["source-2"],
-            },
-        },
-    )
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=context,
-    )
-    assert _applied_value(result) == 47
-
-
-def test_binding_envelope_keeps_provisional_widget_name_as_non_bindable_evidence() -> None:
-    slices = _build_precedent_slices((
-        {
-            "source": "source_workflow",
-            "class_type": "ValueDefaultNode",
-            "source_template": "fixture/template",
-            "provenance_instances": (
-                {
-                    "node_id": "source-1",
-                    "widget_values": ({"name": "widget_0", "value": 88},),
-                    "incident_edges": (),
-                },
-            ),
-        },
-    ))
-    field = slices[0].binding_envelope["fields"][0]
-    assert field["name_resolution_status"] == "provisional"
-    assert field["eligible"] is False
-    context = ValueDefaultContext.from_precedent_slices((slices[0].to_dict(),))
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=context,
-    )
-    assert _applied_value(result) == 20
 
 
 def test_value_default_precedent_prompt_keeps_normal_construction_additive() -> None:

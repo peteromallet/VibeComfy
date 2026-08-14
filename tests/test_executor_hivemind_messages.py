@@ -34,13 +34,6 @@ from vibecomfy.executor.hivemind_clients import (
     _run_hivemind_messages_research,
     format_community_summary,
 )
-from vibecomfy.executor.research import (
-    WORKFLOW_RESEARCH_GUIDANCE,
-    _TIER_TTL_MAP,
-    _build_summary,
-    _source_tier_for_source,
-)
-
 _HIVEMIND_ROOT = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
 
 
@@ -792,47 +785,3 @@ class TestFormatCommunitySummary:
         text = format_community_summary(sources, query="ltx")
         assert text.count("\n") + 1 <= 6
         assert len(text) <= 800
-
-
-# ── research.py integration (B01 task 7) ─────────────────────────────────────
-
-
-class TestResearchSummaryIntegration:
-    def test_build_summary_community_branch(self) -> None:
-        sources = (
-            {
-                "source": "hivemind_message",
-                "class_type": "MiniMax H3 is amazing",
-                "channel": "minimax_h3_chatter",
-            },
-            {
-                "source": "hivemind_message",
-                "class_type": "still falls short",
-                "channel": "ltx_chatter",
-            },
-        )
-        summary = _build_summary(sources)
-        assert summary.startswith("Found 2 community result(s):")
-        assert "MiniMax H3 is amazing" in summary
-        assert "Channels: ltx_chatter, minimax_h3_chatter." in summary
-        assert WORKFLOW_RESEARCH_GUIDANCE not in summary
-
-    def test_build_summary_message_only_omits_workflow_guidance(self) -> None:
-        sources = (
-            {"source": "hivemind_message", "class_type": "so how do we feel about ltx 2.5"},
-        )
-        summary = _build_summary(sources)
-        assert WORKFLOW_RESEARCH_GUIDANCE not in summary
-        assert "vibecomfy workflows list --ready" not in summary
-
-    def test_build_summary_local_behavior_unchanged(self) -> None:
-        assert _build_summary(()) == "No relevant local results found."
-        assert _build_summary(({"class_type": "KSampler"},)) == (
-            "Found 1 local result(s): KSampler"
-        )
-
-    def test_source_tier_and_ttl_map(self) -> None:
-        assert _source_tier_for_source({"source": "hivemind_message"}) == "hivemind_message"
-        assert _source_tier_for_source({"source": "hivemind_distillation"}) == "hivemind_distillation"
-        assert _TIER_TTL_MAP["hivemind_message"] == _TIER_TTL_MAP["hivemind"]
-        assert _TIER_TTL_MAP["hivemind_distillation"] == _TIER_TTL_MAP["hivemind"]

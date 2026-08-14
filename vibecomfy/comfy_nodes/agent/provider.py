@@ -39,12 +39,6 @@ _CODEX_GUIDANCE = (
     "OpenAI Codex runs through local Arnold/Hermes. Configure local "
     "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted."
 )
-_WORKFLOW_RESEARCH_GUIDANCE = (
-    "When Research findings mention workflows/templates, explain that users can explore ready "
-    "templates with `vibecomfy workflows list --ready`, copy one with "
-    "`vibecomfy copy-to-recipe <template_id> --out <file.py> --strip-markers`, "
-    "and work from the ready template `.py` representation."
-)
 _BATCH_REPL_PARSE_RETRY_PROMPT = (
     "Your previous reply was empty or unparseable for VibeComfy's batch_repl "
     "transport. Reply with one short user-facing sentence followed by exactly "
@@ -379,10 +373,6 @@ def build_batch_messages(
     max_batches: int = 12,
     conversation_messages: list[dict[str, Any]] | None = None,
     research_only: bool = False,
-    research_brief: str = "",
-    research_summary: str = "",
-    graph_report: str = "",
-    precedent_adaptation_plan: str = "",
     revision_evidence_json: str = "",
     execution_plan_status: Mapping[str, Any] | None = None,
     evidence_ledger: str = "",
@@ -440,11 +430,9 @@ def build_batch_messages(
             "Do not emit Add/Change statements or code-node construction.\n\n"
             "If the community evidence is thin or off-topic, search again with different "
             "terms (model name + version, or a complaint/praise phrase). When you have "
-            "citable community answers, call `done()`. Candidate terms in the Research "
-            "brief's search_directions are suggestions you may use; they are not a "
-            "checklist. Cite author/channel for messages and title+status for "
-            "distillations. Do not invent quotes. Do not treat workflow templates as "
-            "community opinion.\n\n"
+            "citable community answers, call `done()`. Cite author/channel for messages "
+            "and title+status for distillations. Do not invent quotes. Do not treat "
+            "workflow templates as community opinion.\n\n"
             "Envelope: start with one user-facing prose sentence, then exactly one ```batch "
             "fence. Never respond with only a fenced block. No extra fenced blocks before "
             "the required ```batch fence.\n\n"
@@ -485,7 +473,7 @@ def build_batch_messages(
         "then `save.images = pil.out_0`.\n\n"
         "Use current authoring-schema lookup only when needed: existing nodes are shown above, so do NOT search for them. "
         "Reference EXISTING nodes by EXACT names from the rendered Python. Bare ambiguous refs are rejected. "
-        "Exception: if Revision evidence or the Research brief says an existing custom/provisional class has an unknown schema and that exact class is the edit target, search that exact class to hydrate its schema before editing. "
+        "Exception: if Revision evidence says an existing custom/provisional class has an unknown schema and that exact class is the edit target, search that exact class to hydrate its schema before editing. "
         "Search first: use schema lookup for a NEW node TYPE you want to ADD; only `search(focus_types=[\"X\"])` for a NEW exact node TYPE you intend to add. "
         "`search(...)` is factual current authoring-schema lookup, not workflow/web research, and never justifies substituting a merely similar node for the user's named target. "
         "A local miss is not a product-level failure: use workflow precedent and visible graph evidence to choose the smallest defensible edit, then let the edit/apply path validate whether it is authorable. "
@@ -497,13 +485,13 @@ def build_batch_messages(
         "Do this before guessing branded output-node class names. Use exact `focus_types` only after a class name appears in those compatibility results or other evidence. "
         "For seed-variation grids, contact sheets, preview montages, format/export changes, or other graph-local output/composition edits, preserve the existing generation/custom-node core and add or rewire only deterministic local consumer/composition nodes after the visible terminal outputs. "
         "Prefer local `search(compatible_output_type=...)` or exact visible sink/compositor schema over workflow precedent; do not replace a working custom model stack just to make a layout/export edit.\n\n"
-        "Research strategy (bounded guidance): A Research brief contains tentative retrieval "
-        "hints, not findings, implementation instructions, or validation tasks. For "
-        "edit-by-precedent, research workflow precedents and community knowledge: use "
-        "`workflows` first, then `messages` or `web` when more context is needed. "
+        "Research strategy (bounded guidance): for edit-by-precedent, research "
+        "workflow precedents and community knowledge with the agent tools: use "
+        "`hivemind_search`/`hivemind_get` (workflows) first, then `messages` or `web_search` "
+        "when more context is needed. "
         "Do not research installation, provider packs, registry, or local addability unless "
         "the user explicitly asks for installation/provider information; reinterpret such a "
-        "hint as a request to find workflow precedents for the named technology. Use `registry` "
+        "hint as a request to find workflow precedents for the named technology. Use `registry_lookup` "
         "only when the user explicitly asks which node pack provides a class. Anchor each "
         "query on the smallest named class/field/socket visible in the graph — never search the "
         "raw user sentence or guess class names (no `search(focus_types=[...])` for guessed "
@@ -511,13 +499,9 @@ def build_batch_messages(
         "extract a concrete node-combination reference (class types, roles, "
         "terminal consumer, visible params); if none is defensible, keep researching or "
         "`clarify()` instead of splicing. "
-        "When execution_protocol_notes includes `selected_precedent`, treat it as the "
-        "grounding workflow interpretation. Use its minimal_spine and terminal_output_path; "
-        "do not reinterpret that pattern because a local schema "
-        "lookup misses. Local schema checks are implementation evidence only, not research goals. "
-        "If you need to add a new node type, use `search(focus_types=[\"X\"])` only for an exact "
-        "class named by the selected precedent or visible graph; do not broaden to branded names "
-        "unless selected_precedent says that class exists. "
+        "Prior tool results reach you only as compact ledger entries + evidence IDs; "
+        "resolve an ID with `hivemind_get(...)` when you need its full body — never repeat "
+        "raw bodies back into the conversation. "
         "Workflow_schema classes from selected workflow precedent are provisional constructor permission "
         "when they appear in the signature catalog. Do not invent replacement classes. Supported node setup is automatic; "
         "do not request installation. Never write a field/socket not visible in "
@@ -620,39 +604,9 @@ def build_batch_messages(
                 "\n\nNode variable index:\n"
                 f"```\n{node_variable_index}\n```"
             )
-        research_brief_block = ""
-        if research_brief:
-            research_brief_block = (
-                "\n\nResearch brief from triage (tentative retrieval hints; not findings):\n"
-                f"{research_brief}\n"
-                "Use these hints to seed focused research(...) calls, but prefer evidence that "
-                "matches the user goal and current graph. For edit-by-precedent, prioritize "
-                "workflow examples and community usage reports showing concrete graph patterns. "
-                "If a hint points at installation, provider packs, registry, or local addability "
-                "for a normal workflow edit, reinterpret it as workflow-precedent research for "
-                "the named technology. If results are weak or generic, refine the query and try "
-                "a different evidence tier."
-            )
-        research_block = ""
-        if research_summary:
-            research_block = (
-                "\n\nResearch evidence/context (external + local corpus):\n"
-                f"{research_summary}\n{_WORKFLOW_RESEARCH_GUIDANCE}"
-            )
-        graph_report_block = ""
-        if graph_report:
-            graph_report_block = (
-                f"\n\nDetailed graph inspection:\n{graph_report}"
-            )
         report_block = ""
         if report:
             report_block = f"\n\nInitial edit guidance:\n{report}"
-        precedent_adaptation_block = ""
-        if precedent_adaptation_plan:
-            precedent_adaptation_block = (
-                "\n\nPrecedent adaptation plan (structured):\n"
-                f"{precedent_adaptation_plan}"
-            )
         revision_evidence_block = ""
         if revision_evidence_json:
             revision_evidence_block = (
@@ -665,6 +619,10 @@ def build_batch_messages(
                 "\n\nExecution plan status (authoritative compact JSON):\n"
                 f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}\n"
             )
+        # D03: research briefs, research summaries, workflow schemas, and
+        # precedent/adaptation dumps are NOT injected into the prompt. The only
+        # research context carried is the compact evidence ledger (entries +
+        # resolvable evidence IDs); full evidence lives in the evidence pack.
         evidence_ledger_block = _format_evidence_ledger_block(evidence_ledger)
         user = (
             f"{conversation_block}"
@@ -678,12 +636,8 @@ def build_batch_messages(
             f"{node_index_block}"
             f"{catalog_block}"
             f"{names_block}"
-            f"{research_brief_block}"
-            f"{research_block}"
-            f"{precedent_adaptation_block}"
             f"{revision_evidence_block}"
             f"{report_block}"
-            f"{graph_report_block}"
             f"{evidence_ledger_block}"
         )
     else:
@@ -704,19 +658,6 @@ def build_batch_messages(
                 "\n\nNode variable index:\n"
                 f"```\n{node_variable_index}\n```"
             )
-        research_brief_block = ""
-        if research_brief:
-            research_brief_block = (
-                "\n\nResearch brief from triage (tentative retrieval hints; not findings):\n"
-                f"{research_brief}\n"
-                "Use these hints to seed focused research(...) calls, but prefer evidence that "
-                "matches the user goal and current graph. For edit-by-precedent, prioritize "
-                "workflow examples and community usage reports showing concrete graph patterns. "
-                "If a hint points at installation, provider packs, registry, or local addability "
-                "for a normal workflow edit, reinterpret it as workflow-precedent research for "
-                "the named technology. If results are weak or generic, refine the query and try "
-                "a different evidence tier."
-            )
         previous_message_block = ""
         if previous_model_message:
             previous_message_block = (
@@ -727,23 +668,6 @@ def build_batch_messages(
         report_block = ""
         if report:
             report_block = f"\n\nTeaching report from previous turn:\n{report}"
-        research_block = ""
-        if research_summary:
-            research_block = (
-                "\n\nResearch evidence/context (external + local corpus):\n"
-                f"{research_summary}\n{_WORKFLOW_RESEARCH_GUIDANCE}"
-            )
-        graph_report_block = ""
-        if graph_report:
-            graph_report_block = (
-                f"\n\nDetailed graph inspection:\n{graph_report}"
-            )
-        precedent_adaptation_block = ""
-        if precedent_adaptation_plan:
-            precedent_adaptation_block = (
-                "\n\nPrecedent adaptation plan (structured):\n"
-                f"{precedent_adaptation_plan}"
-            )
         revision_evidence_block = ""
         if revision_evidence_json:
             revision_evidence_block = (
@@ -756,6 +680,8 @@ def build_batch_messages(
                 "\n\nExecution plan status (authoritative compact JSON):\n"
                 f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}"
             )
+        # D03: research context is ledger-only (entries + evidence IDs); full
+        # evidence stays in the evidence pack, never in the prompt.
         evidence_ledger_block = _format_evidence_ledger_block(evidence_ledger)
         user = (
             f"User request:\n{task}\n"
@@ -765,11 +691,7 @@ def build_batch_messages(
             f"{previous_message_block}"
             f"{diff_block}"
             f"{report_block}"
-            f"{research_brief_block}"
-            f"{research_block}"
-            f"{precedent_adaptation_block}"
             f"{revision_evidence_block}"
-            f"{graph_report_block}"
             f"{evidence_ledger_block}"
             f"\n\nBudget: {budget_remaining} turn(s) remaining out of {max_batches}."
         )

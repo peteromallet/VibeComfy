@@ -468,116 +468,6 @@ def _done_validation_repair_hint(
     )
 
 
-_MAX_EXECUTION_PROTOCOL_SOURCES = 3
-_MAX_EXECUTION_PROTOCOL_LIST_ITEMS = 16
-_MAX_EXECUTION_PROTOCOL_STRING = 900
-
-# W-07 — dedicated manifest-compactor budget.  The manifest contract (W-02)
-# bounds a manifest to <=64 nodes / <=128 edges / <=16 anchors.  The dedicated
-# compactor must be able to render a complete manifest of that size WITHOUT
-# silently dropping nodes (a partial topology is worse than no topology).  The
-# generic per-note list/depth limits above (16/4) would truncate a 40-node
-# delta; the dedicated compactor is sized so it never truncates a valid
-# manifest.  If a manifest would exceed even this dedicated budget, the
-# manifest path is rejected and the legacy compact-notes path is used instead
-# (no partial topology is ever emitted).
-_MANIFEST_COMPACTOR_MAX_NODES = 64
-_MANIFEST_COMPACTOR_MAX_EDGES = 128
-_MANIFEST_COMPACTOR_MAX_ANCHORS = 16
-
-
-def _manifest_compact_payload(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Render a complete manifest under the dedicated W-07 compactor budget.
-
-    Returns the compact manifest dict when the manifest fits entirely within
-    the dedicated budget (every node / edge / anchor preserved, no truncation).
-    Returns ``None`` when the manifest is structurally empty or would exceed
-    even the dedicated budget — callers MUST treat ``None`` as "reject the
-    manifest path" (fall back to legacy) rather than emit a partial topology.
-
-    Only ID-free selectors and hash-only provenance fields are carried.  No
-    raw node ids, paths, goldens, fixture labels, or ``prior_path`` values.
-    """
-    if not isinstance(manifest, Mapping):
-        return None
-
-    nodes_raw = manifest.get("nodes")
-    edges_raw = manifest.get("internal_edges")
-    anchors_raw = manifest.get("boundary_anchors")
-    if not isinstance(nodes_raw, (list, tuple)) or not nodes_raw:
-        return None
-
-    # ── reject (never silently truncate) when the manifest exceeds budget ──
-    if len(nodes_raw) > _MANIFEST_COMPACTOR_MAX_NODES:
-        return None
-    if isinstance(edges_raw, (list, tuple)) and len(edges_raw) > _MANIFEST_COMPACTOR_MAX_EDGES:
-        return None
-    if isinstance(anchors_raw, (list, tuple)) and len(anchors_raw) > _MANIFEST_COMPACTOR_MAX_ANCHORS:
-        return None
-
-    def _compact_node(node: Any) -> dict[str, Any] | None:
-        if not isinstance(node, Mapping):
-            return None
-        return {
-            "symbol": str(node.get("symbol") or ""),
-            "canonical_class_type": str(node.get("canonical_class_type") or ""),
-            "resolver_status": str(node.get("resolver_status") or "unresolved"),
-            "confidence": node.get("confidence"),
-        }
-
-    def _compact_edge(edge: Any) -> dict[str, Any] | None:
-        if not isinstance(edge, Mapping):
-            return None
-        return {
-            "from_symbol": str(edge.get("from_symbol") or ""),
-            "output_socket": str(edge.get("output_socket") or ""),
-            "to_symbol": str(edge.get("to_symbol") or ""),
-            "input_socket": str(edge.get("input_socket") or ""),
-            "confidence": edge.get("confidence"),
-        }
-
-    def _compact_anchor(anchor: Any) -> dict[str, Any] | None:
-        if not isinstance(anchor, Mapping):
-            return None
-        return {
-            "direction": str(anchor.get("direction") or "inbound"),
-            "symbol": str(anchor.get("symbol") or ""),
-            "symbol_socket": str(anchor.get("symbol_socket") or ""),
-            "target_role": str(anchor.get("target_role") or ""),
-            "target_class_type": str(anchor.get("target_class_type") or ""),
-            "target_socket": str(anchor.get("target_socket") or ""),
-            "confidence": anchor.get("confidence"),
-        }
-
-    compact_nodes = [_compact_node(n) for n in nodes_raw]
-    if any(cn is None for cn in compact_nodes):
-        # A malformed node entry means we cannot guarantee completeness.
-        return None
-
-    payload: dict[str, Any] = {
-        "manifest_id": str(manifest.get("manifest_id") or ""),
-        "nodes": compact_nodes,
-    }
-    if isinstance(edges_raw, (list, tuple)):
-        compact_edges = [_compact_edge(e) for e in edges_raw]
-        if any(ce is None for ce in compact_edges):
-            return None
-        payload["internal_edges"] = compact_edges
-    if isinstance(anchors_raw, (list, tuple)):
-        compact_anchors = [_compact_anchor(a) for a in anchors_raw]
-        if any(ca is None for ca in compact_anchors):
-            return None
-        payload["boundary_anchors"] = compact_anchors
-    validation = manifest.get("validation")
-    if isinstance(validation, Mapping):
-        payload["validation"] = {
-            "verdict": str(validation.get("verdict") or "fail"),
-            "class_resolution": str(validation.get("class_resolution") or ""),
-        }
-    payload["evidence_hash"] = str(manifest.get("evidence_hash") or "")
-    payload["confidence"] = manifest.get("confidence")
-    return payload
-
 
 def _manifest_is_complete(manifest: Any) -> bool:
     """Return True when *manifest* is a non-empty manifest mapping.
@@ -610,262 +500,6 @@ def _active_manifest_from_plan(deps,
         return (False, None)
     return (True, manifest)
 
-
-def _compact_protocol_string(value: Any, *, limit: int = _MAX_EXECUTION_PROTOCOL_STRING) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 18)].rstrip() + "\n... [truncated]"
-
-
-def _compact_protocol_list(value: Any, *, limit: int = _MAX_EXECUTION_PROTOCOL_LIST_ITEMS) -> list[Any]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    compacted: list[Any] = []
-    for item in value[:limit]:
-        if isinstance(item, str):
-            compacted.append(_compact_protocol_string(item, limit=240))
-        elif isinstance(item, (int, float, bool)) or item is None:
-            compacted.append(item)
-        else:
-            compacted.append(_compact_protocol_string(item, limit=240))
-    if len(value) > limit:
-        compacted.append(f"... [{len(value) - limit} omitted]")
-    return compacted
-
-
-def _copy_compact_protocol_fields(
-    source: Mapping[str, Any],
-    keys: tuple[str, ...],
-    *,
-    string_limit: int = _MAX_EXECUTION_PROTOCOL_STRING,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key in keys:
-        if key not in source:
-            continue
-        value = source.get(key)
-        if isinstance(value, str):
-            result[key] = _compact_protocol_string(value, limit=string_limit)
-        elif isinstance(value, (list, tuple)):
-            result[key] = _compact_protocol_list(value)
-        elif isinstance(value, Mapping):
-            result[key] = {
-                str(k): (
-                    _compact_protocol_string(v, limit=240)
-                    if isinstance(v, str)
-                    else v
-                )
-                for k, v in list(value.items())[:12]
-                if not isinstance(v, (dict, list, tuple))
-            }
-        elif value is not None:
-            result[key] = value
-    return result
-
-
-def _compact_protocol_jsonish(value: Any, *, depth: int = 0) -> Any:
-    """Bound structured execution evidence without stringifying its records."""
-    if isinstance(value, str):
-        return _compact_protocol_string(value, limit=240)
-    if isinstance(value, (int, float, bool)) or value is None:
-        return value
-    if depth >= 4:
-        return _compact_protocol_string(value, limit=240)
-    if isinstance(value, Mapping):
-        return {
-            str(key): _compact_protocol_jsonish(item, depth=depth + 1)
-            for key, item in list(value.items())[:16]
-        }
-    if isinstance(value, (list, tuple)):
-        compacted = [
-            _compact_protocol_jsonish(item, depth=depth + 1)
-            for item in value[:_MAX_EXECUTION_PROTOCOL_LIST_ITEMS]
-        ]
-        if len(value) > _MAX_EXECUTION_PROTOCOL_LIST_ITEMS:
-            compacted.append(
-                f"... [{len(value) - _MAX_EXECUTION_PROTOCOL_LIST_ITEMS} omitted]"
-            )
-        return compacted
-    return _compact_protocol_string(value, limit=240)
-
-
-def _compact_research_source_for_prompt(source: Any) -> dict[str, Any] | None:
-    if not isinstance(source, Mapping):
-        return None
-    compact = _copy_compact_protocol_fields(
-        source,
-        (
-            "source",
-            "source_type",
-            "pack",
-            "class_type",
-            "name",
-            "title",
-            "url",
-            "source_workflow_path",
-            "description",
-            "summary",
-            "node_types",
-            "workflow_schema_classes",
-            "terminal_output_path",
-            "minimal_spine",
-            "model_families",
-            "models",
-            "reasons",
-            "requested_terms",
-            "promotion_gates",
-        ),
-    )
-    if "workflow_schema" in source:
-        schema = source.get("workflow_schema")
-        if isinstance(schema, Mapping):
-            compact["workflow_schema_classes"] = _compact_protocol_list(
-                list(schema.keys()),
-                limit=_MAX_EXECUTION_PROTOCOL_LIST_ITEMS,
-            )
-            compact["workflow_schema_omitted"] = (
-                "omitted from prompt; exact classes are provisional authoring evidence when surfaced in signatures"
-            )
-    return compact or None
-
-
-def _compact_execution_protocol_notes_for_prompt(deps,
-    notes: Mapping[str, Any],
-    *,
-    route: str | None = None,
-) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-
-    # W-07 — manifest-preferred compact protocol notes.  When the ADAPT-path
-    # plan carries a COMPLETE topology_manifest, the manifest's authoritative
-    # class set (nodes[].canonical_class_type) is rendered under the dedicated
-    # manifest compactor so the generic per-note list/depth limits cannot
-    # silently truncate a large delta.  If the manifest exceeds even the
-    # dedicated budget, the manifest path is rejected and the legacy generic
-    # compaction runs unchanged (no partial topology is emitted).
-    adaptation_plan_raw = notes.get("adaptation_plan")
-    manifest_active, manifest = _active_manifest_from_plan(deps,
-        adaptation_plan_raw, route=route
-    )
-    for key in (
-        "research_goal",
-        "workflow_precedent_status",
-        "research_warnings",
-    ):
-        if key in notes:
-            value = notes.get(key)
-            if isinstance(value, str):
-                compact[key] = _compact_protocol_string(value)
-            elif isinstance(value, (list, tuple)):
-                compact[key] = _compact_protocol_list(value, limit=8)
-            else:
-                compact[key] = value
-
-    selected = notes.get("selected_precedent")
-    if isinstance(selected, Mapping):
-        compact["selected_precedent"] = _copy_compact_protocol_fields(
-            selected,
-            (
-                "name",
-                "source",
-                "source_workflow_path",
-                "minimal_spine",
-                "terminal_output_path",
-                "model_families",
-                "models",
-                "reasons",
-                "requested_terms",
-                "promotion_gates",
-            ),
-        )
-
-    actionability = notes.get("adaptation_plan_actionability")
-    if isinstance(actionability, Mapping):
-        compact["adaptation_plan_actionability"] = _copy_compact_protocol_fields(
-            actionability,
-            (
-                "actionability",
-                "non_actionable_reason",
-                "allowed_followups",
-            ),
-        )
-
-    adaptation_plan = notes.get("adaptation_plan")
-    if manifest_active:
-        # W-07 — manifest-preferred compaction.  Render the complete manifest
-        # under the dedicated manifest compactor (no generic truncation), and
-        # carry the validation/status fields that the agent reads alongside
-        # it.  If the manifest exceeds even the dedicated budget, fall back to
-        # the legacy generic compaction below (no partial topology).
-        compact_manifest = _manifest_compact_payload(manifest) if manifest is not None else None
-        if compact_manifest is not None:
-            compact_plan: dict[str, Any] = {
-                "topology_manifest": compact_manifest,
-            }
-            if isinstance(adaptation_plan_raw, Mapping):
-                for key in (
-                    "structural_validation",
-                    "semantic_validation",
-                    "context_note",
-                ):
-                    if key in adaptation_plan_raw:
-                        compact_plan[key] = _compact_protocol_jsonish(
-                            adaptation_plan_raw[key]
-                        )
-            compact["adaptation_plan"] = compact_plan
-            adaptation_plan = None  # legacy block skipped below
-        # else: manifest rejected (oversize) -> fall through to legacy generic
-        # compaction so notes are still emitted, without the manifest.
-    if isinstance(adaptation_plan, Mapping):
-        compact_plan = {
-            key: _compact_protocol_jsonish(adaptation_plan[key])
-            for key in (
-                "selected_slice",
-                "anchor_bindings",
-                "required_new_nodes",
-                "required_rewires",
-                "edit_ops",
-                "structural_validation",
-                "semantic_validation",
-                "warnings",
-                "context_note",
-            )
-            if key in adaptation_plan
-        }
-        if compact_plan:
-            compact["adaptation_plan"] = compact_plan
-
-    sources = notes.get("research_sources")
-    if isinstance(sources, (list, tuple)):
-        compact_sources: list[dict[str, Any]] = []
-        for source in sources[:_MAX_EXECUTION_PROTOCOL_SOURCES]:
-            compact_source = _compact_research_source_for_prompt(source)
-            if compact_source:
-                compact_sources.append(compact_source)
-        if compact_sources:
-            compact["research_sources"] = compact_sources
-        if len(sources) > _MAX_EXECUTION_PROTOCOL_SOURCES:
-            compact["research_sources_omitted"] = len(sources) - _MAX_EXECUTION_PROTOCOL_SOURCES
-
-    for key, value in notes.items():
-        if key in compact or key in {
-            "_discardability",
-            "selected_precedent",
-            "research_sources",
-            "research_goal",
-            "workflow_precedent_status",
-            "research_warnings",
-            "adaptation_plan",
-        }:
-            continue
-        if isinstance(value, str):
-            compact[key] = _compact_protocol_string(value, limit=500)
-        elif isinstance(value, (list, tuple)):
-            compact[key] = _compact_protocol_list(value, limit=8)
-        elif isinstance(value, (int, float, bool)) or value is None:
-            compact[key] = value
-    return compact
 
 
 def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
@@ -1168,35 +802,6 @@ def _actionable_plan_dependency_status(deps,
     return tuple(dependencies)
 
 
-def _retry_after_dependency_preflight_failure(
-    state: AgentEditState,
-    unresolved_runtime_classes: tuple[str, ...],
-) -> None:
-    """Reject one poisoned synthesis while preserving evidence for a retry.
-
-    The batch author still receives the inquiry, current graph, and retrieved
-    precedent slices, but the unresolved candidate graph is removed so it
-    cannot abort or prescribe the next attempt.
-    """
-    notes = (
-        dict(state.execution_protocol_notes)
-        if isinstance(state.execution_protocol_notes, Mapping)
-        else {}
-    )
-    notes.pop("adaptation_plan", None)
-    notes["adaptation_plan_actionability"] = {
-        "actionability": "non_actionable",
-        "non_actionable_reason": "dependency_preflight_failed_retry_synthesis",
-    }
-    notes["synthesis_retry"] = {
-        "trigger": "dependency_preflight_failed",
-        "rejected_class_types": list(unresolved_runtime_classes),
-        "strategy": "choose another retrieved precedent or bounded direct edit",
-    }
-    state.execution_protocol_notes = notes
-    state.executor_adaptation_plan = None
-
-
 def _hydrate_actionable_registry_dependencies(deps, state: AgentEditState) -> None:
     candidates: list[dict[str, Any]] = []
     for dependency in state.runtime_dependencies:
@@ -1355,9 +960,21 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         )
     _hydrate_actionable_registry_dependencies(deps, state)
     deps._hydrate_research_precedent_node_schemas(state)
+    # D03: executor_precedent_slices / executor_adaptation_plan removed; the
+    # adaptation plan rides in execution_protocol_notes (H03 hydration
+    # source). Binding priors from legacy precedent slices no longer exist.
+    protocol_notes = (
+        state.execution_protocol_notes
+        if isinstance(state.execution_protocol_notes, Mapping)
+        else None
+    )
     value_default_context = ValueDefaultContext.from_precedent_slices(
-        state.executor_precedent_slices,
-        adaptation_plan=state.executor_adaptation_plan,
+        (),
+        adaptation_plan=(
+            protocol_notes.get("adaptation_plan")
+            if isinstance(protocol_notes, Mapping)
+            else None
+        ),
         user_overrides=state.request_payload.get("value_default_overrides"),
         user_request=f"{state.task}\n{state.request_payload.get('query') or ''}",
     )
@@ -1374,13 +991,14 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
     )
-    session.executor_research_brief = state.executor_research_brief  # dict | None
     session.research_only = research_only_route
     state.batch_session = session
     initial_render = session.render()
     present_types = deps._present_class_types(session)
     focus_types = set(present_types)
     effective_task = deps._effective_implementation_task(state)
+    # D03: the research brief no longer seeds focus types; workflow classes
+    # come from execution_protocol_notes.research_sources (authoring surface).
     focus_types.update(
         deps._workflow_class_types_from_research_context(
             state,
@@ -1389,7 +1007,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             custom_only=False,
         )
     )
-    focus_types.update(deps._focus_types_from_research_brief(state.executor_research_brief))
     if deps._is_code_node_intent(effective_task):
         focus_types.add("vibecomfy.exec")
     signature_catalog = session.search(
@@ -1403,121 +1020,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     if isinstance(signature_catalog, str):
         state.batch_signature_catalog = signature_catalog
 
-    classification = (
-        state.request_payload.get("executor_classification")
-        if isinstance(state.request_payload, dict)
-        else None
-    )
-    intent = classification.get("intent") if isinstance(classification, dict) else ""
-    # explain_graph intent now maps to the executor inspect route, which
-    # never reaches the agent-edit pipeline.  Keep the text-pattern fallback
-    # for revise / adapt operations where the task reads like a graph
-    # explanation (provides helpful context in the batch-REPL prompt).
-    prefetch_explain = not intent and deps._is_graph_explain_intent(effective_task)
-    prefetch_research_summary = state.executor_research_summary or (
-        deps._prefetch_research_summary(effective_task) if prefetch_explain else ""
-    )
-    research_brief_prompt = deps._format_research_brief_for_prompt(state.executor_research_brief)
-    if prefetch_research_summary and state.executor_research_warnings:
-        warning_lines = [
-            f"- {warning}" for warning in state.executor_research_warnings[:6]
-        ]
-        prefetch_research_summary = (
-            f"{prefetch_research_summary}\n\n"
-            "Research warnings:\n"
-            + "\n".join(warning_lines)
-        )
-    if prefetch_research_summary and state.executor_research_sources:
-        source_lines = [
-            json.dumps(source, sort_keys=True)
-            for source in state.executor_research_sources[:8]
-        ]
-        prefetch_research_summary = (
-            f"{prefetch_research_summary}\n\n"
-            "Structured research sources (JSON lines):\n"
-            + "\n".join(source_lines)
-        )
-    prefetch_graph_report = (
-        state.graph_inspection
-        or (deps._build_graph_report(state.graph) if prefetch_explain else "")
-    )
-    # Build compact precedent-prior prompt for routes that received structured
-    # evidence. Provenance slices remain evidence even on a risk-triggered
-    # revise route.
-    precedent_adaptation_prompt = ""
-    adapt_scoped_research_context = ""
-    if canonical_route in {"adapt", "revise"} and (
-        state.executor_adaptation_plan or state.executor_precedent_slices
-    ):
-        precedent_adaptation_prompt = deps._build_precedent_adaptation_prompt(
-            state.executor_adaptation_plan,
-            state.executor_precedent_slices,
-            route=canonical_route,
-        )
-    if canonical_route == "adapt":
-        # SD3: scoped adapt prefetch from execution_protocol_notes and
-        # research_context_packet — discardable, evidence-only context.
-        if (
-            state.execution_protocol_notes
-            or state.research_context_packet
-            or state.graph_facts
-            or state.graph_inspection
-        ):
-            parts: list[str] = []
-            discard_note: str | None = None
-            if state.execution_protocol_notes:
-                notes = dict(state.execution_protocol_notes)
-                discard_note = notes.pop("_discardability", None)
-                notes = _compact_execution_protocol_notes_for_prompt(deps,
-                    notes, route=canonical_route
-                )
-                notes_str = json.dumps(notes, indent=2, sort_keys=True)
-                authority_line = (
-                    str(discard_note).strip()
-                    if isinstance(discard_note, str) and discard_note.strip()
-                    else "This is contextual evidence, NOT authoritative guidance."
-                )
-                parts.append(
-                    "## Scoped Research Context (execution_protocol_notes)\n"
-                    f"{authority_line}\n"
-                    f"{notes_str}"
-                )
-            has_selected_precedent = False
-            if isinstance(state.execution_protocol_notes, Mapping):
-                has_selected_precedent = isinstance(
-                    state.execution_protocol_notes.get("selected_precedent"),
-                    Mapping,
-                )
-            if state.research_context_packet and not has_selected_precedent:
-                packet_str = json.dumps(
-                    state.research_context_packet, indent=2, sort_keys=True
-                )
-                parts.append(
-                    "## Research Context Packet (discardable)\n"
-                    "Precedent evidence from research phase. "
-                    "Discard if empty, irrelevant, or contradictory.\n"
-                    f"{packet_str}"
-                )
-            # SD2: compact graph facts from topology/readiness collectors.
-            if state.graph_facts:
-                facts_str = json.dumps(state.graph_facts, indent=2, sort_keys=True)
-                parts.append(
-                    "## Graph Facts (workflow topology evidence)\n"
-                    "Deterministic topology/readiness evidence about the current graph. "
-                    "Use this to understand the workflow structure, terminal outputs, "
-                    "and any known blockers. NOT a revision verdict.\n"
-                    f"{facts_str}"
-                )
-            if state.graph_inspection:
-                parts.append(
-                    "## Graph Inspection (current graph evidence)\n"
-                    "Deterministic node/widget evidence from the attached current graph. "
-                    "Use this to identify existing editable nodes before asking for more precedent.\n"
-                    f"{state.graph_inspection}"
-                )
-            if discard_note:
-                parts.append(f"**Discardability**: {discard_note}")
-            adapt_scoped_research_context = "\n\n".join(parts)
+    # D03: the legacy prefetch/research-summary/research-brief/graph-report/
+    # precedent-adaptation/SD3-scoped-context prompt assembly is REMOVED.
+    # Research context enters the model request ONLY as compact ledger
+    # entries + resolvable evidence IDs (the I01
+    # _tool_evidence_ledger_records path rendered into evidence_ledger below);
+    # full evidence stays in the evidence-pack artifact.
 
     max_batches = max(1, int(state.batch_max_turns or 1))
     max_consecutive_errors = max(1, int(state.batch_max_consecutive_errors or 1))
@@ -1654,12 +1162,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         budget_remaining = max_batches - turn_number
         include_full_render = turn_number == 0 or last_landed_count == 0
         node_variable_index = deps._format_node_variable_index(session)
-        research_memory = deps._batch_research_memory_summary(state)
-        turn_research_summary = prefetch_research_summary if turn_number == 0 else ""
-        if research_memory:
-            turn_research_summary = (
-                f"{turn_research_summary}\n\nPrior research/query memory:\n{research_memory}"
-            ).strip()
+        # D03/I01: cross-turn research context is ledger-only — compact ledger
+        # entries + evidence IDs, never raw bodies/schemas. Full evidence stays
+        # in the evidence-pack artifact behind the resolvable IDs.
+        evidence_ledger = deps._batch_research_memory_summary(state)
         discovery_nudge = (
             deps._discovery_construction_nudge(state)
             if not research_only_route
@@ -1689,14 +1195,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             max_batches=max_batches,
             conversation_messages=conversation_messages if turn_number == 0 else None,
             research_only=research_only_route,
-            research_brief=research_brief_prompt if turn_number == 0 else "",
-            research_summary=turn_research_summary,
-            graph_report=prefetch_graph_report if turn_number == 0 else "",
-            precedent_adaptation_plan=(
-                (precedent_adaptation_prompt + "\n\n" + adapt_scoped_research_context).strip()
-                if turn_number == 0
-                else ""
-            ),
+            evidence_ledger=evidence_ledger,
             revision_evidence_json=deps._revision_evidence_prompt_json(state)
             if turn_number == 0
             else "",

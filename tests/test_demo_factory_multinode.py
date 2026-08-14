@@ -213,100 +213,6 @@ def test_run_multinode_case_skips_fixture_error_before_fixer(
     assert fixer_called is False
 
 
-def test_multinode_synthesis_rejects_unresolvable_then_retries_next_slice(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Any,
-) -> None:
-    from vibecomfy.executor.contracts import WorkflowSlice
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    first_path = tmp_path / "first.json"
-    second_path = tmp_path / "second.json"
-    first_path.write_text(
-        json.dumps({
-            "10": {
-                "class_type": "550e8400-e29b-41d4-a716-446655440000",
-                "inputs": {"conditioning": ["11", 0]},
-            },
-            "11": {"class_type": "KSampler", "inputs": {}},
-        }),
-        encoding="utf-8",
-    )
-    second_path.write_text(
-        json.dumps({
-            "20": {
-                "class_type": "ControlNetApplyAdvanced",
-                "inputs": {"conditioning": ["21", 0]},
-            },
-            "21": {"class_type": "KSampler", "inputs": {}},
-        }),
-        encoding="utf-8",
-    )
-    slices = (
-        WorkflowSlice(
-            source_class_type="first precedent",
-            source_workflow_path=str(first_path),
-            node_ids=("10", "11"),
-            node_types=("550e8400-e29b-41d4-a716-446655440000", "KSampler"),
-            entry_anchor="11",
-        ),
-        WorkflowSlice(
-            source_class_type="control precedent",
-            source_workflow_path=str(second_path),
-            node_ids=("20", "21"),
-            node_types=("ControlNetApplyAdvanced", "KSampler"),
-            entry_anchor="21",
-        ),
-    )
-    target = {
-        "1": {"class_type": "KSampler", "inputs": {}},
-        "2": {"class_type": "SaveImage", "inputs": {"images": ["1", 0]}},
-    }
-    monkeypatch.setattr(
-        research_module,
-        "_runtime_object_info_resolves_class",
-        lambda class_type: class_type in {
-            "ControlNetApplyAdvanced",
-            "KSampler",
-            "SaveImage",
-        },
-    )
-
-    plan = research_module._build_adaptation_plan(
-        query="restore the missing ControlNet branch",
-        graph=target,
-        inspection=None,
-        slices=slices,
-    )
-
-    assert plan is not None
-    assert plan.semantic_validation == "pass"
-    assert plan.selected_slice == slices[1]
-    assert plan.candidate_graph is not None
-    assert any(
-        warning.get("code") == "synthesis_unresolvable_class"
-        and warning.get("slice_rank") == 1
-        for warning in plan.warnings
-    )
-
-
-def test_multinode_contract_drops_semantically_failed_candidate() -> None:
-    from vibecomfy.executor.contracts import (
-        PrecedentAdaptationPlan,
-        WorkflowSlice,
-    )
-
-    plan = PrecedentAdaptationPlan(
-        selected_slice=WorkflowSlice(source_class_type="precedent"),
-        candidate_graph={"1": {"class_type": "KSampler", "inputs": {}}},
-        structural_validation="pass",
-        semantic_validation="fail",
-    )
-
-    assert plan.candidate_graph is None
-    assert "candidate_graph" not in plan.to_dict()
-
-
 def test_multinode_dependency_preflight_skips_annotations_and_retries_poisoned_plan() -> None:
     from vibecomfy.comfy_nodes.agent.edit import (
         _actionable_plan_required_new_classes,
@@ -357,33 +263,6 @@ def test_multinode_dependency_preflight_skips_annotations_and_retries_poisoned_p
         "non_actionable_reason": "dependency_preflight_failed_retry_synthesis",
     }
     assert state.executor_adaptation_plan is None
-
-
-def test_multinode_headless_additive_clarify_falls_through_to_research() -> None:
-    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
-    from vibecomfy.executor.core import _headless_clarify_research_plan
-
-    request = ExecutorRequest(
-        query="restore the removed capability",
-        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
-    )
-    clarify = ClassifyDecision(route="clarify", task="respond")
-
-    fallback = _headless_clarify_research_plan(
-        request,
-        clarify,
-        additive=True,
-    )
-    assert fallback is not None
-    assert fallback.effective_route == "adapt"
-    assert fallback.research is True
-    assert fallback.implement is True
-    assert fallback.research_goal == request.query
-    assert _headless_clarify_research_plan(
-        request,
-        clarify,
-        additive=False,
-    ) is None
 
 
 def test_multinode_fixer_failure_writes_fingerprint_and_status(

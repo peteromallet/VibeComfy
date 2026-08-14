@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -63,7 +62,6 @@ from .contracts import (
     ExecutorResult,
     ImplementationResult,
     Report,
-    ResearchResult,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
     warning_detail_from_exception,
@@ -79,30 +77,6 @@ LOGGER = logging.getLogger(__name__)
 # Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
-
-_INSTALL_RESEARCH_TERMS = (
-    "install",
-    "installation",
-    "provider pack",
-    "provider-pack",
-    "which pack",
-    "node pack",
-    "custom node pack",
-    "registry",
-    "local addability",
-    "locally addable",
-)
-
-_INSTALL_REQUEST_TERMS = (
-    "install",
-    "installation",
-    "which pack",
-    "what pack",
-    "provider pack",
-    "provides",
-    "registry",
-    "comfyui-manager",
-)
 
 
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
@@ -148,71 +122,6 @@ def _failure_model_attempts(failure: Any) -> tuple[dict[str, Any], ...]:
     if not isinstance(context, Mapping):
         return ()
     return coerce_model_attempts(context.get("model_attempts"))
-
-
-def _allows_install_or_provider_research(query: str) -> bool:
-    query_l = str(query or "").casefold()
-    return any(term in query_l for term in _INSTALL_REQUEST_TERMS)
-
-
-def _sanitize_research_hint_text(text: str, *, query: str = "") -> str | None:
-    """Keep classifier hints pointed at precedent unless install info was asked for."""
-
-    stripped = str(text or "").strip()
-    if not stripped:
-        return None
-    text_l = stripped.casefold()
-    if (
-        _allows_install_or_provider_research(query)
-        or not any(term in text_l for term in _INSTALL_RESEARCH_TERMS)
-    ):
-        return stripped
-
-    replacements = (
-        (r"\bnode[- ]pack installation and usage\b", "workflow precedent and usage"),
-        (r"\bnode[- ]pack installation\b", "workflow precedent"),
-        (r"\bnode[- ]pack details\b", "workflow examples"),
-        (r"\bcustom[- ]node[- ]pack\b", "workflow"),
-        (r"\bprovider[- ]pack\b", "workflow"),
-        (r"\blocal addability\b", "workflow authoring pattern"),
-        (r"\blocally addable\b", "workflow-backed"),
-        (r"\binstallation and usage\b", "workflow usage"),
-        (r"\binstallation\b", "workflow precedent"),
-        (r"\binstall\b", "use"),
-        (r"\bregistry\b", "workflow"),
-        (r"\bnode[- ]pack\b", "workflow"),
-    )
-    sanitized = stripped
-    for pattern, replacement in replacements:
-        sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
-    sanitized = re.sub(r"\s+", " ", sanitized).strip(" ;,.")
-    sanitized = re.sub(
-        r"\bworkflow examples,\s*workflow examples\b",
-        "workflow examples",
-        sanitized,
-        flags=re.IGNORECASE,
-    )
-    sanitized = re.sub(r"\bworkflow examples,\s+and\b", "workflow examples and", sanitized, flags=re.IGNORECASE)
-    return sanitized or None
-
-
-def _sanitize_search_directions(
-    directions: tuple[str, ...] | list[str],
-    *,
-    query: str = "",
-) -> tuple[str, ...]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for direction in directions:
-        sanitized = _sanitize_research_hint_text(str(direction), query=query)
-        if not sanitized:
-            continue
-        key = sanitized.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(sanitized)
-    return tuple(result)
 
 
 # ── route-aware behavior helpers (SD2) ───────────────────────────────────────
@@ -1229,6 +1138,27 @@ def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) ->
     return result.get("graph_unchanged") is True and apply_eligible is not True
 
 
+def _dedupe_nonempty(values: Any) -> tuple[str, ...]:
+    """Return non-empty, de-duplicated strings in original order.
+
+    Classifier research metadata is passed to the agent-owned research stage
+    verbatim (no legacy hint rewriting); this only drops blanks and exact
+    duplicates so the brief stays compact.
+    """
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values or ():
+        item = str(value).strip()
+        if not item:
+            continue
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return tuple(result)
+
+
 def _research_brief_from_plan(
     plan: ClassifyDecision,
     *,
@@ -1242,11 +1172,11 @@ def _research_brief_from_plan(
     """
     brief: dict[str, Any] = {}
     if plan.research_goal:
-        research_goal = _sanitize_research_hint_text(plan.research_goal, query=query)
+        research_goal = str(plan.research_goal).strip()
         if research_goal:
             brief["research_goal"] = research_goal
     if plan.search_directions:
-        search_directions = _sanitize_search_directions(plan.search_directions, query=query)
+        search_directions = _dedupe_nonempty(plan.search_directions)
         if search_directions:
             brief["search_directions"] = list(search_directions)
     if plan.source_preferences:

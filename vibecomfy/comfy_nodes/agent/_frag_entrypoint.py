@@ -228,53 +228,17 @@ def handle_agent_edit(
         narrative_response_path=turn_dir / "narrative_response.json",
         narrative_validation_path=turn_dir / "narrative_validation.json",
     )
-    research_summary = payload.get("research_summary")
-    if isinstance(research_summary, str) and research_summary.strip():
-        state.executor_research_summary = research_summary.strip()
-    research_warnings: list[str] = []
-    raw_research_warnings = payload.get("research_warnings")
-    if isinstance(raw_research_warnings, list):
-        research_warnings.extend(
-            warning.strip()
-            for warning in raw_research_warnings
-            if isinstance(warning, str) and warning.strip()
-        )
-    executor_research = payload.get("executor_research")
-    if isinstance(executor_research, dict):
-        raw_executor_warnings = executor_research.get("warnings")
-        if isinstance(raw_executor_warnings, list):
-            research_warnings.extend(
-                warning.strip()
-                for warning in raw_executor_warnings
-                if isinstance(warning, str) and warning.strip()
-            )
-    if research_warnings:
-        state.executor_research_warnings = tuple(dict.fromkeys(research_warnings))
-    research_sources = payload.get("research_sources")
-    if isinstance(research_sources, list):
-        state.executor_research_sources = tuple(
-            source for source in research_sources if isinstance(source, dict)
-        )
-    # Extract structured precedent data from payload (SD2)
-    precedent_slices = payload.get("precedent_slices")
-    if isinstance(precedent_slices, list):
-        state.executor_precedent_slices = tuple(
-            s for s in precedent_slices if isinstance(s, dict)
-        )
-    adaptation_plan = payload.get("adaptation_plan")
-    if isinstance(adaptation_plan, dict):
-        state.executor_adaptation_plan = adaptation_plan
-    research_brief = payload.get("research_brief")
-    if isinstance(research_brief, dict):
-        state.executor_research_brief = research_brief
+    # D03: legacy executor research payload fields (research_summary,
+    # research_warnings, executor_research, research_sources, precedent_slices,
+    # adaptation_plan, research_brief, research_context_packet) are NOT
+    # hydrated into state: research crosses into the model request only as
+    # compact ledger entries + evidence IDs, and full evidence lives in the
+    # evidence-pack artifact.
     # SD3: scoped adapt-prefetch fields.
     protocol_notes = payload.get("execution_protocol_notes")
     if isinstance(protocol_notes, dict):
         state.execution_protocol_notes = protocol_notes
         _hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
-    context_packet = payload.get("research_context_packet")
-    if isinstance(context_packet, dict):
-        state.research_context_packet = context_packet
     graph_inspection = payload.get("graph_inspection")
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         state.graph_inspection = graph_inspection.strip()

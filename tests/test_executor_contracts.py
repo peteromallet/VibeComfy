@@ -12,6 +12,13 @@ import json
 import pytest
 
 from tests._splice_antigaming import assert_no_forbidden_fields
+from vibecomfy.executor.agent_research_stage import AgentResearchTrace
+from vibecomfy.executor.core import AgentResearchResult
+from vibecomfy.executor.evidence_pack import (
+    EvidenceLedger,
+    EvidenceLedgerEntry,
+    EvidencePack,
+)
 from vibecomfy.executor.contracts import (
     AgentEvidence,
     AgentTurnResult,
@@ -20,7 +27,6 @@ from vibecomfy.executor.contracts import (
     ExecutorResult,
     GraphFacts,
     ImplementationResult,
-    InspectionSummary,
     ManifestBoundaryAnchor,
     ManifestInquiryCoverage,
     ManifestInternalEdge,
@@ -28,15 +34,10 @@ from vibecomfy.executor.contracts import (
     ManifestOversized,
     ManifestValidation,
     ModelAttemptEvidence,
-    PrecedentAdaptationPlan,
-    PrecedentOption,
-    PrecedentPacket,
     ReadinessReport,
     Report,
-    ResearchResult,
     TopologyFindings,
     TopologyManifest,
-    WorkflowSlice,
     _ALLOWED_ROUTES,
     _ALLOWED_TASKS,
     adaptation_plan_actionability,
@@ -52,6 +53,34 @@ from vibecomfy.executor.prompts import (
     parse_classify_response,
     parse_reply_response,
 )
+
+
+def _agent_research_result(summary: str = "found") -> AgentResearchResult:
+    """Build a minimal H01 agent-owned research result for report tests."""
+    ledger = EvidenceLedger(entries=(
+        EvidenceLedgerEntry(
+            decision="agent_research",
+            conclusion=summary,
+            evidence_ids=(),
+            uncertainty="low",
+        ),
+    ))
+    trace = AgentResearchTrace(
+        route="research",
+        question="q",
+        iterations=(),
+        final_verdict="enough",
+        summary=summary,
+        citations=(),
+        uncertainty="low",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    return AgentResearchResult(
+        route="research",
+        trace=trace,
+        evidence_pack=EvidencePack(artifacts={}, ledger=ledger),
+    )
 
 
 # ── ExecutorRequest ──────────────────────────────────────────────────────────
@@ -539,70 +568,6 @@ class TestClassifyDecision:
         }
 
 
-# ── ResearchResult ───────────────────────────────────────────────────────────
-
-
-class TestResearchResult:
-    def test_defaults(self) -> None:
-        r = ResearchResult()
-        assert r.summary == ""
-        assert r.sources == ()
-        assert r.warnings == ()
-
-    def test_with_data(self) -> None:
-        r = ResearchResult(
-            summary="found 3 templates",
-            sources=({"name": "t1"}, {"name": "t2"}),
-            warnings=("hivemind timeout",),
-        )
-        assert r.summary == "found 3 templates"
-        assert len(r.sources) == 2
-        assert len(r.warnings) == 1
-
-    def test_to_dict(self) -> None:
-        r = ResearchResult(
-            summary="x",
-            sources=({"k": "v"},),
-            warnings=("w1",),
-            warning_details=({"type": "TimeoutError", "message": "timed out"},),
-        )
-        d = r.to_dict()
-        assert d["summary"] == "x"
-        assert d["sources"] == [{"k": "v"}]
-        assert d["warnings"] == ["w1"]
-        assert d["warning_details"] == [
-            {"type": "TimeoutError", "message": "timed out"}
-        ]
-
-    def test_warning_details_omitted_when_empty(self) -> None:
-        d = ResearchResult(warnings=("w1",)).to_dict()
-        assert d["warnings"] == ["w1"]
-        assert "warning_details" not in d
-
-    def test_warning_detail_from_exception_redacts_sensitive_url_query(self) -> None:
-        exc = RuntimeError(
-            "request failed for https://example.test/search?token=secret&q=ksampler#frag"
-        )
-        detail = warning_detail_from_exception(exc)
-        assert detail == {
-            "type": "RuntimeError",
-            "message": (
-                "request failed for "
-                "https://example.test/search?token=%3Credacted%3E&q=ksampler"
-            ),
-        }
-
-    def test_immutable_tuples(self) -> None:
-        r = ResearchResult(sources=({"a": 1},), warnings=("w",))
-        # Tuple items cannot be reassigned (TypeError).
-        with pytest.raises(TypeError):
-            r.sources[0] = {"b": 2}  # type: ignore[index]
-        # The frozen dataclass prevents field reassignment (FrozenInstanceError,
-        # which is a subclass of AttributeError in CPython 3.11+).
-        with pytest.raises(Exception):
-            r.sources = ()  # type: ignore[misc]
-
-
 # ── ImplementationResult ─────────────────────────────────────────────────────
 
 
@@ -743,21 +708,37 @@ class TestReport:
 
     def test_with_phases(self) -> None:
         plan = ClassifyDecision(research=True, implement=True)
-        research = ResearchResult(summary="found")
+        research = _agent_research_result(summary="found")
         impl = ImplementationResult(message="edited")
         r = Report(plan=plan, research=research, implementation=impl)
         assert r.plan == plan
         assert r.research is research
         assert r.implementation is impl
 
-    def test_to_dict(self) -> None:
+    def test_to_dict_carries_compact_agent_owned_references(self) -> None:
         plan = ClassifyDecision(plan_summary="p")
-        research = ResearchResult(summary="r")
+        research = _agent_research_result(summary="found")
         r = Report(plan=plan, research=research)
         d = r.to_dict()
         assert d["executor"]["plan"]["plan_summary"] == "p"
-        assert d["executor"]["research"]["summary"] == "r"
+        # Public serialization carries the compact stage/evidence package —
+        # mode + ledger references — never the full research blob.
+        research_payload = d["executor"]["research"]
+        assert research_payload["mode"] == "agent_owned"
+        assert research_payload["status"] == "ok"
+        ledger = research_payload["ledger"]
+        assert ledger["entries"][0]["conclusion"] == "found"
         assert "implementation" not in d["executor"]
+
+    def test_legacy_research_payload_is_rejected_not_rewritten(self) -> None:
+        """Backward-incompatible legacy research payloads fail explicitly."""
+        for legacy_payload in (
+            {"summary": "found", "sources": []},
+            {"summary": "found", "precedent_packet": {"options": []}},
+            {"summary": "found", "adaptation_plan": {"selected_slice": {}}},
+        ):
+            with pytest.raises(TypeError, match="must be an AgentResearchResult"):
+                Report(research=legacy_payload)  # type: ignore[arg-type]
 
     def test_model_response_compatibility_view_is_derived_not_serialized(self) -> None:
         attempt = ModelAttemptEvidence(
@@ -2255,7 +2236,7 @@ class TestRouteScenarioFixtures:
 class TestExecutorResultRoundtrip:
     def test_full_success_roundtrip(self) -> None:
         plan = ClassifyDecision(research=True, implement=True, reply=True, effort="medium", plan_summary="edit graph")
-        research = ResearchResult(summary="found 2 templates", sources=({"id": "t1"},), warnings=("hivemind slow",))
+        research = _agent_research_result(summary="found 2 templates")
         impl = ImplementationResult(graph={"nodes": [1]}, message="added node", delta=({"op": "add"},))
         report = Report(plan=plan, research=research, implementation=impl)
         result = ExecutorResult.success(report=report, graph={"nodes": [1]}, reply="Graph edited successfully.")
@@ -2265,9 +2246,12 @@ class TestExecutorResultRoundtrip:
         assert d["reply"] == "Graph edited successfully."
         assert d["graph"] == {"nodes": [1]}
         assert d["report"]["executor"]["plan"]["research"] is True
-        assert d["report"]["executor"]["research"]["summary"] == "found 2 templates"
-        assert d["report"]["executor"]["research"]["sources"] == [{"id": "t1"}]
-        assert d["report"]["executor"]["research"]["warnings"] == ["hivemind slow"]
+        # Research serializes as the compact agent-owned package: mode + ledger
+        # references (evidence IDs), never full source blobs.
+        research_payload = d["report"]["executor"]["research"]
+        assert research_payload["mode"] == "agent_owned"
+        assert research_payload["route"] == "research"
+        assert research_payload["ledger"]["entries"][0]["conclusion"] == "found 2 templates"
         assert d["report"]["executor"]["implementation"]["message"] == "added node"
         assert d["report"]["executor"]["implementation"]["delta"] == [{"op": "add"}]
 
@@ -2282,465 +2266,6 @@ class TestExecutorResultRoundtrip:
         assert d["failure_stage"] == "classify"
         assert d["failure_message"] == "timeout"
         assert d["report"]["executor"]["plan"]["reply"] is True
-
-# ── InspectionSummary contract tests (T9) ────────────────────────────────────
-
-
-class TestInspectionSummary:
-    """Round-trip and edge-case tests for InspectionSummary dataclass."""
-
-    def test_defaults(self) -> None:
-        s = InspectionSummary()
-        assert s.node_count == 0
-        assert s.node_types == ()
-        assert s.has_dangling_inputs is False
-        assert s.has_dangling_outputs is False
-        assert s.key_widget_values == ()
-        assert s.summary == ""
-
-    def test_to_dict_defaults(self) -> None:
-        s = InspectionSummary()
-        d = s.to_dict()
-        assert d == {
-            "node_count": 0,
-            "node_types": [],
-            "has_dangling_inputs": False,
-            "has_dangling_outputs": False,
-            "key_widget_values": [],
-            "summary": "",
-        }
-
-    def test_to_dict_with_data(self) -> None:
-        s = InspectionSummary(
-            node_count=5,
-            node_types=("KSampler", "VAEDecode", "CLIPTextEncode"),
-            has_dangling_inputs=True,
-            has_dangling_outputs=False,
-            key_widget_values=({"seed": 42}, {"steps": 20}),
-            summary="3 core nodes, 1 dangling input",
-        )
-        d = s.to_dict()
-        assert d["node_count"] == 5
-        assert d["node_types"] == ["KSampler", "VAEDecode", "CLIPTextEncode"]
-        assert d["has_dangling_inputs"] is True
-        assert d["has_dangling_outputs"] is False
-        assert d["key_widget_values"] == [{"seed": 42}, {"steps": 20}]
-        assert d["summary"] == "3 core nodes, 1 dangling input"
-
-    def test_key_widget_values_are_frozen(self) -> None:
-        s = InspectionSummary(
-            node_count=1,
-            key_widget_values=({"seed": 42},),
-        )
-        # Tuples are immutable; frozen dataclass prevents field reassignment
-        with pytest.raises(Exception):
-            s.key_widget_values = ()  # type: ignore[misc]
-
-    def test_node_types_coerced_to_tuple(self) -> None:
-        s = InspectionSummary(node_types=["KSampler", "VAEDecode"])
-        assert isinstance(s.node_types, tuple)
-        assert s.node_types == ("KSampler", "VAEDecode")
-
-
-# ── WorkflowSlice contract tests (T9) ────────────────────────────────────────
-
-
-class TestWorkflowSlice:
-    """Round-trip and edge-case tests for WorkflowSlice dataclass."""
-
-    def test_defaults(self) -> None:
-        ws = WorkflowSlice()
-        assert ws.source_class_type == ""
-        assert ws.node_ids == ()
-        assert ws.entry_anchor is None
-        assert ws.exit_anchor is None
-        assert ws.python_path is None
-
-    def test_to_dict_defaults(self) -> None:
-        ws = WorkflowSlice()
-        d = ws.to_dict()
-        assert d == {
-            "source_class_type": "",
-            "node_ids": [],
-        }
-        # Optional fields are omitted when None
-        assert "entry_anchor" not in d
-        assert "exit_anchor" not in d
-        assert "python_path" not in d
-
-    def test_to_dict_with_all_fields(self) -> None:
-        ws = WorkflowSlice(
-            source_class_type="LTXRuneXXCustomAudioLipsync",
-            node_ids=("45", "46", "47"),
-            entry_anchor="45",
-            exit_anchor="47",
-            python_path="custom_nodes/ltxvideo/LTX_audio_lipsync.py",
-        )
-        d = ws.to_dict()
-        assert d["source_class_type"] == "LTXRuneXXCustomAudioLipsync"
-        assert d["node_ids"] == ["45", "46", "47"]
-        assert d["entry_anchor"] == "45"
-        assert d["exit_anchor"] == "47"
-        assert d["python_path"] == "custom_nodes/ltxvideo/LTX_audio_lipsync.py"
-
-    def test_to_dict_none_anchors_omitted(self) -> None:
-        ws = WorkflowSlice(
-            source_class_type="KSampler",
-            node_ids=("10",),
-            entry_anchor=None,
-            exit_anchor=None,
-            python_path=None,
-        )
-        d = ws.to_dict()
-        assert d == {
-            "source_class_type": "KSampler",
-            "node_ids": ["10"],
-        }
-
-    def test_node_ids_coerced_to_tuple(self) -> None:
-        ws = WorkflowSlice(node_ids=["1", "2", "3"])
-        assert isinstance(ws.node_ids, tuple)
-        assert ws.node_ids == ("1", "2", "3")
-
-    def test_immutable(self) -> None:
-        ws = WorkflowSlice(source_class_type="KSampler", node_ids=("1",))
-        with pytest.raises(Exception):
-            ws.source_class_type = "Other"  # type: ignore[misc]
-
-
-# ── PrecedentAdaptationPlan contract tests (T9) ──────────────────────────────
-
-
-class TestPrecedentAdaptationPlan:
-    """Round-trip and edge-case tests for PrecedentAdaptationPlan dataclass."""
-
-    def test_defaults(self) -> None:
-        pap = PrecedentAdaptationPlan()
-        assert isinstance(pap.selected_slice, WorkflowSlice)
-        assert pap.selected_slice.source_class_type == ""
-        assert pap.anchor_bindings == ()
-        assert pap.required_new_nodes == ()
-        assert pap.required_rewires == ()
-        assert pap.edit_ops == ()
-        assert pap.candidate_graph is None
-        assert pap.structural_validation == "not_evaluated"
-        assert pap.semantic_validation == "not_evaluated"
-
-    def test_to_dict_defaults(self) -> None:
-        pap = PrecedentAdaptationPlan()
-        d = pap.to_dict()
-        assert d["selected_slice"] == {"source_class_type": "", "node_ids": []}
-        assert d["anchor_bindings"] == []
-        assert d["required_new_nodes"] == []
-        assert d["required_rewires"] == []
-        assert d["edit_ops"] == []
-        assert d["structural_validation"] == "not_evaluated"
-        assert d["semantic_validation"] == "not_evaluated"
-        assert d["actionability"] == "non_actionable"
-        assert d["non_actionable_reason"] == "no_concrete_adaptation_edits"
-        assert "allowed_followups" in d
-        # candidate_graph omitted when None
-        assert "candidate_graph" not in d
-
-    def test_failed_empty_plan_is_explicitly_non_actionable(self) -> None:
-        pap = PrecedentAdaptationPlan(structural_validation="fail")
-        d = pap.to_dict()
-        assert d["actionability"] == "non_actionable"
-        assert d["non_actionable_reason"] == "structural_validation_failed_without_concrete_edits"
-        assert adaptation_plan_actionability(d) == (
-            "non_actionable",
-            "structural_validation_failed_without_concrete_edits",
-        )
-        followups = adaptation_plan_actionability_payload(d)["allowed_followups"]
-        assert followups == [
-            "apply_bound_current_graph_edit_if_schema_sufficient",
-            "build_execution_plan_with_required_nodes_and_rewires",
-            "typed_refusal_or_clarification_if_authoring_surface_missing",
-        ]
-        assert not any("search" in item or "retry" in item for item in followups)
-
-    def test_structural_fail_with_concrete_edit_ops_remains_actionable(self) -> None:
-        pap = PrecedentAdaptationPlan(
-            structural_validation="fail",
-            edit_ops=({"op": "set_field", "target": "node_1.seed", "value": 42},),
-        )
-        d = pap.to_dict()
-        assert d["actionability"] == "actionable"
-        assert "non_actionable_reason" not in d
-        assert adaptation_plan_actionability(d) == ("actionable", "")
-
-    def test_to_dict_with_all_fields(self) -> None:
-        ws = WorkflowSlice(
-            source_class_type="LTXAudioLipsync",
-            node_ids=("100", "101"),
-            entry_anchor="100",
-            exit_anchor="101",
-        )
-        pap = PrecedentAdaptationPlan(
-            selected_slice=ws,
-            anchor_bindings=(
-                {"source": "100", "target": "LoadImage.output"},
-                {"source": "101", "target": "VAEDecode.input"},
-            ),
-            required_new_nodes=(
-                {"class_type": "AudioLoader", "widget_values": {"file": "audio.wav"}},
-            ),
-            required_rewires=(
-                {"from_node": "100", "from_output": 0, "to_node": "AudioLoader", "to_input": 0},
-            ),
-            edit_ops=(
-                {"op": "add_node", "class_type": "AudioLoader"},
-                {"op": "rewire", "from": "100", "to": "AudioLoader"},
-            ),
-            candidate_graph={"nodes": [{"id": 1, "type": "LoadImage"}, {"id": 2, "type": "AudioLoader"}]},
-            structural_validation="pass",
-            semantic_validation="advisory",
-        )
-        d = pap.to_dict()
-        assert d["selected_slice"]["source_class_type"] == "LTXAudioLipsync"
-        assert len(d["anchor_bindings"]) == 2
-        assert d["anchor_bindings"][0]["source"] == "100"
-        assert len(d["required_new_nodes"]) == 1
-        assert d["required_new_nodes"][0]["class_type"] == "AudioLoader"
-        assert len(d["required_rewires"]) == 1
-        assert len(d["edit_ops"]) == 2
-        assert d["edit_ops"][0]["op"] == "add_node"
-        assert d["candidate_graph"] == {"nodes": [{"id": 1, "type": "LoadImage"}, {"id": 2, "type": "AudioLoader"}]}
-        assert d["structural_validation"] == "pass"
-        assert d["semantic_validation"] == "advisory"
-
-    def test_validation_values_are_clamped(self) -> None:
-        """Invalid validation values are clamped to 'not_evaluated'."""
-        pap = PrecedentAdaptationPlan(
-            structural_validation="bogus",
-            semantic_validation="invalid",
-        )
-        assert pap.structural_validation == "not_evaluated"
-        assert pap.semantic_validation == "not_evaluated"
-
-    def test_validation_allows_all_valid_values(self) -> None:
-        """All canonical validation values are accepted."""
-        for val in ("not_evaluated", "pass", "fail", "advisory"):
-            pap = PrecedentAdaptationPlan(structural_validation=val)
-            assert pap.structural_validation == val
-            pap2 = PrecedentAdaptationPlan(semantic_validation=val)
-            assert pap2.semantic_validation == val
-
-    def test_candidate_graph_omitted_when_none(self) -> None:
-        pap = PrecedentAdaptationPlan()
-        d = pap.to_dict()
-        assert "candidate_graph" not in d
-
-    def test_immutable(self) -> None:
-        pap = PrecedentAdaptationPlan()
-        with pytest.raises(Exception):
-            pap.structural_validation = "pass"  # type: ignore[misc]
-
-
-# ── ResearchResult precedent field contract tests (T9) ───────────────────────
-
-
-class TestResearchResultPrecedentFields:
-    """Verify ResearchResult.to_dict() legacy shape is unchanged and
-    new structured precedent fields are predictable when populated."""
-
-    # ── Legacy shape preservation ────────────────────────────────────────
-
-    def test_legacy_to_dict_no_precedent_fields(self) -> None:
-        """No precedent_slices or adaptation_plan → legacy output shape only."""
-        rr = ResearchResult(
-            summary="Found 3 templates for KSampler",
-            sources=(
-                {"class_type": "KSampler", "pack": "core"},
-                {"class_type": "KSamplerAdvanced", "pack": "efficiency"},
-            ),
-            warnings=("hivemind timeout",),
-        )
-        d = rr.to_dict()
-        # Legacy keys
-        assert d["summary"] == "Found 3 templates for KSampler"
-        assert d["sources"] == [
-            {"class_type": "KSampler", "pack": "core"},
-            {"class_type": "KSamplerAdvanced", "pack": "efficiency"},
-        ]
-        assert d["warnings"] == ["hivemind timeout"]
-        # New keys must NOT leak into legacy output
-        assert "precedent_slices" not in d
-        assert "adaptation_plan" not in d
-
-    def test_legacy_to_dict_empty_defaults(self) -> None:
-        """Default ResearchResult (all empty) produces only legacy keys."""
-        rr = ResearchResult()
-        d = rr.to_dict()
-        assert d == {
-            "summary": "",
-            "sources": [],
-            "warnings": [],
-        }
-
-    def test_legacy_to_dict_with_only_summary(self) -> None:
-        """Summary-only result preserves legacy shape."""
-        rr = ResearchResult(summary="No relevant local results found.")
-        d = rr.to_dict()
-        assert d == {
-            "summary": "No relevant local results found.",
-            "sources": [],
-            "warnings": [],
-        }
-        assert "precedent_slices" not in d
-        assert "adaptation_plan" not in d
-
-    def test_legacy_to_dict_with_sources_no_warnings(self) -> None:
-        """Sources present, no warnings → legacy shape preserved."""
-        rr = ResearchResult(
-            summary="research output",
-            sources=({"name": "node1"}, {"name": "node2"}),
-        )
-        d = rr.to_dict()
-        assert "summary" in d
-        assert "sources" in d
-        assert "warnings" in d
-        assert "precedent_slices" not in d
-        assert "adaptation_plan" not in d
-
-    # ── Populated precedent fields ───────────────────────────────────────
-
-    def test_to_dict_with_precedent_slices(self) -> None:
-        """precedent_slices present → included in output."""
-        ws = WorkflowSlice(
-            source_class_type="LTXAudioLipsync",
-            node_ids=("10", "11"),
-            entry_anchor="10",
-            exit_anchor="11",
-        )
-        rr = ResearchResult(
-            summary="Found 1 matching precedent",
-            sources=(),
-            warnings=(),
-            precedent_slices=(ws,),
-        )
-        d = rr.to_dict()
-        # Legacy keys still present
-        assert d["summary"] == "Found 1 matching precedent"
-        assert d["sources"] == []
-        assert d["warnings"] == []
-        # New key present
-        assert "precedent_slices" in d
-        assert len(d["precedent_slices"]) == 1
-        assert d["precedent_slices"][0]["source_class_type"] == "LTXAudioLipsync"
-        # adaptation_plan still absent
-        assert "adaptation_plan" not in d
-
-    def test_to_dict_with_multiple_precedent_slices(self) -> None:
-        """Multiple precedent slices are serialized correctly."""
-        ws1 = WorkflowSlice(source_class_type="KSampler", node_ids=("1",))
-        ws2 = WorkflowSlice(source_class_type="VAEDecode", node_ids=("2",))
-        rr = ResearchResult(
-            summary="Multiple precedents",
-            sources=(),
-            warnings=(),
-            precedent_slices=(ws1, ws2),
-        )
-        d = rr.to_dict()
-        assert len(d["precedent_slices"]) == 2
-        assert d["precedent_slices"][0]["source_class_type"] == "KSampler"
-        assert d["precedent_slices"][1]["source_class_type"] == "VAEDecode"
-
-    def test_to_dict_with_adaptation_plan(self) -> None:
-        """adaptation_plan present → included in output."""
-        ws = WorkflowSlice(
-            source_class_type="LTXAudioLipsync",
-            node_ids=("100", "101"),
-            entry_anchor="100",
-            exit_anchor="101",
-        )
-        pap = PrecedentAdaptationPlan(
-            selected_slice=ws,
-            structural_validation="pass",
-            semantic_validation="pass",
-        )
-        rr = ResearchResult(
-            summary="Precedent adapted",
-            sources=(),
-            warnings=(),
-            adaptation_plan=pap,
-        )
-        d = rr.to_dict()
-        assert d["summary"] == "Precedent adapted"
-        assert "adaptation_plan" in d
-        assert d["adaptation_plan"]["selected_slice"]["source_class_type"] == "LTXAudioLipsync"
-        assert d["adaptation_plan"]["structural_validation"] == "pass"
-        # precedent_slices still absent when empty
-        assert "precedent_slices" not in d
-
-    def test_to_dict_with_both_precedent_fields(self) -> None:
-        """Both precedent_slices and adaptation_plan populated."""
-        ws = WorkflowSlice(
-            source_class_type="HotshotXL",
-            node_ids=("5", "6", "7"),
-            entry_anchor="5",
-            exit_anchor="7",
-        )
-        pap = PrecedentAdaptationPlan(
-            selected_slice=ws,
-            anchor_bindings=({"source": "5", "target": "SVD_XT.output"},),
-            structural_validation="advisory",
-        )
-        rr = ResearchResult(
-            summary="HotshotXL → SVD-XT adaptation plan",
-            sources=({"class_type": "HotshotXL"},),
-            warnings=("Some nodes may need custom import",),
-            precedent_slices=(ws,),
-            adaptation_plan=pap,
-        )
-        d = rr.to_dict()
-        assert d["summary"] == "HotshotXL → SVD-XT adaptation plan"
-        assert d["sources"] == [{"class_type": "HotshotXL"}]
-        assert d["warnings"] == ["Some nodes may need custom import"]
-        # Both new fields present
-        assert "precedent_slices" in d
-        assert len(d["precedent_slices"]) == 1
-        assert d["precedent_slices"][0]["source_class_type"] == "HotshotXL"
-        assert "adaptation_plan" in d
-        assert d["adaptation_plan"]["selected_slice"]["node_ids"] == ["5", "6", "7"]
-
-    # ── Round-trip: fields survive construction + to_dict ────────────────
-
-    def test_empty_precedent_slices_not_in_output(self) -> None:
-        """Empty precedent_slices tuple is omitted from serialization."""
-        rr = ResearchResult(
-            summary="test",
-            precedent_slices=(),
-        )
-        d = rr.to_dict()
-        assert "precedent_slices" not in d
-
-    def test_none_adaptation_plan_not_in_output(self) -> None:
-        """None adaptation_plan is omitted from serialization."""
-        rr = ResearchResult(
-            summary="test",
-            adaptation_plan=None,
-        )
-        d = rr.to_dict()
-        assert "adaptation_plan" not in d
-
-    def test_precedent_slices_preserved_as_tuples(self) -> None:
-        """precedent_slices are stored as tuples internally."""
-        ws1 = WorkflowSlice(source_class_type="NodeA", node_ids=("1",))
-        ws2 = WorkflowSlice(source_class_type="NodeB", node_ids=("2",))
-        rr = ResearchResult(
-            summary="test",
-            precedent_slices=(ws1, ws2),
-        )
-        assert isinstance(rr.precedent_slices, tuple)
-        assert len(rr.precedent_slices) == 2
-
-    def test_research_result_is_immutable(self) -> None:
-        """ResearchResult is a frozen dataclass."""
-        rr = ResearchResult(summary="test")
-        with pytest.raises(Exception):
-            rr.summary = "modified"  # type: ignore[misc]
-
 
 # ── TopologyManifest contract tests (W-02) ────────────────────────────────────
 
@@ -3056,42 +2581,20 @@ class TestTopologyManifest:
         with pytest.raises(pytest.fail.Exception):  # type: ignore[attr-defined]
             assert_no_forbidden_fields(anchor, context="forbidden-class-anchor")
 
-    # ── legacy backward compatibility ────────────────────────────────────
+    # ── manifest serialization ───────────────────────────────────────────
 
-    def test_legacy_plan_without_manifest_serializes_identically(self) -> None:
-        """Adaptation plan with topology_manifest=None matches legacy output."""
-        ws = WorkflowSlice(
-            source_class_type="KSampler",
-            node_ids=("1", "2"),
-        )
-        # Build without the field (Python default)
-        pap_legacy = PrecedentAdaptationPlan(
-            selected_slice=ws,
-            structural_validation="pass",
-            semantic_validation="pass",
-        )
-        # Build with explicit topology_manifest=None
-        pap_explicit = PrecedentAdaptationPlan(
-            selected_slice=ws,
-            structural_validation="pass",
-            semantic_validation="pass",
-            topology_manifest=None,
-        )
-        assert pap_legacy.to_dict() == pap_explicit.to_dict()
-        # Verify topology_manifest key is NOT in output
-        assert "topology_manifest" not in pap_legacy.to_dict()
-
-    def test_plan_with_manifest_includes_it(self) -> None:
-        """When topology_manifest is set, it appears in serialized output."""
+    def test_manifest_serialization_is_stable_and_self_contained(self) -> None:
+        """TopologyManifest.to_dict() round-trips without the removed
+        PrecedentAdaptationPlan carrier (D02): the manifest is the atomic
+        serializable unit."""
         m = self._valid_manifest()
-        pap = PrecedentAdaptationPlan(
-            structural_validation="pass",
-            semantic_validation="pass",
-            topology_manifest=m,
-        )
-        d = pap.to_dict()
-        assert "topology_manifest" in d
-        assert d["topology_manifest"]["manifest_id"] == "m-001"
+        d = m.to_dict()
+        assert d["manifest_id"] == "m-001"
+        assert d["nodes"][0]["symbol"] == "n1"
+        assert d["internal_edges"][0]["from_symbol"] == "n1"
+        assert d["boundary_anchors"][0]["symbol"] == "n1"
+        assert d["validation"]["verdict"] == "pass"
+        assert d["evidence_hash"]
 
     def test_topology_manifest_is_frozen(self) -> None:
         """TopologyManifest is immutable."""
@@ -3551,239 +3054,6 @@ class TestReplyPromptWarningsAndEvidence:
         assert "Node7" not in content
 
 
-# ── PrecedentOption contract tests (T2) ──────────────────────────────────────
-
-
-_FORBIDDEN_PUBLIC_KEYS = frozenset({
-    "winner", "best", "selected", "score", "rank", "primary",
-    "preferred", "chosen", "pick", "choice", "top", "recommended",
-})
-
-
-def _assert_no_forbidden_keys(payload: dict, label: str) -> None:
-    """Fail if any forbidden public-key name appears in the payload."""
-    found = _FORBIDDEN_PUBLIC_KEYS & set(payload)
-    assert not found, f"{label} contains forbidden keys: {sorted(found)}"
-
-
-class TestPrecedentOption:
-    """Contract tests for PrecedentOption serialization, forbidden-key
-    avoidance, and omitted empty optional fields."""
-
-    def test_defaults(self) -> None:
-        opt = PrecedentOption()
-        assert opt.source_class_type == ""
-        assert opt.source_workflow_path is None
-        assert opt.node_ids == ()
-        assert opt.node_types == ()
-        assert opt.description == ""
-        assert opt.notes == ()
-
-    def test_to_dict_defaults(self) -> None:
-        opt = PrecedentOption()
-        d = opt.to_dict()
-        assert d == {
-            "source_class_type": "",
-            "description": "",
-        }
-        # Optional fields omitted when empty/None
-        assert "source_workflow_path" not in d
-        assert "node_ids" not in d
-        assert "node_types" not in d
-        assert "notes" not in d
-        _assert_no_forbidden_keys(d, "PrecedentOption defaults")
-
-    def test_to_dict_with_all_fields(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="LTXAudioLipsync",
-            source_workflow_path="custom_nodes/ltxaudio/LTX_audio.py",
-            node_ids=("10", "11", "12"),
-            node_types=("AudioLoader", "VAEDecode", "PreviewImage"),
-            description="Audio lipsync pipeline for LTX video",
-            notes=("requires custom node pack", "tested with LTX 0.9.5"),
-        )
-        d = opt.to_dict()
-        assert d["source_class_type"] == "LTXAudioLipsync"
-        assert d["source_workflow_path"] == "custom_nodes/ltxaudio/LTX_audio.py"
-        assert d["node_ids"] == ["10", "11", "12"]
-        assert d["node_types"] == ["AudioLoader", "VAEDecode", "PreviewImage"]
-        assert d["description"] == "Audio lipsync pipeline for LTX video"
-        assert d["notes"] == ["requires custom node pack", "tested with LTX 0.9.5"]
-        _assert_no_forbidden_keys(d, "PrecedentOption all fields")
-
-    def test_to_dict_omits_empty_source_workflow_path(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="KSampler",
-            source_workflow_path=None,
-            description="A KSampler precedent",
-        )
-        d = opt.to_dict()
-        assert "source_workflow_path" not in d
-
-    def test_to_dict_omits_empty_node_ids(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="KSampler",
-            node_ids=(),
-            description="empty node_ids",
-        )
-        d = opt.to_dict()
-        assert "node_ids" not in d
-
-    def test_to_dict_omits_empty_node_types(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="KSampler",
-            node_types=(),
-            description="empty node_types",
-        )
-        d = opt.to_dict()
-        assert "node_types" not in d
-
-    def test_to_dict_omits_empty_notes(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="KSampler",
-            notes=(),
-            description="empty notes",
-        )
-        d = opt.to_dict()
-        assert "notes" not in d
-
-    def test_forbidden_keys_absent(self) -> None:
-        """Every forbidden public-key name is absent from serialized output."""
-        opt = PrecedentOption(
-            source_class_type="TestNode",
-            description="A test option with description",
-            notes=("note 1", "note 2"),
-            node_ids=("1", "2"),
-        )
-        d = opt.to_dict()
-        _assert_no_forbidden_keys(d, "PrecedentOption")
-        # Also check that description/notes don't accidentally contain
-        # forbidden key names as top-level keys.
-        forbidden_in_keys = _FORBIDDEN_PUBLIC_KEYS & set(d)
-        assert not forbidden_in_keys, (
-            f"PrecedentOption serialized payload has forbidden keys: "
-            f"{sorted(forbidden_in_keys)}"
-        )
-
-    def test_node_ids_coerced_to_tuple(self) -> None:
-        opt = PrecedentOption(node_ids=["a", "b", "c"])
-        assert isinstance(opt.node_ids, tuple)
-        assert opt.node_ids == ("a", "b", "c")
-
-    def test_node_types_coerced_to_tuple(self) -> None:
-        opt = PrecedentOption(node_types=["KSampler", "VAEDecode"])
-        assert isinstance(opt.node_types, tuple)
-        assert opt.node_types == ("KSampler", "VAEDecode")
-
-    def test_notes_coerced_to_tuple(self) -> None:
-        opt = PrecedentOption(notes=["note a", "note b"])
-        assert isinstance(opt.notes, tuple)
-        assert opt.notes == ("note a", "note b")
-
-    def test_immutable(self) -> None:
-        opt = PrecedentOption(source_class_type="Test")
-        with pytest.raises(Exception):
-            opt.source_class_type = "Other"  # type: ignore[misc]
-
-
-# ── PrecedentPacket contract tests (T2) ──────────────────────────────────────
-
-
-class TestPrecedentPacket:
-    """Contract tests for PrecedentPacket serialization, forbidden-key
-    avoidance, and omitted empty optional fields."""
-
-    def test_defaults(self) -> None:
-        pkt = PrecedentPacket()
-        assert pkt.options == ()
-        assert pkt.context_note == ""
-        assert pkt.warnings == ()
-
-    def test_to_dict_defaults(self) -> None:
-        pkt = PrecedentPacket()
-        d = pkt.to_dict()
-        assert d == {"options": []}
-        assert "context_note" not in d
-        assert "warnings" not in d
-        _assert_no_forbidden_keys(d, "PrecedentPacket defaults")
-
-    def test_to_dict_with_all_fields(self) -> None:
-        opt1 = PrecedentOption(
-            source_class_type="LTXAudioLipsync",
-            node_ids=("10", "11"),
-            description="First option",
-        )
-        opt2 = PrecedentOption(
-            source_class_type="KSampler",
-            node_ids=("1",),
-            description="Second option",
-        )
-        pkt = PrecedentPacket(
-            options=(opt1, opt2),
-            context_note="Two workflows found for LTX audio adaptation",
-            warnings=(
-                {"type": "TimeoutError", "message": "hivemind timed out"},
-                {"type": "ValueError", "message": "empty search result"},
-            ),
-        )
-        d = pkt.to_dict()
-        assert len(d["options"]) == 2
-        assert d["options"][0]["source_class_type"] == "LTXAudioLipsync"
-        assert d["options"][1]["source_class_type"] == "KSampler"
-        assert d["context_note"] == "Two workflows found for LTX audio adaptation"
-        assert len(d["warnings"]) == 2
-        assert d["warnings"][0]["type"] == "TimeoutError"
-        _assert_no_forbidden_keys(d, "PrecedentPacket all fields")
-        # Each option must also have no forbidden keys.
-        for i, opt_dict in enumerate(d["options"]):
-            _assert_no_forbidden_keys(opt_dict, f"PrecedentPacket option {i}")
-
-    def test_to_dict_omits_empty_context_note(self) -> None:
-        pkt = PrecedentPacket(
-            options=(PrecedentOption(source_class_type="Test", description="desc"),),
-            context_note="",
-        )
-        d = pkt.to_dict()
-        assert "options" in d
-        assert "context_note" not in d
-
-    def test_to_dict_omits_empty_warnings(self) -> None:
-        pkt = PrecedentPacket(
-            options=(PrecedentOption(source_class_type="Test", description="desc"),),
-            warnings=(),
-        )
-        d = pkt.to_dict()
-        assert "warnings" not in d
-
-    def test_forbidden_keys_absent_in_packet_and_options(self) -> None:
-        opt = PrecedentOption(
-            source_class_type="TestNode",
-            description="Test option",
-            notes=("a note",),
-        )
-        pkt = PrecedentPacket(
-            options=(opt,),
-            context_note="test context",
-            warnings=({"level": "info", "text": "sample warning"},),
-        )
-        d = pkt.to_dict()
-        _assert_no_forbidden_keys(d, "PrecedentPacket")
-        for i, opt_dict in enumerate(d["options"]):
-            _assert_no_forbidden_keys(opt_dict, f"PrecedentPacket option[{i}]")
-
-    def test_options_coerced_to_tuple(self) -> None:
-        opt = PrecedentOption(source_class_type="Test")
-        pkt = PrecedentPacket(options=[opt])
-        assert isinstance(pkt.options, tuple)
-        assert len(pkt.options) == 1
-        assert pkt.options[0] is opt
-
-    def test_immutable(self) -> None:
-        pkt = PrecedentPacket(context_note="test")
-        with pytest.raises(Exception):
-            pkt.context_note = "modified"  # type: ignore[misc]
-
-
 # ── GraphFacts contract tests (T2) ───────────────────────────────────────────
 
 
@@ -3986,21 +3256,87 @@ class TestGraphFacts:
 # ── Executor export access tests (T2) ────────────────────────────────────────
 
 
+_FORBIDDEN_PUBLIC_KEYS = frozenset({
+    "winner", "best", "selected", "score", "rank", "primary",
+    "preferred", "chosen", "pick", "choice", "top", "recommended",
+})
+
+
+def _assert_no_forbidden_keys(payload: dict, label: str) -> None:
+    """Fail if any forbidden public-key name appears in the payload."""
+    found = _FORBIDDEN_PUBLIC_KEYS & set(payload)
+    assert not found, f"{label} contains forbidden keys: {sorted(found)}"
+
+
+class TestAdaptationPlanActionabilityHelpers:
+    """Live dict-based adaptation-plan actionability (agent-edit durable plans).
+
+    The legacy PrecedentAdaptationPlan dataclass was removed (D02); the
+    actionability helpers now operate on the serialized dict shape produced by
+    the durable agent-edit pipeline.
+    """
+
+    def test_empty_plan_is_explicitly_non_actionable(self) -> None:
+        d = {
+            "selected_slice": {"source_class_type": ""},
+            "structural_validation": "not_evaluated",
+            "semantic_validation": "not_evaluated",
+        }
+        assert adaptation_plan_actionability(d) == ("non_actionable", "no_concrete_adaptation_edits")
+        payload = adaptation_plan_actionability_payload(d)
+        assert payload["actionability"] == "non_actionable"
+        assert payload["non_actionable_reason"] == "no_concrete_adaptation_edits"
+        assert payload["allowed_followups"] == [
+            "apply_bound_current_graph_edit_if_schema_sufficient",
+            "build_execution_plan_with_required_nodes_and_rewires",
+            "typed_refusal_or_clarification_if_authoring_surface_missing",
+        ]
+        assert not any("search" in item or "retry" in item for item in payload["allowed_followups"])
+
+    def test_structural_fail_with_concrete_edit_ops_remains_actionable(self) -> None:
+        d = {
+            "structural_validation": "fail",
+            "semantic_validation": "not_evaluated",
+            "edit_ops": [{"op": "set_field", "target": "node_1.seed", "value": 42}],
+        }
+        assert adaptation_plan_actionability(d) == ("actionable", "")
+        payload = adaptation_plan_actionability_payload(d)
+        assert payload["actionability"] == "actionable"
+        assert "non_actionable_reason" not in payload
+
+    def test_structural_fail_without_edits_is_non_actionable(self) -> None:
+        d = {"structural_validation": "fail", "semantic_validation": "fail"}
+        assert adaptation_plan_actionability(d) == (
+            "non_actionable",
+            "structural_validation_failed_without_concrete_edits",
+        )
+
+    def test_helpers_accept_duck_typed_objects(self) -> None:
+        """The helpers also accept attribute-style (non-dict) plan carriers."""
+        class _Plan:
+            structural_validation = "pass"
+            semantic_validation = "advisory"
+            edit_ops = ({"op": "add_node"},)
+        assert adaptation_plan_actionability(_Plan()) == ("actionable", "")
+
+
 class TestExecutorExportAccess:
-    """Verify PrecedentOption, PrecedentPacket, and GraphFacts are
-    importable from vibecomfy.executor via lazy exports."""
-
-    def test_precedent_option_importable(self) -> None:
-        from vibecomfy.executor import PrecedentOption as PO
-        assert PO is PrecedentOption
-
-    def test_precedent_packet_importable(self) -> None:
-        from vibecomfy.executor import PrecedentPacket as PP
-        assert PP is PrecedentPacket
+    """Verify live executor contracts are importable from vibecomfy.executor
+    via lazy exports, and that removed legacy names raise AttributeError."""
 
     def test_graph_facts_importable(self) -> None:
         from vibecomfy.executor import GraphFacts as GF
         assert GF is GraphFacts
+
+    def test_legacy_research_result_export_removed(self) -> None:
+        from vibecomfy import executor as executor_pkg
+        with pytest.raises(AttributeError):
+            executor_pkg.ResearchResult
+
+    def test_legacy_precedent_packet_export_removed(self) -> None:
+        from vibecomfy import executor as executor_pkg
+        with pytest.raises(AttributeError):
+            executor_pkg.PrecedentPacket
 
 
 # ── Truthful classification failure (G0/B01) ─────────────────────────────────

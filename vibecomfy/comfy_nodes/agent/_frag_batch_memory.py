@@ -185,107 +185,21 @@ def _format_query_output(text: str, *, max_chars: int | None = 4000) -> str:
 def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
     """Carry compact prior research/query evidence across batch turns.
 
-    Packet-aware: when a statement detail includes ``precedent_packet``, a
-    compact summary is built from structured option fields (source title,
-    source tier, one-line pattern summary, caveat count) instead of
-    reserializing the full packet or dumping ``query_output`` verbatim.
-    Statements without a packet fall back to the marker-matched
-    ``query_output`` path for non-research turns (e.g. ``search()``).
-
-    I01: Wave-A agent tool statements (``detail["tool_call"]``) are carried as
-    compact F01 ledger entries + evidence IDs ONLY — their raw result bodies
-    never enter prompt memory.
+    D03/I01: cross-turn memory is LEDGER-ONLY.  Wave-A agent tool statements
+    (``detail["tool_call"]``) are carried as compact F01 ledger entries +
+    evidence IDs ONLY (via :func:`_tool_evidence_ledger_records`); raw tool
+    result bodies, ``query_output`` text, precedent packets, research briefs,
+    and workflow schema dumps NEVER enter prompt memory.  Full evidence stays
+    in the evidence-pack artifact behind the resolvable IDs.
     """
-    records: list[str] = []
     tool_records: list[str] = _tool_evidence_ledger_records(state)
-    for turn in getattr(state, "batch_turns", ()) or ():
-        if not isinstance(turn, Mapping):
-            continue
-        statements = turn.get("statements")
-        if not isinstance(statements, list):
-            continue
-        turn_number = turn.get("turn_number")
-        for statement in statements:
-            if not isinstance(statement, Mapping):
-                continue
-            detail = statement.get("detail")
-            if not isinstance(detail, Mapping):
-                continue
-            # I01: agent tool statements are carried by the tool-evidence
-            # ledger path only (compact ledger entries + evidence IDs); they
-            # never ride the legacy query_output memory path.
-            if detail.get("tool_call"):
-                continue
-
-            # ── packet-aware compact path ────────────────────────────
-            precedent_packet = detail.get("precedent_packet")
-            if isinstance(precedent_packet, Mapping):
-                packet_record = _summarize_precedent_packet(
-                    precedent_packet, turn_number
-                )
-                if packet_record:
-                    records.append(packet_record)
-                continue
-
-            # ── legacy marker-matched query_output path ──────────────
-            query_output = str(detail.get("query_output") or "").strip()
-            # B03: any research() statement carries its query into memory —
-            # including message-kind results and community paragraphs.  This is
-            # prompt memory so the agent can judge relevance and iterate; it is
-            # not a latch and never a stop decision.
-            relevant = bool(detail.get("research_query")) or (
-                bool(query_output)
-                and any(
-                    marker in query_output
-                    for marker in (
-                        "Concrete workflow pattern found",
-                        "github_workflow_json",
-                        "source_workflow_path",
-                        "No node signature found",
-                        "Registry check",
-                        "hivemind_message",
-                        "hivemind_distillation",
-                        "community_summary",
-                        "No community discussion found",
-                    )
-                )
-            ) or bool(detail.get("resolver_candidates"))
-            if not relevant:
-                continue
-            query = str(detail.get("research_query") or detail.get("query") or "").strip()
-            sources = detail.get("requested_research_sources") or detail.get("research_sources")
-            source_text = f" sources={tuple(sources)!r}" if isinstance(sources, (list, tuple)) else ""
-            header = f"turn {turn_number}: {query or statement.get('source') or 'query'}{source_text}"
-            records.append(f"- {header}\n{_format_query_output(query_output, max_chars=1000)}")
-    # B03: echo classify search_directions once at the top of the memory block so
-    # later turns still see candidate terms (the Research brief itself is
-    # turn-0 only).  Prompt-visible, never executed — the model may ignore them
-    # or invent better ones.  The header only rides on actual prior-turn
-    # records; with no records there is no memory block (the brief already
-    # showed the directions on turn 0).
-    if not records and not tool_records:
+    if not tool_records:
         return ""
-    brief = getattr(state, "executor_research_brief", None)
-    directions = (
-        brief.get("search_directions") if isinstance(brief, Mapping) else None
+    return (
+        "Tool evidence ledger (compact; entries + evidence IDs only, "
+        "resolve IDs with hivemind_get(...), never repeat raw bodies):\n"
+        + "\n".join(tool_records[-max_items:])
     )
-    header = ""
-    if isinstance(directions, (list, tuple)) and directions:
-        shown = ", ".join(str(d) for d in directions[:5] if str(d).strip())
-        if shown:
-            header = (
-                "Candidate search terms (optional; you may use these or invent "
-                f"better ones): {shown}\n\n"
-            )
-    body = "\n\n".join(records[-max_items:])
-    if tool_records:
-        tool_block = (
-            "Tool evidence ledger (compact; entries + evidence IDs only, "
-            "resolve IDs with hivemind_get(...), never repeat raw bodies):\n"
-            + "\n".join(tool_records[-max_items:])
-        )
-        body = (body + "\n\n" if body else "") + tool_block
-    return (header + body).strip()
 
 
 def _tool_evidence_ledger_records(state: Any) -> list[str]:
@@ -331,66 +245,6 @@ def _tool_evidence_ledger_records(state: Any) -> list[str]:
                 f"{conclusion} — evidence: {evidence_text}"
             )
     return records
-
-
-def _summarize_precedent_packet(
-    packet: Mapping[str, Any], turn_number: Any
-) -> str | None:
-    """Build a compact one-line-per-option summary from a precedent packet dict.
-
-    Carries only source title, source tier, one-line pattern summary, and
-    caveat count.  Does **not** reserialize the full packet and omits every
-    forbidden public-key name (winner, best, selected, score, rank, primary,
-    preferred, chosen, pick, choice, top, recommended).
-    """
-    options = packet.get("options")
-    if not isinstance(options, (list, tuple)) or not options:
-        return None
-
-    packet_warnings = packet.get("warnings")
-    packet_caveats = (
-        len(packet_warnings) if isinstance(packet_warnings, (list, tuple)) else 0
-    )
-
-    lines: list[str] = [
-        f"turn {turn_number}: research evidence "
-        f"({len(options)} precedent option(s)):"
-    ]
-    for opt in options:
-        if not isinstance(opt, Mapping):
-            continue
-
-        title = str(opt.get("source_class_type") or "(unknown)")
-
-        # ── one-line pattern summary ─────────────────────────────────
-        description = str(opt.get("description", "")).strip()
-        if description:
-            summary_line = description.split("\n")[0].strip()
-            if len(summary_line) > 120:
-                summary_line = summary_line[:117] + "..."
-        else:
-            summary_line = "(no description)"
-
-        # ── source tier from notes ───────────────────────────────────
-        notes = opt.get("notes")
-        tier = ""
-        option_caveats = 0
-        if isinstance(notes, (list, tuple)):
-            for note in notes:
-                if not isinstance(note, str):
-                    continue
-                if note.startswith("source: "):
-                    tier = note[len("source: "):]
-                elif note.strip():
-                    option_caveats += 1
-
-        caveats = packet_caveats + option_caveats
-        caveat_str = f" [{caveats} caveat(s)]" if caveats else ""
-        tier_str = f" tier={tier}" if tier else ""
-
-        lines.append(f"  - {title}{tier_str}: {summary_line}{caveat_str}")
-
-    return "\n".join(lines)
 
 
 def _premature_missing_custom_node_clarify_feedback(
@@ -479,9 +333,8 @@ def _workflow_schema_classes_from_context(state: Any) -> list[str]:
                 if text and text not in classes:
                     classes.append(text)
 
-    for source in getattr(state, "executor_research_sources", ()) or ():
-        collect_from_source(source)
-
+    # D03: executor_research_sources removed; workflow schema classes come
+    # from execution_protocol_notes.research_sources only.
     notes = getattr(state, "execution_protocol_notes", None)
     if isinstance(notes, Mapping):
         for source in notes.get("research_sources") or ():
@@ -780,6 +633,6 @@ __all__ = (
      "_normalize_test_client_response",
      "_premature_missing_custom_node_clarify_feedback", "_present_class_types",
      "_render_batch_diff", "_resolver_candidate_is_authoring_capability",
-     "_selected_precedent_unknown_class_feedback", "_summarize_precedent_packet",
+     "_selected_precedent_unknown_class_feedback",
      "_workflow_schema_classes_from_context", "node_settings_for",
 )

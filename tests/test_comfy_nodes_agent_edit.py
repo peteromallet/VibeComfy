@@ -1407,17 +1407,19 @@ def test_run_batch_repl_product_path_routes_adapt_apply_false_domain_mismatch_to
         messages_path=tmp_path / "messages.jsonl",
         route="adapt",
     )
-    state.executor_adaptation_plan = {
-        "selected_slice": {
-            "source_class_type": "video/wanvideo_wrapper_wan_animate",
-            "node_types": [
-                "WanVideoModelLoader",
-                "WanVideoSampler",
-                "WanVideoDecode",
-                "WanVideoVAELoader",
-                "WanVideoTextEncodeCached",
-                "LoadImage",
-            ],
+    state.execution_protocol_notes = {
+        "adaptation_plan": {
+            "selected_slice": {
+                "source_class_type": "video/wanvideo_wrapper_wan_animate",
+                "node_types": [
+                    "WanVideoModelLoader",
+                    "WanVideoSampler",
+                    "WanVideoDecode",
+                    "WanVideoVAELoader",
+                    "WanVideoTextEncodeCached",
+                    "LoadImage",
+                ],
+            }
         }
     }
     context = TurnContext(session_id="runner-session", turn_id="runner-turn")
@@ -1482,17 +1484,19 @@ def test_run_batch_repl_product_path_keeps_adapt_apply_true_on_agent_batch(
         messages_path=tmp_path / "messages.jsonl",
         route="adapt",
     )
-    state.executor_adaptation_plan = {
-        "selected_slice": {
-            "source_class_type": "video/wanvideo_wrapper_wan_animate",
-            "node_types": [
-                "WanVideoModelLoader",
-                "WanVideoSampler",
-                "WanVideoDecode",
-                "WanVideoVAELoader",
-                "WanVideoTextEncodeCached",
-                "LoadImage",
-            ],
+    state.execution_protocol_notes = {
+        "adaptation_plan": {
+            "selected_slice": {
+                "source_class_type": "video/wanvideo_wrapper_wan_animate",
+                "node_types": [
+                    "WanVideoModelLoader",
+                    "WanVideoSampler",
+                    "WanVideoDecode",
+                    "WanVideoVAELoader",
+                    "WanVideoTextEncodeCached",
+                    "LoadImage",
+                ],
+            }
         }
     }
     context = TurnContext(session_id="runner-session", turn_id="runner-turn")
@@ -3518,7 +3522,10 @@ def test_batch_repl_web_workflow_json_prompts_exact_schema_followup(
     assert "broad custom-node queries such as only the model name" in query_output
 
 
-def test_batch_repl_research_memory_keeps_workflow_evidence_across_turns() -> None:
+def test_batch_repl_research_memory_is_ledger_only() -> None:
+    """D03/I01: cross-turn memory carries ONLY compact tool-evidence ledger
+    entries + resolvable evidence IDs. Raw result bodies, query_output text,
+    precedent packets, and research briefs never enter prompt memory."""
     from types import SimpleNamespace
 
     from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
@@ -3529,32 +3536,19 @@ def test_batch_repl_research_memory_keeps_workflow_evidence_across_turns() -> No
                 "turn_number": 1,
                 "statements": [
                     {
-                        "source": 'research("Hotshot XL ComfyUI workflow", sources=["web"])',
+                        "source": 'hivemind_search("Hotshot XL ComfyUI workflow")',
                         "detail": {
-                            "query": "research",
-                            "research_query": "Hotshot XL ComfyUI workflow",
-                            "requested_research_sources": ("web",),
+                            "tool_call": "hivemind_search",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "hivemind_search query='Hotshot XL ComfyUI workflow'",
+                                "conclusion": "2 hit(s): workflow | guide",
+                                "evidence_ids": ["hivemind:external_resources:1", "hivemind:external_resources:2"],
+                                "uncertainty": "",
+                            },
                             "query_output": (
-                                "Sources:\n"
-                                "- workflow.json (github_workflow_json; source_workflow_path=/tmp/hotshot.json)\n"
-                                "Concrete workflow pattern found: node types found: "
-                                "ADE_AnimateDiffUniformContextOptions, VHS_LoadImagesPath."
-                            ),
-                        },
-                    }
-                ],
-            },
-            {
-                "turn_number": 2,
-                "statements": [
-                    {
-                        "source": 'search(focus_types=["ADE_AnimateDiffUniformContextOptions"])',
-                        "detail": {
-                            "query": "search",
-                            "query_output": (
-                                "No node signature found for exact class type(s): "
-                                "'ADE_AnimateDiffUniformContextOptions'. "
-                                "Use workflow precedent as pattern evidence."
+                                "RAW BODY SENTINEL\n"
+                                "github_workflow_json evidence collected."
                             ),
                         },
                     }
@@ -3565,17 +3559,17 @@ def test_batch_repl_research_memory_keeps_workflow_evidence_across_turns() -> No
 
     memory = _batch_research_memory_summary(state)
 
-    assert "github_workflow_json" in memory
-    assert "ADE_AnimateDiffUniformContextOptions" in memory
-    assert "VHS_LoadImagesPath" in memory
-    assert "No node signature found" in memory
-    assert "Use workflow precedent as pattern evidence" in memory
+    assert "Tool evidence ledger" in memory
+    assert "hivemind:external_resources:1" in memory
+    assert "hivemind:external_resources:2" in memory
+    assert "RAW BODY SENTINEL" not in memory
+    assert "github_workflow_json" not in memory
+    assert "Concrete workflow pattern" not in memory
 
 
-def test_batch_repl_research_memory_persists_message_kind_results() -> None:
-    """B03: a research() statement with message-kind results survives into
-    next-turn memory even without workflow markers — research_query alone is
-    relevant, and the community paragraph is carried verbatim."""
+def test_batch_repl_research_memory_non_tool_statements_carry_nothing() -> None:
+    """D03: legacy research()/search() statements (no tool_call) carry NO
+    memory — no query_output, no community paragraphs, no packets, no briefs."""
     from types import SimpleNamespace
 
     from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
@@ -3596,12 +3590,22 @@ def test_batch_repl_research_memory_persists_message_kind_results() -> None:
                             ),
                             "query_output": (
                                 "alice in #minimax_h3_chatter: loving the new model\n"
-                                "Sources:\n"
-                                "- MiniMax H3 is amazing (alice; minimax_h3_chatter; message)\n"
-                                "source kind: hivemind_message\n"
-                                "If the community evidence is thin or off-topic, search again "
-                                "with different terms (model name + version, or a "
-                                "complaint/praise phrase)."
+                                "source kind: hivemind_message"
+                            ),
+                        },
+                    }
+                ],
+            },
+            {
+                "turn_number": 2,
+                "statements": [
+                    {
+                        "source": 'search(focus_types=["ADE_AnimateDiffUniformContextOptions"])',
+                        "detail": {
+                            "query": "search",
+                            "query_output": (
+                                "No node signature found for exact class type(s): "
+                                "'ADE_AnimateDiffUniformContextOptions'."
                             ),
                         },
                     }
@@ -3610,18 +3614,12 @@ def test_batch_repl_research_memory_persists_message_kind_results() -> None:
         ]
     )
 
-    memory = _batch_research_memory_summary(state)
-
-    assert "MiniMax H3" in memory
-    assert "hivemind_message" in memory
-    assert "alice" in memory
-    assert "minimax_h3_chatter" in memory
-    assert "No community discussion found" not in memory
+    assert _batch_research_memory_summary(state) == ""
 
 
-def test_batch_repl_research_memory_persists_empty_community_sentence() -> None:
-    """B03: the empty-set community sentence alone marks a research turn
-    relevant for memory."""
+def test_batch_repl_research_memory_empty_community_sentence_carries_nothing() -> None:
+    """D03: the empty-set community sentence alone no longer marks a research
+    turn for memory — only tool-evidence ledger entries cross turns."""
     from types import SimpleNamespace
 
     from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
@@ -3646,94 +3644,47 @@ def test_batch_repl_research_memory_persists_empty_community_sentence() -> None:
         ]
     )
 
-    memory = _batch_research_memory_summary(state)
-
-    assert "LTX 2.5" in memory
-    assert "No community discussion found" in memory
+    assert _batch_research_memory_summary(state) == ""
 
 
-def test_batch_repl_research_memory_echoes_search_directions_as_candidates() -> None:
-    """B03: classify search_directions are echoed once as optional candidate
-    terms — prompt-visible, never executed."""
+def test_batch_repl_research_memory_search_directions_not_echoed() -> None:
+    """D03: the research brief (search_directions) is never echoed into
+    cross-turn memory."""
     from types import SimpleNamespace
 
     from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
 
     state = SimpleNamespace(
-        executor_research_brief={
-            "search_directions": [
-                "MiniMax H3 model community reception",
-                "MiniMax H3 complaints",
-                "MiniMax H3 vs Hunyuan",
-            ],
-            "source_preferences": ["messages", "web"],
-        },
         batch_turns=[
             {
                 "turn_number": 1,
                 "statements": [
                     {
-                        "source": 'research("MiniMax H3")',
+                        "source": 'hivemind_search("MiniMax H3")',
                         "detail": {
-                            "query": "research",
-                            "research_query": "MiniMax H3",
-                            "requested_research_sources": ("messages", "web"),
-                            "community_summary": "alice in #minimax_h3_chatter: loving it",
-                            "query_output": "alice in #minimax_h3_chatter: loving it",
+                            "tool_call": "hivemind_search",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "hivemind_search query='MiniMax H3'",
+                                "conclusion": "community reception",
+                                "evidence_ids": ["hivemind:external_resources:1"],
+                                "uncertainty": "",
+                            },
                         },
                     }
                 ],
             },
-        ],
+        ]
     )
 
     memory = _batch_research_memory_summary(state)
-
-    assert "Candidate search terms (optional; you may use these or invent better ones)" in memory
-    assert "MiniMax H3 model community reception" in memory
-    assert "MiniMax H3 complaints" in memory
-    assert "MiniMax H3 vs Hunyuan" in memory
+    assert "Candidate search terms" not in memory
+    assert "direction" not in memory
+    assert "Tool evidence ledger" in memory
 
 
-def test_batch_repl_research_memory_caps_directions_at_five() -> None:
-    """B03: at most five search_directions are echoed into the memory header."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    state = SimpleNamespace(
-        executor_research_brief={
-            "search_directions": [f"direction {i}" for i in range(8)],
-        },
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("q")',
-                        "detail": {
-                            "query": "research",
-                            "research_query": "q",
-                            "requested_research_sources": ("messages", "web"),
-                            "community_summary": "x",
-                            "query_output": "x",
-                        },
-                    }
-                ],
-            },
-        ],
-    )
-
-    memory = _batch_research_memory_summary(state)
-
-    assert "direction 0" in memory
-    assert "direction 4" in memory
-    assert "direction 5" not in memory
-    assert "direction 7" not in memory
-
-
-# ── T16: cross-turn memory compactness, no full-packet reserialization,
-#        forbidden-key absence ──────────────────────────────────────────
+# ── T16/D03: cross-turn memory compactness — ledger-only, no raw bodies,
+#        no full-packet reserialization, forbidden-key absence ──────────
 
 _FORBIDDEN_MEMORY_KEYS: frozenset[str] = frozenset({
     "winner", "best", "selected", "score", "rank", "primary",
@@ -3749,9 +3700,9 @@ def _assert_no_forbidden_keys_in_text(text: str, label: str) -> None:
         assert f'"{key}"' not in lowered, f'{label}: forbidden key "{key}" in output'
 
 
-def test_batch_repl_memory_packet_aware_compact_summary() -> None:
-    """Turn >0 with precedent_packet: compact one-line-per-option summary,
-    not full packet reserialization and not verbatim query_output dump."""
+def test_batch_repl_memory_ledger_only_forbidden_keys_absent() -> None:
+    """Ledger-only memory never carries full packet fields or forbidden
+    public-key labels; only the ledger entry (decision/conclusion/IDs)."""
     from types import SimpleNamespace
 
     from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
@@ -3761,489 +3712,32 @@ def test_batch_repl_memory_packet_aware_compact_summary() -> None:
         "options": [
             {
                 "source_class_type": "LTXVideoToVideo",
-                "description": "LTX 0.9.5 video-to-video workflow with IPAdapter face",
+                "description": "LTX 0.9.5 video-to-video workflow",
                 "source_workflow_path": "/tmp/ltx_v2v.json",
                 "node_ids": ["1", "2", "3", "4", "5"],
-                "node_types": ["LTXVideoToVideo", "IPAdapterFace", "LoadImage", "SaveVideo"],
-                "notes": ["source: github_workflow_json", "Caveat: requires LTX 0.9.5+", "Uses experimental IPAdapterFace"],
-            },
-            {
-                "source_class_type": "HotshotXLPipeline",
-                "description": "Hotshot XL vid2vid pipeline with ControlNet depth",
-                "source_workflow_path": "/tmp/hotshot.json",
-                "node_ids": ["10", "11"],
-                "node_types": ["HotshotXLPipeline", "ControlNetDepth"],
-                "notes": ["source: hivemind_workflow", "Caveat: 24GB+ VRAM"],
-            },
-        ],
-        "warnings": ["Some nodes may require custom packs"],
-    }
-
-    state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("video to video workflow", sources=["web"])',
-                        "detail": {
-                            "query": "research",
-                            "research_query": "video to video workflow",
-                            "requested_research_sources": ("web",),
-                            "precedent_packet": packet,
-                            "query_output": "FULL VERBATIM OUTPUT THAT SHOULD NOT APPEAR IN MEMORY " * 50,
-                        },
-                    }
-                ],
-            },
-            {
-                "turn_number": 2,
-                "statements": [],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-
-    # ── compact packet-aware output present ────────────────────────
-    assert "LTXVideoToVideo" in memory
-    assert "HotshotXLPipeline" in memory
-    assert "github_workflow_json" in memory   # source tier extracted from notes
-    assert "hivemind_workflow" in memory     # source tier extracted from notes
-    assert "IPAdapter face" in memory         # one-line pattern summary
-    assert "ControlNet depth" in memory       # one-line pattern summary
-    assert "caveat(s)" in memory.lower()      # caveat count present
-    assert "precedent option(s)" in memory    # packet-aware header
-
-    # ── full packet NOT reserialized ───────────────────────────────
-    assert "context_note" not in memory           # packet-level field not leaked
-    assert "FULL VERBATIM" not in memory          # query_output not dumped verbatim
-    assert '"node_ids"' not in memory             # full option fields omitted
-    assert '"node_types"' not in memory
-    assert "/tmp/ltx_v2v.json" not in memory      # raw source_workflow_path not leaked
-    assert "Evidence/context only" not in memory  # context_note text not leaked
-
-
-def test_batch_repl_memory_no_full_packet_reserialization() -> None:
-    """Memory output must never contain full packet fields
-    (context_note, node_ids, node_types, raw source_workflow_path, verbatim query_output)."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    packet: dict[str, Any] = {
-        "context_note": "Should not appear in memory.",
-        "options": [
-            {
-                "source_class_type": "BigNode",
-                "description": "A long description that should be first-line truncated. "
-                + ("extra detail " * 50),
-                "source_workflow_path": "/very/long/path/to/workflow.json",
-                "node_ids": [str(i) for i in range(100)],
-                "node_types": ["TypeA", "TypeB", "TypeC"],
-                "notes": ["source: web", "note1", "note2"],
-            },
-        ],
-        "warnings": ["warning1", "warning2", "warning3"],
-    }
-
-    state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("test", sources=["web"])',
-                        "detail": {
-                            "query": "research",
-                            "precedent_packet": packet,
-                            "query_output": "IRRELEVANT VERBATIM " * 100,
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-
-    # ── full packet fields absent ──────────────────────────────────
-    assert "context_note" not in memory
-    assert '"node_ids"' not in memory
-    assert '"node_types"' not in memory
-    assert "/very/long/path/to/workflow.json" not in memory
-    assert "IRRELEVANT VERBATIM" not in memory
-
-    # ── compact summary present ────────────────────────────────────
-    assert "BigNode" in memory
-    assert "precedent option(s)" in memory
-    assert "caveat(s)" in memory.lower()
-
-
-def test_batch_repl_memory_forbidden_keys_absent_packet_path() -> None:
-    """No score/winner/best/selected/chosen keys leak into memory
-    via the packet-aware summary path."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    packet: dict[str, Any] = {
-        "options": [
-            {
-                "source_class_type": "CleanNode",
-                "description": "A clean node without forbidden keys.",
-                "notes": ["source: curated"],
-            },
-            {
-                "source_class_type": "AnotherNode",
-                "description": "Another clean node.",
-                "notes": ["source: hivemind"],
-            },
-        ],
-        "warnings": [],
-    }
-
-    state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("test", sources=["curated"])',
-                        "detail": {
-                            "query": "research",
-                            "precedent_packet": packet,
-                            "query_output": "some output",
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-    _assert_no_forbidden_keys_in_text(memory, "packet-aware memory")
-
-
-def test_batch_repl_memory_forbidden_keys_absent_legacy_path() -> None:
-    """No score/winner/best/selected/chosen keys leak into memory
-    via the legacy marker-matched query_output path."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("test", sources=["web"])',
-                        "detail": {
-                            "query": "research",
-                            "research_query": "test",
-                            "query_output": (
-                                "Concrete workflow pattern found: SomeNode, AnotherNode.\n"
-                                "source_workflow_path=/tmp/test.json\n"
-                                "github_workflow_json evidence collected."
-                            ),
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-    _assert_no_forbidden_keys_in_text(memory, "legacy memory")
-
-
-def test_summarize_precedent_packet_compact_fields_only() -> None:
-    """_summarize_precedent_packet carries only source title, source tier,
-    one-line pattern summary, and caveat count — no full packet fields leak."""
-    from vibecomfy.comfy_nodes.agent.edit import _summarize_precedent_packet
-
-    packet: dict[str, Any] = {
-        "context_note": "Should not appear.",
-        "options": [
-            {
-                "source_class_type": "MyNode",
-                "description": "First line of description.\nSecond line that should NOT appear.",
-                "source_workflow_path": "/tmp/path.json",
-                "node_ids": ["1", "2", "3"],
-                "node_types": ["MyNode", "HelperNode"],
-                "notes": ["source: github", "caveat: needs GPU", "caveat: large model"],
+                "node_types": ["LTXVideoToVideo", "LoadImage", "SaveVideo"],
+                "notes": ["source: github_workflow_json", "Caveat: requires LTX 0.9.5+"],
             },
         ],
         "warnings": ["global warning 1"],
     }
 
-    result = _summarize_precedent_packet(packet, turn_number=2)
-
-    assert result is not None
-    # ── compact fields present ─────────────────────────────────────
-    assert "MyNode" in result                # source title
-    assert "github" in result                # source tier from notes
-    assert "First line of description" in result  # one-line pattern summary
-    assert "caveat(s)" in result             # caveat count
-
-    # ── full packet fields NOT leaked ──────────────────────────────
-    assert "context_note" not in result
-    assert "/tmp/path.json" not in result
-    assert '"node_ids"' not in result
-    assert '"node_types"' not in result
-    assert "HelperNode" not in result
-    assert "Second line" not in result
-    assert "global warning 1" not in result
-
-
-def test_summarize_precedent_packet_description_truncation() -> None:
-    """One-line pattern summary truncated at 120 chars with ellipsis."""
-    from vibecomfy.comfy_nodes.agent.edit import _summarize_precedent_packet
-
-    long_desc = "A" * 200
-    packet: dict[str, Any] = {
-        "options": [
-            {
-                "source_class_type": "TruncNode",
-                "description": long_desc,
-                "notes": [],
-            },
-        ],
-        "warnings": [],
-    }
-
-    result = _summarize_precedent_packet(packet, turn_number=3)
-
-    assert result is not None
-    # Truncated form present, full 200-char string absent
-    assert "A" * 117 + "..." in result
-    assert long_desc not in result
-
-
-def test_summarize_precedent_packet_forbidden_keys_in_output() -> None:
-    """_summarize_precedent_packet must never emit forbidden keys
-    (winner, best, selected, score, rank, primary, preferred, chosen,
-    pick, choice, top, recommended) in its output string."""
-    from vibecomfy.comfy_nodes.agent.edit import _summarize_precedent_packet
-
-    packet: dict[str, Any] = {
-        "options": [
-            {
-                "source_class_type": "Node1",
-                "description": "A normal description.",
-                "notes": ["source: curated", "note A"],
-            },
-            {
-                "source_class_type": "Node2",
-                "description": "Another normal description.",
-                "notes": [],
-            },
-        ],
-        "warnings": [],
-    }
-
-    result = _summarize_precedent_packet(packet, turn_number=1)
-    assert result is not None
-    _assert_no_forbidden_keys_in_text(result, "_summarize_precedent_packet")
-
-
-def test_batch_repl_memory_packet_absent_falls_back_to_marker_path() -> None:
-    """When precedent_packet is absent, the legacy marker-matched
-    query_output path is used (not the packet-aware header)."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
     state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("test", sources=["web"])',
-                        "detail": {
-                            "query": "research",
-                            "research_query": "test",
-                            "requested_research_sources": ("web",),
-                            "query_output": (
-                                "Concrete workflow pattern found: NodeX.\n"
-                                "github_workflow_json evidence.\n"
-                                "No node signature found for exact class type(s): 'NodeY'.\n"
-                                "Use workflow precedent as pattern evidence."
-                            ),
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-
-    # Legacy marker-matched path active
-    assert "NodeX" in memory
-    assert "NodeY" in memory
-    assert "github_workflow_json" in memory
-    assert "Use workflow precedent as pattern evidence" in memory
-
-    # Packet-aware header absent
-    assert "precedent option(s)" not in memory
-
-
-def test_batch_repl_memory_mixed_packet_and_marker_turns() -> None:
-    """Memory handles mixed turns: some with precedent_packet,
-    some with legacy marker-matched query_output."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    packet: dict[str, Any] = {
-        "options": [
-            {
-                "source_class_type": "PacketNode",
-                "description": "From packet-aware turn.",
-                "notes": ["source: curated"],
-            },
-        ],
-        "warnings": [],
-    }
-
-    state = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 1,
-                "statements": [
-                    {
-                        "source": 'research("packet turn", sources=["curated"])',
-                        "detail": {
-                            "query": "research",
-                            "precedent_packet": packet,
-                            "query_output": "SHOULD NOT APPEAR",
-                        },
-                    }
-                ],
-            },
-            {
-                "turn_number": 2,
-                "statements": [
-                    {
-                        "source": 'search(focus_types=["NodeX"])',
-                        "detail": {
-                            "query": "search",
-                            "query_output": "No node signature found for exact class type(s): 'NodeX'.",
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory = _batch_research_memory_summary(state)
-
-    # Packet-aware turn
-    assert "PacketNode" in memory
-    assert "precedent option(s)" in memory
-    assert "SHOULD NOT APPEAR" not in memory
-
-    # Legacy marker-matched turn
-    assert "NodeX" in memory
-    assert "No node signature found" in memory
-
-
-def test_batch_repl_memory_max_items_limit() -> None:
-    """max_items parameter limits the number of records in the summary."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    turns = []
-    for i in range(5):
-        turns.append({
-            "turn_number": i + 1,
-            "statements": [
-                {
-                    "source": f'research("turn {i+1}", sources=["web"])',
-                    "detail": {
-                        "query": "research",
-                        "research_query": f"turn {i+1}",
-                        "query_output": (
-                            f"Concrete workflow pattern found: Node{i}.\n"
-                            "github_workflow_json."
-                        ),
-                    },
-                }
-            ],
-        })
-
-    state = SimpleNamespace(batch_turns=turns)
-
-    memory_full = _batch_research_memory_summary(state, max_items=10)
-    memory_limited = _batch_research_memory_summary(state, max_items=2)
-
-    # Full memory has all 5 turns
-    for i in range(5):
-        assert f"Node{i}" in memory_full
-
-    # Limited memory only has last 2
-    assert "Node3" in memory_limited
-    assert "Node4" in memory_limited
-    assert "Node0" not in memory_limited
-    assert "Node1" not in memory_limited
-    assert "Node2" not in memory_limited
-
-
-def test_batch_repl_memory_turn_number_in_output() -> None:
-    """Memory output includes turn numbers for traceability
-    (both packet-aware and legacy paths)."""
-    from types import SimpleNamespace
-
-    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
-
-    # Legacy path
-    state_legacy = SimpleNamespace(
         batch_turns=[
             {
                 "turn_number": 3,
                 "statements": [
                     {
-                        "source": 'research("test", sources=["web"])',
+                        "source": 'hivemind_get("hivemind:external_resources:1")',
                         "detail": {
-                            "query": "research",
-                            "research_query": "test",
-                            "query_output": "Concrete workflow pattern found: NodeA.",
-                        },
-                    }
-                ],
-            },
-        ]
-    )
-
-    memory_legacy = _batch_research_memory_summary(state_legacy)
-    assert "turn 3" in memory_legacy
-    assert "NodeA" in memory_legacy
-
-    # Packet-aware path
-    packet: dict[str, Any] = {
-        "options": [
-            {
-                "source_class_type": "PacketNode",
-                "description": "From packet turn 5.",
-                "notes": ["source: curated"],
-            },
-        ],
-        "warnings": [],
-    }
-
-    state_packet = SimpleNamespace(
-        batch_turns=[
-            {
-                "turn_number": 5,
-                "statements": [
-                    {
-                        "source": 'research("pkt", sources=["curated"])',
-                        "detail": {
-                            "query": "research",
+                            "tool_call": "hivemind_get",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "hivemind_get evidence_id='hivemind:external_resources:1'",
+                                "conclusion": "LTX video-to-video precedent",
+                                "evidence_ids": ["hivemind:external_resources:1"],
+                                "uncertainty": "",
+                            },
                             "precedent_packet": packet,
                             "query_output": "VERBATIM NOT USED",
                         },
@@ -4253,9 +3747,114 @@ def test_batch_repl_memory_turn_number_in_output() -> None:
         ]
     )
 
-    memory_packet = _batch_research_memory_summary(state_packet)
-    assert "turn 5" in memory_packet
-    assert "PacketNode" in memory_packet
+    memory = _batch_research_memory_summary(state)
+    _assert_no_forbidden_keys_in_text(memory, "ledger-only memory")
+    assert "context_note" not in memory
+    assert "source_workflow_path" not in memory
+    assert "node_types" not in memory
+    assert "VERBATIM NOT USED" not in memory
+
+
+def test_batch_repl_memory_max_items_caps_ledger_entries() -> None:
+    """max_items limits the number of ledger records rendered."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    turns = []
+    for i in range(5):
+        turns.append(
+            {
+                "turn_number": i + 1,
+                "statements": [
+                    {
+                        "detail": {
+                            "tool_call": "hivemind_search",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": f"hivemind_search query='q{i}'",
+                                "conclusion": f"hit {i}",
+                                "evidence_ids": [f"hivemind:external_resources:{i}"],
+                                "uncertainty": "",
+                            },
+                        }
+                    }
+                ],
+            }
+        )
+    state = SimpleNamespace(batch_turns=turns)
+
+    memory_full = _batch_research_memory_summary(state, max_items=10)
+    for i in range(5):
+        assert f"hivemind:external_resources:{i}" in memory_full
+
+    memory_limited = _batch_research_memory_summary(state, max_items=2)
+    assert "hivemind:external_resources:4" in memory_limited
+    assert "hivemind:external_resources:0" not in memory_limited
+
+
+def test_batch_repl_memory_turn_number_in_output() -> None:
+    """Ledger-only memory output includes turn numbers for traceability."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "turn_number": 3,
+                "statements": [
+                    {
+                        "detail": {
+                            "tool_call": "hivemind_search",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "hivemind_search query='test'",
+                                "conclusion": "found evidence for the query",
+                                "evidence_ids": ["hivemind:external_resources:3"],
+                                "uncertainty": "",
+                            },
+                        }
+                    }
+                ],
+            },
+        ]
+    )
+
+    memory = _batch_research_memory_summary(state)
+    assert "turn 3" in memory
+    assert "hivemind:external_resources:3" in memory
+    assert "NodeA" not in memory
+
+
+def test_batch_repl_memory_refusal_without_ledger_entry_carries_nothing() -> None:
+    """Typed refusals (budget/deadline) have no ledger entry and are never
+    repeated as ledger records."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "turn_number": 1,
+                "statements": [
+                    {
+                        "detail": {
+                            "tool_call": "hivemind_search",
+                            "tool_status": "refused",
+                            "tool_code": "tool_search_budget_exhausted",
+                            "ledger_entry": None,
+                            "tool_budget": {"searches_remaining": 0},
+                            "query_output": "RAW BODY SENTINEL",
+                        }
+                    }
+                ],
+            },
+        ]
+    )
+
+    assert _batch_research_memory_summary(state) == ""
 
 
 def test_missing_custom_node_clarify_does_not_force_registry_after_schema_miss() -> None:
@@ -4419,7 +4018,6 @@ def test_workflow_schema_clarify_is_not_overridden_by_deterministic_feedback() -
                 }
             ],
         },
-        executor_research_sources=(),
     )
 
     assert state.execution_protocol_notes["research_sources"]
@@ -5486,10 +5084,6 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
                 "known_graph_context": "HotShotXL is not authorable from local schema.",
                 "research_goal": "Find canonical HotShotXL workflow precedent.",
             },
-            "executor_research_brief": {
-                "research_goal": "Find canonical HotShotXL workflow.",
-                "source_preferences": ["workflows", "messages"],
-            },
             "session_id": "hotshot-preloaded-context-clarify",
             "max_batches": 4,
             "max_consecutive_errors": 2,
@@ -5671,8 +5265,13 @@ def test_adapt_prompt_uses_execution_protocol_discardability_header(
         )
     )
     request_text = json.dumps(model_request)
-    assert "Use selected_precedent as the grounding workflow interpretation" in request_text
+    # D03: execution_protocol_notes (selected_precedent, research_sources,
+    # _discardability prose) are never injected into the model request.
+    assert "Use selected_precedent as the grounding workflow interpretation" not in request_text
     assert "This is contextual evidence, NOT authoritative guidance" not in request_text
+    assert "selected_precedent" not in request_text
+    assert "research_sources" not in request_text
+    assert "## Scoped Research Context" not in request_text
 
 
 def test_adapt_prompt_compacts_large_execution_protocol_notes(
@@ -5768,12 +5367,16 @@ def test_adapt_prompt_compacts_large_execution_protocol_notes(
     model_request = json.loads(model_request_path.read_text(encoding="utf-8"))
     request_text = json.dumps(model_request)
     assert model_request_path.stat().st_size < 80_000
-    assert "selected_precedent" in request_text
-    assert "ADE_AnimateDiffLoaderWithContext" in request_text
-    assert "workflow_schema_omitted" in request_text
+    # D03: execution_protocol_notes (selected_precedent / research_sources /
+    # workflow schemas) are NEVER injected into the model request; research
+    # context is ledger-only (entries + evidence IDs).
+    assert "selected_precedent" not in request_text
+    assert "ADE_AnimateDiffLoaderWithContext" not in request_text
+    assert "workflow_schema_omitted" not in request_text
     assert "field_19" not in request_text
     assert "ADE_HugeWorkflowNode_39" not in request_text
-    assert "research_sources_omitted" in request_text
+    assert "research_sources_omitted" not in request_text
+    assert "## Scoped Research Context" not in request_text
 
 
 def test_adapt_prompt_marks_unhydrated_workflow_schema_classes_observed_only(
@@ -5852,8 +5455,13 @@ def test_adapt_prompt_marks_unhydrated_workflow_schema_classes_observed_only(
         ).read_text(encoding="utf-8")
     )
     request_text = json.dumps(model_request)
-    assert "ADE_AnimateDiffLoaderWithContext" in request_text
-    assert "selected_precedent" in request_text
+    # D03: workflow schemas / selected_precedent are never injected into the
+    # model request as research context. The class NAME may legitimately appear
+    # in the authoring signature catalog (provisional authoring evidence), but
+    # the research/prompt-context markers must be absent.
+    assert "selected_precedent" not in request_text
+    assert "workflow_schema" not in request_text
+    assert "## Scoped Research Context" not in request_text
     assert "Workflow Authoring Status" not in request_text
     assert "Workflow-observed only, not addable yet" not in request_text
     assert "exact-class registry/schema research" not in request_text
@@ -5921,10 +5529,6 @@ def test_weak_registry_code_search_allows_install_blocker_clarify_without_author
                 "implement": True,
                 "research": True,
                 "research_goal": "Find canonical HotShotXL workflow wiring.",
-            },
-            "executor_research_brief": {
-                "research_goal": "Find canonical HotShotXL workflow wiring.",
-                "source_preferences": ["workflows", "messages"],
             },
             "session_id": "hotshot-weak-registry-clarify",
             "max_batches": 2,
@@ -6800,19 +6404,6 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
             "task": "is there a distilled/faster way to run?",
             "route": "research",
             "executor_route": "research",
-            "research_brief": {
-                "research_goal": "Find distilled or faster ways to run the current ComfyUI video workflow.",
-                "search_directions": [
-                    "distilled or lightning video/motion models compatible with AnimateDiff-style workflows",
-                    "AnimateDiff speed settings such as context length, sampler, steps, and frame count",
-                ],
-                "source_preferences": ["workflows", "messages", "web"],
-                "avoid": [
-                    "generic searches for the raw sentence",
-                    "stopword-only searches such as there way run",
-                ],
-                "known_graph_context": "The attached graph uses sampler/image-generation nodes.",
-            },
             "session_id": "research-route",
             "max_batches": 3,
         },
@@ -6847,12 +6438,15 @@ def test_handle_agent_edit_research_route_writes_agentic_messages_and_blocks_app
     assert "messages and web" in system_prompt
     assert "search again" in system_prompt
     assert "call `done()`" in system_prompt
-    assert "Research brief from triage (tentative retrieval hints; not findings)" in user_prompt
-    assert "Use these hints to seed focused research" in user_prompt
-    assert "prefer evidence that matches the user goal and current graph" in user_prompt
-    assert "distilled or lightning video/motion models" in user_prompt
-    assert "stopword-only searches such as there way run" in user_prompt
+    # D03: the research brief and full research summaries are NOT injected into
+    # the model request; research context is ledger-only (entries + evidence
+    # IDs), and full evidence stays in the evidence-pack artifact.
+    assert "Research brief from triage" not in user_prompt
+    assert "Use these hints to seed focused research" not in user_prompt
+    assert "distilled or lightning video/motion models" not in user_prompt
+    assert "stopword-only searches" not in user_prompt
     assert "Research evidence/context" not in user_prompt
+    assert "Structured research sources" not in user_prompt
 
     turn_dir = turn_dir_for(tmp_path, "research-route", result["turn_id"])
     messages_path = turn_dir / "messages.jsonl"
@@ -17688,8 +17282,8 @@ def test_build_precedent_adaptation_prompt_includes_semantic_validation() -> Non
 
 
 def test_build_batch_messages_no_precedent_text_when_empty() -> None:
-    """build_batch_messages does not include 'Precedent adaptation plan' when
-    precedent_adaptation_plan is empty string."""
+    """D03: build_batch_messages never renders a precedent adaptation plan
+    block — the parameter and its prompt block are removed."""
     from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
     messages = build_batch_messages(
@@ -17698,31 +17292,28 @@ def test_build_batch_messages_no_precedent_text_when_empty() -> None:
         python_source="x = LoadImage()",
         signature_catalog="LoadImage(image)",
         available_node_names="LoadImage, SaveImage",
-        precedent_adaptation_plan="",  # Empty — should NOT appear
     )
     user_content = messages[1]["content"]
     assert "Precedent adaptation plan" not in user_content
     assert "precedent" not in user_content.lower()
 
 
-def test_build_batch_messages_includes_precedent_text_when_provided() -> None:
-    """build_batch_messages includes 'Precedent adaptation plan' block when
-    precedent_adaptation_plan is non-empty."""
+def test_build_batch_messages_never_injects_precedent_text() -> None:
+    """D03: even when precedent/adaptation material exists in state, it is
+    NOT injected into the model request — research context is ledger-only."""
     from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
-    plan_text = "Selected slice: AudioWorkflow\nRequired new nodes: VAEDecode, SaveImage"
     messages = build_batch_messages(
         task="adapt audio workflow",
         turn_number=0,
         python_source="x = LoadAudio()",
         signature_catalog="LoadAudio(audio)",
         available_node_names="LoadAudio, VAEDecode, SaveImage",
-        precedent_adaptation_plan=plan_text,
     )
     user_content = messages[1]["content"]
-    assert "Precedent adaptation plan (structured):" in user_content
-    assert "AudioWorkflow" in user_content
-    assert "VAEDecode" in user_content
+    assert "Precedent adaptation plan (structured):" not in user_content
+    assert "AudioWorkflow" not in user_content
+    assert "Selected slice" not in user_content
 
 
 def test_build_batch_messages_no_precedent_text_in_later_turn_when_empty() -> None:
@@ -17736,9 +17327,9 @@ def test_build_batch_messages_no_precedent_text_in_later_turn_when_empty() -> No
         python_source="",
         diff="+x.seed = 42",
         report="Previous turn applied seed change.",
-        precedent_adaptation_plan="",  # Empty
     )
     user_content = messages[1]["content"]
+    # D03: precedent/adaptation blocks are removed from the prompt entirely.
     assert "Precedent adaptation plan" not in user_content
 
 
@@ -17753,16 +17344,14 @@ def test_build_batch_messages_direct_edit_scenario_no_precedent_leak() -> None:
         python_source="sampler = KSampler(seed=0)",
         signature_catalog="KSampler(seed, steps, cfg, sampler_name, scheduler, denoise)",
         available_node_names="LoadImage, KSampler, VAEDecode, SaveImage",
-        research_summary="",  # No research context
-        graph_report="",
-        precedent_adaptation_plan="",  # No precedent context
     )
-    # The system prompt may contain general guidance about precedents,
-    # but the structured precedent adaptation plan block must NOT be injected.
+    # D03: the structured precedent adaptation plan / research summary blocks
+    # are removed from the prompt surface entirely.
     user_content = messages[1]["content"]
     assert "Precedent adaptation plan (structured):" not in user_content
-    # Research context should also be absent when empty
+    # Research context should also be absent
     assert "Research findings (external + local corpus):" not in user_content
+    assert "Research evidence/context" not in user_content
 
 
 def test_compact_execution_protocol_notes_preserves_adaptation_actionability() -> None:
@@ -18238,52 +17827,49 @@ class TestBuildBatchMessagesResearchToolExposure:
         # judgment: search again vs done
         assert "thin or off-topic, search again" in system
         assert "call `done()`" in system
-        assert "search_directions are suggestions" in system
+        # D03: research-brief search_directions are no longer echoed to the model
+        assert "search_directions" not in system
         # no evidence card language
         assert "evidence card" not in system
         assert "strength=" not in system
 
-    def test_research_block_uses_evidence_context_label_turn0(self) -> None:
-        """Research block on turn 0 uses 'Research evidence/context' as the section
-        label rather than 'Research findings'."""
+    def test_research_block_never_injected(self) -> None:
+        """D03: the research evidence/context block is removed from the prompt
+        surface — research reaches the model only as ledger entries + evidence
+        IDs (the evidence_ledger block), never as full summaries."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
             task="add upscale",
             turn_number=0,
             python_source="x = LoadImage()",
-            research_summary="Found workflow precedent.",
         )
         user = messages[1]["content"]
-        assert "Research evidence/context (external + local corpus):" in user
-        # The section label must be evidence/context, not findings
+        assert "Research evidence/context (external + local corpus):" not in user
         assert "Research findings (external + local corpus):" not in user
 
-    def test_research_block_uses_evidence_context_label_later_turn(self) -> None:
-        """Research block on later turns uses 'Research evidence/context' as
-        the section label rather than 'Research findings'."""
+    def test_research_block_never_injected_later_turn(self) -> None:
+        """D03: no research evidence/context block on later turns either."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
             task="continue",
             turn_number=1,
             python_source="",
-            research_summary="Followup evidence.",
             diff="+x.seed = 42",
             report="Applied change.",
         )
         user = messages[1]["content"]
-        assert "Research evidence/context (external + local corpus):" in user
+        assert "Research evidence/context (external + local corpus):" not in user
         assert "Research findings (external + local corpus):" not in user
 
     def test_research_block_absent_when_empty(self) -> None:
-        """No research block is injected when research_summary is empty."""
+        """No research block exists on the prompt surface at all."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
             task="edit seed",
             python_source="x = KSampler(seed=0)",
-            research_summary="",
         )
         user = messages[1]["content"]
         assert "Research evidence/context" not in user
@@ -18342,50 +17928,37 @@ class TestBuildBatchMessagesResearchToolExposure:
         lower = system.lower()
         assert "no edit lands" in lower
 
-    def test_precedent_adaptation_block_framed_as_structured_not_recommendation(self) -> None:
-        """Precedent adaptation plan block is labeled as 'structured', not 'recommendation'."""
+    def test_precedent_adaptation_block_never_rendered(self) -> None:
+        """D03: the precedent adaptation plan block is removed from the prompt
+        surface entirely — no 'structured' block, no recommendation labels."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
-        plan_text = "Selected slice: AudioWorkflow\nRequired new nodes: VAEDecode, SaveImage"
         messages = build_batch_messages(
             task="adapt audio workflow",
             turn_number=0,
             python_source="x = LoadAudio()",
             signature_catalog="LoadAudio(audio)",
             available_node_names="LoadAudio, VAEDecode, SaveImage",
-            precedent_adaptation_plan=plan_text,
         )
         user = messages[1]["content"]
-        assert "Precedent adaptation plan (structured):" in user
-        # Should NOT be labeled as recommendation
+        assert "Precedent adaptation plan (structured):" not in user
         assert "recommendation" not in user.lower()
         assert "recommended" not in user.lower()
 
-    def test_no_forbidden_keys_in_precedent_adaptation_block(self) -> None:
-        """The precedent adaptation block content must not contain forbidden keys."""
+    def test_no_forbidden_keys_in_prompt_without_precedent_block(self) -> None:
+        """D03: without the precedent block, no forbidden ranking keys appear."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
-        # Construct a plan text with neutral language (no forbidden keys)
-        plan_text = (
-            "all_slices:\n"
-            "- source_class_type: HotshotXLLoader\n"
-            "- source_class_type: AnimateDiffLoader\n"
-            "context_note: This material is provided as presentation context only; "
-            "it is not an authoritative directive or required implementation.\n"
-        )
         messages = build_batch_messages(
             task="adapt workflow",
             python_source="x = LoadImage()",
-            precedent_adaptation_plan=plan_text,
         )
         user = messages[1]["content"]
         lower = user.lower()
-        # Only check for forbidden ranking/evaluation keys (not words that may
-        # appear negated in context_note like 'winner' or 'recommendation')
         for key in ("best", "selected", "score", "rank",
                      "primary", "preferred", "top pick"):
             assert key not in lower, (
-                f"Forbidden key '{key}' found in precedent adaptation block"
+                f"Forbidden key '{key}' found in prompt"
             )
 
 
@@ -18539,23 +18112,23 @@ def test_route_change_focus_label_unknown_route() -> None:
 
 
 def test_precedent_semantic_entries_empty_for_none_plan() -> None:
-    """Returns empty list when executor_adaptation_plan is None."""
+    """Returns empty list when no adaptation plan is present."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
-    state = _make_state(executor_adaptation_plan=None)
+    state = _make_state(execution_protocol_notes=None)
     assert _build_precedent_semantic_check_entries(state) == []
 
 
 def test_precedent_semantic_entries_empty_for_non_dict_plan() -> None:
-    """Returns empty list when executor_adaptation_plan is not a dict."""
+    """Returns empty list when the adaptation plan is not a dict."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
-    state = _make_state(executor_adaptation_plan="not_a_dict")
+    state = _make_state(execution_protocol_notes={"adaptation_plan": "not_a_dict"})
     assert _build_precedent_semantic_check_entries(state) == []
 
 
 def test_precedent_semantic_entries_empty_for_empty_dict_plan() -> None:
     """Returns empty list when plan is an empty dict."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
-    state = _make_state(executor_adaptation_plan={})
+    state = _make_state(execution_protocol_notes={'adaptation_plan': {}})
     assert _build_precedent_semantic_check_entries(state) == []
 
 
@@ -18563,7 +18136,7 @@ def test_precedent_semantic_entries_both_validation_pass() -> None:
     """Produces two entries when both structural and semantic validation pass."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "pass", "semantic_validation": "pass"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 2
     structural = [e for e in entries if e["check"] == "structural_validation"][0]
@@ -18580,7 +18153,7 @@ def test_precedent_semantic_entries_both_validation_fail() -> None:
     """Produces entries with fail status for both validations."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "fail", "semantic_validation": "fail"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 2
     structural = [e for e in entries if e["check"] == "structural_validation"][0]
@@ -18595,7 +18168,7 @@ def test_precedent_semantic_entries_advisory_status() -> None:
     """Advisory status maps to advisory satisfaction."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "advisory", "semantic_validation": "advisory"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 2
     for entry in entries:
@@ -18607,7 +18180,7 @@ def test_precedent_semantic_entries_not_evaluated_status() -> None:
     """not_evaluated status maps to not_evaluated satisfaction."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "not_evaluated", "semantic_validation": "not_evaluated"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 2
     for entry in entries:
@@ -18619,7 +18192,7 @@ def test_precedent_semantic_entries_only_structural_present() -> None:
     """When only structural_validation is present, produces one entry."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "pass"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 1
     assert entries[0]["check"] == "structural_validation"
@@ -18629,7 +18202,7 @@ def test_precedent_semantic_entries_only_semantic_present() -> None:
     """When only semantic_validation is present, produces one entry."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"semantic_validation": "advisory"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 1
     assert entries[0]["check"] == "semantic_validation"
@@ -18639,7 +18212,7 @@ def test_precedent_semantic_entries_skips_unknown_validation_values() -> None:
     """Validation fields with unknown values are silently skipped."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "unknown_value", "semantic_validation": "other"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert entries == []
 
@@ -18648,7 +18221,7 @@ def test_precedent_semantic_entries_mixed_known_unknown() -> None:
     """Known validation values produce entries; unknown values are skipped."""
     from vibecomfy.comfy_nodes.agent.edit import _build_precedent_semantic_check_entries
     plan = {"structural_validation": "pass", "semantic_validation": "bogus"}
-    state = _make_state(executor_adaptation_plan=plan)
+    state = _make_state(execution_protocol_notes={'adaptation_plan': plan})
     entries = _build_precedent_semantic_check_entries(state)
     assert len(entries) == 1
     assert entries[0]["check"] == "structural_validation"
@@ -18781,7 +18354,7 @@ def test_batch_repl_response_precedent_research_includes_semantic_checks() -> No
         ui_payload={"nodes": [{"id": 1}]},
         batch_exit_mode="done",
         batch_done_summary="adaptation applied",
-        executor_adaptation_plan=plan,
+        execution_protocol_notes={'adaptation_plan': plan},
     )
     context = TurnContext(session_id="t16-p1", turn_id="0001")
     response = _build_batch_repl_response(state, context)
@@ -18805,7 +18378,7 @@ def test_batch_repl_response_precedent_research_apply_not_blocked() -> None:
         ui_payload={"nodes": [{"id": 1}]},
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
-        executor_adaptation_plan=plan,
+        execution_protocol_notes={'adaptation_plan': plan},
     )
     context = TurnContext(session_id="t16-p2", turn_id="0001")
     response = _build_batch_repl_response(state, context)
@@ -18824,7 +18397,7 @@ def test_batch_repl_response_precedent_empty_plan_no_semantic_checks() -> None:
         ui_payload={"nodes": []},
         batch_exit_mode="done",
         batch_done_summary="no adaptation",
-        executor_adaptation_plan=None,
+        execution_protocol_notes=None,
     )
     context = TurnContext(session_id="t16-p3", turn_id="0001")
     response = _build_batch_repl_response(state, context)
@@ -18961,7 +18534,7 @@ def test_dev_success_response_precedent_research_includes_semantic_checks() -> N
     state = _make_state(
         route="precedent_research",
         ui_payload={"nodes": []},
-        executor_adaptation_plan=plan,
+        execution_protocol_notes={'adaptation_plan': plan},
     )
     context = TurnContext(session_id="t16-dp1", turn_id="0001")
     response = _build_dev_success_response(state, context, contract="full")
@@ -18980,7 +18553,7 @@ def test_dev_success_response_precedent_empty_plan_no_entries() -> None:
     state = _make_state(
         route="precedent_research",
         ui_payload={"nodes": []},
-        executor_adaptation_plan=None,
+        execution_protocol_notes=None,
     )
     context = TurnContext(session_id="t16-dp2", turn_id="0001")
     response = _build_dev_success_response(state, context, contract="full")
@@ -19544,7 +19117,7 @@ def test_batch_repl_response_precedent_research_applyable_with_valid_candidate()
         ui_payload={"nodes": [{"id": 4, "type": "KSampler"}], "links": []},
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
-        executor_adaptation_plan=plan,
+        execution_protocol_notes={'adaptation_plan': plan},
     )
     context = TurnContext(session_id="t18-pr1", turn_id="0001")
     response = _build_batch_repl_response(state, context)
@@ -20243,7 +19816,7 @@ def test_research_precedent_provisional_workflow_schema_does_not_shadow_real_sch
 
     state = _make_state(
         schema_provider=real_provider,
-        executor_research_sources=(source,),
+        execution_protocol_notes={"research_sources": [source]},
     )
     candidates = _hydrate_research_precedent_node_schemas(state)
 
@@ -20397,7 +19970,7 @@ def test_schema_precedence_research_workflow_hydration_real_first() -> None:
         "url": "https://example.test/b04-workflow.json",
         "workflow_schema": workflow_schema,
     }
-    state = _make_state(schema_provider=real, executor_research_sources=(source,))
+    state = _make_state(schema_provider=real, execution_protocol_notes={'research_sources': [source]})
     _hydrate_research_precedent_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="workflow_json_provisional")
 
@@ -20423,7 +19996,7 @@ def test_schema_precedence_research_registry_hydration_real_first(
         # class evidence only: drives the registry fallback, not :821's workflow path
         "workflow_schema_classes": [_GAP],
     }
-    state = _make_state(schema_provider=real, executor_research_sources=(source,))
+    state = _make_state(schema_provider=real, execution_protocol_notes={'research_sources': [source]})
     _hydrate_research_precedent_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
 
@@ -20602,7 +20175,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     }
     state = _make_state(
         schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
-        executor_research_sources=(workflow_source,),
+        execution_protocol_notes={'research_sources': [workflow_source]},
     )
     _hydrate_research_precedent_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="workflow_json_provisional")
@@ -20616,14 +20189,16 @@ def test_schema_precedence_across_all_seven_construction_sites(
     )
     state = _make_state(
         schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
-        executor_research_sources=(
-            {
-                "source": "external_workflow",
-                "pack": "workflow",
-                "url": "https://example.test/b04-seven-registry.json",
-                "workflow_schema_classes": [_GAP],
-            },
-        ),
+        execution_protocol_notes={
+            "research_sources": (
+                {
+                    "source": "external_workflow",
+                    "pack": "workflow",
+                    "url": "https://example.test/b04-seven-registry.json",
+                    "workflow_schema_classes": [_GAP],
+                },
+            )
+        },
     )
     _hydrate_research_precedent_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")

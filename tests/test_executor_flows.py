@@ -26,17 +26,12 @@ import pytest
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
-    PrecedentAdaptationPlan,
-    PrecedentOption,
-    PrecedentPacket,
-    ResearchResult,
-    SelectedPrecedent,
-    WorkflowSlice,
 )
 from vibecomfy.executor import core as executor_core
 from vibecomfy.executor.agent_research_stage import AgentResearchTrace
-from vibecomfy.executor.core import run_executor
+from vibecomfy.executor.core import AgentResearchResult, run_executor
 from vibecomfy.executor.evidence_pack import (
+    EvidenceArtifact,
     EvidenceLedger,
     EvidenceLedgerEntry,
     EvidencePack,
@@ -552,51 +547,6 @@ def _empty_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
     return {"results": []}
 
 
-def _fake_deterministic_research(
-    query: str,
-    *,
-    graph: dict[str, Any] | None = None,
-    target_node_type: str = "",
-    hivemind_client: Any = None,
-    sources: tuple[str, ...] | None = None,
-    **kwargs: Any,
-) -> ResearchResult:
-    """Fake the deterministic research phase for research-route tests.
-
-    Tests that need to observe the scoped query / forwarded ``sources`` wrap
-    this helper with a recording closure.
-    """
-    return ResearchResult(
-        summary=f"Deterministic research for: {query}",
-        sources=(
-            {
-                "source": "object_info",
-                "kind": "node",
-                "title": "KSampler",
-                "class_type": "KSampler",
-                "description": "K-Sampler node for ComfyUI",
-                "pack": "core",
-            },
-        ),
-        warnings=(),
-
-
-    )
-
-
-def _one_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
-    """Deterministic Hivemind client with one result, preventing web fallback."""
-    return {
-        "results": [
-            {
-                "title": "ComfyUI workflow research note",
-                "description": "Relevant workflow/node technique reference.",
-                "source": "test",
-            }
-        ]
-    }
-
-
 def _empty_web_search_client(query: str, timeout: float) -> dict[str, Any]:
     """Deterministic web search client that returns no results."""
     return {"results": []}
@@ -695,318 +645,6 @@ class TestRespondOnlyFlow:
 # ── Research-only flow tests ─────────────────────────────────────────────────
 
 
-class LegacyResearchOnlyFlow:
-    """Smoke tests for research-only classify output (PR-B).
-
-    Canonical route behavior resolves this shape to research: deterministic
-    executor research (local corpus + injectable external tiers) feeding the
-    semantic reply phase.  No agentic batch REPL, no edit gate, and no
-    applyable candidate.
-    """
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    def test_research_only_default_profile(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """Research-only output resolves to deterministic research and reply."""
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
-        request = ExecutorRequest(
-            query="What sampling nodes are available?", profile="default"
-        )
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert result.reply == (
-            "Based on my research, here are the relevant node types: "
-            "KSampler, VAEDecode, CLIPTextEncode."
-        )
-        mock_reply.assert_called_once()
-        assert result.report.plan.research is True
-        assert result.report.plan.implement is False
-        assert result.to_dict()["route"] == "research"
-        assert result.to_dict()["candidate"] is None
-        assert result.to_dict()["apply_eligible"] is False
-        # Deterministic research populated report.research directly (no
-        # agentic batch REPL, no durable implementation).
-        assert result.report.research is not None
-        assert result.report.implementation is None
-        # The research query is scoped from classifier search_directions and
-        # the classifier's source_preferences become the explicit tier tuple.
-        assert len(research_calls) == 1
-        _query, research_kwargs = research_calls[0]
-        assert "distilled or lightning video/motion models" in _query
-        assert research_kwargs["sources"] == ("workflows", "messages", "web")
-        assert research_kwargs["target_node_type"] == ""
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    def test_research_only_openai_profile(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """Research-only output uses deterministic research with openai profile."""
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
-        request = ExecutorRequest(query="What VAE nodes exist?", profile="openai")
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert result.reply is not None
-        assert result.report.plan.research is True
-        assert result.to_dict()["route"] == "research"
-        assert result.report.research is not None
-        assert len(research_calls) == 1
-        assert research_calls[0][1]["sources"] == ("workflows", "messages", "web")
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    def test_research_only_sources_in_result(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """Research-only output does not expose candidate or apply."""
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
-        request = ExecutorRequest(query="text encoding nodes", profile="default")
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        payload = result.to_dict()
-        assert payload["route"] == "research"
-        assert payload["candidate"] is None
-        assert payload["apply_eligible"] is False
-        assert result.report.research is not None
-        assert result.report.implementation is None
-        assert len(research_calls) == 1
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    def test_research_only_empty_corpus(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """Empty deterministic research degrades gracefully — reply still runs."""
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(
-                summary="No relevant results found.",
-                sources=(),
-                warnings=("empty corpus",),
-            )
-
-        request = ExecutorRequest(query="nonexistent node", profile="default")
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert result.reply is not None
-        assert result.to_dict()["route"] == "research"
-        # Non-fatal: research warnings are carried, the reply phase still runs.
-        assert result.report.research is not None
-        assert result.report.research.warnings == ("empty corpus",)
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_hotshot)
-    def test_research_hotshot_xl_query(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """A Hotshot XL research-only classifier output stays research-only."""
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
-        request = ExecutorRequest(
-            query="How do I add Hotshot XL to an SVD-XT workflow?",
-            profile="default",
-        )
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        # The reply comes from _run_reply (the reply model), never the
-        # narrator line — implementation never ran.
-        assert "Hotshot XL" in result.reply
-        mock_reply.assert_called_once()
-        assert result.report.plan.research is True
-        assert result.report.plan.implement is False
-        assert result.to_dict()["route"] == "research"
-        assert result.report.research is not None
-        assert len(research_calls) == 1
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    def test_research_result_populates_report_research(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """The deterministic research result populates report.research."""
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(
-                summary="workflow-only summary of LTX research",
-                community_summary=(
-                    "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
-                ),
-                sources=(
-                    {
-                        "source": "hivemind_message",
-                        "kind": "message",
-                        "author": "alice",
-                        "channel": "ltx_chatter",
-                        "title": "LTX 2.5 is great",
-                        "class_type": "LTX 2.5 is great",
-                        "description": "LTX 2.5 handles fast previews really well.",
-                        "hivemind_id": "9001",
-                        "url": "",
-                        "created_at": "2026-08-12T10:00:00Z",
-                        "score": 0,
-                        "pack": "banodoco-discord",
-                    },
-                ),
-                warnings=(),
-            )
-
-        request = ExecutorRequest(
-            query="What do people think about LTX 2.5?", profile="default"
-        )
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert result.report.research is not None
-        assert result.report.research.community_summary
-        assert "alice in #ltx_chatter" in result.report.research.community_summary
-        assert any(
-            src.get("source") == "hivemind_message"
-            and src.get("author") == "alice"
-            and src.get("channel") == "ltx_chatter"
-            for src in result.report.research.sources
-        )
-        report_dict = result.to_dict()["report"]["executor"]
-        assert report_dict["research"]["sources"]
-        assert any(
-            src.get("source") == "hivemind_message"
-            for src in report_dict["research"]["sources"]
-        )
-        assert result.to_dict()["route"] == "research"
-        assert result.to_dict()["candidate"] is None
-        assert result.to_dict()["apply_eligible"] is False
-        mock_reply.assert_called_once()
-        mock_edit.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_findings)
-    def test_research_route_never_runs_implement_and_reply_receives_findings(
-        self, mock_reply, mock_classify, profile_dir: Path
-    ) -> None:
-        """The research route never runs the edit gate; reply gets the findings."""
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(
-                summary="workflow-only summary of LTX research",
-                community_summary=(
-                    "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
-                ),
-                sources=(
-                    {
-                        "source": "hivemind_message",
-                        "kind": "message",
-                        "author": "alice",
-                        "channel": "ltx_chatter",
-                        "title": "LTX 2.5 is great",
-                        "class_type": "LTX 2.5 is great",
-                        "description": "LTX 2.5 handles fast previews really well.",
-                        "hivemind_id": "9001",
-                        "url": "",
-                        "created_at": "2026-08-12T10:00:00Z",
-                        "score": 0,
-                        "pack": "banodoco-discord",
-                    },
-                ),
-                warnings=(),
-            )
-
-        request = ExecutorRequest(
-            query="What do people think about LTX 2.5?", profile="default"
-        )
-        with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        # Community evidence lands directly on report.research.
-        assert result.report.research is not None
-        assert result.report.research.community_summary
-        assert "alice" in result.report.research.community_summary
-        assert any(
-            src.get("source") == "hivemind_message"
-            and src.get("author") == "alice"
-            and src.get("channel") == "ltx_chatter"
-            for src in result.report.research.sources
-        )
-        # _run_reply ran and received community_summary (preferred over
-        # summary) plus author/channel sources.
-        mock_reply.assert_called_once()
-        _, reply_kwargs = mock_reply.call_args
-        assert reply_kwargs["research_summary"] == (
-            "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
-        )
-        assert reply_kwargs["research_summary"] != result.report.research.summary
-        assert any(
-            src.get("source") == "hivemind_message"
-            and src.get("author") == "alice"
-            and src.get("channel") == "ltx_chatter"
-            for src in (reply_kwargs.get("research_sources") or ())
-        )
-        # The user-facing reply is the reply-model output, and no implement
-        # ever ran (no narrator line, no durable response).
-        assert result.reply == (
-            "Community notes: alice in #ltx_chatter says LTX 2.5 handles fast "
-            "previews really well."
-        )
-        assert result.report.implementation is None
-        assert result.to_dict()["route"] == "research"
-        assert result.to_dict()["candidate"] is None
-        assert result.to_dict()["apply_eligible"] is False
-        mock_edit.assert_not_called()
-
-
 class TestAgentOwnedResearchFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", return_value="Agent memo reply.")
@@ -1069,12 +707,6 @@ class TestAnswerOnlyInteraction:
     """
 
     def _run(self, request: ExecutorRequest, *, classify: Any) -> ExecutorResult:
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
         def fake_reply(
             query: str,
             *,
@@ -1089,13 +721,14 @@ class TestAnswerOnlyInteraction:
 
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify),
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.run_research_phase") as legacy_research,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
         ):
             result = run_executor(request)
             edit_called = mock_edit.called
-        return result, research_calls, captured_reply, edit_called
+            legacy_prefetch_called = legacy_research.called
+        return result, legacy_prefetch_called, captured_reply, edit_called
 
     def test_answer_only_edit_classification_is_downgraded_to_research(
         self, profile_dir: Path
@@ -1119,7 +752,7 @@ class TestAnswerOnlyInteraction:
             profile="default",
             interaction_mode="answer_only",
         )
-        result, research_calls, reply_capture, edit_called = self._run(
+        result, legacy_prefetch_called, reply_capture, edit_called = self._run(
             request, classify=classify_edit
         )
 
@@ -1132,7 +765,7 @@ class TestAnswerOnlyInteraction:
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
         # Legacy prefetch never ran; the agent-owned stage and reply ran.
-        assert research_calls == []
+        assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False
 
@@ -1157,7 +790,7 @@ class TestAnswerOnlyInteraction:
             profile="default",
             interaction_mode="answer_only",
         )
-        result, research_calls, reply_capture, edit_called = self._run(
+        result, legacy_prefetch_called, reply_capture, edit_called = self._run(
             request, classify=classify_research
         )
 
@@ -1165,7 +798,7 @@ class TestAnswerOnlyInteraction:
         assert result.report.plan.effective_route == "research"
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
-        assert research_calls == []
+        assert legacy_prefetch_called is False
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False
 
@@ -1401,21 +1034,11 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_graph_describe_default_profile(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Graph-describe with default profile runs research, implement, and reply."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler for ComfyUI",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {
             "nodes": [
@@ -1483,21 +1106,11 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_graph_describe_openai_profile(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Graph-describe with openai profile."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampling node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
         request = ExecutorRequest(
@@ -1517,15 +1130,6 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch(
-        "vibecomfy.executor.research.resolve_missing_nodes",
-        side_effect=_empty_registry_resolver,
-    )
-    @mock.patch(
-        "vibecomfy.executor.research._default_web_search_client",
-        side_effect=_empty_web_search_client,
-    )
     @mock.patch(
         "vibecomfy.executor.core._default_hivemind_client",
         side_effect=_empty_hivemind_client,
@@ -1533,16 +1137,12 @@ class TestGraphDescribeFlow:
     def test_graph_describe_research_failure_non_fatal(
         self,
         mock_hivemind,
-        mock_web,
-        mock_registry,
-        mock_corpus,
         mock_edit,
         mock_reply,
         mock_classify,
         profile_dir: Path,
     ) -> None:
         """When research fails (empty corpus), the pipeline still completes."""
-        mock_corpus.return_value = []
 
         input_graph = {"nodes": [{"id": 1}]}
         request = ExecutorRequest(
@@ -1560,21 +1160,11 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_graph_describe_with_graph_summary_context(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Classify receives graph summary when a graph is attached."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {
             "nodes": [
@@ -1598,21 +1188,11 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_reply_receives_post_implementation_graph_summary(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Reply receives the graph returned by implementation, not stale input graph context."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="describe my pipeline and suggest improvements",
@@ -1629,16 +1209,14 @@ class TestGraphDescribeFlow:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch(
         "vibecomfy.executor.core._default_hivemind_client",
         side_effect=_empty_hivemind_client,
     )
     def test_reply_graph_summary_uses_replacement_implementation_graph(
-        self, mock_hivemind, mock_corpus, mock_reply, mock_classify, profile_dir: Path
+        self, mock_hivemind, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Reply summaries describe the implemented graph, not the request graph."""
-        from vibecomfy.search.index import SearchEntry
 
         def replace_graph(payload: dict, **kwargs: Any) -> dict:
             return {
@@ -1646,14 +1224,6 @@ class TestGraphDescribeFlow:
                 "message": "Replaced graph with output node.",
             }
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="SaveImage",
-                description="output image node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="replace this workflow with a save image output",
@@ -1729,15 +1299,6 @@ class TestGraphDescribeFlow:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch(
-        "vibecomfy.executor.research.resolve_missing_nodes",
-        side_effect=_empty_registry_resolver,
-    )
-    @mock.patch(
-        "vibecomfy.executor.research._default_web_search_client",
-        side_effect=_empty_web_search_client,
-    )
     @mock.patch(
         "vibecomfy.executor.core._default_hivemind_client",
         side_effect=_empty_hivemind_client,
@@ -1745,32 +1306,17 @@ class TestGraphDescribeFlow:
     def test_adapt_implementation_receives_no_automatic_research_context(
         self,
         mock_hivemind,
-        mock_web,
-        mock_registry,
-        mock_corpus,
         mock_edit,
         mock_reply,
         mock_classify,
         profile_dir: Path,
     ) -> None:
         """Adapt injects only the compact C1 ledger into the edit payload."""
-        from vibecomfy.search.index import SearchEntry
 
         source_path = (
             "ready_templates/sources/custom_nodes/ltxvideo/runexx/"
             "LTX-2.3_V2V_Just_Talk_custom_audio_lipsync.py"
         )
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXRuneXXCustomAudioLipsync",
-                description="LTX RuneXX custom audio lipsync workflow template",
-                pack="ltxvideo",
-                tags=("ltx", "audio", "lipsync", "i2v"),
-                tasks=("i2v", "audio"),
-                source="custom_node_examples",
-                path=source_path,
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1, "class_type": "LTXImageToVideo"}]}
         request = ExecutorRequest(
@@ -1790,9 +1336,7 @@ class TestGraphDescribeFlow:
         assert wire_research["ledger"] == payload["research_ledger"]
         assert "evidence_pack" not in wire_research
         assert "question" not in wire_research
-        mock_corpus.assert_not_called()
         mock_hivemind.assert_not_called()
-        mock_web.assert_not_called()
         reply_kwargs = mock_reply.call_args.kwargs
         assert reply_kwargs["research_ledger"] == payload["research_ledger"]
         assert "research_summary" not in reply_kwargs
@@ -2275,65 +1819,61 @@ def _fake_classify_adapt(
     )
 
 
-def _hotshotxl_execution_plan_research_result() -> ResearchResult:
-    return ResearchResult(
-        summary="Found a HotShotXL AnimateDiff workflow precedent.",
-        selected_precedent=SelectedPrecedent(
-            name="AnimateDiff HotShotXL video workflow",
-            source="hivemind_workflow",
-            source_workflow_path="workflows/hotshotxl_8f.json",
-            requested_terms=("HotShotXL", "video"),
-            implementation_ecosystems=("animatediff",),
-            models=("hotshotxl_mm_v1.pth", "sd_xl_base_1.0.safetensors"),
-            minimal_spine=(
-                "CheckpointLoaderSimple",
-                "HotshotXLLoader",
-                "ADE_AnimateDiffLoaderWithContext",
-                "EmptyLatentImage",
-                "KSampler",
-                "VAEDecode",
-                "VHS_VideoCombine",
+def _agent_owned_research_result(
+    summary: str = "Agent research done.",
+) -> AgentResearchResult:
+    """Minimal H01 agent-owned research result with a compact ledger."""
+    ledger = EvidenceLedger(entries=(
+        EvidenceLedgerEntry(
+            decision="agent_research",
+            conclusion=summary,
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="low",
+        ),
+    ))
+    trace = AgentResearchTrace(
+        route="adapt",
+        question="q",
+        iterations=(),
+        final_verdict="enough",
+        summary=summary,
+        citations=("hivemind_get:abc123",),
+        uncertainty="low",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    pack = EvidencePack(
+        artifacts={
+            "hivemind_get:abc123": EvidenceArtifact(
+                evidence_id="hivemind_get:abc123",
+                kind="hivemind_get",
+                body={"title": "HotshotXL workflow note"},
+                source="hivemind",
             ),
-            terminal_output_path=("VHS_VideoCombine",),
-        ),
-        precedent_packet=PrecedentPacket(
-            options=(
-                PrecedentOption(
-                    source_class_type="video/hotshot_i2v",
-                    node_types=("HotshotXLLoader", "VHS_VideoCombine"),
-                ),
-            ),
-        ),
-        precedent_sources=(
-            {
-                "source": "hivemind_workflow",
-                "source_workflow_path": "workflows/hotshotxl_8f.json",
-                "workflow_semantics": {
-                    "node_types": [
-                        "HotshotXLLoader",
-                        "ADE_AnimateDiffLoaderWithContext",
-                        "EmptyLatentImage",
-                        "KSampler",
-                        "VAEDecode",
-                        "VHS_VideoCombine",
-                    ],
-                    "models": ["hotshotxl_mm_v1.pth"],
-                },
-            },
-        ),
-        workflow_precedent_status="compatible_workflow_found",
+        },
+        ledger=ledger,
+    )
+    return AgentResearchResult(
+        route="adapt",
+        trace=trace,
+        evidence_pack=pack,
     )
 
 
-def test_legacy_research_result_does_not_gate_or_feed_adapt_implementation() -> None:
+def test_agent_research_handoff_carries_only_compact_ledger() -> None:
+    """The adapt implement payload receives only the compact C1 ledger.
+
+    The legacy research result (no ledger attribute) is gone; the active
+    agent-owned result forwards its evidence ledger — and nothing else:
+    no research_summary prose, no precedent slices, no adaptation plans.
+    """
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
-    research = ResearchResult(
-        summary="Research skipped due to an internal error.",
-        warnings=("research phase failed: RuntimeError",),
+    research = _agent_owned_research_result(
+        summary="Research skipped due to an internal error."
     )
 
     with mock.patch(
@@ -2348,8 +1888,14 @@ def test_legacy_research_result_does_not_gate_or_feed_adapt_implementation() -> 
 
     assert result.graph is not None
     payload = mock_edit.call_args.args[0]
-    assert "research_ledger" not in payload
+    assert payload["research_ledger"]["entries"][0]["conclusion"] == (
+        "Research skipped due to an internal error."
+    )
+    assert payload["research_ledger"]["entries"][0]["evidence_ids"] == ["hivemind_get:abc123"]
     assert "research_summary" not in payload
+    assert "precedent_slices" not in payload
+    assert "adaptation_plan" not in payload
+    assert "execution_plan" not in payload
 
 
 def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
@@ -2378,7 +1924,7 @@ def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
             request,
             AgentSpecShape(agent="hermes", model="test"),
             plan=plan,
-            research_result=_hotshotxl_execution_plan_research_result(),
+            research_result=_agent_owned_research_result(),
         )
 
     assert result.graph is not None
@@ -2387,9 +1933,12 @@ def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
     assert "precedent_slices" not in payload
     assert "adaptation_plan" not in payload
     assert "execution_plan" not in payload
+    # The only research content crossing the boundary is the compact ledger.
+    assert payload["research_ledger"]["entries"][0]["evidence_ids"] == ["hivemind_get:abc123"]
 
 
-def test_adapt_payload_does_not_hydrate_legacy_precedent_splice() -> None:
+def test_adapt_payload_does_not_hydrate_legacy_precedent_shapes() -> None:
+    """Legacy precedent/adaptation dicts never leak into the implement payload."""
     plan = ClassifyDecision(
         research=True,
         implement=True,
@@ -2402,51 +1951,6 @@ def test_adapt_payload_does_not_hydrate_legacy_precedent_splice() -> None:
         query="Use IP-Adapter to feed the SDXL reference image",
         graph={"nodes": [{"id": 5, "type": "KSampler"}], "links": []},
     )
-    adaptation_plan = PrecedentAdaptationPlan(
-        selected_slice=WorkflowSlice(
-            source_class_type="SDXL IPAdapter",
-            node_ids=("8", "9", "10", "5"),
-            node_types=(
-                "LoadImage",
-                "CLIPVisionLoader",
-                "IPAdapterModelLoader",
-                "IPAdapterAdvanced",
-                "KSampler",
-            ),
-        ),
-        required_new_nodes=(
-            {"class_type": "IPAdapterAdvanced", "role": "adapter"},
-        ),
-        required_rewires=(
-            {
-                "from_role": "adapter",
-                "output": "MODEL",
-                "to_node_id": "5",
-                "input": "model",
-            },
-        ),
-        edit_ops=(
-            {"op": "set_input", "node_id": "5", "field": "model", "from_role": "adapter"},
-        ),
-        structural_validation="pass",
-        semantic_validation="advisory",
-    )
-    research = ResearchResult(
-        summary="Found an exact SDXL IPAdapter workflow.",
-        selected_precedent=SelectedPrecedent(
-            name="SDXL IPAdapter",
-            source="external_workflow",
-            minimal_spine=(
-                "LoadImage",
-                "CLIPVisionLoader",
-                "IPAdapterModelLoader",
-                "IPAdapterAdvanced",
-                "KSampler",
-            ),
-        ),
-        adaptation_plan=adaptation_plan,
-        workflow_precedent_status="compatible_workflow_found",
-    )
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit",
@@ -2456,7 +1960,7 @@ def test_adapt_payload_does_not_hydrate_legacy_precedent_splice() -> None:
             request,
             AgentSpecShape(agent="hermes", model="test"),
             plan=plan,
-            research_result=research,
+            research_result=_agent_owned_research_result(),
         )
 
     assert result.graph is not None
@@ -2464,7 +1968,9 @@ def test_adapt_payload_does_not_hydrate_legacy_precedent_splice() -> None:
     assert "execution_protocol_notes" not in payload
     assert "adaptation_plan" not in payload
     assert "precedent_slices" not in payload
-    assert "research_ledger" not in payload
+    assert "precedent_packet" not in payload
+    # The compact C1 ledger is the only research handoff.
+    assert payload["research_ledger"]["entries"][0]["decision"] == "agent_research"
 
 
 def test_adapt_execution_path_has_no_deterministic_plan_builder_symbol() -> None:
@@ -2492,7 +1998,7 @@ def test_adapt_execution_path_has_no_deterministic_plan_builder_symbol() -> None
             request,
             AgentSpecShape(agent="hermes", model="test"),
             plan=plan,
-            research_result=_hotshotxl_execution_plan_research_result(),
+            research_result=_agent_owned_research_result(),
         )
 
     assert result.graph is not None
@@ -2536,19 +2042,17 @@ class TestRouteGateFlows:
     ) -> None:
         """respond: research and implementation are skipped, reply runs."""
         with mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit:
-            with mock.patch("vibecomfy.executor.research.build_search_corpus") as mock_corpus:
-                request = ExecutorRequest(
-                    query="can you explain the previous failure?",
-                    profile="default",
-                )
-                result = run_executor(request)
+            request = ExecutorRequest(
+                query="can you explain the previous failure?",
+                profile="default",
+            )
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.reply is not None
         assert result.report.plan.effective_route == "respond"
         assert result.report.research is None
         assert result.report.implementation is None
-        mock_corpus.assert_not_called()
         mock_edit.assert_not_called()
         mock_reply.assert_called_once()
         mock_classify.assert_called_once()
@@ -2564,21 +2068,17 @@ class TestRouteGateFlows:
         profile_dir: Path,
     ) -> None:
         """revise: research phase is never entered, implementation runs."""
-        with mock.patch(
-            "vibecomfy.executor.research.build_search_corpus"
-        ) as mock_corpus:
-            input_graph = {"nodes": [{"id": 1, "type": "VAEDecode"}]}
-            request = ExecutorRequest(
-                query="set seed to 42",
-                graph=input_graph,
-                profile="default",
-            )
-            result = run_executor(request)
+        input_graph = {"nodes": [{"id": 1, "type": "VAEDecode"}]}
+        request = ExecutorRequest(
+            query="set seed to 42",
+            graph=input_graph,
+            profile="default",
+        )
+        result = run_executor(request)
 
         assert result.ok is True
         assert result.reply is not None
         # Research MUST NOT be called.
-        mock_corpus.assert_not_called()
         # Implementation MUST be called.
         mock_edit.assert_called_once()
         # Reply MUST be called.
@@ -2645,25 +2145,14 @@ class TestRouteGateFlows:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_inspect_calls_research_skips_implementation(
         self,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: research is skipped, implementation is skipped."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampling node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         with mock.patch(
             "vibecomfy.executor.core.handle_agent_edit"
@@ -2679,7 +2168,6 @@ class TestRouteGateFlows:
         assert result.ok is True
         assert result.reply is not None
         # Research MUST NOT be called.
-        mock_corpus.assert_not_called()
         # Implementation MUST NOT be called.
         mock_edit.assert_not_called()
         # Reply MUST be called.
@@ -2687,25 +2175,14 @@ class TestRouteGateFlows:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_inspect_report_flags_correct_phases(
         self,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect report: research=None, implementation=None, route=inspect."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="VAEDecode",
-                description="Decode node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="what's in my graph?",
@@ -2736,20 +2213,16 @@ class TestRouteGateFlows:
         with mock.patch(
             "vibecomfy.executor.core.handle_agent_edit"
         ) as mock_edit:
-            with mock.patch(
-                "vibecomfy.executor.research.build_search_corpus"
-            ) as mock_corpus:
-                request = ExecutorRequest(
-                    query="what do you mean?",
-                    graph={"nodes": [{"id": 1}]},
-                    profile="default",
-                )
-                result = run_executor(request)
+            request = ExecutorRequest(
+                query="what do you mean?",
+                graph={"nodes": [{"id": 1}]},
+                profile="default",
+            )
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.reply is not None
         # Research MUST NOT be called.
-        mock_corpus.assert_not_called()
         # Implementation MUST NOT be called.
         mock_edit.assert_not_called()
         # Reply MUST be called.
@@ -2784,26 +2257,15 @@ class TestRouteGateFlows:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_adapt_calls_both_research_and_implementation(
         self,
-        mock_corpus: mock.MagicMock,
         mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """adapt: both research and implementation phases run."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXImageToVideo",
-                description="LTX video node",
-                pack="ltxvideo",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
         request = ExecutorRequest(
@@ -2816,7 +2278,6 @@ class TestRouteGateFlows:
         assert result.ok is True
         assert result.reply is not None
         # The active C1 stage replaces deterministic corpus prefetch.
-        mock_corpus.assert_not_called()
         # Implementation MUST be called.
         mock_edit.assert_called_once()
         # Reply MUST be called.
@@ -2825,26 +2286,15 @@ class TestRouteGateFlows:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_adapt_report_flags_correct_phases(
         self,
-        mock_corpus: mock.MagicMock,
         mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """adapt report: research present, implementation present."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1}]}
         request = ExecutorRequest(
@@ -2866,26 +2316,15 @@ class TestRouteGateFlows:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_adapt_payload_uses_canonical_route_and_provider_metadata(
         self,
-        mock_corpus: mock.MagicMock,
         mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """adapt keeps provider dispatch separate from executor route semantics."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="adapt workflow precedent",
@@ -2940,27 +2379,16 @@ class TestRouteGateFlows:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core._ws_send")
     def test_inspect_phase_event_includes_route_and_task(
         self,
         mock_ws_send: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """WebSocket classify progress event emits route and task for inspect."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="explain my graph",
@@ -3019,28 +2447,17 @@ class TestRouteGateFlows:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core._ws_send")
     def test_adapt_phase_event_includes_route_and_task(
         self,
         mock_ws_send: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """WebSocket classify progress event emits route and task for adapt."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1}]}
         request = ExecutorRequest(
@@ -3150,19 +2567,13 @@ class TestRouteGateFlows:
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
-        """Without explicit route, research-only resolves to deterministic research."""
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
+        """Without explicit route, research-only resolves to the agent-owned stage."""
         request = ExecutorRequest(
             query="what nodes are available?",
             profile="default",
         )
         with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.run_research_phase") as legacy_research,
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
         ):
             result = run_executor(request)
@@ -3171,10 +2582,11 @@ class TestRouteGateFlows:
         assert result.to_dict()["route"] == "research"
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        # PR-B: the research phase ran deterministically and populated
-        # report.research; the edit gate never ran.
+        # The agent-owned research stage populated report.research with the
+        # compact C1 package; the legacy engine and the edit gate never ran.
         assert result.report.research is not None
-        assert research_calls == []
+        assert result.report.research.trace.status == "ok"
+        legacy_research.assert_not_called()
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
@@ -3188,16 +2600,13 @@ class TestRouteGateFlows:
         profile_dir: Path,
     ) -> None:
         """Without explicit route, legacy plan.implement=True still runs implement."""
-        with mock.patch(
-            "vibecomfy.executor.research.build_search_corpus"
-        ) as mock_corpus:
-            input_graph = {"nodes": [{"id": 1}]}
-            request = ExecutorRequest(
-                query="edit graph",
-                graph=input_graph,
-                profile="default",
-            )
-            result = run_executor(request)
+        input_graph = {"nodes": [{"id": 1}]}
+        request = ExecutorRequest(
+            query="edit graph",
+            graph=input_graph,
+            profile="default",
+        )
+        result = run_executor(request)
 
         assert result.ok is True
         assert result.to_dict()["route"] == "revise"
@@ -3205,7 +2614,6 @@ class TestRouteGateFlows:
         assert result.to_dict()["apply_eligible"] is True
         # Empty-route edit-only resolves to canonical revise.
         mock_edit.assert_called_once()
-        mock_corpus.assert_not_called()
 
     def test_canonical_route_overrides_legacy_booleans_for_clarify(self, profile_dir: Path) -> None:
         """clarify never produces research, implementation, candidate, or apply eligibility."""
@@ -3228,7 +2636,6 @@ class TestRouteGateFlows:
                 "vibecomfy.executor.core.run_reply_turn",
                 side_effect=_fake_reply_route_gate,
             ),
-            mock.patch("vibecomfy.executor.research.build_search_corpus") as mock_corpus,
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
         ):
             result = run_executor(
@@ -3247,7 +2654,6 @@ class TestRouteGateFlows:
         assert payload["reply"] == "Task completed."
         assert payload["candidate"] is None
         assert payload["apply_eligible"] is False
-        mock_corpus.assert_not_called()
         mock_edit.assert_not_called()
 
     def test_canonical_route_overrides_legacy_booleans_for_inspect(self, profile_dir: Path) -> None:
@@ -3272,7 +2678,6 @@ class TestRouteGateFlows:
                 "vibecomfy.executor.core.run_reply_turn",
                 side_effect=_fake_reply_route_gate,
             ),
-            mock.patch("vibecomfy.executor.research.build_search_corpus") as mock_corpus,
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
         ):
             result = run_executor(
@@ -3292,17 +2697,14 @@ class TestRouteGateFlows:
         assert payload["candidate"] is None
         assert payload["apply_eligible"] is False
         assert payload["no_candidate_reason"] == "route_not_applyable"
-        mock_corpus.assert_not_called()
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_public_envelope_never_has_candidate_or_apply(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
@@ -3321,31 +2723,19 @@ class TestRouteGateFlows:
         assert payload["candidate"] is None
         assert payload["apply_eligible"] is False
         assert payload["no_candidate_reason"] == "route_not_applyable"
-        mock_corpus.assert_not_called()
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_adapt_public_envelope_apply_eligible_only_with_candidate(
         self,
-        mock_corpus: mock.MagicMock,
         mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampling node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         result = run_executor(
             ExecutorRequest(
@@ -3360,7 +2750,6 @@ class TestRouteGateFlows:
         assert payload["route"] == "adapt"
         assert payload["candidate"] == {"graph": result.graph}
         assert payload["apply_eligible"] is True
-        mock_corpus.assert_not_called()
         mock_edit.assert_called_once()
 
 
@@ -3375,12 +2764,10 @@ class TestInspectOnlyFlow:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_reject_adaptation_plan)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_reply_fallback_preserves_graph_summary_when_adaptation_plan_unsupported(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
@@ -3408,31 +2795,19 @@ class TestInspectOnlyFlow:
         assert "adaptation_plan" not in reply_kwargs
         assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_summary"))
         mock_edit.assert_not_called()
-        mock_corpus.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_reply_receives_graph_inspection_context(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: _run_reply receives graph_inspection kwarg with node details."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {
             "nodes": [
@@ -3461,31 +2836,19 @@ class TestInspectOnlyFlow:
         # Implementation must never be called
         mock_edit.assert_not_called()
         # Research must NOT be called (inspect answers from graph inspection only)
-        mock_corpus.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_result_graph_is_none(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: ExecutorResult.graph is always None regardless of input graph."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="VAEDecode",
-                description="Decode node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         # Even with a rich input graph, result.graph must be None
         input_graph = {
@@ -3513,27 +2876,16 @@ class TestInspectOnlyFlow:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_no_graph_still_produces_reply(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect with no graph: still produces reply, no graph_inspection."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         request = ExecutorRequest(
             query="explain the graph",
@@ -3551,27 +2903,16 @@ class TestInspectOnlyFlow:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_to_dict_has_no_graph(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: to_dict() has graph=None, implementation=None, research populated."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="CLIPTextEncode",
-                description="Text encoder",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {"nodes": [{"id": 1, "type": "CLIPTextEncode"}]}
         request = ExecutorRequest(
@@ -3591,27 +2932,16 @@ class TestInspectOnlyFlow:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_implementation_not_called_even_with_graph(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: handle_agent_edit never called, even with a complex graph."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {
             "nodes": [
@@ -3631,33 +2961,21 @@ class TestInspectOnlyFlow:
         # handle_agent_edit must never be invoked for inspect
         mock_edit.assert_not_called()
         # Research must NOT be called (inspect never runs research)
-        mock_corpus.assert_not_called()
         # Reply is called
         mock_reply.assert_called_once()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     @mock.patch("vibecomfy.executor.core.handle_agent_edit")
     def test_inspect_graph_inspection_includes_widget_values(
         self,
         mock_edit: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
         """inspect: graph_inspection text includes widget values and links."""
-        from vibecomfy.search.index import SearchEntry
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
 
         input_graph = {
             "nodes": [
@@ -4156,2066 +3474,6 @@ class TestSessionReferenceContext:
             prev_pos = pos
 
 
-class LegacyPrecedentPayloadIntegrity:
-    """Prove precedent route payloads include legacy + structured research data,
-    and direct-edit payloads exclude accidental research/precedent context."""
-
-    # ── Helpers ──────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _capture_edit_payload(mock_edit: mock.MagicMock) -> dict:
-        """Return the first positional arg (the payload dict) passed to handle_agent_edit."""
-        mock_edit.assert_called_once()
-        return mock_edit.call_args[0][0]
-
-    # ── adapt: agent-chosen research ──────────────────────────
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_payload_excludes_automatic_research_fields(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: handle_agent_edit receives scoped execution_protocol_notes,
-        not raw-query research_summary/sources/executor_research at top level."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXImageToVideo",
-                description="LTX video generation node",
-                pack="ltxvideo",
-                source="ready_template",
-                path="/templates/ltx_audio_video.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
-        request = ExecutorRequest(
-            query="add audio path to my LTX workflow",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Raw-query fields are NOT at top level for adapt route.
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        # Scoped research is nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_payload_excludes_automatic_adaptation_plan(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: executor nests scoped research under execution_protocol_notes;
-        raw precedent_slices and adaptation_plan are not at top level."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="AudioLipsyncWorkflow",
-                description="Audio-driven lipsync workflow template",
-                pack="lipsync",
-                source="ready_template",
-                path="/templates/audio_lipsync.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadAudio"}]}
-        request = ExecutorRequest(
-            query="adapt audio lipsync workflow to my graph",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Structured fields are NOT at top level for adapt route.
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        # Scoped research is nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_payload_does_not_mix_prefetch_with_agent_edit(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: scoped research is nested under execution_protocol_notes;
-        raw-query fields are not injected at top level."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="SVDXTWithAudio",
-                description="SVD-XT extended with audio processing",
-                pack="svdxt",
-                source="ready_template",
-                path="/templates/svd_xt_audio.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "SVDImageEmbeds"}]}
-        request = ExecutorRequest(
-            query="add audio to my SVD video pipeline",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Raw-query fields are NOT at top level for adapt route.
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        # Scoped research is nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_report_excludes_automatic_research_data(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: the ExecutorResult report includes scoped research in
-        the report, and the edit payload uses execution_protocol_notes."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="HotshotXLPipeline",
-                description="Hotshot XL text-to-video pipeline",
-                pack="hotshot",
-                source="ready_template",
-                path="/templates/hotshot_xl.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1}]}
-        request = ExecutorRequest(
-            query="use hotshot XL template for video generation",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        # Research now runs for adapt route (scoped, not raw query).
-        assert result.report.research is not None
-        assert result.report.implementation is not None
-        d = result.to_dict()
-        assert "research" in d["report"]["executor"]
-        # Edit payload uses execution_protocol_notes, not raw-query fields.
-        payload = self._capture_edit_payload(mock_edit)
-        assert "execution_protocol_notes" in payload
-
-    # ── revise: no research / no precedent ──────────────────────────
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_revise_payload_excludes_legacy_research_fields(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: handle_agent_edit does NOT receive research_summary,
-        research_sources, or executor_research keys."""
-        with mock.patch(
-            "vibecomfy.executor.research.build_search_corpus"
-        ) as mock_corpus:
-            input_graph = {"nodes": [{"id": 1, "type": "VAEDecode"}]}
-            request = ExecutorRequest(
-                query="set seed to 42",
-                graph=input_graph,
-                profile="default",
-            )
-            result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Legacy research fields must be ABSENT
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        # Research must NOT have been called
-        mock_corpus.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_revise_payload_excludes_structured_precedent_fields(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: handle_agent_edit does NOT receive precedent_slices or
-        adaptation_plan keys."""
-        input_graph = {"nodes": [{"id": 1, "type": "KSampler"}]}
-        request = ExecutorRequest(
-            query="change sampler steps to 20",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Structured precedent fields must be ABSENT
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_revise_payload_has_no_precedent_prompt_text(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: the payload dict contains no string values with
-        'Precedent adaptation plan' or 'precedent' substrings that could
-        leak into prompts."""
-        input_graph = {"nodes": [{"id": 1}]}
-        request = ExecutorRequest(
-            query="update the node field",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Recursively check all string values in the payload for precedent text
-        def _check_no_precedent_text(obj: object, path: str = "root") -> None:
-            if isinstance(obj, str):
-                assert "precedent" not in obj.lower(), (
-                    f"Found 'precedent' text at {path}: {obj[:200]}"
-                )
-                assert "Precedent adaptation plan" not in obj, (
-                    f"Found 'Precedent adaptation plan' text at {path}"
-                )
-            elif isinstance(obj, dict):
-                for k, v in obj.items():
-                    _check_no_precedent_text(v, f"{path}.{k}")
-            elif isinstance(obj, list):
-                for i, v in enumerate(obj):
-                    _check_no_precedent_text(v, f"{path}[{i}]")
-
-        _check_no_precedent_text(payload)
-
-    # ── edge case: no workflow sources means structured fields are absent ─
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_without_workflow_sources_no_structured_fields(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when no workflow source exists in the corpus,
-        legacy research fields are NOT at top level; scoped context is
-        nested under execution_protocol_notes."""
-        from vibecomfy.search.index import SearchEntry
-
-        # Non-workflow sources (object_info) do NOT produce precedent slices
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1}]}
-        request = ExecutorRequest(
-            query="research precedent for sampling",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Raw-query fields are NOT at top level for adapt route.
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        # Scoped research is nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-
-
-# ── Precedent adaptation plan prompt assembly tests (T14) ───────────────────
-# Verify agent-edit prompt assembly only injects precedent text for
-# adapt route and keeps direct-edit prompts clean.
-
-
-class LegacyPrecedentAdaptationPromptAssembly:
-    """Prove precedent prompt text is injected only for adapt
-    route and direct-edit prompts remain clean."""
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_precedent_route_edit_payload_includes_precedent_slices_for_prompt(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: the payload passed to handle_agent_edit includes
-        execution_protocol_notes with scoped research context, not raw
-        precedent_slices/adaptation_plan at top level."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXAudioPipeline",
-                description="LTX audio-video pipeline template",
-                pack="ltxaudio",
-                source="ready_template",
-                path="/templates/ltx_audio_pipeline.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadVideo"}]}
-        request = ExecutorRequest(
-            query="adapt LTX audio pipeline to my video workflow",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        mock_edit.assert_called_once()
-        payload = mock_edit.call_args[0][0]
-
-        # Structured fields NOT at top level for adapt route.
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        # Scoped research is nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-        # Discardability guidance confirms non-authoritative context.
-        assert "NOT authoritative" in notes["_discardability"]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_revise_payload_no_precedent_prompt_keys(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: the payload passed to handle_agent_edit has no
-        precedent_slices or adaptation_plan keys, so the agent-edit engine
-        cannot inject precedent prompt text."""
-        input_graph = {"nodes": [{"id": 1, "type": "SaveImage"}]}
-        request = ExecutorRequest(
-            query="change filename prefix to output",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = mock_edit.call_args[0][0]
-
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        # Also verify no research context
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-
-# ── Precedent payload integrity tests (T14) ──────────────────────────────────
-# Verify adapt payloads carry both legacy and structured research
-# data, while revise payloads carry neither.
-
-
-# ── T10: Adapt prefetch and research context scoping ─────────────────────────
-# Prove adapt prefetch receives scoped classifier-derived query/payload,
-# execution_protocol_notes are nested and explicitly unranked, revise does
-# not prefetch while needs_research=False, research_context_packet is present
-# when available, and empty/irrelevant packets are framed as discardable context.
-
-
-class LegacyAdaptPrefetchAndResearchContextScoping:
-    """T10: Prove adapt prefetch scoping, execution_protocol_notes nesting,
-    revise no-prefetch, research_context_packet presence/absence, and
-    discardability framing for empty/irrelevant packets."""
-
-    # ── helpers ──────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _capture_edit_payload(mock_edit: mock.MagicMock) -> dict:
-        """Return the first positional arg (the payload dict) passed to handle_agent_edit."""
-        mock_edit.assert_called_once()
-        return mock_edit.call_args[0][0]
-
-    # ── A: adapt receives scoped classifier-derived query/payload ────────
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_adapt_payload_nests_classifier_fields_in_protocol_notes(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: execution_protocol_notes carries classifier-derived fields
-        (research_goal, pattern_category, change_goal, model_families) from
-        the ClassifyDecision, not raw user query fields."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research precedent for KSampler config",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="Find optimal KSampler configuration patterns",
-            pattern_category="sampling",
-            change_goal="adjust sampler steps and cfg",
-            model_families=("SDXL", "Flux"),
-        )
-
-        input_graph = {"nodes": [{"id": 1, "type": "KSampler"}]}
-        request = ExecutorRequest(
-            query="optimize my sampler",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Classifier-derived fields must be nested under execution_protocol_notes
-        # and NOT at top level.
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "research_goal" in notes
-        assert notes["research_goal"] == "Find optimal KSampler configuration patterns"
-        assert "pattern_category" in notes
-        assert notes["pattern_category"] == "sampling"
-        assert "change_goal" in notes
-        assert notes["change_goal"] == "adjust sampler steps and cfg"
-        assert "model_families" in notes
-        assert notes["model_families"] == ["SDXL", "Flux"]
-
-        # Classifier fields are NOT at top level.
-        assert "research_goal" not in payload
-        assert "pattern_category" not in payload
-        assert "change_goal" not in payload
-        assert "model_families" not in payload
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_adapt_payload_classifier_fields_absent_when_empty_in_decision(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when ClassifyDecision has empty classifier fields,
-        execution_protocol_notes omits those keys entirely."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LoadImage",
-                description="Load image node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        # ClassifyDecision with NO classifier-scoping fields populated.
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            # research_goal, pattern_category, change_goal, model_families all empty
-        )
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
-        request = ExecutorRequest(
-            query="add an image loader",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        # Empty classifier fields must be omitted, not sent as empty strings/lists.
-        assert "research_goal" not in notes
-        assert "pattern_category" not in notes
-        assert "change_goal" not in notes
-        assert "model_families" not in notes
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_adapt_scoped_query_built_from_classifier_fields(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when classifier fields are populated, _run_research receives
-        a scoped query built from those fields, not the raw user query."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="AudioLipsyncWorkflow",
-                description="Audio lipsync workflow",
-                pack="lipsync",
-                source="ready_template",
-                path="/templates/audio_lipsync.py",
-            ),
-        ]
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research audio lipsync precedent",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="Find audio-driven lipsync workflow patterns",
-            pattern_category="audio_video",
-            change_goal="integrate audio-reactive lipsync",
-            model_families=("WanVideo",),
-        )
-
-        # Spy on _run_research to capture the scoped query.
-        from vibecomfy.executor import core as executor_core_module
-
-        original_run_research = executor_core_module._run_research
-        captured_queries: list[str] = []
-
-        def _spy_run_research(
-            request_obj: ExecutorRequest,
-            _spec: Any,
-            *,
-            plan: ClassifyDecision | None = None,
-            deadline: float | None = None,
-        ) -> ResearchResult:
-            # Capture the effective query that will be used.
-            query = request_obj.query
-            if (
-                plan is not None
-                and executor_core_module._canonical_route_for_plan(plan) == "adapt"
-            ):
-                scoped_parts: list[str] = []
-                if plan.research_goal:
-                    scoped_parts.append(f"Research goal: {plan.research_goal}")
-                if plan.pattern_category:
-                    scoped_parts.append(f"Pattern category: {plan.pattern_category}")
-                if plan.change_goal:
-                    scoped_parts.append(f"Change goal: {plan.change_goal}")
-                if plan.model_families:
-                    families = ", ".join(plan.model_families)
-                    scoped_parts.append(f"Model families: {families}")
-                if scoped_parts:
-                    query = "; ".join(scoped_parts)
-            captured_queries.append(query)
-            return original_run_research(request_obj, _spec, plan=plan, deadline=deadline)
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadAudio"}]}
-        request = ExecutorRequest(
-            query="make lipsync work with my audio",
-            graph=input_graph,
-            profile="default",
-        )
-
-        with mock.patch.object(
-            executor_core_module, "_run_research", side_effect=_spy_run_research
-        ):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert len(captured_queries) == 1, (
-            f"Expected exactly 1 research call, got {len(captured_queries)}"
-        )
-        scoped_query = captured_queries[0]
-        # The scoped query must NOT be the raw user query.
-        assert scoped_query != "make lipsync work with my audio"
-        # It must contain the classifier-derived fields.
-        assert "Research goal:" in scoped_query
-        assert "audio-driven lipsync workflow patterns" in scoped_query
-        assert "Pattern category:" in scoped_query
-        assert "audio_video" in scoped_query
-        assert "Change goal:" in scoped_query
-        assert "integrate audio-reactive lipsync" in scoped_query
-        assert "Model families:" in scoped_query
-        assert "WanVideo" in scoped_query
-
-    # ── B: execution_protocol_notes are nested and explicitly unranked ───
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_execution_protocol_notes_discardability_explicitly_unranked(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: execution_protocol_notes._discardability explicitly states
-        the notes are NOT authoritative guidance and may be discarded.
-        No ranking, priority, winner, or recommended language appears."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LoadImage",
-                description="Load image node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-        )
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
-        request = ExecutorRequest(
-            query="adapt workflow",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-
-        discard = notes["_discardability"]
-        # Must state NOT authoritative.
-        assert "NOT authoritative" in discard
-        # Must offer discardability guidance.
-        assert "discard" in discard.lower()
-
-        # Check the entire notes dict for forbidden ranking language.
-        notes_str = json.dumps(notes, sort_keys=True)
-        forbidden_terms = ["winner", "best", "selected", "score", "rank",
-                           "primary", "preferred", "chosen", "pick", "choice",
-                           "recommend", "priority"]
-        for term in forbidden_terms:
-            assert term not in notes_str.lower(), (
-                f"execution_protocol_notes contains forbidden term '{term}': {notes_str[:200]}"
-            )
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_execution_protocol_notes_not_at_top_level(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: all research context fields exclusive to execution_protocol_notes
-        nesting; no research_summary, research_sources, executor_research, or
-        classifier fields leak to top level."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="sampler optimization",
-            model_families=("SDXL",),
-        )
-
-        input_graph = {"nodes": [{"id": 1, "type": "KSampler"}]}
-        request = ExecutorRequest(
-            query="optimize sampler",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # These fields must NOT be at top level for adapt route.
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-
-        # Everything must be nested under execution_protocol_notes.
-        assert "execution_protocol_notes" in payload
-
-    # ── C: revise does not prefetch while needs_research=False ───────────
-
-    def test_should_prefetch_research_false_for_revise(self) -> None:
-        """_should_prefetch_research returns False for revise route."""
-        from vibecomfy.executor.core import _should_prefetch_research
-
-        plan = ClassifyDecision(
-            research=False,
-            implement=True,
-            reply=True,
-            effort="low",
-            plan_summary="direct edit",
-            intent="edit",
-            route="revise",
-            task="edit_graph",
-        )
-        assert _should_prefetch_research(plan) is False
-
-    def test_should_prefetch_research_true_for_adapt_when_needs_research(self) -> None:
-        """_should_prefetch_research returns True for adapt when needs_research=True."""
-        from vibecomfy.executor.core import _should_prefetch_research
-
-        plan = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research then adapt",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-        )
-        assert _should_prefetch_research(plan) is True
-
-    def test_should_prefetch_research_true_for_research_route(self) -> None:
-        """Research routes use deterministic executor prefetch (PR-B)."""
-        from vibecomfy.executor.core import _should_prefetch_research
-
-        plan = ClassifyDecision(
-            research=True,
-            implement=False,
-            reply=True,
-            effort="medium",
-            plan_summary="research only",
-            intent="research",
-            route="research",
-            task="research",
-        )
-        assert _should_prefetch_research(plan) is True
-
-    def test_should_prefetch_research_false_for_non_research_routes(self) -> None:
-        """_should_prefetch_research returns False for respond, clarify, inspect."""
-        from vibecomfy.executor.core import _should_prefetch_research
-
-        for route in ("respond", "clarify", "inspect"):
-            plan = ClassifyDecision(
-                research=False,
-                implement=False,
-                reply=True,
-                effort="low",
-                plan_summary=f"{route} only",
-                intent="respond",
-                route=route,
-                task="respond" if route != "inspect" else "inspect_graph",
-            )
-            assert _should_prefetch_research(plan) is False, (
-                f"_should_prefetch_research must be False for {route}"
-            )
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_revise_payload_has_no_execution_protocol_notes(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: payload has no execution_protocol_notes, research_context_packet,
-        research_summary, or research_sources."""
-        input_graph = {"nodes": [{"id": 1, "type": "SaveImage"}]}
-        request = ExecutorRequest(
-            query="change filename prefix",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        assert "execution_protocol_notes" not in payload
-        assert "research_context_packet" not in payload
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-
-    @pytest.mark.parametrize(
-        "query",
-        [
-            "change the prompt to a rainy city street",
-            "set seed to 42",
-            "increase CFG to 7.5",
-            "change sampler steps to 20",
-            "switch the checkpoint model name to dreamshaper",
-            "rewire the existing VAE decode output locally",
-            "add a SaveImage output node",
-        ],
-        ids=[
-            "prompt",
-            "seed",
-            "cfg",
-            "sampler_steps",
-            "model_name",
-            "local_rewire",
-            "output_node",
-        ],
-    )
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_ordinary_revise_edits_do_not_plan_or_leak_execution_protocol(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        query: str,
-        profile_dir: Path,
-    ) -> None:
-        """Ordinary direct edits keep revise routing and payload/apply boundaries."""
-
-        def assert_no_execution_plan_leak(obj: object, path: str = "root") -> None:
-            if isinstance(obj, dict):
-                assert "execution_plan" not in obj, f"execution_plan leaked at {path}"
-                for key, value in obj.items():
-                    assert_no_execution_plan_leak(value, f"{path}.{key}")
-            elif isinstance(obj, list):
-                for index, value in enumerate(obj):
-                    assert_no_execution_plan_leak(value, f"{path}[{index}]")
-
-        with (
-            mock.patch("vibecomfy.executor.research.build_search_corpus") as mock_corpus,
-            mock.patch("vibecomfy.executor.core.build_execution_plan") as mock_plan_builder,
-        ):
-            request = ExecutorRequest(
-                query=query,
-                graph={"nodes": [{"id": 1, "type": "KSampler"}]},
-                profile="default",
-            )
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert result.report.plan.effective_route == "revise"
-        assert result.report.research is None
-        assert result.turn.route == "revise"
-        assert result.turn.apply_eligible is True
-        assert result.turn.no_candidate_reason is None
-        assert result.to_dict()["candidate"] == {"graph": result.graph}
-
-        payload = self._capture_edit_payload(mock_edit)
-        assert payload["route"] == "revise"
-        assert payload["executor_route"] == "revise"
-        assert payload["executor_classification"]["route"] == "revise"
-        assert "execution_protocol_notes" not in payload
-        assert "research_context_packet" not in payload
-        assert "research_summary" not in payload
-        assert "research_sources" not in payload
-        assert "executor_research" not in payload
-        assert "precedent_slices" not in payload
-        assert "adaptation_plan" not in payload
-        assert "execution_plan" not in payload
-        assert_no_execution_plan_leak(result.to_dict())
-        mock_corpus.assert_not_called()
-        mock_plan_builder.assert_not_called()
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_revise)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_revise_skips_research_phase_entirely(
-        self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """revise: research phase is skipped entirely; build_search_corpus is
-        never called (proving no prefetch occurs)."""
-        input_graph = {"nodes": [{"id": 1, "type": "SaveImage"}]}
-        request = ExecutorRequest(
-            query="change filename prefix",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        # build_search_corpus must never be called for revise route.
-        mock_corpus.assert_not_called()
-
-    # ── D: research_context_packet present when available ────────────────
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_research_context_packet_present_when_workflow_sources_exist(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when research produces a precedent_packet from workflow
-        sources, research_context_packet is included in the edit payload."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXImageToVideo",
-                description="LTX video generation node",
-                pack="ltxvideo",
-                source="ready_template",
-                path="/templates/ltx_audio_video.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
-        request = ExecutorRequest(
-            query="add audio path to my LTX workflow",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # research_context_packet must be present when precedent_packet exists.
-        assert "research_context_packet" in payload, (
-            "research_context_packet must be present when workflow sources produce a precedent_packet"
-        )
-        packet = payload["research_context_packet"]
-        assert isinstance(packet, dict)
-        # Must contain expected PrecedentPacket keys.
-        assert "options" in packet, (
-            "research_context_packet must contain 'options' key"
-        )
-        assert "context_note" in packet, (
-            "research_context_packet must contain 'context_note' key"
-        )
-        notes = payload.get("execution_protocol_notes")
-        assert isinstance(notes, dict)
-        selected = notes.get("selected_precedent")
-        assert isinstance(selected, dict)
-        assert selected.get("name") == "LTXImageToVideo"
-        assert selected.get("source") == "ready_template"
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_selected_precedent_suppresses_classifier_avoid_in_research_brief(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: stale classifier avoid guidance must not contradict a
-        selected workflow's implementation ecosystem."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="Find the LTX workflow wiring.",
-            search_directions=(
-                "LTX image-to-video workflow nodes",
-                "LTX frame count conditioning",
-            ),
-            source_preferences=("workflows", "messages"),
-            avoid=("LTX or other video frameworks",),
-        )
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXImageToVideo",
-                description="LTX image-to-video ready template with frame count controls.",
-                pack="ltxvideo",
-                source="ready_template",
-                path="/templates/ltx_i2v.py",
-                model_families=("ltx",),
-                tags=("ltx", "video-generation"),
-                media_type="video",
-                task_type="image_to_video",
-            ),
-        ]
-
-        request = ExecutorRequest(
-            query="Switch this to instead generate 8 frames of video using LTX",
-            graph={"nodes": [{"id": 1, "type": "LoadImage"}]},
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-        notes = payload.get("execution_protocol_notes")
-        assert isinstance(notes, dict)
-        assert isinstance(notes.get("selected_precedent"), dict)
-        assert "avoid" not in payload.get("research_brief", {})
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_install_search_directions_are_rewritten_for_precedent_research(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """Classifier guesses about installs must not steer normal adapt research."""
-        from vibecomfy.search.index import SearchEntry
-
-        captured_research_queries: list[str] = []
-
-        def _fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            captured_research_queries.append(query)
-            return ResearchResult(
-                summary="Found HotShotXL workflow precedent.",
-                sources=(
-                    {
-                        "source": "hivemind_workflow",
-                        "class_type": "AnimateDiff Video Generation with ControlNet and IP-Adapter",
-                        "source_workflow_path": (
-                            "https://github.com/fictions-ai/sharing-is-caring/blob/main/"
-                            "workflow-vid2vid-hotshotXL-ipadapterplusface-ipadapter.json"
-                        ),
-                        "workflow_schema_classes": [
-                            "ADE_AnimateDiffLoaderWithContext",
-                            "ADE_AnimateDiffUniformContextOptions",
-                            "VHS_VideoCombine",
-                        ],
-                        "model_families": ("hotshot", "animatediff", "sdxl"),
-                    },
-                ),
-            )
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research HotShotXL precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal=(
-                "Find ComfyUI workflow examples, node pack details, and wiring "
-                "patterns for HotShotXL video generation."
-            ),
-            search_directions=(
-                "HotShotXL ComfyUI workflow example",
-                "HotShotXL node pack installation and usage",
-                "HotShotXL frame count parameter",
-            ),
-            source_preferences=("workflows", "registry", "messages"),
-        )
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="AnimateDiff Video Generation with ControlNet and IP-Adapter",
-                description="HotShotXL workflow precedent using AnimateDiff and VHS output.",
-                pack="workflow",
-                source="hivemind_workflow",
-                path="workflow-vid2vid-hotshotXL-ipadapterplusface-ipadapter.json",
-                model_families=("hotshot", "animatediff", "sdxl"),
-                tags=("hotshot", "video-generation"),
-                media_type="video",
-                task_type="image_to_video",
-            ),
-        ]
-
-        with mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=_fake_research):
-            request = ExecutorRequest(
-                query="Switch this to instead generate 8 frames of video using HotShotXL",
-                graph={"nodes": [{"id": 1, "type": "LoadImage"}]},
-                profile="default",
-            )
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert captured_research_queries == [
-            (
-                "HotShotXL ComfyUI workflow example; "
-                "HotShotXL workflow precedent and usage; "
-                "HotShotXL frame count parameter"
-            )
-        ]
-        payload = self._capture_edit_payload(mock_edit)
-        brief = payload.get("research_brief")
-        assert isinstance(brief, dict)
-        brief_text = json.dumps(brief)
-        assert "install" not in brief_text.casefold()
-        assert "node pack" not in brief_text.casefold()
-        assert brief["research_goal"] == (
-            "Find ComfyUI workflow examples and wiring "
-            "patterns for HotShotXL video generation"
-        )
-        assert brief["search_directions"] == [
-            "HotShotXL ComfyUI workflow example",
-            "HotShotXL workflow precedent and usage",
-            "HotShotXL frame count parameter",
-        ]
-        assert brief["source_preferences"] == ["workflows", "messages"]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_user_named_absent_hotshotxl_remains_adapt_planning_signal(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """A user-named external workflow tech can drive adapt planning even
-        when no current graph node already belongs to that ecosystem."""
-        captured_research_queries: list[str] = []
-
-        def _fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            captured_research_queries.append(query)
-            return _hotshotxl_execution_plan_research_result()
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research HotShotXL precedent workflow then edit",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="Find HotShotXL workflow precedents for 8-frame video.",
-            search_directions=(
-                "HotShotXL 8 frame workflow precedent",
-                "KSampler to AnimateDiff HotShotXL motion model wiring",
-            ),
-            source_preferences=("workflows", "messages"),
-        )
-
-        request = ExecutorRequest(
-            query="Switch this image workflow to generate 8 frames using HotShotXL.",
-            graph={
-                "nodes": [
-                    {"id": 1, "type": "LoadImage", "class_type": "LoadImage"},
-                    {"id": 2, "type": "KSampler", "class_type": "KSampler"},
-                ],
-                "links": [],
-            },
-            profile="default",
-        )
-
-        with mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=_fake_research):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert captured_research_queries == [
-            "HotShotXL 8 frame workflow precedent; "
-            "KSampler to AnimateDiff HotShotXL motion model wiring"
-        ]
-        payload = self._capture_edit_payload(mock_edit)
-        notes = payload.get("execution_protocol_notes")
-        assert isinstance(notes, dict)
-        assert notes["research_goal"] == "Find HotShotXL workflow precedents for 8-frame video."
-        execution_plan = notes.get("execution_plan")
-        assert isinstance(execution_plan, dict)
-        assert execution_plan["provenance"]["enforced"] is True
-        assert execution_plan["provenance"]["phase"] == "m3_execute_enforcement"
-        assert execution_plan["plan"]["plan_id"].startswith("plan.hotshotxl_8f.")
-        assert "execution_plan" not in payload
-        brief = payload.get("research_brief")
-        assert isinstance(brief, dict)
-        assert brief["search_directions"] == [
-            "HotShotXL 8 frame workflow precedent",
-            "KSampler to AnimateDiff HotShotXL motion model wiring",
-        ]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn")
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    def test_explicit_install_request_keeps_install_provider_research_terms(
-        self,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        captured_research_queries: list[str] = []
-
-        def _fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            captured_research_queries.append(query)
-            return _hotshotxl_execution_plan_research_result()
-
-        mock_classify.return_value = ClassifyDecision(
-            research=True,
-            implement=True,
-            reply=True,
-            effort="high",
-            plan_summary="research HotShotXL installation and workflow precedent",
-            intent="edit",
-            route="adapt",
-            task="research_precedent",
-            research_goal="Find HotShotXL node pack installation and workflow details.",
-            search_directions=(
-                "HotShotXL node pack installation and usage",
-                "HotShotXL provider pack workflow example",
-            ),
-            source_preferences=("workflows", "registry", "messages"),
-        )
-
-        request = ExecutorRequest(
-            query=(
-                "Which pack provides HotShotXL, install it if needed, and switch "
-                "this workflow to 8-frame video?"
-            ),
-            graph={"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}]},
-            profile="default",
-        )
-
-        with mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=_fake_research):
-            result = run_executor(request)
-
-        assert result.ok is True
-        assert captured_research_queries == [
-            "HotShotXL node pack installation and usage; "
-            "HotShotXL provider pack workflow example"
-        ]
-        payload = self._capture_edit_payload(mock_edit)
-        brief = payload.get("research_brief")
-        assert isinstance(brief, dict)
-        assert brief["research_goal"] == (
-            "Find HotShotXL node pack installation and workflow details."
-        )
-        assert brief["search_directions"] == [
-            "HotShotXL node pack installation and usage",
-            "HotShotXL provider pack workflow example",
-        ]
-        assert brief["source_preferences"] == ["workflows", "registry", "messages"]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_research_context_packet_absent_when_no_workflow_sources(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when research produces no precedent_packet (no workflow
-        sources), research_context_packet is absent from the edit payload."""
-        from vibecomfy.search.index import SearchEntry
-
-        # Non-workflow sources (object_info) do not produce precedent packets.
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1}]}
-        request = ExecutorRequest(
-            query="research precedent for sampling",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # research_context_packet must be absent when no precedent_packet.
-        assert "research_context_packet" not in payload, (
-            "research_context_packet must be absent when no workflow sources produce a precedent_packet"
-        )
-        # execution_protocol_notes must still be present (it carries the
-        # _discardability guidance and any classifier fields).
-        assert "execution_protocol_notes" in payload
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_research_context_packet_contains_evidence_not_directive(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: research_context_packet contains evidence/context framing
-        fields (context_note, options) and no forbidden winner/score keys."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXAudioPipeline",
-                description="LTX audio pipeline template",
-                pack="ltxaudio",
-                source="ready_template",
-                path="/templates/ltx_audio_pipeline.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadVideo"}]}
-        request = ExecutorRequest(
-            query="adapt LTX audio pipeline",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        assert "research_context_packet" in payload
-        packet = payload["research_context_packet"]
-
-        # Forbidden winner/ranking keys must be absent at all nesting levels.
-        forbidden = {"winner", "best", "selected", "score", "rank",
-                     "primary", "preferred", "chosen", "pick", "choice",
-                     "recommend", "priority"}
-
-        def _check_forbidden_keys(obj: Any, path: str = "root") -> None:
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    k_lower = k.lower()
-                    assert k_lower not in forbidden, (
-                        f"research_context_packet has forbidden key '{k}' at {path}"
-                    )
-                    _check_forbidden_keys(v, f"{path}.{k}")
-            elif isinstance(obj, list):
-                for i, v in enumerate(obj):
-                    _check_forbidden_keys(v, f"{path}[{i}]")
-
-        _check_forbidden_keys(packet)
-
-    # ── E: empty/irrelevant packets framed as discardable context ────────
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_discardability_guidance_instructs_discard_of_irrelevant_context(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: _discardability guidance explicitly allows discarding packets
-        that are empty, irrelevant, or contradict the user's request."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LoadImage",
-                description="Load image node",
-                pack="core",
-                source="ready_template",
-                path="/templates/load_image.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadImage"}]}
-        request = ExecutorRequest(
-            query="adapt image loader template",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-
-        discard = notes["_discardability"]
-        # Must mention discarding empty packets.
-        assert "empty" in discard.lower(), (
-            f"_discardability must mention empty packets: {discard[:200]}"
-        )
-        # Must mention discarding irrelevant packets.
-        assert "irrelevant" in discard.lower(), (
-            f"_discardability must mention irrelevant packets: {discard[:200]}"
-        )
-        # Must mention the user's explicit request.
-        assert "user's explicit request" in discard.lower() or "user request" in discard.lower(), (
-            f"_discardability must reference the user's request: {discard[:200]}"
-        )
-        # Must state evidence-only / NOT authoritative.
-        assert "NOT authoritative" in discard, (
-            f"_discardability must state NOT authoritative: {discard[:200]}"
-        )
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_discardability_applies_even_when_packet_populated(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: even when research_context_packet is populated with options,
-        the _discardability guidance is present and covers both notes and
-        the research context packet."""
-        from vibecomfy.search.index import SearchEntry
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="LTXAudioWorkflow",
-                description="Full LTX audio-video workflow",
-                pack="ltxaudio",
-                source="ready_template",
-                path="/templates/ltx_audio_workflow.py",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1, "type": "LoadVideo"}]}
-        request = ExecutorRequest(
-            query="add LTX audio pipeline",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # Both execution_protocol_notes and research_context_packet present.
-        assert "execution_protocol_notes" in payload
-        assert "research_context_packet" in payload
-
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-        discard = notes["_discardability"]
-
-        # Discardability guidance covers both protocol notes and context packet.
-        assert "NOT authoritative" in discard
-        assert any(word in discard.lower() for word in ["discard", "empty", "irrelevant"])
-
-        # The research_context_packet is not empty but is still discardable.
-        packet = payload["research_context_packet"]
-        assert isinstance(packet, dict)
-        assert len(packet.get("options", [])) > 0, (
-            "Expected non-empty options in research_context_packet"
-        )
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn",
-                side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
-                side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch("vibecomfy.executor.research._default_web_search_client",
-                side_effect=_empty_web_search_client)
-    @mock.patch("vibecomfy.executor.core._default_hivemind_client",
-                side_effect=_empty_hivemind_client)
-    def test_empty_packet_absence_is_discardable_by_omission(
-        self,
-        mock_hivemind: mock.MagicMock,
-        mock_web: mock.MagicMock,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt: when no precedent_packet exists, research_context_packet is
-        absent entirely (which itself constitutes discardable-by-omission),
-        while execution_protocol_notes still carries _discardability."""
-        from vibecomfy.search.index import SearchEntry
-
-        # No workflow sources that would produce a packet.
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="EmptyLatentImage",
-                description="Generate empty latent image",
-                pack="core",
-                source="object_info",
-            ),
-        ]
-
-        input_graph = {"nodes": [{"id": 1}]}
-        request = ExecutorRequest(
-            query="research sampler settings",
-            graph=input_graph,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        payload = self._capture_edit_payload(mock_edit)
-
-        # research_context_packet is absent → discardable by omission.
-        assert "research_context_packet" not in payload
-
-        # execution_protocol_notes still present with _discardability.
-        assert "execution_protocol_notes" in payload
-        notes = payload["execution_protocol_notes"]
-        assert "_discardability" in notes
-
-
-# ── Adapt target-graph integration tests (T15) ───────────────────────────────
-# Verify adapt flows thread the attached target graph into adaptation planning
-# and keep non-adapt flows unchanged.
-
-
-class LegacyAdaptGraphIntegration:
-    """Executor-level coverage for adapt-with-graph and edge cases."""
-
-    _WAN_SOURCE_PATH = (
-        "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_control_lora.json"
-    )
-
-    def _wan_target_graph(self) -> dict[str, object]:
-        return {
-            "1": {
-                "class_type": "WanVideoModelLoader",
-                "inputs": {
-                    "model": "WanVideo\\wan2.1_t2v_1.3B_fp16.safetensors",
-                    "lora": ["2", 0],
-                },
-            },
-            "2": {
-                "class_type": "WanVideoLoraSelect",
-                "inputs": {"lora": "WanVid\\wan2.1-control-lora.safetensors", "strength": 1},
-            },
-            "3": {
-                "class_type": "WanVideoSampler",
-                "inputs": {"model": ["1", 0], "latent_image": ["4", 0]},
-            },
-        }
-
-    def _ltx_target_graph(self) -> dict[str, object]:
-        return {
-            "1": {
-                "class_type": "LTXVModelLoader",
-                "inputs": {"model": "ltx-video-2b.safetensors", "lora": ["2", 0]},
-            },
-            "2": {
-                "class_type": "LTXVLoraSelect",
-                "inputs": {"lora": "ltx-detail-lora.safetensors", "strength": 1},
-            },
-            "3": {
-                "class_type": "LTXVSampler",
-                "inputs": {"model": ["1", 0], "latent_image": ["4", 0]},
-            },
-        }
-
-    def _corpus_with_wan_source(self) -> list[Any]:
-        from vibecomfy.search.index import SearchEntry
-
-        return [
-            SearchEntry(
-                class_type="video/wan_control_lora",
-                description="Wan control LoRA workflow",
-                pack="wanvideo",
-                source="ready_template",
-                path="ready_templates/video/wan_control_lora.py",
-                source_workflow_path=self._WAN_SOURCE_PATH,
-                source_workflow_available=True,
-                source_workflow_parseable=True,
-                adapt_pattern_keys=("lora_chain",),
-            ),
-        ]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_adapt_with_compatible_graph_produces_pass_candidate(
-        self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt + Wan-compatible target graph → structural pass + candidate_graph."""
-        mock_corpus.return_value = self._corpus_with_wan_source()
-
-        request = ExecutorRequest(
-            query="add Wan LoRA chain",
-            graph=self._wan_target_graph(),
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        plan = result.report.research.adaptation_plan
-        assert plan is not None
-        assert plan.structural_validation == "pass"
-        assert plan.candidate_graph is not None
-        assert "1" in plan.candidate_graph
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_adapt_without_graph_does_not_build_candidate(
-        self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt with no target graph still produces a plan but no candidate."""
-        mock_corpus.return_value = self._corpus_with_wan_source()
-
-        request = ExecutorRequest(
-            query="add Wan LoRA chain",
-            graph=None,
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        # No graph means the implement phase is skipped without calling the
-        # edit engine; the adaptation plan still exists on the research report.
-        mock_edit.assert_not_called()
-        assert result.report.research is not None
-        assert result.report.research.adaptation_plan is not None
-        assert result.report.research.adaptation_plan.structural_validation == "not_evaluated"
-        assert result.report.research.adaptation_plan.candidate_graph is None
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_adapt_incompatible_family_fails_without_candidate(
-        self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-    ) -> None:
-        """adapt + cross-family target graph (Wan source, LTX target) → fail, no candidate."""
-        mock_corpus.return_value = self._corpus_with_wan_source()
-
-        request = ExecutorRequest(
-            query="add Wan LoRA chain",
-            graph=self._ltx_target_graph(),
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        plan = result.report.research.adaptation_plan
-        assert plan is not None
-        assert plan.structural_validation == "fail"
-        assert plan.candidate_graph is None
-        payload = mock_edit.call_args[0][0]
-        assert "adaptation_plan" not in payload
-        notes = payload["execution_protocol_notes"]
-        actionability = notes["adaptation_plan_actionability"]
-        assert actionability["actionability"] == "non_actionable"
-        assert actionability["non_actionable_reason"] == (
-            "structural_validation_failed_without_concrete_edits"
-        )
-        assert "current graph facts" in notes["_discardability"]
-        assert "typed refusal/clarification" in notes["_discardability"]
-        assert "select better precedent" not in notes["_discardability"]
-
-    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
-    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_adapt_unsupported_source_format_fails_without_candidate(
-        self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
-        mock_reply: mock.MagicMock,
-        mock_classify: mock.MagicMock,
-        profile_dir: Path,
-        tmp_path: Path,
-    ) -> None:
-        """adapt with an unsupported source workflow format produces no candidate."""
-        from vibecomfy.search.index import SearchEntry
-
-        bad_path = tmp_path / "not_a_workflow.txt"
-        bad_path.write_text("not json", encoding="utf-8")
-
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="video/wan_control_lora",
-                description="Wan control LoRA workflow",
-                pack="wanvideo",
-                source="ready_template",
-                path="ready_templates/video/wan_control_lora.py",
-                source_workflow_path=str(bad_path),
-                source_workflow_available=True,
-                source_workflow_parseable=False,
-            ),
-        ]
-
-        request = ExecutorRequest(
-            query="add Wan LoRA chain",
-            graph=self._wan_target_graph(),
-            profile="default",
-        )
-        result = run_executor(request)
-
-        assert result.ok is True
-        plan = result.report.research.adaptation_plan
-        assert plan is not None
-        assert plan.structural_validation == "fail"
-        assert plan.candidate_graph is None
-
-
-# ── Route-intent boundary tests (M5) ─────────────────────────────────────────
-# Verify the canonical four-route taxonomy and that non-canonical/legacy
-# inputs resolve to the expected canonical route.
-
-
 class TestRouteIntentBoundaries:
     """Canonical route resolution from classifier intent + legacy booleans."""
 
@@ -6378,18 +3636,12 @@ class TestRouteIntentBoundaries:
             intent="explain_graph",
         )
 
-        research_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            research_calls.append((query, kwargs))
-            return _fake_deterministic_research(query, **kwargs)
-
         request = ExecutorRequest(
             query="is there a distilled/faster way to run?",
             profile="default",
         )
         with (
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.run_research_phase") as legacy_research,
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
         ):
             result = run_executor(request)
@@ -6401,7 +3653,7 @@ class TestRouteIntentBoundaries:
         # Research-only resolves through the agent-owned stage + reply, not
         # the edit gate or legacy research engine.
         assert result.report.research is not None
-        assert research_calls == []
+        legacy_research.assert_not_called()
         mock_edit.assert_not_called()
         assert result.graph is None
 
@@ -6967,179 +4219,6 @@ _RAW_ALICE_MESSAGE: dict[str, Any] = {
     "context": "ltx_chatter",
     "item_id": "test-1",  # str, not int (Discord snowflake precision)
 }
-
-
-class LegacyRealDeterministicResearchIntegration:
-    """PR-B — real deterministic research integration for the research route.
-
-    The research route runs the REAL ``research()`` phase (local corpus +
-    injectable external tiers) with hermetic external clients, then feeds the
-    semantic reply phase.  The classifier's ``source_preferences`` forward the
-    messages tier, so the community summary reaches the reply model.  No batch
-    REPL, no edit gate.
-    """
-
-    def _drive(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        *,
-        messages: list[dict[str, Any]] | None = None,
-        session_id: str = "b05-ltx",
-    ) -> dict[str, Any]:
-        import importlib
-
-        from vibecomfy.search.index import SearchEntry
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-        captured: dict[str, Any] = {
-            "messages_calls": [],
-            "web_calls": [],
-            "hivemind_calls": [],
-            "reply_kwargs": None,
-        }
-
-        def fake_messages_client(query: str, timeout: float) -> dict[str, Any]:
-            captured["messages_calls"].append((query, timeout))
-            return {"results": messages or []}
-
-        def fake_web_client(query: str, timeout: float) -> dict[str, Any]:
-            captured["web_calls"].append((query, timeout))
-            return {"results": []}
-
-        def fake_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
-            captured["hivemind_calls"].append((query, timeout))
-            return {"results": []}
-
-        def fake_corpus() -> list[SearchEntry]:
-            return [
-                SearchEntry(
-                    class_type="KSampler",
-                    description="K-Sampler node",
-                    pack="core",
-                    source="object_info",
-                )
-            ]
-
-        monkeypatch.setattr(research_module, "build_search_corpus", fake_corpus)
-        monkeypatch.setattr(
-            research_module, "_default_hivemind_messages_client", fake_messages_client
-        )
-        monkeypatch.setattr(research_module, "_default_web_search_client", fake_web_client)
-        # core passes its own imported binding into research(); patch it so the
-        # workflows/hivemind tier stays hermetic.
-        monkeypatch.setattr(
-            "vibecomfy.executor.core._default_hivemind_client", fake_hivemind_client
-        )
-
-        def fake_reply(query: str, **kwargs: Any) -> str:
-            captured["reply_kwargs"] = kwargs
-            return (
-                "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
-                "and a clear improvement."
-            )
-
-        with (
-            mock.patch(
-                "vibecomfy.executor.core.run_classify_turn",
-                side_effect=_fake_classify_research_only,
-            ),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
-            mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
-        ):
-            result = run_executor(
-                ExecutorRequest(
-                    query="What is LTX 2.5 and what do people say about it?",
-                    profile="default",
-                    graph=_b05_ui_graph(),
-                    workflow_id="b05-ltx",
-                    session_id=session_id,
-                )
-            )
-
-        return {
-            "result": result,
-            "captured": captured,
-            "mock_edit": mock_edit,
-        }
-
-    def test_real_deterministic_research_runs_messages_web_and_reaches_reply(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
-    ) -> None:
-        """The research route runs the deterministic research phase end to end."""
-        outcome = self._drive(
-            tmp_path,
-            monkeypatch,
-            messages=[_RAW_ALICE_MESSAGE],
-        )
-        result = outcome["result"]
-        captured = outcome["captured"]
-
-        # Exactly one deterministic research pass: workflows/hivemind, messages,
-        # and web tiers each ran once with the SCOPED classifier query.
-        assert len(captured["hivemind_calls"]) == 1
-        assert len(captured["messages_calls"]) == 1
-        assert len(captured["web_calls"]) == 1
-        scoped_query = captured["messages_calls"][0][0]
-        assert "distilled or lightning video/motion models" in scoped_query
-        assert scoped_query == captured["web_calls"][0][0]
-
-        # Community evidence lands on report.research (author/channel cited).
-        assert result.ok is True
-        assert result.report.research is not None
-        assert "alice in #ltx_chatter" in result.report.research.community_summary
-        assert any(
-            source.get("source") == "hivemind_message"
-            and source.get("author") == "alice"
-            and source.get("channel") == "ltx_chatter"
-            for source in result.report.research.sources
-        )
-        # The reply model received the community summary (preferred over the
-        # plain summary) plus author/channel sources.
-        reply_kwargs = captured["reply_kwargs"]
-        assert reply_kwargs["research_summary"] == (
-            result.report.research.community_summary
-        )
-        assert any(
-            source.get("source") == "hivemind_message"
-            and source.get("author") == "alice"
-            and source.get("channel") == "ltx_chatter"
-            for source in (reply_kwargs.get("research_sources") or ())
-        )
-        # The user-facing reply is the reply-model output; no edit ever ran.
-        assert result.reply == (
-            "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
-            "and a clear improvement."
-        )
-        assert result.report.implementation is None
-        serialized = result.to_dict()
-        assert serialized["route"] == "research"
-        assert serialized["apply_eligible"] is False
-        assert serialized["candidate"] is None
-        outcome["mock_edit"].assert_not_called()
-
-    def test_real_deterministic_research_empty_messages_yields_no_discussion_sentence(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
-    ) -> None:
-        """An empty messages tier still yields the honest no-discussion sentence."""
-        outcome = self._drive(
-            tmp_path,
-            monkeypatch,
-            messages=[],
-            session_id="b05-ltx-empty",
-        )
-        result = outcome["result"]
-        captured = outcome["captured"]
-
-        assert result.ok is True
-        assert result.report.research is not None
-        assert result.report.research.community_summary
-        assert "No community discussion found" in result.report.research.community_summary
-        reply_kwargs = captured["reply_kwargs"]
-        assert reply_kwargs["research_summary"] == (
-            result.report.research.community_summary
-        )
-        outcome["mock_edit"].assert_not_called()
 
 
 def _fake_handle_agent_edit_slow(payload: dict, **kwargs: Any) -> dict:

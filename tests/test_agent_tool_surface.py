@@ -723,29 +723,6 @@ class TestResolveWebSearch:
         assert result.detail["tool_code"] == "web_search_disabled"
 
 
-# ── Legacy research() shadow flag ────────────────────────────────────────────
-
-
-class TestLegacyResearchShadowOnly:
-    def test_research_still_resolves_and_is_flagged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import importlib
-
-        from vibecomfy.executor.contracts import ResearchResult
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(summary="Summary.", sources=())
-
-        monkeypatch.setattr(research_module, "research", fake_research)
-
-        result = _resolve('research("legacy query")')
-
-        assert result.ok is True
-        assert result.detail["legacy_shadow_only"] is True
-        assert result.detail["query"] == "research"
-
-
 # ── Ledger-only cross-turn memory ────────────────────────────────────────────
 
 
