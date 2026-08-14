@@ -19,6 +19,7 @@ _EXPORT_MODULES = {
     "encode_slot_names": "vibecomfy.identity.codec",
     "emit_agent_edit_python": "vibecomfy.porting.emitter",
     "emit_available_node_signatures": "vibecomfy.porting.emitter",
+    "filter_signature_rows_to_in_graph_nodes": "vibecomfy.porting.emitter",
     "format_signature_rows": "vibecomfy.porting.emitter",
     "InputSignatureField": "vibecomfy.porting.emitter",
     "InputSlotInfo": "vibecomfy.porting.edit.session",

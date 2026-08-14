@@ -540,11 +540,11 @@ _REPLY_SYSTEM = (
     "You are a helpful assistant replying to a user of a ComfyUI canvas editor.\n"
     "The executor has already completed any research and graph editing phases.\n"
     "Your job is to produce a clear, concise user-facing reply.\n\n"
-    "Return ONLY a JSON object with this key:\n"
-    '  "reply": string — the user-facing message. The string may use readable '
-    "lightweight Markdown such as short paragraphs, bullet lists, emphasis, "
-    "and inline code while the wire format remains JSON.\n"
-    "\n"
+    "Write your reply as plain prose.  Lightweight Markdown is fine: short "
+    "paragraphs, bullet lists, emphasis, and inline code.  Do NOT wrap the "
+    "reply in a fenced code block.  (For backward compatibility with older "
+    "clients you MAY instead return a single JSON object with a \"reply\" "
+    "string key; plain prose is preferred.)\n\n"
     "Rules:\n"
     "- Acknowledge what was done (if anything).\n"
     "- Be concrete: mention node names, template names, or parameter values "
@@ -566,7 +566,7 @@ _REPLY_SYSTEM = (
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
-    "- Do NOT use fenced code blocks in the reply string.\n"
+    "- Do NOT use fenced code blocks in the reply.\n"
     "- Do NOT mention internal gate names, phase gates, provider routes, "
     "candidate engines, scoped diffs, rebaseline steps, or deterministic "
     "no-candidate filler.\n"
@@ -588,8 +588,6 @@ _REPLY_SYSTEM = (
     "code for node names, parameter names, and widget values when it improves "
     "readability. Do NOT suggest edits or changes — only explain the current "
     "graph. Use node names and widget values from the inspection evidence.\n"
-    "- Do NOT include JSON wrapping outside of the required object.\n"
-    "- The response must be a single JSON object; no markdown fences, no commentary."
 )
 
 
@@ -608,6 +606,7 @@ def build_reply_messages(
     effective_route: str | None = None,
     effective_task: str | None = None,
     candidate_present: bool = False,
+    interaction_mode: str | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
@@ -644,6 +643,12 @@ def build_reply_messages(
                      + (f", task: {effective_task}" if effective_task else ""))
     if plan is not None:
         parts.append(f"\nExecutor plan: {plan.plan_summary or 'completed'}")
+    if interaction_mode == "answer_only":
+        parts.append(
+            "\nInteraction mode: answer_only — this is a diagnosis/advice turn. "
+            "No graph edit was made and none is permitted; answer the user's "
+            "question directly without suggesting or implying an edit."
+        )
     if candidate_present:
         parts.append("\nA graph edit candidate was produced and is available for review.")
     if research_summary:
@@ -894,25 +899,113 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     )
 
 
+_ITERATION_LIMIT_SENTINEL_PATTERNS: tuple[str, ...] = (
+    r"\biteration limit\b",
+    r"\btoken limit\b",
+    r"\bturn limit\b",
+    r"\bmax(?:imum)? iterations?\b",
+    r"\btoo many iterations?\b",
+    r"\bbudget (?:was )?exhausted\b",
+    r"\bexhausted (?:the |my )?(?:turn|token|iteration) budget\b",
+    r"\bcouldn'?t generate\b",
+    r"\bcould not generate\b",
+    r"\bwas (?:unable|not able) to generate\b",
+    r"\bfailed to generate\b",
+    r"\bcouldn'?t produce\b",
+    r"\bcould not produce\b",
+    r"\bwas (?:unable|not able) to produce\b",
+    r"\bfailed to produce\b",
+    r"\bcouldn'?t (?:write|finish|complete|summarize)\b",
+    r"\bcould not (?:write|finish|complete|summarize)\b",
+)
+_ITERATION_LIMIT_SENTINEL_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in _ITERATION_LIMIT_SENTINEL_PATTERNS),
+    re.IGNORECASE,
+)
+# A sentinel is a SHORT first-person failure stub ("I reached the iteration
+# limit and couldn't generate a summary."), not a real answer that happens to
+# mention a limit.  Require a failure admission verb unless the text is very
+# short.
+_FAILURE_ADMISSION_RE = re.compile(
+    r"\b(couldn'?t|could not|was unable|not able to|unable to|failed|ran out)\b",
+    re.IGNORECASE,
+)
+# Short failure stubs are retryable; longer prose mentioning a limit in
+# passing is a real answer.
+_ITERATION_LIMIT_SENTINEL_MAX_LEN = 200
+_ITERATION_LIMIT_SENTINEL_SHORT_MAX_LEN = 80
+
+
+def _looks_json_shaped(text: str) -> bool:
+    """True when model output starts like JSON transport (object or fence)."""
+    stripped = text.strip()
+    return stripped.startswith("{") or stripped.startswith("```")
+
+
+def _is_iteration_limit_sentinel(text: str) -> bool:
+    """True for short first-person failure stubs that must stay retryable."""
+    if not text or len(text) > _ITERATION_LIMIT_SENTINEL_MAX_LEN:
+        return False
+    if _ITERATION_LIMIT_SENTINEL_RE.search(text) is None:
+        return False
+    if len(text) <= _ITERATION_LIMIT_SENTINEL_SHORT_MAX_LEN:
+        return True
+    return _FAILURE_ADMISSION_RE.search(text) is not None
+
+
+def _sanitize_reply_prose(text: str) -> str:
+    """Trim trailing whitespace per line and collapse blank runs in prose."""
+    lines = [line.rstrip() for line in str(text).splitlines()]
+    cleaned: list[str] = []
+    pending_blank = False
+    for line in lines:
+        if not line.strip():
+            if cleaned and not pending_blank:
+                cleaned.append("")
+                pending_blank = True
+            continue
+        pending_blank = False
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def parse_reply_response(raw: str) -> str:
     """Parse a reply model response into a user-facing string.
 
-    Expects ``{"reply": "..."}``.  Returns the reply text or raises
-    :class:`ValueError` for unparseable output.
+    First tries the legacy JSON transport (``{"reply": "..."}`` plus the
+    ``message`` / ``response`` / ``content`` / ``text`` fallback keys) for
+    backward compatibility.  When the output is not JSON-shaped, sanitized
+    non-empty prose is accepted verbatim.
+
+    Empty output, JSON-looking-but-malformed output, and iteration-limit
+    sentinels remain retryable errors (raised as :class:`ValueError`).
     """
-    parsed = _extract_json_object(raw)
-    reply = parsed.get("reply")
-    if isinstance(reply, str) and reply.strip():
-        return reply.strip()
-    # Some models use "message" or "response" as the key; try those.
-    for key in ("message", "response", "content", "text"):
-        value = parsed.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    raise ValueError(
-        f"Reply model response did not contain a string 'reply' (or fallback) key. "
-        f"Got keys: {sorted(parsed.keys())}"
-    )
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("Reply model returned an empty response.")
+    stripped = raw.strip()
+    if _looks_json_shaped(stripped):
+        parsed = _extract_json_object(stripped)
+        reply = parsed.get("reply")
+        if isinstance(reply, str) and reply.strip():
+            return reply.strip()
+        # Some models use "message" or "response" as the key; try those.
+        for key in ("message", "response", "content", "text"):
+            value = parsed.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        raise ValueError(
+            f"Reply model response did not contain a string 'reply' (or fallback) key. "
+            f"Got keys: {sorted(parsed.keys())}"
+        )
+    if _is_iteration_limit_sentinel(stripped):
+        raise ValueError(
+            "Reply model returned an iteration/token-limit stub instead of an "
+            f"answer: {stripped[:200]!r}"
+        )
+    prose = _sanitize_reply_prose(stripped)
+    if not prose:
+        raise ValueError("Reply model returned an empty response.")
+    return prose
 
 
 __all__ = [

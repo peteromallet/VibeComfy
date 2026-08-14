@@ -196,6 +196,8 @@ def run_headless_scenario(
         network=bool(scenario.get("network", True)),
         timeout=scenario.get("timeout"),
         additive=bool(scenario.get("additive", False)),
+        interaction_mode=scenario.get("interaction_mode"),
+        max_batches=scenario.get("max_batches"),
     )
 
     result = run_headless(request, entrypoint="live_agentic_harness")

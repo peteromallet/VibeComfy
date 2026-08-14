@@ -41,6 +41,29 @@ from vibecomfy.schema import schema_for, socket_types_compatible
 _CONTROL_AFTER_GENERATE_CHOICES = ("fixed", "randomize", "increment", "decrement")
 
 
+def _node_resolvable_literal_fields(node: Mapping[str, Any]) -> list[str]:
+    """Return the literal field names this node instance can actually set.
+
+    Resolved through the same compact widget-name machinery the setter uses
+    (``compact_widget_names_for_node``); raw ``widget_N`` placeholders that
+    carry no semantic name are omitted.  Used to explain why a schema-literal
+    field is not settable on a specific node (PR-D / Tripo geometry_quality).
+    """
+    from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
+        compact_widget_names_for_node,
+    )
+
+    try:
+        names = compact_widget_names_for_node(node).names
+    except Exception:
+        return []
+    return [
+        str(name)
+        for name in names
+        if isinstance(name, str) and not re.fullmatch(r"widget_\d+", name)
+    ]
+
+
 def _resolve_scope(ledger: EditLedger, scope_path: str) -> tuple[ScopeState | None, list[PortIssue]]:
     scope = ledger.scopes.get(scope_path)
     if scope is None:
@@ -305,16 +328,24 @@ def _resolve_set_node_field(
                     },
                 )
             ]
+        node_literal_fields = _node_resolvable_literal_fields(node)
+        hint = (
+            "Settable literal fields on this node: "
+            + (", ".join(node_literal_fields) if node_literal_fields else "none")
+            + "."
+        )
         return None, [
             _issue(
-                "non_widget_field_not_editable",
-                f"{class_type}.{op.target.field_path} is not editable through set_node_field because it has no widget-backed literal surface.",
+                "node_field_not_resolvable",
+                f"{class_type}.{op.target.field_path} is advertised as a literal field by the class schema, "
+                f"but this node instance has no widget for it (the node may predate the field). {hint}",
                 detail={
                     "scope_path": op.target.scope_path,
                     "uid": op.target.uid,
                     "field_path": field_path,
                     "requested_field_path": op.target.field_path,
                     "class_type": class_type,
+                    "node_literal_fields": node_literal_fields,
                 },
             )
         ]
@@ -340,7 +371,14 @@ def _resolve_set_node_field(
         input_name=field_path,
         context="set_node_field",
     )
-    if value_issues:
+    # Apply-time policy: unavailable checkpoint/model assets are WARNINGS
+    # (asset_not_installed), not hard errors — only error-severity issues
+    # block the assignment.  Warnings are carried on the resolved op so the
+    # caller can surface them without rejecting a justified model-file swap.
+    if any(
+        getattr(issue, "severity", "error") == "error"
+        for issue in value_issues
+    ):
         return None, value_issues
 
     value_default_receipt = None
@@ -435,7 +473,7 @@ def _resolve_set_node_field(
             reason=receipt_reason,
         )
 
-    issues = []
+    issues = list(value_issues)
     if used_schema_less_widget_recovery:
         issues.append(
             _issue(

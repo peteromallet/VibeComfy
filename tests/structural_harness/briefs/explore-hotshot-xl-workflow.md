@@ -1,19 +1,10 @@
-# Explore: add Hotshot XL to an SVD-XT workflow
-
-The user wants to add Hotshot XL to an SVD-XT (Stable Video Diffusion XT) workflow.
-
-Run the canonical VibeComfy executor entrypoint,
-`vibecomfy.executor.core.run_executor`, for the query
-"Hotshot XL SVD-XT workflow". Build an `ExecutorRequest` and freeze the
-returned `ExecutorResult` as `evidence/executor_result.json`.
-
-Also freeze `evidence/executor_report.json`, the implementation result as
-`evidence/implementation_result.json`, the implementation payload as
-`evidence/implementation_payload.json`, and the agent-edit research transcript as
-`evidence/messages.jsonl`. Record `actions.jsonl` entries showing the executor
-ran and that research ran through agent-edit.
+# Explore Hotshot XL Research Route — structural evidence brief
 
 The goal is to prove the same executor path used by the frontend/API performs
-research by passing a triage-generated research brief into `handle_agent_edit`.
-Structural/fake runs must be deterministic and avoid live model calls, but the
-frozen shape should match the live agentic flow.
+research for a research-only question: the classifier's `search_directions`
+scope the deterministic research query (domain anchors, never generic words
+from the raw sentence) and its `source_preferences` become the explicit tier
+tuple, then the semantic reply phase answers — the agent-edit batch gate never
+runs. Structural/fake runs must be deterministic and avoid live model calls,
+but the frozen shape (`executor_result.json`, `executor_report.json`,
+`research.json`, `actions.jsonl`) should match the live agentic flow.

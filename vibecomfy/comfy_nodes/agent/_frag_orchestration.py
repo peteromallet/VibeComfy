@@ -36,6 +36,25 @@ def _run_stage(
             else name
         )
         failure = _classify_stage_failure(failure_stage, exc, context)
+        if name == "agent_batch_repl":
+            # Retain structured validation issues even when the loop raised:
+            # the accumulated per-turn diagnostics are the only actionable
+            # evidence the agent can repair from, so they must survive into
+            # the failure envelope instead of being replaced by the bare
+            # exception text (which is often empty, e.g. a bare assert).
+            from vibecomfy.comfy_nodes.agent.edit import _batch_turn_diagnostics  # T-039 late import: host namespace lookup; resolved at call time
+            turn_diagnostics = _batch_turn_diagnostics(
+                list(getattr(state, "batch_turns", ()) or ())
+            )
+            if turn_diagnostics:
+                failure_context = dict(failure.agent_failure_context or {})
+                existing_issues = failure_context.get("issues")
+                if not (isinstance(existing_issues, (list, tuple)) and existing_issues):
+                    failure_context["issues"] = turn_diagnostics
+                failure = dataclasses.replace(
+                    failure,
+                    agent_failure_context=failure_context,
+                )
         result = StageResult(
             stage=name,
             ok=False,

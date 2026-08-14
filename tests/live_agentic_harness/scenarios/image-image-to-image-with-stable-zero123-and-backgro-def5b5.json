@@ -1,6 +1,6 @@
 {
   "id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
-  "query": "Set the number of sampling steps to 30 to speed up generation without drastically affecting quality.",
+  "query": "Set the number of sampling steps to 4 to speed up generation without drastically affecting quality.",
   "workflow_path": "external_workflows/corpus/def5b5d3b3b372dd.json",
   "network": true,
   "timeout": 160,

@@ -440,102 +440,6 @@ def _fake_handle_agent_edit_pure_clarify(payload: dict, **kwargs: Any) -> dict:
     }
 
 
-def _fake_handle_agent_edit_research(payload: dict, **kwargs: Any) -> dict:
-    """Fake the durable non-applyable batch-REPL research response."""
-    assert payload["route"] == "research"
-    assert payload["executor_route"] == "research"
-    assert payload["graph"] == {"nodes": [], "links": []}
-    assert "research_summary" not in payload
-    assert "executor_research" not in payload
-    brief = payload["research_brief"]
-    assert brief["research_goal"] == (
-        "Find distilled or faster ways to run the current ComfyUI video workflow."
-    )
-    assert brief["search_directions"] == [
-        "distilled or lightning video/motion models compatible with AnimateDiff-style workflows",
-        "AnimateDiff speed settings such as context length, sampler, steps, and frame count",
-        "ComfyUI workflow examples that trade quality for faster generation",
-    ]
-    assert brief["source_preferences"] == ["workflows", "messages", "web"]
-    # avoid's tail wording varies by classifier input: the explicit
-    # classifier avoid ("treating Discord snippets ...") vs the bare-plan
-    # fallback brief ("inventing community consensus ..."). Lock the shared
-    # prefix only.
-    assert brief["avoid"][:2] == [
-        "generic searches for the raw sentence",
-        "stopword-only searches such as there way run",
-    ]
-    assert brief["known_graph_context"] == (
-        "Attached graph may be absent; infer only broad workflow family from the request."
-    )
-    return {
-        "ok": True,
-        "graph": {"nodes": [{"id": 99, "type": "ShouldNotApply"}]},
-        "message": "The agent researched distilled/faster runtime options.",
-        "outcome": {"kind": "noop", "reason": "research answer only"},
-        "apply_eligible": False,
-        "apply_eligibility": {
-            "applyable": False,
-            "reason": "no_candidate",
-            "message": "Apply is not available for research routes.",
-        },
-        "graph_unchanged": True,
-        "no_candidate_reason": "route_not_applyable",
-        "session_id": "research-session",
-        "turn_id": "0001",
-        "artifacts": {"messages": "/tmp/turns/0001/messages.jsonl"},
-        "detail_json_path": "/tmp/turns/0001/response.json",
-    }
-
-
-def _fake_handle_agent_edit_research_findings(payload: dict, **kwargs: Any) -> dict:
-    """Fake a durable research response carrying hoistable research_findings.
-
-    Keeps the B04-critical shape: graph_unchanged=True +
-    no_candidate_reason="route_not_applyable" (the pre-B04 shortcut shape),
-    plus an alice/ltx_chatter hivemind_message and an approved distillation
-    under ``research_findings``.
-    """
-    base = _fake_handle_agent_edit_research(payload, **kwargs)
-    base["message"] = "No graph changes were needed."
-    base["research_findings"] = {
-        "sources": [
-            {
-                "source": "hivemind_message",
-                "kind": "message",
-                "author": "alice",
-                "channel": "ltx_chatter",
-                "title": "LTX 2.5 is great",
-                "class_type": "LTX 2.5 is great",
-                "description": "LTX 2.5 handles fast previews really well.",
-                "hivemind_id": "9001",
-                "url": "",
-                "created_at": "2026-08-12T10:00:00Z",
-                "score": 0,
-                "pack": "banodoco-discord",
-            },
-            {
-                "source": "hivemind_distillation",
-                "kind": "distillation",
-                "title": "LTX 2.5 community distillation",
-                "class_type": "LTX 2.5 community distillation",
-                "description": "Hands-on notes on LTX 2.5 fast previews.",
-                "distillation_status": "approved",
-                "confidence": 0.9,
-                "hivemind_id": "9002",
-                "url": "",
-                "created_at": "2026-08-12T09:00:00Z",
-            },
-        ],
-        "summary": "workflow-only summary of LTX research",
-        "community_summary": (
-            "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
-        ),
-        "warnings": (),
-    }
-    return base
-
-
 def _fake_reply_research_findings(
     query: str,
     *,
@@ -603,6 +507,38 @@ def _fake_handle_agent_edit_explain(payload: dict, **kwargs: Any) -> dict:
 def _empty_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
     """Deterministic Hivemind client that returns no results."""
     return {"results": []}
+
+
+def _fake_deterministic_research(
+    query: str,
+    *,
+    graph: dict[str, Any] | None = None,
+    target_node_type: str = "",
+    hivemind_client: Any = None,
+    sources: tuple[str, ...] | None = None,
+    **kwargs: Any,
+) -> ResearchResult:
+    """Fake the deterministic research phase for research-route tests.
+
+    Tests that need to observe the scoped query / forwarded ``sources`` wrap
+    this helper with a recording closure.
+    """
+    return ResearchResult(
+        summary=f"Deterministic research for: {query}",
+        sources=(
+            {
+                "source": "object_info",
+                "kind": "node",
+                "title": "KSampler",
+                "class_type": "KSampler",
+                "description": "K-Sampler node for ComfyUI",
+                "pack": "core",
+            },
+        ),
+        warnings=(),
+
+
+    )
 
 
 def _one_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
@@ -717,201 +653,216 @@ class TestRespondOnlyFlow:
 
 
 class TestResearchOnlyFlow:
-    """Smoke tests for legacy research-only classify output.
+    """Smoke tests for research-only classify output (PR-B).
 
-    Canonical route behavior resolves this shape to research: agentic
-    research loop, no applyable candidate.
+    Canonical route behavior resolves this shape to research: deterministic
+    executor research (local corpus + injectable external tiers) feeding the
+    semantic reply phase.  No agentic batch REPL, no edit gate, and no
+    applyable candidate.
     """
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_research_only_default_profile(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Research-only legacy output resolves to agentic research and reply."""
-        from vibecomfy.search.index import SearchEntry
+        """Research-only output resolves to deterministic research and reply."""
+        research_calls: list[tuple[str, dict[str, Any]]] = []
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler node for ComfyUI",
-                pack="core",
-                tags=("sampling",),
-                tasks=("t2i",),
-                source="object_info",
-            ),
-        ]
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
 
         request = ExecutorRequest(
             query="What sampling nodes are available?", profile="default"
         )
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
-        assert result.reply is not None
-        # B04: the research route falls through to _run_reply, so the
-        # user-facing reply is the reply-model output — not the narrator line.
         assert result.reply == (
             "Based on my research, here are the relevant node types: "
             "KSampler, VAEDecode, CLIPTextEncode."
         )
-        assert result.reply != result.report.implementation.message
         mock_reply.assert_called_once()
         assert result.report.plan.research is True
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        assert result.report.research is None
-        assert result.report.implementation is not None
-        assert result.report.implementation.durable_response is not None
-        assert result.to_dict()["artifacts"]["messages"].endswith("messages.jsonl")
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        # Deterministic research populated report.research directly (no
+        # agentic batch REPL, no durable implementation).
+        assert result.report.research is not None
+        assert result.report.implementation is None
+        # The research query is scoped from classifier search_directions and
+        # the classifier's source_preferences become the explicit tier tuple.
+        assert len(research_calls) == 1
+        _query, research_kwargs = research_calls[0]
+        assert "distilled or lightning video/motion models" in _query
+        assert research_kwargs["sources"] == ("workflows", "messages", "web")
+        assert research_kwargs["target_node_type"] == ""
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_research_only_openai_profile(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Research-only legacy output uses research behavior with openai profile."""
-        from vibecomfy.search.index import SearchEntry
+        """Research-only output uses deterministic research with openai profile."""
+        research_calls: list[tuple[str, dict[str, Any]]] = []
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="VAEDecode",
-                description="VAE Decode node",
-                pack="core",
-                source="object_info",
-            ),
-        ]
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
 
-        request = ExecutorRequest(
-            query="What VAE nodes exist?", profile="openai"
-        )
-        result = run_executor(request)
+        request = ExecutorRequest(query="What VAE nodes exist?", profile="openai")
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.reply is not None
         assert result.report.plan.research is True
         assert result.to_dict()["route"] == "research"
-        assert result.report.research is None
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        assert result.report.research is not None
+        assert len(research_calls) == 1
+        assert research_calls[0][1]["sources"] == ("workflows", "messages", "web")
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_research_only_sources_in_result(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Research-only legacy output does not expose candidate or apply."""
-        from vibecomfy.search.index import SearchEntry
+        """Research-only output does not expose candidate or apply."""
+        research_calls: list[tuple[str, dict[str, Any]]] = []
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="CLIPTextEncode",
-                description="CLIP text encoder",
-                pack="core",
-                source="object_info",
-            ),
-        ]
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
 
         request = ExecutorRequest(query="text encoding nodes", profile="default")
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         payload = result.to_dict()
         assert payload["route"] == "research"
         assert payload["candidate"] is None
         assert payload["apply_eligible"] is False
-        assert result.report.research is None
-        assert result.report.implementation is not None
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        assert result.report.research is not None
+        assert result.report.implementation is None
+        assert len(research_calls) == 1
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    @mock.patch(
-        "vibecomfy.executor.core._default_hivemind_client",
-        side_effect=_empty_hivemind_client,
-    )
     def test_research_only_empty_corpus(
-        self, mock_hivemind, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Research behavior no longer depends on executor deterministic corpora."""
-        mock_corpus.return_value = []
+        """Empty deterministic research degrades gracefully — reply still runs."""
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            return ResearchResult(
+                summary="No relevant results found.",
+                sources=(),
+                warnings=("empty corpus",),
+            )
 
         request = ExecutorRequest(query="nonexistent node", profile="default")
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.reply is not None
         assert result.to_dict()["route"] == "research"
-        assert result.report.research is None
-        mock_corpus.assert_not_called()
-        mock_hivemind.assert_not_called()
-        mock_edit.assert_called_once()
+        # Non-fatal: research warnings are carried, the reply phase still runs.
+        assert result.report.research is not None
+        assert result.report.research.warnings == ("empty corpus",)
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_hotshot)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_research_hotshot_xl_query(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """A Hotshot XL research-only classifier output stays research-only."""
-        from vibecomfy.search.index import SearchEntry
+        research_calls: list[tuple[str, dict[str, Any]]] = []
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="HotshotXL",
-                description="Hotshot XL SDXL-based text-to-video node",
-                pack="hotshot-xl",
-                tags=("video", "sdxl"),
-                tasks=("i2v",),
-                source="curated",
-            ),
-        ]
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
 
         request = ExecutorRequest(
             query="How do I add Hotshot XL to an SVD-XT workflow?",
             profile="default",
         )
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
-        assert result.reply is not None
-        # B04: reply comes from _run_reply (the reply model), not the
-        # terminal-no-candidate narrator line.
+        # The reply comes from _run_reply (the reply model), never the
+        # narrator line — implementation never ran.
         assert "Hotshot XL" in result.reply
-        assert result.reply != result.report.implementation.message
         mock_reply.assert_called_once()
         assert result.report.plan.research is True
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
-        assert result.report.research is None
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        assert result.report.research is not None
+        assert len(research_calls) == 1
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research_findings)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_research_hoist_populates_report_research(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+    def test_research_result_populates_report_research(
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Durable research_findings hoist onto report.research for research."""
+        """The deterministic research result populates report.research."""
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            return ResearchResult(
+                summary="workflow-only summary of LTX research",
+                community_summary=(
+                    "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
+                ),
+                sources=(
+                    {
+                        "source": "hivemind_message",
+                        "kind": "message",
+                        "author": "alice",
+                        "channel": "ltx_chatter",
+                        "title": "LTX 2.5 is great",
+                        "class_type": "LTX 2.5 is great",
+                        "description": "LTX 2.5 handles fast previews really well.",
+                        "hivemind_id": "9001",
+                        "url": "",
+                        "created_at": "2026-08-12T10:00:00Z",
+                        "score": 0,
+                        "pack": "banodoco-discord",
+                    },
+                ),
+                warnings=(),
+            )
+
         request = ExecutorRequest(
             query="What do people think about LTX 2.5?", profile="default"
         )
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.report.research is not None
@@ -933,30 +884,50 @@ class TestResearchOnlyFlow:
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
         mock_reply.assert_called_once()
-        mock_edit.assert_called_once()
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_findings)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research_findings)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
-    def test_research_route_terminal_no_candidate_still_runs_reply(
-        self, mock_corpus, mock_edit, mock_reply, mock_classify, profile_dir: Path
+    def test_research_route_never_runs_implement_and_reply_receives_findings(
+        self, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """A terminal-no-candidate research implement still runs _run_reply.
+        """The research route never runs the edit gate; reply gets the findings."""
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            return ResearchResult(
+                summary="workflow-only summary of LTX research",
+                community_summary=(
+                    "alice in #ltx_chatter: LTX 2.5 handles fast previews really well."
+                ),
+                sources=(
+                    {
+                        "source": "hivemind_message",
+                        "kind": "message",
+                        "author": "alice",
+                        "channel": "ltx_chatter",
+                        "title": "LTX 2.5 is great",
+                        "class_type": "LTX 2.5 is great",
+                        "description": "LTX 2.5 handles fast previews really well.",
+                        "hivemind_id": "9001",
+                        "url": "",
+                        "created_at": "2026-08-12T10:00:00Z",
+                        "score": 0,
+                        "pack": "banodoco-discord",
+                    },
+                ),
+                warnings=(),
+            )
 
-        The durable response is graph_unchanged=True +
-        no_candidate_reason="route_not_applyable" (the pre-B04 shortcut shape)
-        with research_findings carrying an alice/ltx_chatter message.  The
-        user-facing reply must come from run_reply_turn — with the community
-        summary and author/channel sources — never the narrator line.
-        """
         request = ExecutorRequest(
             query="What do people think about LTX 2.5?", profile="default"
         )
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
-        # Hoisted onto report.research with the community evidence.
+        # Community evidence lands directly on report.research.
         assert result.report.research is not None
         assert result.report.research.community_summary
         assert "alice" in result.report.research.community_summary
@@ -980,18 +951,144 @@ class TestResearchOnlyFlow:
             and src.get("channel") == "ltx_chatter"
             for src in (reply_kwargs.get("research_sources") or ())
         )
-        # The user-facing reply is the reply-model output, NOT
-        # implementation_result.message / the narrator line.
+        # The user-facing reply is the reply-model output, and no implement
+        # ever ran (no narrator line, no durable response).
         assert result.reply == (
             "Community notes: alice in #ltx_chatter says LTX 2.5 handles fast "
             "previews really well."
         )
-        assert result.reply != result.report.implementation.message
-        assert "No graph changes were needed" not in result.reply
+        assert result.report.implementation is None
         assert result.to_dict()["route"] == "research"
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        mock_edit.assert_called_once()
+        mock_edit.assert_not_called()
+
+
+# ── Answer-only interaction (PR-B) ────────────────────────────────────────────
+
+
+class TestAnswerOnlyInteraction:
+    """interaction_mode="answer_only" guarantees no graph edit, whatever the
+    classifier decided.  It is an explicit request/scenario contract — never
+    inferred from ``apply=false`` (that flag only gates candidate application).
+    """
+
+    def _run(self, request: ExecutorRequest, *, classify: Any) -> ExecutorResult:
+        research_calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
+
+        def fake_reply(
+            query: str,
+            *,
+            interaction_mode: str | None = None,
+            **kwargs: Any,
+        ) -> str:
+            captured_reply["interaction_mode"] = interaction_mode
+            return "Here is the answer."
+
+        captured_reply: dict[str, Any] = {}
+        captured_reply["interaction_mode"] = "unset"
+
+        with (
+            mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify),
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
+            edit_called = mock_edit.called
+        return result, research_calls, captured_reply, edit_called
+
+    def test_answer_only_edit_classification_is_downgraded_to_research(
+        self, profile_dir: Path
+    ) -> None:
+        """An edit-classified query on an answer_only interaction must not edit."""
+        def classify_edit(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+            return ClassifyDecision(
+                research=True,
+                implement=True,
+                reply=True,
+                effort="high",
+                plan_summary="research then adapt",
+                intent="edit",
+                route="adapt",
+                task="research_precedent",
+            )
+
+        request = ExecutorRequest(
+            query="how should I rewire the KSampler?",
+            graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+            profile="default",
+            interaction_mode="answer_only",
+        )
+        result, research_calls, reply_capture, edit_called = self._run(
+            request, classify=classify_edit
+        )
+
+        assert result.ok is True
+        # The answer-only contract downgraded the edit route to research.
+        assert result.report.plan.effective_route == "research"
+        assert result.report.plan.implement is False
+        assert result.to_dict()["route"] == "research"
+        assert result.graph is None
+        assert result.to_dict()["candidate"] is None
+        assert result.to_dict()["apply_eligible"] is False
+        # Deterministic research ran and the reply phase ran with the explicit
+        # interaction mode.
+        assert len(research_calls) == 1
+        assert reply_capture["interaction_mode"] == "answer_only"
+        assert edit_called is False
+
+    def test_answer_only_research_classification_never_implements(
+        self, profile_dir: Path
+    ) -> None:
+        """A research classification on an answer_only interaction stays pure."""
+        def classify_research(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+            return ClassifyDecision(
+                research=True,
+                implement=False,
+                reply=True,
+                effort="medium",
+                plan_summary="research node types",
+                route="research",
+                task="research_nodes",
+                source_preferences=("workflows", "messages", "web"),
+            )
+
+        request = ExecutorRequest(
+            query="compare Gemini and Claude for prompt splitting",
+            profile="default",
+            interaction_mode="answer_only",
+        )
+        result, research_calls, reply_capture, edit_called = self._run(
+            request, classify=classify_research
+        )
+
+        assert result.ok is True
+        assert result.report.plan.effective_route == "research"
+        assert result.report.plan.implement is False
+        assert result.to_dict()["route"] == "research"
+        assert len(research_calls) == 1
+        assert research_calls[0][1]["sources"] == ("workflows", "messages", "web")
+        assert reply_capture["interaction_mode"] == "answer_only"
+        assert edit_called is False
+
+    def test_answer_only_reply_prompt_carries_explicit_note(self) -> None:
+        """build_reply_messages receives the answer-only interaction note."""
+        from vibecomfy.executor.prompts import build_reply_messages
+
+        msgs = build_reply_messages(
+            "diagnose this",
+            interaction_mode="answer_only",
+        )
+        user = msgs[1]["content"]
+        assert "answer_only" in user
+        assert "No graph edit was made and none is permitted" in user
+        plain = build_reply_messages("diagnose this")[1]["content"]
+        assert "answer_only" not in plain
 
 
 # ── Simple edit flow tests ───────────────────────────────────────────────────
@@ -2973,41 +3070,38 @@ class TestRouteGateFlows:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_research_only)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
-    @mock.patch("vibecomfy.executor.research.build_search_corpus")
     def test_no_route_research_only_resolves_to_research_with_research_phase(
         self,
-        mock_corpus: mock.MagicMock,
-        mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
     ) -> None:
-        """Without explicit route, research-only resolves to agentic research."""
-        from vibecomfy.search.index import SearchEntry
+        """Without explicit route, research-only resolves to deterministic research."""
+        research_calls: list[tuple[str, dict[str, Any]]] = []
 
-        mock_corpus.return_value = [
-            SearchEntry(
-                class_type="KSampler",
-                description="K-Sampler",
-                pack="core",
-                source="object_info",
-            ),
-        ]
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
 
         request = ExecutorRequest(
             query="what nodes are available?",
             profile="default",
         )
-        result = run_executor(request)
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
+            result = run_executor(request)
 
         assert result.ok is True
         assert result.to_dict()["route"] == "research"
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        assert result.report.research is None
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        # PR-B: the research phase ran deterministically and populated
+        # report.research; the edit gate never ran.
+        assert result.report.research is not None
+        assert len(research_calls) == 1
+        mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_edit)
@@ -4953,8 +5047,8 @@ class TestAdaptPrefetchAndResearchContextScoping:
         )
         assert _should_prefetch_research(plan) is True
 
-    def test_should_prefetch_research_false_for_research_route(self) -> None:
-        """Research routes use the agentic loop, not executor prefetch."""
+    def test_should_prefetch_research_true_for_research_route(self) -> None:
+        """Research routes use deterministic executor prefetch (PR-B)."""
         from vibecomfy.executor.core import _should_prefetch_research
 
         plan = ClassifyDecision(
@@ -4967,7 +5061,7 @@ class TestAdaptPrefetchAndResearchContextScoping:
             route="research",
             task="research",
         )
-        assert _should_prefetch_research(plan) is False
+        assert _should_prefetch_research(plan) is True
 
     def test_should_prefetch_research_false_for_non_research_routes(self) -> None:
         """_should_prefetch_research returns False for respond, clarify, inspect."""
@@ -6195,10 +6289,8 @@ class TestRouteIntentBoundaries:
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn")
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
-    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_research)
     def test_legacy_research_only_intent_resolves_to_research(
         self,
-        mock_edit: mock.MagicMock,
         mock_reply: mock.MagicMock,
         mock_classify: mock.MagicMock,
         profile_dir: Path,
@@ -6213,20 +6305,31 @@ class TestRouteIntentBoundaries:
             intent="explain_graph",
         )
 
+        research_calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            research_calls.append((query, kwargs))
+            return _fake_deterministic_research(query, **kwargs)
+
         request = ExecutorRequest(
             query="is there a distilled/faster way to run?",
             profile="default",
         )
-        with mock.patch("vibecomfy.executor.research.build_search_corpus", return_value=[]) as mock_corpus:
+        with (
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+        ):
             result = run_executor(request)
 
         assert result.ok is True
         assert result.turn.route == "research"
         assert result.report.plan.effective_route == "research"
         assert result.report.plan.implement is False
-        assert result.report.research is None
-        mock_corpus.assert_not_called()
-        mock_edit.assert_called_once()
+        # PR-B: research-only resolves to deterministic research + reply, not
+        # the agentic batch edit gate.
+        assert result.report.research is not None
+        assert len(research_calls) == 1
+        mock_edit.assert_not_called()
         assert result.graph is None
 
 
@@ -6793,16 +6896,14 @@ _RAW_ALICE_MESSAGE: dict[str, Any] = {
 }
 
 
-class TestRealBatchReplResearchIntegration:
-    """B05 — real batch-REPL integration for the informational path.
+class TestRealDeterministicResearchIntegration:
+    """PR-B — real deterministic research integration for the research route.
 
-    A fixture model emits ``research("LTX 2.5")`` with NO ``sources=`` and
-    then ``done()``.  The REAL EditSession → ``_resolve_query_statement`` →
-    fold → durable ``research_findings`` → executor hoist → reply plumbing
-    runs end to end; the only fakes are the classify/reply model turns, the
-    batch-REPL model client, and the two external research clients (messages
-    + web).  No live network, no deterministic loop, no code-authored query:
-    messages.jsonl proves the model wrote the ``research()`` statement.
+    The research route runs the REAL ``research()`` phase (local corpus +
+    injectable external tiers) with hermetic external clients, then feeds the
+    semantic reply phase.  The classifier's ``source_preferences`` forward the
+    messages tier, so the community summary reaches the reply model.  No batch
+    REPL, no edit gate.
     """
 
     def _drive(
@@ -6810,24 +6911,20 @@ class TestRealBatchReplResearchIntegration:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         *,
-        batches: list[str],
         messages: list[dict[str, Any]] | None = None,
         session_id: str = "b05-ltx",
     ) -> dict[str, Any]:
         import importlib
 
-        import vibecomfy.comfy_nodes.agent.edit as agent_edit_module
-        from vibecomfy.comfy_nodes.agent.session import turn_dir_for
+        from vibecomfy.search.index import SearchEntry
 
         research_module = importlib.import_module("vibecomfy.executor.research")
-        captured: dict[str, Any] = {"messages_calls": [], "web_calls": []}
-        responses = iter(
-            {
-                "batch": code,
-                "message": "Gathered community evidence for the research question.",
-            }
-            for code in batches
-        )
+        captured: dict[str, Any] = {
+            "messages_calls": [],
+            "web_calls": [],
+            "hivemind_calls": [],
+            "reply_kwargs": None,
+        }
 
         def fake_messages_client(query: str, timeout: float) -> dict[str, Any]:
             captured["messages_calls"].append((query, timeout))
@@ -6837,48 +6934,45 @@ class TestRealBatchReplResearchIntegration:
             captured["web_calls"].append((query, timeout))
             return {"results": []}
 
-        # B05 task 2: BOTH external clients patched — no live Hivemind/web in CI.
+        def fake_hivemind_client(query: str, timeout: float) -> dict[str, Any]:
+            captured["hivemind_calls"].append((query, timeout))
+            return {"results": []}
+
+        def fake_corpus() -> list[SearchEntry]:
+            return [
+                SearchEntry(
+                    class_type="KSampler",
+                    description="K-Sampler node",
+                    pack="core",
+                    source="object_info",
+                )
+            ]
+
+        monkeypatch.setattr(research_module, "build_search_corpus", fake_corpus)
         monkeypatch.setattr(
             research_module, "_default_hivemind_messages_client", fake_messages_client
         )
         monkeypatch.setattr(research_module, "_default_web_search_client", fake_web_client)
-        # Hermetic final-message narrator: an empty JSON payload selects the
-        # deterministic fallback (the same seam the agent-edit tests use).
+        # core passes its own imported binding into research(); patch it so the
+        # workflows/hivemind tier stays hermetic.
         monkeypatch.setattr(
-            agent_edit_module, "run_model_turn", lambda **_kwargs: {"json": {}}
+            "vibecomfy.executor.core._default_hivemind_client", fake_hivemind_client
         )
 
-        durable_holder: dict[str, Any] = {}
-
-        def _real_handle_agent_edit(
-            payload: dict[str, Any], **kwargs: Any
-        ) -> dict[str, Any]:
-            result = agent_edit_module.handle_agent_edit(
-                payload,
-                schema_provider=_b05_schema_provider(),
-                deepseek_client=lambda _messages: next(responses),
-                session_root=tmp_path,
-                **kwargs,
-            )
-            durable_holder["response"] = result
-            return result
-
-        def _fake_reply(query: str, **kwargs: Any) -> str:
+        def fake_reply(query: str, **kwargs: Any) -> str:
             captured["reply_kwargs"] = kwargs
             return (
                 "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
                 "and a clear improvement."
             )
 
-        with mock.patch(
-            "vibecomfy.executor.core.handle_agent_edit",
-            side_effect=_real_handle_agent_edit,
-        ), mock.patch(
-            "vibecomfy.executor.core.run_classify_turn",
-            side_effect=_fake_classify_research_only,
-        ), mock.patch(
-            "vibecomfy.executor.core.run_reply_turn",
-            side_effect=_fake_reply,
+        with (
+            mock.patch(
+                "vibecomfy.executor.core.run_classify_turn",
+                side_effect=_fake_classify_research_only,
+            ),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
+            mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
         ):
             result = run_executor(
                 ExecutorRequest(
@@ -6890,93 +6984,34 @@ class TestRealBatchReplResearchIntegration:
                 )
             )
 
-        durable = durable_holder["response"]
-        turn_dir = turn_dir_for(tmp_path, session_id, str(durable["turn_id"]))
         return {
             "result": result,
-            "durable": durable,
-            "turn_dir": turn_dir,
             "captured": captured,
+            "mock_edit": mock_edit,
         }
 
-    @staticmethod
-    def _research_statement_detail(durable: dict[str, Any]) -> dict[str, Any]:
-        statements = durable["batch_turns"][0]["statements"]
-        for statement in statements:
-            detail = statement.get("detail") or {}
-            if statement.get("op_kind") == "query" and detail.get("research_query"):
-                return detail
-        raise AssertionError("no research() statement detail in batch_turns")
-
-    def test_real_edit_session_omit_sources_resolves_messages_web_and_reaches_reply(
+    def test_real_deterministic_research_runs_messages_web_and_reaches_reply(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
     ) -> None:
-        """The model-authored omit-sources research call drives the whole path."""
+        """The research route runs the deterministic research phase end to end."""
         outcome = self._drive(
             tmp_path,
             monkeypatch,
-            batches=['research("LTX 2.5")\ndone()'],
             messages=[_RAW_ALICE_MESSAGE],
         )
         result = outcome["result"]
-        durable = outcome["durable"]
         captured = outcome["captured"]
 
-        # ── resolution: omitted sources → (messages, web); ONE unchanged call
-        assert captured["messages_calls"] == [("LTX 2.5", 3.0)]
-        assert captured["web_calls"] == [("LTX 2.5", 3.0)]
+        # Exactly one deterministic research pass: workflows/hivemind, messages,
+        # and web tiers each ran once with the SCOPED classifier query.
+        assert len(captured["hivemind_calls"]) == 1
+        assert len(captured["messages_calls"]) == 1
+        assert len(captured["web_calls"]) == 1
+        scoped_query = captured["messages_calls"][0][0]
+        assert "distilled or lightning video/motion models" in scoped_query
+        assert scoped_query == captured["web_calls"][0][0]
 
-        detail = self._research_statement_detail(durable)
-        assert tuple(detail["requested_research_sources"]) == ("messages", "web")
-        assert tuple(detail["research_sources"]) == ("messages", "web")
-        # structured message sources from the live normalize-only runner
-        message_sources = [
-            source
-            for source in detail["research_result_sources"]
-            if source.get("source") == "hivemind_message"
-        ]
-        assert len(message_sources) == 1
-        assert message_sources[0]["author"] == "alice"
-        assert message_sources[0]["channel"] == "ltx_chatter"
-        assert message_sources[0]["hivemind_id"] == "test-1"
-        # author/channel in query_output + the static messages followup text
-        assert "alice in #ltx_chatter" in detail["query_output"]
-        assert "thin or off-topic" in detail["query_output"]
-        assert "call done()" in detail["query_output"]
-        assert "alice" in detail["community_summary"]
-
-        # ── durable response: research_findings + graph_unchanged / no apply
-        assert durable["ok"] is True
-        assert durable["route"] == "research"
-        assert durable["graph_unchanged"] is True
-        assert durable["no_candidate_reason"] == "route_not_applyable"
-        assert durable.get("candidate") is None
-        assert durable["apply_eligibility"]["applyable"] is False
-        findings = durable["research_findings"]
-        assert isinstance(findings, dict)
-        assert "alice in #ltx_chatter" in findings["community_summary"]
-        assert any(
-            source.get("source") == "hivemind_message"
-            and source.get("author") == "alice"
-            and source.get("channel") == "ltx_chatter"
-            for source in findings["sources"]
-        )
-
-        # ── messages.jsonl: ONE outer research() statement (model-authored)
-        messages_path = outcome["turn_dir"] / "messages.jsonl"
-        assert messages_path.is_file()
-        records = [
-            json.loads(line)
-            for line in messages_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        assert records
-        batch_text = "".join(str(record.get("batch") or "") for record in records)
-        assert batch_text.count("research(") == 1
-        assert 'research("LTX 2.5")' in batch_text
-        assert "done()" in batch_text
-
-        # ── executor hoist + reply: report.research and run_reply_turn kwargs
+        # Community evidence lands on report.research (author/channel cited).
         assert result.ok is True
         assert result.report.research is not None
         assert "alice in #ltx_chatter" in result.report.research.community_summary
@@ -6986,73 +7021,53 @@ class TestRealBatchReplResearchIntegration:
             and source.get("channel") == "ltx_chatter"
             for source in result.report.research.sources
         )
+        # The reply model received the community summary (preferred over the
+        # plain summary) plus author/channel sources.
         reply_kwargs = captured["reply_kwargs"]
-        assert reply_kwargs["research_summary"] == result.report.research.community_summary
+        assert reply_kwargs["research_summary"] == (
+            result.report.research.community_summary
+        )
         assert any(
             source.get("source") == "hivemind_message"
             and source.get("author") == "alice"
             and source.get("channel") == "ltx_chatter"
             for source in (reply_kwargs.get("research_sources") or ())
         )
-        # user-facing reply is NOT the narrator line
+        # The user-facing reply is the reply-model output; no edit ever ran.
         assert result.reply == (
             "Community notes: alice in #ltx_chatter says LTX 2.5 is fast "
             "and a clear improvement."
         )
-        assert result.reply != result.report.implementation.message
-        assert "No graph changes were needed" not in result.reply
+        assert result.report.implementation is None
         serialized = result.to_dict()
         assert serialized["route"] == "research"
         assert serialized["apply_eligible"] is False
         assert serialized["candidate"] is None
+        outcome["mock_edit"].assert_not_called()
 
-    def test_real_edit_session_two_model_research_calls_are_not_suppressed(
+    def test_real_deterministic_research_empty_messages_yields_no_discussion_sentence(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
     ) -> None:
-        """A second model-authored research() call runs — agent freedom.
-
-        NEVER assert that code skips the second call: the fixture model asks
-        twice, so the patched messages client MUST be invoked twice (union-by-
-        id folds the duplicate row into one collected source).
-        """
+        """An empty messages tier still yields the honest no-discussion sentence."""
         outcome = self._drive(
             tmp_path,
             monkeypatch,
-            batches=['research("LTX 2.5")\nresearch("LTX 2.5 speed")\ndone()'],
-            messages=[_RAW_ALICE_MESSAGE],
-            session_id="b05-ltx-twice",
+            messages=[],
+            session_id="b05-ltx-empty",
         )
         result = outcome["result"]
-        durable = outcome["durable"]
         captured = outcome["captured"]
-
-        assert len(captured["messages_calls"]) == 2
-        assert captured["messages_calls"][0][0] == "LTX 2.5"
-        assert captured["messages_calls"][1][0] == "LTX 2.5 speed"
-        assert len(captured["web_calls"]) == 2
-
-        messages_path = outcome["turn_dir"] / "messages.jsonl"
-        records = [
-            json.loads(line)
-            for line in messages_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        batch_text = "".join(str(record.get("batch") or "") for record in records)
-        assert batch_text.count("research(") == 2
-
-        # both statements folded; the repeated row dedupes by string id
-        findings = durable["research_findings"]
-        message_sources = [
-            source
-            for source in findings["sources"]
-            if source.get("source") == "hivemind_message"
-        ]
-        assert len(message_sources) == 1
-        assert message_sources[0]["hivemind_id"] == "test-1"
 
         assert result.ok is True
         assert result.report.research is not None
-        assert "alice in #ltx_chatter" in result.report.research.community_summary
+        assert result.report.research.community_summary
+        assert "No community discussion found" in result.report.research.community_summary
+        reply_kwargs = captured["reply_kwargs"]
+        assert reply_kwargs["research_summary"] == (
+            result.report.research.community_summary
+        )
+        outcome["mock_edit"].assert_not_called()
+
 
 def _fake_handle_agent_edit_slow(payload: dict, **kwargs: Any) -> dict:
     """Fake handle_agent_edit that blocks long enough for heartbeat ticks."""

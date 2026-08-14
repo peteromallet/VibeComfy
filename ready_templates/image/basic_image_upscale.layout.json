@@ -19,7 +19,7 @@
       "properties": {
         "vibecomfy_id": "LoadImage_0",
         "Node name for S&R": "LoadImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n1"
       }
     },
@@ -39,7 +39,7 @@
       "properties": {
         "vibecomfy_id": "ImageScaleBy_1",
         "Node name for S&R": "ImageScaleBy",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n2"
       }
     },
@@ -59,7 +59,7 @@
       "properties": {
         "vibecomfy_id": "SaveImage_2",
         "Node name for S&R": "SaveImage",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n3"
       }
     }
@@ -69,7 +69,7 @@
     "vibecomfy": {
       "layout_version": "m4",
       "source_template": "image/basic_image_upscale",
-      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/ready_templates/image/basic_image_upscale.py"
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/image/basic_image_upscale.py"
     }
   },
   "lastRerouteId": null,

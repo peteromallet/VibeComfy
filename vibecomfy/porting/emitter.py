@@ -42,6 +42,7 @@ from vibecomfy.porting.emit.signatures import (
     READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
     READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
     emit_available_node_signatures,
+    filter_signature_rows_to_in_graph_nodes,
     format_signature_rows,
 )
 from vibecomfy.porting.emit.subgraph import *  # noqa: F403

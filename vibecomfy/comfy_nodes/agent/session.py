@@ -28,6 +28,7 @@ from .candidate_transaction import (
     validate_candidate_transaction,
 )
 from .projection_registry_v1 import (
+    ContractError,
     browser_layout_scope_issues_v1 as _registry_browser_layout_scope_issues,
     build_layout_graph_projection as _registry_layout_graph_projection,
     build_structural_graph_projection as _registry_structural_graph_projection,

@@ -96,6 +96,16 @@ class HeadlessAgentRequest:
     network: bool = True
     timeout: float | None = None
     additive: bool = False
+    # Explicit interaction contract for diagnosis/advice turns:
+    # ``"answer_only"`` declares that this interaction must never produce a
+    # graph edit (the executor routes to deterministic research + semantic
+    # reply regardless of classification).  Deliberately NOT inferred from
+    # ``apply`` — that flag only says whether a candidate is applied, not
+    # whether editing is permitted.  None = ordinary interaction.
+    interaction_mode: str | None = None
+    # Batch-REPL per-request turn budget (PR-D).  Integer 1..250; None =
+    # default 50.  Forwarded through to_executor_request → implement payload.
+    max_batches: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -133,6 +143,18 @@ class HeadlessAgentRequest:
             raise ValueError("HeadlessAgentRequest `network` must be a boolean.")
         if not isinstance(self.additive, bool):
             raise ValueError("HeadlessAgentRequest `additive` must be a boolean.")
+        if self.interaction_mode is not None and not isinstance(self.interaction_mode, str):
+            raise ValueError(
+                "HeadlessAgentRequest `interaction_mode` must be a string or null."
+            )
+        if self.max_batches is not None:
+            from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
+
+            object.__setattr__(
+                self,
+                "max_batches",
+                coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
     @property
@@ -157,6 +179,8 @@ class HeadlessAgentRequest:
             session_id=session_id,
             profile=self.profile,
             idempotency_key=self.idempotency_key,
+            interaction_mode=self.interaction_mode,
+            max_batches=self.max_batches,
         )
 
     def resolve_provider_readiness_kwargs(self, *, stage: str = "classify") -> dict[str, str | None]:
@@ -193,12 +217,18 @@ class HeadlessAgentRequest:
             payload["output_dir"] = str(self.output_dir)
         if self.timeout is not None:
             payload["timeout"] = self.timeout
+        if self.interaction_mode is not None:
+            payload["interaction_mode"] = self.interaction_mode
+        if self.max_batches is not None:
+            payload["max_batches"] = self.max_batches
         if self.extra:
             payload["extra"] = dict(self.extra)
         return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "HeadlessAgentRequest":
+        from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
+
         if not isinstance(payload, Mapping):
             raise ValueError("HeadlessAgentRequest payload must be a mapping.")
         query = payload.get("query")
@@ -242,6 +272,14 @@ class HeadlessAgentRequest:
             network=_parse_bool(payload.get("network"), field_name="network", default=True),
             timeout=timeout,
             additive=_parse_bool(payload.get("additive"), field_name="additive", default=False),
+            interaction_mode=_require_optional_str(
+                payload.get("interaction_mode"),
+                field_name="interaction_mode",
+            ),
+            max_batches=coerce_max_batches(
+                payload.get("max_batches"),
+                field_name="max_batches",
+            ),
             extra=_parse_extra(payload.get("extra")),
         )
 

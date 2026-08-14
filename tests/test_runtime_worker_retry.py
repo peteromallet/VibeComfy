@@ -220,3 +220,117 @@ def test_success_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result == good
     assert len(calls) == 1
+
+
+# ── Cluster B: iteration/token exhaustion correction retry ───────────────────
+
+
+def _exhaustion_result(*, finish_reason: str, raw: str) -> dict:
+    return {
+        "error": "Agent response did not match the required contract.",
+        "error_type": "ValueError",
+        "finish_reason": finish_reason,
+        "parse_reason": "malformed_json",
+        "raw_response_preview": raw,
+        "model_attempts": [
+            _attempt(outcome="failure", failure_type="malformed_json", completion_tokens=0)
+        ],
+    }
+
+
+def test_finish_reason_length_retries_once_with_correction_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """finish_reason="length" (provider cut the completion off) gets exactly one
+    correction retry with a short prompt, then the (better) result wins."""
+    exhausted = _exhaustion_result(
+        finish_reason="length",
+        raw="I reached the iteration limit and couldn't generate a summary.",
+    )
+    good = {
+        "content": '{"reply": "ok"}',
+        "json": {"reply": "ok"},
+        "model_attempts": [_attempt(outcome="success")],
+    }
+    calls = _stub_once(monkeypatch, [exhausted, good])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result == good
+    assert len(calls) == 2
+    assert [item["attempt"] for item in result["model_attempts"]] == [1, 2]
+    # The correction retry carries the short correction prompt appended to the
+    # user message (positional arg 2 of _run_worker_once).
+    assert "cut off by the model's iteration/token limit" in calls[1][0][2]
+
+
+def test_iteration_limit_sentinel_retries_once_with_correction_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact iteration-limit sentinel triggers the correction retry even
+    when finish_reason is not "length"."""
+    sentinel = _exhaustion_result(
+        finish_reason="stop",
+        raw="I reached the iteration limit and couldn't generate a summary.",
+    )
+    good = {"content": "ok", "model_attempts": [_attempt(outcome="success")]}
+    calls = _stub_once(monkeypatch, [sentinel, good])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result == good
+    assert len(calls) == 2
+
+
+def test_zero_usable_contract_output_retries_once_with_correction_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-empty-but-unusable worker result (parse failed on prose, no usable
+    contract fields) is retried once with the correction prompt."""
+    prose = _exhaustion_result(
+        finish_reason="stop",
+        raw="Here is a detailed explanation of how the workflow works...",
+    )
+    good = {"content": "ok", "model_attempts": [_attempt(outcome="success")]}
+    calls = _stub_once(monkeypatch, [prose, good])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result == good
+    assert len(calls) == 2
+
+
+def test_iteration_exhaustion_retries_at_most_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The correction retry is bounded: a second exhaustion result surfaces."""
+    exhausted = _exhaustion_result(
+        finish_reason="length",
+        raw="I reached the iteration limit and couldn't generate a summary.",
+    )
+    calls = _stub_once(monkeypatch, [exhausted, exhausted])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result == exhausted
+    assert len(calls) == 2
+    assert [item["attempt"] for item in result["model_attempts"]] == [1, 2]
+
+
+def test_iteration_exhaustion_does_not_retry_typed_empty_without_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typed empty response with EMPTY raw text is not an exhaustion result:
+    it stays exclusively on the canonical typed-empty transport retry path (and
+    with nonzero tokens, surfaces without any retry)."""
+    inconsistent = {
+        "error": "empty",
+        "error_type": "ValueError",
+        "model_attempts": [
+            _attempt(outcome="failure", failure_type="empty_response", completion_tokens=2)
+        ],
+    }
+    calls = _stub_once(monkeypatch, [inconsistent])
+
+    result = runtime._run_worker({"api_key": "k"}, "sys", "usr", **_common_kwargs())
+
+    assert result == inconsistent
+    assert len(calls) == 1

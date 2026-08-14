@@ -19,7 +19,7 @@
       "properties": {
         "vibecomfy_id": "KSampler_0",
         "Node name for S&R": "KSampler",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n8"
       }
     },
@@ -39,7 +39,7 @@
       "properties": {
         "vibecomfy_id": "ConditioningZeroOut_1",
         "Node name for S&R": "ConditioningZeroOut",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n7"
       }
     },
@@ -59,7 +59,7 @@
       "properties": {
         "vibecomfy_id": "SaveAudioMP3_2",
         "Node name for S&R": "SaveAudioMP3",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n10"
       }
     },
@@ -79,7 +79,7 @@
       "properties": {
         "vibecomfy_id": "ModelSamplingAuraFlow_3",
         "Node name for S&R": "ModelSamplingAuraFlow",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n5"
       }
     },
@@ -99,7 +99,7 @@
       "properties": {
         "vibecomfy_id": "DualCLIPLoader_4",
         "Node name for S&R": "DualCLIPLoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n1"
       }
     },
@@ -119,7 +119,7 @@
       "properties": {
         "vibecomfy_id": "VAELoader_5",
         "Node name for S&R": "VAELoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n2"
       }
     },
@@ -139,7 +139,7 @@
       "properties": {
         "vibecomfy_id": "EmptyAceStep1.5LatentAudio_6",
         "Node name for S&R": "EmptyAceStep1.5LatentAudio",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n3"
       }
     },
@@ -159,7 +159,7 @@
       "properties": {
         "vibecomfy_id": "VAEDecodeAudio_7",
         "Node name for S&R": "VAEDecodeAudio",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n9"
       }
     },
@@ -179,7 +179,7 @@
       "properties": {
         "vibecomfy_id": "TextEncodeAceStepAudio1.5_8",
         "Node name for S&R": "TextEncodeAceStepAudio1.5",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n6"
       }
     },
@@ -199,7 +199,7 @@
       "properties": {
         "vibecomfy_id": "UNETLoader_9",
         "Node name for S&R": "UNETLoader",
-        "_vibecomfy_schema_provider": "object_info_index",
+        "_vibecomfy_schema_provider": "node_index",
         "vibecomfy_uid": "n4"
       }
     }
@@ -209,7 +209,7 @@
     "vibecomfy": {
       "layout_version": "m4",
       "source_template": "audio/ace_step_1_5_t2a_song",
-      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle/ready_templates/audio/ace_step_1_5_t2a_song.py"
+      "prior_path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/ready_templates/audio/ace_step_1_5_t2a_song.py"
     }
   },
   "lastRerouteId": null,

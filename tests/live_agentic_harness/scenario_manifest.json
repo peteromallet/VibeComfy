@@ -331,7 +331,7 @@
     {
       "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
       "path": "tests/live_agentic_harness/scenarios/image-dual-checkpoint-xl-image-generation-with-refin-c9df19.json",
-      "descriptor_sha256": "c495f7b6d76206990d943b587ab151bf33e0de5dbccd2825f143429f475e4d3b",
+      "descriptor_sha256": "1e7062329f4613d39cf741a8a7110116ebdcea839c524fac15fb8212af79583b",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
@@ -370,7 +370,7 @@
     {
       "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
       "path": "tests/live_agentic_harness/scenarios/image-gemini-prompt-splitter-and-text-display-workfl-caae97.json",
-      "descriptor_sha256": "14a425d37c4ede6f295262060450d31d1ed5269b6dd9a19c82550a90826518e8",
+      "descriptor_sha256": "d649bc94213323e06a83a5ade9c89ef79d75c2e910cd7a9ffe1c172e497f9d97",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
@@ -422,7 +422,7 @@
     {
       "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
       "path": "tests/live_agentic_harness/scenarios/image-image-processing-with-sharpening-film-grain-an-9aa0f1.json",
-      "descriptor_sha256": "652d77f34a868f119a73e9ed6069208806051416aabee6cb58ff63d113ad954d",
+      "descriptor_sha256": "7a01b9c36e189b5ef424344a0ca90eafc832022f71a14091a6e84a5f46d8bb91",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
@@ -461,7 +461,7 @@
     {
       "id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
       "path": "tests/live_agentic_harness/scenarios/image-image-to-image-with-stable-zero123-and-backgro-def5b5.json",
-      "descriptor_sha256": "44f8c940df2efe1c557c5c1523a3a271a91c9522becb6cf7b1ecad7ef1fcd2b9",
+      "descriptor_sha256": "52e569ac01f0eeb98e403b3e1c4f61534fb2fe2623fd7267f36c36f3165bd184",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
@@ -526,7 +526,7 @@
     {
       "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
       "path": "tests/live_agentic_harness/scenarios/image-qwen-image-inpainting-with-controlnet-09fc64.json",
-      "descriptor_sha256": "e51fabd1fcf8af00a9e76c2deab3fecafcfec6471ed424d8864e096dee552d4e",
+      "descriptor_sha256": "1ae164bed94f42061305b46b445b5f90c046a47d7e468dda8b572ae93e871d52",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
@@ -678,7 +678,7 @@
     {
       "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
       "path": "tests/live_agentic_harness/scenarios/multi-animatediff-video-generation-with-controlnet-a7e2af.json",
-      "descriptor_sha256": "42a6897e9ebb03f589a9019ac5be5448a6e4f7e6d6893d2971dbccab4921cb02",
+      "descriptor_sha256": "720ee6a201b2f55a3ce04ae187ab106f1696cbcfd00a07f22618e83c6440e7e6",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",

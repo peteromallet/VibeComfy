@@ -18,6 +18,7 @@ def test_headless_request_to_executor_request() -> None:
         session_id="session-1",
         profile="default",
         idempotency_key="idem-1",
+        interaction_mode="answer_only",
     )
     executor_request = headless.to_executor_request()
     assert isinstance(executor_request, ExecutorRequest)
@@ -26,6 +27,8 @@ def test_headless_request_to_executor_request() -> None:
     assert executor_request.session_id == "session-1"
     assert executor_request.profile == "default"
     assert executor_request.idempotency_key == "idem-1"
+    assert executor_request.interaction_mode == "answer_only"
+    assert executor_request.max_batches is None
     assert {field.name for field in fields(executor_request)} == {
         "query",
         "graph",
@@ -39,7 +42,23 @@ def test_headless_request_to_executor_request() -> None:
         "expected_baseline_graph_hash",
         "expected_baseline_graph_hash_present",
         "on_demand_schemas",
+        "interaction_mode",
+        "max_batches",
     }
+
+
+def test_headless_request_interaction_mode_roundtrip() -> None:
+    headless = HeadlessAgentRequest.from_payload({
+        "query": "what are the trade-offs?",
+        "interaction_mode": "answer_only",
+    })
+    assert headless.interaction_mode == "answer_only"
+    assert headless.to_dict()["interaction_mode"] == "answer_only"
+    assert headless.to_executor_request().interaction_mode == "answer_only"
+
+    plain = HeadlessAgentRequest.from_payload({"query": "add a node"})
+    assert plain.interaction_mode is None
+    assert "interaction_mode" not in plain.to_dict()
 
 
 def test_headless_request_loads_workflow_path(tmp_path: Path) -> None:
@@ -246,3 +265,46 @@ def test_headless_request_to_dict_omits_none() -> None:
     assert "timeout" not in payload
     assert payload["query"] == "ok"
     assert payload["live"] is True
+
+
+# ── PR-D: typed max_batches plumbing (1..250; default 50) ────────────────────
+
+
+def test_coerce_max_batches_accepts_bounded_integers_only() -> None:
+    from vibecomfy.executor.contracts import coerce_max_batches
+
+    assert coerce_max_batches(None) is None
+    assert coerce_max_batches(1) == 1
+    assert coerce_max_batches(50) == 50
+    assert coerce_max_batches(250) == 250
+    for bad in (True, False, 0, -1, 251, 300, "50", 50.0, [50]):
+        with pytest.raises(ValueError):
+            coerce_max_batches(bad)
+
+
+def test_headless_request_max_batches_roundtrip_forwarded_to_executor() -> None:
+    headless = HeadlessAgentRequest.from_payload(
+        {"query": "make it brighter", "max_batches": 120}
+    )
+    assert headless.max_batches == 120
+    assert headless.to_dict()["max_batches"] == 120
+    executor_request = headless.to_executor_request()
+    assert executor_request.max_batches == 120
+    assert executor_request.to_dict()["max_batches"] == 120
+    restored = ExecutorRequest.from_payload(executor_request.to_dict())
+    assert restored.max_batches == 120
+
+
+def test_headless_request_max_batches_defaults_and_rejects_invalid() -> None:
+    assert HeadlessAgentRequest(query="ok").max_batches is None
+    assert HeadlessAgentRequest(query="ok").to_executor_request().max_batches is None
+    with pytest.raises(ValueError, match="max_batches"):
+        HeadlessAgentRequest(query="ok", max_batches=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="max_batches"):
+        HeadlessAgentRequest.from_payload({"query": "ok", "max_batches": 0})
+    with pytest.raises(ValueError, match="max_batches"):
+        HeadlessAgentRequest.from_payload({"query": "ok", "max_batches": 251})
+    with pytest.raises(ValueError, match="max_batches"):
+        ExecutorRequest(query="ok", max_batches=0)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="max_batches"):
+        ExecutorRequest.from_payload({"query": "ok", "max_batches": 999})

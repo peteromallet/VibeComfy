@@ -990,8 +990,17 @@ def build_research_hotshot_xl_evidence(
     *,
     query: str = "Hotshot XL SVD-XT workflow",
 ) -> dict[str, Any]:
-    """Write evidence that the executor runs research for Hotshot XL."""
-    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    """Write evidence that the executor runs deterministic research for Hotshot XL.
+
+    The research route runs the deterministic research phase (scoped query
+    from classifier search_directions, source_preferences as the explicit tier
+    tuple) and feeds the semantic reply — the agent-edit batch gate never runs.
+    """
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorRequest,
+        ResearchResult,
+    )
     from vibecomfy.executor.core import run_executor
 
     root = report_dir.resolve()
@@ -1022,68 +1031,48 @@ def build_research_hotshot_xl_evidence(
             avoid=("generic searches without Hotshot or SVD-XT anchors",),
         )
 
-    implementation_payloads: list[dict[str, Any]] = []
+    research_calls: list[dict[str, Any]] = []
 
-    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
-        implementation_payloads.append(json.loads(json.dumps(payload)))
-        messages_path = root / "messages.jsonl"
-        response_path = root / "response.json"
-        messages_path.write_text(
-            json.dumps(
-                {
-                    "turn_number": 0,
-                    "task": query,
-                    "batch": 'research("Hotshot XL SVD-XT ComfyUI workflow", sources=["workflows"])',
-                    "message": "Found Hotshot XL SVD-XT workflow evidence.",
-                    "report": (
-                        "Found a Hotshot XL SVD-XT workflow source. "
-                        "Sources: Hotshot XL SVD-XT workflow notes."
-                    ),
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+        research_calls.append(
+            {"query": query, "sources": kwargs.get("sources")}
         )
-        durable = {
-            "ok": True,
-            "graph": None,
-            "message": "Research answer for Hotshot XL SVD-XT workflow.",
-            "outcome": {"kind": "noop", "reason": "research answer only"},
-            "apply_eligible": False,
-            "apply_eligibility": {
-                "applyable": False,
-                "reason": "no_candidate",
-                "message": "Apply is not available for research routes.",
-            },
-            "graph_unchanged": True,
-            "no_candidate_reason": "route_not_applyable",
-            "session_id": "agentic-harness-hotshot-xl",
-            "turn_id": "0001",
-            "artifacts": {"messages": str(messages_path)},
-            "detail_json_path": str(response_path),
-        }
-        response_path.write_text(json.dumps(durable, indent=2, sort_keys=True), encoding="utf-8")
-        return durable
+        return ResearchResult(
+            summary=(
+                "Found a Hotshot XL SVD-XT workflow source. "
+                "Sources: Hotshot XL SVD-XT workflow notes."
+            ),
+            sources=(
+                {
+                    "source": "hivemind_workflow",
+                    "title": "Hotshot XL SVD-XT workflow",
+                    "description": "Hotshot XL SVD-XT workflow notes.",
+                    "url": "https://example.com/hotshot-svdxl",
+                },
+            ),
+            warnings=(),
+        )
 
     def fake_reply(
         _query: str,
         *,
-        implementation_message: str | None = None,
+        research_summary: str | None = None,
         **_kwargs: Any,
     ) -> str:
         return (
             "Research ran for Hotshot XL and found an SVD-XT-oriented source. "
-            f"{implementation_message or ''}"
+            f"{research_summary or ''}"
         ).strip()
 
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
         ):
             executor_result = run_executor(request)
+            edit_called = mock_edit.called
 
     executor_payload = executor_result.to_dict()
     executor_path = root / "executor_result.json"
@@ -1097,17 +1086,19 @@ def build_research_hotshot_xl_evidence(
         json.dumps(report_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    implementation = executor_result.report.implementation
-    if implementation is None:
-        raise RuntimeError("Hotshot executor scenario did not produce implementation evidence.")
-    implementation_path = root / "implementation_result.json"
-    implementation_path.write_text(
-        json.dumps(implementation.to_dict(), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    implementation_payload_path = root / "implementation_payload.json"
-    implementation_payload_path.write_text(
-        json.dumps(implementation_payloads[-1] if implementation_payloads else {}, indent=2, sort_keys=True),
+
+    research_path = root / "research.json"
+    research_path.write_text(
+        json.dumps(
+            {
+                "route": "research",
+                "phase": "deterministic",
+                "calls": research_calls,
+                "edit_called": edit_called,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
 
@@ -1123,9 +1114,7 @@ def build_research_hotshot_xl_evidence(
                 "artifact_paths": {
                     "executor_result": str(executor_path),
                     "executor_report": str(report_path),
-                    "implementation_result": str(implementation_path),
-                    "implementation_payload": str(implementation_payload_path),
-                    "messages": str(root / "messages.jsonl"),
+                    "research": str(research_path),
                 },
             },
             indent=2,
@@ -1147,12 +1136,10 @@ def build_research_hotshot_xl_evidence(
                 "op": "research",
                 "via": "run_executor",
                 "query": query,
-                "through_agent_edit": True,
-                "messages_path": str(root / "messages.jsonl"),
-                "research_brief_passed": bool(
-                    implementation_payloads
-                    and implementation_payloads[-1].get("research_brief")
-                ),
+                "through_agent_edit": False,
+                "phase": "deterministic",
+                "scoped_query": research_calls[0]["query"] if research_calls else "",
+                "sources": research_calls[0].get("sources") if research_calls else None,
             },
             {"op": "reply", "message": executor_result.reply},
         ],
@@ -1166,11 +1153,12 @@ def build_research_hotshot_xl_evidence(
                 "",
                 "## 1. Executor Path",
                 f"Ran the full executor classify → research → reply pipeline for query {query!r}.",
-                "The classifier chose the research route, so implementation was skipped.",
+                "The classifier chose the research route, so implementation was skipped; "
+                "deterministic research fed the semantic reply.",
                 "",
                 "## 2. Frozen Evidence",
-                "Evidence is in executor_result.json, executor_report.json, implementation_result.json, "
-                "implementation_payload.json, messages.jsonl, metadata.json, and actions.jsonl.",
+                "Evidence is in executor_result.json, executor_report.json, research.json, "
+                "metadata.json, and actions.jsonl.",
                 "",
             ]
         ),
@@ -1180,10 +1168,8 @@ def build_research_hotshot_xl_evidence(
         "scenario": "explore-hotshot-xl-workflow",
         "executor_result_path": str(executor_path),
         "executor_report_path": str(report_path),
-        "implementation_result_path": str(implementation_path),
-        "implementation_payload_path": str(implementation_payload_path),
+        "research_path": str(research_path),
         "metadata_path": str(metadata_path),
-        "messages_path": str(root / "messages.jsonl"),
         "actions_path": str(root / "actions.jsonl"),
         "report_path": str(root / "report.md"),
     }
@@ -1194,8 +1180,18 @@ def build_distilled_faster_research_route_evidence(
     *,
     query: str = "is there a distilled/faster way to run?",
 ) -> dict[str, Any]:
-    """Write evidence that research triage direction reaches agent-edit."""
-    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    """Write evidence that research triage direction reaches deterministic research.
+
+    The classifier's search_directions scope the deterministic research query
+    (domain anchors, never generic words from the raw sentence) and its
+    source_preferences become the explicit tier tuple.  The agent-edit batch
+    gate never runs.
+    """
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorRequest,
+        ResearchResult,
+    )
     from vibecomfy.executor.core import run_executor
 
     root = report_dir.resolve()
@@ -1238,70 +1234,50 @@ def build_distilled_faster_research_route_evidence(
             ),
         )
 
-    implementation_payloads: list[dict[str, Any]] = []
+    research_calls: list[dict[str, Any]] = []
 
-    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
-        implementation_payloads.append(json.loads(json.dumps(payload)))
-        messages_path = root / "messages.jsonl"
-        response_path = root / "response.json"
-        messages_path.write_text(
-            json.dumps(
-                {
-                    "turn_number": 0,
-                    "task": query,
-                    "batch": 'research("AnimateDiff ComfyUI distilled faster inference", sources=["workflows"])',
-                    "message": "Found distilled/lightning AnimateDiff workflow evidence.",
-                    "report": (
-                        "Found AnimateDiff distilled/lightning workflow sources. "
-                        "Key levers include LCM/Turbo-style samplers, fewer steps, "
-                        "reduced context length, and lower frame count."
-                    ),
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+        research_calls.append(
+            {"query": query, "sources": kwargs.get("sources")}
         )
-        durable = {
-            "ok": True,
-            "graph": None,
-            "message": "Research answer for distilled/faster AnimateDiff inference.",
-            "outcome": {"kind": "noop", "reason": "research answer only"},
-            "apply_eligible": False,
-            "apply_eligibility": {
-                "applyable": False,
-                "reason": "no_candidate",
-                "message": "Apply is not available for research routes.",
-            },
-            "graph_unchanged": True,
-            "no_candidate_reason": "route_not_applyable",
-            "session_id": "agentic-harness-distilled-faster",
-            "turn_id": "0001",
-            "artifacts": {"messages": str(messages_path)},
-            "detail_json_path": str(response_path),
-        }
-        response_path.write_text(json.dumps(durable, indent=2, sort_keys=True), encoding="utf-8")
-        return durable
+        return ResearchResult(
+            summary=(
+                "Found AnimateDiff distilled/lightning workflow sources. "
+                "Key levers include LCM/Turbo-style samplers, fewer steps, "
+                "reduced context length, and lower frame count."
+            ),
+            sources=(
+                {
+                    "source": "hivemind_workflow",
+                    "title": "AnimateDiff distilled/lightning workflow",
+                    "description": "AnimateDiff distilled inference workflow notes.",
+                    "url": "https://example.com/animatediff-distilled",
+                },
+            ),
+            warnings=(),
+        )
 
     def fake_reply(
         _query: str,
         *,
-        implementation_message: str | None = None,
+        research_summary: str | None = None,
         **_kwargs: Any,
     ) -> str:
         return (
             "Research ran for distilled/faster AnimateDiff and found focused "
             "ComfyUI inference-speed directions. "
-            f"{implementation_message or ''}"
+            f"{research_summary or ''}"
         ).strip()
 
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
+            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
         ):
             executor_result = run_executor(request)
+            edit_called = mock_edit.called
 
     executor_payload = executor_result.to_dict()
     executor_path = root / "executor_result.json"
@@ -1310,17 +1286,18 @@ def build_distilled_faster_research_route_evidence(
     executor_report_path = root / "executor_report.json"
     executor_report_path.write_text(json.dumps(report_payload, indent=2, sort_keys=True), encoding="utf-8")
 
-    implementation = executor_result.report.implementation
-    if implementation is None:
-        raise RuntimeError("Distilled/faster scenario did not produce implementation evidence.")
-    implementation_path = root / "implementation_result.json"
-    implementation_path.write_text(
-        json.dumps(implementation.to_dict(), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    implementation_payload_path = root / "implementation_payload.json"
-    implementation_payload_path.write_text(
-        json.dumps(implementation_payloads[-1] if implementation_payloads else {}, indent=2, sort_keys=True),
+    research_path = root / "research.json"
+    research_path.write_text(
+        json.dumps(
+            {
+                "route": "research",
+                "phase": "deterministic",
+                "calls": research_calls,
+                "edit_called": edit_called,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
 
@@ -1336,9 +1313,7 @@ def build_distilled_faster_research_route_evidence(
                 "artifact_paths": {
                     "executor_result": str(executor_path),
                     "executor_report": str(executor_report_path),
-                    "implementation_result": str(implementation_path),
-                    "implementation_payload": str(implementation_payload_path),
-                    "messages": str(root / "messages.jsonl"),
+                    "research": str(research_path),
                 },
             },
             indent=2,
@@ -1360,12 +1335,10 @@ def build_distilled_faster_research_route_evidence(
                 "op": "research",
                 "via": "run_executor",
                 "query": query,
-                "through_agent_edit": True,
-                "messages_path": str(root / "messages.jsonl"),
-                "research_brief_passed": bool(
-                    implementation_payloads
-                    and implementation_payloads[-1].get("research_brief")
-                ),
+                "through_agent_edit": False,
+                "phase": "deterministic",
+                "scoped_query": research_calls[0]["query"] if research_calls else "",
+                "sources": research_calls[0].get("sources") if research_calls else None,
             },
             {"op": "reply", "message": executor_result.reply},
         ],
@@ -1379,11 +1352,12 @@ def build_distilled_faster_research_route_evidence(
                 "",
                 "## 1. Executor Path",
                 f"Ran the full executor classify → research → reply pipeline for query {query!r}.",
-                "The classifier chose the research route, so implementation was skipped.",
+                "The classifier chose the research route, so implementation was skipped; "
+                "deterministic research fed the semantic reply.",
                 "",
                 "## 2. Frozen Evidence",
-                "Evidence is in executor_result.json, executor_report.json, implementation_result.json, "
-                "implementation_payload.json, messages.jsonl, metadata.json, and actions.jsonl.",
+                "Evidence is in executor_result.json, executor_report.json, research.json, "
+                "metadata.json, and actions.jsonl.",
                 "",
             ]
         ),
@@ -1393,10 +1367,8 @@ def build_distilled_faster_research_route_evidence(
         "scenario": "distilled-faster-research-route",
         "executor_result_path": str(executor_path),
         "executor_report_path": str(executor_report_path),
-        "implementation_result_path": str(implementation_path),
-        "implementation_payload_path": str(implementation_payload_path),
+        "research_path": str(research_path),
         "metadata_path": str(metadata_path),
-        "messages_path": str(root / "messages.jsonl"),
         "actions_path": str(root / "actions.jsonl"),
         "report_path": str(root / "report.md"),
     }

@@ -1,0 +1,12 @@
+{
+  "id": "image-image-editing-with-qwen-image",
+  "query": "The added soldier looks pasted on \u2014 it doesn't match the scene's lighting.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/465726d60a145b19.json",
+  "apply": true,
+  "network": true,
+  "timeout": 180,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "area"
+}

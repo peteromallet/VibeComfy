@@ -111,15 +111,27 @@ def test_projection_exposes_stable_addresses_real_helpers_and_fenced_strings() -
     assert 'to=["", "3", "positive"]' in text
 
 
-def test_projection_marks_bypass_as_informational_and_includes_schema_hints() -> None:
+def test_projection_marks_bypass_as_disconnected_and_includes_schema_hints() -> None:
     result = render_edit_projection(_projection_fixture(), schema_provider=_SchemaProvider())
 
     text = result.text
-    assert "mode=4 (bypassed; informational)" in text
-    assert "Mode annotations are informational only; use set_mode" in text
+    assert "mode=4 (bypassed)" in text
+    assert "DISCONNECTED: node is bypassed and does not execute; its links are severed." in text
+    assert "Never target them or their inputs/outputs" in text
     assert "- input sampler_name: type=\"STRING\" choices=" in text
     assert "- input steps: type=\"INT\" default=20 range=[1, 100]" in text
     assert "- output 0: name=\"LATENT\" type=\"LATENT\"" in text
+
+
+def test_projection_enabled_nodes_are_not_marked_disconnected() -> None:
+    result = render_edit_projection(_projection_fixture(), schema_provider=_SchemaProvider())
+
+    text = result.text
+    # Exactly one node (the mode=4 KSampler) carries the node-level marker;
+    # enabled nodes render normally (header text mentions the rule once).
+    assert text.count("DISCONNECTED: node is") == 1
+    assert 'target=["", "1"]' in text
+    assert "mode=0 (enabled)" in text
 
 
 def test_projection_renders_subgraph_scope_addresses() -> None:

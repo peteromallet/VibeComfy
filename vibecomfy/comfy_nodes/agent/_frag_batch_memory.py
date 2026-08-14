@@ -363,7 +363,15 @@ def _premature_missing_custom_node_clarify_feedback(
 
 def _class_names_from_text(text: str) -> list[str]:
     names: list[str] = []
-    for match in re.findall(r"\b[A-Z][A-Za-z0-9_]*(?:_[A-Za-z0-9]+)+\b", text):
+    # Underscore-joined identifiers (Rodin3D_Fusion, Stable_Zero123, ...) plus
+    # bare CamelCase concrete classes (AudioLDM2, StableZero123, KSampler,
+    # WanVideoModelLoader).  The CamelCase arm requires at least one lowercase
+    # letter so acronyms and ordinary capitalized prose are not harvested.
+    for match in re.findall(
+        r"\b[A-Z][A-Za-z0-9_]*(?:_[A-Za-z0-9]+)+\b"
+        r"|\b[A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*\b",
+        text,
+    ):
         if match not in names:
             names.append(match)
     return names

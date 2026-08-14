@@ -199,6 +199,88 @@ def emit_available_node_signatures(
 
     return rows
 
+
+def _iter_graph_nodes(nodes: Any):
+    """Yield node mappings from a raw UI graph (list, dict, or ``{nodes: ...}``)."""
+    if isinstance(nodes, Mapping):
+        raw = nodes.get("nodes")
+        if isinstance(raw, (list, tuple, Mapping)):
+            nodes = raw
+        elif isinstance(nodes, Mapping) and all(
+            isinstance(v, Mapping) for v in nodes.values()
+        ):
+            nodes = list(nodes.values())
+        else:
+            return
+    if isinstance(nodes, Mapping):
+        yield from nodes.values()
+    elif isinstance(nodes, (list, tuple)):
+        yield from (n for n in nodes if isinstance(n, Mapping))
+
+
+def filter_signature_rows_to_in_graph_nodes(
+    rows: list[NodeSignatureRow],
+    nodes: Any,
+) -> list[NodeSignatureRow]:
+    """Restrict literal inputs to fields the in-graph nodes can actually resolve.
+
+    PR-D (Tripo): a class schema may advertise literal fields (from the current
+    ComfyUI object_info) that a *specific* node instance cannot resolve because
+    it was saved against an older schema (e.g. ``TripoTextToModelNode`` gained
+    ``geometry_quality`` in a later version; old nodes lack the widget).  For
+    classes with nodes in the graph, literal fields that NONE of those nodes
+    can resolve are dropped from the row so the catalog does not advertise
+    them as writable; socket inputs are never dropped.  Classes without
+    in-graph nodes keep their full schema (they may be added new).
+    """
+    from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
+        compact_widget_names_for_node,
+    )
+
+    nodes_by_class: dict[str, list[Any]] = {}
+    for node in _iter_graph_nodes(nodes):
+        class_type = str(node.get("type") or node.get("class_type") or "")
+        if class_type:
+            nodes_by_class.setdefault(class_type, []).append(node)
+
+    filtered: list[NodeSignatureRow] = []
+    for row in rows:
+        nodes_of_class = nodes_by_class.get(row.class_type)
+        if not nodes_of_class:
+            filtered.append(row)
+            continue
+        resolvable: set[str] = set()
+        for node in nodes_of_class:
+            try:
+                names = compact_widget_names_for_node(node).names
+            except Exception:
+                continue
+            resolvable.update(
+                str(name)
+                for name in names
+                if isinstance(name, str) and not name.startswith("widget_")
+            )
+        inputs: list[InputSignatureField] = [
+            field
+            for field in row.inputs
+            if not input_spec_is_literal_widget(field) or field.name in resolvable
+        ]
+        if len(inputs) == len(row.inputs):
+            filtered.append(row)
+            continue
+        filtered.append(
+            NodeSignatureRow(
+                class_type=row.class_type,
+                inputs=inputs,
+                outputs=row.outputs,
+                source_confidence=row.source_confidence,
+                pack=row.pack,
+                status=row.status,
+            )
+        )
+    return filtered
+
+
 def _compatible_output_signature_rank(row: NodeSignatureRow, compatible_output_type: str) -> int:
     compatible_type = str(compatible_output_type).upper()
     input_types = {str(field.type or "").upper() for field in row.inputs}

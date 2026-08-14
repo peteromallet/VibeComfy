@@ -245,12 +245,16 @@ def run_reply_turn(
     effective_route: str | None = None,
     effective_task: str | None = None,
     candidate_present: bool = False,
+    interaction_mode: str | None = None,
 ) -> str:
     """Run a single reply model turn through the provider seam.
 
     Builds reply-specific messages via :func:`build_reply_messages`,
-    dispatches through :func:`run_model_turn` with ``response_contract="json"``,
-    and parses the result with :func:`parse_reply_response`.
+    dispatches through :func:`run_model_turn` with
+    ``response_contract="text"`` (the reply phase accepts plain prose; a
+    ``{"reply": ...}`` JSON object is still parsed for backward
+    compatibility), and parses the result with
+    :func:`parse_reply_response`.
 
     Parameters
     ----------
@@ -297,6 +301,7 @@ def run_reply_turn(
         effective_route=effective_route,
         effective_task=effective_task,
         candidate_present=candidate_present,
+        interaction_mode=interaction_mode,
     )
     model_turn_id = new_profile_id("model")
     with profiler_span(
@@ -306,7 +311,7 @@ def run_reply_turn(
         backend_phase="reply",
         route=route,
         model=model,
-        response_contract="json",
+        response_contract="text",
         query_preview=short_text(query),
     ) as span:
         from vibecomfy.comfy_nodes.agent.provider import run_model_turn
@@ -317,7 +322,7 @@ def run_reply_turn(
             route=route,
             model=model,
             effort=effort,
-            response_contract="json",
+            response_contract="text",
             profiling_context={"backend_phase": "reply"},
         )
         raw: str | None = None

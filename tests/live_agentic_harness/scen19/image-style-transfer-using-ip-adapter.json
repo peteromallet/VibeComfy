@@ -1,0 +1,12 @@
+{
+  "id": "image-style-transfer-using-ip-adapter",
+  "query": "The statue style isn't coming through at all \u2014 it just looks like a normal photo.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/c226f6c5faae34de.json",
+  "apply": true,
+  "network": true,
+  "timeout": 180,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

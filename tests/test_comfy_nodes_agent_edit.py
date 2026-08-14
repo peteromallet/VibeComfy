@@ -6,6 +6,7 @@ import importlib
 import json
 import re
 import sys
+import time
 import types
 from pathlib import Path
 from unittest.mock import patch
@@ -2544,6 +2545,73 @@ def test_agent_edit_batch_protocol_retry_executes_dataclasses_replace(
     assert response_turns[0]["error"]["attempt"] == 1
     assert response_turns[0]["error"]["parse_reason"] == "missing_batch_fence"
     assert response_turns[1]["response"]["message"] == "Changed the save prefix."
+
+
+def test_research_phase_deadline_stops_loop_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR-A phase-wide deadline: the agentic research phase (research route)
+    stops cleanly once ``VIBECOMFY_RESEARCH_PHASE_DEADLINE`` wall-clock expires,
+    instead of looping turn after turn (cluster A burns the whole scenario
+    budget). The stop is a successful noop so the executor reply phase still
+    runs with whatever research was collected."""
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+
+    state = AgentEditState(
+        task="research how latent workflows use vocal separation",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    state.route = "research"
+    context = TurnContext(session_id="research-phase-deadline", turn_id="0001")
+
+    monkeypatch.setenv("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "0.05")
+    calls: list[list[dict[str, str]]] = []
+
+    def _research_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        calls.append(messages)
+        # Turn 0: a read-only search, no done() — the loop would keep going.
+        # Sleep well past the 0.05s phase deadline so turn 1's top-of-loop
+        # deadline check must fire.
+        time.sleep(0.3)
+        return {
+            "batch": 'search(focus_types=["LoadImage"])',
+            "message": "Looking up the signature.",
+        }
+
+    result = agent_edit_module._stage_agent_batch_repl(
+        state,
+        context,
+        deepseek_client=_research_client,
+    )
+
+    assert len(calls) == 1, "the phase deadline must stop the loop before turn 2"
+    assert result.ok is True
+    assert result.blocking is False
+    assert result.value["mode"] == "research_phase_deadline"
+    assert result.value["graph_unchanged"] is True
+    assert result.value["turn_count"] == 1
+    assert state.batch_exit_mode == agent_edit_module._BATCH_EXIT_NOOP
+    assert "phase deadline" in state.batch_final_summary
+    assert "phase deadline" in state.user_message
 
 
 def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failure_envelope(
@@ -6363,7 +6431,9 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
         audit_ref_expected=True,
     )
     issue = result["agent_failure_context"]["issues"][0]
-    assert issue["code"] == "batch_budget_exhausted"
+    # PR-D: consecutive-error exhaustion gets its own code, distinct from
+    # actual turn exhaustion.
+    assert issue["code"] == "batch_consecutive_errors_exhausted"
     assert issue["detail"]["artifixer"]["policy"] == "diagnostics_only"
     assert issue["detail"]["artifixer"]["attempted"] is False
     assert issue["detail"]["artifixer"]["outcome"] == "not_attempted"
@@ -6383,7 +6453,9 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     assert batch_meta["budget_state"]["remaining_batches"] == 3
     assert batch_meta["budget_state"]["consecutive_errors"] == 1
     assert batch_meta["exit_mode"] == "budget"
-    assert batch_meta["final_summary"] == "Stopped after 1 turn(s); 3 turn(s) remaining."
+    assert batch_meta["final_summary"] == (
+        "Stopped after 1 turn(s) with 1 consecutive error turn(s) (limit 1)."
+    )
     assert "Turn summary: 0 landed, 4 failed, 4 diagnostic(s), 3 turn(s) remaining, 1 consecutive error turn(s)." in batch_meta["feedback"]
     assert "✗ Statement 1: set_node_field" in batch_meta["feedback"]
     assert "✗ Statement 2: set_node_field" in batch_meta["feedback"]
@@ -21128,3 +21200,122 @@ def test_projection_named_port_fallback_does_not_raise_missing_stable_link() -> 
     assert identities[0]["to"]["port"] == "images"
     with pytest.raises(ContractError, match="Missing stable link from port"):
         _native_port_name(node, "from", 4)
+
+
+# ── PR-D: distinct budget-exit codes ─────────────────────────────────────────
+
+
+def test_rejected_clarify_after_incomplete_edit_is_not_budget_exhaustion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR-D cluster I: a rejected clarification while an edit remains incomplete
+    must emit `batch_rejected_clarify_incomplete_edit`, NOT `batch_budget_exhausted`
+    — even when many turns remain."""
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    events: list[tuple[str, dict[str, object], str | None]] = []
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit._ws_send",
+        lambda event, payload, *, client_id=None: events.append((event, payload, client_id)),
+    )
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "I will update the save prefix.",
+            },
+            {
+                "batch": 'clarify("I could not find a workflow precedent or installed/provisional node schema.")',
+                "message": "I need the exact schema before continuing.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Increase the save quality",
+            "session_id": "prd-rejected-clarify-incomplete-edit",
+            "max_batches": 50,
+            "max_consecutive_errors": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    issue = result["agent_failure_context"]["issues"][0]
+    assert issue["code"] == "batch_rejected_clarify_incomplete_edit"
+    assert issue["detail"]["turn_count"] == 2
+    assert issue["detail"]["budget_state"]["remaining_batches"] == 48
+    assert "clarification" in issue["message"]
+    assert "incomplete" in issue["message"]
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    batch_meta = audit["metadata"]["batch_repl"]
+    assert batch_meta["exit_mode"] == "stuck"
+    assert batch_meta["turn_count"] == 2
+    assert batch_meta["budget_state"]["remaining_batches"] == 48
+    assert batch_meta["final_summary"].startswith(
+        "Stopped because the model requested a clarification"
+    )
+    assert [payload["status"] for _, payload, _ in events] == [
+        "in_progress",
+        "stuck",
+    ]
+
+
+def test_entrypoint_enforces_max_batches_bounds_and_ignores_invalid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR-D: implement payload `max_batches` accepts 1..250; booleans, zero and
+    >250 are rejected (the default 50 stays in force)."""
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured: list[list[dict[str, str]]] = []
+
+    def _fake_batch_client(messages):
+        captured.append(messages)
+        return {"batch": "done()", "message": "No changes needed."}
+
+    def _budget_line() -> str:
+        for message in captured[0]:
+            for line in (message.get("content") or "").splitlines():
+                if "turn(s) remaining out of" in line:
+                    return line.strip()
+        return ""
+
+    # Valid upper bound 250 flows through to the loop budget.
+    handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "inspect",
+            "session_id": "prd-max-batches-250",
+            "max_batches": 250,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+    assert "out of 250" in _budget_line()
+
+    # Boolean, zero, and >250 are rejected: the default 50 stays.
+    for bad in (True, 0, 251, 999):
+        captured.clear()
+        handle_agent_edit(
+            {
+                "graph": _ui_graph(),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+                "task": "inspect",
+                "session_id": f"prd-max-batches-invalid-{bad!r}",
+                "max_batches": bad,
+            },
+            schema_provider=provider,
+            deepseek_client=_fake_batch_client,
+            session_root=tmp_path,
+        )
+        assert "out of 50" in _budget_line(), f"invalid max_batches {bad!r} leaked"

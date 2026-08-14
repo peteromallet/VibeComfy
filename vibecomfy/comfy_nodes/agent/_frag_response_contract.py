@@ -965,7 +965,7 @@ def _build_batch_repl_response(
     state: AgentEditState,
     context: TurnContext,
 ) -> dict[str, Any]:
-    from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _BATCH_EXIT_BUDGET, _BATCH_EXIT_DONE, _BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_NOOP, _BATCH_EXIT_PURE_CLARIFY, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _change_details_payload, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _fallback_narrative_message, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _net_field_changes, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _resolver_candidate_is_authoring_capability, _resolver_candidates_from_batch_turns, _response_artifacts_with_execution_plan, _response_contract_candidate_present, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _strip_clarify_forbidden_response_fields, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, _validate_delta_evidence_for_apply, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _BATCH_EXIT_BUDGET, _BATCH_EXIT_DONE, _BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_NOOP, _BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_STUCK, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _change_details_payload, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _fallback_narrative_message, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _net_field_changes, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _resolver_candidate_is_authoring_capability, _resolver_candidates_from_batch_turns, _response_artifacts_with_execution_plan, _response_contract_candidate_present, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _strip_clarify_forbidden_response_fields, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, _validate_delta_evidence_for_apply, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
     turn_identity = TurnIdentity.from_context(context)
     canonical_route = _canonical_agent_edit_route(state.route)
     route_blocks_apply = _route_blocks_apply(state.route)
@@ -1059,6 +1059,11 @@ def _build_batch_repl_response(
         internal_outcome = TurnOutcome.edit(changes=_net_field_changes(state.batch_field_changes))
     elif state.batch_exit_mode == _BATCH_EXIT_BUDGET:
         internal_outcome = TurnOutcome.budget(reason=state.batch_final_summary or None)
+    elif state.batch_exit_mode == _BATCH_EXIT_STUCK:
+        # PR-D: rejected clarification after an incomplete edit — a terminal
+        # stop that is NOT budget exhaustion; surface it as a noop with the
+        # honest reason instead of a budget claim.
+        internal_outcome = TurnOutcome.noop(reason=state.batch_final_summary or None)
     else:
         internal_outcome = TurnOutcome.noop(
             reason=state.batch_done_summary or state.user_message or None

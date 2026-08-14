@@ -1,0 +1,12 @@
+{
+  "id": "multi-video-based-character-replacement-using",
+  "query": "It keeps selecting the background too, not just the person.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/8e5619299bafee56.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

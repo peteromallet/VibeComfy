@@ -5,6 +5,7 @@
   "network": true,
   "timeout": 360,
   "apply": false,
+  "interaction_mode": "answer_only",
   "assessment": {
     "expect_graph_changed": false
   },

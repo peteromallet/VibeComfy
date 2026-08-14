@@ -1,0 +1,12 @@
+{
+  "id": "3d-generates-a-3d-mesh-from",
+  "query": "The generated 3D mesh is full of floating bits and noise.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/2bdbaf79a96182c4.json",
+  "apply": true,
+  "network": true,
+  "timeout": 180,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

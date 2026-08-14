@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
+import tempfile
+import textwrap
+import time
 
 import pytest
 
@@ -25,7 +29,9 @@ def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.M
     assert kwargs["provider"] == "openrouter"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["model"] == "deepseek/deepseek-v4-pro"
-    assert kwargs["max_tokens"] == 2048
+    assert kwargs["max_tokens"] == 4096
+    # Cluster B: bounded, configurable per-turn iteration budget (default 2).
+    assert kwargs["max_iterations"] == 2
 
 
 def test_explicit_openrouter_route_cannot_be_hijacked_by_generic_endpoint_or_key_overrides(
@@ -176,13 +182,13 @@ def test_run_worker_mirrors_openrouter_key_into_backend_env_aliases(
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-test-key")
     captured_env: dict[str, str] = {}
 
-    def fake_run(args, **kwargs):
+    def fake_subprocess(command, **kwargs):
         captured_env.update(kwargs["env"])
-        with open(args[3], "w", encoding="utf-8") as fh:
+        with open(command[3], "w", encoding="utf-8") as fh:
             json.dump({"content": "hello"}, fh)
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return (0, "", "")
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
 
     result = runtime._run_worker(
         {"api_key": "sk-or-v1-test-key"},
@@ -204,13 +210,13 @@ def test_run_worker_mirrors_parent_resolved_native_deepseek_key(
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-stale-key")
     captured_env: dict[str, str] = {}
 
-    def fake_run(args, **kwargs):
+    def fake_subprocess(command, **kwargs):
         captured_env.update(kwargs["env"])
-        with open(args[3], "w", encoding="utf-8") as fh:
+        with open(command[3], "w", encoding="utf-8") as fh:
             json.dump({"content": "hello"}, fh)
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return (0, "", "")
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
 
     result = runtime._run_worker(
         {
@@ -249,14 +255,14 @@ def test_runtime_serializes_codex_model_and_effort_for_worker(
 ) -> None:
     captured_request: dict[str, object] = {}
 
-    def fake_run(args, **kwargs):
-        with open(args[2], encoding="utf-8") as fh:
+    def fake_subprocess(command, **kwargs):
+        with open(command[2], encoding="utf-8") as fh:
             captured_request.update(json.load(fh))
-        with open(args[3], "w", encoding="utf-8") as fh:
+        with open(command[3], "w", encoding="utf-8") as fh:
             json.dump({"content": "ok"}, fh)
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return (0, "", "")
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
     result = runtime._run_worker(
         {},
         "system",
@@ -344,17 +350,16 @@ def test_run_worker_preserves_stdout_stderr_tail_on_error(
 ) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-test-key")
 
-    def fake_run(args, **kwargs):
-        with open(args[3], "w", encoding="utf-8") as fh:
+    def fake_subprocess(command, **kwargs):
+        with open(command[3], "w", encoding="utf-8") as fh:
             json.dump({"error": "Agent returned an empty batch_repl response.", "error_type": "ValueError"}, fh)
-        return subprocess.CompletedProcess(
-            args,
+        return (
             0,
-            stdout="Error code: 402 - This request requires more credits",
-            stderr="HTTP/1.1 402 Payment Required",
+            "Error code: 402 - This request requires more credits",
+            "HTTP/1.1 402 Payment Required",
         )
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
 
     result = runtime._run_worker(
         {"api_key": "sk-or-v1-test-key"},
@@ -366,6 +371,98 @@ def test_run_worker_preserves_stdout_stderr_tail_on_error(
 
     assert result["worker_stdout_tail"] == "Error code: 402 - This request requires more credits"
     assert result["worker_stderr_tail"] == "HTTP/1.1 402 Payment Required"
+
+
+def _pid_alive(pid: int, *, timeout_s: float = 3.0) -> bool:
+    """True while *pid* still exists (polling; an unreaped zombie counts as alive)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        time.sleep(0.02)
+    return True
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX process groups required")
+def test_worker_pipe_hang_grandchild_is_killed_with_process_group(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Deterministic repro of the cluster-A worker pipe hang (PR-A).
+
+    The "worker" spawns a grandchild that INHERITS its stdout/stderr (so the
+    grandchild holds the worker's stdio fds open) and then sleeps forever. The
+    old ``subprocess.run(capture_output=True, timeout=...)`` path blocked in
+    ``communicate()`` forever here: the timeout could kill the worker but not
+    the grandchild holding the captured pipe, so the 180s turn timeout never
+    fired and the whole scenario burned the runner budget.
+
+    With ``Popen(start_new_session=True)`` + regular temp files, the 0.2s turn
+    timeout must fire, the whole call must complete in under 2s, and BOTH the
+    worker and its grandchild (same process group) must be dead.
+    """
+    pid_file = tmp_path / "worker.pids"
+    helper = tmp_path / "hang_worker.py"
+    helper.write_text(
+        textwrap.dedent(
+            f"""\
+            import os
+            import sys
+
+            # Record OUR pid first so the test can observe us even if the
+            # timeout fires during interpreter startup.
+            with open({str(pid_file)!r}, "w", encoding="utf-8") as fh:
+                fh.write(str(os.getpid()) + "\\n")
+
+            import subprocess  # noqa: E402
+            import time  # noqa: E402
+
+            # Grandchild inherits OUR stdout/stderr and outlives us — the pipe
+            # hang: it keeps the worker's stdio fds open after we are killed.
+            grandchild = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(300)"]
+            )
+            with open({str(pid_file)!r}, "a", encoding="utf-8") as fh:
+                fh.write(str(grandchild.pid) + "\\n")
+            time.sleep(300)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "_WORKER_PATH", str(helper))
+    monkeypatch.setattr(runtime, "_TURN_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(runtime, "_TURN_KILL_GRACE_SECONDS", 0.1)
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="timed out after 0.2 seconds"):
+        runtime._run_worker_once(
+            {},
+            "system",
+            "user",
+            response_contract="text",
+            agent_id="hermes",
+        )
+    elapsed = time.monotonic() - started
+    assert elapsed < 2.0, f"pipe-hang repro took {elapsed:.2f}s; group kill did not fire"
+
+    # The worker wrote its pid first thing; the grandchild pid lands right after
+    # the grandchild spawn. Poll briefly so a slow interpreter is not flaky.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        lines = pid_file.read_text(encoding="utf-8").split()
+        if len(lines) >= 2:
+            break
+        time.sleep(0.02)
+    assert len(lines) >= 2, f"grandchild never spawned; pid file: {lines!r}"
+
+    worker_pid, grandchild_pid = (int(part) for part in lines[:2])
+    assert _pid_alive(worker_pid) is False, "worker survived the timeout kill"
+    assert _pid_alive(grandchild_pid) is False, (
+        "grandchild survived the process-group kill"
+    )
 
 
 def test_openrouter_empty_batch_response_surfaces_worker_error(

@@ -1,6 +1,6 @@
 name: distilled-faster-research-route
 tier: 6
-description: "Executor research route: triage passes a research brief into the agent-edit research loop for distilled/faster AnimateDiff/ComfyUI inference"
+description: "Executor research route: triage scopes deterministic research (search directions + source tiers) for distilled/faster AnimateDiff/ComfyUI inference, then the semantic reply answers — no edit gate"
 mode: structural
 agents:
   - id: builder
@@ -15,13 +15,13 @@ assessment:
   subjective: true
   enforced:
     - "executor_result.json parses as valid JSON with ok=true and report.executor.plan.research=true."
-    - "implementation_payload.json contains research_brief.search_directions with AnimateDiff, distilled, lightning, LCM, or sampler anchors."
-    - "messages.jsonl contains a focused research call with sources=[\"workflows\"]."
+    - "research.json records a deterministic research call whose scoped query contains AnimateDiff, distilled, lightning, LCM, or sampler anchors."
+    - "research.json records sources=[\"workflows\",\"messages\",\"web\"] (the classifier's source_preferences forwarded as the explicit tier tuple)."
     - "executor_result.json records a non-applyable research response with graph_unchanged=true."
     - "actions.jsonl contains at least one entry with op=executor.run and a non-empty query."
   graded:
     - "Routing correctness: For a research-only question with no graph edit requested, the classifier should choose the research route with research=true and implement=false, not route to adapt, revise, clarify, respond, or inspect."
-    - "The frozen evidence demonstrates the research route entered the agent-edit research loop instead of deterministic executor retrieval."
+    - "The frozen evidence demonstrates the research route ran deterministic executor research (scoped query + explicit source tiers) feeding the semantic reply phase — not the agent-edit batch loop."
   observed:
     - "The focused research query contains AnimateDiff/distilled/lightning anchors and does not search generic words from the raw sentence."
 extras:
@@ -29,8 +29,6 @@ extras:
   required_frozen_evidence:
     - evidence/executor_result.json
     - evidence/executor_report.json
-    - evidence/implementation_result.json
-    - evidence/implementation_payload.json
-    - evidence/messages.jsonl
+    - evidence/research.json
     - evidence/metadata.json
     - evidence/actions.jsonl

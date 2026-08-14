@@ -197,25 +197,44 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                 and not _issue_suppressed(class_type, "value_not_in_enum")
                 and not _is_dynamic_file_choice(class_type, name)
             ):
-                issues.append(
-                    ValidationIssue(
-                        "value_not_in_enum",
-                        f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} is not one of the declared choices.",
-                        severity="error",
-                        detail={
-                            "node_id": str(node_id),
-                            "class_type": class_type,
-                            "input": name,
-                            "value": _truncate(value),
-                            "choices": choices,
-                            "choice_scope": _choice_scope(
-                                class_type,
-                                name,
-                                value,
-                            ),
-                        },
+                choice_scope = _choice_scope(class_type, name, value)
+                if choice_scope == "environment_asset":
+                    # Apply-time parity: checkpoint/model/embedding pickers
+                    # enumerate the assets installed when object_info was
+                    # fetched. A request for a not-yet-installed asset is a
+                    # warning (the value is still structurally valid), not a
+                    # hard schema error. Semantic enums stay hard errors below.
+                    issues.append(
+                        ValidationIssue(
+                            "value_not_in_enum",
+                            f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} is not among the locally installed asset choices.",
+                            severity="warning",
+                            detail={
+                                "node_id": str(node_id),
+                                "class_type": class_type,
+                                "input": name,
+                                "value": _truncate(value),
+                                "choices": choices,
+                                "choice_scope": choice_scope,
+                            },
+                        )
                     )
-                )
+                else:
+                    issues.append(
+                        ValidationIssue(
+                            "value_not_in_enum",
+                            f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} is not one of the declared choices.",
+                            severity="error",
+                            detail={
+                                "node_id": str(node_id),
+                                "class_type": class_type,
+                                "input": name,
+                                "value": _truncate(value),
+                                "choices": choices,
+                                "choice_scope": choice_scope,
+                            },
+                        )
+                    )
 
             min_value = getattr(spec, "min", None)
             max_value = getattr(spec, "max", None)

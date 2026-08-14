@@ -252,6 +252,17 @@ def read_session_json(
 
 
 def _compact_diag_to_dict(diagnostic: Any) -> dict[str, Any]:
+    if isinstance(diagnostic, Mapping):
+        # CompactDiagnostic-shaped dicts (e.g. re-hydrated turn records) must
+        # compact to the same shape as the dataclass path below; getattr-based
+        # access would otherwise collapse every dict into code="dict".
+        return {
+            "code": diagnostic.get("code") or type(diagnostic).__name__,
+            "message": diagnostic.get("message") or str(diagnostic),
+            "severity": diagnostic.get("severity") or "error",
+            "detail": _json_safe(diagnostic.get("detail") or {}),
+            "teaching_hint": diagnostic.get("teaching_hint"),
+        }
     return {
         "code": getattr(diagnostic, "code", type(diagnostic).__name__),
         "message": getattr(diagnostic, "message", str(diagnostic)),

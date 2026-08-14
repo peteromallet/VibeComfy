@@ -555,3 +555,140 @@ def test_strict_ready_hidden_model_filenames_are_not_silenced_by_candidate_ui_al
         and issue.detail["target"] == "node:2.widget_0"
         for issue in issues
     )
+
+
+# ── PR-D: TripoTextToModelNode geometry_quality schema drift ─────────────────
+
+_TRIpo_12_WIDGETS = [
+    "Generate a 3D model of a steampunk-inspired spider drone.\n",
+    "",                          # negative_prompt
+    "v2.5-20250123",             # model_version
+    "None",                      # style
+    True,                        # texture
+    True,                        # pbr
+    42,                          # image_seed
+    42,                          # model_seed
+    42,                          # texture_seed
+    "detailed",                  # texture_quality (pre-geometry_quality schema)
+    -1,                          # face_limit
+    False,                       # quad
+]
+
+_TRIpo_13_WIDGETS = list(_TRIpo_12_WIDGETS[:-2]) + ["standard", -1, False, "detailed"]
+
+
+def _tripo_ui_node(widgets: list[Any]) -> dict[str, Any]:
+    return {
+        "id": 3,
+        "type": "TripoTextToModelNode",
+        "pos": [0, 0],
+        "size": [320, 540],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "inputs": [],
+        "outputs": [
+            {"name": "model_file", "type": "STRING", "links": None, "slot_index": 0},
+            {"name": "model task_id", "type": "MODEL_TASK_ID", "links": None, "slot_index": 1},
+        ],
+        "properties": {"vibecomfy_uid": "3"},
+        "widgets_values": list(widgets),
+    }
+
+
+def test_tripo_stale_node_geometry_quality_reports_node_field_not_resolvable() -> None:
+    """PR-D: a 12-widget TripoTextToModelNode predates `geometry_quality`; the
+    apply path must not call it 'non-widget' — it must say the node instance
+    cannot resolve it and hint at the settable fields."""
+    original = _single_node_ui(_tripo_ui_node(_TRIpo_12_WIDGETS))
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "set_node_field",
+                "target": ["", "3", "geometry_quality"],
+                "value": "detailed",
+            }
+        ]
+    )
+
+    result = resolve_delta(original, delta, schema_provider=get_authoring_schema_provider())
+
+    assert result.ok is False
+    assert any(issue.code == "node_field_not_resolvable" for issue in result.diagnostics)
+    hint = next(
+        issue.message for issue in result.diagnostics if issue.code == "node_field_not_resolvable"
+    )
+    assert "geometry_quality" in hint
+    assert "texture_quality" in hint
+    assert "no widget for it" in hint
+
+
+def test_tripo_stale_node_texture_quality_still_settable() -> None:
+    """Control: fields the node DOES have stay settable through the real
+    projection/setter mapping."""
+    original = _single_node_ui(_tripo_ui_node(_TRIpo_12_WIDGETS))
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "set_node_field",
+                "target": ["", "3", "texture_quality"],
+                "value": "standard",
+            }
+        ]
+    )
+
+    result = apply_delta(original, delta, schema_provider=get_authoring_schema_provider())
+
+    assert result.ok is True
+    assert result.candidate is not None
+    assert result.candidate["nodes"][0]["widgets_values"][9] == "standard"
+
+
+def test_tripo_current_node_geometry_quality_resolvable() -> None:
+    """A 13-widget (current-schema) node CAN set geometry_quality — the setter
+    mapping exists; only the stale node shape cannot."""
+    original = _single_node_ui(_tripo_ui_node(_TRIpo_13_WIDGETS))
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "set_node_field",
+                "target": ["", "3", "geometry_quality"],
+                "value": "detailed",
+            }
+        ]
+    )
+
+    result = apply_delta(original, delta, schema_provider=get_authoring_schema_provider())
+
+    assert result.ok is True
+    assert result.candidate["nodes"][0]["widgets_values"][12] == "detailed"
+
+
+def test_filter_signature_rows_drops_schema_drifted_literals_for_in_graph_nodes() -> None:
+    """PR-D: the in-graph signature catalog must stop advertising literal fields
+    that no in-graph node of the class can resolve (Tripo geometry_quality),
+    while classes without nodes keep their full schema."""
+    from vibecomfy.porting.emitter import (
+        emit_available_node_signatures,
+        filter_signature_rows_to_in_graph_nodes,
+    )
+
+    provider = get_authoring_schema_provider()
+    rows = emit_available_node_signatures(provider, focus_types=["TripoTextToModelNode"])
+    assert rows, "authoring provider should know TripoTextToModelNode"
+    full_names = {field.name for field in rows[0].inputs}
+    assert "geometry_quality" in full_names
+    assert "texture_quality" in full_names
+
+    node = _tripo_ui_node(_TRIpo_12_WIDGETS)
+    filtered = filter_signature_rows_to_in_graph_nodes(rows, {"nodes": [node]})
+    assert len(filtered) == 1
+    filtered_names = {field.name for field in filtered[0].inputs}
+    assert "geometry_quality" not in filtered_names
+    assert "texture_quality" in filtered_names
+    assert "face_limit" in filtered_names
+
+    # Without in-graph nodes the row is untouched (new-node authoring keeps the
+    # full current schema).
+    untouched = filter_signature_rows_to_in_graph_nodes(rows, {"nodes": []})
+    assert {field.name for field in untouched[0].inputs} == full_names

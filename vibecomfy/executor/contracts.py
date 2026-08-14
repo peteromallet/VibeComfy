@@ -53,6 +53,34 @@ _MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE = re.compile(
     r"(?im)\bauthorization\s*:\s*[^\r\n]*"
 )
 _MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+
+# Batch-REPL per-request turn budget (PR-D): typed `max_batches` accepted
+# range and the default when the caller omits it.  Booleans are rejected
+# explicitly even though ``bool`` subclasses ``int``; zero and out-of-range
+# integers are rejected as well so a mistyped budget never silently applies.
+DEFAULT_MAX_BATCHES = 50
+MAX_BATCHES_LIMIT = 250
+
+
+def coerce_max_batches(value: Any, *, field_name: str = "max_batches") -> int | None:
+    """Validate a typed ``max_batches`` value and return it, or None when unset.
+
+    Accepts an integer in ``1..MAX_BATCHES_LIMIT``.  Rejects booleans, zero,
+    negative integers, and values above ``MAX_BATCHES_LIMIT`` with
+    :class:`ValueError`.  ``None`` passes through (caller default applies).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"`{field_name}` must be an integer between 1 and {MAX_BATCHES_LIMIT}, "
+            f"or null; got {value!r}."
+        )
+    if value < 1 or value > MAX_BATCHES_LIMIT:
+        raise ValueError(
+            f"`{field_name}` must be between 1 and {MAX_BATCHES_LIMIT}; got {value!r}."
+        )
+    return int(value)
 # Oracle finding 5: failure previews can embed the secret as a JSON-quoted
 # value (``{"api_key": "sk-..."}``), which the unquoted assignment and
 # authorization-header patterns cannot see.  Match quoted sensitive fields in
@@ -946,12 +974,29 @@ class ExecutorRequest:
     # None = unset → provider applies its env/default. Threaded through so the
     # user-facing toggle actually controls on-demand schema resolution.
     on_demand_schemas: bool | None = None
+    # Explicit interaction contract for diagnosis/advice turns.  "answer_only"
+    # declares that this interaction must never produce a graph edit — the
+    # executor routes to deterministic research + semantic reply regardless of
+    # what the classifier decided.  It is deliberately NOT inferred from
+    # ``apply``: that flag only says whether a candidate is applied, not
+    # whether editing is permitted.  None = ordinary interaction.
+    interaction_mode: str | None = None
+    # Batch-REPL per-request turn budget (PR-D).  Integer 1..MAX_BATCHES_LIMIT;
+    # None = default (DEFAULT_MAX_BATCHES).  Forwarded into the implement
+    # payload as ``max_batches`` and enforced again at the edit entrypoint.
+    max_batches: int | None = None
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
         # pristine client and omission by a legacy client.
         if self.expected_baseline_graph_hash is not None:
             object.__setattr__(self, "expected_baseline_graph_hash_present", True)
+        if self.max_batches is not None:
+            object.__setattr__(
+                self,
+                "max_batches",
+                coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"query": self.query}
@@ -975,6 +1020,10 @@ class ExecutorRequest:
             payload["expected_baseline_graph_hash"] = self.expected_baseline_graph_hash
         if self.on_demand_schemas is not None:
             payload["on_demand_schemas"] = self.on_demand_schemas
+        if self.interaction_mode is not None:
+            payload["interaction_mode"] = self.interaction_mode
+        if self.max_batches is not None:
+            payload["max_batches"] = self.max_batches
         return payload
 
     @classmethod
@@ -1041,6 +1090,12 @@ class ExecutorRequest:
         on_demand_schemas = payload.get("on_demand_schemas")
         if not isinstance(on_demand_schemas, bool):
             on_demand_schemas = None
+        interaction_mode = payload.get("interaction_mode")
+        if interaction_mode is not None and not isinstance(interaction_mode, str):
+            raise ValueError(
+                "ExecutorRequest `interaction_mode` must be a string or null."
+            )
+        max_batches = coerce_max_batches(payload.get("max_batches"), field_name="max_batches")
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
         ):
@@ -1060,6 +1115,8 @@ class ExecutorRequest:
             expected_baseline_graph_hash=expected_baseline_graph_hash,
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
             on_demand_schemas=on_demand_schemas,
+            interaction_mode=interaction_mode,
+            max_batches=max_batches,
         )
 
 

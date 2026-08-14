@@ -270,7 +270,7 @@ _ROUTE_BEHAVIORS = MappingProxyType({
     "research": RouteBehavior(
         route="research",
         needs_research=True,
-        needs_implement=True,
+        needs_implement=False,
         plan_summary="Research workflows, nodes, or techniques, then answer without editing.",
         clears_result_graph=True,
         reply_uses_graph_inspection=False,
@@ -336,6 +336,40 @@ def _canonical_route_for_plan(plan: ClassifyDecision) -> str:
 def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
     """Resolve the canonical route behavior for *plan*."""
     return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
+
+
+_ANSWER_ONLY_ROUTES = frozenset(
+    {"clarify", "respond", "inspect", "research", "requires_custom_nodes"}
+)
+
+
+def _answer_only_plan(plan: ClassifyDecision) -> ClassifyDecision:
+    """Enforce ``interaction_mode="answer_only"`` on a classify decision.
+
+    Answer-only interactions (diagnosis/advice) must never run the edit gate:
+    the request/scenario explicitly declares that editing is not allowed.  This
+    is deliberately NOT inferred from ``apply=false`` — that flag only says
+    whether a candidate is applied, not whether editing is permitted.
+    Non-edit routes keep their semantics; edit-capable routes are downgraded
+    to the deterministic research + semantic reply path so the user still
+    receives a grounded answer.
+    """
+    route = _canonical_route_for_plan(plan)
+    if route in _ANSWER_ONLY_ROUTES:
+        return replace(plan, implement=False)
+    return replace(
+        plan,
+        research=True,
+        implement=False,
+        reply=True,
+        route="research",
+        task="research_nodes",
+        research_goal=plan.research_goal or plan.change_goal or "",
+        plan_summary=(
+            "Answer-only interaction: research the inquiry and answer "
+            "without editing."
+        ),
+    )
 
 
 def _should_research(plan: ClassifyDecision) -> bool:
@@ -424,8 +458,9 @@ def _should_prefetch_research(
 ) -> bool:
     """Return True for routes that should prefetch research.
 
-    Research route: runs through the agentic batch REPL, where the model can
-    call research(...) iteratively and write an auditable messages.jsonl.
+    Research route: runs deterministic executor retrieval (local corpus +
+    injectable external tiers) instead of the agentic batch REPL, then feeds
+    the semantic reply phase — no edit gate.
     Adapt route: prefetches scoped research from classifier fields,
     nested under execution_protocol_notes — does NOT inject raw query
     results into the implementation prompt.
@@ -433,6 +468,8 @@ def _should_prefetch_research(
     uncertainty triggers indicate role, placement, or value ambiguity.
     """
     route = _canonical_route_for_plan(plan)
+    if route == "research":
+        return True
     if route == "adapt":
         return _route_behavior(plan).needs_research
     if route == "revise" and request is not None:
@@ -1028,14 +1065,17 @@ def _run_research(
     Research failures are non-fatal; they are captured as warnings in the
     :class:`ResearchResult` and never propagate as exceptions.
 
-    When *plan* is provided and the route is ``adapt``, the query is scoped
-    from classifier fields (research_goal, pattern_category, change_goal,
-    model_families) instead of the raw user query, keeping implementation
-    prompts free of undirected retrieval pollution.
+    When *plan* is provided and the route is ``adapt`` or ``research``, the
+    query is scoped from classifier fields (research_goal, pattern_category,
+    change_goal, model_families) instead of the raw user query, keeping
+    implementation prompts free of undirected retrieval pollution.  For the
+    ``research`` route the classifier's ``source_preferences`` are forwarded
+    as an explicit tier tuple so community-messages/web evidence runs when the
+    classifier asked for it (the answer IS the research findings).
     """
     try:
         query = request.query
-        if plan is not None and _canonical_route_for_plan(plan) == "adapt":
+        if plan is not None and _canonical_route_for_plan(plan) in ("adapt", "research"):
             # Prefer focused classifier search_directions; they contain the named
             # targets (e.g. ``Hotshot``) without the verbose explanatory glue
             # that drowns out rare terms in Hivemind keyword search.
@@ -1065,11 +1105,20 @@ def _run_research(
                     scoped_parts.append(f"Model families: {families}")
                 if scoped_parts:
                     query = "; ".join(scoped_parts)
+        sources: tuple[str, ...] | None = None
+        if plan is not None and _canonical_route_for_plan(plan) == "research":
+            source_prefs = _sanitize_source_preferences(
+                plan.source_preferences,
+                query=request.query,
+            )
+            if source_prefs:
+                sources = tuple(source_prefs)
         result = run_research_phase(
             query,
             graph=request.graph,
             target_node_type=plan.target_node_type if plan is not None else "",
             hivemind_client=_default_hivemind_client,
+            sources=sources,
         )
         inspection = _graph_inspection(request.graph)
         if inspection:
@@ -1085,6 +1134,7 @@ def _run_research(
                 precedent_sources=result.precedent_sources,
                 workflow_precedent_status=result.workflow_precedent_status,
                 selected_precedent=result.selected_precedent,
+                community_summary=result.community_summary,
             )
         return result
     except Exception as exc:
@@ -1225,6 +1275,7 @@ def _run_implement(
         "effort": spec.effort,
         "executor_classification": classification,
         "additive": bool(additive),
+        "max_batches": request.max_batches,
     }
     graph_inspection = _graph_inspection(request.graph)
     if isinstance(graph_inspection, str) and graph_inspection.strip():
@@ -1675,6 +1726,7 @@ def _run_reply(
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
+            "interaction_mode": request.interaction_mode,
         }
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
@@ -1682,7 +1734,7 @@ def _run_reply(
             "graph_summary", "adaptation_plan",
             "research_sources", "research_warnings", "research_precedent_slices",
             "effective_route", "effective_task",
-            "candidate_present",
+            "candidate_present", "interaction_mode",
         )
         while True:
             try:
@@ -1742,44 +1794,6 @@ def _run_reply(
             failure_envelope=failure,
             model_attempts=_failure_model_attempts(failure),
         ) from exc
-
-
-def _research_result_from_findings(
-    implementation_result: ImplementationResult,
-) -> ResearchResult | None:
-    """Hoist durable ``research_findings`` into a :class:`ResearchResult`.
-
-    B04: the research route's implement phase is the agentic batch REPL; the
-    durable response carries the collected community evidence under
-    ``research_findings`` (summary, community_summary, sources, warnings).
-    This is transport-only evidence carry — no ranking, no strength, no latch,
-    and never a stop decision.
-
-    Returns ``None`` when the durable response has no ``research_findings``
-    (legacy/fake implement responses) so ``report.research`` stays ``None``.
-    """
-    durable = implementation_result.durable_response
-    if not isinstance(durable, Mapping):
-        return None
-    findings = durable.get("research_findings")
-    if not isinstance(findings, Mapping):
-        return None
-    sources = tuple(
-        dict(source)
-        for source in (findings.get("sources") or ())
-        if isinstance(source, Mapping)
-    )
-    warnings = tuple(
-        str(warning)
-        for warning in (findings.get("warnings") or ())
-        if warning is not None
-    )
-    return ResearchResult(
-        summary=str(findings.get("summary") or ""),
-        community_summary=str(findings.get("community_summary") or ""),
-        sources=sources,
-        warnings=warnings,
-    )
 
 
 # ── internal error wrapper ───────────────────────────────────────────────────
@@ -2123,6 +2137,22 @@ def run_executor(
             reply="\n".join(parts),
         ))
 
+    # ── Answer-only interaction enforcement (PR-B) ────────────────────────
+    # interaction_mode="answer_only" is the explicit request/scenario contract
+    # for diagnosis/advice turns: no graph edit may be produced, whatever the
+    # classifier decided.  It is never inferred from apply=false — that flag
+    # only declares whether a candidate is applied, not whether editing is
+    # permitted.  Edit-capable routes are downgraded to deterministic research
+    # + semantic reply so the user still gets a grounded answer.
+    if request.interaction_mode == "answer_only":
+        plan = _answer_only_plan(plan)
+        LOGGER.info(
+            "executor: answer_only interaction → route=%s task=%s implement=%s",
+            plan.effective_route,
+            plan.effective_task,
+            plan.implement,
+        )
+
     # ── Phase 2: research (standalone replies only) ──────────────────────
     if _should_prefetch_research(plan, request=request):
         try:
@@ -2249,15 +2279,6 @@ def run_executor(
                 finally:
                     heartbeat_stop.set()
                     heartbeat_thread.join(timeout=2.0)
-                # B04: hoist durable research findings onto report.research
-                # for the research route (agent-judgment evidence carry; NOT
-                # a latch and never a stop decision).
-                if _canonical_route_for_plan(plan) == "research":
-                    hoisted_research = _research_result_from_findings(
-                        implementation_result
-                    )
-                    if hoisted_research is not None:
-                        research_result = hoisted_research
                 span.update(
                     graph_returned=implementation_result.graph is not None,
                     message_preview=short_text(implementation_result.message),
@@ -2328,14 +2349,6 @@ def run_executor(
                 graph=None,
                 reply=reply_text,
             ))
-        elif _canonical_route_for_plan(plan) == "research":
-            # B04: every successful research-route implement is terminal
-            # no-candidate by design (no graph edit), but the user answer is
-            # the hoisted community findings — NOT the narrator line.  Fall
-            # through to _run_reply with no graph context so the reply model
-            # writes the informational answer.
-            effective_graph = None
-            result_graph = None
     else:
         _emit_executor_phase_event(
             request,

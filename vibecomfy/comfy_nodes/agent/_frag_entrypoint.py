@@ -278,8 +278,20 @@ def handle_agent_edit(
     graph_inspection = payload.get("graph_inspection")
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         state.graph_inspection = graph_inspection.strip()
-    if isinstance(payload.get("max_batches"), int) and payload["max_batches"] > 0:
-        state.batch_max_turns = int(payload["max_batches"])
+    raw_max_batches = payload.get("max_batches")
+    if raw_max_batches is not None:
+        # PR-D: typed budget enforcement — accept integers 1..250 only;
+        # booleans, zero, and >250 are rejected (the caller default 50 stays).
+        from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
+
+        try:
+            validated_max_batches = coerce_max_batches(
+                raw_max_batches, field_name="max_batches"
+            )
+        except ValueError:
+            validated_max_batches = None
+        if validated_max_batches is not None:
+            state.batch_max_turns = validated_max_batches
     if (
         isinstance(payload.get("max_consecutive_errors"), int)
         and payload["max_consecutive_errors"] > 0

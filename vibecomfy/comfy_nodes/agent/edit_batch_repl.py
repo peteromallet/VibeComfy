@@ -75,6 +75,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import json
+import os
 import time
 from dataclasses import dataclass, fields
 from typing import Any, Mapping
@@ -105,6 +106,7 @@ class EditBatchReplDeps:
     _BATCH_EXIT_EDIT_CLARIFY: Any  # host: _frag_batch_reports
     _BATCH_EXIT_NOOP: Any  # host: _frag_batch_reports
     _BATCH_EXIT_PURE_CLARIFY: Any  # host: _frag_batch_reports
+    _BATCH_EXIT_STUCK: Any  # host: _frag_batch_reports
     _agent_edit_batch_repl_enabled: Any  # host: _frag_session_bundle
     _artifact: Any  # host: _frag_state
     _batch_budget_artifixer_report: Any  # host: _frag_batch_reports
@@ -410,6 +412,64 @@ def _execution_plan_done_refusal_hint(state: AgentEditState) -> str:
         "Fix the missing planned graph structure and call done() again."
     )
     return " ".join(parts)
+
+
+def _done_validation_repair_hint(
+    deps: "EditBatchReplDeps",
+    done_diagnostics: tuple[Any, ...] | list[Any],
+    *,
+    limit: int = 5,
+) -> str:
+    """Render bounded done() validation diagnostics as a repair brief.
+
+    Each diagnostic carries its code, message, target (node/input/id) and the
+    declared choices so the model can repair the exact failing surface in the
+    one allowed follow-up turn.
+    """
+    lines: list[str] = []
+    shown = 0
+    total = len(done_diagnostics or ())
+    for diagnostic in done_diagnostics or ():
+        if shown >= limit:
+            lines.append(
+                f"... and {total - shown} more diagnostic(s); fix every reported "
+                "error before calling done() again."
+            )
+            break
+        compact = deps._compact_diag_to_dict(diagnostic)
+        detail = compact.get("detail")
+        if not isinstance(detail, dict):
+            detail = {}
+        target_bits: list[str] = []
+        class_type = detail.get("class_type")
+        input_name = detail.get("input")
+        node_id = detail.get("node_id")
+        if isinstance(class_type, str) and class_type:
+            target_bits.append(f"node={class_type}")
+        if isinstance(input_name, str) and input_name:
+            target_bits.append(f"input={input_name}")
+        if node_id is not None:
+            target_bits.append(f"id={node_id}")
+        choices = detail.get("choices")
+        line = f"[{compact.get('code')}] {compact.get('message')}"
+        if target_bits:
+            line += f" (target: {' '.join(target_bits)})"
+        if isinstance(choices, (list, tuple)) and choices:
+            line += (
+                "; declared choices: "
+                + ", ".join(str(choice) for choice in choices[:6])
+            )
+        lines.append(f"- {line}")
+        shown += 1
+    if not lines:
+        return (
+            "the candidate failed final validation; repair every reported "
+            "validation error, then call done() again."
+        )
+    return (
+        "the candidate failed final validation. Repair the following "
+        "validation error(s), then call done() again:\n" + "\n".join(lines)
+    )
 
 
 _MAX_EXECUTION_PROTOCOL_SOURCES = 3
@@ -1337,7 +1397,11 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     focus_types.update(deps._focus_types_from_research_brief(state.executor_research_brief))
     if deps._is_code_node_intent(effective_task):
         focus_types.add("vibecomfy.exec")
-    signature_catalog = session.search(focus_types=sorted(focus_types), formatted=True)
+    signature_catalog = session.search(
+        focus_types=sorted(focus_types),
+        formatted=True,
+        in_graph_nodes=session.working_ui,
+    )
     available_node_names = deps._format_available_node_names(session.search(formatted=False))
     state.python_before = initial_render
     state.before_py_path.write_text(initial_render, encoding="utf-8")
@@ -1499,6 +1563,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     done_noop_nudges = 0
     done_error_nudges = 0
     done_candidate_rejection_nudges = 0
+    done_validation_repair_turns = 0
     failed_edit_turns = 0
     last_failed_edit_turn = -1
     last_successful_edit_turn_after_failure = -1
@@ -1518,7 +1583,75 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         "vibecomfy.comfy_nodes.agent._frag_entrypoint"
     )
 
+    # Phase-wide deadline for the agentic research phase (cluster A). The turn
+    # timeout bounds ONE worker subprocess, but a research route can loop turn
+    # after turn; a slow or repeatedly-hanging worker could otherwise burn the
+    # whole scenario budget. Bound the entire research phase in wall-clock time
+    # so the executor's reply phase still runs with whatever research was
+    # collected. Configure with VIBECOMFY_RESEARCH_PHASE_DEADLINE (seconds;
+    # 0 disables; default 600).
+    research_phase_deadline: float | None = None
+    research_phase_deadline_seconds = 0.0
+    if research_only_route:
+        try:
+            research_phase_deadline_seconds = float(
+                os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "600") or 0
+            )
+        except ValueError:
+            research_phase_deadline_seconds = 600.0
+        if research_phase_deadline_seconds > 0:
+            research_phase_deadline = (
+                time.monotonic() + research_phase_deadline_seconds
+            )
+
     for turn_number in range(max_batches):
+        if (
+            research_phase_deadline is not None
+            and turn_number > 0
+            and time.monotonic() >= research_phase_deadline
+        ):
+            # The research phase exceeded its wall-clock deadline. Stop cleanly
+            # (successful noop — research never changes the graph) so the
+            # executor reply phase can still answer from collected evidence.
+            state.batch_exit_mode = deps._BATCH_EXIT_NOOP
+            deadline_summary = (
+                f"Research phase stopped after {state.batch_turn_count} turn(s); "
+                f"phase deadline of {research_phase_deadline_seconds:g}s reached."
+            )
+            state.batch_final_summary = deadline_summary
+            state.batch_done_summary = deadline_summary
+            state.user_message = deadline_summary
+            state.report = {
+                "graph_unchanged": True,
+                "queue_blockers": [],
+                "phase_deadline": deadline_summary,
+            }
+            deps._emit_agent_edit_turn_event(
+                state,
+                _context,
+                state.batch_turns[-1] if state.batch_turns else None,
+                client_id=client_id,
+                status="done",
+            )
+            return deps.StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=deps._duration_ms(start),
+                artifacts=(
+                    deps._artifact(state.before_py_path),
+                    deps._artifact(state.after_py_path),
+                    deps._artifact(state.model_request_path),
+                    deps._artifact(state.model_response_path),
+                    deps._artifact(state.candidate_ui_path),
+                    deps._artifact(state.messages_path),
+                ),
+                value={
+                    "mode": "research_phase_deadline",
+                    "graph_unchanged": True,
+                    "turn_count": state.batch_turn_count,
+                },
+            )
         _loop_entry_journal = _batch_journal_mod.capture_loop_entry_journal(
             session,
             state,
@@ -1824,28 +1957,57 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     )
                     + "\n"
                 )
-                terminal_rejected_clarify = (
+                budget_turn_exhausted = (turn_number + 1) >= max_batches
+                budget_consecutive_exhausted = consecutive_errors >= max_consecutive_errors
+                incomplete_edit_pending = (
                     deps._batch_candidate_graph_changed(state)
                     or (
                         last_failed_edit_turn >= 0
                         and last_successful_edit_turn_after_failure < last_failed_edit_turn
                     )
-                    or consecutive_errors >= max_consecutive_errors
-                    or (turn_number + 1) >= max_batches
+                )
+                terminal_rejected_clarify = (
+                    budget_turn_exhausted
+                    or budget_consecutive_exhausted
+                    or incomplete_edit_pending
                 )
                 if terminal_rejected_clarify:
                     failure_kind = deps._batch_budget_failure_kind(state.batch_turns)
-                    state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
-                    state.batch_final_summary = (
-                        f"Stopped after {state.batch_turn_count} turn(s); "
-                        f"{state.batch_budget_state.get('remaining_batches', 0)} turn(s) remaining."
-                    )
+                    # PR-D: unresolved-prior-edit/graph-change state is NOT
+                    # budget exhaustion.  Emit distinct codes for (a) actual
+                    # turn exhaustion, (b) consecutive-error exhaustion, and
+                    # (c) rejected clarification after an incomplete edit.
+                    if budget_turn_exhausted:
+                        exit_code = "batch_budget_exhausted"
+                        state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
+                        state.batch_final_summary = (
+                            f"Stopped after {state.batch_turn_count} turn(s); "
+                            "0 turn(s) remaining."
+                        )
+                    elif budget_consecutive_exhausted:
+                        exit_code = "batch_consecutive_errors_exhausted"
+                        state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
+                        state.batch_final_summary = (
+                            f"Stopped after {state.batch_turn_count} turn(s) with "
+                            f"{consecutive_errors} consecutive error turn(s) "
+                            f"(limit {max_consecutive_errors})."
+                        )
+                    else:
+                        exit_code = "batch_rejected_clarify_incomplete_edit"
+                        state.batch_exit_mode = deps._BATCH_EXIT_STUCK
+                        state.batch_final_summary = (
+                            "Stopped because the model requested a clarification "
+                            "while an edit remained incomplete after "
+                            f"{state.batch_turn_count} turn(s)."
+                        )
                     deps._emit_agent_edit_turn_event(
                         state,
                         _context,
                         turn_record,
                         client_id=client_id,
-                        status="budget_exhausted",
+                        status="stuck" if incomplete_edit_pending and not (
+                            budget_turn_exhausted or budget_consecutive_exhausted
+                        ) else "budget_exhausted",
                     )
                     return deps.StageResult(
                         stage="agent_batch",
@@ -1862,7 +2024,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         ),
                         issues=(
                             {
-                                "code": "batch_budget_exhausted",
+                                "code": exit_code,
                                 "severity": "error",
                                 "failure_kind": failure_kind.value,
                                 "message": state.batch_final_summary,
@@ -2537,6 +2699,49 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 state.batch_done_summary = done_result.summary
                 state.batch_final_summary = done_result.summary
                 if not done_result.ok:
+                    # PR-E: one bounded repair turn on done() validation
+                    # failure.  Carry code/message/target/choices of every
+                    # validation diagnostic into the next model request so the
+                    # agent can repair the exact failing surface; a second
+                    # failure still terminates with the blocking result.
+                    if (
+                        done_validation_repair_turns < 1
+                        and (turn_number + 1) < max_batches
+                        and not research_only_route
+                    ):
+                        done_validation_repair_turns += 1
+                        repair_hint = _done_validation_repair_hint(
+                            deps,
+                            done_result.diagnostics,
+                        )
+                        last_report = (
+                            last_report
+                            + "\n\nNOTE: done() was NOT accepted — "
+                            + repair_hint
+                        )
+                        turn_record["report"] = last_report
+                        turn_record["done_validation_repair"] = {
+                            "attempt": done_validation_repair_turns,
+                            "diagnostics": [
+                                dict(deps._compact_diag_to_dict(item))
+                                for item in done_result.diagnostics
+                            ],
+                        }
+                        if state.batch_turns and state.batch_turns[-1] is turn_record:
+                            state.batch_turns[-1]["report"] = last_report
+                            state.batch_turns[-1]["done_validation_repair"] = turn_record["done_validation_repair"]
+                        if response_log and isinstance(response_log[-1], dict):
+                            batch_response_record = response_log[-1].get("batch_result")
+                            if isinstance(batch_response_record, dict):
+                                batch_response_record["report"] = last_report
+                                batch_response_record["done_validation_repair"] = turn_record["done_validation_repair"]
+                            deps.write_json_artifact(state.model_response_path, {"turns": response_log})
+                        # Not finalized: reset the done-exit state so the
+                        # repair turn starts from a clean pending candidate.
+                        state.batch_exit_mode = ""
+                        state.batch_done_summary = ""
+                        state.batch_final_summary = ""
+                        continue
                     return deps.StageResult(
                         stage="agent_batch",
                         ok=False,
@@ -2729,10 +2934,19 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     failure_kind = deps._batch_budget_failure_kind(state.batch_turns)
     artifixer_report = deps._batch_budget_artifixer_report(state, failure_kind)
     state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
-    state.batch_final_summary = (
-        f"Stopped after {state.batch_turn_count} turn(s); "
-        f"{state.batch_budget_state.get('remaining_batches', 0)} turn(s) remaining."
-    )
+    if consecutive_errors >= max_consecutive_errors:
+        exit_code = "batch_consecutive_errors_exhausted"
+        state.batch_final_summary = (
+            f"Stopped after {state.batch_turn_count} turn(s) with "
+            f"{consecutive_errors} consecutive error turn(s) "
+            f"(limit {max_consecutive_errors})."
+        )
+    else:
+        exit_code = "batch_budget_exhausted"
+        state.batch_final_summary = (
+            f"Stopped after {state.batch_turn_count} turn(s); "
+            "0 turn(s) remaining."
+        )
     if state.batch_turns:
         deps._emit_agent_edit_turn_event(
             state,
@@ -2756,7 +2970,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         ),
         issues=(
             {
-                "code": "batch_budget_exhausted",
+                "code": exit_code,
                 "severity": "error",
                 "failure_kind": failure_kind.value,
                 "message": state.batch_final_summary,

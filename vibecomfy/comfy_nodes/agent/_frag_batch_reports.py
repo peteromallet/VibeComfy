@@ -364,6 +364,9 @@ _BATCH_EXIT_EDIT_CLARIFY = "edit_clarify"
 _BATCH_EXIT_DONE = "done"
 _BATCH_EXIT_BUDGET = "budget"
 _BATCH_EXIT_NOOP = "noop"
+# PR-D: rejected clarification while an edit remained incomplete — a terminal
+# stop that is NOT budget exhaustion (distinct from _BATCH_EXIT_BUDGET).
+_BATCH_EXIT_STUCK = "stuck"
 
 
 @dataclass(frozen=True)
@@ -640,6 +643,7 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
 __all__ = (
      "TerminalClarifySplit", "_BATCH_EXIT_BUDGET", "_BATCH_EXIT_DONE",
      "_BATCH_EXIT_EDIT_CLARIFY", "_BATCH_EXIT_NOOP", "_BATCH_EXIT_PURE_CLARIFY",
+     "_BATCH_EXIT_STUCK",
      "_BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES", "_CLARIFY_CALL_RE", "_DETAIL_ALIAS_CAP",
      "_DETAIL_LIST_CAP", "_DIAGNOSTIC_DETAIL_KEYS", "_SEARCH_CALL_RE", "_SEARCH_KW_RE",
      "_batch_budget_artifixer_report", "_batch_budget_failure_kind",

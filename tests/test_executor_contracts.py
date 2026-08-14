@@ -1243,15 +1243,15 @@ class TestBuildReplyMessages:
         assert "Do not dump the research summary" in system
         assert "quality scores only when that metadata is explicitly present" in system
 
-    def test_reply_prompt_allows_lightweight_markdown_inside_json(self) -> None:
+    def test_reply_prompt_uses_plain_prose_with_json_compat(self) -> None:
         msgs = build_reply_messages("explain this graph")
         system = msgs[0]["content"]
-        assert '"reply": string' in system
-        assert "lightweight Markdown" in system
+        assert '"reply"' in system
+        assert "Lightweight Markdown" in system
         assert "short paragraphs, bullet lists, emphasis, and inline code" in system
-        assert "wire format remains JSON" in system
-        assert "Do NOT use fenced code blocks in the reply string" in system
-        assert "Return ONLY a JSON object" in system
+        assert "plain prose" in system
+        assert "backward compatibility" in system
+        assert "Do NOT use fenced code blocks" in system
 
     def test_inspect_reply_prompt_encourages_readable_structure(self) -> None:
         msgs = build_reply_messages(
@@ -1796,9 +1796,41 @@ class TestParseReplyResponse:
         text = parse_reply_response(raw)
         assert text == "Done!"
 
-    def test_malformed_json_raises(self) -> None:
+    def test_plain_prose_accepted(self) -> None:
+        raw = "Based on my research, here are the relevant node types: KSampler, VAEDecode."
+        text = parse_reply_response(raw)
+        assert text == raw
+
+    def test_multiline_prose_normalized(self) -> None:
+        raw = "First line.\n\n\nSecond line.   \n\n\n\nThird line."
+        text = parse_reply_response(raw)
+        assert text == "First line.\n\nSecond line.\n\nThird line."
+
+    def test_whitespace_only_raises(self) -> None:
+        with pytest.raises(ValueError, match="empty"):
+            parse_reply_response("   \n\t ")
+
+    def test_malformed_json_looking_raises(self) -> None:
+        """JSON-looking-but-unparseable output stays a retryable error."""
         with pytest.raises(ValueError):
-            parse_reply_response("not json")
+            parse_reply_response('{"reply": "unclosed')
+        with pytest.raises(ValueError):
+            parse_reply_response('```json\n{"reply": "unclosed')
+
+    def test_iteration_limit_sentinel_raises(self) -> None:
+        with pytest.raises(ValueError, match="iteration"):
+            parse_reply_response(
+                "I reached the iteration limit and couldn't generate a summary."
+            )
+
+    def test_long_prose_mentioning_limit_is_accepted(self) -> None:
+        raw = (
+            "LTX 2.5 has no hard iteration limit in practice: the sampler runs "
+            "as many steps as configured, and you can raise the step count if "
+            "you need more refinement passes."
+        )
+        text = parse_reply_response(raw)
+        assert text == raw
 
     def test_strips_whitespace(self) -> None:
         raw = '{"reply": "  padded  "}'

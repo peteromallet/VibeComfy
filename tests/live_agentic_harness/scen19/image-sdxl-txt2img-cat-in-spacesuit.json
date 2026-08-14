@@ -1,0 +1,12 @@
+{
+  "id": "image-sdxl-txt2img-cat-in-spacesuit",
+  "query": "The render looks plastic and fake \u2014 the material isn't reading as real fabric.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+  "apply": true,
+  "network": true,
+  "timeout": 180,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "area"
+}

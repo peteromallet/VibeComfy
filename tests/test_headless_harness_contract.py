@@ -241,7 +241,11 @@ def test_headless_research_route_runs_full_executor_pipeline(
     tmp_path: Path,
     profile_dir: Path,
 ) -> None:
-    """The research route delegates to handle_agent_edit and synthesizes artifacts."""
+    """The research route runs deterministic research + semantic reply (PR-B).
+
+    The headless service wires classify → deterministic research → reply
+    through the real executor core.  The agent-edit batch gate never runs.
+    """
     _set_headless_env(monkeypatch)
     _patch_readiness(monkeypatch)
 
@@ -249,13 +253,14 @@ def test_headless_research_route_runs_full_executor_pipeline(
     from vibecomfy.executor import core as executor_core
 
     classify_called: list[dict[str, Any]] = []
+    research_called: list[dict[str, Any]] = []
     edit_called: list[dict[str, Any]] = []
 
     def fake_classify(query: str, **kwargs: Any) -> ClassifyDecision:
         classify_called.append({"query": query, "kwargs": kwargs})
         return ClassifyDecision(
             research=True,
-            implement=True,
+            implement=False,
             reply=True,
             effort="medium",
             plan_summary="Research faster video options.",
@@ -269,26 +274,24 @@ def test_headless_research_route_runs_full_executor_pipeline(
             known_graph_context="Video workflow attached.",
         )
 
+    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+        research_called.append({"query": query, "kwargs": kwargs})
+        return ResearchResult(
+            summary="Research found distilled checkpoints and Lightning/LCM samplers.",
+            sources=(),
+            warnings=(),
+        )
+
+    def fake_reply(query: str, **kwargs: Any) -> str:
+        return "Research found distilled checkpoints and Lightning/LCM samplers."
+
     def fake_handle_agent_edit(payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         edit_called.append({"payload": payload, "kwargs": kwargs})
-        return {
-            "ok": True,
-            "graph": {"nodes": [], "links": []},
-            "message": "Research found distilled checkpoints and Lightning/LCM samplers.",
-            "outcome": {"kind": "noop", "reason": "research answer only"},
-            "apply_eligible": False,
-            "apply_eligibility": {
-                "applyable": False,
-                "reason": "no_candidate",
-                "message": "Apply is not available for research routes.",
-            },
-            "graph_unchanged": True,
-            "no_candidate_reason": "route_not_applyable",
-            "session_id": "research-session-e2e",
-            "turn_id": "0001",
-        }
+        raise AssertionError("research route must never reach the agent-edit gate")
 
     monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify)
+    monkeypatch.setattr(executor_core, "run_research_phase", fake_research)
+    monkeypatch.setattr(executor_core, "run_reply_turn", fake_reply)
     monkeypatch.setattr(executor_core, "handle_agent_edit", fake_handle_agent_edit)
 
     output_dir = tmp_path / "research-out"
@@ -305,24 +308,25 @@ def test_headless_research_route_runs_full_executor_pipeline(
     assert result.status == "success"
     assert result.ok is True
     assert classify_called
-    assert edit_called
-
-    # The executor should have forwarded the research brief to the edit engine.
-    payload = edit_called[0]["payload"]
-    assert payload["route"] == "research"
-    assert "research_brief" in payload
-    assert payload["research_brief"]["research_goal"]
+    assert not edit_called
+    # Deterministic research ran with the classifier's scoped directions and
+    # its source_preferences as the explicit tier tuple.
+    assert len(research_called) == 1
+    assert "distilled video models; lightning/LCM samplers" == research_called[0]["query"]
+    assert research_called[0]["kwargs"]["sources"] == ("workflows", "node documentation")
 
     classification = _read_json(output_dir / "classification.json")
+    research_artifact = _read_json(output_dir / "research.json")
     response = _read_json(output_dir / "response.json")
     flow_metadata = _read_json(output_dir / "flow_metadata.json")
 
     assert classification["route"] == "research"
     assert classification["task"] == "research_nodes"
     assert classification["research"] is True
-    # The classifier normalizes ``implement`` to False for the research route;
-    # the executor still delegates to handle_agent_edit via route behavior.
     assert classification["implement"] is False
+    assert research_artifact["summary"].startswith(
+        "Research found distilled checkpoints and Lightning/LCM samplers."
+    )
     assert response["ok"] is True
     assert response["route"] == "research"
     assert "distilled" in response["reply"].lower() or "lightning" in response["reply"].lower()

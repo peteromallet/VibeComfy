@@ -161,17 +161,7 @@ def test_explore_hotshot_xl_research_route_evidence_stays_structural_fake(
     evidence = build_research_hotshot_xl_evidence(report_dir)
 
     executor_result = json.loads((report_dir / "executor_result.json").read_text(encoding="utf-8"))
-    implementation_payload = json.loads(
-        (report_dir / "implementation_payload.json").read_text(encoding="utf-8")
-    )
-    implementation_result = json.loads(
-        (report_dir / "implementation_result.json").read_text(encoding="utf-8")
-    )
-    messages = [
-        json.loads(line)
-        for line in (report_dir / "messages.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    research = json.loads((report_dir / "research.json").read_text(encoding="utf-8"))
     actions = [
         json.loads(line)
         for line in (report_dir / "actions.jsonl").read_text(encoding="utf-8").splitlines()
@@ -181,21 +171,27 @@ def test_explore_hotshot_xl_research_route_evidence_stays_structural_fake(
     assert evidence["scenario"] == "explore-hotshot-xl-workflow"
     assert executor_result["route"] == "research"
     assert executor_result["candidate"] is None
-    assert executor_result["graph_unchanged"] is True
-    assert executor_result["no_candidate_reason"] == "route_not_applyable"
-    assert implementation_result["message"] == "Research answer for Hotshot XL SVD-XT workflow."
-    assert implementation_payload["route"] == "research"
-    assert implementation_payload["executor_route"] == "research"
-    assert implementation_payload["research_brief"]["research_goal"] == "Find Hotshot XL SVD-XT workflow evidence."
-    assert "Hotshot XL SVD-XT ComfyUI workflow" in messages[0]["batch"]
-    assert 'sources=["workflows"]' in messages[0]["batch"]
+    assert executor_result["apply_eligible"] is False
+    # PR-B: the research route runs deterministic research (scoped query +
+    # explicit source tier tuple) — the agent-edit batch gate never runs.
+    assert research["phase"] == "deterministic"
+    assert research["edit_called"] is False
+    calls = research["calls"]
+    assert len(calls) == 1
+    assert calls[0]["query"] == (
+        "Hotshot XL SVD-XT ComfyUI workflow; Hotshot XL image-to-video workflow pattern"
+    )
+    assert calls[0]["sources"] == ["workflows", "messages", "web"]
     assert any(
-        action.get("op") == "research" and action.get("through_agent_edit") is True
+        action.get("op") == "research"
+        and action.get("through_agent_edit") is False
+        and action.get("phase") == "deterministic"
         for action in actions
     )
+    assert any(action.get("op") == "executor.run" for action in actions)
 
 
-def test_distilled_faster_research_route_evidence_proves_research_brief_passes_into_agent_edit(
+def test_distilled_faster_research_route_evidence_scopes_deterministic_research(
     tmp_path: Path,
 ) -> None:
     report_dir = tmp_path / "reports" / "distilled-faster"
@@ -203,17 +199,7 @@ def test_distilled_faster_research_route_evidence_proves_research_brief_passes_i
     evidence = build_distilled_faster_research_route_evidence(report_dir)
 
     executor_result = json.loads((report_dir / "executor_result.json").read_text(encoding="utf-8"))
-    implementation_payload = json.loads(
-        (report_dir / "implementation_payload.json").read_text(encoding="utf-8")
-    )
-    implementation_result = json.loads(
-        (report_dir / "implementation_result.json").read_text(encoding="utf-8")
-    )
-    messages = [
-        json.loads(line)
-        for line in (report_dir / "messages.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    research = json.loads((report_dir / "research.json").read_text(encoding="utf-8"))
     actions = [
         json.loads(line)
         for line in (report_dir / "actions.jsonl").read_text(encoding="utf-8").splitlines()
@@ -223,26 +209,23 @@ def test_distilled_faster_research_route_evidence_proves_research_brief_passes_i
     assert evidence["scenario"] == "distilled-faster-research-route"
     assert executor_result["route"] == "research"
     assert executor_result["candidate"] is None
-    assert executor_result["graph_unchanged"] is True
-    assert executor_result["no_candidate_reason"] == "route_not_applyable"
-    assert "distilled/faster" in implementation_result["message"]
-    assert implementation_payload["route"] == "research"
-    assert implementation_payload["executor_route"] == "research"
+    assert executor_result["apply_eligible"] is False
 
-    brief = implementation_payload["research_brief"]
-    assert "distilled" in " ".join(brief["search_directions"]).lower()
-    assert "lightning" in " ".join(brief["search_directions"]).lower()
-    assert "AnimateDiff" in brief["known_graph_context"]
-    assert "generic searches for the raw sentence" in brief["avoid"]
-
-    batch = messages[0]["batch"]
-    assert "AnimateDiff" in batch
-    assert "distilled faster inference" in batch
-    assert 'sources=["workflows"]' in batch
+    # PR-B: deterministic research, never the agent-edit batch gate.
+    assert research["phase"] == "deterministic"
+    assert research["edit_called"] is False
+    calls = research["calls"]
+    assert len(calls) == 1
+    scoped_query = calls[0]["query"]
+    # The focused research query uses domain anchors, never generic words from
+    # the raw sentence.
+    assert "AnimateDiff distilled faster inference ComfyUI" in scoped_query
+    assert "lightning video motion model distilled steps" in scoped_query
+    assert calls[0]["sources"] == ["workflows", "messages", "web"]
     assert any(
         action.get("op") == "research"
-        and action.get("through_agent_edit") is True
-        and action.get("research_brief_passed") is True
+        and action.get("through_agent_edit") is False
+        and action.get("phase") == "deterministic"
         for action in actions
     )
     assert any(action.get("op") == "executor.run" for action in actions)

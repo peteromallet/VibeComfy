@@ -1,0 +1,12 @@
+{
+  "id": "video-ltx-video-upscaling-and-enhancement",
+  "query": "The output video looks blurry and lacks crisp detail.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/0043c6cb3d3d011f.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

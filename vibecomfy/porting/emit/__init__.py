@@ -28,6 +28,7 @@ from vibecomfy.porting.emit.signatures import (
     READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
     READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
     emit_available_node_signatures,
+    filter_signature_rows_to_in_graph_nodes,
     format_signature_rows,
 )
 from vibecomfy.porting.emit.node_kwargs import apply_overrides, node_kwargs
@@ -72,6 +73,7 @@ __all__ = [
     "InputSignatureField",
     "OutputSignatureField",
     "emit_available_node_signatures",
+    "filter_signature_rows_to_in_graph_nodes",
     "format_signature_rows",
     "format_as_python",
     "emit_ready_template_python",

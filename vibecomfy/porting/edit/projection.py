@@ -217,7 +217,8 @@ def _render(
         "Node target: [scope_path, uid]. Field target: [scope_path, uid, field_path].",
         "Link endpoints: from [scope_path, uid, output_slot] to [scope_path, uid, input_field].",
         "Helper nodes are real substrate nodes and are intentionally visible.",
-        "Mode annotations are informational only; use set_mode to change enable/mute/bypass.",
+        "Muted (2) and bypassed (4) nodes are DISCONNECTED: they do not execute and their links",
+        "are severed. Never target them or their inputs/outputs; enable them with set_mode first.",
     ]
     if task:
         lines.extend(["", "## User Task", _format_value(task)])
@@ -274,12 +275,23 @@ def _render_node(
     line = (
         f"- node target={json.dumps([scope_path, uid], ensure_ascii=True)} "
         f"id={json.dumps(node_id, ensure_ascii=True)} class={json.dumps(class_type, ensure_ascii=True)} "
-        f"mode={json.dumps(mode, ensure_ascii=True)} ({mode_text}; informational)"
+        f"mode={json.dumps(mode, ensure_ascii=True)} ({mode_text})"
         f"{helper}"
     )
     if isinstance(title, str) and title:
         line += f" title={_format_value(title)}"
     lines = [line]
+    if mode not in (0, None):
+        # Stable bypass/inactive state: a muted or bypassed node is severed
+        # from execution and its links are dead. Targeting it (field edits,
+        # links) lands ops that have no effect on the executed graph, so the
+        # projection must mark it untargetable rather than merely informational.
+        lines.append(
+            "  DISCONNECTED: node is "
+            f"{mode_text} and does not execute; its links are severed. "
+            "Do NOT target this node or reference its inputs/outputs — "
+            "enable it with set_mode first, or wire around it."
+        )
     if not detailed:
         input_count = len(node.get("inputs") or []) if isinstance(node.get("inputs"), list) else 0
         output_count = len(node.get("outputs") or []) if isinstance(node.get("outputs"), list) else 0

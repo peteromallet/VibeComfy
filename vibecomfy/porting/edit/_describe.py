@@ -167,6 +167,7 @@ class _DescribeMixin:
         compatible_input_type: str | None = None,
         compatible_output_type: str | None = None,
         formatted: bool = False,
+        in_graph_nodes: Any = None,
     ) -> list[NodeSignatureRow] | str:
         """Query available node signatures from the session's schema provider.
 
@@ -176,6 +177,12 @@ class _DescribeMixin:
         Delegates to :func:`emit_available_node_signatures` with the
         session's ``schema_provider``.  When *formatted* is ``True``, returns a
         deterministic text catalog via :func:`format_signature_rows`.
+
+        When *in_graph_nodes* is provided (a raw UI graph — list, dict, or
+        ``{"nodes": [...]}``), literal fields that no in-graph node of a class
+        can resolve are dropped from that class's row so the catalog does not
+        advertise schema-drifted fields as writable (PR-D / Tripo
+        ``geometry_quality``).  Socket inputs are never dropped.
 
         Parameters
         ----------
@@ -190,7 +197,11 @@ class _DescribeMixin:
             When ``True``, return a formatted text string instead of a list of rows.
         """
         from vibecomfy.porting.authoring_names import constructor_aliases_for_schema_provider
-        from vibecomfy.porting.emitter import emit_available_node_signatures, format_signature_rows as fmt_rows
+        from vibecomfy.porting.emitter import (
+            emit_available_node_signatures,
+            filter_signature_rows_to_in_graph_nodes,
+            format_signature_rows as fmt_rows,
+        )
 
         rows = emit_available_node_signatures(
             self.schema_provider,
@@ -198,6 +209,8 @@ class _DescribeMixin:
             compatible_input_type=compatible_input_type,
             compatible_output_type=compatible_output_type,
         )
+        if in_graph_nodes is not None:
+            rows = filter_signature_rows_to_in_graph_nodes(rows, in_graph_nodes)
         if formatted:
             formatted_rows = fmt_rows(
                 rows,

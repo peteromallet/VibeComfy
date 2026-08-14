@@ -921,9 +921,14 @@ def _fallback_narrative_message(
     narrative_context: Mapping[str, Any] | None = None,
     fallback_reason: str | None = None,
 ) -> str:
-    from ._frag_batch_reports import _BATCH_EXIT_BUDGET  # T-038 late import: sibling cycle broken; resolved at call time
+    from ._frag_batch_reports import _BATCH_EXIT_BUDGET, _BATCH_EXIT_STUCK  # T-038 late import: sibling cycle broken; resolved at call time
     if failure is not None:
-        if state.batch_exit_mode == _BATCH_EXIT_BUDGET or failure.kind is FailureKind.BATCH_BUDGET_EXHAUSTED:
+        if state.batch_exit_mode == _BATCH_EXIT_STUCK:
+            warning = ensure_sentence_message(
+                "I stopped because the edit remained incomplete after a rejected clarification",
+                fallback=state.batch_final_summary or failure.user_facing_message,
+            )
+        elif state.batch_exit_mode == _BATCH_EXIT_BUDGET or failure.kind is FailureKind.BATCH_BUDGET_EXHAUSTED:
             warning = ensure_sentence_message(
                 "I ran out of turn budget before completing the remaining changes",
                 fallback=state.batch_final_summary or failure.user_facing_message,
@@ -1166,12 +1171,17 @@ def _batch_warning_sentence(
     failure: FailureEnvelope | None = None,
     outcome: TurnOutcome | None = None,
 ) -> str:
-    from ._frag_batch_reports import _BATCH_EXIT_BUDGET  # T-038 late import: sibling cycle broken; resolved at call time
+    from ._frag_batch_reports import _BATCH_EXIT_BUDGET, _BATCH_EXIT_STUCK  # T-038 late import: sibling cycle broken; resolved at call time
     if failure is not None:
         if failure.kind is FailureKind.STALE_STATE_MISMATCH:
             return ensure_sentence_message(
                 failure.user_facing_message,
                 fallback="The canvas changed since the current baseline. Rebaseline and resubmit from the current canvas.",
+            )
+        if state.batch_exit_mode == _BATCH_EXIT_STUCK:
+            return ensure_sentence_message(
+                "I stopped because the edit remained incomplete after a rejected clarification",
+                fallback=state.batch_final_summary or failure.message,
             )
         if state.batch_exit_mode == _BATCH_EXIT_BUDGET:
             return ensure_sentence_message(

@@ -444,8 +444,10 @@ class TestRepresentativeRouteScenarios:
         assert decision.effective_route == "research"
         assert decision.effective_task == "research_nodes"
         behavior = _route_behavior(decision)
+        # PR-B: research answers via deterministic research + semantic reply —
+        # the edit gate never runs.
         assert behavior.needs_research is True
-        assert behavior.needs_implement is True
+        assert behavior.needs_implement is False
         assert behavior.can_produce_candidate is False
 
     def test_pil_lookup_routes_to_research(self) -> None:

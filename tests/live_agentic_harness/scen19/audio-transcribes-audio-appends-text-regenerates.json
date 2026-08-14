@@ -1,0 +1,12 @@
+{
+  "id": "audio-transcribes-audio-appends-text-regenerates",
+  "query": "The transcription has too many errors \u2014 the speech-to-text stage seems weak.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "area"
+}

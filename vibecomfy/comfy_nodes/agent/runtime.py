@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextvars
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,7 +62,34 @@ from vibecomfy.executor.profiler import (
 
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "180"))
+# Grace granted after SIGTERM before a timed-out worker's process GROUP is
+# SIGKILLed. Short by design: a hung grandchild (the cluster-A pipe hang) must
+# not extend the turn timeout meaningfully.
+_TURN_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_KILL_GRACE", "3"))
 _WORKER_PATH = str(Path(__file__).with_name("worker.py"))
+
+# Per-turn agentic iteration budget for the Arnold AIAgent loop. The worker is
+# a single tool-free completion, but deepseek-v4-flash exhausted a
+# one-iteration, 2048-token turn (cluster B) and emitted prose instead of the
+# required JSON. Default 2 gives the loop room to finish a synthesis; bounded
+# so a runaway agentic loop cannot burn the scenario budget.
+_AGENT_MAX_ITERATIONS = max(1, min(8, int(os.getenv("VIBECOMFY_AGENT_MAX_ITERATIONS", "2"))))
+
+# Cluster-B correction retry: when a worker turn is killed by the model's
+# iteration/token budget (finish_reason="length"), emits the exact
+# iteration-limit sentinel, or returns zero usable contract output, retry once
+# with a short correction prompt appended to the user message. The correction
+# nudge is deliberately small — the raised budgets above are the primary fix.
+_ITERATION_EXHAUSTION_CORRECTION_PROMPT = (
+    "\n\nYour previous response was cut off by the model's iteration/token "
+    "limit and could not be used. Produce the complete required response now, "
+    "matching the exact output contract (a single JSON object, or exactly one "
+    "```batch fenced block for batch_repl) with no preamble, no truncation, "
+    "and no placeholder text."
+)
+_ITERATION_EXHAUSTION_MAX_CORRECTIONS = max(
+    1, int(os.getenv("VIBECOMFY_AGENT_ITERATION_RETRY_CORRECTIONS", "1"))
+)
 
 # A fresh worker/transport retry is deliberately narrow: only a canonical
 # empty-response failure with observed zero completion tokens may consume the
@@ -83,7 +111,10 @@ _CANONICAL_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _NATIVE_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 _OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-_OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "2048"))
+# Cluster B: a 2048-token ceiling truncated deepseek-v4-flash classify/reply
+# turns (finish_reason="length" → prose instead of the required JSON). 4096
+# gives the single-shot completion room for the full synthesis.
+_OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "4096"))
 
 # Environment keys that select transport/endpoint/model routing.  These may be
 # pinned explicitly by an operator or the live-agentic harness, but they must
@@ -538,7 +569,7 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
     single-shot flags.
     """
     common: dict[str, Any] = dict(
-        max_iterations=1,
+        max_iterations=_AGENT_MAX_ITERATIONS,
         enabled_toolsets=[],          # no tools: one-shot completion
         save_trajectories=False,      # no trajectory files on disk
         skip_context_files=True,      # don't load SOUL.md / AGENTS.md
@@ -622,6 +653,118 @@ def _timeout_model_attempt(
     ).to_dict()
 
 
+def _is_iteration_exhaustion_result(result: Mapping[str, Any]) -> bool:
+    """True when a worker result shows iteration/token exhaustion.
+
+    Recoverable with a short correction retry when any of these hold:
+    * ``finish_reason == "length"`` (the provider cut the completion off),
+    * the raw output contains the exact iteration-limit sentinel
+      (``I reached the iteration limit``) that deepseek-v4-flash emits,
+    * the worker received non-empty raw output but produced ZERO usable
+      contract fields (parse failure on prose instead of the required JSON,
+      a missing batch fence, ...).
+
+    Deliberately does NOT match canonical typed-empty responses (parse_reason
+    ``"empty"`` with empty raw): those stay exclusively on the existing
+    typed-empty transport-retry path.
+    """
+    finish_reason = str(result.get("finish_reason") or "").strip().casefold()
+    if finish_reason == "length":
+        return True
+    raw = str(result.get("raw_response_preview") or result.get("content") or "").strip()
+    if "I reached the iteration limit" in raw:
+        return True
+    usable = (
+        str(result.get("content") or "").strip()
+        or str(result.get("json") or "").strip()
+        or str(result.get("python") or "").strip()
+        or str(result.get("delta") or "").strip()
+    )
+    if usable:
+        return False
+    parse_reason = str(result.get("parse_reason") or "").strip()
+    return bool(raw) and parse_reason in {
+        "empty",
+        "malformed_json",
+        "non_json_content",
+        "missing_content",
+        "missing_required_fields",
+    }
+
+
+def _terminate_worker_group(pid: int) -> None:
+    """Terminate the worker's process GROUP and let the caller reap it.
+
+    The worker is spawned with ``start_new_session=True``, so it is a session
+    leader whose process-group id equals its pid; signalling the group reaches
+    every grandchild that inherited the worker's stdio fds (the cluster-A pipe
+    hang: ``subprocess.run(timeout=...)`` blocked in ``communicate()`` forever
+    because a grandchild held the captured pipe open). SIGTERM first with a
+    short grace so a well-behaved worker can flush; then SIGKILL, which is
+    uncatchable, so the caller's subsequent ``wait()`` cannot hang.
+
+    ``PermissionError`` (EPERM) from ``killpg`` is treated like ESRCH: macOS
+    returns EPERM for a process group whose members are all zombies (nothing
+    left to signal), which is exactly the "already gone" state we probe for.
+    """
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return  # already gone, or only zombies remain
+    deadline = time.monotonic() + _TURN_KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return  # group exited during the grace window
+        time.sleep(0.05)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _run_worker_subprocess(
+    command: list[str],
+    *,
+    cwd: str,
+    env: Mapping[str, str],
+    timeout: float,
+    stdout_path: str,
+    stderr_path: str,
+) -> tuple[int, str, str]:
+    """Run *command* in its own process group; return (returncode, stdout, stderr).
+
+    stdout/stderr go to regular temp FILES, never pipes: a grandchild that
+    inherits the worker's stdio fds cannot keep a pipe open past our timeout,
+    so the turn timeout actually fires (cluster A). On timeout the whole process
+    GROUP is terminated (SIGTERM → short grace → SIGKILL) and the direct child
+    is reaped before ``subprocess.TimeoutExpired`` is re-raised for the caller.
+    """
+    with open(stdout_path, "w", encoding="utf-8") as out_fh, open(
+        stderr_path, "w", encoding="utf-8"
+    ) as err_fh:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=out_fh,
+            stderr=err_fh,
+            start_new_session=True,
+        )
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_worker_group(proc.pid)
+            proc.wait()  # SIGKILLed; cannot hang
+            raise
+    with open(stdout_path, encoding="utf-8", errors="replace") as fh:
+        stdout_text = fh.read()
+    with open(stderr_path, encoding="utf-8", errors="replace") as fh:
+        stderr_text = fh.read()
+    return proc.returncode, stdout_text, stderr_text
+
+
 def _run_worker(
     agent_kwargs: dict[str, Any],
     system_msg: str | None,
@@ -641,6 +784,7 @@ def _run_worker(
     provider/capacity errors, and malformed non-empty content surface immediately.
     """
     accumulated_attempts: list[dict[str, Any]] = []
+    iteration_corrections = 0
     for attempt in range(_WORKER_TRANSIENT_MAX_ATTEMPTS):
         attempt_profile = dict(profiling_context or {})
         if attempt:
@@ -678,6 +822,23 @@ def _run_worker(
             record_model_attempts([normalized])
         if accumulated_attempts:
             result["model_attempts"] = list(accumulated_attempts)
+        if (
+            _is_iteration_exhaustion_result(result)
+            and not _is_typed_empty_worker_result(result)
+            and iteration_corrections < _ITERATION_EXHAUSTION_MAX_CORRECTIONS
+            and attempt + 1 < _WORKER_TRANSIENT_MAX_ATTEMPTS
+        ):
+            iteration_corrections += 1
+            LOGGER.warning(
+                "agent worker output shows iteration/token exhaustion "
+                "(attempt %d/%d, finish_reason=%r); retrying once with a "
+                "correction prompt",
+                attempt + 1,
+                _WORKER_TRANSIENT_MAX_ATTEMPTS,
+                result.get("finish_reason"),
+            )
+            user_msg = f"{user_msg}\n\n{_ITERATION_EXHAUSTION_CORRECTION_PROMPT}"
+            continue
         if (
             "error" in result
             and _is_typed_empty_worker_result(result)
@@ -743,6 +904,8 @@ def _run_worker_once(
             env["HERMES_API_KEY"] = hermes_key
         # Don't leak ComfyUI's cwd/path into the child (it is what causes the
         # `utils` collision); run from a neutral directory.
+        stdout_path = os.path.join(tmp, "worker.stdout.log")
+        stderr_path = os.path.join(tmp, "worker.stderr.log")
         try:
             with profiler_span(
                 LOGGER,
@@ -752,18 +915,18 @@ def _run_worker_once(
                 worker_path=_WORKER_PATH,
                 profiling_context=dict(profiling_context or {}),
             ) as span:
-                proc = subprocess.run(
+                returncode, stdout_text, stderr_text = _run_worker_subprocess(
                     [sys.executable, _WORKER_PATH, req_path, res_path],
                     cwd=tmp,
                     env=env,
-                    capture_output=True,
-                    text=True,
                     timeout=_TURN_TIMEOUT_SECONDS,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
                 )
                 span.update(
-                    returncode=proc.returncode,
-                    stdout_length=len(proc.stdout or ""),
-                    stderr_length=len(proc.stderr or ""),
+                    returncode=returncode,
+                    stdout_length=len(stdout_text),
+                    stderr_length=len(stderr_text),
                 )
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(
@@ -783,16 +946,16 @@ def _run_worker_once(
                     result_keys=sorted(result.keys()) if isinstance(result, dict) else None,
                 )
                 if isinstance(result, dict) and "error" in result:
-                    if proc.stdout:
-                        result.setdefault("worker_stdout_tail", proc.stdout[-4000:])
-                    if proc.stderr:
-                        result.setdefault("worker_stderr_tail", proc.stderr[-4000:])
+                    if stdout_text.strip():
+                        result.setdefault("worker_stdout_tail", stdout_text[-4000:])
+                    if stderr_text.strip():
+                        result.setdefault("worker_stderr_tail", stderr_text[-4000:])
                 _record_captured_deepseek_usage(result)
                 return result
         except (FileNotFoundError, json.JSONDecodeError) as exc:
-            tail = (proc.stderr or proc.stdout or "")[-800:]
+            tail = (stderr_text or stdout_text or "")[-800:]
             raise RuntimeError(
-                f"Agent worker produced no result (exit {proc.returncode}). {exc}. "
+                f"Agent worker produced no result (exit {returncode}). {exc}. "
                 f"Worker output tail:\n{tail}"
             ) from exc
 
