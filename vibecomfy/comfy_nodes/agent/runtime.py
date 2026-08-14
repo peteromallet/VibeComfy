@@ -672,7 +672,13 @@ def _is_iteration_exhaustion_result(result: Mapping[str, Any]) -> bool:
     if finish_reason == "length":
         return True
     raw = str(result.get("raw_response_preview") or result.get("content") or "").strip()
-    if "I reached the iteration limit" in raw:
+    lowered = raw.casefold()
+    if (
+        "iteration limit" in lowered
+        or "iterationlimit" in lowered
+        or "token limit" in lowered
+        or "turn limit" in lowered
+    ):
         return True
     usable = (
         str(result.get("content") or "").strip()
@@ -756,7 +762,10 @@ def _run_worker_subprocess(
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             _terminate_worker_group(proc.pid)
-            proc.wait()  # SIGKILLed; cannot hang
+            try:
+                proc.wait(timeout=5.0)  # bounded reap after SIGKILL
+            except subprocess.TimeoutExpired:
+                pass  # group already SIGKILLed; a lingering zombie is harmless
             raise
     with open(stdout_path, encoding="utf-8", errors="replace") as fh:
         stdout_text = fh.read()

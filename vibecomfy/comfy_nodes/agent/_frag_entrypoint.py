@@ -292,6 +292,11 @@ def handle_agent_edit(
             validated_max_batches = None
         if validated_max_batches is not None:
             state.batch_max_turns = validated_max_batches
+        elif "max_batches" in payload and payload["max_batches"] is not None:
+            raise ValueError(
+                "max_batches must be an integer in 1..250 "
+                f"(got {payload['max_batches']!r})"
+            )
     if (
         isinstance(payload.get("max_consecutive_errors"), int)
         and payload["max_consecutive_errors"] > 0
