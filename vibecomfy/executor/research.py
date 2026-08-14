@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import io
 import json
 import logging
@@ -1691,16 +1692,33 @@ def _run_registry_research(
     query: str,
     *,
     resolver: RegistryResolver = resolve_missing_nodes,
+    deadline: float | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
-    """Return read-only Comfy Registry / Manager evidence for missing nodes."""
+    """Return read-only Comfy Registry / Manager evidence for missing nodes.
+
+    R2-B1/R2-B2 bounding: at most ``_REGISTRY_MAX_CANDIDATE_QUERIES`` resolver
+    queries run per node query, the loop stops as soon as exact class-validatable
+    evidence arrives (Manager/Registry candidates carrying concrete classes),
+    and when *deadline* (absolute ``time.monotonic()``) expires the function
+    returns the partial evidence collected so far instead of raising.
+    """
     warnings: list[str] = []
     sources: list[dict[str, Any]] = []
     seen_candidate_keys: set[str] = set()
     seen_warning_keys: set[str] = set()
+    resolver_accepts_deadline = _resolver_accepts_deadline(resolver)
 
-    for candidate_query in _registry_candidate_queries(query):
+    for candidate_query in _registry_candidate_queries(
+        query, max_queries=_REGISTRY_MAX_CANDIDATE_QUERIES
+    ):
+        if deadline is not None and time.monotonic() >= deadline:
+            warnings.append("registry research deadline reached; proceeding with partial evidence")
+            break
         try:
-            result = resolver(candidate_query)
+            if resolver_accepts_deadline:
+                result = resolver(candidate_query, deadline=deadline)
+            else:
+                result = resolver(candidate_query)
         except PackResolverError as exc:
             warnings.append(f"{candidate_query}: {exc}")
             continue
@@ -1714,11 +1732,14 @@ def _run_registry_research(
                 warnings.append(key)
                 seen_warning_keys.add(key)
 
+        exact_evidence_found = False
         for candidate in result.candidates:
             payload = candidate.to_dict()
             pack = payload.get("pack") if isinstance(payload.get("pack"), dict) else {}
             slug = str(pack.get("slug") or "")
             expected_classes = tuple(str(cls) for cls in payload.get("expected_classes", ()) if cls)
+            if expected_classes:
+                exact_evidence_found = True
             key = f"{slug}|{'|'.join(expected_classes)}"
             if key in seen_candidate_keys:
                 continue
@@ -1764,6 +1785,8 @@ def _run_registry_research(
                 "expected_classes": list(expected_classes),
                 "resolver_candidate": payload,
             })
+        if exact_evidence_found:
+            break
 
     for source in sources:
         source["score"] = max(
@@ -1776,6 +1799,26 @@ def _run_registry_research(
     ]
     ranked_sources.sort(key=lambda source: (-_registry_source_rank(source, query), str(source.get("class_type", "")).lower()))
     return tuple(ranked_sources), tuple(warnings)
+
+
+# R2-B1: at most this many resolver queries run per missing-node query so a
+# single research() call cannot expand into an unbounded GitHub/Registry fan-out.
+_REGISTRY_MAX_CANDIDATE_QUERIES = 3
+
+
+def _resolver_accepts_deadline(resolver: Any) -> bool:
+    """True when the resolver exposes an optional *deadline* keyword (R2-B1)."""
+    try:
+        return "deadline" in inspect.signature(resolver).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _deadline_remaining(deadline: float | None, *, minimum: float = 0.0) -> float:
+    """Seconds left until *deadline* (absolute monotonic); inf when unbounded."""
+    if deadline is None:
+        return float("inf")
+    return max(minimum, deadline - time.monotonic())
 
 
 def _registry_candidate_queries(query: str, *, max_queries: int = 6) -> list[str]:
@@ -5905,6 +5948,7 @@ def research(
     local_limit: int = 10,
     sources: tuple[str, ...] | None = None,
     hivemind_messages_client: HivemindClient | None | object = _USE_DEFAULT,
+    deadline: float | None = None,
 ) -> ResearchResult:
     """Execute the full research phase: local corpus + external fallback.
 
@@ -5952,6 +5996,12 @@ def research(
         By default, uses ``_default_hivemind_messages_client``.  Only consulted
         when the messages tier is enabled; ``VIBECOMFY_MESSAGES_RESEARCH=0``
         skips it with a warning.  Pass ``None`` to skip the tier.
+    deadline:
+        Optional absolute ``time.monotonic()`` value bounding the whole phase
+        (R2-B1).  Each external tier checks the remaining time before it starts,
+        clamps its own timeout to it, and the registry tier stops mid-loop when
+        it expires.  On expiry the phase returns the partial evidence collected
+        so far with a warning — it never raises.
 
     Returns
     -------
@@ -6036,23 +6086,46 @@ def research(
     else:
         resolved_registry_resolver = registry_resolver  # type: ignore[assignment]
 
+    # ── Cooperative phase deadline (R2-B1) ────────────────────────────────
+    # *deadline* is an absolute time.monotonic() value set by the executor
+    # around its synchronous Phase-2 research wait.  Every external tier below
+    # checks the remaining time before starting, clamps its own timeout to it,
+    # and the registry tier stops mid-loop on expiry.  When the deadline fires
+    # the phase proceeds with partial evidence — it never raises.
+    deadline_hit = False
+
+    def _note_deadline(tier: str) -> None:
+        nonlocal deadline_hit
+        if deadline_hit:
+            return
+        deadline_hit = True
+        warnings.append(
+            f"research phase deadline reached before {tier}; proceeding with partial evidence"
+        )
+
     if resolved_hivemind_client is not None and hivemind_timeout > 0:
-        try:
-            hivemind_sources = _run_hivemind_research(
-                query, client=resolved_hivemind_client, timeout=hivemind_timeout
-            )
-        except HivemindError as exc:
-            warnings.append(f"hivemind: {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
-        except Exception as exc:
-            warnings.append(f"hivemind (unexpected): {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
+        remaining = _deadline_remaining(deadline)
+        if remaining <= 0:
+            _note_deadline("hivemind")
         else:
-            # Merge Hivemind results after local. Do not suppress cross-tier
-            # duplicates here; the edit agent should see what each source tier
-            # produced and decide how much weight to give it.
-            for hs in hivemind_sources:
-                sources.append(hs)
+            try:
+                hivemind_sources = _run_hivemind_research(
+                    query,
+                    client=resolved_hivemind_client,
+                    timeout=min(hivemind_timeout, remaining),
+                )
+            except HivemindError as exc:
+                warnings.append(f"hivemind: {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            except Exception as exc:
+                warnings.append(f"hivemind (unexpected): {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            else:
+                # Merge Hivemind results after local. Do not suppress cross-tier
+                # duplicates here; the edit agent should see what each source tier
+                # produced and decide how much weight to give it.
+                for hs in hivemind_sources:
+                    sources.append(hs)
 
     # ── Phase 2b: community messages tier (B02) ───────────────────────────
     # A separate normalize-only runner on the injectable messages client.
@@ -6060,19 +6133,25 @@ def research(
     message_sources: tuple[dict[str, Any], ...] = ()
     messages_tier_ran = resolved_messages_client is not None and hivemind_timeout > 0
     if resolved_messages_client is not None and hivemind_timeout > 0:
-        try:
-            message_sources = _run_hivemind_messages_research(
-                query, client=resolved_messages_client, timeout=hivemind_timeout
-            )
-        except HivemindError as exc:
-            warnings.append(f"hivemind messages: {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
-        except Exception as exc:
-            warnings.append(f"hivemind messages (unexpected): {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
+        remaining = _deadline_remaining(deadline)
+        if remaining <= 0:
+            _note_deadline("messages")
         else:
-            for ms in message_sources:
-                sources.append(ms)
+            try:
+                message_sources = _run_hivemind_messages_research(
+                    query,
+                    client=resolved_messages_client,
+                    timeout=min(hivemind_timeout, remaining),
+                )
+            except HivemindError as exc:
+                warnings.append(f"hivemind messages: {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            except Exception as exc:
+                warnings.append(f"hivemind messages (unexpected): {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            else:
+                for ms in message_sources:
+                    sources.append(ms)
 
     # ── community display paragraph (B03) ─────────────────────────────────
     # Extractive, display-only.  Assigned whenever the messages tier ran —
@@ -6086,43 +6165,54 @@ def research(
 
     # ── Phase 3: read-only Comfy Registry / Manager missing-node evidence ─
     if resolved_registry_resolver is not None:
-        try:
-            registry_sources, registry_warnings = _run_registry_research(
-                query,
-                resolver=resolved_registry_resolver,
-            )
-        except RegistrySearchError as exc:
-            warnings.append(f"registry: {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
-        except Exception as exc:
-            warnings.append(f"registry (unexpected): {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
+        remaining = _deadline_remaining(deadline)
+        if remaining <= 0:
+            _note_deadline("registry")
         else:
-            warnings.extend(f"registry: {warning}" for warning in registry_warnings)
-            for rs in registry_sources:
-                sources.append(rs)
+            try:
+                registry_sources, registry_warnings = _run_registry_research(
+                    query,
+                    resolver=resolved_registry_resolver,
+                    deadline=deadline,
+                )
+            except RegistrySearchError as exc:
+                warnings.append(f"registry: {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            except Exception as exc:
+                warnings.append(f"registry (unexpected): {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            else:
+                warnings.extend(f"registry: {warning}" for warning in registry_warnings)
+                for rs in registry_sources:
+                    sources.append(rs)
 
     # ── Phase 4: no-key web research (best-effort, independent tier) ─────
     if (
         resolved_web_client is not None
         and web_search_timeout > 0
     ):
-        try:
-            web_sources, web_warnings = _run_web_search(
-                query, client=resolved_web_client, timeout=web_search_timeout
-            )
-        except WebSearchError as exc:
-            warnings.append(f"web search: {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
-        except Exception as exc:
-            warnings.append(f"web search (unexpected): {exc}")
-            warning_details.append(warning_detail_from_exception(exc))
+        remaining = _deadline_remaining(deadline)
+        if remaining <= 0:
+            _note_deadline("web search")
         else:
-            warnings.extend(f"web search: {warning}" for warning in web_warnings)
-            if not web_sources:
-                warnings.append("web search: no results")
-            for ws in web_sources:
-                sources.append(ws)
+            try:
+                web_sources, web_warnings = _run_web_search(
+                    query,
+                    client=resolved_web_client,
+                    timeout=min(web_search_timeout, remaining),
+                )
+            except WebSearchError as exc:
+                warnings.append(f"web search: {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            except Exception as exc:
+                warnings.append(f"web search (unexpected): {exc}")
+                warning_details.append(warning_detail_from_exception(exc))
+            else:
+                warnings.extend(f"web search: {warning}" for warning in web_warnings)
+                if not web_sources:
+                    warnings.append("web search: no results")
+                for ws in web_sources:
+                    sources.append(ws)
 
     # ── Stamp freshness / evidence metadata on every source (SD1) ─────────
     # Each source dict receives _retrieval_time, _content_hash,

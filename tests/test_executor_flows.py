@@ -4816,6 +4816,7 @@ class TestAdaptPrefetchAndResearchContextScoping:
             _spec: Any,
             *,
             plan: ClassifyDecision | None = None,
+            deadline: float | None = None,
         ) -> ResearchResult:
             # Capture the effective query that will be used.
             query = request_obj.query
@@ -4836,7 +4837,7 @@ class TestAdaptPrefetchAndResearchContextScoping:
                 if scoped_parts:
                     query = "; ".join(scoped_parts)
             captured_queries.append(query)
-            return original_run_research(request_obj, _spec, plan=plan)
+            return original_run_research(request_obj, _spec, plan=plan, deadline=deadline)
 
         input_graph = {"nodes": [{"id": 1, "type": "LoadAudio"}]}
         request = ExecutorRequest(

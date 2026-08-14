@@ -96,7 +96,9 @@ def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatched readiness/executor seams applied.
     """
 
-    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+    def fake_subprocess_run(
+        cmd: list[str], **kwargs: Any
+    ) -> tuple[int, str, str]:
         from tests.live_agentic_harness.runner import run_single
 
         scenario_path = cmd[cmd.index("--single") + 1]
@@ -108,10 +110,10 @@ def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
             else None
         )
         run_single(scenario_path, tag, output_base, out_file)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     monkeypatch.setattr(
-        "tests.live_agentic_harness.runner.subprocess.run",
+        "tests.live_agentic_harness.runner._run_scenario_subprocess",
         fake_subprocess_run,
     )
 

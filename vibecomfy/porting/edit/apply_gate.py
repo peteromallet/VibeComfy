@@ -233,6 +233,27 @@ def _guard_attribution(
             if resolved.automatic_link_removal is not None:
                 removed_links.add((op.target.scope_path, resolved.automatic_link_removal))
                 allow_link_endpoint_paths(op.target.scope_path, resolved.automatic_link_removal)
+                # R2-D1b: the linked-widget override deletes the target input
+                # slot, so every other link targeting the same node at a higher
+                # slot is deterministically re-slotted down by one.  Attribute
+                # those re-slots so the full-UI guard accepts the compacted
+                # candidate instead of flagging an unattributed link change.
+                original_scope = original_ledger.scopes.get(op.target.scope_path)
+                if (
+                    original_scope is not None
+                    and isinstance(resolved.node_id, int)
+                    and isinstance(resolved.input_slot_index, int)
+                ):
+                    for link in original_scope.graph.get("links") or []:
+                        _origin_id, _origin_slot, target_id, target_slot = _link_endpoints(link)
+                        if (
+                            target_id == resolved.node_id
+                            and isinstance(target_slot, int)
+                            and target_slot > resolved.input_slot_index
+                        ):
+                            link_id = _link_id(link)
+                            if link_id is not None:
+                                touched_links.add((op.target.scope_path, link_id))
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")

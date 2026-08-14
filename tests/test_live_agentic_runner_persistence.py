@@ -113,10 +113,10 @@ def test_runner_does_not_retry_outer_timeout(
         payload = _summary(tmp_path / "out" / tag, "retry-me", ok=True)
         payload["output_dir"] = str(output_dir)
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -198,10 +198,10 @@ def test_runner_types_provider_capacity_without_retry(
             payload = _summary(tmp_path / "out" / tag, "provider-capacity", ok=True)
             payload["output_dir"] = str(output_dir)
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -244,10 +244,10 @@ def test_runner_retries_only_typed_empty_zero_token_attempt(
             payload["error"] = "arbitrary wording that must not drive classification"
             payload["model_attempts"] = [_failed_attempt("empty_response", completion_tokens=0)]
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -285,10 +285,10 @@ def test_runner_keeps_malformed_nonempty_as_product_failure(
         payload["error"] = "OpenRouter rejected / HTTP 429 wording is irrelevant"
         payload["model_attempts"] = [_failed_attempt("malformed_json", completion_tokens=5)]
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return (1, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -333,10 +333,10 @@ def test_runner_counts_persistent_provider_capacity_as_infra_blocked(
             }
         )
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return (1, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -402,10 +402,10 @@ def test_runner_does_not_classify_soft_search_429_as_infra(
             }
         )
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return (1, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -448,7 +448,7 @@ def test_runner_timeout_preserves_scenario_graph_change_expectation(
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -549,10 +549,10 @@ def test_persisted_agentic_summary_redacts_json_quoted_secrets(
         payload["error"] = "provider rejected"
         payload["model_attempts"] = [leaky_canonical_attempt]
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return (1, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     run_tag(
         "tag",
@@ -613,10 +613,10 @@ def test_transport_flag_and_pinned_child_env_survive_subprocess_isolation(
         payload = _summary(tmp_path / "out" / tag, "transport", ok=True)
         payload["output_dir"] = str(tmp_path / "out" / tag / "transport")
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -675,10 +675,10 @@ def test_transport_omitted_resolves_to_openrouter_default_not_ambient_native(
         payload = _summary(tmp_path / "out" / tag, "no-transport", ok=True)
         payload["output_dir"] = str(tmp_path / "out" / tag / "no-transport")
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return (0, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",
@@ -738,10 +738,10 @@ def test_observed_transport_provenance_passthrough_matches_selection(
         payload["error"] = "empty response"
         payload["model_attempts"] = [native_attempt]
         out_file.write_text(json.dumps(payload), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return (1, "", "")
 
     write_manifest(scenarios_dir)
-    monkeypatch.setattr("tests.live_agentic_harness.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("tests.live_agentic_harness.runner._run_scenario_subprocess", fake_run)
 
     summary = run_tag(
         "tag",

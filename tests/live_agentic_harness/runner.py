@@ -1,9 +1,20 @@
 """Live agentic harness runner for VibeComfy headless scenarios.
 
 Scenarios run CONCURRENTLY — each in its own subprocess (process isolation +
-kill-on-timeout via ``subprocess.run``), bounded by ``--max-workers``. Modeled
-on the subagent-launcher fanout: one process per task, a bounded pool, a
-per-task timeout. ``--single`` is the per-scenario subprocess entry point.
+kill-on-timeout), bounded by ``--max-workers``. Modeled on the subagent-launcher
+fanout: one process per task, a bounded pool, a per-task timeout. ``--single``
+is the per-scenario subprocess entry point.
+
+Each scenario child runs in its OWN PROCESS GROUP with stdout/stderr going to
+regular temp files (never pipes), mirroring ``runtime.py``'s ``_run_worker_subprocess``
+(PR-A): a grandchild (model HTTP call / research subprocess) that inherits the
+child's stdio fds can no longer hold a captured pipe open past the timeout, so
+the per-scenario timeout actually fires. On timeout the whole group is
+SIGTERM'd (short grace) then SIGKILL'd and the direct child is reaped before
+the timeout is reported. If the child already wrote a valid ``--single-out``
+summary before hanging (the flow SUCCEEDED but shutdown wedged), the summary is
+recovered and annotated ``post_flow_exit_cleanup`` instead of fabricating
+``infra_timeout``.
 """
 
 from __future__ import annotations
@@ -11,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -37,10 +49,11 @@ from .failure_analysis import (
 from .scenario_manifest import discover_manifest_scenarios
 from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
 
-DEFAULT_MAX_WORKERS = 12
+DEFAULT_MAX_WORKERS = 6
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
+_SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -103,6 +116,114 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+
+
+def _terminate_scenario_group(pid: int) -> None:
+    """Terminate the scenario child's process GROUP and let the caller reap it.
+
+    The child is spawned with ``start_new_session=True``, so it is a session
+    leader whose process-group id equals its pid; signalling the group reaches
+    every grandchild that inherited the child's stdio fds (the cluster-A pipe
+    hang: ``subprocess.run(timeout=...)`` blocked in ``communicate()`` forever
+    because a grandchild held the captured pipe open). SIGTERM first with a
+    short grace so a well-behaved child can flush; then SIGKILL, which is
+    uncatchable, so the caller's subsequent ``wait()`` cannot hang.
+
+    ``PermissionError`` (EPERM) from ``killpg`` is treated like ESRCH: macOS
+    returns EPERM for a process group whose members are all zombies (nothing
+    left to signal), which is exactly the "already gone" state we probe for.
+    """
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return  # already gone, or only zombies remain
+    deadline = time.monotonic() + _SCENARIO_KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return  # group exited during the grace window
+        time.sleep(0.05)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _run_scenario_subprocess(
+    command: list[str],
+    *,
+    cwd: str,
+    env: Mapping[str, str],
+    timeout: float,
+    stdout_path: str,
+    stderr_path: str,
+) -> tuple[int, str, str]:
+    """Run *command* in its own process group; return (returncode, stdout, stderr).
+
+    stdout/stderr go to regular temp FILES, never pipes: a grandchild that
+    inherits the child's stdio fds cannot keep a pipe open past our timeout, so
+    the per-scenario timeout actually fires (mirrors ``runtime.py``'s
+    ``_run_worker_subprocess``, PR-A). On timeout the whole process GROUP is
+    terminated (SIGTERM → short grace → SIGKILL), the direct child is reaped
+    before ``subprocess.TimeoutExpired`` is re-raised, and the timeout carries
+    the captured temp-file tails so the caller can build its failure summary.
+    """
+    with open(stdout_path, "w", encoding="utf-8") as out_fh, open(
+        stderr_path, "w", encoding="utf-8"
+    ) as err_fh:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=out_fh,
+            stderr=err_fh,
+            start_new_session=True,
+        )
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_scenario_group(proc.pid)
+            try:
+                proc.wait(timeout=5.0)  # bounded reap after SIGKILL
+            except subprocess.TimeoutExpired:
+                pass  # group already SIGKILLed; a lingering zombie is harmless
+            with open(stdout_path, encoding="utf-8", errors="replace") as fh:
+                stdout_text = fh.read()
+            with open(stderr_path, encoding="utf-8", errors="replace") as fh:
+                stderr_text = fh.read()
+            raise subprocess.TimeoutExpired(
+                cmd=command, timeout=timeout, output=stdout_text, stderr=stderr_text
+            ) from None
+    with open(stdout_path, encoding="utf-8", errors="replace") as fh:
+        stdout_text = fh.read()
+    with open(stderr_path, encoding="utf-8", errors="replace") as fh:
+        stderr_text = fh.read()
+    return proc.returncode, stdout_text, stderr_text
+
+
+def _load_valid_summary(path: Path) -> dict[str, Any] | None:
+    """Load *path* as a summary dict, or None when missing or not valid JSON.
+
+    Used for post-flow recovery: a summary the child already wrote before it
+    wedged during shutdown is real evidence the flow completed, so a timeout
+    must recover it instead of fabricating an infrastructure failure.
+    """
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _timeout_tail(exc: subprocess.TimeoutExpired, attr: str) -> str:
+    """Text of *attr* (``"output"``/``"stderr"``) on a TimeoutExpired, decoded."""
+    value = getattr(exc, attr)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
 
 
 def _scenario_expect_graph_changed(scenario: dict[str, Any] | None) -> bool:
@@ -520,8 +641,10 @@ def run_single(
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
     if out_file is not None:
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        out_file.write_text(json.dumps(summary, default=str), encoding="utf-8")
+        # Atomic (temp+rename) so a runner that kills us mid-write never
+        # observes a truncated summary — it either sees the full valid summary
+        # (post-flow recovery) or nothing at all.
+        _write_json_atomic(out_file, summary)
     return summary
 
 
@@ -594,6 +717,8 @@ def run_tag(
                 for attempt in range(1, max_attempts + 1):
                     attempt_run_tag = _attempt_tag(tag, sid, attempt)
                     out_file = tmpdir / f"{idx:03d}-{attempt}.json"
+                    stdout_path = tmpdir / f"{idx:03d}-{attempt}.out.log"
+                    stderr_path = tmpdir / f"{idx:03d}-{attempt}.err.log"
                     cmd = [
                         sys.executable, "-m", "tests.live_agentic_harness.runner",
                         "--single", str(path), "--tag", attempt_run_tag,
@@ -606,44 +731,66 @@ def run_tag(
                     child_env = _pinned_child_env(transport)
                     started = time.monotonic()
                     try:
-                        proc = subprocess.run(
-                            cmd, cwd=str(REPO), capture_output=True, text=True,
-                            timeout=per_scenario_timeout, env=child_env,
+                        returncode, stdout_text, stderr_text = _run_scenario_subprocess(
+                            cmd,
+                            cwd=str(REPO),
+                            env=child_env,
+                            timeout=per_scenario_timeout,
+                            stdout_path=str(stdout_path),
+                            stderr_path=str(stderr_path),
                         )
                         elapsed_s = time.monotonic() - started
-                        if out_file.exists():
-                            final_summary = json.loads(out_file.read_text(encoding="utf-8"))
+                        recovered = _load_valid_summary(out_file)
+                        if recovered is not None:
+                            final_summary = recovered
                             final_summary["attempt"] = attempt
                             final_summary["elapsed_s"] = elapsed_s
                             final_summary["agent_exercised"] = True
                         else:
-                            tail = _trim((proc.stderr or ""))
+                            tail = _trim(stderr_text or "")
                             final_summary = _failure_summary(
                                 sid,
                                 output_base,
                                 attempt_run_tag,
-                                f"runner produced no summary (rc={proc.returncode}); {tail}",
+                                f"runner produced no summary (rc={returncode}); {tail}",
                                 failure_class="infra_no_summary",
                                 attempt=attempt,
                                 expect_graph_changed=expect_graph_changed,
-                                stdout_tail=_trim(proc.stdout or ""),
+                                stdout_tail=_trim(stdout_text or ""),
                                 stderr_tail=tail,
                                 elapsed_s=elapsed_s,
                             )
                     except subprocess.TimeoutExpired as exc:
                         elapsed_s = time.monotonic() - started
-                        final_summary = _failure_summary(
-                            sid,
-                            output_base,
-                            attempt_run_tag,
-                            f"scenario exceeded {per_scenario_timeout}s and was killed",
-                            failure_class="infra_timeout",
-                            attempt=attempt,
-                            expect_graph_changed=expect_graph_changed,
-                            stdout_tail=_trim((exc.stdout or b"").decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
-                            stderr_tail=_trim((exc.stderr or b"").decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
-                            elapsed_s=elapsed_s,
-                        )
+                        recovered = _load_valid_summary(out_file)
+                        if recovered is not None:
+                            # Post-flow exit cleanup: the child wrote a valid
+                            # summary BEFORE wedging during shutdown, so the
+                            # flow itself completed. Recover the summary and
+                            # annotate the exit-cleanup hiccup instead of
+                            # fabricating an infra_timeout.
+                            final_summary = recovered
+                            final_summary["attempt"] = attempt
+                            final_summary["elapsed_s"] = elapsed_s
+                            final_summary["agent_exercised"] = True
+                            final_summary["failure_class"] = "post_flow_exit_cleanup"
+                            if isinstance(final_summary.get("guard"), dict):
+                                final_summary["guard"].setdefault(
+                                    "failure_class", "post_flow_exit_cleanup"
+                                )
+                        else:
+                            final_summary = _failure_summary(
+                                sid,
+                                output_base,
+                                attempt_run_tag,
+                                f"scenario exceeded {per_scenario_timeout}s and was killed",
+                                failure_class="infra_timeout",
+                                attempt=attempt,
+                                expect_graph_changed=expect_graph_changed,
+                                stdout_tail=_trim(_timeout_tail(exc, "output")),
+                                stderr_tail=_trim(_timeout_tail(exc, "stderr")),
+                                elapsed_s=elapsed_s,
+                            )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure
                         elapsed_s = time.monotonic() - started
                         final_summary = _failure_summary(
@@ -708,9 +855,10 @@ def run_tag(
         for t in threads:
             t.join()
     finally:
-        for f in tmpdir.glob("*.json"):
+        for f in tmpdir.iterdir():
             try:
-                f.unlink()
+                if f.is_file():
+                    f.unlink()
             except Exception:  # noqa: BLE001
                 pass
         try:

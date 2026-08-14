@@ -499,7 +499,7 @@ def _apply_set_node_field(
                     },
                 )
         )
-        _clear_linked_input_surface(node, field_ref)
+        _clear_linked_input_surface(ledger, field_ref)
     _write_widget_value(node, field_ref, value)
     if field_ref.value_default_receipt is not None:
         diagnostics.append(
@@ -513,7 +513,44 @@ def _apply_set_node_field(
     return diagnostics
 
 
-def _clear_linked_input_surface(node: dict[str, Any], field_ref: ResolvedFieldRef) -> None:
+def _renumber_target_links_after_input_removal(
+    ledger: EditLedger,
+    field_ref: ResolvedFieldRef,
+    removed_index: int,
+) -> None:
+    """Compact ``to_slot`` of links targeting a node after an input-slot delete.
+
+    ``node["inputs"]`` is the physical socket array and link tuples address a
+    target by that array index.  When ``_clear_linked_input_surface`` deletes a
+    socket (a linked widget override converts the input to a widget-only
+    surface), every remaining link whose ``to_slot`` pointed past the deleted
+    slot must shift down by one — otherwise the candidate graph carries a
+    dangling endpoint that fails projection with "Missing stable link to port".
+    """
+    scope = ledger.scopes.get(field_ref.target.scope_path)
+    if scope is None or field_ref.node_id is None:
+        return
+    links = scope.graph.get("links")
+    if not isinstance(links, list):
+        return
+    for link in links:
+        _origin_id, _origin_slot, target_id, target_slot = _link_endpoints(link)
+        if (
+            target_id == field_ref.node_id
+            and isinstance(target_slot, int)
+            and target_slot > removed_index
+        ):
+            if isinstance(link, Mapping):
+                link["target_slot"] = target_slot - 1
+            elif isinstance(link, list) and len(link) >= 5:
+                link[4] = target_slot - 1
+
+
+def _clear_linked_input_surface(
+    ledger: EditLedger,
+    field_ref: ResolvedFieldRef,
+) -> None:
+    node = field_ref.node
     inputs = node.get("inputs")
     if not isinstance(inputs, list):
         return
@@ -523,7 +560,9 @@ def _clear_linked_input_surface(node: dict[str, Any], field_ref: ResolvedFieldRe
     if not isinstance(slot, dict):
         return
     if _widget_name_for_input(slot) == field_ref.target.field_path:
-        del inputs[field_ref.input_slot_index]
+        removed_index = field_ref.input_slot_index
+        del inputs[removed_index]
+        _renumber_target_links_after_input_removal(ledger, field_ref, removed_index)
         return
     if "link" in slot:
         slot["link"] = None

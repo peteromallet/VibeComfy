@@ -683,6 +683,44 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
     return {"subgraphs": out_subgraphs}
 
 
+def _canonical_emitted_output_name(from_output: Any, slot: int) -> str:
+    """Canonical socket name an emitted output carries for *from_output*."""
+    text = str(from_output)
+    return f"output_{slot}" if text.isdigit() else text
+
+
+def _emitted_socket_slot_for_link(
+    sockets: list[dict[str, Any]] | None,
+    slot: int,
+    canonical_name: str,
+) -> int | None:
+    """Resolve a link endpoint against the node's *emitted* socket array.
+
+    Working-graph sockets are authoritative.  An in-range slot is kept whenever
+    the socket plausibly corresponds to the link (name match, ``None``-named
+    UI-only slot, or a matching ``slot_index`` label); a phantom/absent slot is
+    resolved to the socket whose canonical name matches, else ``None`` so the
+    caller can deterministically drop the dangling link with a diagnostic
+    instead of projecting a port the emitted graph does not have.
+    """
+    if not isinstance(sockets, list) or not isinstance(slot, int):
+        return None
+    if 0 <= slot < len(sockets):
+        socket = sockets[slot]
+        if not isinstance(socket, dict):
+            return slot
+        name = socket.get("name")
+        if name == canonical_name or name in (None, "") or socket.get("slot_index") == slot:
+            return slot
+    for index, socket in enumerate(sockets):
+        if isinstance(socket, dict) and socket.get("name") == canonical_name:
+            return index
+    for index, socket in enumerate(sockets):
+        if isinstance(socket, dict) and socket.get("slot_index") == slot:
+            return index
+    return None
+
+
 def _resolve_output_slot_and_type(
     from_output: str,
     class_type: str,
@@ -2438,6 +2476,12 @@ def emit_ui_json(
     # Build nodes
     nodes: list[dict[str, Any]] = []
     last_node_id = max(id_remap.values()) if id_remap else 0
+    # Emitted socket arrays per node, captured so the link loop below can repair
+    # dangling endpoints against the sockets the emitted graph actually has
+    # (R2-D1: working-graph sockets are authoritative; never project a phantom
+    # port).
+    emitted_outputs_by_node: dict[str, list[dict[str, Any]]] = {}
+    emitted_inputs_by_node: dict[str, list[dict[str, Any]]] = {}
 
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
@@ -2466,6 +2510,8 @@ def emit_ui_json(
             # The pinned raw copy comes from raw UI evidence and may lack mode;
             # stamp the same IR-authoritative mode used by compilation.
             pinned["mode"] = _resolve_furniture(node, matched_entries.get(key))["mode"]
+            emitted_outputs_by_node[node_id] = pinned.get("outputs") or []
+            emitted_inputs_by_node[node_id] = pinned.get("inputs") or []
             nodes.append(pinned)
             continue
         matched_entry = matched_entries.get(key)
@@ -2572,6 +2618,8 @@ def emit_ui_json(
                     slot["widget"] = {"name": edge.to_input}
                 inputs.append(slot)
 
+        emitted_outputs_by_node[node_id] = outputs
+        emitted_inputs_by_node[node_id] = inputs
         nodes.append(
             _emit_litegraph_node_dict(
                 node,
@@ -2627,6 +2675,37 @@ def emit_ui_json(
             and (not socket_type or socket_type in {"*", "UNKNOWN"})
         ):
             socket_type = to_exec_io["inputs"][to_slot][1]
+        # R2-D1: repair malformed endpoints BEFORE projection.  The working
+        # graph's emitted sockets are authoritative — never emit a link whose
+        # source/target port does not exist in the emitted node.  Remap the
+        # phantom slot to the matching emitted socket by canonical name, or
+        # deterministically drop the dangling link with a diagnostic.
+        emitted_outputs = emitted_outputs_by_node.get(edge.from_node)
+        if emitted_outputs is not None:
+            remapped = _emitted_socket_slot_for_link(
+                emitted_outputs,
+                from_slot,
+                _canonical_emitted_output_name(edge.from_output, from_slot),
+            )
+            if remapped is None:
+                warnings.warn(
+                    f"emit_ui_json: dropping link {edge.from_node} output {edge.from_output!r} "
+                    f"(slot {from_slot}) — no matching emitted source socket.",
+                    stacklevel=2,
+                )
+                continue
+            from_slot = remapped
+        emitted_inputs = emitted_inputs_by_node.get(edge.to_node)
+        if emitted_inputs is not None:
+            remapped = _emitted_socket_slot_for_link(emitted_inputs, to_slot, edge.to_input)
+            if remapped is None:
+                warnings.warn(
+                    f"emit_ui_json: dropping link to {edge.to_node} input {edge.to_input!r} "
+                    f"(slot {to_slot}) — no matching emitted target socket.",
+                    stacklevel=2,
+                )
+                continue
+            to_slot = remapped
         lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
         links.append(
             [lid, id_remap[edge.from_node], from_slot, id_remap[edge.to_node], to_slot, socket_type or ""]

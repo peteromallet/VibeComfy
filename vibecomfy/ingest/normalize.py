@@ -944,6 +944,13 @@ def _from_api_impl(
                 raw_widgets = _coerce_raw_widget_payload(
                     _raw_widget_payload_dict(raw_ui["widgets_values"], source="ui.widgets_values")
                 )
+        # R2-D2: API-only widget-shape materialization.  Nodes without any raw
+        # UI/raw-widget evidence carry their widget vector as named ``widget_N``
+        # carriers in the prompt dict; materialize it so the widget-shape fence
+        # sees complete deterministic evidence (named inputs + schema order)
+        # instead of refusing an API-declared widget shape as overflow.
+        if raw_widgets is None:
+            raw_widgets = _materialize_api_widget_payload(widgets)
         metadata = {
             key: value
             for key, value in node.items()
@@ -1047,6 +1054,43 @@ def _from_api_impl(
 
 def _is_exec_widget_key(class_type: str, key: str) -> bool:
     return class_type == EXEC_CLASS_TYPE and key in {"source", "io"}
+
+
+def _materialize_api_widget_payload(widgets: Mapping[str, Any]) -> RawWidgetPayload | None:
+    """Deterministically materialize a widget payload from ``widget_N`` carriers.
+
+    API-origin prompt dicts carry a node's widget vector as named ``widget_N``
+    inputs.  When no raw UI/raw widget evidence exists (API-only node), that
+    carrier sequence IS the working graph's widget-shape proof: the widget-shape
+    fence must see it instead of treating the schema-declared count as complete
+    and refusing the API-declared shape as unmaterialized overflow.
+
+    Only fires when the carriers are exactly ``widget_0..widget_{n-1}`` (a
+    complete contiguous vector).  Partial or gapped carriers stay unmaterialized
+    so the fence keeps treating that shape as genuinely unknown.
+    """
+    indices: list[int] = []
+    for key in widgets:
+        key_str = str(key)
+        if not key_str.startswith("widget_"):
+            continue
+        try:
+            indices.append(int(key_str.split("_", 1)[1]))
+        except ValueError:
+            continue
+    if not indices:
+        return None
+    ordered = sorted(indices)
+    if ordered != list(range(len(ordered))):
+        return None
+    values = [deepcopy(widgets[f"widget_{index}"]) for index in ordered]
+    return RawWidgetPayload(
+        values=values,
+        shape="list",
+        source="api.widgets",
+        has_dict_rows=False,
+        length=len(values),
+    )
 
 
 def _normalize_exec_io_metadata(io_value: Any) -> dict[str, list[list[str | None]]] | None:

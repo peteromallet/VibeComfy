@@ -12,8 +12,10 @@ contracts module) — raw exceptions never leak out of this module.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -480,6 +482,24 @@ def _should_prefetch_research(
 def _should_implement(plan: ClassifyDecision) -> bool:
     """Determine if the implement phase should run for *plan*."""
     return _route_behavior(plan).needs_implement
+
+
+def _phase_2_research_deadline() -> float | None:
+    """Absolute monotonic deadline for the synchronous Phase-2 research wait.
+
+    R2-B1: bounds the in-process research phase so a slow external tier cannot
+    eat the whole scenario budget under concurrency.  Overridable with
+    ``VIBECOMFY_RESEARCH_PHASE_DEADLINE`` (seconds; default 60; 0 disables).
+    The deadline is cooperative: research() propagates the remaining time to
+    every external tier and returns partial evidence when it expires.
+    """
+    try:
+        seconds = float(os.environ.get("VIBECOMFY_RESEARCH_PHASE_DEADLINE", "60") or 0)
+    except ValueError:
+        seconds = 60.0
+    if seconds <= 0:
+        return None
+    return time.monotonic() + seconds
 
 
 # ── graph summary helpers ────────────────────────────────────────────────────
@@ -1059,6 +1079,7 @@ def _run_research(
     _spec: AgentSpecShape,
     *,
     plan: ClassifyDecision | None = None,
+    deadline: float | None = None,
 ) -> ResearchResult:
     """Run the research phase (local corpus + optional Hivemind).
 
@@ -1119,6 +1140,7 @@ def _run_research(
             target_node_type=plan.target_node_type if plan is not None else "",
             hivemind_client=_default_hivemind_client,
             sources=sources,
+            deadline=deadline,
         )
         inspection = _graph_inspection(request.graph)
         if inspection:
@@ -2186,7 +2208,16 @@ def run_executor(
                 **_spec_fields(research_spec),
             ) as span:
                 try:
-                    research_result = _run_research(request, research_spec, plan=plan)
+                    # R2-B1: bound the synchronous Phase-2 research wait with a
+                    # cooperative wall-clock deadline.  research() propagates
+                    # the remaining time to every external tier and returns
+                    # partial evidence when it expires instead of raising.
+                    research_result = _run_research(
+                        request,
+                        research_spec,
+                        plan=plan,
+                        deadline=_phase_2_research_deadline(),
+                    )
                     span.update(
                         warning_count=len(research_result.warnings or ()),
                         summary_preview=short_text(research_result.summary),

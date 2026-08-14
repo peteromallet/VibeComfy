@@ -3307,3 +3307,120 @@ def test_uidless_workflow_degrades_to_fresh_layout() -> None:
         assert isinstance(emitted["pos"], list) and len(emitted["pos"]) == 2
         # No stale vibecomfy_uid (none in IR, none in store).
         assert "vibecomfy_uid" not in emitted["properties"]
+
+
+# ---------------------------------------------------------------------------
+# R2-D1+D2 regressions: phantom-slot link endpoints and API-origin
+# widget-shape materialization (batch B08 deterministic product failures)
+# ---------------------------------------------------------------------------
+
+
+def _corpus(path: str) -> dict:
+    import json as _json
+    from pathlib import Path as _Path
+
+    return _json.loads(_Path(path).read_text(encoding="utf-8"))
+
+
+def test_c8_audio_transcribes_emits_valid_links_no_missing_stable_from_port() -> None:
+    """The audio-transcribes corpus previously emitted a link whose source slot
+    referenced a schema-less best-effort output the emitted graph did not have
+    (``voicecraft_process`` output slot 2 vs a single ``output_2`` socket),
+    failing ``_graph_link_identities`` / ``project_graph_v1`` with
+    "Missing stable link from port".  The emit path must remap the endpoint to
+    the emitted socket (or drop it with a diagnostic), never project a phantom.
+    """
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        _graph_link_identities,
+        project_graph_v1,
+    )
+    from vibecomfy.ingest.normalize import from_api
+
+    raw = _corpus("tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json")
+    wf = from_api(raw)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ui = emit_ui_json(wf, include_main_positions=False)
+    nodes = ui["nodes"]
+    by_id = {str(n["id"]): n for n in nodes}
+    for link in ui.get("links", []):
+        assert 0 <= link[2] < len(by_id[str(link[1])].get("outputs", []))
+        assert 0 <= link[4] < len(by_id[str(link[3])].get("inputs", []))
+    assert len(_graph_link_identities(ui, nodes)) == len(ui["links"])
+    assert len(project_graph_v1(ui, "structural_v1")["links"]) == len(ui["links"])
+    drops = [str(w.message) for w in caught if "dropping link" in str(w.message)]
+    assert drops == []
+
+
+def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
+    """Setting a widget value on a LINKED input (``CLIPTextEncodeSDXL.text_g``
+    fed by a PrimitiveNode) deletes that input slot; every other link targeting
+    the node must be re-slotted or the candidate fails projection with
+    "Missing stable link to port" (the sdxl scenario failure).
+    """
+    import uuid
+
+    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
+    from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
+
+    raw = _corpus("tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json")
+    ui = normalize_agent_edit_graph(raw)
+    node16 = next(n for n in ui["nodes"] if str(n.get("id")) == "16")
+    uid = node16["properties"]["vibecomfy_uid"]
+    delta = {
+        "delta_contract": "delta_v1",
+        "wire_version": "2.0.0",
+        "scope": {"kind": "root", "path": ""},
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", uid, "text_g"],
+                "value": "rich fabric texture, natural cotton weave, detailed",
+            }
+        ],
+    }
+    result = apply_delta_v1_python(
+        workflow_id=str(uuid.uuid4()),
+        graph=ui,
+        delta=delta,
+    )
+    candidate = result["graph"]
+    by_id = {str(n["id"]): n for n in candidate["nodes"]}
+    assert not [
+        link
+        for link in candidate.get("links", [])
+        if not (0 <= link[4] < len(by_id[str(link[3])].get("inputs", [])))
+    ]
+    emitted16 = by_id["16"]
+    assert [slot["name"] for slot in emitted16.get("inputs", [])] == ["clip", "text_l"]
+    text_l_link = next(
+        link for link in candidate["links"] if link[3] == 16 and link[1] == 21
+    )
+    assert text_l_link[4] == 1
+
+
+def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
+    """API-only nodes must deterministically materialize widget shape from their
+    named ``widget_N`` carriers plus schema so the widget fence never refuses an
+    API-declared widget shape as unmaterialized overflow (the multi-image
+    scenario's ``LTXVLoader`` refusal).
+    """
+    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
+    from vibecomfy.ingest.normalize import from_api
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    cand = _corpus("tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json")
+    wf = from_api(cand, schema_provider=get_authoring_schema_provider())
+    ltx = wf.nodes["249"]
+    assert ltx.class_type == "LTXVLoader"
+    assert ltx.raw_widgets is not None
+    assert ltx.raw_widgets.length == 2
+    assert ltx.raw_widgets.values == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
+
+    # The full product normalization path (ingest -> emit) no longer refuses.
+    ui = normalize_agent_edit_graph(
+        cand,
+        schema_provider=get_authoring_schema_provider(),
+    )
+    emitted = next(n for n in ui["nodes"] if str(n.get("id")) == "249")
+    assert emitted["widgets_values"] == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]

@@ -61,7 +61,7 @@ from vibecomfy.executor.profiler import (
 )
 
 # How long to wait for a single agent turn (subprocess) before giving up.
-_TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "180"))
+_TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "240"))
 # Grace granted after SIGTERM before a timed-out worker's process GROUP is
 # SIGKILLed. Short by design: a hung grandchild (the cluster-A pipe hang) must
 # not extend the turn timeout meaningfully.
@@ -112,9 +112,10 @@ _NATIVE_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 _OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 # Cluster B: a 2048-token ceiling truncated deepseek-v4-flash classify/reply
-# turns (finish_reason="length" → prose instead of the required JSON). 4096
-# gives the single-shot completion room for the full synthesis.
-_OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "4096"))
+# turns (finish_reason="length" → prose instead of the required JSON). 16K
+# gives single-shot completions ample room without letting a runaway turn
+# blow the whole 240s worker budget under concurrency (rate-limit stalls).
+_OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "16384"))
 
 # Environment keys that select transport/endpoint/model routing.  These may be
 # pinned explicitly by an operator or the live-agentic harness, but they must

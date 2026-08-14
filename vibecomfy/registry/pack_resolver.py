@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import threading
+import time
 from dataclasses import asdict, dataclass
+from email.utils import parsedate_to_datetime
 from types import MappingProxyType
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Iterator, Mapping, Protocol
 from urllib.parse import quote, urlencode, urlparse
 
 import httpx
@@ -18,6 +22,25 @@ MANAGER_NODE_LIST_URL = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Mana
 GITHUB_API_BASE_URL = "https://api.github.com"
 DEFAULT_CACHE_ROOT = Path(os.environ.get("VIBECOMFY_REGISTRY_CACHE", "~/.cache/vibecomfy/registry")).expanduser()
 DEFAULT_TIMEOUT_SECONDS = 15.0
+
+# R2-B2: hard per-request timeout cap so one hung endpoint cannot blow past
+# the research-phase deadline.  Effective timeout = min(client timeout, this).
+MAX_REQUEST_TIMEOUT_SECONDS = 5.0
+
+# R2-B1: aggregate wall-clock sub-budget for one resolve_missing_nodes() call.
+# Overridable with VIBECOMFY_REGISTRY_SUB_BUDGET (seconds; default 30; 0 disables).
+DEFAULT_REGISTRY_SUB_BUDGET_SECONDS = 30.0
+
+# R2-B2: rate-limit cooldown sentinel file (per cache root) and default cooldown
+# when the server sends no Retry-After header.
+COOLDOWN_FILE_NAME = ".cooldown.json"
+COOLDOWN_LOCK_FILE_NAME = ".cooldown.lock"
+DEFAULT_COOLDOWN_SECONDS = 60.0
+MAX_COOLDOWN_SECONDS = 3600.0
+
+# R2-B2: brief negative-cache TTL for GitHub 422 "validation failed" queries.
+NEGATIVE_CACHE_TTL_SECONDS = 60.0
+NEGATIVE_CACHE_MARKER = "_vibecomfy_negative"
 
 
 class PackResolverError(RuntimeError):
@@ -34,6 +57,15 @@ class AmbiguousPackError(PackResolverError):
         self.candidates = candidates
         choices = ", ".join(candidate.slug for candidate in candidates)
         super().__init__(f"ambiguous pack lookup for {query!r}: {choices}")
+
+
+class _BudgetExceeded(PackResolverError):
+    """Internal signal that the registry sub-budget (or outer deadline) expired.
+
+    Raised by clients between HTTP requests so resolve_missing_nodes() can stop
+    gracefully and return the partial evidence collected so far instead of
+    hanging or raising.
+    """
 
 
 @dataclass(frozen=True)
@@ -166,6 +198,218 @@ class RegistryHTTPClient(Protocol):
     def get(self, url: str, **kwargs: Any) -> httpx.Response: ...
 
 
+# ── Registry sub-budget (R2-B1) ──────────────────────────────────────────────
+# resolve_missing_nodes() enforces an aggregate wall-clock budget (default 30s,
+# env VIBECOMFY_REGISTRY_SUB_BUDGET) and an optional outer monotonic deadline.
+# Clients raise _BudgetExceeded between requests; the resolver catches it and
+# returns the partial evidence collected so far.
+
+
+def _registry_sub_budget_seconds() -> float:
+    try:
+        seconds = float(os.environ.get("VIBECOMFY_REGISTRY_SUB_BUDGET", "") or DEFAULT_REGISTRY_SUB_BUDGET_SECONDS)
+    except ValueError:
+        seconds = DEFAULT_REGISTRY_SUB_BUDGET_SECONDS
+    if seconds < 0:
+        seconds = 0.0
+    return seconds
+
+
+def _registry_budget_end(*, deadline: float | None) -> float | None:
+    """Absolute monotonic deadline for one resolution call.
+
+    min(outer deadline, now + sub-budget).  A sub-budget of 0 disables the
+    aggregate budget (only the outer deadline applies); both None → unbounded.
+    """
+    budget_seconds = _registry_sub_budget_seconds()
+    if budget_seconds <= 0:
+        return deadline
+    end = time.monotonic() + budget_seconds
+    if deadline is not None:
+        end = min(end, deadline)
+    return end
+
+
+def _budget_exceeded(deadline: float | None) -> bool:
+    return deadline is not None and time.monotonic() >= deadline
+
+
+# ── Rate-limit cooldown circuit (R2-B2) ─────────────────────────────────────
+# On GitHub 403/429 the resolver writes a shared cooldown sentinel (per cache
+# root, keyed by endpoint) and honors Retry-After.  A process-wide mirror avoids
+# re-reading the file on every request; a file lock makes the write single-flight
+# across processes.  Cooldown is best-effort: any IO failure degrades to the
+# in-memory flag only.
+
+_PROCESS_COOLDOWNS: dict[str, float] = {}  # key → wall-clock epoch until blocked
+_COOLDOWN_MUTEX = threading.Lock()
+
+
+def _cooldown_key(cache_root: Path, endpoint: str) -> str:
+    return f"{cache_root}::{endpoint}"
+
+
+@contextlib.contextmanager
+def _file_lock(lock_path: Path) -> Iterator[None]:
+    """Cross-process single-flight file lock (POSIX flock); no-op elsewhere."""
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - non-POSIX
+        yield
+        return
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_path, "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    """Write JSON via temp file + rename so readers never see partial bytes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
+def _read_json_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header: integer seconds or an HTTP date."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        seconds = float(text)
+        return seconds if seconds > 0 else None
+    except ValueError:
+        pass
+    try:
+        stamp = parsedate_to_datetime(text).timestamp()
+        return max(0.0, stamp - time.time())
+    except (TypeError, ValueError):
+        return None
+
+
+def _cooldown_until(cache_root: Path, endpoint: str) -> float:
+    """Wall-clock epoch until which *endpoint* is blocked (0.0 = not blocked)."""
+    key = _cooldown_key(cache_root, endpoint)
+    with _COOLDOWN_MUTEX:
+        until = _PROCESS_COOLDOWNS.get(key, 0.0)
+    if until > time.time():
+        return until
+    file_path = cache_root / COOLDOWN_FILE_NAME
+    payload = _read_json_file(file_path)
+    if not isinstance(payload, dict):
+        return 0.0
+    record = payload.get(endpoint)
+    if not isinstance(record, dict):
+        return 0.0
+    try:
+        until = float(record.get("until") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if until > time.time():
+        with _COOLDOWN_MUTEX:
+            _PROCESS_COOLDOWNS.setdefault(key, until)
+        return until
+    return 0.0
+
+
+def _cooldown_active(cache_root: Path, endpoint: str) -> bool:
+    return _cooldown_until(cache_root, endpoint) > time.time()
+
+
+def _set_cooldown(cache_root: Path, endpoint: str, retry_after: float | None) -> None:
+    """Record a rate-limit cooldown for *endpoint*, honoring Retry-After."""
+    try:
+        seconds = float(retry_after) if retry_after is not None else DEFAULT_COOLDOWN_SECONDS
+    except (TypeError, ValueError):
+        seconds = DEFAULT_COOLDOWN_SECONDS
+    seconds = max(1.0, min(seconds, MAX_COOLDOWN_SECONDS))
+    until = time.time() + seconds
+    key = _cooldown_key(cache_root, endpoint)
+    with _COOLDOWN_MUTEX:
+        _PROCESS_COOLDOWNS[key] = until
+    try:
+        lock_path = cache_root / COOLDOWN_LOCK_FILE_NAME
+        file_path = cache_root / COOLDOWN_FILE_NAME
+        with _file_lock(lock_path):
+            payload = _read_json_file(file_path)
+            if not isinstance(payload, dict):
+                payload = {}
+            payload[endpoint] = {
+                "until": until,
+                "retry_after": seconds,
+                "set_at": time.time(),
+            }
+            _atomic_write_json(file_path, payload)
+    except OSError:
+        pass  # Cooldown is best-effort; the in-process flag still applies.
+
+
+# ── Negative cache (R2-B2) ───────────────────────────────────────────────────
+# GitHub 422 "validation failed" responses are query-shape problems, not
+# transient errors: sanitize and retry once, then briefly negative-cache so
+# repeated identical queries short-circuit without hammering the API.
+
+
+def _is_negative_cache(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and payload.get(NEGATIVE_CACHE_MARKER) is True
+    )
+
+
+def _write_negative_cache(cache_root: Path, url: str, params: dict[str, str] | None) -> None:
+    digest = hashlib.sha256(_cache_key_text(url, params).encode("utf-8")).hexdigest()
+    parsed = urlparse(url)
+    basename = Path(parsed.path).name or "root"
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", basename)
+    cache_file = cache_root / f"{safe}.{digest}.json"
+    try:
+        _atomic_write_json(
+            cache_file,
+            {
+                NEGATIVE_CACHE_MARKER: True,
+                "expires_at": time.time() + NEGATIVE_CACHE_TTL_SECONDS,
+                "endpoint": url,
+            },
+        )
+    except OSError:
+        pass  # Negative cache is best-effort.
+
+
+def _cache_key_text(url: str, params: dict[str, str] | None) -> str:
+    query = urlencode(sorted((params or {}).items()))
+    return f"{url}?{query}" if query else url
+
+
+def _sanitize_github_search_query(query: str) -> str:
+    """Strip characters GitHub code search rejects (quotes, colons, operators)."""
+    text = re.sub(r"[^A-Za-z0-9_.\- ]+", " ", str(query))
+    text = " ".join(text.split())[:200].strip()
+    if text:
+        return text
+    fallback = " ".join(str(query).split())[:100].strip()
+    return fallback or "ComfyUI"
+
+
 def resolve_pack(
     class_name_or_slug: str,
     *,
@@ -249,48 +493,82 @@ def resolve_missing_nodes(
     manager_client: RegistryHTTPClient | None = None,
     github_client: RegistryHTTPClient | None = None,
     github_token: str | None = None,
+    deadline: float | None = None,
 ) -> MissingNodeResolution:
-    """Resolve missing custom-node evidence without importing, cloning, or installing packages."""
+    """Resolve missing custom-node evidence without importing, cloning, or installing packages.
+
+    *deadline* is an absolute ``time.monotonic()`` value (usually the research
+    phase deadline).  The resolver additionally enforces an aggregate sub-budget
+    (``VIBECOMFY_REGISTRY_SUB_BUDGET``, default 30s) and a 5s per-request
+    timeout cap; when the budget expires it stops gracefully and returns the
+    partial evidence collected so far with a warning instead of raising.
+    """
     normalized_query = query.strip()
     if not normalized_query:
         raise ValueError("query must not be empty")
     intent = query_intent or ("class_name" if _looks_like_class_name(normalized_query) else "capability")
     cache = cache_root or DEFAULT_CACHE_ROOT
-    registry = _ComfyRegistryClient(cache_root=cache, client=registry_client)
-    manager = _ManagerEvidenceClient(cache_root=cache, client=manager_client)
+    budget_end = _registry_budget_end(deadline=deadline)
+    registry = _ComfyRegistryClient(cache_root=cache, client=registry_client, deadline=budget_end)
+    manager = _ManagerEvidenceClient(cache_root=cache, client=manager_client, deadline=budget_end)
     warnings: list[str] = []
     attempted: list[str] = []
     candidates: dict[str, ResolverCandidate] = {}
 
     attempted.append("comfyui-manager")
-    for candidate in manager.resolve(normalized_query, query_intent=intent):
-        _merge_candidate(candidates, candidate)
+    if _budget_exceeded(budget_end):
+        warnings.append("registry sub-budget exceeded before ComfyUI-Manager lookup; partial evidence.")
+    else:
+        try:
+            for candidate in manager.resolve(normalized_query, query_intent=intent):
+                _merge_candidate(candidates, candidate)
+        except _BudgetExceeded:
+            warnings.append("registry sub-budget exceeded during ComfyUI-Manager lookup; partial evidence.")
 
     attempted.append("comfy-registry")
     registry_refs: list[PackRef] = []
-    try:
-        if intent == "class_name":
-            resolution = registry.resolve_class(normalized_query)
-            if resolution is not None:
-                registry_refs = [resolution.ref, *resolution.candidates]
-        else:
-            resolution = registry.resolve_slug_or_name(normalized_query)
-            if resolution is not None:
-                registry_refs = [resolution.ref, *resolution.candidates]
-    except AmbiguousPackError as exc:
-        registry_refs = list(exc.candidates)
-        warnings.append(f"Comfy Registry returned ambiguous candidates for {normalized_query!r}.")
-    except Exception as exc:
-        warnings.append(f"Comfy Registry lookup failed: {type(exc).__name__}: {exc}")
+    if _budget_exceeded(budget_end):
+        warnings.append("registry sub-budget exceeded before Comfy Registry lookup; partial evidence.")
+    else:
+        try:
+            if intent == "class_name":
+                resolution = registry.resolve_class(normalized_query)
+                if resolution is not None:
+                    registry_refs = [resolution.ref, *resolution.candidates]
+            else:
+                resolution = registry.resolve_slug_or_name(normalized_query)
+                if resolution is not None:
+                    registry_refs = [resolution.ref, *resolution.candidates]
+        except _BudgetExceeded:
+            warnings.append("registry sub-budget exceeded during Comfy Registry lookup; partial evidence.")
+        except AmbiguousPackError as exc:
+            registry_refs = list(exc.candidates)
+            warnings.append(f"Comfy Registry returned ambiguous candidates for {normalized_query!r}.")
+        except Exception as exc:
+            warnings.append(f"Comfy Registry lookup failed: {type(exc).__name__}: {exc}")
     for ref in registry_refs:
-        _merge_candidate(candidates, registry.candidate_for_ref(ref))
+        if _budget_exceeded(budget_end):
+            warnings.append("registry sub-budget exceeded before schema fetch; partial evidence.")
+            break
+        try:
+            _merge_candidate(candidates, registry.candidate_for_ref(ref))
+        except _BudgetExceeded:
+            warnings.append("registry sub-budget exceeded during schema fetch; partial evidence.")
+            break
 
     attempted.append("github")
-    github = _GitHubEvidenceClient(cache_root=cache, client=github_client, token=github_token)
-    github_candidates, github_warnings = github.resolve(normalized_query, candidates.values())
-    warnings.extend(github_warnings)
-    for candidate in github_candidates:
-        _merge_candidate(candidates, candidate)
+    github = _GitHubEvidenceClient(cache_root=cache, client=github_client, token=github_token, deadline=budget_end)
+    if _budget_exceeded(budget_end):
+        warnings.append("registry sub-budget exceeded before GitHub lookup; partial evidence.")
+    else:
+        try:
+            github_candidates, github_warnings = github.resolve(normalized_query, candidates.values())
+        except _BudgetExceeded:
+            warnings.append("registry sub-budget exceeded during GitHub lookup; partial evidence.")
+        else:
+            warnings.extend(github_warnings)
+            for candidate in github_candidates:
+                _merge_candidate(candidates, candidate)
 
     raw_candidates = list(candidates.values())
     if intent != "class_name":
@@ -317,10 +595,26 @@ def resolve_missing_nodes(
 
 
 class _ComfyRegistryClient:
-    def __init__(self, *, cache_root: Path, client: RegistryHTTPClient | None = None, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        *,
+        cache_root: Path,
+        client: RegistryHTTPClient | None = None,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        deadline: float | None = None,
+    ):
         self.cache_root = cache_root
         self.client = client or httpx.Client(timeout=timeout_seconds, follow_redirects=True)
         self.timeout_seconds = timeout_seconds
+        self.deadline = deadline
+
+    def _check_budget(self) -> None:
+        if _budget_exceeded(self.deadline):
+            raise _BudgetExceeded("registry sub-budget deadline reached")
+
+    @property
+    def _request_timeout(self) -> float:
+        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
 
     def resolve_class(self, class_name: str) -> PackResolution | None:
         exact_path = f"/comfy-nodes/{quote(class_name, safe='')}/node"
@@ -436,16 +730,16 @@ class _ComfyRegistryClient:
     def _get_json(self, path: str, params: dict[str, str] | None = None) -> tuple[Any, bool]:
         cache_file = self._cache_file(path, params)
         if cache_file.exists():
-            return json.loads(cache_file.read_text(encoding="utf-8")), True
+            return _read_json_file(cache_file), True
+        self._check_budget()
         url = f"{API_BASE_URL}{path}"
-        response = self.client.get(url, params=params, timeout=self.timeout_seconds, follow_redirects=True)
+        response = self.client.get(url, params=params, timeout=self._request_timeout, follow_redirects=True)
         if response.status_code == 404:
             payload: Any = None
         else:
             response.raise_for_status()
             payload = response.json()
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        _atomic_write_json(cache_file, payload)
         return payload, False
 
     def _cache_file(self, path: str, params: dict[str, str] | None) -> Path:
@@ -457,25 +751,69 @@ class _ComfyRegistryClient:
 
 
 class _ExternalJsonCache:
-    def __init__(self, *, cache_root: Path, client: RegistryHTTPClient | None, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        *,
+        cache_root: Path,
+        client: RegistryHTTPClient | None,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        deadline: float | None = None,
+    ):
         self.cache_root = cache_root
         self.client = client or httpx.Client(timeout=timeout_seconds, follow_redirects=True)
         self.timeout_seconds = timeout_seconds
+        self.deadline = deadline
 
-    def _get_json_url(self, url: str, *, params: dict[str, str] | None = None, headers: dict[str, str] | None = None) -> tuple[Any, bool, int]:
+    def _check_budget(self) -> None:
+        if _budget_exceeded(self.deadline):
+            raise _BudgetExceeded("registry sub-budget deadline reached")
+
+    @property
+    def _request_timeout(self) -> float:
+        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+
+    def _get_json_url(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[Any, bool, int, httpx.Headers]:
+        """GET *url* with disk caching.
+
+        Returns ``(payload, cache_hit, status_code, response_headers)``.
+        A brief negative-cache marker (R2-B2) short-circuits repeated 422
+        validation failures as ``(None, True, 422)`` with no HTTP call.
+        """
         cache_file = self._cache_file_for_url(url, params)
         if cache_file.exists():
-            return json.loads(cache_file.read_text(encoding="utf-8")), True, 200
-        response = self.client.get(url, params=params, headers=headers, timeout=self.timeout_seconds, follow_redirects=True)
+            cached = _read_json_file(cache_file)
+            if _is_negative_cache(cached):
+                try:
+                    expires_at = float(cached.get("expires_at") or 0.0)
+                except (TypeError, ValueError):
+                    expires_at = 0.0
+                if expires_at > time.time():
+                    return None, True, 422, httpx.Headers()
+                # Expired negative entry → refetch below (and overwrite on success).
+            else:
+                return cached, True, 200, httpx.Headers()
+        self._check_budget()
+        response = self.client.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=self._request_timeout,
+            follow_redirects=True,
+        )
         if response.status_code == 404:
             payload: Any = None
         else:
             if response.status_code >= 400:
-                return None, False, response.status_code
+                return None, False, response.status_code, response.headers
             payload = response.json()
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-        return payload, False, response.status_code
+        _atomic_write_json(cache_file, payload)
+        return payload, False, response.status_code, response.headers
 
     def _cache_file_for_url(self, url: str, params: dict[str, str] | None) -> Path:
         query = urlencode(sorted((params or {}).items()))
@@ -489,8 +827,8 @@ class _ExternalJsonCache:
 
 class _ManagerEvidenceClient(_ExternalJsonCache):
     def resolve(self, query: str, *, query_intent: str) -> list[ResolverCandidate]:
-        node_map, map_cache_hit, _ = self._get_json_url(MANAGER_NODE_MAP_URL)
-        node_list, list_cache_hit, _ = self._get_json_url(MANAGER_NODE_LIST_URL)
+        node_map, map_cache_hit, _, _ = self._get_json_url(MANAGER_NODE_MAP_URL)
+        node_list, list_cache_hit, _, _ = self._get_json_url(MANAGER_NODE_LIST_URL)
         class_to_packs = _manager_class_to_packs(node_map)
         metadata = _manager_pack_metadata(node_list)
         matched_slugs: set[str] = set()
@@ -542,6 +880,9 @@ class _ManagerEvidenceClient(_ExternalJsonCache):
 
 
 class _GitHubEvidenceClient(_ExternalJsonCache):
+    CODE_SEARCH_URL = f"{GITHUB_API_BASE_URL}/search/code"
+    REPO_SEARCH_URL = f"{GITHUB_API_BASE_URL}/search/repositories"
+
     def __init__(
         self,
         *,
@@ -549,8 +890,9 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
         client: RegistryHTTPClient | None,
         token: str | None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        deadline: float | None = None,
     ):
-        super().__init__(cache_root=cache_root, client=client, timeout_seconds=timeout_seconds)
+        super().__init__(cache_root=cache_root, client=client, timeout_seconds=timeout_seconds, deadline=deadline)
         self.token = _normalize_optional(token or os.environ.get("GITHUB_TOKEN"))
         self.configured = client is not None or self.token is not None
 
@@ -567,28 +909,82 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
             headers["Authorization"] = f"Bearer {self.token}"
         candidates = list(existing_candidates)
         code_candidates: list[ResolverCandidate] = []
-        try:
-            search_payload, cache_hit, status = self._get_json_url(
-                f"{GITHUB_API_BASE_URL}/search/code",
-                params={"q": f"{query} ComfyUI"},
-                headers=headers,
+
+        # R2-B2: honor a shared cooldown sentinel (process-wide + on-disk).
+        # While a rate limit is active the GitHub tier is skipped entirely —
+        # never a fall-through to repository search, which shares the quota.
+        if _cooldown_active(self.cache_root, self.CODE_SEARCH_URL):
+            warnings.append(
+                "GitHub code search is rate-limited (cooldown active); skipping GitHub tier."
             )
-        except httpx.HTTPError as exc:
-            warnings.append(f"GitHub code search failed ({type(exc).__name__}); falling back to repository search.")
-            search_payload, cache_hit, status = None, False, 599
-        if status in {401, 403, 429}:
-            warnings.append(f"GitHub code search unavailable ({status}); falling back to repository search.")
+            return (), warnings
+
+        search_payload, cache_hit, status, response_headers = self._code_search(
+            query, headers=headers, warnings=warnings
+        )
+        if status in {403, 429}:
+            # Rate limit: write the cooldown sentinel honoring Retry-After and
+            # stop.  Do NOT fall through to repository search.
+            retry_after = _parse_retry_after(response_headers.get("Retry-After"))
+            _set_cooldown(self.cache_root, self.CODE_SEARCH_URL, retry_after)
+            warnings.append(
+                f"GitHub code search rate-limited ({status}); GitHub tier skipped "
+                f"for cooldown."
+            )
+            return (), warnings
+        if status == 422:
+            # Query-shape rejection: sanitize, retry once, negative-cache
+            # briefly.  No exponential backoff, no repo-search fall-through.
+            sanitized = _sanitize_github_search_query(query)
+            if sanitized != query:
+                self._check_budget()
+                search_payload, cache_hit, status, response_headers = self._code_search(
+                    sanitized, headers=headers, warnings=warnings
+                )
+                if status in {403, 429}:
+                    retry_after = _parse_retry_after(response_headers.get("Retry-After"))
+                    _set_cooldown(self.cache_root, self.CODE_SEARCH_URL, retry_after)
+                    warnings.append(
+                        f"GitHub code search rate-limited ({status}) on retry; "
+                        f"GitHub tier skipped for cooldown."
+                    )
+                    return (), warnings
+                if status == 422:
+                    _write_negative_cache(
+                        self.cache_root, self.CODE_SEARCH_URL, {"q": f"{sanitized} ComfyUI"}
+                    )
+                    _write_negative_cache(
+                        self.cache_root, self.CODE_SEARCH_URL, {"q": f"{query} ComfyUI"}
+                    )
+                    warnings.append(
+                        "GitHub code search rejected the query (422); skipping GitHub tier."
+                    )
+                    return (), warnings
+            else:
+                _write_negative_cache(
+                    self.cache_root, self.CODE_SEARCH_URL, {"q": f"{query} ComfyUI"}
+                )
+                warnings.append(
+                    "GitHub code search rejected the query (422); skipping GitHub tier."
+                )
+                return (), warnings
         elif status >= 400:
-            warnings.append(f"GitHub code search failed ({status}); falling back to repository search.")
+            # 401 (bad credentials) and other non-rate-limit failures may fall
+            # back to repository search, which needs no code-search quota.
+            warnings.append(f"GitHub code search unavailable ({status}); falling back to repository search.")
         else:
             code_candidates.extend(_github_candidates_from_code_payload(query, search_payload, cache_hit=cache_hit))
 
         if code_candidates:
             return code_candidates, warnings
 
+        if _budget_exceeded(self.deadline):
+            warnings.append("registry sub-budget exceeded before GitHub repository search; partial evidence.")
+            return (), warnings
+        self._check_budget()
         try:
-            repo_payload, repo_cache_hit, repo_status = self._get_json_url(
-                f"{GITHUB_API_BASE_URL}/search/repositories",
+            repo_payload, repo_cache_hit, repo_status, _ = self._get_json_url(
+                self.REPO_SEARCH_URL,
                 params={"q": f"{query} ComfyUI"},
                 headers=headers,
             )
@@ -603,6 +999,23 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
             return repo_candidates, warnings
         fallback = [_github_candidate_from_existing(query, candidate) for candidate in candidates if candidate.ref.url]
         return [candidate for candidate in fallback if candidate is not None], warnings
+
+    def _code_search(
+        self,
+        query: str,
+        *,
+        headers: dict[str, str],
+        warnings: list[str],
+    ) -> tuple[Any, bool, int, httpx.Headers]:
+        try:
+            return self._get_json_url(
+                self.CODE_SEARCH_URL,
+                params={"q": f"{query} ComfyUI"},
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            warnings.append(f"GitHub code search failed ({type(exc).__name__}); falling back to repository search.")
+            return None, False, 599, httpx.Headers()
 
 
 def _pack_refs_from_search_payload(payload: Any) -> list[PackRef]:
