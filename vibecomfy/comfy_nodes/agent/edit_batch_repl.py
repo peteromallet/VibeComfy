@@ -252,6 +252,9 @@ def _batch_protocol_retry_messages(
     messages: list[dict[str, str]],
     exc: BaseException | None = None,
 ) -> list[dict[str, str]]:
+    from vibecomfy.comfy_nodes.agent._frag_batch_loop import _BATCH_PROTOCOL_RETRY_PROMPT  # noqa: PLC0415
+    from vibecomfy.comfy_nodes.agent.edit import _malformed_model_json_detail  # noqa: PLC0415
+
     prompt = _BATCH_PROTOCOL_RETRY_PROMPT
     if exc is not None:
         detail = _malformed_model_json_detail(exc)
@@ -1145,6 +1148,8 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         effort=effort,
                     )
             except (deps.MalformedModelJSON, deps.MissingRequiredField) as first_exc:
+                from vibecomfy.comfy_nodes.agent.edit import _malformed_model_json_detail  # noqa: PLC0415
+
                 retry_messages = _batch_protocol_retry_messages(messages, first_exc)
                 first_detail = _malformed_model_json_detail(first_exc)
                 retry_request_entry = {

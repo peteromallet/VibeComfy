@@ -60,7 +60,12 @@ def _batch_protocol_retry_messages(
     messages: list[dict[str, str]],
     exc: BaseException | None = None,
 ) -> list[dict[str, str]]:
-    from vibecomfy.comfy_nodes.agent.edit import (_BATCH_PROTOCOL_RETRY_PROMPT, _malformed_model_json_detail)  # T-039 late import: host namespace lookup; resolved at call time
+    # T-039 late import: host namespace lookup; resolved at call time.
+    # The retry prompt constant lives in THIS module (top of file), not in
+    # edit.py — import from here so the retry path can never NameError.
+    from vibecomfy.comfy_nodes.agent._frag_batch_loop import _BATCH_PROTOCOL_RETRY_PROMPT  # noqa: PLC0415
+    from vibecomfy.comfy_nodes.agent.edit import _malformed_model_json_detail  # noqa: PLC0415
+
     prompt = _BATCH_PROTOCOL_RETRY_PROMPT
     if exc is not None:
         detail = _malformed_model_json_detail(exc)
