@@ -11,3 +11,10 @@ tests/test_comfy_nodes_browser.py::test_browser_harness_smoke
 tests/test_widget_shape_evidence.py::test_raw_scalar_widget_overflow_is_not_hidden_by_compacted_candidate_count
 tests/test_comfy_nodes_agent_backend_spine.py::test_run_agent_turn_batch_retries_empty_content_once_then_succeeds
 tests/test_comfy_nodes_agent_backend_spine.py::test_runtime_json_model_turn_retries_malformed_worker_json
+
+# H03 (B3 advisory plans): test asserts the pre-B3 done()-refusal hint wording
+# ("missing required execution-plan step ids: ..."). B3 removes plan-step
+# done() refusal — steps are now advisory diagnostics only; failed declared
+# invariant conditions still refuse done(). Expected until C02 rewrites the
+# assertion to the advisory wording.
+tests/test_comfy_nodes_agent_edit.py::test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks

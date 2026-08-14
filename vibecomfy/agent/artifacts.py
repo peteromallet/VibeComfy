@@ -212,20 +212,35 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
 
 
 def _executor_report(result: Any) -> dict[str, Any]:
+    # H01 shadow/dual-evaluation: the agent research stage rides on the legacy
+    # ResearchResult as a private attribute (attached by core.run_executor).
+    # It is persisted as evidence only — it never feeds routing, reply text,
+    # graphs, or queue decisions.
+    research_shadow = None
+    report_obj = getattr(result, "report", None)
+    if report_obj is not None:
+        research_obj = getattr(report_obj, "research", None)
+        research_shadow = getattr(research_obj, "research_shadow", None)
+
+    def _with_shadow(executor: Mapping[str, Any]) -> dict[str, Any]:
+        merged = dict(executor)
+        if research_shadow is not None:
+            merged["research_shadow"] = _json_safe(research_shadow)
+        return merged
+
     result_payload = _json_safe(result)
     if isinstance(result_payload, Mapping):
         report = result_payload.get("report")
         if isinstance(report, Mapping):
             executor = report.get("executor")
             if isinstance(executor, Mapping):
-                return dict(executor)
+                return _with_shadow(executor)
 
-    report_obj = getattr(result, "report", None)
     report_payload = _json_safe(report_obj)
     if isinstance(report_payload, Mapping):
         executor = report_payload.get("executor")
         if isinstance(executor, Mapping):
-            return dict(executor)
+            return _with_shadow(executor)
     return {}
 
 
@@ -555,6 +570,28 @@ def synthesize_headless_artifacts(
             research_payload = _redact(research)
             _safe_write(output_dir / "research.json", research_payload)
             _append_manifest(manifest, "research.json")
+
+        # H01 dual evaluation: persist the shadow trace + dual report and BOTH
+        # evidence packs when the C1 agent research stage ran beside legacy
+        # research.  These are inert comparison artifacts.
+        research_shadow = report.get("research_shadow")
+        if isinstance(research_shadow, Mapping):
+            _safe_write(output_dir / "research_shadow.json", _redact(research_shadow))
+            _append_manifest(manifest, "research_shadow.json")
+            agent_pack = research_shadow.get("agent_evidence_pack")
+            if isinstance(agent_pack, Mapping):
+                _safe_write(
+                    output_dir / "research_shadow_agent_pack.json",
+                    _redact(agent_pack),
+                )
+                _append_manifest(manifest, "research_shadow_agent_pack.json")
+            legacy_pack = research_shadow.get("legacy_evidence_pack")
+            if isinstance(legacy_pack, Mapping):
+                _safe_write(
+                    output_dir / "research_shadow_legacy_pack.json",
+                    _redact(legacy_pack),
+                )
+                _append_manifest(manifest, "research_shadow_legacy_pack.json")
 
         implementation = report.get("implementation")
         if isinstance(implementation, Mapping):

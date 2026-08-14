@@ -50,6 +50,7 @@ from vibecomfy.executor.profiler import (
 )
 
 from .agent_backend import run_classify_turn, run_reply_turn
+from .agent_research_stage import run_agent_research_shadow
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
@@ -499,6 +500,22 @@ def _phase_2_research_deadline() -> float | None:
     if seconds <= 0:
         return None
     return time.monotonic() + seconds
+
+
+_RESEARCH_SHADOW_ENV = "VIBECOMFY_RESEARCH_SHADOW"
+_RESEARCH_SHADOW_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _research_shadow_enabled() -> bool:
+    """Return True when the H01 agent research shadow stage is enabled.
+
+    Opt-in via ``VIBECOMFY_RESEARCH_SHADOW`` (default off) so ordinary
+    executor runs — and unpatched test environments — never perform the
+    shadow stage's tool/model I/O.  Dual-evaluation harness runs set the flag
+    to capture both evidence packs beside legacy research; the C01 cutover
+    decides when the shadow becomes authoritative.
+    """
+    return os.environ.get(_RESEARCH_SHADOW_ENV, "").strip().casefold() in _RESEARCH_SHADOW_TRUTHY
 
 
 # ── graph summary helpers ────────────────────────────────────────────────────
@@ -1214,8 +1231,10 @@ def _adapt_execution_plan_note(
         "provenance": {
             "builder": "vibecomfy.executor.execution_plan_builder.build_execution_plan",
             "routing": "vibecomfy.executor.execution_plan_builder.needs_precedent_plan",
-            "phase": "m3_execute_enforcement",
-            "enforced": True,
+            # B3/H03: execution plans are advisory, agent-authored, revisable —
+            # never enforced at the executor note level.
+            "phase": "advisory_plan_suggestion",
+            "enforced": False,
         },
     }
 
@@ -2216,6 +2235,39 @@ def run_executor(
                         warning_count=len(research_result.warnings or ()),
                         summary_preview=short_text(research_result.summary),
                     )
+                    # H01: run the C1 agent-owned research stage BESIDE legacy
+                    # research (shadow/dual-evaluation) for research/adapt
+                    # routes.  Both evidence packs are captured; the shadow
+                    # result is inert and NEVER alters route, graph, reply, or
+                    # queue decisions — legacy behavioral output stays
+                    # authoritative until the C01 cutover.  It rides on the
+                    # legacy ResearchResult as a private attribute so every
+                    # existing serialization path stays byte-identical.
+                    # The stage is opt-in via VIBECOMFY_RESEARCH_SHADOW (the
+                    # dual-evaluation harness sets it) so default executor
+                    # runs — and unpatched test environments — never perform
+                    # shadow tool/model I/O.
+                    if _research_shadow_enabled():
+                        try:
+                            shadow_result = run_agent_research_shadow(
+                                request,
+                                plan=plan,
+                                spec=research_spec,
+                                legacy_result=research_result,
+                            )
+                            object.__setattr__(
+                                research_result,
+                                "research_shadow",
+                                shadow_result,
+                            )
+                            span.update(
+                                research_shadow_status=shadow_result.trace.status,
+                                research_shadow_verdict=shadow_result.trace.final_verdict,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - shadow is best-effort
+                            LOGGER.warning(
+                                "executor research shadow stage failed: %s", exc
+                            )
                 except _ExecutorPhaseError as exc:
                     # Research failure is non-fatal; capture as empty result.
                     research_result = ResearchResult(

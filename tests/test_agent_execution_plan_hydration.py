@@ -94,3 +94,73 @@ def test_absent_nested_execution_plan_leaves_runtime_plan_empty(tmp_path: Path) 
     assert state.plan_evaluation is None
     assert not state.execution_plan_path.exists()
     assert not state.plan_evaluation_path.exists()
+
+
+def test_hydration_carries_provenance_defaults(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_ENFORCED
+
+    state = _state(tmp_path)
+    protocol_notes = {
+        "execution_plan": {
+            "plan": {
+                "contract_version": "execution_plan_v1",
+                "plan_id": "plan.executor-built",
+            }
+        }
+    }
+
+    _hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
+
+    assert state.execution_plan is not None
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert state.execution_plan.enforced is False
+    assert state.execution_plan.revision_history == ()
+
+    persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
+    assert persisted["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert persisted["enforced"] is False
+    assert persisted["revision_history"] == []
+
+
+def test_hydration_parses_agent_authored_revision_payload(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_AGENT_AUTHORED
+
+    state = _state(tmp_path)
+    protocol_notes = {
+        "execution_plan": {
+            "plan": {
+                "contract_version": "execution_plan_v1",
+                "plan_id": "plan.agent-authored",
+                "provenance": PLAN_PROVENANCE_AGENT_AUTHORED,
+                "enforced": False,
+                "revision_history": [
+                    {
+                        "revision_id": "rev.1",
+                        "authored_by": "agent",
+                        "authored_at": "2026-08-14T00:00:00+00:00",
+                        "reason": "agent declared its own plan",
+                        "changes": {"source": "agent_reasoning"},
+                        "provenance": PLAN_PROVENANCE_AGENT_AUTHORED,
+                        "enforced": False,
+                    }
+                ],
+            }
+        }
+    }
+
+    _hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
+
+    assert state.execution_plan is not None
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert state.execution_plan.enforced is False
+    assert len(state.execution_plan.revision_history) == 1
+    revision = state.execution_plan.revision_history[0]
+    assert revision.revision_id == "rev.1"
+    assert revision.authored_by == "agent"
+    assert revision.reason == "agent declared its own plan"
+    assert revision.changes == {"source": "agent_reasoning"}
+
+    persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
+    assert persisted["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert persisted["enforced"] is False
+    assert persisted["revision_history"][0]["authored_by"] == "agent"

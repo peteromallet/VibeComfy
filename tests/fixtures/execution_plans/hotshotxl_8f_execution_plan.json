@@ -154,8 +154,10 @@
       }
     }
   ],
+  "enforced": false,
   "goal": "Generate an active 8-frame HotShotXL video output.",
   "plan_id": "plan.hotshotxl_8f.b4bc69554c4f",
+  "provenance": "enforced",
   "required_steps": [
     {
       "assign_to": "hotshotxl_motion_model",
@@ -461,6 +463,7 @@
     }
   ],
   "research_result_hash": "456e36293d48",
+  "revision_history": [],
   "role_bindings": [
     {
       "class_type": "HotshotXLLoader",

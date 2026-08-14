@@ -8,7 +8,8 @@ milestones.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -64,6 +65,18 @@ VERSION_STATUS_AMBIGUOUS = "ambiguous"
 REQUIRED_CRITICALITIES: tuple[str, ...] = ("required", "critical")
 OPTIONAL_CRITICALITIES: tuple[str, ...] = ("recommended", "optional", "advisory")
 PLAN_CRITICALITIES: tuple[str, ...] = REQUIRED_CRITICALITIES + OPTIONAL_CRITICALITIES
+
+# Plan authorship provenance.  ``enforced`` marks plans built deterministically
+# by the executor; ``agent_authored`` marks plans the agent declared or
+# revised.  Per B3 BOTH kinds are ADVISORY: plan steps never block ``done()``
+# (a miss is a diagnostic), only failed declared safety/invariant conditions
+# block.
+PLAN_PROVENANCE_ENFORCED = "enforced"
+PLAN_PROVENANCE_AGENT_AUTHORED = "agent_authored"
+PLAN_PROVENANCES: tuple[str, ...] = (
+    PLAN_PROVENANCE_ENFORCED,
+    PLAN_PROVENANCE_AGENT_AUTHORED,
+)
 STEP_STATUSES: tuple[str, ...] = (
     "planned",
     "not_evaluated",
@@ -307,8 +320,48 @@ class PlanStep:
 
 
 @dataclass(frozen=True)
+class PlanRevision:
+    """Auditable record of an agent-authored revision to an execution plan.
+
+    Every revision flips the plan's authorship provenance to
+    ``agent_authored`` with ``enforced=False``; the record below preserves who
+    changed what and why so the revision history is auditable end to end.
+    """
+
+    revision_id: str
+    authored_by: str
+    authored_at: str
+    reason: str
+    changes: Mapping[str, Any] = field(default_factory=dict)
+    provenance: str = PLAN_PROVENANCE_AGENT_AUTHORED
+    enforced: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "changes", _freeze_jsonish(self.changes))
+
+    def to_dict(self) -> dict[str, Any]:
+        return _omit_none({
+            "revision_id": self.revision_id,
+            "authored_by": self.authored_by,
+            "authored_at": self.authored_at,
+            "reason": self.reason,
+            "changes": _thaw_jsonish(self.changes),
+            "provenance": self.provenance,
+            "enforced": self.enforced,
+        })
+
+
+@dataclass(frozen=True)
 class ExecutionPlan:
-    """Authoritative structural obligations for a candidate graph edit."""
+    """Structural obligations for a candidate graph edit.
+
+    Steps are ADVISORY (B3): a step that is not satisfied produces a
+    non-blocking diagnostic.  The blocking surface is the declared
+    safety/invariant conditions (``done_conditions``, ``active_path_conditions``,
+    ``blocked_if``, step conditions).  ``provenance`` records authorship;
+    ``enforced`` is kept for provenance clarity and is ``False`` for both
+    executor-built (advisory) and agent-authored plans.
+    """
 
     plan_id: str
     goal: str = ""
@@ -324,6 +377,9 @@ class ExecutionPlan:
     blocked_if: tuple[PlanCondition, ...] = ()
     schema_provenance: Mapping[str, Any] = field(default_factory=dict)
     runtime_provenance: Mapping[str, Any] = field(default_factory=dict)
+    provenance: str = PLAN_PROVENANCE_ENFORCED
+    enforced: bool = False
+    revision_history: tuple[PlanRevision, ...] = ()
     contract_version: str = EXECUTION_PLAN_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -335,6 +391,15 @@ class ExecutionPlan:
         object.__setattr__(self, "blocked_if", tuple(self.blocked_if))
         object.__setattr__(self, "schema_provenance", _freeze_jsonish(self.schema_provenance))
         object.__setattr__(self, "runtime_provenance", _freeze_jsonish(self.runtime_provenance))
+        object.__setattr__(self, "revision_history", tuple(self.revision_history))
+        if self.provenance not in PLAN_PROVENANCES:
+            object.__setattr__(self, "provenance", PLAN_PROVENANCE_ENFORCED)
+        if not isinstance(self.enforced, bool):
+            object.__setattr__(self, "enforced", False)
+
+    @property
+    def is_agent_authored(self) -> bool:
+        return self.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
 
     @property
     def supported_contract_version(self) -> bool:
@@ -359,6 +424,9 @@ class ExecutionPlan:
             "blocked_if": [condition.to_dict() for condition in self.blocked_if],
             "schema_provenance": _thaw_jsonish(self.schema_provenance),
             "runtime_provenance": _thaw_jsonish(self.runtime_provenance),
+            "provenance": self.provenance,
+            "enforced": self.enforced,
+            "revision_history": [revision.to_dict() for revision in self.revision_history],
         }
 
     def fail_closed_evaluation(
@@ -386,6 +454,7 @@ class PlanEvaluation:
     selected_precedent_id: str | None = None
     step_status: tuple[Mapping[str, Any], ...] = ()
     failed_conditions: tuple[Mapping[str, Any], ...] = ()
+    diagnostics: tuple[Mapping[str, Any], ...] = ()
     feedback: str = ""
     schema_provenance: Mapping[str, Any] = field(default_factory=dict)
     runtime_provenance: Mapping[str, Any] = field(default_factory=dict)
@@ -402,6 +471,11 @@ class PlanEvaluation:
             self,
             "failed_conditions",
             tuple(_freeze_jsonish(condition) for condition in self.failed_conditions),
+        )
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(_freeze_jsonish(diagnostic) for diagnostic in self.diagnostics),
         )
         object.__setattr__(self, "schema_provenance", _freeze_jsonish(self.schema_provenance))
         object.__setattr__(self, "runtime_provenance", _freeze_jsonish(self.runtime_provenance))
@@ -421,6 +495,7 @@ class PlanEvaluation:
             "selected_precedent_id": self.selected_precedent_id,
             "step_status": _thaw_jsonish(self.step_status),
             "failed_conditions": _thaw_jsonish(self.failed_conditions),
+            "diagnostics": _thaw_jsonish(self.diagnostics),
             "feedback": self.feedback,
             "schema_provenance": _thaw_jsonish(self.schema_provenance),
             "runtime_provenance": _thaw_jsonish(self.runtime_provenance),
@@ -997,17 +1072,22 @@ def _step_conditions(step: PlanStep | Mapping[str, Any]) -> tuple[PlanCondition 
                 criticality=str(_mapping_value(step, "criticality") or "required"),
                 class_type=str(class_type),
                 message=f"Required step class {class_type!r} is missing.",
+                details={"derived": True, "source": "step_class_type"},
             )
         )
     return tuple(conditions)
 
 
 def _plan_conditions(plan: ExecutionPlan | Mapping[str, Any]) -> tuple[PlanCondition | Mapping[str, Any], ...]:
+    """Declared invariant conditions (done + active-path).
+
+    B3: step-level conditions are NOT folded in here — they are evaluated in
+    the steps loop, where explicitly authored conditions still block but
+    auto-derived step-class obligations are advisory diagnostics only.
+    """
     conditions: list[PlanCondition | Mapping[str, Any]] = []
     for key in ("done_conditions", "active_path_conditions"):
         conditions.extend(_mapping_value(plan, key) or ())
-    for step in _mapping_value(plan, "required_steps") or ():
-        conditions.extend(_step_conditions(step))
     return tuple(conditions)
 
 
@@ -1200,6 +1280,7 @@ def evaluate_execution_plan(
 
     step_status: list[dict[str, Any]] = []
     condition_status_by_id: dict[str, bool] = {}
+    diagnostics: list[dict[str, Any]] = []
 
     for condition in _plan_conditions(plan):
         condition_id = _condition_id(condition)
@@ -1261,11 +1342,42 @@ def evaluate_execution_plan(
     for step in _mapping_value(plan, "required_steps") or ():
         step_id = str(_mapping_value(step, "step_id") or _mapping_value(step, "id") or "unknown_step")
         conditions = _step_conditions(step)
-        failed_ids = tuple(
-            _condition_id(condition)
-            for condition in conditions
-            if not condition_status_by_id.get(_condition_id(condition), False)
-        )
+        failed_ids: list[str] = []
+        for condition in conditions:
+            condition_id = _condition_id(condition)
+            kind = str(_condition_value(condition, "kind") or "")
+            details = _condition_details(condition)
+            derived = bool(details.get("derived"))
+            if kind not in SUPPORTED_CONDITION_KINDS:
+                satisfied = False
+            elif condition_id in condition_status_by_id:
+                satisfied = condition_status_by_id[condition_id]
+            else:
+                satisfied = _condition_satisfied(evidence, condition)
+                condition_status_by_id[condition_id] = satisfied
+            if satisfied:
+                continue
+            failed_ids.append(condition_id)
+            # Explicitly authored step conditions are declared invariants and
+            # still block.  Auto-derived step-class obligations are advisory:
+            # a missed advisory step is a diagnostic, never a block (B3).
+            if derived:
+                continue
+            if any(
+                str(item.get("condition_id")) == condition_id
+                for item in failed_conditions
+            ):
+                continue
+            failed_conditions.append(
+                _failure_record(
+                    condition,
+                    message=_condition_message(condition, "Declared step condition is not satisfied."),
+                    evidence={
+                        "node_count": evidence.node_count,
+                        "edge_count": len(evidence.edges),
+                    },
+                )
+            )
         if not conditions:
             status = str(_mapping_value(step, "status") or "not_evaluated")
         elif failed_ids:
@@ -1281,12 +1393,38 @@ def evaluate_execution_plan(
                 "failed_condition_ids": list(failed_ids) if failed_ids else None,
             })
         )
+        # B3: plan steps are ADVISORY.  A step that is not satisfied yields a
+        # non-blocking diagnostic, never a blocking failure — only declared
+        # conditions (invariants) can block ``done()``.
+        if status != "satisfied":
+            diagnostics.append(
+                _omit_none({
+                    "step_id": step_id,
+                    "kind": "advisory_step_miss",
+                    "severity": "advisory",
+                    "criticality": _mapping_value(step, "criticality") or "required",
+                    "status": status,
+                    "class_type": _mapping_value(step, "class_type"),
+                    "message": (
+                        f"Advisory plan step {step_id!r} is not satisfied "
+                        f"(status={status!r}). The plan is advisory guidance; "
+                        "this does not block completion, but review whether "
+                        "the step's intent was met by another route."
+                    ),
+                })
+            )
 
     blocking = any(str(item.get("severity")) in {"critical", "required"} for item in failed_conditions)
     ok = not failed_conditions
     if failed_conditions:
         failed_ids = ", ".join(str(item.get("condition_id")) for item in failed_conditions)
         feedback = f"plan evaluation failed: {failed_ids}."
+    elif diagnostics:
+        feedback = (
+            "plan evaluation passed with advisory step diagnostics: "
+            + ", ".join(str(item.get("step_id")) for item in diagnostics)
+            + "."
+        )
     else:
         feedback = "plan evaluation passed."
 
@@ -1314,11 +1452,70 @@ def evaluate_execution_plan(
         selected_precedent_id=_mapping_value(plan, "selected_precedent_id"),
         step_status=tuple(step_status),
         failed_conditions=tuple(failed_conditions),
+        diagnostics=tuple(diagnostics),
         feedback=feedback,
         schema_provenance=_mapping_value(plan, "schema_provenance") or {},
         runtime_provenance=runtime_provenance,
         completion_proof=completion_proof,
     )
+
+
+def plan_evaluation_blocks(
+    evaluation: PlanEvaluation | Mapping[str, Any] | None,
+) -> bool:
+    """Return whether *evaluation* blocks completion.
+
+    B3: only failed declared safety/invariant conditions block.  Plan-step
+    misses are advisory diagnostics and never block, so this checks
+    ``failed_conditions`` severities — never ``step_status``.  A ``None`` or
+    absent evaluation is fail-closed (blocks).
+    """
+    if evaluation is None:
+        return True
+    failed_conditions = _mapping_value(evaluation, "failed_conditions") or ()
+    return any(
+        str(_mapping_value(condition, "severity") or "") in REQUIRED_CRITICALITIES
+        for condition in failed_conditions
+    )
+
+
+def revise_execution_plan(
+    plan: ExecutionPlan,
+    *,
+    authored_by: str,
+    reason: str,
+    authored_at: str | None = None,
+    changes: Mapping[str, Any] | None = None,
+    revision_id: str | None = None,
+    **updates: Any,
+) -> ExecutionPlan:
+    """Return an agent-authored revision of *plan* with auditable history.
+
+    The returned plan carries ``provenance=agent_authored`` and
+    ``enforced=False`` (B3), and appends a :class:`PlanRevision` recording who
+    changed what and why.  ``**updates`` overlay arbitrary plan fields (e.g.
+    ``required_steps=...``), so callers can revise any structural obligation.
+    """
+    revision = PlanRevision(
+        revision_id=revision_id or f"rev.{len(plan.revision_history) + 1}",
+        authored_by=authored_by,
+        authored_at=authored_at or _utc_now_iso(),
+        reason=reason,
+        changes=dict(changes or {}),
+        provenance=PLAN_PROVENANCE_AGENT_AUTHORED,
+        enforced=False,
+    )
+    return replace(
+        plan,
+        revision_history=(*plan.revision_history, revision),
+        provenance=PLAN_PROVENANCE_AGENT_AUTHORED,
+        enforced=False,
+        **updates,
+    )
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # -- Evidence-tier helpers for plan-backed runtime readiness -------------------
@@ -1329,7 +1526,6 @@ def evaluate_execution_plan(
 _RUNTIME_READINESS_STRONG_TIERS: frozenset[str] = frozenset(
     {"live_runtime_schema", "object_info"}
 )
-
 
 def collect_plan_runtime_evidence_tiers(
     plan: ExecutionPlan | Mapping[str, Any] | None,
@@ -1376,6 +1572,9 @@ __all__ = (
     "OPTIONAL_CRITICALITIES",
     "PLAN_CRITICALITIES",
     "PLAN_EVALUATION_CONTRACT_VERSION",
+    "PLAN_PROVENANCE_AGENT_AUTHORED",
+    "PLAN_PROVENANCE_ENFORCED",
+    "PLAN_PROVENANCES",
     "PLAN_STATE_NOT_REQUIRED",
     "PLAN_STATE_REQUIRED_SUPPORTED",
     "PLAN_STATE_REQUIRED_UNSUPPORTED",
@@ -1402,6 +1601,7 @@ __all__ = (
     "ExecutionPlan",
     "PlanCondition",
     "PlanEvaluation",
+    "PlanRevision",
     "PlanStep",
     "RoleBinding",
     "SocketRef",
@@ -1415,5 +1615,7 @@ __all__ = (
     "evaluate_execution_plan",
     "is_supported_execution_plan_version",
     "is_supported_plan_evaluation_version",
+    "plan_evaluation_blocks",
     "plan_evaluation_version_status",
+    "revise_execution_plan",
 )

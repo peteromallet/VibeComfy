@@ -164,3 +164,228 @@ def test_runtime_fails_closed_for_malformed_supported_plan_payload(tmp_path: Pat
     assert update.compact_status["feedback"] == (
         "plan evaluation blocked: malformed execution plan payload."
     )
+
+
+def test_runtime_advisory_step_miss_does_not_block(tmp_path: Path) -> None:
+    """B3: a missing advisory plan step yields a diagnostic, never a block."""
+    from vibecomfy.comfy_nodes.agent.execution_plan import (
+        PlanCondition,
+        PlanStep,
+        plan_evaluation_blocks,
+    )
+
+    state = _state(tmp_path)
+    state.execution_plan = ExecutionPlan(
+        plan_id="plan.advisory",
+        required_steps=(
+            PlanStep(
+                step_id="S1",
+                kind="add_node",
+                criticality="required",
+                class_type="KSampler",
+            ),
+        ),
+        done_conditions=(
+            PlanCondition(
+                condition_id="latent.present",
+                kind="required_class",
+                class_type="EmptyLatentImage",
+            ),
+        ),
+    )
+
+    # The graph satisfies the invariant but never performs the advisory step.
+    update = evaluate_execution_plan_for_state(
+        state,
+        {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "EmptyLatentImage",
+                    "class_type": "EmptyLatentImage",
+                    "widgets_values": [512, 512, 1],
+                }
+            ]
+        },
+    )
+
+    evaluation = state.plan_evaluation
+    assert evaluation is not None
+    assert evaluation.ok is True
+    assert evaluation.blocking is False
+    assert evaluation.failed_conditions == ()
+    assert plan_evaluation_blocks(evaluation) is False
+    diagnostics = list(evaluation.diagnostics)
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["step_id"] == "S1"
+    assert diagnostics[0]["kind"] == "advisory_step_miss"
+    assert diagnostics[0]["severity"] == "advisory"
+    assert "advisory" in evaluation.feedback
+    assert update.compact_status is not None
+    assert update.compact_status["ok"] is True
+    assert update.compact_status["blocking"] is False
+    assert update.compact_status["advisory_miss_ids"] == ["S1"]
+    assert update.compact_status["failed_condition_ids"] == []
+    persisted = json.loads(state.plan_evaluation_path.read_text(encoding="utf-8"))
+    assert persisted["diagnostics"][0]["kind"] == "advisory_step_miss"
+    assert persisted["ok"] is True
+    assert persisted["blocking"] is False
+
+
+def test_runtime_invariant_failure_still_blocks(tmp_path: Path) -> None:
+    """B3: failed declared safety/invariant conditions still block done()."""
+    from vibecomfy.comfy_nodes.agent.execution_plan import (
+        PlanCondition,
+        PlanStep,
+        plan_evaluation_blocks,
+    )
+
+    state = _state(tmp_path)
+    state.execution_plan = ExecutionPlan(
+        plan_id="plan.invariant",
+        required_steps=(
+            PlanStep(
+                step_id="S1",
+                kind="add_node",
+                criticality="required",
+                class_type="KSampler",
+                conditions=(
+                    PlanCondition(
+                        condition_id="sampler.present",
+                        kind="required_class",
+                        class_type="KSampler",
+                    ),
+                ),
+            ),
+        ),
+        done_conditions=(
+            PlanCondition(
+                condition_id="sampler.present",
+                kind="required_class",
+                class_type="KSampler",
+            ),
+        ),
+    )
+
+    update = evaluate_execution_plan_for_state(state, {})
+
+    evaluation = state.plan_evaluation
+    assert evaluation is not None
+    assert evaluation.ok is False
+    assert evaluation.blocking is True
+    assert plan_evaluation_blocks(evaluation) is True
+    assert {"sampler.present"} <= {
+        str(condition["condition_id"]) for condition in evaluation.failed_conditions
+    }
+    assert evaluation.feedback.startswith("plan evaluation failed:")
+    assert update.compact_status is not None
+    assert update.compact_status["ok"] is False
+    assert update.compact_status["blocking"] is True
+    assert "sampler.present" in update.compact_status["failed_condition_ids"]
+
+
+def test_runtime_hydrated_plan_provenance_is_enforced_advisory(tmp_path: Path) -> None:
+    """B3: executor-built plans are provenance 'enforced' with enforced=false."""
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_ENFORCED
+
+    state = _state(tmp_path)
+    hydrate_execution_plan_from_protocol_notes(
+        state,
+        {
+            "execution_plan": {
+                "plan": {
+                    "contract_version": "execution_plan_v1",
+                    "plan_id": "plan.executor-built",
+                    "required_steps": [
+                        {
+                            "id": "step.sampler",
+                            "kind": "add_or_bind_node",
+                            "class_type": "KSampler",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    assert state.execution_plan is not None
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert state.execution_plan.enforced is False
+    assert state.execution_plan.revision_history == ()
+    persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
+    assert persisted["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert persisted["enforced"] is False
+    assert persisted["revision_history"] == []
+
+
+def test_runtime_agent_revision_is_recorded_with_provenance(tmp_path: Path) -> None:
+    """B3: the agent can revise the plan; revision history is auditable."""
+    from vibecomfy.comfy_nodes.agent.execution_plan import PLAN_PROVENANCE_AGENT_AUTHORED
+    from vibecomfy.comfy_nodes.agent.execution_plan_runtime import (
+        revise_execution_plan_for_state,
+    )
+
+    state = _state(tmp_path)
+    hydrate_execution_plan_from_protocol_notes(
+        state,
+        {
+            "execution_plan": {
+                "plan": {
+                    "contract_version": "execution_plan_v1",
+                    "plan_id": "plan.revisable",
+                    "required_steps": [
+                        {
+                            "id": "step.sampler",
+                            "kind": "add_or_bind_node",
+                            "class_type": "KSampler",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    update = revise_execution_plan_for_state(
+        state,
+        {"required_steps": []},
+        authored_by="agent",
+        reason="terminal-only route; sampler not needed",
+        authored_at="2026-08-14T00:00:00+00:00",
+        changes={"removed_steps": ["step.sampler"]},
+    )
+
+    assert update is not None
+    assert update.execution_plan_ref is not None
+    assert state.execution_plan is not None
+    assert state.execution_plan.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert state.execution_plan.enforced is False
+    assert state.execution_plan.required_steps == ()
+    assert len(state.execution_plan.revision_history) == 1
+    revision = state.execution_plan.revision_history[0]
+    assert revision.authored_by == "agent"
+    assert revision.authored_at == "2026-08-14T00:00:00+00:00"
+    assert revision.reason == "terminal-only route; sampler not needed"
+    assert revision.changes == {"removed_steps": ("step.sampler",)}
+    assert revision.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert revision.enforced is False
+
+    persisted = json.loads(state.execution_plan_path.read_text(encoding="utf-8"))
+    assert persisted["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert persisted["enforced"] is False
+    assert persisted["required_steps"] == []
+    assert persisted["revision_history"] == [
+        {
+            "revision_id": "rev.1",
+            "authored_by": "agent",
+            "authored_at": "2026-08-14T00:00:00+00:00",
+            "reason": "terminal-only route; sampler not needed",
+            "changes": {"removed_steps": ["step.sampler"]},
+            "provenance": PLAN_PROVENANCE_AGENT_AUTHORED,
+            "enforced": False,
+        }
+    ]
+
+    assert update.compact_status is not None
+    assert update.compact_status["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert update.compact_status["enforced"] is False
+    assert update.compact_status["revision_count"] == 1

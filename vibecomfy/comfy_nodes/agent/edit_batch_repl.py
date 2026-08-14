@@ -379,37 +379,37 @@ def _execution_plan_done_refusal_hint(state: AgentEditState) -> str:
     evaluation = getattr(state, "plan_evaluation", None)
     if evaluation is None:
         return "the execution plan has not been evaluated yet."
-    missing_step_ids = [
-        str(status.get("step_id") or "unknown_step")
-        for status in getattr(evaluation, "step_status", ()) or ()
-        if isinstance(status, Mapping)
-        and str(status.get("criticality") or "required") != "optional"
-        and str(status.get("status") or "") != "satisfied"
-    ]
     failed_condition_ids = [
         str(condition.get("condition_id") or condition.get("id") or "unknown_condition")
         for condition in getattr(evaluation, "failed_conditions", ()) or ()
         if isinstance(condition, Mapping)
     ]
+    advisory_miss_ids = [
+        str(item.get("step_id") or "unknown_step")
+        for item in getattr(evaluation, "diagnostics", ()) or ()
+        if isinstance(item, Mapping)
+        and str(item.get("kind") or "") == "advisory_step_miss"
+    ]
     parts = [
-        "the authoritative execution plan still blocks completion.",
+        "the execution plan's declared safety/invariant conditions still block completion.",
         f"plan_id={getattr(evaluation, 'plan_id', 'unknown')}",
     ]
-    if missing_step_ids:
-        parts.append(
-            "missing required execution-plan step ids: "
-            + ", ".join(missing_step_ids)
-        )
     if failed_condition_ids:
         parts.append(
             "failed execution-plan condition ids: "
             + ", ".join(failed_condition_ids)
         )
+    if advisory_miss_ids:
+        parts.append(
+            "advisory execution-plan step misses (these do NOT block done, "
+            "but review whether the intended structure was built another way): "
+            + ", ".join(advisory_miss_ids)
+        )
     feedback = str(getattr(evaluation, "feedback", "") or "").strip()
     if feedback:
         parts.append(feedback)
     parts.append(
-        "Fix the missing planned graph structure and call done() again."
+        "Fix the failing plan conditions (invariants) and call done() again."
     )
     return " ".join(parts)
 
@@ -2665,10 +2665,11 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                             batch_response_record["execution_plan_status"] = execution_plan_status
                         deps.write_json_artifact(state.model_response_path, {"turns": response_log})
                 evaluation = getattr(state, "plan_evaluation", None)
-                if (
-                    getattr(evaluation, "ok", True) is False
-                    and getattr(evaluation, "blocking", False) is True
-                ):
+                plan_evaluation_blocks = _import_from(
+                    "vibecomfy.comfy_nodes.agent.execution_plan",
+                    "plan_evaluation_blocks",
+                )
+                if plan_evaluation_blocks(evaluation):
                     refuse_done = True
                     hint = _execution_plan_done_refusal_hint(state)
             if refuse_done:

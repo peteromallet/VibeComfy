@@ -8,13 +8,17 @@ from typing import Any, Mapping
 from .audit import write_json_artifact
 from .contracts import ArtifactRef
 from .execution_plan import (
+    PLAN_PROVENANCE_AGENT_AUTHORED,
+    PLAN_PROVENANCE_ENFORCED,
     ExecutionPlan,
     PlanCondition,
     PlanEvaluation,
+    PlanRevision,
     PlanStep,
     RoleBinding,
     SocketRef,
     evaluate_execution_plan,
+    revise_execution_plan,
 )
 
 
@@ -77,6 +81,25 @@ def _plan_conditions_from_payload(value: Any) -> tuple[PlanCondition, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(_plan_condition_from_payload(item) for item in value)
+
+
+def _plan_revision_from_payload(value: Any) -> PlanRevision:
+    payload = _mapping_or_empty(value)
+    return PlanRevision(
+        revision_id=str(payload.get("revision_id") or "unknown_revision"),
+        authored_by=str(payload.get("authored_by") or "unknown"),
+        authored_at=str(payload.get("authored_at") or ""),
+        reason=str(payload.get("reason") or ""),
+        changes=_mapping_or_empty(payload.get("changes")),
+        provenance=str(payload.get("provenance") or PLAN_PROVENANCE_AGENT_AUTHORED),
+        enforced=bool(payload.get("enforced", False)),
+    )
+
+
+def _plan_revisions_from_payload(value: Any) -> tuple[PlanRevision, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(_plan_revision_from_payload(item) for item in value)
 
 
 def _plan_step_from_payload(value: Any) -> PlanStep:
@@ -147,7 +170,59 @@ def execution_plan_from_payload(value: Mapping[str, Any]) -> ExecutionPlan:
         blocked_if=_plan_conditions_from_payload(value.get("blocked_if")),
         schema_provenance=_mapping_or_empty(value.get("schema_provenance")),
         runtime_provenance=_mapping_or_empty(value.get("runtime_provenance")),
+        provenance=str(value.get("provenance") or PLAN_PROVENANCE_ENFORCED),
+        enforced=bool(value.get("enforced", False)),
+        revision_history=_plan_revisions_from_payload(value.get("revision_history")),
         contract_version=contract_version if isinstance(contract_version, str) else "",
+    )
+
+
+def _merge_plan_payload(base: ExecutionPlan, value: Mapping[str, Any]) -> ExecutionPlan:
+    """Merge a (possibly partial) revision payload over *base*.
+
+    Keys present in *value* win; absent keys inherit from *base* so an
+    agent-authored revision only needs to carry what actually changed.
+    """
+    def _pick(key: str, default: Any) -> Any:
+        return value[key] if key in value else default
+
+    contract_version = _pick("contract_version", base.contract_version)
+    return ExecutionPlan(
+        plan_id=str(_pick("plan_id", base.plan_id) or "unknown"),
+        goal=str(_pick("goal", base.goal) or ""),
+        source_graph_hash=_str_or_none(_pick("source_graph_hash", base.source_graph_hash)),
+        candidate_graph_hash=_str_or_none(_pick("candidate_graph_hash", base.candidate_graph_hash)),
+        research_result_hash=_str_or_none(_pick("research_result_hash", base.research_result_hash)),
+        selected_precedent_id=_str_or_none(_pick("selected_precedent_id", base.selected_precedent_id)),
+        selected_precedent=_mapping_or_empty(_pick("selected_precedent", base.selected_precedent)),
+        role_bindings=_role_bindings_from_payload(
+            _pick("role_bindings", [binding.to_dict() for binding in base.role_bindings])
+        ),
+        required_steps=_plan_steps_from_payload(
+            _pick("required_steps", [step.to_dict() for step in base.required_steps])
+        ),
+        done_conditions=_plan_conditions_from_payload(
+            _pick("done_conditions", [condition.to_dict() for condition in base.done_conditions])
+        ),
+        active_path_conditions=_plan_conditions_from_payload(
+            _pick(
+                "active_path_conditions",
+                [condition.to_dict() for condition in base.active_path_conditions],
+            )
+        ),
+        blocked_if=_plan_conditions_from_payload(
+            _pick("blocked_if", [condition.to_dict() for condition in base.blocked_if])
+        ),
+        schema_provenance=_mapping_or_empty(_pick("schema_provenance", base.schema_provenance)),
+        runtime_provenance=_mapping_or_empty(_pick("runtime_provenance", base.runtime_provenance)),
+        provenance=str(_pick("provenance", base.provenance) or PLAN_PROVENANCE_ENFORCED),
+        enforced=bool(_pick("enforced", base.enforced)),
+        revision_history=_plan_revisions_from_payload(
+            _pick("revision_history", [revision.to_dict() for revision in base.revision_history])
+        ),
+        contract_version=(
+            contract_version if isinstance(contract_version, str) else base.contract_version
+        ),
     )
 
 
@@ -251,6 +326,41 @@ def evaluate_execution_plan_for_state(
     )
 
 
+def revise_execution_plan_for_state(
+    state: Any,
+    plan_payload: Mapping[str, Any],
+    *,
+    authored_by: str,
+    reason: str,
+    authored_at: str | None = None,
+    changes: Mapping[str, Any] | None = None,
+) -> PlanRuntimeUpdate | None:
+    """Record an agent-authored revision of the state's execution plan.
+
+    Merges *plan_payload* (partial payloads inherit unchanged fields from the
+    current plan), stamps ``provenance=agent_authored`` / ``enforced=False``,
+    appends an auditable :class:`PlanRevision` to the plan's revision history,
+    and persists the plan artifact.  Returns ``None`` when the state carries no
+    plan to revise.
+    """
+    current = getattr(state, "execution_plan", None)
+    if current is None:
+        return None
+    state.execution_plan = revise_execution_plan(
+        _merge_plan_payload(current, plan_payload),
+        authored_by=authored_by,
+        reason=reason,
+        authored_at=authored_at,
+        changes=changes,
+    )
+    plan_ref = write_execution_plan_artifact(state)
+    return PlanRuntimeUpdate(
+        evaluation=getattr(state, "plan_evaluation", None),
+        execution_plan_ref=plan_ref,
+        compact_status=format_compact_plan_status(state.execution_plan, state.plan_evaluation),
+    )
+
+
 def format_compact_plan_status(
     plan: ExecutionPlan | None,
     evaluation: PlanEvaluation | None,
@@ -264,8 +374,19 @@ def format_compact_plan_status(
             for condition in evaluation.failed_conditions
             if isinstance(condition, Mapping)
         ]
+    advisory_miss_ids: list[str] = []
+    if evaluation is not None:
+        advisory_miss_ids = [
+            str(item.get("step_id") or "unknown_step")
+            for item in getattr(evaluation, "diagnostics", ()) or ()
+            if isinstance(item, Mapping)
+            and str(item.get("kind") or "") == "advisory_step_miss"
+        ]
     return {
         "plan_id": plan.plan_id,
+        "provenance": plan.provenance,
+        "enforced": plan.enforced,
+        "revision_count": len(plan.revision_history),
         "required_steps": [
             {
                 "step_id": step.step_id,
@@ -278,6 +399,7 @@ def format_compact_plan_status(
         ],
         "ok": evaluation.ok if evaluation is not None else None,
         "blocking": evaluation.blocking if evaluation is not None else None,
+        "advisory_miss_ids": advisory_miss_ids,
         "failed_condition_ids": failed_condition_ids,
         "feedback": evaluation.feedback if evaluation is not None else "",
     }
@@ -291,12 +413,13 @@ def format_compact_plan_feedback(
     if not status:
         return ""
     failed = ", ".join(status["failed_condition_ids"]) or "none"
+    advisory = ", ".join(status["advisory_miss_ids"]) or "none"
     ok = status["ok"] if status["ok"] is not None else "not_evaluated"
     blocking = status["blocking"] if status["blocking"] is not None else "unknown"
     feedback = status["feedback"] or "plan has not been evaluated yet."
     return (
         f"plan_id={status['plan_id']} ok={ok} blocking={blocking} "
-        f"failed_conditions={failed}; {feedback}"
+        f"failed_conditions={failed} advisory_step_misses={advisory}; {feedback}"
     )
 
 
@@ -310,6 +433,7 @@ __all__ = (
     "format_compact_plan_status",
     "hydrate_execution_plan_from_protocol_notes",
     "malformed_execution_plan_evaluation",
+    "revise_execution_plan_for_state",
     "write_execution_plan_artifact",
     "write_plan_evaluation_artifact",
 )

@@ -5,11 +5,14 @@ import json
 from vibecomfy.comfy_nodes.agent.execution_plan import (
     EXECUTION_PLAN_CONTRACT_VERSION,
     PLAN_EVALUATION_CONTRACT_VERSION,
+    PLAN_PROVENANCE_AGENT_AUTHORED,
+    PLAN_PROVENANCE_ENFORCED,
     UNKNOWN_EVALUATION_VERSION_CONDITION_ID,
     UNKNOWN_PLAN_VERSION_CONDITION_ID,
     ExecutionPlan,
     PlanCondition,
     PlanEvaluation,
+    PlanRevision,
     PlanStep,
     RoleBinding,
     SocketRef,
@@ -17,6 +20,7 @@ from vibecomfy.comfy_nodes.agent.execution_plan import (
     fail_closed_if_unsupported_evaluation_version,
     fail_closed_if_unsupported_plan_version,
     plan_evaluation_version_status,
+    revise_execution_plan,
 )
 
 
@@ -224,3 +228,166 @@ def test_unknown_newer_versions_fail_closed() -> None:
     assert "plan_evaluation_v2" in evaluation_payload["failed_conditions"][0]["message"]
     assert evaluation_payload["feedback"].startswith("plan evaluation blocked")
     _assert_json_safe_and_stable(evaluation_payload)
+
+
+def test_execution_plan_default_provenance_is_enforced_advisory() -> None:
+    plan = ExecutionPlan(plan_id="plan.executor-built")
+
+    assert plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert plan.enforced is False
+    assert plan.revision_history == ()
+    assert plan.is_agent_authored is False
+    assert plan.supported_contract_version is True
+
+    payload = plan.to_dict()
+    _assert_json_safe_and_stable(payload)
+    assert payload["provenance"] == PLAN_PROVENANCE_ENFORCED
+    assert payload["enforced"] is False
+    assert payload["revision_history"] == []
+
+
+def test_revise_execution_plan_flips_provenance_and_records_auditable_revision() -> None:
+    plan = ExecutionPlan(
+        plan_id="plan.revisable",
+        required_steps=(
+            PlanStep(
+                step_id="S1",
+                kind="add_node",
+                criticality="required",
+                class_type="KSampler",
+            ),
+        ),
+        done_conditions=(
+            PlanCondition(
+                condition_id="sampler.present",
+                kind="required_class",
+                class_type="KSampler",
+            ),
+        ),
+    )
+
+    revised = revise_execution_plan(
+        plan,
+        authored_by="agent",
+        reason="dropped the sampler step; terminal-only route",
+        authored_at="2026-08-14T00:00:00+00:00",
+        changes={"removed_steps": ["S1"], "route": "terminal_only"},
+        required_steps=(),
+    )
+
+    assert revised is not plan
+    assert revised.plan_id == "plan.revisable"
+    assert revised.required_steps == ()
+    assert revised.done_conditions == plan.done_conditions
+    assert revised.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert revised.enforced is False
+    assert revised.is_agent_authored is True
+    assert len(revised.revision_history) == 1
+    revision = revised.revision_history[0]
+    assert isinstance(revision, PlanRevision)
+    assert revision.revision_id == "rev.1"
+    assert revision.authored_by == "agent"
+    assert revision.authored_at == "2026-08-14T00:00:00+00:00"
+    assert revision.reason == "dropped the sampler step; terminal-only route"
+    assert revision.changes == {"removed_steps": ("S1",), "route": "terminal_only"}
+    assert revision.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert revision.enforced is False
+
+    # the original plan is untouched and the revision is persisted auditably
+    assert plan.provenance == PLAN_PROVENANCE_ENFORCED
+    assert plan.revision_history == ()
+
+    payload = revised.to_dict()
+    _assert_json_safe_and_stable(payload)
+    assert payload["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert payload["enforced"] is False
+    assert payload["revision_history"] == [
+        {
+            "revision_id": "rev.1",
+            "authored_by": "agent",
+            "authored_at": "2026-08-14T00:00:00+00:00",
+            "reason": "dropped the sampler step; terminal-only route",
+            "changes": {"removed_steps": ["S1"], "route": "terminal_only"},
+            "provenance": PLAN_PROVENANCE_AGENT_AUTHORED,
+            "enforced": False,
+        }
+    ]
+
+
+def test_revise_execution_plan_appends_to_revision_history() -> None:
+    plan = ExecutionPlan(
+        plan_id="plan.twice-revised",
+        required_steps=(
+            PlanStep(step_id="S1", kind="add_node", class_type="KSampler"),
+        ),
+    )
+    first = revise_execution_plan(
+        plan,
+        authored_by="agent",
+        reason="first revision",
+        authored_at="2026-08-14T00:00:00+00:00",
+        revision_id="rev.a",
+    )
+    second = revise_execution_plan(
+        first,
+        authored_by="agent",
+        reason="second revision",
+        authored_at="2026-08-14T00:00:01+00:00",
+        revision_id="rev.b",
+        required_steps=(),
+    )
+
+    assert [revision.revision_id for revision in second.revision_history] == ["rev.a", "rev.b"]
+    assert second.provenance == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert second.enforced is False
+    assert second.required_steps == ()
+
+
+def test_plan_revision_to_dict_is_deterministic_and_json_safe() -> None:
+    revision = PlanRevision(
+        revision_id="rev.1",
+        authored_by="agent",
+        authored_at="2026-08-14T00:00:00+00:00",
+        reason="adjust invariants",
+        changes={"z": ("late",), "a": {"added": ["sampler.present"]}},
+    )
+
+    first = revision.to_dict()
+    second = revision.to_dict()
+
+    assert first == second
+    _assert_json_safe_and_stable(first)
+    assert first["revision_id"] == "rev.1"
+    assert first["authored_by"] == "agent"
+    assert first["changes"] == {"a": {"added": ["sampler.present"]}, "z": ["late"]}
+    assert first["provenance"] == PLAN_PROVENANCE_AGENT_AUTHORED
+    assert first["enforced"] is False
+
+
+def test_plan_evaluation_diagnostics_serialize_deterministically() -> None:
+    evaluation = PlanEvaluation(
+        plan_id="plan.diagnostics",
+        ok=True,
+        blocking=False,
+        diagnostics=(
+            {
+                "step_id": "S1",
+                "kind": "advisory_step_miss",
+                "severity": "advisory",
+                "status": "planned",
+            },
+        ),
+    )
+
+    payload = evaluation.to_dict()
+    _assert_json_safe_and_stable(payload)
+    assert payload["ok"] is True
+    assert payload["blocking"] is False
+    assert payload["diagnostics"] == [
+        {
+            "step_id": "S1",
+            "kind": "advisory_step_miss",
+            "severity": "advisory",
+            "status": "planned",
+        }
+    ]
