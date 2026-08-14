@@ -1,0 +1,38 @@
+name: hivemind-rate-limiting
+tier: 7
+description: "Agent-judgment pipeline: a 429 produces a typed rate_limited ToolResult, the R2-B2 cooldown is honored on the next call, and there is no fallthrough to web search (live-optional)"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - hivemind
+  - rate-limit
+  - structural
+  - positive
+  - live-optional
+  - research-live
+assessment:
+  subjective: false
+  enforced:
+    - "rate_limit_calls.json parses as valid JSON with first_search.status=rate_limited and a positive retry_after_seconds."
+    - "rate_limit_calls.json second_search_during_cooldown.status=rate_limited and get_during_cooldown.status=rate_limited (shared cooldown)."
+    - "cooldown_trace.json records transport_calls=1 — the cooldown short-circuits the second call so the transport is hit exactly once."
+    - "cooldown_trace.json records web_search_calls=0 and no_web_fallthrough=true."
+    - "cooldown_trace.json research_stage_tool_statuses contains only rate_limited entries and research_stage_status=ok."
+    - "actions.jsonl records web_search.called=false."
+  graded:
+    - "A rate limit is a typed transport state (rate_limited + retry_after_seconds), never conflated with 'no evidence exists'."
+    - "The frozen evidence shows the cooldown circuit preventing a second transport hit and never falling through to web_search."
+  observed:
+    - "rate_limit_calls.json records the hivemind_rate_limited diagnostic code on every call."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  live_optional: "Rubric is LLM-assessable via --subjective-assessment; the fake structural run is fully deterministic and requires no network."
+  required_frozen_evidence:
+    - evidence/rate_limit_calls.json
+    - evidence/cooldown_trace.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

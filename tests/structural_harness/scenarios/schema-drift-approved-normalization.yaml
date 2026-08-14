@@ -1,0 +1,37 @@
+name: schema-drift-approved-normalization
+tier: 7
+description: "Agent-judgment pipeline: queue preparation raises SchemaNormalizationRequired without approval, and an approved run applies exactly the proposed operations with evidence recorded in metadata"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - queue
+  - normalization
+  - structural
+  - positive
+assessment:
+  subjective: false
+  enforced:
+    - "unapproved_error.json parses as valid JSON with raised=true and error_class=SchemaNormalizationRequired."
+    - "unapproved_error.json records approved_without_approval=false (a bare None approval never applies)."
+    - "unapproved_error.json normalization.ops is a non-empty list of typed ops (node_id/class_type/field/kind/before/after/reason)."
+    - "drift_proposal.json records a drop op for the injected undeclared input (field=bogus_extra_input, kind=drop)."
+    - "approved_metadata.json records approval_binds_proposal=true and bogus_extra_input_dropped=true."
+    - "approved_metadata.json applied_changes entries all record exactly_proposed=true and ops_count matches the proposal length."
+    - "actions.jsonl records queue.preparation with unapproved_refused=true and queue.approval with digest_bound=true."
+  graded:
+    - "Queue preparation is fail-closed: any change the runtime would need is refused unless an approval binds exactly to that proposal digest."
+    - "The approved run applies exactly the proposed operations (same node/field/before/after) and records the normalization as evidence in metadata."
+  observed:
+    - "approved_metadata.json lists every applied change with its before/after values."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  required_frozen_evidence:
+    - evidence/drift_proposal.json
+    - evidence/unapproved_error.json
+    - evidence/approved_metadata.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

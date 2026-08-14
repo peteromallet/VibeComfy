@@ -14,13 +14,14 @@ from typing import Any
 from unittest import mock
 
 from tests.structural_harness.actors import _write_command_log_jsonl
+from vibecomfy.executor.agent_research_stage import AgentResearchTrace
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
     ImplementationResult,
-    ResearchResult,
 )
 from vibecomfy.executor.core import run_executor
+from vibecomfy.executor.evidence_pack import EvidencePack
 
 
 def _fake_classify_for_route(expected_route: str, intent: str, task: str) -> Any:
@@ -48,9 +49,7 @@ def _fake_classify_for_route(expected_route: str, intent: str, task: str) -> Any
 
 
 def _fake_reply(
-    _request: ExecutorRequest,
-    _spec: Any,
-    *,
+    *_args: Any,
     plan: ClassifyDecision | None = None,
     **_kwargs: Any,
 ) -> str:
@@ -64,8 +63,28 @@ def _fake_handle_agent_edit(payload: dict[str, Any], **kwargs: Any) -> dict[str,
     }
 
 
-def _fake_research(*_args: Any, **_kwargs: Any) -> ResearchResult:
-    return ResearchResult(summary="Synthetic route-intent research.")
+def _fake_agent_research(
+    *,
+    route: str,
+    question: str,
+    spec: Any | None = None,
+    **_kwargs: Any,
+) -> tuple[AgentResearchTrace, EvidencePack]:
+    """Stub the ACTIVE C1 research seam with a minimal inert trace + pack."""
+    return (
+        AgentResearchTrace(
+            route=route,
+            question=question,
+            iterations=(),
+            final_verdict="enough",
+            summary="Synthetic route-intent research.",
+            citations=(),
+            uncertainty="",
+            status="ok",
+            elapsed_seconds=0.0,
+        ),
+        EvidencePack(),
+    )
 
 
 def _fake_implementation(
@@ -98,8 +117,8 @@ def build_m5_route_intent_map_evidence(report_dir: Path) -> dict[str, Any]:
         )
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify_fn),
-            mock.patch("vibecomfy.executor.core._run_reply", side_effect=_fake_reply),
-            mock.patch("vibecomfy.executor.core._run_research", side_effect=_fake_research),
+            mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply),
+            mock.patch("vibecomfy.executor.core.run_agent_research_stage", side_effect=_fake_agent_research),
             mock.patch("vibecomfy.executor.core._run_implement", side_effect=_fake_implementation),
         ):
             result = run_executor(request)

@@ -1,0 +1,37 @@
+name: revise-without-forced-research
+tier: 7
+description: "Agent-judgment pipeline: a parameter edit on the revise route must NOT trigger research — no research phase, no research tool calls, empty-or-absent ledger, and the direct edit lands"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - revise
+  - structural
+  - positive
+assessment:
+  subjective: false
+  enforced:
+    - "executor_result.json parses as valid JSON with ok=true and report.executor.plan.route=revise."
+    - "executor_result.json report.executor has NO research key (the research phase never ran)."
+    - "research_evidence.json records research_phase_present=false, research_stage_called=false, and research_calls=[]."
+    - "research_evidence.json records edit_called=true and implementation_graph_returned=true."
+    - "graph.json parses as valid JSON and its first node input seed equals 99999999999999 (the direct edit landed)."
+    - "executor_report.json implementation carries no research_ledger."
+    - "actions.jsonl records an implement action with research_stage_called=false and research_ledger_present=false."
+  graded:
+    - "A revise route (implement without research) must never invoke the research phase: the ledger stays empty-or-absent and no hivemind tool call is recorded."
+    - "The frozen evidence demonstrates the parameter edit landed on the returned graph without any research evidence being manufactured."
+  observed:
+    - "metadata.json records ledger=absent (research phase never ran)."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/executor_report.json
+    - evidence/research_evidence.json
+    - evidence/graph.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

@@ -1,0 +1,35 @@
+name: empty-graph-authoring
+tier: 7
+description: "Agent-judgment pipeline: the agent builds a graph from scratch using suggest_seed_nodes and ready_template_load, and a graph is produced"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - authoring
+  - structural
+  - positive
+assessment:
+  subjective: false
+  enforced:
+    - "tool_calls.json parses as valid JSON with tools[0].tool_name=suggest_seed_nodes, status=ok and case=empty-graph."
+    - "tool_calls.json records a ready_template_load call with status=ok, id=video/wan_t2v and a non-empty sha256."
+    - "tool_calls.json records a ready_template_list call with status=ok."
+    - "graph.json parses as valid JSON and contains a KSampler node (a suggested seed class)."
+    - "graph_summary.json node_count is a positive integer and suggested_seed_classes_present is non-empty."
+    - "actions.jsonl records tool.call for suggest_seed_nodes, ready_template_list, and ready_template_load, plus a graph.produced action."
+  graded:
+    - "Empty-graph authoring uses the Wave-A authoring tools (seed suggestions + ready-template assets) rather than a hardcoded recipe."
+    - "The frozen evidence shows the authored graph actually contains the suggested seed classes."
+  observed:
+    - "graph_summary.json lists every seed class present in the authored graph."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  required_frozen_evidence:
+    - evidence/tool_calls.json
+    - evidence/graph.json
+    - evidence/graph_summary.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

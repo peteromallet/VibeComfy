@@ -1,0 +1,35 @@
+name: headless-ambiguity-needs_input
+tier: 7
+description: "Agent-judgment pipeline: on a decision-critical gap the headless agent emits a typed needs_input (decision/question/missing_information/options), never a phrase-list route override"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - headless
+  - clarify
+  - structural
+  - positive
+assessment:
+  subjective: false
+  enforced:
+    - "headless_result.json parses as valid JSON with status=success and response.route=clarify."
+    - "headless_result.json response.needs_input is an object carrying decision, question, missing_information, and options keys."
+    - "headless_result.json records edit_called=false (the clarify route never runs the edit phase)."
+    - "needs_input.json typed.decision equals the classifier-authored decision and phrase_list_override=false."
+    - "needs_input.json typed has no bounded_assumption key (route stays clarify)."
+    - "actions.jsonl records a needs_input.emitted action with the typed decision."
+  graded:
+    - "The typed needs_input is classifier-authored (read from the plan), never derived from inspecting query phrases."
+    - "The frozen evidence shows the clarify route was preserved — no phrase-list heuristic overrode it to another route."
+  observed:
+    - "headless_result.json response carries the full typed needs_input object verbatim."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  required_frozen_evidence:
+    - evidence/headless_result.json
+    - evidence/needs_input.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

@@ -31,6 +31,7 @@ from tests.harness_common import (
     STATUS_SUCCESS,
     build_flow_metadata,
 )
+from tests.structural_harness.actors_agent_judgment import _AGENT_JUDGMENT_BUILDERS
 from tests.structural_harness.actors import (
     build_explain_simple_workflow_evidence,
     build_m2_audio_positive_evidence,
@@ -376,6 +377,8 @@ class VibeComfyProjectAdapter(FakeProjectAdapter):
             builder = _M5_BUILDERS.get(scenario.name)
         if builder is None:
             builder = _M6_BUILDERS.get(scenario.name)
+        if builder is None:
+            builder = _AGENT_JUDGMENT_BUILDERS.get(scenario.name)
         if builder is None:
             builder = _REORGANISE_BUILDERS.get(scenario.name)
         if builder is not None:

@@ -1,0 +1,39 @@
+name: research-only-decision-memo
+tier: 7
+description: "Agent-judgment pipeline: research route runs question-before-search, hivemind_search/hivemind_get are invoked, citations resolve inside the evidence pack, and the C5 decision memo has the bounded shape (live-optional)"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - research
+  - structural
+  - positive
+  - live-optional
+  - research-live
+assessment:
+  subjective: false
+  enforced:
+    - "executor_result.json parses as valid JSON with ok=true and report.executor.plan.route=research."
+    - "executor_result.json report.executor.research.mode=agent_owned and the research payload carries question, conclusion, citations, uncertainty, and next_action (the C5 memo shape)."
+    - "research_trace.json ledger records research_question as the FIRST decision (question-before-search) followed by hivemind_search and hivemind_get decisions."
+    - "research_trace.json iterations[0].tool_calls[0].tool=hivemind_search and the tool set includes hivemind_get."
+    - "citation_validity.json unresolvable is empty — every C5 citation resolves to an artifact in the frozen evidence pack."
+    - "executor_result.json records no implementation (research-only route; handle_agent_edit never called)."
+  graded:
+    - "The research loop records the explicit question before the first search tool call and never searches generic words from the raw sentence."
+    - "The C5 decision memo is bounded (question/conclusion/citations/uncertainty/next_action) and cites only evidence resolvable inside the pack."
+  observed:
+    - "actions.jsonl records the research action with question_recorded_before_search=true and citations_resolvable listing the cited ids."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  live_optional: "Rubric is LLM-assessable via --subjective-assessment; the fake structural run is fully deterministic and requires no network."
+  required_frozen_evidence:
+    - evidence/executor_result.json
+    - evidence/research_trace.json
+    - evidence/research_memo.json
+    - evidence/citation_validity.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

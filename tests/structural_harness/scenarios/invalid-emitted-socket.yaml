@@ -1,0 +1,35 @@
+name: invalid-emitted-socket
+tier: 7
+description: "Agent-judgment pipeline: a link endpoint that matches no emitted socket raises RefusedEmit with endpoint/socket evidence — the edge is never silently dropped"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - v01
+  - agent-judgment
+  - emit
+  - refusal
+  - structural
+  - positive
+assessment:
+  subjective: false
+  enforced:
+    - "refusal.json parses as valid JSON with raised=true and error_class=RefusedEmit."
+    - "refusal.json diff.links is non-empty and every entry carries source.requested_output, source.emitted_sockets, and source.attempted_remaps."
+    - "refusal.json diff.links entries record missing=source_socket (the phantom source endpoint)."
+    - "refusal.json records silent_drop=false — the phantom edge is refused, not dropped."
+    - "control_emit.json parses as valid JSON with emitted=true and a positive link_count (the graph without the phantom edge emits cleanly)."
+    - "actions.jsonl records emit.refused with the dangling link keys."
+  graded:
+    - "Every input edge is either emitted/remapped or the whole emit is refused with full endpoint evidence — no silent edge drops."
+    - "The frozen evidence demonstrates the refusal is caused by the invalid socket (the control graph emits cleanly)."
+  observed:
+    - "refusal.json diff.links keys name the phantom edge as <source_node>.<phantom_output> -> <target_node>.<input>."
+extras:
+  flow_kind: agent_judgment_pipeline_scripted
+  required_frozen_evidence:
+    - evidence/refusal.json
+    - evidence/control_emit.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl
