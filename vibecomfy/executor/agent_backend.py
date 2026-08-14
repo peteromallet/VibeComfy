@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import json
-from typing import Any, Mapping
+from typing import Any
 
 from vibecomfy.executor.profiler import new_profile_id, profiler_span, short_text
 
@@ -136,7 +136,6 @@ def run_classify_turn(
     effort: str | None = None,
     has_graph: bool = False,
     graph_summary: str | None = None,
-    layout_hint: Mapping[str, Any] | None = None,
     messages: list[dict[str, str]] | None = None,
 ) -> ClassifyDecision:
     """Run a single classify model turn through the provider seam.
@@ -162,8 +161,6 @@ def run_classify_turn(
         Whether a ComfyUI canvas graph is attached to the request.
     graph_summary:
         Optional compact summary of the attached graph (≤ 200 chars).
-    layout_hint:
-        Optional compact deterministic layout evidence for classify context.
     messages:
         Optional pre-built messages list.  When provided, skips the default
         message building and uses this list directly.
@@ -173,7 +170,6 @@ def run_classify_turn(
             query,
             has_graph=has_graph,
             graph_summary=graph_summary,
-            layout_hint=layout_hint,
         )
     model_turn_id = new_profile_id("model")
     with profiler_span(

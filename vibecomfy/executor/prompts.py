@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Mapping
+from typing import Any
 
 from .contracts import (
     ClassifyDecision,
@@ -310,7 +310,6 @@ def build_classify_messages(
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
     graph_reference_map: dict[str, str] | None = None,
-    layout_hint: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
@@ -326,19 +325,12 @@ def build_classify_messages(
     *graph_reference_map* is a compact ``{node_id: label}`` lookup built from
     the current graph so the classifier can map user references like
     \"the KSampler\" or \"node #3\" to concrete ids.
-
-    *layout_hint* is compact deterministic advisory evidence about current
-    canvas readability.  It must never be the sole reason to reroute a
-    concrete functional edit to ``reorganise``.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
         parts.append(f"\nGraph summary: {graph_summary}")
-    layout_hint_line = _layout_hint_prompt_line(layout_hint)
-    if layout_hint_line:
-        parts.append(layout_hint_line)
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):
@@ -452,46 +444,6 @@ def build_classify_messages(
         {"role": "system", "content": _CLASSIFY_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
     ]
-
-
-def _layout_hint_prompt_line(layout_hint: Mapping[str, Any] | None) -> str:
-    if not isinstance(layout_hint, Mapping):
-        return ""
-
-    fields = {
-        "verdict": _compact_hint_value(layout_hint.get("verdict")),
-        "overlap": _compact_hint_value(layout_hint.get("overlap_signal")),
-        "backward_edges": _compact_hint_value(layout_hint.get("backward_edge_signal")),
-        "spacing_group_helper": _compact_hint_value(
-            layout_hint.get("spacing_group_helper_signal")
-        ),
-        "review_hostile": _compact_bool_value(layout_hint.get("review_hostile")),
-    }
-    if not all(fields.values()):
-        return ""
-
-    return (
-        "\nDeterministic layout hint (advisory; do not route concrete "
-        "functional edits to reorganise solely from this hint): "
-        + "; ".join(f"{key}={value}" for key, value in fields.items())
-    )
-
-
-def _compact_hint_value(value: Any, *, limit: int = 120) -> str:
-    if not isinstance(value, str):
-        return ""
-    compact = " ".join(value.split())
-    if not compact:
-        return ""
-    return compact[:limit]
-
-
-def _compact_bool_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str) and value.lower() in {"true", "false"}:
-        return value.lower()
-    return ""
 
 
 def _ref_sort_key(node_id: str) -> tuple[int, str]:

@@ -28,6 +28,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+# R2-B2: reuse the pack resolver's Retry-After parser (seconds or HTTP date)
+# so rate-limit headers translate identically across the executor's HTTP tiers.
+from vibecomfy.registry.pack_resolver import _parse_retry_after
+
 _HIVEMIND_REST_ROOT = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
 _DEFAULT_HIVEMIND_URL = f"{_HIVEMIND_REST_ROOT}/external_resources"
 _DEFAULT_HIVEMIND_KEY = "sb_publishable_O38oPBafrBoFrpi_rlWJvA_UJrulFsx"
@@ -168,7 +172,31 @@ _HIVEMIND_SEMANTIC_TASK_TERMS: dict[str, tuple[str, ...]] = {
 
 class HivemindError(Exception):
     """Non-fatal Hivemind error — caught by the research runner and converted
-    to a warning rather than propagating as an exception."""
+    to a warning rather than propagating as an exception.
+
+    Transport classification rides on the exception so typed tool layers
+    (``hivemind_tools``) can map failures without parsing messages:
+
+    * ``reason`` — ``"http"`` (server responded with a bad status),
+      ``"timeout"``, ``"unavailable"`` (connection / URL failure), or
+      ``"invalid_json"`` (protocol failure).
+    * ``status_code`` — HTTP status when ``reason == "http"``.
+    * ``retry_after_seconds`` — parsed ``Retry-After`` header when the server
+      sent one (rate limits).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str | None = None,
+        status_code: int | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 def _parse_json_response(body: str) -> Any:
@@ -203,15 +231,28 @@ def _hivemind_get_table(
             return _parse_json_response(body)
     except urllib.error.HTTPError as exc:
         body = exc.read(800).decode("utf-8", errors="replace")
+        retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
         raise HivemindError(
-            f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})"
+            f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})",
+            reason="http",
+            status_code=exc.code,
+            retry_after_seconds=retry_after,
         ) from exc
     except TimeoutError as exc:
-        raise HivemindError(f"Hivemind request timed out after {timeout}s") from exc
+        raise HivemindError(
+            f"Hivemind request timed out after {timeout}s",
+            reason="timeout",
+        ) from exc
     except urllib.error.URLError as exc:
-        raise HivemindError(f"Hivemind HTTP error: {exc}") from exc
+        raise HivemindError(
+            f"Hivemind HTTP error: {exc}",
+            reason="unavailable",
+        ) from exc
     except ValueError as exc:
-        raise HivemindError(f"Hivemind returned invalid JSON: {exc}") from exc
+        raise HivemindError(
+            f"Hivemind returned invalid JSON: {exc}",
+            reason="invalid_json",
+        ) from exc
 
 
 def _query_tokens(query: str) -> list[str]:
@@ -1006,3 +1047,392 @@ def format_community_summary(
     if len(text) > 800:
         text = text[:797].rstrip() + "…"
     return text
+
+
+# ── Agent tool transport: search / get (A01) ────────────────────────────────
+#
+# Transport + query translation ONLY.  Table selection, PostgREST filter
+# translation, deterministic ordering and paging live here; input validation,
+# rate-limit policy (the R2-B2 cooldown circuit), typed status mapping, and
+# ToolResult construction live in ``hivemind_tools``.  There is no task
+# classification, no winner selection, no enough-check, and no stop decision
+# anywhere on this path.
+
+_HIVEMIND_EVIDENCE_PREFIX = "hivemind"
+_HIVEMIND_TABLE_ID_COLUMNS = {
+    "external_resources": "id",
+    "unified_feed": "item_id",
+    "message_feed": "message_id",
+}
+
+# source_type -> ordered (table, kind) scopes.  ``None`` searches every corpus:
+# external workflow precedents, Discord messages, and curated distillations.
+_SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
+    None: (
+        ("external_resources", "workflow"),
+        ("unified_feed", "message"),
+        ("unified_feed", "distillation"),
+    ),
+    "workflow": (("external_resources", "workflow"),),
+    "discord": (("unified_feed", "message"),),
+    "distillation": (("unified_feed", "distillation"),),
+}
+
+# Candidate pool fetched per scope.  Fixed so pagination (client-side offset
+# over the deterministically ordered pool) is stable across calls.
+_SCOPE_FETCH_LIMIT = 20
+
+
+def _evidence_id(table: str, row: Mapping[str, Any]) -> str:
+    """Stable, resolvable evidence ID for a Hivemind row.
+
+    ``hivemind:<table>:<row_id>`` where ``row_id`` is the table's natural id
+    column, stringified so Discord snowflakes survive JSON precision loss.
+    :func:`hivemind_get` resolves the same ID back to a full-row fetch.
+    """
+    column = _HIVEMIND_TABLE_ID_COLUMNS.get(table, "id")
+    raw = row.get(column)
+    if raw is None:
+        raw = row.get("external_id", row.get("url", row.get("title")))
+    return f"{_HIVEMIND_EVIDENCE_PREFIX}:{table}:{raw}"
+
+
+def _parse_evidence_id(evidence_id: str) -> tuple[str, str] | None:
+    """Split an evidence ID into ``(table, row_id)``; None when malformed."""
+    if not isinstance(evidence_id, str):
+        return None
+    parts = evidence_id.split(":", 2)
+    if len(parts) != 3 or parts[0] != _HIVEMIND_EVIDENCE_PREFIX:
+        return None
+    table, row_id = parts[1], parts[2]
+    if table not in _HIVEMIND_TABLE_ID_COLUMNS:
+        return None
+    if not row_id.strip() or any(char in row_id for char in ("?", "/", "#", " ")):
+        return None
+    return table, row_id
+
+
+def _json_containment(payload: dict[str, Any]) -> str:
+    """PostgREST JSONB containment value for the ``metadata`` column."""
+    return f"cs.{json.dumps(payload, separators=(',', ':'))}"
+
+
+def _nested_or_params(or_groups: list[str]) -> str:
+    """AND of several OR groups as a single PostgREST ``and=`` value.
+
+    ``and=(or:(title.ilike.*q*,body.ilike.*q*),or:(title.ilike.*wan*,...))``.
+    Only used when a scope needs more than one boolean group (text query plus
+    a family/capability/node-class translation on ``unified_feed``).
+    """
+    return "(" + ",".join(f"or:{group}" for group in or_groups) + ")"
+
+
+def _hivemind_scope_params(
+    *,
+    table: str,
+    kind: str,
+    query: str,
+    model_family: str | None,
+    capability: str | None,
+    node_class: str | None,
+    channel: str | None,
+    author: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    has_workflow: bool | None,
+    limit: int,
+) -> dict[str, str] | None:
+    """Translate one ``(table, kind)`` scope into PostgREST query params.
+
+    Returns None when no criterion applies to this scope (for example a
+    channel filter against ``external_resources``, which has no channel
+    column): the scope is skipped rather than guessed at.
+    """
+    params: dict[str, str] = {
+        "select": "*",
+        "limit": str(limit),
+        "order": "created_at.desc",
+    }
+
+    if table == "external_resources":
+        if channel or author:
+            # external_resources carries no channel/author columns: the scope
+            # is skipped rather than guessed at.
+            return None
+        params["kind"] = f"eq.{kind}"
+        text_or = _hivemind_ilike_query(_hivemind_search_terms(query))
+        if text_or:
+            params["or"] = text_or
+        containment: dict[str, Any] = {}
+        semantics: dict[str, Any] = {}
+        if model_family:
+            semantics["model_families"] = [model_family]
+        if capability:
+            semantics["task_type"] = capability
+        if node_class:
+            semantics["node_types"] = [node_class]
+        if semantics:
+            containment["workflow_semantics"] = semantics
+        if has_workflow is not None:
+            containment["has_workflow_json"] = has_workflow
+        if containment:
+            params["metadata"] = _json_containment(containment)
+    elif table == "unified_feed":
+        params["kind"] = f"eq.{kind}"
+        text_or = _hivemind_single_or_phrase_ilike(query)
+        or_groups: list[str] = []
+        if text_or:
+            or_groups.append(text_or)
+        if model_family:
+            aliases = _HIVEMIND_SEMANTIC_FAMILY_TERMS.get(
+                model_family.casefold(), (model_family,)
+            )
+            family_or = _hivemind_ilike_query(list(aliases))
+            if family_or:
+                or_groups.append(family_or)
+        if capability:
+            aliases = _HIVEMIND_SEMANTIC_TASK_TERMS.get(
+                capability.casefold(), (capability,)
+            )
+            capability_or = _hivemind_ilike_query(list(aliases))
+            if capability_or:
+                or_groups.append(capability_or)
+        if node_class:
+            node_or = _hivemind_ilike_query([node_class])
+            if node_or:
+                or_groups.append(node_or)
+        if len(or_groups) == 1:
+            params["or"] = or_groups[0]
+        elif len(or_groups) > 1:
+            params["and"] = _nested_or_params(or_groups)
+        if channel:
+            params["channel"] = f"eq.{channel}"
+        if author:
+            params["author"] = f"eq.{author}"
+        if has_workflow is not None:
+            params["metadata"] = _json_containment({"has_workflow": has_workflow})
+    else:  # pragma: no cover - message_feed is not a search scope
+        return None
+
+    if date_from and date_to:
+        date_group = f"(created_at.gte.{date_from},created_at.lte.{date_to})"
+        existing_and = params.get("and")
+        if existing_and:
+            params["and"] = (
+                existing_and[:-1]
+                + f",created_at.gte.{date_from},created_at.lte.{date_to})"
+            )
+        else:
+            params["and"] = date_group
+    elif date_from:
+        params["created_at"] = f"gte.{date_from}"
+    elif date_to:
+        params["created_at"] = f"lte.{date_to}"
+
+    # A scope with no search criteria at all would return a meaningless
+    # recent dump; skip it unless at least one filter narrowed the query.
+    criteria = {k for k in params if k not in {"select", "limit", "order", "kind"}}
+    if not criteria:
+        return None
+    return params
+
+
+def _created_at_ts(row: Mapping[str, Any]) -> float:
+    raw = row.get("created_at")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return float(raw)
+    if not isinstance(raw, str) or not raw.strip():
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return parsed.timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _validated_bucket(row: Mapping[str, Any]) -> int:
+    """Deterministic validation bucket for the ``validated`` sort.
+
+    0 = approved distillation or parseable workflow, 1 = other
+    distillation/workflow, 2 = raw community messages.
+    """
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), Mapping) else {}
+    kind = str(row.get("kind") or "")
+    if kind == "distillation":
+        status = str(metadata.get("status") or "").casefold()
+        return 0 if status == "approved" else 1
+    if kind == "workflow":
+        semantics = metadata.get("workflow_semantics")
+        if not isinstance(semantics, Mapping):
+            semantics = {}
+        gates = semantics.get("promotion_gates")
+        if not isinstance(gates, Mapping):
+            gates = {}
+        if gates.get("parseable_workflow") is True or metadata.get("has_workflow_json") is True:
+            return 0
+        return 1
+    return 2
+
+
+def _order_hivemind_rows(
+    rows: list[dict[str, Any]],
+    *,
+    sort: str,
+    query: str,
+) -> list[dict[str, Any]]:
+    """Deterministic ordering for a single candidate pool (no judgment)."""
+    def _recent_key(row: Mapping[str, Any]) -> tuple[float, str]:
+        return (-_created_at_ts(row), _evidence_id(str(row.get("_hivemind_table") or ""), row))
+
+    if sort == "recent":
+        return sorted(rows, key=_recent_key)
+    if sort == "validated":
+        return sorted(
+            rows,
+            key=lambda r: (
+                _validated_bucket(r),
+                -_created_at_ts(r),
+                _evidence_id(str(r.get("_hivemind_table") or ""), r),
+            ),
+        )
+    # relevance: reuse the existing deterministic ranker.  A query with no
+    # distinctive tokens has no relevance signal, so fall back to recency.
+    if not _distinctive_tokens(query):
+        return sorted(rows, key=_recent_key)
+    ranked = _rank_hivemind_rows(rows, query)
+    return sorted(
+        ranked,
+        key=lambda r: (
+            -int(r.get("score") or 0),
+            _evidence_id(str(r.get("_hivemind_table") or ""), r),
+        ),
+    )
+
+
+def _hivemind_hit(row: Mapping[str, Any], table: str) -> dict[str, Any]:
+    """Stable, compact hit shape for one row (field mapping only)."""
+    kind = str(row.get("kind") or "")
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), Mapping) else {}
+    semantics = metadata.get("workflow_semantics")
+    if not isinstance(semantics, Mapping):
+        semantics = None
+    if table == "external_resources" or kind == "workflow":
+        source_type = "workflow"
+    elif kind == "distillation":
+        source_type = "distillation"
+    else:
+        source_type = "discord"
+    return {
+        "evidence_id": _evidence_id(table, row),
+        "source_type": source_type,
+        "table": table,
+        "title": _first_text(row, "title", "name", "class_type"),
+        "body": _excerpt(_first_text(row, "body", "content", "description", "text")),
+        "url": _first_text(row, "url", "source_url", "permalink"),
+        "author": _first_text(row, "author", "author_name"),
+        "channel": _first_text(row, "channel", "channel_name", "context"),
+        "created_at": row.get("created_at"),
+        "score": max(int(row.get("score") or 0), 0),
+        "status": metadata.get("status"),
+        "confidence": metadata.get("confidence"),
+        "semantics": semantics,
+    }
+
+
+def _hivemind_search_transport(
+    *,
+    query: str,
+    source_type: str | None,
+    model_family: str | None,
+    capability: str | None,
+    node_class: str | None,
+    channel: str | None,
+    author: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    has_workflow: bool | None,
+    sort: str,
+    limit: int,
+    offset: int,
+    timeout: float,
+) -> dict[str, Any]:
+    """Fetch, order, and page the Hivemind corpus for one validated request.
+
+    Returns ``{"hits": [...], "has_more": bool, "diagnostics": [...]}``.
+    Scope failures degrade: successful scopes still contribute hits and a
+    per-scope diagnostic is recorded.  If every scope fails, the first
+    :class:`HivemindError` is re-raised so the tool can type it.
+    """
+    scopes = _SOURCE_TYPE_SCOPES.get(source_type, ())
+    rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, str]] = []
+    first_error: HivemindError | None = None
+
+    for table, kind in scopes:
+        params = _hivemind_scope_params(
+            table=table,
+            kind=kind,
+            query=query,
+            model_family=model_family,
+            capability=capability,
+            node_class=node_class,
+            channel=channel,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+            has_workflow=has_workflow,
+            limit=_SCOPE_FETCH_LIMIT,
+        )
+        if params is None:
+            continue
+        try:
+            parsed = _hivemind_get_table(table, params, timeout=timeout)
+            for row in parsed if isinstance(parsed, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                stamped = dict(row)
+                stamped["_hivemind_table"] = table
+                rows.append(stamped)
+        except HivemindError as exc:
+            first_error = first_error or exc
+            diagnostics.append(
+                {"scope": f"{table}:{kind}", "message": str(exc)}
+            )
+
+    if not rows:
+        if first_error is not None:
+            raise first_error
+        return {"hits": [], "has_more": False, "diagnostics": tuple(diagnostics)}
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        evidence_id = _evidence_id(str(row.get("_hivemind_table") or ""), row)
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        deduped.append(row)
+
+    ordered = _order_hivemind_rows(deduped, sort=sort, query=query)
+    page = ordered[offset : offset + limit]
+    return {
+        "hits": [_hivemind_hit(row, str(row.get("_hivemind_table") or "")) for row in page],
+        "has_more": offset + limit < len(ordered),
+        "diagnostics": tuple(diagnostics),
+    }
+
+
+def _hivemind_get_row(
+    table: str,
+    row_id: str,
+    *,
+    timeout: float,
+) -> dict[str, Any] | None:
+    """Fetch one full Hivemind row by its natural id column; None when absent."""
+    column = _HIVEMIND_TABLE_ID_COLUMNS[table]
+    params = {"select": "*", column: f"eq.{row_id}", "limit": "1"}
+    parsed = _hivemind_get_table(table, params, timeout=timeout)
+    for row in parsed if isinstance(parsed, list) else []:
+        if isinstance(row, dict):
+            return row
+    return None

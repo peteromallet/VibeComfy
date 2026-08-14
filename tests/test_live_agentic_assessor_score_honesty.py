@@ -294,3 +294,209 @@ def test_implementation_result_unchanged_prose_does_not_gate_scoring(tmp_path: P
     assert not [
         issue for issue in assessment["issues"] if issue["check"] == "implementation_result"
     ]
+
+
+def _successful_edit_response() -> dict:
+    return {
+        "ok": True,
+        "graph_unchanged": False,
+        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "outcome": {"kind": "candidate"},
+        "change_details": {"landed_operation_count": 1},
+        "gates": {
+            "ir_validate_ok": True,
+            "lower_ok": True,
+            "plan_validate_ok": True,
+            "python_load_ok": True,
+            "queue_validate_ok": True,
+            "state_match_ok": True,
+            "ui_emit_ok": True,
+            "ui_fidelity_ok": True,
+            "ui_load_safe_ok": True,
+        },
+    }
+
+
+def _frame_graph(*, source_value: int, target_value: int, linked: bool, shared_source: bool = False) -> dict:
+    """A target node with a widget at index 0, optionally fed by a PrimitiveInt."""
+    link_id = 10 if linked else None
+    nodes = []
+    links = []
+    if linked:
+        nodes.append({"id": 1, "type": "PrimitiveInt", "widgets_values": [source_value]})
+        links.append([10, 1, 0, 2, 0, "INT"])
+    nodes.append(
+        {
+            "id": 2,
+            "type": "VideoGenerator",
+            "widgets_values": [target_value],
+            "inputs": [{"name": "frame_count", "type": "INT", "link": link_id}],
+        }
+    )
+    if linked and shared_source:
+        nodes.append(
+            {
+                "id": 4,
+                "type": "OtherConsumer",
+                "widgets_values": [8],
+                "inputs": [{"name": "other_count", "type": "INT", "link": 11}],
+            }
+        )
+        links.append([11, 1, 0, 4, 0, "INT"])
+    return {"nodes": nodes, "links": links}
+
+
+def _effective_edit_scenario(**assessment_overrides: object) -> dict:
+    scenario = {
+        "id": "effective-edit",
+        "assessment": {
+            "expect_graph_changed": True,
+            "skip_intent_judge": True,
+            "effective_edit_targets": [
+                {
+                    "label": "frame_count",
+                    "node_id": 2,
+                    "input_name": "frame_count",
+                    "widget_index": 0,
+                }
+            ],
+        },
+    }
+    scenario["assessment"].update(assessment_overrides)
+    return scenario
+
+
+def test_model_request_size_and_content_gates_removed(tmp_path: Path) -> None:
+    """B12/B13: max_model_request_bytes and forbid_model_request_substrings are
+    deleted scoring prejudice.  Even when a scenario still declares them, an
+    oversized model_request.json containing a forbidden substring must NOT
+    gate the run — prose length/content never gates."""
+    (tmp_path / "response.json").write_text(
+        json.dumps(_successful_edit_response()), encoding="utf-8"
+    )
+    (tmp_path / "model_request.json").write_text(
+        json.dumps(
+            {
+                "turns": [
+                    {"messages": [{"content": 'raw "workflow_schema" leaked'}]}
+                ]
+            }
+        )
+        * 200,
+        encoding="utf-8",
+    )
+    scenario = {
+        "id": "hotshot",
+        "assessment": {
+            "expect_graph_changed": True,
+            "skip_intent_judge": True,
+            "max_model_request_bytes": 100,
+            "forbid_model_request_substrings": ['"workflow_schema"'],
+        },
+    }
+    assessment = assess_live_output_dir(tmp_path, scenario=scenario)
+
+    assert assessment["passed"] is True, assessment["issues"]
+    assert not [
+        issue
+        for issue in assessment["issues"]
+        if issue["check"].startswith("model_request")
+    ]
+
+
+def test_shared_source_effective_edit_passes_by_default(tmp_path: Path) -> None:
+    """B12/B13: a change landing through a shared linked source is a valid
+    edit by default — the agent may intentionally edit one source feeding
+    several consumers."""
+    run_dir = tmp_path / "shared-default"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "response.json").write_text(
+        json.dumps(_successful_edit_response()), encoding="utf-8"
+    )
+    (run_dir / "original.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=8, target_value=8, linked=True, shared_source=True)),
+        encoding="utf-8",
+    )
+    (run_dir / "candidate.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=16, target_value=8, linked=True, shared_source=True)),
+        encoding="utf-8",
+    )
+
+    assessment = assess_live_output_dir(run_dir, scenario=_effective_edit_scenario())
+
+    assert assessment["passed"] is True, assessment["issues"]
+    assert not [
+        issue for issue in assessment["issues"] if issue["check"] == "shared_effective_source_edit"
+    ]
+
+
+def test_shared_source_effective_edit_fails_when_isolation_opted_in(tmp_path: Path) -> None:
+    """The shared-source error survives only as an explicit scenario opt-in:
+    assessment.isolate_shared_effective_sources=true."""
+    run_dir = tmp_path / "shared-isolated"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "response.json").write_text(
+        json.dumps(_successful_edit_response()), encoding="utf-8"
+    )
+    (run_dir / "original.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=8, target_value=8, linked=True, shared_source=True)),
+        encoding="utf-8",
+    )
+    (run_dir / "candidate.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=16, target_value=8, linked=True, shared_source=True)),
+        encoding="utf-8",
+    )
+
+    assessment = assess_live_output_dir(
+        run_dir,
+        scenario=_effective_edit_scenario(isolate_shared_effective_sources=True),
+    )
+
+    assert assessment["passed"] is False
+    shared = [
+        issue for issue in assessment["issues"] if issue["check"] == "shared_effective_source_edit"
+    ]
+    assert shared
+    assert shared[0]["severity"] == "error"
+
+
+def test_equivalent_effect_different_paths_score_equally(tmp_path: Path) -> None:
+    """Effects determine edit correctness: a direct widget edit and an edit
+    through a linked source that land the SAME effective value must score
+    identically — implementation path never affects the score."""
+    direct_dir = tmp_path / "direct-widget"
+    direct_dir.mkdir(parents=True, exist_ok=True)
+    (direct_dir / "response.json").write_text(
+        json.dumps(_successful_edit_response()), encoding="utf-8"
+    )
+    (direct_dir / "original.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=8, target_value=8, linked=False)),
+        encoding="utf-8",
+    )
+    (direct_dir / "candidate.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=8, target_value=16, linked=False)),
+        encoding="utf-8",
+    )
+
+    linked_dir = tmp_path / "linked-source"
+    linked_dir.mkdir(parents=True, exist_ok=True)
+    (linked_dir / "response.json").write_text(
+        json.dumps(_successful_edit_response()), encoding="utf-8"
+    )
+    (linked_dir / "original.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=8, target_value=8, linked=True)),
+        encoding="utf-8",
+    )
+    (linked_dir / "candidate.ui.json").write_text(
+        json.dumps(_frame_graph(source_value=16, target_value=8, linked=True)),
+        encoding="utf-8",
+    )
+
+    scenario = _effective_edit_scenario()
+    direct = assess_live_output_dir(direct_dir, scenario=scenario)
+    linked = assess_live_output_dir(linked_dir, scenario=scenario)
+
+    assert direct["passed"] is True, direct["issues"]
+    assert linked["passed"] is True, linked["issues"]
+    assert direct["issues"] == linked["issues"]
+    assert direct["error_count"] == linked["error_count"] == 0

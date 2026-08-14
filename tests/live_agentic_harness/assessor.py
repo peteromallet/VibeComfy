@@ -11,6 +11,10 @@ run artifacts to catch failures that metadata alone cannot:
 * upstream dependency failures such as Hivemind HTTP 500
 * implementation_result.ok == false
 * validation gates that failed for an apply/edit route
+* (when enabled) assessment-first research rules: question-before-search,
+  query relevance, required-Hivemind invocation, citation resolution to
+  returned evidence IDs, no-local-search research path, and evidence-pack
+  capture
 * (when enabled) an LLM intent judge that scores the edit against the query
 
 The deterministic checks run first. Judges run afterward: grounded-refusal
@@ -33,6 +37,7 @@ from .intent_judge import (
     judge_grounded_refusal,
     judge_semantic_answer,
 )
+from .research_assessment import assess_research_evidence
 
 _ERROR_SEVERITIES = {"error", "fatal"}
 
@@ -461,98 +466,6 @@ def _effective_edit_targets(scenario: Mapping[str, Any] | None) -> list[Mapping[
     return []
 
 
-def _model_request_text(output_dir: Path) -> str | None:
-    """Return copied model_request.json text when the headless run produced it."""
-    path = output_dir / "model_request.json"
-    if not path.is_file():
-        return None
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-
-def _assess_model_request_artifact(
-    output_dir: Path,
-    scenario: Mapping[str, Any] | None,
-) -> list[dict[str, Any]]:
-    """Apply optional prompt-size/content guardrails from scenario assessment.
-
-    Supported scenario fields:
-
-    * ``assessment.max_model_request_bytes`` — fail when copied
-      ``model_request.json`` is larger than this many bytes.
-    * ``assessment.forbid_model_request_substrings`` — fail when any listed
-      substring appears in copied ``model_request.json``.
-    """
-    assessment = _assessment_config(scenario)
-    max_bytes = assessment.get("max_model_request_bytes")
-    forbidden_raw = assessment.get("forbid_model_request_substrings")
-    has_size_check = isinstance(max_bytes, int) and not isinstance(max_bytes, bool)
-    forbidden = [item for item in forbidden_raw or [] if isinstance(item, str)]
-    if not has_size_check and not forbidden:
-        return []
-
-    path = output_dir / "model_request.json"
-    if not path.is_file():
-        return [
-            {
-                "check": "model_request_artifact",
-                "severity": "error",
-                "detail": "Scenario requires model_request.json checks, but the artifact is missing.",
-            }
-        ]
-
-    issues: list[dict[str, Any]] = []
-    if has_size_check:
-        actual_size = path.stat().st_size
-        if actual_size > max_bytes:
-            issues.append(
-                {
-                    "check": "model_request_size",
-                    "severity": "error",
-                    "detail": (
-                        f"model_request.json is {actual_size} bytes; "
-                        f"limit is {max_bytes} bytes."
-                    ),
-                }
-            )
-
-    if forbidden:
-        text = _model_request_text(output_dir)
-        if text is None:
-            issues.append(
-                {
-                    "check": "model_request_artifact",
-                    "severity": "error",
-                    "detail": "model_request.json could not be read.",
-                }
-            )
-        else:
-            decoded: Any = None
-            try:
-                decoded = json.loads(text)
-            except json.JSONDecodeError:
-                decoded = None
-            for substring in forbidden:
-                found_in_decoded_string = any(
-                    isinstance(node, str) and substring in node
-                    for node in _walk(decoded)
-                )
-                if substring in text or found_in_decoded_string:
-                    issues.append(
-                        {
-                            "check": "model_request_forbidden_substring",
-                            "severity": "error",
-                            "detail": (
-                                "model_request.json contains forbidden substring "
-                                f"{substring!r}."
-                            ),
-                        }
-                    )
-    return issues
-
-
 def _ui_artifact_path(
     output_dir: Path,
     response: Mapping[str, Any],
@@ -644,10 +557,17 @@ def _assess_effective_edit_targets(
             )
             continue
 
-        allow_shared_source = target.get("allow_shared_source_edit") is True
+        # B12/B13: a change that lands through a shared linked source is a
+        # valid edit — the agent may intentionally edit one source feeding
+        # several consumers.  Only when the scenario explicitly opts into
+        # isolation (assessment.isolate_shared_effective_sources) is a
+        # multi-consumer source change treated as an error.
+        isolate_shared_sources = (
+            _assessment_config(scenario).get("isolate_shared_effective_sources") is True
+        )
         if (
             change.effective_changed is True
-            and not allow_shared_source
+            and isolate_shared_sources
             and change.before.source is not None
             and change.after.source is not None
             and str(change.before.source.node_id) == str(change.after.source.node_id)
@@ -667,7 +587,9 @@ def _assess_effective_edit_targets(
                         f"{change.after.source.node_id!r} output "
                         f"{change.after.source.output_slot}, which has "
                         f"{change.after.source.outgoing_link_count} consumers. "
-                        "Set allow_shared_source_edit when the shared edit is intentional."
+                        "The scenario requires an isolated source; set "
+                        "assessment.isolate_shared_effective_sources=false to allow "
+                        "intentional shared-source edits."
                     ),
                 }
             )
@@ -1008,6 +930,13 @@ def assess_live_output_dir(
                 }
             )
 
+        # B12/B13 assessment-first research rules (enabled by
+        # assessment.research): question-before-search, query relevance,
+        # required-Hivemind invocation, citation resolution to returned
+        # evidence IDs, no-local-search research path, and evidence-pack
+        # capture.  All are structured-evidence checks — prose never gates.
+        issues.extend(assess_research_evidence(response, scenario))
+
     # Semantic-answer judge runs for every D13 rubric scenario regardless
     # of edit expectation or response presence. Health controls are
     # structurally scored only.
@@ -1039,8 +968,6 @@ def assess_live_output_dir(
                     ),
                 }
             )
-
-    issues.extend(_assess_model_request_artifact(output_dir, scenario))
 
     # Deduplicate while preserving order.
     seen: set[tuple[str, str, str]] = set()

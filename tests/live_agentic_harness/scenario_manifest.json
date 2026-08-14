@@ -253,7 +253,7 @@
     {
       "id": "hotshot-16-frames-agent-edit",
       "path": "tests/live_agentic_harness/scenarios/hotshot-16-frames-agent-edit.json",
-      "descriptor_sha256": "25fd73bd2bc4287ea652ed032f3bfa12f91a2765c1c6b68fbd4917b2d160fee0",
+      "descriptor_sha256": "f2a78c2f6c5a1ec022488456b98de9aca73006152f682dfb8db0a83d045a1b9e",
       "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",

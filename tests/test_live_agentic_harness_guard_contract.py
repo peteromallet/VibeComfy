@@ -732,7 +732,10 @@ def test_desired_edit_fails_closed_on_fabricated_grounded_refusal_pass(
     )
 
 
-def test_agentic_guard_rejects_oversized_model_request(tmp_path: Path) -> None:
+def test_agentic_guard_ignores_oversized_model_request(tmp_path: Path) -> None:
+    """B12/B13: ``assessment.max_model_request_bytes`` is deleted scoring
+    prejudice — prompt length never gates a run, even when a scenario still
+    declares a limit."""
     output_dir = tmp_path / "oversized-model-request"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -759,16 +762,19 @@ def test_agentic_guard_rejects_oversized_model_request(tmp_path: Path) -> None:
     }
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
-    assert verdict["live_agentic_success"] is False
-    issues = verdict["assessment"]["issues"]
-    assert {
-        issue["check"]
-        for issue in issues
-        if issue["severity"] == "error"
-    } == {"model_request_size"}
+    assert verdict["live_agentic_success"] is True
+    assert verdict["assessment"]["passed"] is True
+    assert not [
+        issue
+        for issue in verdict["assessment"]["issues"]
+        if issue["check"].startswith("model_request")
+    ]
 
 
-def test_agentic_guard_rejects_forbidden_model_request_substrings(tmp_path: Path) -> None:
+def test_agentic_guard_ignores_forbidden_model_request_substrings(tmp_path: Path) -> None:
+    """B12/B13: ``assessment.forbid_model_request_substrings`` is deleted
+    scoring prejudice — prompt content never gates a run, even when a scenario
+    still declares forbidden substrings."""
     output_dir = tmp_path / "forbidden-model-request"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     (output_dir / "response.json").write_text(
@@ -798,13 +804,13 @@ def test_agentic_guard_rejects_forbidden_model_request_substrings(tmp_path: Path
     }
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
-    assert verdict["live_agentic_success"] is False
-    issues = verdict["assessment"]["issues"]
-    assert {
-        issue["check"]
-        for issue in issues
-        if issue["severity"] == "error"
-    } == {"model_request_forbidden_substring"}
+    assert verdict["live_agentic_success"] is True
+    assert verdict["assessment"]["passed"] is True
+    assert not [
+        issue
+        for issue in verdict["assessment"]["issues"]
+        if issue["check"].startswith("model_request")
+    ]
 
 
 def test_agentic_guard_rejects_static_widget_edit_overridden_by_link(tmp_path: Path) -> None:
@@ -1583,7 +1589,12 @@ def test_agentic_guard_non_edit_route_still_scored_by_own_structured_checks(
     assert "landed_operation_count" not in error_checks
 
 
-def test_agentic_guard_rejects_shared_linked_source_edit_by_default(tmp_path: Path) -> None:
+def test_agentic_guard_allows_shared_linked_source_edit_by_default(tmp_path: Path) -> None:
+    """B12/B13: a change landing through a shared linked source is a valid
+    edit by default — effects determine edit correctness, and an agent may
+    intentionally edit one source feeding several consumers.  The former
+    ``shared_effective_source_edit`` error and the per-target
+    ``allow_shared_source_edit`` flag are deleted."""
     output_dir = tmp_path / "shared-linked-source-effective-change"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
@@ -1595,17 +1606,21 @@ def test_agentic_guard_rejects_shared_linked_source_edit_by_default(tmp_path: Pa
 
     verdict = guard_output_dir(output_dir, scenario=_effective_target_scenario())
 
-    assert verdict["live_agentic_success"] is False
-    checks = {
-        issue["check"]
+    assert verdict["live_agentic_success"] is True
+    assert verdict["assessment"]["passed"] is True
+    assert not [
+        issue
         for issue in verdict["assessment"]["issues"]
-        if issue["severity"] == "error"
-    }
-    assert checks == {"shared_effective_source_edit"}
+        if issue["check"] == "shared_effective_source_edit"
+    ]
 
 
-def test_agentic_guard_allows_shared_linked_source_edit_when_declared(tmp_path: Path) -> None:
-    output_dir = tmp_path / "shared-linked-source-intentional"
+def test_agentic_guard_rejects_shared_linked_source_edit_when_isolation_opted_in(
+    tmp_path: Path,
+) -> None:
+    """The shared-source error survives only as an explicit scenario opt-in
+    (``assessment.isolate_shared_effective_sources``)."""
+    output_dir = tmp_path / "shared-linked-source-isolated"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
     _write_ui_pair(
@@ -1614,12 +1629,17 @@ def test_agentic_guard_allows_shared_linked_source_edit_when_declared(tmp_path: 
         _frame_count_graph(source_value=16, target_value=8, linked=True, shared_source=True),
     )
     scenario = _effective_target_scenario()
-    scenario["assessment"]["effective_edit_targets"][0]["allow_shared_source_edit"] = True
+    scenario["assessment"]["isolate_shared_effective_sources"] = True
 
     verdict = guard_output_dir(output_dir, scenario=scenario)
 
-    assert verdict["live_agentic_success"] is True
-    assert verdict["assessment"]["passed"] is True
+    assert verdict["live_agentic_success"] is False
+    checks = {
+        issue["check"]
+        for issue in verdict["assessment"]["issues"]
+        if issue["severity"] == "error"
+    }
+    assert checks == {"shared_effective_source_edit"}
 
 
 def test_agentic_guard_treats_skipped_queue_validation_as_warning(tmp_path: Path) -> None:

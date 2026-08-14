@@ -6,12 +6,6 @@
   "network": true,
   "timeout": 300,
   "assessment": {
-    "expect_graph_changed": true,
-    "max_model_request_bytes": 80000,
-    "forbid_model_request_substrings": [
-      "\"workflow_schema\"",
-      "ADE_HugeWorkflowNode_39",
-      "registry/schema lookup for the exact class name"
-    ]
+    "expect_graph_changed": true
   }
 }
