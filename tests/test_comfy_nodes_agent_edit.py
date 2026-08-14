@@ -12647,7 +12647,7 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
     }
     assert status["reason"] == "The model provider is unavailable. Check local provider configuration."
     assert status["message"] == "The model provider is unavailable. Check local provider configuration."
-    assert status["debug"]["provider_status"]["raw_error"] == "not installed"
+    assert status["debug"]["provider_status"]["raw_error"] == agent_provider._ARNOLD_RUNTIME_UNAVAILABLE_REASON
     assert status["route"] == "arnold"
     assert status["requested_route"] == "anthropic"
     assert status["route_metadata"]["tos_acknowledgement_required"] is True
@@ -12750,7 +12750,7 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
         "message": "The model provider is unavailable. Check local provider configuration.",
         "type": "provider_unavailable",
     }
-    assert unavailable["debug"]["provider_status"]["raw_error"] == "not installed"
+    assert unavailable["debug"]["provider_status"]["raw_error"] == agent_provider._ARNOLD_RUNTIME_UNAVAILABLE_REASON
     assert unavailable["route_metadata"] == {
         "requested_route": "openai-codex",
         "normalized_route": "arnold",
