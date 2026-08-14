@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 
-from vibecomfy.ingest.normalize import convert_to_vibe_format
+from vibecomfy.ingest.normalize import from_api as convert_to_vibe_format
 from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 from vibecomfy.porting.layout.delta import compute_field_delta
 from vibecomfy.porting.lowering import clone_uid
