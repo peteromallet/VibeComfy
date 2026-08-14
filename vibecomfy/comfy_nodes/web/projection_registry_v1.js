@@ -254,12 +254,24 @@ export function stablePreviewLinkMapV1(graph, uidByNativeId = new Map()) {
   return result;
 }
 
-function nativePortName(node, direction, slot) {
+function nativePortName(node, direction, slot, preferredName) {
   const sockets = direction === "from" ? node?.outputs : node?.inputs;
-  if (!Number.isInteger(slot) || !Array.isArray(sockets) || slot < 0 || slot >= sockets.length) {
+  if (!Array.isArray(sockets)) {
     return requiredIdentity(null, `link ${direction} port`);
   }
-  return requiredIdentity(sockets[slot]?.name, `link ${direction} port`);
+  if (typeof preferredName === "string" && preferredName) {
+    const named = sockets.find((socket) => socket && socket.name === preferredName);
+    if (named) return preferredName;
+  }
+  if (typeof slot === "string" && slot) {
+    const named = sockets.find((socket) => socket && socket.name === slot);
+    if (named) return slot;
+  }
+  if (Number.isInteger(slot) && slot >= 0 && slot < sockets.length) {
+    const name = sockets[slot]?.name;
+    if (typeof name === "string") return name;
+  }
+  return requiredIdentity(null, `link ${direction} port`);
 }
 
 function graphLinkIdentitiesV1(graph, nodes) {

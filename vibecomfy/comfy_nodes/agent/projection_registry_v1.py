@@ -113,11 +113,15 @@ def _link_identity(link: Any) -> dict[str, Any]:
 
 
 def _native_port_name(node: Mapping[str, Any], direction: str, slot: Any) -> str:
-    sockets = node.get("outputs") if direction == "from" else node.get("inputs")
-    if not isinstance(slot, int) or not isinstance(sockets, list) or slot < 0 or slot >= len(sockets):
-        return _required(None, f"link {direction} port")
-    socket = sockets[slot]
-    return _required(socket.get("name") if isinstance(socket, Mapping) else None, f"link {direction} port")
+    from vibecomfy.porting.endpoint_invariant import projection_port_name
+
+    preferred = None
+    if isinstance(slot, str):
+        preferred = slot
+    name = projection_port_name(node, direction, slot, preferred_name=preferred)
+    if isinstance(name, str):
+        return name
+    return _required(None, f"link {direction} port")
 
 
 def _graph_link_identities(graph: Mapping[str, Any], nodes: list[Any]) -> list[dict[str, Any]]:

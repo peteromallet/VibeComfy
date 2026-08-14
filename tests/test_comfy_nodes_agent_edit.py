@@ -20879,3 +20879,40 @@ def test_batch_repl_abort_telemetry_does_not_claim_done(
     abort_event = next(event for event in events if event.get("status") == "aborted")
     assert abort_event.get("rolled_back") is True
     assert abort_event.get("committed") is False
+
+
+def test_projection_named_port_fallback_does_not_raise_missing_stable_link() -> None:
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        ContractError,
+        _graph_link_identities,
+        _native_port_name,
+    )
+
+    node = {
+        "id": 6,
+        "type": "VAEDecode",
+        "outputs": [
+            {"name": "IMAGE", "type": "IMAGE", "links": [9], "slot_index": 0},
+        ],
+        "inputs": [{"name": "samples", "type": "LATENT", "link": None}],
+        "properties": {"vibecomfy_uid": "decode"},
+    }
+    assert _native_port_name(node, "from", "IMAGE") == "IMAGE"
+    assert _native_port_name(node, "from", 0) == "IMAGE"
+    identities = _graph_link_identities(
+        {"links": [[9, 6, 0, 7, 0, "IMAGE"]]},
+        [
+            node,
+            {
+                "id": 7,
+                "type": "SaveImage",
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 9}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "save"},
+            },
+        ],
+    )
+    assert identities[0]["from"]["port"] == "IMAGE"
+    assert identities[0]["to"]["port"] == "images"
+    with pytest.raises(ContractError, match="Missing stable link from port"):
+        _native_port_name(node, "from", 4)

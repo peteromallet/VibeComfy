@@ -33,6 +33,7 @@ from vibecomfy.porting.edit.apply_types import (
 )
 from vibecomfy.porting.edit.apply_values import _validate_literal_value
 from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
+from vibecomfy.porting.endpoint_invariant import assert_source_slot_in_bounds
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import EditLedgerBackend, _find_named_slot
 from vibecomfy.schema import schema_for, socket_types_compatible
@@ -510,6 +511,20 @@ def _resolve_upsert_link(
     if target_issues:
         return None, target_issues
     assert source is not None and target is not None
+    source_port = assert_source_slot_in_bounds(
+        source.node,
+        source.slot_index,
+        class_type=source.class_type,
+        slot_name=source.slot_name,
+    )
+    if not source_port.ok:
+        return None, [
+            _issue(
+                source_port.code or "source_slot_out_of_bounds",
+                source_port.message,
+                detail=source_port.detail,
+            )
+        ]
     if not isinstance(source.node_id, int) or not isinstance(target.node_id, int):
         return None, [
             _issue(

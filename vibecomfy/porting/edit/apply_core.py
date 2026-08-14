@@ -50,6 +50,13 @@ def resolve_delta(
         if isinstance(op, AddNodeOp):
             applied_resolved, apply_diagnostics = _apply_resolved_op(ledger, op, resolved)
             diagnostics.extend(apply_diagnostics)
+            if any(issue.severity == "error" for issue in apply_diagnostics):
+                return ResolveResult(
+                    ok=False,
+                    ledger=ledger,
+                    diagnostics=tuple(diagnostics),
+                    resolved_ops=tuple(resolved_ops),
+                )
             resolved_ops.append((op, applied_resolved))
             if (
                 current_value_default_context is not None
@@ -118,6 +125,14 @@ def apply_delta(
             applied_resolved, apply_diagnostics = _apply_resolved_op(candidate_ledger, op, resolved_op)
             diagnostics.extend(apply_diagnostics)
             applied_resolved_ops.append((op, applied_resolved))
+            if any(issue.severity == "error" for issue in apply_diagnostics):
+                return ApplyResult(
+                    ok=False,
+                    candidate=None,
+                    diagnostics=tuple(diagnostics),
+                    resolved_ops=tuple(applied_resolved_ops),
+                    mutation_started=True,
+                )
         _sync_scope_counters(candidate_ledger)
         assert stamped_before is not None
         guard = guard_full_ui(stamped_before, candidate_ledger.graph, tuple(applied_resolved_ops))
