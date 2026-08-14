@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import importlib
 import json
 import re
 import textwrap
+import time
 from typing import Any, Mapping
 
+from vibecomfy.executor.evidence_pack import (
+    EvidenceArtifact,
+    EvidenceLedger,
+    EvidenceLedgerEntry,
+)
+from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
 from vibecomfy.porting.edit.ops import (
     AnchorRef,
     LinkSourceRef,
@@ -32,6 +41,7 @@ from vibecomfy.porting.edit._session_types import (
     _diag,
 )
 from vibecomfy.porting.edit._parse import (
+    _AGENT_TOOL_CALL_NAMES,
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     _RAW_COORDINATE_HINT_NAMES,
     _assignment_op_kind,
@@ -526,6 +536,851 @@ def _normalize_research_sources(value: Any) -> tuple[tuple[str, ...] | None, Com
     return tuple(normalized), None
 
 
+# ── I01: Wave-A agent tool surface (budgets + F01 ledger) ────────────────────
+# The batch protocol admits ten named agent-invoked tool calls
+# (_AGENT_TOOL_CALL_NAMES).  Each call is resolved here: argument folding and
+# shape validation, effort-budget enforcement (typed refusal, evidence
+# preserved), invocation of the Wave-A tool module, and recording of a compact
+# F01 EvidenceLedger entry plus evidence artifacts on the per-session
+# _AgentToolSurface.  Tool output crosses turns ONLY as ledger entries and
+# evidence IDs — never as raw result bodies.
+
+# Effort budgets (I01): 3 searches, 6 fetches, 1 registry batch, ~90s phase
+# deadline.  These constants are the single source of truth for the enforceable
+# budget; the prompt prose in provider.build_batch_messages mirrors them.
+TOOL_SEARCH_BUDGET = 3
+TOOL_FETCH_BUDGET = 6
+TOOL_REGISTRY_BUDGET = 1
+TOOL_PHASE_DEADLINE_SECONDS = 90.0
+
+# Budget class per tool: "search" and "fetch" share their pools;
+# "registry" is exactly one batch per session; None = local advisory tools
+# that are still gated by the phase deadline.
+_TOOL_BUDGET_CLASS: dict[str, str | None] = {
+    "hivemind_search": "search",
+    "web_search": "search",
+    "hivemind_get": "fetch",
+    "node_schema": "fetch",
+    "ready_template_load": "fetch",
+    "registry_lookup": "registry",
+    "ready_template_list": None,
+    "rank_edit_targets": None,
+    "suggest_seed_nodes": None,
+    "layout_hints": None,
+}
+
+# Argument contract per tool: positional names, allowed keywords, required
+# names.  Positional args map onto positional_names in order.
+_TOOL_ARGS: dict[str, dict[str, Any]] = {
+    "hivemind_search": {
+        "positional_names": ("query",),
+        "keywords": frozenset({"query", "filters", "cursor", "limit", "timeout"}),
+        "required": (),
+        "budget": "search",
+    },
+    "hivemind_get": {
+        "positional_names": ("evidence_id",),
+        "keywords": frozenset({"evidence_id", "timeout"}),
+        "required": ("evidence_id",),
+        "budget": "fetch",
+    },
+    "registry_lookup": {
+        "positional_names": ("node_class",),
+        "keywords": frozenset({"node_class"}),
+        "required": ("node_class",),
+        "budget": "registry",
+    },
+    "node_schema": {
+        "positional_names": ("node_class",),
+        "keywords": frozenset({"node_class"}),
+        "required": ("node_class",),
+        "budget": "fetch",
+    },
+    "ready_template_list": {
+        "positional_names": ("capability",),
+        "keywords": frozenset({"capability", "include_dynamic"}),
+        "required": (),
+        "budget": None,
+    },
+    "ready_template_load": {
+        "positional_names": ("template_id",),
+        "keywords": frozenset({"template_id", "include_dynamic", "include_content"}),
+        "required": ("template_id",),
+        "budget": "fetch",
+    },
+    "rank_edit_targets": {
+        "positional_names": ("intent",),
+        "keywords": frozenset({"intent", "max_targets"}),
+        "required": ("intent",),
+        "budget": None,
+    },
+    "suggest_seed_nodes": {
+        "positional_names": ("intent", "constraints"),
+        "keywords": frozenset({"intent", "constraints", "max_suggestions"}),
+        "required": ("intent",),
+        "budget": None,
+    },
+    "layout_hints": {
+        "positional_names": ("operation", "anchors"),
+        "keywords": frozenset({"operation", "anchors"}),
+        "required": ("operation",),
+        "budget": None,
+    },
+    "web_search": {
+        "positional_names": ("query",),
+        "keywords": frozenset({"query", "unresolved_question", "timeout"}),
+        "required": ("query",),
+        "budget": "search",
+    },
+}
+
+_TOOL_REFUSAL_MESSAGES: dict[str, str] = {
+    "tool_search_budget_exhausted": (
+        f"Search budget exhausted ({TOOL_SEARCH_BUDGET} searches per session); "
+        "further search tools are refused. Gathered evidence is preserved in the ledger."
+    ),
+    "tool_fetch_budget_exhausted": (
+        f"Fetch budget exhausted ({TOOL_FETCH_BUDGET} fetches per session); "
+        "further fetch tools are refused. Gathered evidence is preserved in the ledger."
+    ),
+    "tool_registry_budget_exhausted": (
+        f"Registry batch budget exhausted ({TOOL_REGISTRY_BUDGET} registry lookup "
+        "per session). Gathered evidence is preserved in the ledger."
+    ),
+    "tool_deadline_exceeded": (
+        f"Tool-phase deadline exceeded (about {TOOL_PHASE_DEADLINE_SECONDS:g}s); "
+        "further tool calls are refused. Gathered evidence is preserved in the ledger."
+    ),
+}
+
+
+class _AgentToolSurface:
+    """Per-session effort budget plus F01 evidence ledger for agent tool calls.
+
+    Created lazily on the first tool-call resolution and reused for the whole
+    session (every model turn of one batch-REPL run), so budgets accumulate
+    and the ledger persists across turns.  The ledger holds compact
+    :class:`EvidenceLedgerEntry` values; full bodies live behind stable
+    evidence IDs in :attr:`artifacts` and never enter the prompt.
+    """
+
+    def __init__(
+        self,
+        *,
+        search_budget: int | None = None,
+        fetch_budget: int | None = None,
+        registry_budget: int | None = None,
+        deadline_seconds: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        self.searches_remaining = int(
+            search_budget if search_budget is not None else TOOL_SEARCH_BUDGET
+        )
+        self.fetches_remaining = int(
+            fetch_budget if fetch_budget is not None else TOOL_FETCH_BUDGET
+        )
+        self._registry_remaining = int(
+            registry_budget if registry_budget is not None else TOOL_REGISTRY_BUDGET
+        )
+        if deadline is None:
+            deadline = time.monotonic() + float(
+                deadline_seconds if deadline_seconds is not None else TOOL_PHASE_DEADLINE_SECONDS
+            )
+        self.deadline = float(deadline)
+        self.ledger: EvidenceLedger = EvidenceLedger()
+        self.artifacts: dict[str, EvidenceArtifact] = {}
+
+    @property
+    def registry_remaining(self) -> int:
+        return self._registry_remaining
+
+    @property
+    def deadline_exceeded(self) -> bool:
+        return time.monotonic() > self.deadline
+
+    def snapshot(self) -> dict[str, Any]:
+        """Compact budget + evidence accounting (JSON-safe, for statement detail)."""
+        return {
+            "searches_remaining": self.searches_remaining,
+            "fetches_remaining": self.fetches_remaining,
+            "registry_remaining": self.registry_remaining,
+            "deadline_exceeded": self.deadline_exceeded,
+            "ledger_entries": len(self.ledger.entries),
+            "evidence_ids": len(self.artifacts),
+        }
+
+    def ledger_evidence_ids(self, *, cap: int = 20) -> tuple[str, ...]:
+        return tuple(self.ledger.evidence_ids[:cap])
+
+    def append(self, entry: dict[str, Any], artifacts: Mapping[str, EvidenceArtifact]) -> None:
+        """Record one ledger entry + its evidence artifacts (first-seen wins)."""
+        normalized = EvidenceLedgerEntry.from_dict(entry)
+        self.ledger = EvidenceLedger(entries=self.ledger.entries + (normalized,))
+        for evidence_id, artifact in artifacts.items():
+            if evidence_id not in self.artifacts:
+                self.artifacts[evidence_id] = artifact
+
+
+def _safe_token(value: Any, *, max_chars: int = 48) -> str:
+    """Deterministic slug for generated evidence IDs."""
+    text = re.sub(r"[^a-z0-9_\-]+", "-", str(value or "").strip().casefold()).strip("-")
+    if not text:
+        text = "value"
+    if len(text) > max_chars:
+        text = text[: max_chars - 9] + "-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    return text
+
+
+def _tool_evidence_id(*parts: str) -> str:
+    return "tool:" + "-".join(_safe_token(part) for part in parts)
+
+
+def _tool_arg_summary(args: Mapping[str, Any], *, max_chars: int = 140) -> str:
+    """Compact, deterministic argument summary for digests."""
+    items: list[str] = []
+    for key in ("query", "evidence_id", "node_class", "template_id", "capability", "intent", "operation"):
+        if key in args:
+            value = str(args[key])
+            items.append(f"{key}={value!r}")
+    if not items:
+        items.extend(f"{key}={value!r}" for key, value in sorted(args.items()))
+    return _shorten_query_text(", ".join(items), max_chars=max_chars)
+
+
+def _validate_tool_call_shape(
+    call_name: str,
+    args: Mapping[str, Any],
+    kwargs: Mapping[str, Any],
+) -> list[CompactDiagnostic]:
+    """Shape-check one tool call (arity, allowed keywords, required args)."""
+    spec = _TOOL_ARGS[call_name]
+    diagnostics: list[CompactDiagnostic] = []
+    if len(args) > len(spec["positional_names"]):
+        diagnostics.append(
+            _diag(
+                "tool_too_many_args",
+                f"{call_name}(...) accepts at most {len(spec['positional_names'])} "
+                "positional argument(s).",
+                severity="error",
+            )
+        )
+    unknown = sorted(set(kwargs) - spec["keywords"])
+    if unknown:
+        diagnostics.append(
+            _diag(
+                "tool_unknown_keyword",
+                f"{call_name}(...) does not accept keyword(s): {', '.join(unknown)}.",
+                severity="error",
+                detail={"keyword": unknown, "allowed": sorted(spec["keywords"])},
+            )
+        )
+    duplicated = sorted(set(kwargs) & set(args))
+    if duplicated:
+        diagnostics.append(
+            _diag(
+                "tool_arg_duplicated",
+                f"{call_name}(...) argument(s) passed both positionally and by keyword: "
+                + ", ".join(duplicated)
+                + ".",
+                severity="error",
+            )
+        )
+    missing = sorted(set(spec["required"]) - set(args) - set(kwargs))
+    if missing:
+        diagnostics.append(
+            _diag(
+                "tool_arg_required",
+                f"{call_name}(...) requires argument(s): {', '.join(missing)}.",
+                severity="error",
+                detail={"required": list(spec["required"])},
+            )
+        )
+    return diagnostics
+
+
+def _consume_tool_budget(
+    call_name: str,
+    surface: _AgentToolSurface,
+) -> tuple[str | None, Any]:
+    """Consume the tool's budget class; return (refusal_code, payload).
+
+    A non-None ``refusal_code`` refuses the call (typed) and consumes nothing.
+    ``payload`` is a one-shot ``RegistryLookupBudget`` for ``registry_lookup``
+    (already consumed here); None for every other tool.
+    """
+    if surface.deadline_exceeded:
+        return "tool_deadline_exceeded", None
+    budget_class = _TOOL_BUDGET_CLASS[call_name]
+    if budget_class is None:
+        return None, None
+    if budget_class == "search":
+        if surface.searches_remaining <= 0:
+            return "tool_search_budget_exhausted", None
+        surface.searches_remaining -= 1
+        return None, None
+    if budget_class == "fetch":
+        if surface.fetches_remaining <= 0:
+            return "tool_fetch_budget_exhausted", None
+        surface.fetches_remaining -= 1
+        return None, None
+    if surface.registry_remaining <= 0:
+        return "tool_registry_budget_exhausted", None
+    surface._registry_remaining -= 1
+    lookup_tools = importlib.import_module("vibecomfy.executor.lookup_tools")
+    return None, lookup_tools.RegistryLookupBudget(remaining=1)
+
+
+def _invoke_agent_tool(
+    call_name: str,
+    args: Mapping[str, Any],
+    session: Any,
+    surface: _AgentToolSurface,
+    budget_payload: Any,
+) -> ToolResult:
+    """Invoke the Wave-A tool function for one validated tool call."""
+    if call_name == "hivemind_search":
+        mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
+        return mod.hivemind_search(
+            args["query"],
+            filters=args.get("filters"),
+            cursor=args.get("cursor"),
+            limit=args.get("limit", 10),
+            timeout=args.get("timeout", 5.0),
+        )
+    if call_name == "hivemind_get":
+        mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
+        return mod.hivemind_get(args["evidence_id"], timeout=args.get("timeout", 5.0))
+    if call_name == "registry_lookup":
+        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
+        return mod.registry_lookup(args["node_class"], budget=budget_payload)
+    if call_name == "node_schema":
+        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
+        provider = getattr(session, "schema_provider", None)
+        if provider is None:
+            return mod.node_schema(args["node_class"])
+        return mod.node_schema(args["node_class"], provider=provider)
+    if call_name == "ready_template_list":
+        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
+        return mod.ready_template_list(
+            args.get("capability"),
+            include_dynamic=bool(args.get("include_dynamic", False)),
+        )
+    if call_name == "ready_template_load":
+        mod = importlib.import_module("vibecomfy.executor.lookup_tools")
+        return mod.ready_template_load(
+            args["template_id"],
+            include_dynamic=bool(args.get("include_dynamic", False)),
+            include_content=bool(args.get("include_content", True)),
+        )
+    if call_name == "rank_edit_targets":
+        mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
+        return mod.rank_edit_targets(
+            getattr(session, "working_ui", None),
+            args["intent"],
+            explicit=True,
+            max_targets=args.get("max_targets", 4),
+        )
+    if call_name == "suggest_seed_nodes":
+        mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
+        return mod.suggest_seed_nodes(
+            args["intent"],
+            args.get("constraints"),
+            graph=getattr(session, "working_ui", None),
+            explicit=True,
+            max_suggestions=args.get("max_suggestions", 4),
+        )
+    if call_name == "layout_hints":
+        mod = importlib.import_module("vibecomfy.executor.layout_hints")
+        return mod.layout_hints_tool(
+            getattr(session, "working_ui", None),
+            args["operation"],
+            anchors=args.get("anchors"),
+        )
+    if call_name == "web_search":
+        mod = importlib.import_module("vibecomfy.executor.web_tools")
+        enabled = bool(getattr(session, "web_search_enabled", True))
+        return mod.web_search(
+            args["query"],
+            unresolved_question=args.get("unresolved_question"),
+            enabled=enabled,
+            timeout=args.get("timeout", 5.0),
+        )
+    raise ValueError(f"Unknown agent tool {call_name!r}.")
+
+
+# ── Evidence extraction + compact digests (one per tool) ─────────────────────
+
+
+def _status_ledger_entry(call_name: str, result: ToolResult) -> dict[str, Any]:
+    """Compact ledger entry for a non-ok tool result (typed state preserved)."""
+    status = result.status.value
+    message = result.diagnostics[0].message if result.diagnostics else status
+    retry = ""
+    if result.retry_after_seconds is not None:
+        retry = f" (retry_after={result.retry_after_seconds:g}s)"
+    return _ledger_entry_dict(
+        decision=f"{call_name}",
+        conclusion=f"{status}{retry}: {message}",
+        evidence_ids=(),
+        uncertainty="",
+    )
+
+
+def _ledger_entry_dict(
+    decision: str,
+    conclusion: str,
+    evidence_ids: tuple[str, ...],
+    uncertainty: str = "",
+) -> dict[str, Any]:
+    return {
+        "decision": decision,
+        "conclusion": conclusion,
+        "evidence_ids": list(evidence_ids),
+        "uncertainty": uncertainty,
+    }
+
+
+def _hit_line(hit: Mapping[str, Any], index: int) -> str:
+    title = _shorten_query_text(
+        hit.get("title") or hit.get("body") or "(untitled)", max_chars=90
+    )
+    url = str(hit.get("url") or "")
+    suffix = f" {url}" if url else ""
+    return f"  hit {index}: {title} [{hit.get('evidence_id') or '?'}]{suffix}"
+
+
+def _hivemind_search_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    hits = [hit for hit in (body.get("hits") or ()) if isinstance(hit, Mapping)]
+    artifacts: dict[str, EvidenceArtifact] = {}
+    for hit in hits:
+        evidence_id = str(hit.get("evidence_id") or "")
+        if not evidence_id:
+            continue
+        artifacts[evidence_id] = EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="hivemind_search_hit",
+            body=dict(hit),
+            source="hivemind",
+        )
+    ids = tuple(artifacts)
+    titles = [_shorten_query_text(hit.get("title") or hit.get("body") or "", max_chars=80) for hit in hits]
+    conclusion = f"{len(hits)} hit(s)"
+    if titles:
+        conclusion += ": " + " | ".join(titles)[:380]
+    entry = _ledger_entry_dict(
+        decision=f"hivemind_search {_tool_arg_summary(args)}",
+        conclusion=conclusion,
+        evidence_ids=ids,
+        uncertainty="",
+    )
+    lines = [f"hivemind_search({_tool_arg_summary(args)}) — ok: {len(hits)} hit(s)"]
+    lines.extend(_hit_line(hit, index) for index, hit in enumerate(hits, start=1))
+    if body.get("has_more") and body.get("next_cursor"):
+        lines.append(f"  more available; next_cursor={body.get('next_cursor')!r}")
+    return artifacts, entry, "\n".join(lines)
+
+
+def _hivemind_get_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    row = body.get("row") if isinstance(body.get("row"), Mapping) else {}
+    evidence_id = str(
+        body.get("evidence_id")
+        or (result.evidence_ids[0] if result.evidence_ids else "")
+        or ""
+    )
+    artifacts: dict[str, EvidenceArtifact] = {}
+    if evidence_id:
+        artifacts[evidence_id] = EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="hivemind_record",
+            body=dict(row) if row else {},
+            source=str(body.get("source_type") or "hivemind"),
+        )
+    ids = (evidence_id,) if evidence_id else ()
+    source_type = str(body.get("source_type") or "record")
+    title = _shorten_query_text(
+        row.get("title") or row.get("name") or row.get("class_type") or "", max_chars=120
+    )
+    conclusion = f"{source_type} record {evidence_id}" + (f": {title}" if title else "")
+    entry = _ledger_entry_dict(
+        decision=f"hivemind_get {evidence_id!r}",
+        conclusion=conclusion,
+        evidence_ids=ids,
+        uncertainty="",
+    )
+    lines = [f"hivemind_get({_tool_arg_summary(args)}) — ok: {source_type} record"]
+    if title:
+        lines.append(f"  title: {title}")
+    for key in ("url", "author", "channel", "created_at", "status", "confidence", "score"):
+        if key in row and row[key] is not None and str(row[key]).strip():
+            lines.append(f"  {key}: {_shorten_query_text(str(row[key]), max_chars=140)}")
+    return artifacts, entry, "\n".join(lines)
+
+
+def _web_search_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    results = [item for item in (body.get("results") or ()) if isinstance(item, Mapping)]
+    artifacts: dict[str, EvidenceArtifact] = {}
+    for rank, item in enumerate(results):
+        evidence_id = result.evidence_ids[rank] if rank < len(result.evidence_ids) else ""
+        if not evidence_id:
+            continue
+        artifacts[evidence_id] = EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="web_search_result",
+            body=dict(item),
+            source="web",
+        )
+    ids = tuple(artifacts)
+    titles = [_shorten_query_text(item.get("title") or "", max_chars=80) for item in results]
+    conclusion = f"{len(results)} result(s)"
+    if titles:
+        conclusion += ": " + " | ".join(titles)[:380]
+    entry = _ledger_entry_dict(
+        decision=f"web_search {_tool_arg_summary(args)}",
+        conclusion=conclusion,
+        evidence_ids=ids,
+        uncertainty="",
+    )
+    lines = [f"web_search({_tool_arg_summary(args)}) — ok: {len(results)} result(s)"]
+    for index, item in enumerate(results, start=1):
+        evidence_id = result.evidence_ids[index - 1] if index - 1 < len(result.evidence_ids) else ""
+        lines.append(
+            f"  result {index}: {_shorten_query_text(item.get('title') or '(untitled)', max_chars=90)} "
+            f"[{evidence_id or '?'}] {item.get('url') or ''}".rstrip()
+        )
+        snippet = str(item.get("snippet") or "").strip()
+        if snippet:
+            lines.append(f"    {_shorten_query_text(snippet, max_chars=180)}")
+    return artifacts, entry, "\n".join(lines)
+
+
+def _registry_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    node_class = str(body.get("node_class") or args.get("node_class") or "class")
+    evidence_id = _tool_evidence_id("registry_lookup", node_class)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="registry_resolution",
+            body=dict(body),
+            source="comfy-registry",
+        )
+    }
+    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
+    candidate_text = "; ".join(
+        _shorten_query_text(
+            str(c.get("ref", {}).get("slug") or c.get("ref", {}).get("name") or "pack"), max_chars=60
+        )
+        for c in candidates
+    )
+    conclusion = (
+        f"exact ownership: {bool(body.get('exact_ownership'))}"
+        + (f"; candidates: {candidate_text}" if candidate_text else "")
+    )
+    entry = _ledger_entry_dict(
+        decision=f"registry_lookup {node_class!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [
+        f"registry_lookup({_tool_arg_summary(args)}) — ok: exact ownership "
+        f"{bool(body.get('exact_ownership'))}"
+    ]
+    for candidate in candidates:
+        ref = candidate.get("ref") if isinstance(candidate.get("ref"), Mapping) else {}
+        expected = candidate.get("expected_classes") or ()
+        lines.append(
+            f"  pack {ref.get('slug') or ref.get('name') or '?'} ({ref.get('source') or '?'}) "
+            f"expected_classes={list(expected) if isinstance(expected, (list, tuple)) else expected}"
+        )
+    return artifacts, entry, "\n".join(lines)
+
+
+def _node_schema_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    class_type = str(body.get("class_type") or args.get("node_class") or "class")
+    evidence_id = _tool_evidence_id("node_schema", class_type)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="node_schema",
+            body=dict(body),
+            source="schema",
+        )
+    }
+    inputs = body.get("input_names") or ()
+    outputs = body.get("outputs") or ()
+    output_text = ", ".join(
+        str(output.get("type") or "") for output in outputs if isinstance(output, Mapping)
+    )
+    conclusion = (
+        f"class {class_type} available: {bool(body.get('available'))}"
+        + (f"; inputs: {len(inputs)}; outputs: [{output_text}]" if output_text else "")
+    )
+    entry = _ledger_entry_dict(
+        decision=f"node_schema {class_type!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [
+        f"node_schema({_tool_arg_summary(args)}) — ok: available={bool(body.get('available'))}",
+        f"  inputs: {', '.join(str(item) for item in inputs) or '(none)'}",
+        f"  outputs: [{output_text}]",
+    ]
+    return artifacts, entry, "\n".join(lines)
+
+
+def _ready_template_list_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    filter_text = str(body.get("filter") or args.get("capability") or "all")
+    evidence_id = _tool_evidence_id("ready_template_list", filter_text or "all")
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="ready_template_inventory",
+            body=dict(body),
+            source="ready_templates",
+        )
+    }
+    rows = [row for row in (body.get("templates") or ()) if isinstance(row, Mapping)]
+    ids = [str(row.get("id") or "") for row in rows]
+    conclusion = f"{body.get('count', len(rows))} template(s) for filter {filter_text!r}"
+    if ids:
+        conclusion += ": " + ", ".join(ids)[:380]
+    entry = _ledger_entry_dict(
+        decision=f"ready_template_list {filter_text!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [
+        f"ready_template_list({_tool_arg_summary(args)}) — ok: {len(rows)} template(s)",
+        *[f"  - {template_id}" for template_id in ids],
+    ]
+    return artifacts, entry, "\n".join(lines)
+
+
+def _ready_template_load_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    template_id = str(body.get("id") or args.get("template_id") or "template")
+    evidence_id = _tool_evidence_id("ready_template_load", template_id)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="ready_template",
+            body=dict(body),
+            source="ready_templates",
+        )
+    }
+    conclusion = (
+        f"template {template_id} sha256={body.get('sha256')} size={body.get('size_bytes')}"
+    )
+    entry = _ledger_entry_dict(
+        decision=f"ready_template_load {template_id!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [
+        f"ready_template_load({_tool_arg_summary(args)}) — ok",
+        f"  id: {template_id} path: {body.get('path') or ''} scope: {body.get('scope') or ''}",
+        f"  sha256: {body.get('sha256')} size: {body.get('size_bytes')} bytes",
+    ]
+    content = body.get("content")
+    if isinstance(content, str) and content.strip():
+        excerpt = _shorten_query_text(content, max_chars=1200)
+        truncated = " [truncated]" if len(content) > 1200 else ""
+        lines.append(f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}")
+    return artifacts, entry, "\n".join(lines)
+
+
+def _rank_edit_targets_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    intent = str(body.get("intent") or args.get("intent") or "intent")
+    evidence_id = _tool_evidence_id("rank_edit_targets", intent)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="edit_target_ranking",
+            body=dict(body),
+            source="graph",
+        )
+    }
+    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
+    labels = [_shorten_query_text(str(c.get("class_type") or c.get("node_id") or "?"), max_chars=60) for c in candidates]
+    conclusion = f"case={body.get('case')}; {len(candidates)} candidate(s)"
+    if labels:
+        conclusion += ": " + ", ".join(labels)[:380]
+    entry = _ledger_entry_dict(
+        decision=f"rank_edit_targets {intent!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [f"rank_edit_targets({_tool_arg_summary(args)}) — ok: case={body.get('case')}"]
+    for candidate in candidates:
+        lines.append(
+            f"  - {candidate.get('class_type')} [{candidate.get('node_id')}] "
+            f"score={candidate.get('score')}: {_shorten_query_text(str(candidate.get('reason') or ''), max_chars=140)}"
+        )
+    return artifacts, entry, "\n".join(lines)
+
+
+def _suggest_seed_nodes_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    intent = str(body.get("intent") or args.get("intent") or "intent")
+    evidence_id = _tool_evidence_id("suggest_seed_nodes", intent)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="seed_suggestions",
+            body=dict(body),
+            source="seed_index",
+        )
+    }
+    suggestions = [s for s in (body.get("suggestions") or ()) if isinstance(s, Mapping)]
+    classes = [_shorten_query_text(str(s.get("class_type") or "?"), max_chars=60) for s in suggestions]
+    conclusion = f"case={body.get('case')}; {len(suggestions)} suggestion(s)"
+    if classes:
+        conclusion += ": " + ", ".join(classes)[:380]
+    entry = _ledger_entry_dict(
+        decision=f"suggest_seed_nodes {intent!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [f"suggest_seed_nodes({_tool_arg_summary(args)}) — ok: case={body.get('case')}"]
+    for suggestion in suggestions:
+        lines.append(
+            f"  - {suggestion.get('class_type')} ({suggestion.get('role')}) "
+            f"score={suggestion.get('score')}: {_shorten_query_text(str(suggestion.get('reason') or ''), max_chars=140)}"
+        )
+    return artifacts, entry, "\n".join(lines)
+
+
+def _layout_hints_evidence(
+    args: Mapping[str, Any], result: ToolResult
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    body = result.result if isinstance(result.result, Mapping) else {}
+    operation = str(body.get("operation") or args.get("operation") or "operation")
+    evidence_id = _tool_evidence_id("layout_hints", operation)
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="layout_hints",
+            body=dict(body),
+            source="graph",
+        )
+    }
+    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
+    candidate_text = "; ".join(
+        _shorten_query_text(f"{c.get('target')} ({c.get('kind')})", max_chars=60)
+        for c in candidates
+    )
+    conclusion = (
+        f"operation={operation}; {len(candidates)} candidate(s)"
+        + (f": {candidate_text}" if candidate_text else "")
+    )
+    entry = _ledger_entry_dict(
+        decision=f"layout_hints {operation!r}",
+        conclusion=conclusion,
+        evidence_ids=(evidence_id,),
+        uncertainty="",
+    )
+    lines = [f"layout_hints({_tool_arg_summary(args)}) — ok: {len(candidates)} candidate(s)"]
+    for candidate in candidates:
+        position = candidate.get("position")
+        position_text = f" position={position}" if position is not None else ""
+        lines.append(
+            f"  - {candidate.get('target')} ({candidate.get('kind')}){position_text}: "
+            f"{_shorten_query_text(str(candidate.get('reason') or ''), max_chars=140)}"
+        )
+    return artifacts, entry, "\n".join(lines)
+
+
+def _tool_evidence(
+    call_name: str,
+    args: Mapping[str, Any],
+    result: ToolResult,
+    session: Any,
+) -> tuple[dict[str, EvidenceArtifact], dict[str, Any], str]:
+    """Return (artifacts, ledger_entry, digest) for one completed tool call."""
+    if result.status is not ToolStatus.OK:
+        return {}, _status_ledger_entry(call_name, result), _format_tool_digest(call_name, args, result)
+    if call_name == "hivemind_search":
+        return _hivemind_search_evidence(args, result)
+    if call_name == "hivemind_get":
+        return _hivemind_get_evidence(args, result)
+    if call_name == "web_search":
+        return _web_search_evidence(args, result)
+    if call_name == "registry_lookup":
+        return _registry_evidence(args, result)
+    if call_name == "node_schema":
+        return _node_schema_evidence(args, result)
+    if call_name == "ready_template_list":
+        return _ready_template_list_evidence(args, result)
+    if call_name == "ready_template_load":
+        return _ready_template_load_evidence(args, result)
+    if call_name == "rank_edit_targets":
+        return _rank_edit_targets_evidence(args, result)
+    if call_name == "suggest_seed_nodes":
+        return _suggest_seed_nodes_evidence(args, result)
+    if call_name == "layout_hints":
+        return _layout_hints_evidence(args, result)
+    raise ValueError(f"Unknown agent tool {call_name!r}.")
+
+
+def _format_tool_digest(call_name: str, args: Mapping[str, Any], result: ToolResult) -> str:
+    """Compact digest for the CURRENT turn; never raw result bodies."""
+    if result.status is ToolStatus.OK:
+        # ok digests are built by the per-tool evidence helpers
+        return ""
+    summary = _tool_arg_summary(args)
+    message = result.diagnostics[0].message if result.diagnostics else result.status.value
+    retry = ""
+    if result.retry_after_seconds is not None:
+        retry = f" (retry_after={result.retry_after_seconds:g}s)"
+    return f"{call_name}({summary}) — {result.status.value}{retry}: {message}"
+
+
+def _format_tool_refusal_output(
+    call_name: str, args: Mapping[str, Any], code: str, surface: _AgentToolSurface
+) -> str:
+    summary = _tool_arg_summary(args)
+    budget = surface.snapshot()
+    return (
+        f"{call_name}({summary}) — refused: {code}\n"
+        f"  {_TOOL_REFUSAL_MESSAGES[code]}\n"
+        f"  Budget now: {budget['searches_remaining']} search(es), "
+        f"{budget['fetches_remaining']} fetch(es), {budget['registry_remaining']} registry "
+        f"batch(es) remaining; deadline exceeded: {budget['deadline_exceeded']}.\n"
+        f"  Gathered evidence is preserved: {budget['ledger_entries']} ledger entry/entries, "
+        f"{budget['evidence_ids']} evidence id(s) — synthesize from the ledger and call done()."
+    )
+
+
 class _ResolveMixin:
     """Symbolic-name resolution methods — the named M4 seam."""
 
@@ -660,7 +1515,7 @@ class _ResolveMixin:
         env: Mapping[str, Any],
     ) -> StatementResult:
         call_name = _call_name(call)
-        if call_name not in {"search", "research", "python"}:
+        if call_name not in {"search", "research", "python"} and call_name not in _AGENT_TOOL_CALL_NAMES:
             return StatementResult(
                 statement_index=statement_index,
                 source=source,
@@ -670,11 +1525,24 @@ class _ResolveMixin:
                 diagnostics=(
                     _diag(
                         "unsupported_query_call",
-                        "Only search(...), research(...), python(), and done() are supported as top-level query calls.",
+                        "Only search(...), research(...), python(), done(), and the ten "
+                        "agent tool calls (hivemind_search, hivemind_get, registry_lookup, "
+                        "ready_template_list, ready_template_load, rank_edit_targets, "
+                        "suggest_seed_nodes, layout_hints, web_search) are supported as "
+                        "top-level query calls.",
                         severity="error",
                         detail={"call": call_name},
                     ),
                 ),
+            )
+
+        if call_name in _AGENT_TOOL_CALL_NAMES:
+            return self._resolve_tool_call_statement(
+                statement_index=statement_index,
+                source=source,
+                call=call,
+                env=env,
+                call_name=call_name,
             )
 
         if call_name == "python":
@@ -898,6 +1766,10 @@ class _ResolveMixin:
             detail: dict[str, Any] = {
                 "query": "research",
                 "research_query": query,
+                # I01/H01: research() is legacy and remains callable ONLY for
+                # shadow comparison against the named tool calls; it is flagged
+                # here and in the prompt so consumers can ignore its output.
+                "legacy_shadow_only": True,
                 "research_sources": tuple(source for source in requested_source_tuple if source in source_set),
                 "requested_research_sources": requested_source_tuple,
                 # B03 structured carry: message/distillation sources (cap 12),
@@ -1051,6 +1923,165 @@ class _ResolveMixin:
             op_kind="query",
             detail={"query": "search", "query_output": output_text},
         )
+
+    def _resolve_tool_call_statement(
+        self,
+        *,
+        statement_index: int,
+        source: str,
+        call: ast.Call,
+        env: Mapping[str, Any],
+        call_name: str,
+    ) -> StatementResult:
+        """Resolve one Wave-A agent tool call (I01).
+
+        Folds arguments (constants only — parse already validated), shape
+        checks against ``_TOOL_ARGS``, enforces the effort budget (typed
+        refusal, evidence preserved), invokes the Wave-A tool, and records a
+        compact F01 ledger entry plus evidence artifacts on the session's
+        :class:`_AgentToolSurface`.  The statement detail carries the typed
+        status, ledger entry, budget snapshot, and a compact current-turn
+        digest — never the raw result body.
+        """
+        spec = _TOOL_ARGS[call_name]
+        positional_names = spec["positional_names"]
+        args: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
+        diagnostics: list[CompactDiagnostic] = []
+        for index, arg_node in enumerate(call.args):
+            if index >= len(positional_names):
+                diagnostics.append(
+                    _diag(
+                        "tool_too_many_args",
+                        f"{call_name}(...) accepts at most {len(positional_names)} "
+                        "positional argument(s).",
+                        severity="error",
+                    )
+                )
+                break
+            value, diagnostic = _fold_constant(arg_node, env=env)
+            if diagnostic is not None:
+                diagnostics.append(diagnostic)
+                continue
+            args[positional_names[index]] = value
+        for keyword in call.keywords:
+            if keyword.arg is None:
+                diagnostics.append(
+                    _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
+                )
+                continue
+            value, diagnostic = _fold_constant(keyword.value, env=env)
+            if diagnostic is not None:
+                diagnostics.append(diagnostic)
+                continue
+            kwargs[keyword.arg] = value
+        diagnostics.extend(_validate_tool_call_shape(call_name, args, kwargs))
+        if diagnostics:
+            return StatementResult(
+                statement_index=statement_index,
+                source=source,
+                ok=False,
+                landed=False,
+                op_kind="query",
+                diagnostics=tuple(diagnostics),
+                detail={"query": call_name, "tool_call": call_name},
+            )
+        merged = dict(args)
+        merged.update(kwargs)
+        surface = self._agent_tool_surface()
+        refusal_code, budget_payload = _consume_tool_budget(call_name, surface)
+        if refusal_code is not None:
+            return self._tool_refusal_statement(
+                statement_index=statement_index,
+                source=source,
+                call_name=call_name,
+                args=merged,
+                surface=surface,
+                refusal_code=refusal_code,
+            )
+        try:
+            result = _invoke_agent_tool(call_name, merged, self, surface, budget_payload)
+        except Exception as exc:  # noqa: BLE001 - report tool failures in-band
+            return StatementResult(
+                statement_index=statement_index,
+                source=source,
+                ok=False,
+                landed=False,
+                op_kind="query",
+                diagnostics=(
+                    _diag(
+                        "tool_call_failed",
+                        f"{call_name}() failed: {exc}",
+                        severity="error",
+                    ),
+                ),
+                detail={"query": call_name, "tool_call": call_name},
+            )
+        artifacts, entry, digest = _tool_evidence(call_name, merged, result, self)
+        surface.append(entry, artifacts)
+        code = result.diagnostics[0].code if result.diagnostics else None
+        message = result.diagnostics[0].message if result.diagnostics else ""
+        return StatementResult(
+            statement_index=statement_index,
+            source=source,
+            ok=True,
+            landed=False,
+            op_kind="query",
+            detail={
+                "query": call_name,
+                "tool_call": call_name,
+                "tool_status": result.status.value,
+                "tool_code": code,
+                "tool_message": message,
+                "tool_evidence_ids": list(entry["evidence_ids"]),
+                "ledger_entry": entry,
+                "tool_budget": surface.snapshot(),
+                "query_output": digest,
+            },
+        )
+
+    def _tool_refusal_statement(
+        self,
+        *,
+        statement_index: int,
+        source: str,
+        call_name: str,
+        args: Mapping[str, Any],
+        surface: _AgentToolSurface,
+        refusal_code: str,
+    ) -> StatementResult:
+        """Typed, non-error refusal for an exhausted budget/deadline.
+
+        ``ok=True`` with no diagnostics so a refusal never counts as a failed
+        turn or triggers consecutive-error stops; the typed state rides in the
+        detail (and query_output) and gathered evidence is preserved.
+        """
+        return StatementResult(
+            statement_index=statement_index,
+            source=source,
+            ok=True,
+            landed=False,
+            op_kind="query",
+            detail={
+                "query": call_name,
+                "tool_call": call_name,
+                "tool_status": ToolStatus.REFUSED.value,
+                "tool_code": refusal_code,
+                "tool_message": _TOOL_REFUSAL_MESSAGES[refusal_code],
+                "tool_evidence_ids": list(surface.ledger_evidence_ids()),
+                "ledger_entry": None,
+                "tool_budget": surface.snapshot(),
+                "query_output": _format_tool_refusal_output(call_name, args, refusal_code, surface),
+            },
+        )
+
+    def _agent_tool_surface(self) -> _AgentToolSurface:
+        """Lazily create the per-session tool surface on first tool call."""
+        surface = getattr(self, "_tool_surface", None)
+        if surface is None:
+            surface = _AgentToolSurface()
+            self._tool_surface = surface
+        return surface
 
     def _bind_graph_name(self, name: str, uid: str) -> None:
         prior_uid = self.uid_by_name.get(name)

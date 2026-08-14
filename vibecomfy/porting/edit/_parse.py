@@ -26,6 +26,25 @@ _FORBIDDEN_CALL_NAMES = frozenset(
 )
 _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES = frozenset({"vibecomfy.exec"})
 _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
+# I01: Wave-A named agent tool calls admitted to the batch protocol as
+# standalone top-level query statements.  Each name is resolved by
+# _resolve.py against the Wave-A tool modules and produces a typed
+# ToolResult plus a compact F01 ledger entry (see _resolve._AgentToolSurface).
+_AGENT_TOOL_CALL_NAMES = frozenset(
+    {
+        "hivemind_search",
+        "hivemind_get",
+        "registry_lookup",
+        "node_schema",
+        "ready_template_list",
+        "ready_template_load",
+        "rank_edit_targets",
+        "suggest_seed_nodes",
+        "layout_hints",
+        "web_search",
+    }
+)
+_QUERY_CALL_NAMES = frozenset({"python", "research", "search"}) | _AGENT_TOOL_CALL_NAMES
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
 
@@ -237,6 +256,17 @@ def _validate_planned_statement(
             return [_unsafe(statement, "assignment_target_not_allowed", "Only single-target assignments are allowed.")]
         target = statement.targets[0]
         if isinstance(target, ast.Name):
+            if (
+                isinstance(statement.value, ast.Call)
+                and _call_name(statement.value) in _AGENT_TOOL_CALL_NAMES
+            ):
+                return [
+                    _unsafe(
+                        statement.value,
+                        "tool_call_not_standalone",
+                        "Agent tool calls must be standalone statements, not assignments.",
+                    )
+                ]
             return _validate_call(statement.value, env=env, top_level=True)
         if isinstance(target, ast.Attribute):
             return _validate_edit_assignment(target, statement.value, env=env)
@@ -284,12 +314,18 @@ def _validate_call(
             _unsafe(
                 node,
                 "unsupported_query_call",
-                "Only search(...), research(...), python(), and done() are supported as top-level query calls.",
+                "Only search(...), research(...), python(), done(), and the ten agent "
+                "tool calls (hivemind_search, hivemind_get, registry_lookup, "
+                "ready_template_list, ready_template_load, rank_edit_targets, "
+                "suggest_seed_nodes, layout_hints, web_search) are supported as "
+                "top-level query calls.",
             )
         ]
-    if name in {"python", "research", "search"}:
+    if name in _QUERY_CALL_NAMES:
         if not top_level:
             return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
+        if name in _AGENT_TOOL_CALL_NAMES:
+            return _validate_tool_call(node, env=env)
         return []
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
@@ -319,6 +355,43 @@ def _validate_call(
                 issues.append(diagnostic)
             continue
         issues.extend(_validate_node_call_value(keyword.value, env=env))
+    return issues
+
+
+def _validate_tool_call(node: ast.Call, *, env: Mapping[str, Any]) -> list[CompactDiagnostic]:
+    """Validate a Wave-A agent tool call's arguments as constants.
+
+    Tool arguments (positional and keyword) must be constant-foldable values;
+    handle references, nested calls, ``**kwargs`` unpacking, and dunder
+    keywords are rejected here.  Shape validation (arity, required names,
+    allowed keywords) happens at resolve time in ``_resolve.py``.
+    """
+    issues: list[CompactDiagnostic] = []
+    for arg in node.args:
+        if _is_handle_ref(arg):
+            issues.append(
+                _unsafe(arg, "tool_argument_not_constant", "Tool call arguments must be constant values.")
+            )
+            continue
+        value, diagnostic = _fold_constant(arg, env=env)
+        _ = value
+        if diagnostic is not None:
+            issues.append(diagnostic)
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            issues.append(
+                _unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.")
+            )
+            continue
+        if keyword.arg.startswith("__"):
+            issues.append(
+                _unsafe(keyword.value, "dunder_keyword_not_allowed", "Dunder keyword names are not allowed.")
+            )
+            continue
+        value, diagnostic = _fold_constant(keyword.value, env=env)
+        _ = value
+        if diagnostic is not None:
+            issues.append(diagnostic)
     return issues
 
 

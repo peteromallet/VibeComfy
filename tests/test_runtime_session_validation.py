@@ -26,6 +26,10 @@ from vibecomfy.runtime.session import (
 )
 from vibecomfy.schema import InputSpec, NodeSchema
 from vibecomfy.schema.cache import write_object_info_cache
+from vibecomfy.schema.validate import (
+    SchemaNormalizationRequired,
+    propose_schema_normalization,
+)
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 from tests._runtime_session_helpers import (
@@ -172,7 +176,7 @@ def test_server_session_validates_against_started_url(
         built_for.append(server_url)
         return provider
 
-    async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False):
+    async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False, normalize_approval=None):
         prepared_with.append(schema_provider)
         return workflow.compile(backend=backend)
 
@@ -251,6 +255,166 @@ def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema()
     assert api["1"]["inputs"]["spec"] == "increment"
     assert api["1"]["inputs"]["io"] == {"inputs": [["value", "INT"]], "outputs": [["result", "JSON"]]}
     assert api["1"]["inputs"]["execution_mode"] == RUNTIME_CODE_EXECUTION_MODE
+
+
+def _workflow_with_unknown_input() -> VibeWorkflow:
+    """CheckpointLoaderSimple plus an undeclared widget alias input."""
+    workflow = VibeWorkflow("normalization-test", WorkflowSource("normalization-test"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "CheckpointLoaderSimple",
+        inputs={"ckpt_name": "model-a.safetensors", "widget_0": "ui copy"},
+    )
+    return workflow
+
+
+def test_prepare_prompt_async_refuses_unapproved_normalization_with_details() -> None:
+    provider = _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
+            )
+        }
+    )
+    workflow = _workflow_with_unknown_input()
+
+    async def run_prepare() -> dict:
+        return await _prepare_prompt_async(
+            workflow,
+            backend="api",
+            schema_provider=provider,
+            on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
+        )
+
+    with pytest.raises(SchemaNormalizationRequired) as excinfo:
+        asyncio.run(run_prepare())
+
+    text = str(excinfo.value)
+    assert "Queue normalization requires agent approval" in text
+    assert "node=1" in text
+    assert "field=widget_0" in text
+    assert "before='ui copy'" in text
+    assert "after=None" in text
+    assert "reason=" in text
+    payload = excinfo.value.to_dict()
+    ops = payload["normalization"]["ops"]
+    assert [op["field"] for op in ops] == ["widget_0"]
+
+
+def test_prepare_prompt_async_applies_approved_normalization_and_evidences() -> None:
+    provider = _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
+            )
+        }
+    )
+    workflow = _workflow_with_unknown_input()
+    proposal = propose_schema_normalization(workflow.compile("api"), provider)
+    assert [op.field for op in proposal.ops] == ["widget_0"]
+
+    async def run_prepare() -> dict:
+        return await _prepare_prompt_async(
+            workflow,
+            backend="api",
+            schema_provider=provider,
+            on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
+            normalize_approval=proposal.digest(),
+        )
+
+    api = asyncio.run(run_prepare())
+
+    assert api["1"]["inputs"] == {"ckpt_name": "model-a.safetensors"}
+    # Evidence: the applied, approved proposal rides on the prepared prompt.
+    assert api.normalization is not None
+    applied_ops = [op.to_dict() for op in api.normalization.ops]
+    assert applied_ops == [
+        {
+            "node_id": "1",
+            "class_type": "CheckpointLoaderSimple",
+            "field": "widget_0",
+            "kind": "drop",
+            "before": "ui copy",
+            "after": None,
+            "reason": "input is not declared by the live node schema and would be rejected at queue time",
+        }
+    ]
+
+
+def test_prepare_prompt_async_rejects_wrong_approval_digest() -> None:
+    provider = _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
+            )
+        }
+    )
+    workflow = _workflow_with_unknown_input()
+
+    async def run_prepare() -> dict:
+        return await _prepare_prompt_async(
+            workflow,
+            backend="api",
+            schema_provider=provider,
+            on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
+            normalize_approval="0000000000000000000000000000000000000000000000000000000000000000",
+        )
+
+    with pytest.raises(SchemaNormalizationRequired):
+        asyncio.run(run_prepare())
+
+
+def test_embedded_session_refuses_unapproved_normalization_before_queueing(
+    fake_comfy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_watchdog_and_flush(monkeypatch)
+    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: _strict_provider())
+
+    async def run_once() -> None:
+        session = EmbeddedSession()
+        try:
+            await session.run(_workflow_with_unknown_input())
+        finally:
+            await session.stop()
+
+    with pytest.raises(SchemaNormalizationRequired):
+        asyncio.run(run_once())
+    # The refusal happens at queue preparation: nothing was ever queued.
+    assert fake_comfy.instances[0].queue_calls == []
+
+
+def test_embedded_session_records_approved_normalization_evidence_in_metadata(
+    fake_comfy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_watchdog_and_flush(monkeypatch)
+    provider = _strict_provider()
+    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: provider)
+    workflow = _workflow_with_unknown_input()
+    proposal = propose_schema_normalization(workflow.compile("api"), provider)
+    assert proposal.ops
+
+    async def run_once() -> RunResult:
+        session = EmbeddedSession()
+        try:
+            return await session.run(workflow, normalize_approval=proposal.digest())
+        finally:
+            await session.stop()
+
+    result = asyncio.run(run_once())
+
+    assert fake_comfy.instances[0].queue_calls[0]["1"]["inputs"] == {"ckpt_name": "model-a.safetensors"}
+    metadata = session_module.json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    assert metadata["schema_normalization"] == [op.to_dict() for op in proposal.ops]
+    assert metadata["schema_normalization"][0]["field"] == "widget_0"
+    assert metadata["schema_normalization"][0]["before"] == "ui copy"
+    assert metadata["schema_normalization"][0]["after"] is None
+    assert metadata["schema_normalization"][0]["reason"]
 
 
 def test_env_var_disables_gate(

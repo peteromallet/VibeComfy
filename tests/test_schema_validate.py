@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -8,8 +9,12 @@ import pytest
 from vibecomfy.ingest.normalize import from_api
 from vibecomfy.schema import InputSpec, LocalSchemaProvider, NodeSchema
 from vibecomfy.schema.validate import (
-    SCHEMA_VALIDATION_SKIP_CLASSES,
-    sanitize_api_against_schema,
+    NormalizationApproval,
+    SchemaNormalizationMismatch,
+    SchemaNormalizationRequired,
+    apply_schema_normalization,
+    field_compatibility_for,
+    propose_schema_normalization,
     validate_api_against_schema,
 )
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -107,7 +112,7 @@ def test_dynamic_file_picker_choices_do_not_reject_task_inputs() -> None:
     ]
 
 
-def test_sanitize_api_strips_unknown_runtime_inputs_and_coerces_portable_choices() -> None:
+def test_normalization_proposal_drops_unknown_inputs_and_coerces_portable_choices() -> None:
     provider = FakeSchemaProvider(
         {
             "WanVideoLoraSelect": _schema(
@@ -134,18 +139,37 @@ def test_sanitize_api_strips_unknown_runtime_inputs_and_coerces_portable_choices
         },
         "2": {"class_type": "LoadImage", "inputs": {"image": "start.png", "widget_0": "start.png"}},
     }
+    before = copy.deepcopy(api)
 
-    sanitized = sanitize_api_against_schema(api, provider)
+    proposal = propose_schema_normalization(api, provider)
 
-    assert sanitized["1"]["inputs"] == {
+    # Queue preparation must never silently mutate the payload.
+    assert api == before
+    assert [(op.node_id, op.field, op.kind) for op in proposal.ops] == [
+        ("1", "lora", "coerce"),
+        ("1", "widget_0", "drop"),
+        ("2", "widget_0", "drop"),
+    ]
+    coerce = proposal.ops[0]
+    assert coerce.before == "WanVideo\\Lightx2v\\lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
+    assert coerce.after == "WanVideo/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
+    assert coerce.kind == "coerce"
+    drop = proposal.ops[1]
+    assert drop.before == "ui copy"
+    assert drop.after is None
+    assert "not declared" in drop.reason
+
+    applied = apply_schema_normalization(api, proposal)
+
+    assert applied["1"]["inputs"] == {
         "lora": "WanVideo/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
         "strength": 1.0,
     }
-    assert sanitized["2"]["inputs"] == {"image": "start.png"}
+    assert applied["2"]["inputs"] == {"image": "start.png"}
     assert api["1"]["inputs"]["widget_0"] == "ui copy"
 
 
-def test_sanitize_preserves_ltx_dynamic_image_slots() -> None:
+def test_normalization_preserves_ltx_dynamic_image_slots() -> None:
     provider = FakeSchemaProvider(
         {
             "LTXVImgToVideoInplaceKJ": _schema(
@@ -170,11 +194,13 @@ def test_sanitize_preserves_ltx_dynamic_image_slots() -> None:
         }
     }
 
-    sanitized = sanitize_api_against_schema(api, provider)
+    proposal = propose_schema_normalization(api, provider)
 
-    assert "widget_0" not in sanitized["210"]["inputs"]
-    assert sanitized["210"]["inputs"]["num_images.strength_1"] == 1.0
-    assert sanitized["210"]["inputs"]["num_images.strength_2"] == 1.0
+    assert [(op.node_id, op.field, op.kind) for op in proposal.ops] == [("210", "widget_0", "drop")]
+    applied = apply_schema_normalization(api, proposal)
+    assert "widget_0" not in applied["210"]["inputs"]
+    assert applied["210"]["inputs"]["num_images.strength_1"] == 1.0
+    assert applied["210"]["inputs"]["num_images.strength_2"] == 1.0
 
 
 def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
@@ -216,7 +242,7 @@ def test_ltx_dynamic_image_slots_validate_required_fields() -> None:
     ]
 
 
-def test_sanitize_preserves_simple_calculator_autogrow_variables() -> None:
+def test_normalization_preserves_simple_calculator_autogrow_variables() -> None:
     provider = FakeSchemaProvider(
         {
             "SimpleCalculatorKJ": _schema(
@@ -238,9 +264,11 @@ def test_sanitize_preserves_simple_calculator_autogrow_variables() -> None:
         }
     }
 
-    sanitized = sanitize_api_against_schema(api, provider)
+    proposal = propose_schema_normalization(api, provider)
 
-    assert sanitized["2077"]["inputs"] == {
+    assert [(op.node_id, op.field, op.kind) for op in proposal.ops] == [("2077", "widget_0", "drop")]
+    applied = apply_schema_normalization(api, proposal)
+    assert applied["2077"]["inputs"] == {
         "expression": "a",
         "variables": "a,b",
         "a": ["2078", 0],
@@ -270,7 +298,7 @@ def test_simple_calculator_autogrow_variables_validate_required_fields() -> None
     assert [(issue.code, issue.detail["input"]) for issue in report.issues] == [("missing_dynamic_input", "b")]
 
 
-def test_sanitize_and_validate_preserve_linked_fixed_slot_inputs_not_in_local_schema() -> None:
+def test_normalization_preserves_linked_fixed_slot_inputs_not_in_local_schema() -> None:
     provider = FakeSchemaProvider(
         {
             "FixedSlotConsumer": _schema("FixedSlotConsumer", {"declared": InputSpec("STRING")}),
@@ -287,10 +315,13 @@ def test_sanitize_and_validate_preserve_linked_fixed_slot_inputs_not_in_local_sc
         }
     }
 
-    sanitized = sanitize_api_against_schema(api, provider)
-    issues = validate_api_against_schema(sanitized, provider)
+    proposal = propose_schema_normalization(api, provider)
+    applied = apply_schema_normalization(api, proposal)
+    issues = validate_api_against_schema(applied, provider)
 
-    assert sanitized["2"]["inputs"] == {
+    # The linked fixed-slot input is preserved; only the literal is proposed.
+    assert [(op.node_id, op.field, op.kind) for op in proposal.ops] == [("2", "extra_literal", "drop")]
+    assert applied["2"]["inputs"] == {
         "declared": "ok",
         "in_0": ["1", 0],
     }
@@ -315,25 +346,227 @@ def test_invalid_link_shape_emits_error_for_dict_shaped_link() -> None:
     assert issue.detail["value_repr"] == "{'link': 1, 'node': '2'}"
 
 
-def test_skip_list_suppresses_unknown_and_value_issues_only() -> None:
-    SCHEMA_VALIDATION_SKIP_CLASSES["LyingNode"] = "test-only"
-    try:
-        provider = FakeSchemaProvider(
-            {
-                "LyingNode": _schema(
-                    "LyingNode",
-                    {
-                        "required": InputSpec("STRING", required=True),
-                        "mode": InputSpec("STRING", choices=["a"]),
-                    },
-                )
-            }
+def test_field_compatibility_allows_only_the_documented_field_and_code() -> None:
+    """A compatibility entry covers one (class_type, input) and one code — never a class."""
+    # WanVideoModelLoader.vace_model is a documented known version mismatch
+    # (snapshot predates the input); every OTHER unknown input stays an error.
+    provider = FakeSchemaProvider(
+        {
+            "WanVideoModelLoader": _schema(
+                "WanVideoModelLoader",
+                {"model": InputSpec("STRING")},
+            )
+        }
+    )
+    workflow = _workflow(
+        VibeNode(
+            "1",
+            "WanVideoModelLoader",
+            inputs={"model": "wan.safetensors", "vace_model": "wan_vace.safetensors", "bogus": "value"},
         )
-        workflow = _workflow(VibeNode("1", "LyingNode", inputs={"mode": "b", "extra": "value"}))
+    )
 
-        assert _codes(workflow, provider) == ["missing_required_input"]
-    finally:
-        SCHEMA_VALIDATION_SKIP_CLASSES.pop("LyingNode", None)
+    assert _codes(workflow, provider) == ["unknown_input"]
+
+    # ImagePadKJ.pad_mode is a documented enum drift; type/range errors on the
+    # same class are NOT suppressed.
+    provider = FakeSchemaProvider(
+        {
+            "ImagePadKJ": _schema(
+                "ImagePadKJ",
+                {
+                    "pad_mode": InputSpec("STRING", choices=["edge", "color"]),
+                    "left": InputSpec("INT"),
+                },
+            )
+        }
+    )
+    workflow = _workflow(
+        VibeNode("2", "ImagePadKJ", inputs={"pad_mode": "255,255,255", "left": "not-an-int"})
+    )
+
+    assert _codes(workflow, provider) == ["value_type_mismatch"]
+
+
+def test_field_compatibility_entry_is_typed_and_evidence_backed() -> None:
+    entry = field_compatibility_for("WanVideoModelLoader", "vace_model")
+
+    assert entry is not None
+    assert entry.class_type == "WanVideoModelLoader"
+    assert entry.input == "vace_model"
+    assert entry.evidence.startswith("docs/node_pack_reconciliation.md")
+    assert "unknown_input" in entry.codes
+
+    assert field_compatibility_for("WanVideoModelLoader", "model") is None
+    assert field_compatibility_for("WanVideoVACEModelSelect", "vace_model") is not None
+
+
+def test_unknown_inputs_on_undocumented_stub_classes_remain_errors() -> None:
+    """Fail-closed: no class-wide suppression survives; stub classes error."""
+    provider = FakeSchemaProvider(
+        {
+            "Florence2Run": _schema(
+                "Florence2Run",
+                {"image": InputSpec("IMAGE"), "task": InputSpec("STRING", choices=["caption"])},
+            )
+        }
+    )
+    workflow = _workflow(
+        VibeNode("1", "Florence2Run", inputs={"image": "fake-image", "task": "ocr", "extra": "value"})
+    )
+
+    assert _codes(workflow, provider) == ["unknown_input", "value_not_in_enum"]
+
+
+def test_normalization_requires_explicit_approval_and_refusal_carries_details() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "WanVideoLoraSelect": _schema(
+                "WanVideoLoraSelect",
+                {"lora": InputSpec("STRING"), "strength": InputSpec("FLOAT")},
+            )
+        }
+    )
+    api = {
+        "1": {
+            "class_type": "WanVideoLoraSelect",
+            "inputs": {"lora": "a.safetensors", "strength": 1.0, "widget_0": "ui copy"},
+        }
+    }
+
+    proposal = propose_schema_normalization(api, provider)
+
+    assert proposal.ops
+    assert proposal.approved_by(None) is False
+    assert proposal.approved_by("not-the-digest") is False
+
+    refusal = SchemaNormalizationRequired(proposal)
+    text = str(refusal)
+    assert "Queue normalization requires agent approval" in text
+    assert "node=1" in text
+    assert "field=widget_0" in text
+    assert "before='ui copy'" in text
+    assert "after=None" in text
+    assert "reason=" in text
+    payload = refusal.to_dict()
+    assert payload["normalization"]["ops"][0]["node_id"] == "1"
+    assert payload["normalization"]["ops"][0]["field"] == "widget_0"
+
+
+def test_approval_binds_to_exact_proposal_digest() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "WanVideoLoraSelect": _schema(
+                "WanVideoLoraSelect",
+                {"lora": InputSpec("STRING", choices=["WanVideo/a.safetensors"]), "strength": InputSpec("FLOAT")},
+            ),
+        }
+    )
+    # api_a needs a coerce + a drop; api_b only needs the drop.
+    api_a = {
+        "1": {
+            "class_type": "WanVideoLoraSelect",
+            "inputs": {"lora": "WanVideo\\a.safetensors", "strength": 1.0, "extra": "x"},
+        }
+    }
+    api_b = {
+        "1": {
+            "class_type": "WanVideoLoraSelect",
+            "inputs": {"lora": "WanVideo/a.safetensors", "strength": 1.0, "extra": "x"},
+        }
+    }
+
+    proposal_a = propose_schema_normalization(api_a, provider)
+    proposal_b = propose_schema_normalization(api_b, provider)
+
+    assert [(op.field, op.kind) for op in proposal_a.ops] == [("extra", "drop"), ("lora", "coerce")]
+    assert [(op.field, op.kind) for op in proposal_b.ops] == [("extra", "drop")]
+    assert proposal_a.digest() != proposal_b.digest()
+    approval = NormalizationApproval(proposal_a.digest(), granted_by="test-agent")
+    assert proposal_a.approved_by(approval) is True
+    # A bare digest string is also an explicit approval.
+    assert proposal_a.approved_by(proposal_a.digest()) is True
+    # The approval never applies to a different proposal.
+    assert proposal_b.approved_by(approval) is False
+
+
+def test_apply_schema_normalization_refuses_stale_proposals() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "WanVideoLoraSelect": _schema(
+                "WanVideoLoraSelect",
+                {"lora": InputSpec("STRING"), "strength": InputSpec("FLOAT")},
+            )
+        }
+    )
+    api = {
+        "1": {
+            "class_type": "WanVideoLoraSelect",
+            "inputs": {"lora": "a.safetensors", "strength": 1.0, "widget_0": "ui copy"},
+        }
+    }
+
+    proposal = propose_schema_normalization(api, provider)
+
+    # Value changed since the proposal was computed: applying must refuse.
+    drifted = copy.deepcopy(api)
+    drifted["1"]["inputs"]["widget_0"] = "different copy"
+    with pytest.raises(SchemaNormalizationMismatch):
+        apply_schema_normalization(drifted, proposal)
+
+    # Node disappeared: applying must refuse.
+    gone = {"2": {"class_type": "Other", "inputs": {}}}
+    with pytest.raises(SchemaNormalizationMismatch):
+        apply_schema_normalization(gone, proposal)
+
+
+def test_normalization_never_proposes_changes_for_compatible_fields() -> None:
+    """Known version-mismatch fields are compatible: never proposed for drop."""
+    provider = FakeSchemaProvider(
+        {
+            "WanVideoModelLoader": _schema(
+                "WanVideoModelLoader",
+                {"model": InputSpec("STRING")},
+            ),
+            "WanVideoVACEModelSelect": _schema(
+                "WanVideoVACEModelSelect",
+                {"vace_model": InputSpec("STRING", choices=["ltx-2.3-22b.safetensors"])},
+            ),
+        }
+    )
+    api = {
+        "1": {
+            "class_type": "WanVideoModelLoader",
+            "inputs": {"model": "wan.safetensors", "vace_model": ["4", 0]},
+        },
+        "2": {
+            "class_type": "WanVideoVACEModelSelect",
+            "inputs": {"vace_model": "WanVideo/Wan2_1-VACE_module_1_3B_bf16.safetensors"},
+        },
+    }
+
+    proposal = propose_schema_normalization(api, provider)
+
+    assert proposal.ops == ()
+
+
+def test_normalization_preserves_widget_schema_api_links() -> None:
+    class WidgetSchemaProvider(FakeSchemaProvider):
+        pass
+
+    schema = _schema("WanVideoSampler", {"steps": InputSpec("INT")})
+    object.__setattr__(schema, "source_provider", "widget_schema")
+    provider = WidgetSchemaProvider({"WanVideoSampler": schema})
+    api = {
+        "1": {
+            "class_type": "WanVideoSampler",
+            "inputs": {"steps": 20, "text_embeds": ["2", 0]},
+        }
+    }
+
+    proposal = propose_schema_normalization(api, provider)
+
+    assert proposal.ops == ()
 
 
 def test_range_enum_skipped_when_value_is_api_link() -> None:

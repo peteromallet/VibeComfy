@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from vibecomfy._compile._graph import is_canonical_api_link
 
+from vibecomfy.errors import SchemaValidationError
 from vibecomfy.metadata import MODEL_FILE_EXTENSIONS
 from vibecomfy.model_assets import _subdir_for_model_reference
 from vibecomfy.schema.provider import SchemaProvider, schema_for, schema_registry_empty
@@ -52,49 +56,156 @@ def validation_errors_payload(issues: list[ValidationIssue]) -> list[dict[str, A
     return list(grouped.values())
 
 
-#: Known-lying custom-node schemas that may suppress only ``unknown_input`` and
-#: ``value_*`` validation issues. Every entry must be cross-referenced from
-#: ``docs/node_pack_reconciliation.md`` with its contract/root-cause note.
-#:
-#: Classes listed here have stub object_info cache entries that only define
-#: category/description but lack full input schemas; they were added to satisfy
-#: ``unknown_class_type`` gating without triggering ``unknown_input`` cascade
-#: errors on every workflow input. When a real runpod snapshot is available for
-#: the pack, remove the stub file and the entry here.
-SCHEMA_VALIDATION_SKIP_CLASSES: dict[str, str] = {
-    # ComfyUI-Florence2 — stub schema; real schema from runpod snapshot pending
-    "DownloadAndLoadFlorence2Model": "stub schema - see docs/node_pack_reconciliation.md",
-    "Florence2Run": "stub schema - see docs/node_pack_reconciliation.md",
-    # ComfyUI-GIMM-VFI — stub schema; real schema from runpod snapshot pending
-    "DownloadAndLoadGIMMVFIModel": "stub schema - see docs/node_pack_reconciliation.md",
-    "GIMMVFI_interpolate": "stub schema - see docs/node_pack_reconciliation.md",
-    # ComfyUI-MelBandRoformer — stub schema; real schema from runpod snapshot pending
-    "MelBandRoFormerModelLoader": "stub schema - see docs/node_pack_reconciliation.md",
-    "MelBandRoFormerSampler": "stub schema - see docs/node_pack_reconciliation.md",
-    # ComfyUI-Custom-Scripts — stub schema; real schema from runpod snapshot pending
-    "ShowText|pysssss": "stub schema - see docs/node_pack_reconciliation.md",
-    "MathExpression|pysssss": "stub schema - see docs/node_pack_reconciliation.md",
-    # comfyui_controlnet_aux — stub schema; real schema from runpod snapshot pending
-    "DWPreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
-    "CannyEdgePreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
-    "DepthAnythingPreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
-    # ComfyUI-DepthAnythingV2 — stub entries added; real schema from runpod snapshot pending
-    "VideoDepthAnythingProcess": "stub schema - see docs/node_pack_reconciliation.md",
-    "LoadVideoDepthAnythingModel": "stub schema - see docs/node_pack_reconciliation.md",
-    "VideoDepthAnythingOutput": "stub schema - see docs/node_pack_reconciliation.md",
-    # ComfyUI-WanVideoWrapper — WanVideoModelLoader schema snapshot predates vace_model input
-    # vace_model was added in a newer WanVideoWrapper version; snapshot needs refresh
-    "WanVideoModelLoader": "snapshot predates vace_model input - see docs/node_pack_reconciliation.md",
-    # ComfyUI-WanVideoWrapper — VACE model enum only captures one HiddenSwitch-local file
-    # Templates use WanVideo 2.1 1.3B VACE variant not in snapshot enum
-    "WanVideoVACEModelSelect": "model enum reflects HiddenSwitch local files only - see docs/node_pack_reconciliation.md",
-    # ComfyUI-KJNodes — ImagePadKJ pad_mode accepts RGB strings like '255,255,255'
-    # The snapshot enum only lists named modes; RGB string pass-through is valid at runtime
-    "ImagePadKJ": "pad_mode accepts RGB strings not in static enum - see docs/node_pack_reconciliation.md",
-    # ComfyUI-WanVideoWrapper — WanVideoSampler gained a new widget (position 14) in newer
-    # versions not captured in the current widget_schema.py entry (14 items, 0-indexed)
-    "WanVideoSampler": "widget schema incomplete for newer WanVideoWrapper versions - see docs/node_pack_reconciliation.md",
+# ── Field-level compatibility policy ─────────────────────────────────────────
+#
+# Unknown inputs remain validation errors UNLESS a typed, evidence-backed
+# entry proves a known version mismatch for that exact (class_type, input)
+# field against the static schema. There is no class-wide suppression: a
+# compatibility entry covers one field and one set of issue codes, and every
+# entry must be cross-referenced from ``docs/node_pack_reconciliation.md``
+# (the "Known snapshot drift issues" table) with its root cause.
+#
+# These entries exist because the static schema snapshot is KNOWN to be stale
+# for the runtime the workflow targets (a newer custom-node version added or
+# widened the field). Fields with an entry are treated as compatible: they do
+# not fail validation and they are NOT proposed for queue normalization
+# (dropping or coercing a compatible field would corrupt a payload the runtime
+# accepts). Every other field on the same class stays fail-closed.
+
+
+@dataclass(frozen=True)
+class FieldCompatibility:
+    """Evidence-backed compatibility allowance for ONE (class_type, input).
+
+    Attributes:
+        class_type: The node class the field belongs to.
+        input: The exact input/field name on that class.
+        reason: Human-readable root cause for the known version mismatch.
+        evidence: Pointer to the evidence (documented snapshot drift).
+        codes: Issue codes this allowance covers. Defaults to the codes the
+            legacy class-wide suppression used to swallow; an entry should
+            narrow this when it only addresses one code (e.g. an enum that
+            accepts values the snapshot did not capture).
+    """
+
+    class_type: str
+    input: str
+    reason: str
+    evidence: str
+    codes: tuple[str, ...] = (
+        "unknown_input",
+        "value_not_in_enum",
+        "value_out_of_range",
+        "value_type_mismatch",
+    )
+
+
+FIELD_COMPATIBILITY: tuple[FieldCompatibility, ...] = (
+    # ComfyUI-WanVideoWrapper — WanVideoModelLoader schema snapshot predates
+    # the vace_model optional input added in a newer WanVideoWrapper version.
+    FieldCompatibility(
+        class_type="WanVideoModelLoader",
+        input="vace_model",
+        reason=(
+            "vace_model is a valid optional input in newer WanVideoWrapper "
+            "versions; the runpod snapshot predates it."
+        ),
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoModelLoader predates vace_model",
+        codes=("unknown_input",),
+    ),
+    # ComfyUI-WanVideoWrapper — VACE model enum only captures the files present
+    # when the snapshot was taken; templates select VACE variants not in it.
+    FieldCompatibility(
+        class_type="WanVideoVACEModelSelect",
+        input="vace_model",
+        reason=(
+            "The snapshot enum reflects only the files installed when "
+            "object_info was captured; templates use WanVideo VACE variants "
+            "not listed there."
+        ),
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoVACEModelSelect model enum",
+        codes=("value_not_in_enum",),
+    ),
+    # ComfyUI-KJNodes — ImagePadKJ pad_mode accepts RGB strings like
+    # '255,255,255'; the snapshot enum only lists named modes.
+    FieldCompatibility(
+        class_type="ImagePadKJ",
+        input="pad_mode",
+        reason=(
+            "pad_mode accepts RGB strings such as '255,255,255' at runtime; "
+            "the snapshot enum only lists the named modes."
+        ),
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: ImagePadKJ pad_mode RGB strings",
+        codes=("value_not_in_enum",),
+    ),
+    # ComfyUI-WanVideoWrapper — the WanVideoSampler WIDGET_SCHEMA entry (14
+    # items, 0-indexed) predates widgets added at position 14+ in newer
+    # versions. The runpod snapshot declares these as optional inputs.
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="cache_args",
+        reason="cache_args is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="context_options",
+        reason="context_options is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="experimental_args",
+        reason="experimental_args is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="feta_args",
+        reason="feta_args is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="multitalk_embeds",
+        reason="multitalk_embeds is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+    FieldCompatibility(
+        class_type="WanVideoSampler",
+        input="slg_args",
+        reason="slg_args is an optional input in newer WanVideoWrapper versions not in the 14-item WIDGET_SCHEMA entry.",
+        evidence="docs/node_pack_reconciliation.md — known snapshot drift: WanVideoSampler 14-item WIDGET_SCHEMA misses item at index 14",
+        codes=("unknown_input",),
+    ),
+)
+
+_FIELD_COMPATIBILITY_INDEX: dict[tuple[str, str], frozenset[str]] = {
+    (entry.class_type, entry.input): frozenset(entry.codes) for entry in FIELD_COMPATIBILITY
 }
+
+
+def field_compatibility_for(class_type: str, input_name: str) -> FieldCompatibility | None:
+    """Return the evidence-backed compatibility entry for a field, if any."""
+    for entry in FIELD_COMPATIBILITY:
+        if entry.class_type == class_type and entry.input == input_name:
+            return entry
+    return None
+
+
+def _field_compatible(class_type: str, input_name: str, code: str) -> bool:
+    """Return whether a typed compatibility entry covers this field+code.
+
+    This is the ONLY suppression path left in validation, and it is strictly
+    field-level: an entry covers one (class_type, input) and one or more issue
+    codes, never a whole class.
+    """
+    return code in _FIELD_COMPATIBILITY_INDEX.get((class_type, input_name), ())
 
 
 def validate_against_schema(workflow: VibeWorkflow, provider: SchemaProvider) -> list[ValidationIssue]:
@@ -171,7 +282,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
             if getattr(schema, "source_provider", None) == "widget_schema" and _is_api_link(value):
                 continue
             if (
-                not _issue_suppressed(class_type, "unknown_input")
+                not _field_compatible(class_type, name, "unknown_input")
                 and not _is_dynamic_payload_input(class_type, name, payload_inputs)
             ):
                 issues.append(
@@ -194,7 +305,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                 choices
                 and value not in choices
                 and _coerce_choice_value(value, choices) is _NO_MATCH
-                and not _issue_suppressed(class_type, "value_not_in_enum")
+                and not _field_compatible(class_type, name, "value_not_in_enum")
                 and not _is_dynamic_file_choice(class_type, name)
             ):
                 choice_scope = _choice_scope(class_type, name, value)
@@ -238,7 +349,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
 
             min_value = getattr(spec, "min", None)
             max_value = getattr(spec, "max", None)
-            if (min_value is not None or max_value is not None) and not _issue_suppressed(class_type, "value_out_of_range"):
+            if (min_value is not None or max_value is not None) and not _field_compatible(class_type, name, "value_out_of_range"):
                 try:
                     numeric_value = float(value)
                 except (TypeError, ValueError):
@@ -262,7 +373,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                         )
                     )
             expected_type = _primitive_expected_type(getattr(spec, "type", None))
-            if expected_type and not _issue_suppressed(class_type, "value_type_mismatch"):
+            if expected_type and not _field_compatible(class_type, name, "value_type_mismatch"):
                 if not _matches_primitive_type(value, expected_type):
                     issues.append(
                         ValidationIssue(
@@ -379,18 +490,236 @@ def _choice_scope(class_type: str, input_name: str, value: Any) -> str:
     return "semantic"
 
 
-def sanitize_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvider | None) -> dict[str, Any]:
-    """Drop schema-unknown payload keys and coerce equivalent choice strings.
+# ── Typed normalization proposal (fail-closed queue preparation) ─────────────
+#
+# Queue preparation NEVER mutates the compiled payload directly. Any change the
+# runtime would need — dropping an input the live schema does not declare, or
+# coercing a portable choice string to the exact choice the runtime exposes —
+# is first computed as a typed :class:`NormalizationProposal`. Without explicit
+# agent approval the queue is REFUSED (no silent deletes, no silent coercion);
+# with approval, exactly the proposed operations are applied and recorded as
+# evidence.
 
-    Ready templates often keep UI widget aliases as authoring hints. Runtime API
-    prompts must match the live node schema exactly, so this strips fields the
-    runtime will reject and normalizes portable model paths to the exact choice
-    string exposed by Comfy.
+
+def _same_value(a: Any, b: Any) -> bool:
+    """Strict equality that keeps ``True`` distinct from ``1``."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a is b
+    return a == b
+
+
+def _canonical_payload(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
+
+
+@dataclass(frozen=True)
+class NormalizationOp:
+    """One proposed queue-preparation change for a single node input.
+
+    Attributes:
+        node_id: The API node id the change targets.
+        class_type: The node's class type.
+        field: The input name being changed.
+        kind: ``"drop"`` (input is not declared by the live schema) or
+            ``"coerce"`` (value normalizes to the exact choice the runtime
+            exposes).
+        before: The value before the change (``None`` only when the input is
+            genuinely absent — drops always carry the current value).
+        after: The value after the change; ``None`` for drops.
+        reason: Why the change is proposed.
+    """
+
+    node_id: str
+    class_type: str
+    field: str
+    kind: str
+    before: Any
+    after: Any
+    reason: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "node_id", str(self.node_id))
+        object.__setattr__(self, "class_type", str(self.class_type))
+        object.__setattr__(self, "field", str(self.field))
+        kind = str(self.kind)
+        if kind not in {"drop", "coerce"}:
+            raise ValueError("`kind` must be 'drop' or 'coerce'.")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "reason", str(self.reason))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "class_type": self.class_type,
+            "field": self.field,
+            "kind": self.kind,
+            "before": self.before,
+            "after": self.after,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> "NormalizationOp":
+        if not isinstance(payload, dict):
+            raise ValueError("NormalizationOp must be an object.")
+        required = {"node_id", "class_type", "field", "kind", "before", "after", "reason"}
+        missing = sorted(required - set(payload))
+        if missing:
+            raise ValueError("NormalizationOp missing key(s): " + ", ".join(missing))
+        return cls(
+            node_id=payload["node_id"],
+            class_type=payload["class_type"],
+            field=payload["field"],
+            kind=payload["kind"],
+            before=payload["before"],
+            after=payload["after"],
+            reason=payload["reason"],
+        )
+
+
+@dataclass(frozen=True)
+class NormalizationApproval:
+    """Explicit approval binding one decision-maker to ONE proposal digest.
+
+    The approval only names the proposal digest, never the changes themselves:
+    applying an approval to a different (or mutated) proposal is refused, so an
+    approval can never apply a change the agent did not see.
+    """
+
+    proposal_digest: str
+    granted_by: str = "agent"
+    granted_at: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "proposal_digest", str(self.proposal_digest))
+        object.__setattr__(self, "granted_by", str(self.granted_by))
+        if self.granted_at is not None:
+            object.__setattr__(self, "granted_at", str(self.granted_at))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "proposal_digest": self.proposal_digest,
+            "granted_by": self.granted_by,
+        }
+        if self.granted_at is not None:
+            payload["granted_at"] = self.granted_at
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> "NormalizationApproval":
+        if not isinstance(payload, dict) or "proposal_digest" not in payload:
+            raise ValueError("NormalizationApproval must be an object with proposal_digest.")
+        return cls(
+            proposal_digest=payload["proposal_digest"],
+            granted_by=str(payload.get("granted_by", "agent")),
+            granted_at=payload.get("granted_at"),
+        )
+
+
+@dataclass(frozen=True)
+class NormalizationProposal:
+    """Typed, immutable set of queue-preparation changes (possibly empty)."""
+
+    ops: tuple[NormalizationOp, ...] = ()
+
+    def __post_init__(self) -> None:
+        ops = tuple(
+            op if isinstance(op, NormalizationOp) else NormalizationOp.from_dict(op)
+            for op in self.ops
+        )
+        object.__setattr__(self, "ops", ops)
+
+    def __bool__(self) -> bool:
+        return bool(self.ops)
+
+    def __len__(self) -> int:
+        return len(self.ops)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"ops": [op.to_dict() for op in self.ops]}
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> "NormalizationProposal":
+        raw_ops = payload.get("ops", ()) if isinstance(payload, dict) else ()
+        if not isinstance(raw_ops, (list, tuple)):
+            raise ValueError("NormalizationProposal.ops must be a list.")
+        return cls(tuple(raw_ops))
+
+    def digest(self) -> str:
+        """Canonical SHA-256 of the proposal; the approval binds to this."""
+        return hashlib.sha256(_canonical_payload(self.to_dict()).encode("utf-8")).hexdigest()
+
+    def approved_by(self, approval: Any) -> bool:
+        """Return whether *approval* binds exactly to THIS proposal.
+
+        Accepts a :class:`NormalizationApproval` or a bare digest string. Any
+        other value (including ``None``) is treated as "not approved".
+        """
+        if approval is None:
+            return False
+        digest = self.digest()
+        if isinstance(approval, NormalizationApproval):
+            return approval.proposal_digest == digest
+        if isinstance(approval, str):
+            return approval == digest
+        return False
+
+    def refusal_message(self) -> str:
+        """Render the refusal diagnostic with node/field/before/after/reason."""
+        lines = [f"Queue normalization requires agent approval ({len(self.ops)} change(s)):"]
+        for op in self.ops:
+            lines.append(
+                f"  - node={op.node_id} class={op.class_type} field={op.field} kind={op.kind} "
+                f"before={_truncate(op.before)} after={_truncate(op.after)} reason={op.reason}"
+            )
+        return "\n".join(lines)
+
+
+class SchemaNormalizationRequired(SchemaValidationError):
+    """Queue preparation needs changes the agent has not approved.
+
+    Carries the full typed proposal so a caller can surface every change
+    (node/field/before/after/reason) and, once the agent decides, re-queue with
+    the matching approval.
+    """
+
+    default_next_action = "review the normalization proposal and re-queue with explicit approval"
+
+    def __init__(self, proposal: NormalizationProposal) -> None:
+        self.proposal = proposal
+        super().__init__(proposal.refusal_message())
+
+    def to_dict(self) -> dict[str, object]:
+        payload = super().to_dict()
+        payload["normalization"] = self.proposal.to_dict()
+        return payload
+
+
+class SchemaNormalizationMismatch(SchemaValidationError):
+    """A proposal could not be applied because the payload changed underneath it.
+
+    This is a stale-approval guard: applying an approval must never change a
+    different payload than the one the agent approved.
+    """
+
+    default_next_action = "re-run queue preparation to obtain a fresh proposal and approval"
+
+
+def propose_schema_normalization(
+    api_dict: dict[str, Any],
+    provider: SchemaProvider | None,
+) -> NormalizationProposal:
+    """Compute, WITHOUT mutating, the changes queue preparation would need.
+
+    Never modifies *api_dict* and never proposes changes for fields covered by
+    the field-level compatibility policy (those are known version mismatches —
+    dropping or coercing them would corrupt a payload the runtime accepts).
+    Returns an empty proposal when the payload already matches the live schema.
     """
     if provider is None or schema_registry_empty(provider):
-        return api_dict
-    sanitized = copy.deepcopy(api_dict)
-    for node in sanitized.values():
+        return NormalizationProposal()
+    ops: list[NormalizationOp] = []
+    for node_id, node in api_dict.items():
         if not isinstance(node, dict):
             continue
         class_type = node.get("class_type")
@@ -401,24 +730,93 @@ def sanitize_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
         schema_inputs = getattr(schema, "inputs", {}) if schema is not None else {}
         if not schema_inputs:
             continue
-        for name in list(inputs):
-            if (
-                name not in schema_inputs
-                and not _is_dynamic_payload_input(class_type, name, inputs)
-                and not _preserve_linked_undeclared_input(name, inputs.get(name))
-            ):
-                del inputs[name]
+        for name in sorted(inputs):
+            if name in schema_inputs:
+                value = inputs[name]
+                if _is_api_link(value):
+                    continue
+                choices = getattr(schema_inputs[name], "choices", None) or []
+                coerced = _coerce_choice_value(value, choices)
+                if coerced is not _NO_MATCH and not _same_value(coerced, value):
+                    ops.append(
+                        NormalizationOp(
+                            node_id=str(node_id),
+                            class_type=class_type,
+                            field=name,
+                            kind="coerce",
+                            before=value,
+                            after=coerced,
+                            reason=(
+                                "portable choice string normalizes to the exact "
+                                "choice string the runtime exposes"
+                            ),
+                        )
+                    )
                 continue
-            value = inputs[name]
-            if _is_api_link(value):
+            value = inputs.get(name)
+            if _is_dynamic_payload_input(class_type, name, inputs):
                 continue
-            if name not in schema_inputs:
+            if _preserve_linked_undeclared_input(name, value):
                 continue
-            choices = getattr(schema_inputs[name], "choices", None) or []
-            coerced = _coerce_choice_value(value, choices)
-            if coerced is not _NO_MATCH:
-                inputs[name] = coerced
-    return sanitized
+            if getattr(schema, "source_provider", None) == "widget_schema" and _is_api_link(value):
+                continue
+            if _field_compatible(class_type, name, "unknown_input"):
+                continue
+            ops.append(
+                NormalizationOp(
+                    node_id=str(node_id),
+                    class_type=class_type,
+                    field=name,
+                    kind="drop",
+                    before=value,
+                    after=None,
+                    reason=(
+                        "input is not declared by the live node schema and "
+                        "would be rejected at queue time"
+                    ),
+                )
+            )
+    return NormalizationProposal(tuple(ops))
+
+
+def apply_schema_normalization(
+    api_dict: dict[str, Any],
+    proposal: NormalizationProposal,
+) -> dict[str, Any]:
+    """Apply EXACTLY the ops in *proposal* to a deep copy of *api_dict*.
+
+    Each op must still match the current payload (node present, input present,
+    value equal to ``op.before``). Any mismatch raises
+    :class:`SchemaNormalizationMismatch` instead of applying a different change
+    than the one approved. The input mapping is never mutated in place.
+    """
+    if not proposal.ops:
+        return copy.deepcopy(dict(api_dict))
+    applied = copy.deepcopy(dict(api_dict))
+    for op in proposal.ops:
+        node = applied.get(op.node_id)
+        if not isinstance(node, dict):
+            raise SchemaNormalizationMismatch(
+                f"node {op.node_id} no longer exists; the proposal is stale"
+            )
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict) or op.field not in inputs:
+            raise SchemaNormalizationMismatch(
+                f"node {op.node_id} input {op.field} no longer exists; the proposal is stale"
+            )
+        current = inputs.get(op.field)
+        if not _same_value(current, op.before):
+            raise SchemaNormalizationMismatch(
+                f"node {op.node_id} input {op.field} changed since approval: "
+                f"before={_truncate(op.before)} now={_truncate(current)}"
+            )
+        if op.kind == "drop":
+            del inputs[op.field]
+        elif op.kind == "coerce":
+            inputs[op.field] = op.after
+        else:  # pragma: no cover - NormalizationOp.__post_init__ gates this
+            raise ValueError(f"unknown normalization kind: {op.kind}")
+    return applied
 
 
 def validate_api_link_shapes(api_dict: dict[str, Any], provider: SchemaProvider) -> list[ValidationIssue]:
@@ -767,12 +1165,6 @@ def _coerce_choice_value(value: Any, choices: list[Any]) -> Any:
 
 def _portable_choice_key(value: str) -> str:
     return value.replace("\\", "/").strip()
-
-
-def _issue_suppressed(class_type: str, code: str) -> bool:
-    if class_type not in SCHEMA_VALIDATION_SKIP_CLASSES:
-        return False
-    return code == "unknown_input" or code.startswith("value_")
 
 
 def _is_dynamic_file_choice(class_type: str, input_name: str) -> bool:

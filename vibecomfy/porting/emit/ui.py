@@ -721,6 +721,98 @@ def _emitted_socket_slot_for_link(
     return None
 
 
+def _emitted_socket_array_evidence(
+    sockets: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Project an emitted socket array into JSONable refusal evidence.
+
+    Each entry records the physical ``slot`` index plus whatever identity the
+    emitted socket carries (``name`` and/or ``slot_index``).  ``None``/non-list
+    inputs (no emitted sockets for the node) project to ``[]``.
+    """
+    if not isinstance(sockets, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for index, socket in enumerate(sockets):
+        if isinstance(socket, dict):
+            out.append(
+                {
+                    "slot": index,
+                    "name": socket.get("name"),
+                    "slot_index": socket.get("slot_index"),
+                }
+            )
+        else:
+            out.append({"slot": index, "name": socket})
+    return out
+
+
+def _remap_attempts_evidence(
+    sockets: list[dict[str, Any]] | None,
+    slot: int,
+    canonical_name: str,
+) -> list[dict[str, Any]]:
+    """Reconstruct the deterministic remap strategies tried for a phantom endpoint.
+
+    Mirrors :func:`_emitted_socket_slot_for_link` — in-range slot acceptance,
+    then a canonical-name scan, then a ``slot_index`` scan.  This is called
+    only after that function returned ``None``, so every ``found_at`` list is
+    empty by construction: the evidence documents what was attempted (and
+    rejected) for the refusal, not a second lookup.
+    """
+    if not isinstance(sockets, list):
+        return [
+            {
+                "strategy": "invalid_socket_array",
+                "detail": type(sockets).__name__,
+            }
+        ]
+    in_range: dict[str, Any] | None = None
+    in_range_rejected: str | None = None
+    if isinstance(slot, int) and 0 <= slot < len(sockets):
+        socket = sockets[slot]
+        if isinstance(socket, dict):
+            in_range = {
+                "slot": slot,
+                "name": socket.get("name"),
+                "slot_index": socket.get("slot_index"),
+            }
+            name = socket.get("name")
+            if name != canonical_name and name not in (None, "") and socket.get("slot_index") != slot:
+                in_range_rejected = (
+                    f"name {name!r} != canonical {canonical_name!r} and slot_index != {slot}"
+                )
+        else:
+            in_range = {"slot": slot, "name": socket}
+    return [
+        {
+            "strategy": "in_range_slot",
+            "requested_slot": slot,
+            "socket_at_slot": in_range,
+            "out_of_range": not (isinstance(slot, int) and 0 <= slot < len(sockets)),
+            "rejected_reason": in_range_rejected,
+        },
+        {
+            "strategy": "canonical_name_scan",
+            "sought_name": canonical_name,
+            "found_at": [
+                index
+                for index, socket in enumerate(sockets)
+                if isinstance(socket, dict) and socket.get("name") == canonical_name
+            ],
+        },
+        {
+            "strategy": "slot_index_scan",
+            "sought_slot": slot,
+            "found_at": [
+                index
+                for index, socket in enumerate(sockets)
+                if isinstance(socket, dict) and socket.get("slot_index") == slot
+            ],
+        },
+    ]
+
+
 def _resolve_output_slot_and_type(
     from_output: str,
     class_type: str,
@@ -2637,6 +2729,7 @@ def emit_ui_json(
 
     # Build global links array: [link_id, from_node, from_slot, to_node, to_slot, type]
     links: list[list[Any]] = []
+    dangling_links: list[dict[str, Any]] = []
     for edge in sorted_edges:
         from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
         from_slot, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
@@ -2678,38 +2771,85 @@ def emit_ui_json(
         # R2-D1: repair malformed endpoints BEFORE projection.  The working
         # graph's emitted sockets are authoritative — never emit a link whose
         # source/target port does not exist in the emitted node.  Remap the
-        # phantom slot to the matching emitted socket by canonical name, or
-        # deterministically drop the dangling link with a diagnostic.
+        # phantom slot to the matching emitted socket by canonical name.  When
+        # no remap exists the edge is NOT dropped: it accumulates into a single
+        # RefusedEmit (B2) so every input edge is either emitted/remapped or the
+        # whole emit is refused with full endpoint evidence.
         emitted_outputs = emitted_outputs_by_node.get(edge.from_node)
+        emitted_inputs = emitted_inputs_by_node.get(edge.to_node)
+        source_endpoint: dict[str, Any] = {
+            "node_id": edge.from_node,
+            "requested_output": edge.from_output,
+            "requested_slot": from_slot,
+            "emitted_sockets": _emitted_socket_array_evidence(emitted_outputs),
+        }
+        target_endpoint: dict[str, Any] = {
+            "node_id": edge.to_node,
+            "requested_input": edge.to_input,
+            "requested_slot": to_slot,
+            "emitted_sockets": _emitted_socket_array_evidence(emitted_inputs),
+        }
+        source_socket_missing = False
+        target_socket_missing = False
         if emitted_outputs is not None:
+            canonical_from_name = _canonical_emitted_output_name(
+                edge.from_output, from_slot
+            )
             remapped = _emitted_socket_slot_for_link(
-                emitted_outputs,
-                from_slot,
-                _canonical_emitted_output_name(edge.from_output, from_slot),
+                emitted_outputs, from_slot, canonical_from_name
             )
             if remapped is None:
-                warnings.warn(
-                    f"emit_ui_json: dropping link {edge.from_node} output {edge.from_output!r} "
-                    f"(slot {from_slot}) — no matching emitted source socket.",
-                    stacklevel=2,
+                source_socket_missing = True
+                source_endpoint["canonical_socket_name"] = canonical_from_name
+                source_endpoint["attempted_remaps"] = _remap_attempts_evidence(
+                    emitted_outputs, from_slot, canonical_from_name
                 )
-                continue
-            from_slot = remapped
-        emitted_inputs = emitted_inputs_by_node.get(edge.to_node)
+            else:
+                from_slot = remapped
         if emitted_inputs is not None:
-            remapped = _emitted_socket_slot_for_link(emitted_inputs, to_slot, edge.to_input)
+            remapped = _emitted_socket_slot_for_link(
+                emitted_inputs, to_slot, edge.to_input
+            )
             if remapped is None:
-                warnings.warn(
-                    f"emit_ui_json: dropping link to {edge.to_node} input {edge.to_input!r} "
-                    f"(slot {to_slot}) — no matching emitted target socket.",
-                    stacklevel=2,
+                target_socket_missing = True
+                target_endpoint["attempted_remaps"] = _remap_attempts_evidence(
+                    emitted_inputs, to_slot, edge.to_input
                 )
-                continue
-            to_slot = remapped
+            else:
+                to_slot = remapped
+        if source_socket_missing or target_socket_missing:
+            missing = (
+                "source_socket"
+                if target_socket_missing is False
+                else "target_socket"
+                if source_socket_missing is False
+                else "source_and_target_socket"
+            )
+            dangling_links.append(
+                {
+                    "key": (
+                        f"{edge.from_node}.{edge.from_output} "
+                        f"-> {edge.to_node}.{edge.to_input}"
+                    ),
+                    "evidence": {
+                        "source": source_endpoint,
+                        "target": target_endpoint,
+                        "missing": missing,
+                    },
+                }
+            )
+            continue
         lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
         links.append(
             [lid, id_remap[edge.from_node], from_slot, id_remap[edge.to_node], to_slot, socket_type or ""]
         )
+
+    if dangling_links:
+        from vibecomfy.porting.refuse import (  # noqa: PLC0415
+            refused_dangling_links as _refused_dangling_links,
+        )
+
+        raise _refused_dangling_links(dangling_links)
 
     links.sort(key=lambda lnk: lnk[0])
 

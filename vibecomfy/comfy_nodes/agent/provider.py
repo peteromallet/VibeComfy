@@ -385,6 +385,7 @@ def build_batch_messages(
     precedent_adaptation_plan: str = "",
     revision_evidence_json: str = "",
     execution_plan_status: Mapping[str, Any] | None = None,
+    evidence_ledger: str = "",
 ) -> list[dict[str, str]]:
     """Build messages for the batch-REPL wire protocol.
 
@@ -430,8 +431,11 @@ def build_batch_messages(
         # corpus; this text only orients the model.
         system = (
             "You are answering a research question for a ComfyUI canvas. Gather auditable "
-            "evidence with `research(...)`, then call `done()`. Do not edit the graph.\n\n"
-            "`research(\"query words\", sources=[\"workflows\",\"registry\",\"messages\",\"web\"])`\n"
+            "evidence with the agent tool calls (`hivemind_search`, `hivemind_get`, "
+            "`registry_lookup`, `node_schema`, `ready_template_list`, `ready_template_load`, "
+            "`web_search`), then call `done()`. Do not edit the graph.\n\n"
+            "`research(\"query words\", sources=[\"workflows\",\"registry\",\"messages\",\"web\"])` — "
+            "LEGACY shadow-only (H01); prefer the tool calls above.\n"
             "  — `messages` searches Banodoco Discord / unified_feed community knowledge, NOT workflows.\n"
             "If sources are omitted on this informational route, the executor searches "
             "messages and web. Do not pass sources=[\"workflows\"] for community opinion. "
@@ -460,7 +464,9 @@ def build_batch_messages(
         "- `del x`\n"
         "- `node.mode = \"bypassed\" | \"muted\" | \"enabled\"` (bypass does NOT pass input through)\n"
         "- `search(focus_types=[\"ClassName\"])` — exact current authoring-schema lookup only; no internet/precedent search and no edit lands\n"
-        "- `research(\"query words\", sources=[\"workflows\", \"registry\", \"messages\", \"web\"])` — choose evidence tiers; `workflows` searches internal templates plus Hivemind external workflows; if sources are omitted it searches internal workflows/templates only; no edit lands\n"
+        "- `research(\"query words\", sources=[\"workflows\", \"registry\", \"messages\", \"web\"])` — choose evidence tiers; LEGACY shadow-only (H01); `workflows` searches internal templates plus Hivemind external workflows; if sources are omitted it searches internal workflows/templates only; no edit lands\n"
+        "- Agent tool calls (no edit lands): `hivemind_search(\"query\")`, `hivemind_get(\"hivemind:<table>:<row_id>\")`, `registry_lookup(\"ClassName\")`, `node_schema(\"ClassName\")`, `ready_template_list(\"wan\")`, `ready_template_load(\"video/wan_t2v\")`, `rank_edit_targets(\"intent\")`, `suggest_seed_nodes(\"intent\")`, `layout_hints(\"insert\")`, `web_search(\"query\", unresolved_question=\"...\")` (last resort only)\n"
+        "Tool budget: 3 searches, 6 fetches, 1 registry lookup, ~90s; exhaustion is a typed refusal that preserves gathered evidence — then synthesize and `done()`. Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
@@ -674,6 +680,7 @@ def build_batch_messages(
                 "\n\nExecution plan status (authoritative compact JSON):\n"
                 f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}\n"
             )
+        evidence_ledger_block = _format_evidence_ledger_block(evidence_ledger)
         user = (
             f"{conversation_block}"
             f"{clarification_block}"
@@ -692,6 +699,7 @@ def build_batch_messages(
             f"{revision_evidence_block}"
             f"{report_block}"
             f"{graph_report_block}"
+            f"{evidence_ledger_block}"
         )
     else:
         diff_block = ""
@@ -763,6 +771,7 @@ def build_batch_messages(
                 "\n\nExecution plan status (authoritative compact JSON):\n"
                 f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}"
             )
+        evidence_ledger_block = _format_evidence_ledger_block(evidence_ledger)
         user = (
             f"User request:\n{task}\n"
             f"{execution_plan_status_block}"
@@ -776,9 +785,26 @@ def build_batch_messages(
             f"{precedent_adaptation_block}"
             f"{revision_evidence_block}"
             f"{graph_report_block}"
+            f"{evidence_ledger_block}"
             f"\n\nBudget: {budget_remaining} turn(s) remaining out of {max_batches}."
         )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _format_evidence_ledger_block(evidence_ledger: str) -> str:
+    """Render the I01 compact evidence-ledger block for the user message.
+
+    The ledger text is built by the batch loop's cross-turn memory from F01
+    ledger entries + evidence IDs only; raw tool result bodies never enter
+    the prompt.
+    """
+    if not evidence_ledger or not evidence_ledger.strip():
+        return ""
+    return (
+        "\n\nTool evidence ledger (compact; entries + evidence IDs only; "
+        "resolve IDs with hivemind_get(...), never repeat raw bodies):\n"
+        f"{evidence_ledger.strip()}"
+    )
 
 
 def _code_mode_clause(mode: str) -> str:

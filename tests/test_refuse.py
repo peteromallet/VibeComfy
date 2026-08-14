@@ -255,6 +255,99 @@ def _ksampler_ui(widgets_values: list) -> dict:
     }
 
 
+def test_refused_dangling_links_aggregates_link_keyed_evidence(monkeypatch) -> None:
+    """Dangling-link refusals are link-keyed, JSON-safe, and need no ComfyUI."""
+    repo_root = str(__file__).split("/tests/test_refuse.py", maxsplit=1)[0]
+    monkeypatch.syspath_prepend(repo_root)
+    removed_modules = _drop_vibecomfy_modules()
+
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "vibecomfy.comfy_backend" or name.startswith("comfy."):
+            raise AssertionError(
+                f"unexpected dangling-link refusal import side effect: {name}"
+            )
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    links = [
+        {
+            "key": "1.5 -> 2.in_a",
+            "evidence": {
+                "source": {
+                    "node_id": "1",
+                    "requested_output": "5",
+                    "requested_slot": 5,
+                    "canonical_socket_name": "output_5",
+                    "emitted_sockets": [{"slot": 0, "name": "out", "slot_index": 0}],
+                    "attempted_remaps": [
+                        {
+                            "strategy": "in_range_slot",
+                            "requested_slot": 5,
+                            "socket_at_slot": None,
+                            "out_of_range": True,
+                        },
+                        {
+                            "strategy": "canonical_name_scan",
+                            "sought_name": "output_5",
+                            "found_at": [],
+                        },
+                    ],
+                },
+                "target": {
+                    "node_id": "2",
+                    "requested_input": "in_a",
+                    "requested_slot": 0,
+                    "emitted_sockets": [],
+                },
+                "missing": "source_socket",
+            },
+        },
+        {
+            "key": "1.0 -> 2.in_3",
+            "evidence": {
+                "source": {"node_id": "1", "requested_slot": 0},
+                "target": {
+                    "node_id": "2",
+                    "requested_input": "in_3",
+                    "requested_slot": 3,
+                    "attempted_remaps": [
+                        {"strategy": "slot_index_scan", "sought_slot": 3, "found_at": []}
+                    ],
+                },
+                "missing": "target_socket",
+            },
+        },
+    ]
+
+    try:
+        module = importlib.import_module("vibecomfy.porting.refuse")
+        exc = module.refused_dangling_links(links)
+
+        assert (
+            exc.reason
+            == "refusing to emit 2 dangling link(s): link endpoint has no matching emitted socket"
+        )
+        assert set(exc.diff) == {"links"}
+        assert exc.diff["links"]["1.5 -> 2.in_a"]["missing"] == "source_socket"
+        assert exc.diff["links"]["1.5 -> 2.in_a"]["source"]["emitted_sockets"][0]["name"] == "out"
+        assert exc.diff["links"]["1.5 -> 2.in_a"]["source"]["attempted_remaps"][0][
+            "out_of_range"
+        ] is True
+        assert exc.diff["links"]["1.0 -> 2.in_3"]["missing"] == "target_socket"
+        # Evidence stays a dict per link (both endpoints + missing axis).
+        assert set(exc.diff["links"]["1.0 -> 2.in_3"]) == {"source", "target", "missing"}
+        # JSON-safe end to end.
+        blob = json.loads(json.dumps({"refused_emit": exc.diff}))
+        assert blob["refused_emit"]["links"]["1.5 -> 2.in_a"]["source"]["requested_slot"] == 5
+        assert str(exc) == exc.reason
+        assert "vibecomfy.comfy_backend" not in sys.modules
+    finally:
+        _restore_vibecomfy_modules(removed_modules)
+
+
 def test_refuses_control_after_generate_slot_drop() -> None:
     """Spike T4 reproduction: dropping ``control_after_generate`` from the
     KSampler widgets_values shifts every following widget by one position,

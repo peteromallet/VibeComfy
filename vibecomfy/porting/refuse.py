@@ -110,6 +110,31 @@ def refused_widget_shape(verdicts: Iterable[Any]) -> RefusedEmit:
     )
 
 
+def refused_dangling_links(links: Iterable[Mapping[str, Any]]) -> RefusedEmit:
+    """Return a ``RefusedEmit`` for input edges with no matching emitted socket.
+
+    Mirrors :func:`refused_widget_shape`: one aggregated refusal carrying every
+    offending link under ``diff["links"]``.  Each item is a mapping with
+    ``key`` (the canonical ``from_node.from_output -> to_node.to_input`` edge
+    identity) and ``evidence`` (both endpoints — requested output/input and
+    slots, the emitted socket arrays consulted, and the remap strategies
+    attempted — assembled by ``emit_ui_json``'s R2-D1 projection).  The
+    refusal is what guarantees an input edge is never silently dropped (B2):
+    it is either emitted/remapped or the whole emit is refused.
+    """
+    entries = list(links)
+    diff: dict[str, Any] = {"links": {}}
+    for entry in entries:
+        key = str(_read_attr(entry, "key"))
+        evidence = _read_attr(entry, "evidence")
+        diff["links"][key] = _jsonable(evidence) if evidence is not None else {}
+    return RefusedEmit(
+        f"refusing to emit {len(entries)} dangling link(s): "
+        "link endpoint has no matching emitted socket",
+        diff,
+    )
+
+
 def _read_attr(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, Mapping):
         return obj.get(name, default)
@@ -375,6 +400,7 @@ __all__ = [
     "EditorAheadError",
     "RefusedEmit",
     "guard_emit",
+    "refused_dangling_links",
     "refused_widget_shape",
     "widget_shape_refusal_diff",
 ]

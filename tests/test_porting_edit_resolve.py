@@ -1335,6 +1335,72 @@ class TestFoldResearchStatement:
         assert state.collected_research_summary == ""
 
 
+# ── I01: legacy research() shadow flag ─────────────────────────────────────────
+
+
+class TestLegacyResearchShadowFlag:
+    """I01/H01: research() stays callable but is flagged shadow-only so the
+    named Wave-A tool calls are the canonical evidence surface."""
+
+    def _resolve_research(self, code: str, monkeypatch: pytest.MonkeyPatch):
+        import ast
+        import importlib
+
+        from vibecomfy.executor.contracts import ResearchResult
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+
+        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            return ResearchResult(summary="Summary.", sources=())
+
+        monkeypatch.setattr(research_module, "research", fake_research)
+
+        tree = ast.parse(code)
+        resolver = _ResolveMixin()
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+        return result
+
+    def test_research_detail_flagged_legacy_shadow_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = self._resolve_research('research("wan t2v")', monkeypatch)
+        assert result.ok is True
+        assert result.detail["legacy_shadow_only"] is True
+        assert result.detail["research_query"] == "wan t2v"
+
+    def test_tool_calls_are_not_flagged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import ast
+
+        import vibecomfy.executor.hivemind_tools as hivemind_tools
+        from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
+
+        monkeypatch.setattr(
+            hivemind_tools,
+            "hivemind_search",
+            lambda query, **kw: ToolResult(
+                tool_name="hivemind_search",
+                status=ToolStatus.NO_RESULTS,
+                result={"query": query, "count": 0, "hits": []},
+            ),
+        )
+        tree = ast.parse('hivemind_search("wan t2v")')
+        resolver = _ResolveMixin()
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+        assert result.ok is True
+        assert result.detail["tool_call"] == "hivemind_search"
+        assert "legacy_shadow_only" not in result.detail
+
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 

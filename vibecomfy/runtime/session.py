@@ -144,9 +144,18 @@ class RunResult:
 
 
 class PreparedPrompt(dict):
-    def __init__(self, api_dict: dict[str, Any], *, schema_validation_skipped: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        api_dict: dict[str, Any],
+        *,
+        schema_validation_skipped: list[str] | None = None,
+        normalization: Any | None = None,
+    ) -> None:
         super().__init__(api_dict)
         self.schema_validation_skipped = schema_validation_skipped or []
+        #: Applied-and-approved normalization proposal (evidence); None when no
+        #: normalization was needed or approved.
+        self.normalization = normalization
 
 
 @dataclass(slots=True)
@@ -247,6 +256,7 @@ class EmbeddedSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        normalize_approval: Any | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
@@ -300,12 +310,16 @@ class EmbeddedSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
+            untracked_kwargs: dict[str, Any] = {}
+            if normalize_approval is not None:
+                untracked_kwargs["normalize_approval"] = normalize_approval
             return await self._run_untracked(
                 workflow,
                 backend=backend,
                 strict_drift=resolved_strict,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                **untracked_kwargs,
             )
         finally:
             if self._inflight_run is task:
@@ -319,6 +333,7 @@ class EmbeddedSession:
         strict_drift: bool = False,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        normalize_approval: Any | None = None,
     ) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
@@ -329,13 +344,18 @@ class EmbeddedSession:
         if self._schema_provider is None:
             self._schema_provider = _build_schema_provider(None)
         phase_start = time.monotonic()
+        prepare_kwargs: dict[str, Any] = {}
+        if normalize_approval is not None:
+            prepare_kwargs["normalize_approval"] = normalize_approval
         api_dict = await _prepare_prompt_async(
             workflow,
             backend=backend,
             schema_provider=self._schema_provider,
             on_unavailable=self._on_schema_unavailable,
+            **prepare_kwargs,
         )
         schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+        normalization = getattr(api_dict, "normalization", None)
         timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
         fp = model_fingerprint(api_dict)
 
@@ -400,6 +420,7 @@ class EmbeddedSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
+            normalization=normalization,
             chain_id=chain_id,
             parent_run_id=parent_run_id,
         )
@@ -496,6 +517,7 @@ class ServerSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        normalize_approval: Any | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
@@ -509,12 +531,16 @@ class ServerSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
+            untracked_kwargs: dict[str, Any] = {}
+            if normalize_approval is not None:
+                untracked_kwargs["normalize_approval"] = normalize_approval
             return await self._run_untracked(
                 workflow,
                 backend=backend,
                 strict_drift=resolved_strict,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                **untracked_kwargs,
             )
         finally:
             if self._inflight_run is task:
@@ -528,6 +554,7 @@ class ServerSession:
         strict_drift: bool = False,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        normalize_approval: Any | None = None,
     ) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
@@ -538,13 +565,18 @@ class ServerSession:
         if self._schema_provider is None:
             self._schema_provider = _build_schema_provider(self.url)
         phase_start = time.monotonic()
+        prepare_kwargs: dict[str, Any] = {}
+        if normalize_approval is not None:
+            prepare_kwargs["normalize_approval"] = normalize_approval
         api_dict = await _prepare_prompt_async(
             workflow,
             backend=backend,
             schema_provider=self._schema_provider,
             on_unavailable=self._on_schema_unavailable,
+            **prepare_kwargs,
         )
         schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+        normalization = getattr(api_dict, "normalization", None)
         timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
         fp = model_fingerprint(api_dict)
 
@@ -604,6 +636,7 @@ class ServerSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
+            normalization=normalization,
             chain_id=chain_id,
             parent_run_id=parent_run_id,
         )
@@ -959,9 +992,15 @@ def _prepare_prompt(
     *,
     backend: str,
     schema_provider: Any | None = None,
+    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
     try:
-        return _prepare_runtime_prompt(workflow, backend=backend, schema_provider=schema_provider)
+        return _prepare_runtime_prompt(
+            workflow,
+            backend=backend,
+            schema_provider=schema_provider,
+            normalize_approval=normalize_approval,
+        )
     except VibeComfyError:
         # VibeComfyError subclasses carry next_action — re-raise unwrapped
         # so callers can recover the remediation hint.
@@ -981,6 +1020,7 @@ async def _prepare_prompt_async(
     schema_provider: Any | None,
     on_unavailable,
     cache_only: bool = False,
+    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
     effective = await _warm_schema_provider(
         schema_provider,
@@ -988,11 +1028,20 @@ async def _prepare_prompt_async(
         cache_only=cache_only,
     )
     try:
-        api_dict = _prepare_runtime_prompt(workflow, backend=backend, schema_provider=effective)
+        api_dict, applied = _prepare_runtime_prompt_with_evidence(
+            workflow,
+            backend=backend,
+            schema_provider=effective,
+            normalize_approval=normalize_approval,
+        )
         skipped = _schema_skipped_class_types(api_dict) if schema_provider is not None and effective is None else []
         if skipped:
             on_unavailable("schema validation skipped for class types: " + ", ".join(skipped))
-        return PreparedPrompt(api_dict, schema_validation_skipped=skipped)
+        return PreparedPrompt(
+            api_dict,
+            schema_validation_skipped=skipped,
+            normalization=applied,
+        )
     except VibeComfyError:
         # VibeComfyError subclasses carry next_action — re-raise unwrapped
         # so callers can recover the remediation hint.
@@ -1018,7 +1067,33 @@ def _prepare_runtime_prompt(
     *,
     backend: str,
     schema_provider: Any | None,
+    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
+    api_dict, _applied = _prepare_runtime_prompt_with_evidence(
+        workflow,
+        backend=backend,
+        schema_provider=schema_provider,
+        normalize_approval=normalize_approval,
+    )
+    return api_dict
+
+
+def _prepare_runtime_prompt_with_evidence(
+    workflow: VibeWorkflow,
+    *,
+    backend: str,
+    schema_provider: Any | None,
+    normalize_approval: Any | None = None,
+) -> tuple[dict[str, Any], Any | None]:
+    """Prepare the queue payload; returns (api_dict, applied_normalization).
+
+    Queue preparation is fail-closed: any change the runtime would need
+    (dropping an undeclared input, coercing a portable choice string) is
+    computed as a typed :class:`NormalizationProposal` and REFUSED unless the
+    caller supplies explicit agent approval binding exactly to that proposal.
+    When approved, exactly the proposed operations are applied and returned as
+    evidence alongside the payload.
+    """
     structural_report = workflow.validate(schema_provider=None)
     if not structural_report.ok:
         raise SchemaValidationError(
@@ -1028,12 +1103,20 @@ def _prepare_runtime_prompt(
     api_dict = workflow.compile(backend=backend)
     if backend == "api" and schema_provider is not None:
         from vibecomfy.schema.validate import (
-            sanitize_api_against_schema,
+            SchemaNormalizationRequired,
+            apply_schema_normalization,
+            propose_schema_normalization,
             validate_api_against_schema,
             validate_api_link_shapes,
         )
 
-        api_dict = sanitize_api_against_schema(api_dict, schema_provider)
+        proposal = propose_schema_normalization(api_dict, schema_provider)
+        applied: Any | None = None
+        if proposal.ops:
+            if not proposal.approved_by(normalize_approval):
+                raise SchemaNormalizationRequired(proposal)
+            api_dict = apply_schema_normalization(api_dict, proposal)
+            applied = proposal
         schema_issues = [
             *validate_api_against_schema(api_dict, schema_provider),
             *validate_api_link_shapes(api_dict, schema_provider),
@@ -1045,7 +1128,8 @@ def _prepare_runtime_prompt(
                 _validation_failed_message(ValidationReport(ok=False, issues=schema_issues)),
                 next_action="vibecomfy schema refresh",
             )
-    return api_dict
+        return api_dict, applied
+    return api_dict, None
 
 
 def _run_metadata(
@@ -1060,6 +1144,7 @@ def _run_metadata(
     config: SessionConfig | None = None,
     timings: dict[str, float] | None = None,
     schema_validation_skipped: list[str] | None = None,
+    normalization: Any | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1092,6 +1177,9 @@ def _run_metadata(
         "runtime": runtime,
         "schema_validation_skipped": schema_validation_skipped or [],
     }
+    normalization_ops = getattr(normalization, "ops", None)
+    if normalization_ops:
+        metadata["schema_normalization"] = [op.to_dict() for op in normalization_ops]
     entrypoint = workflow.metadata.get("entrypoint")
     layer = workflow.metadata.get("layer")
     if isinstance(entrypoint, str) and entrypoint:

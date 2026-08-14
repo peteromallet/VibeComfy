@@ -191,8 +191,13 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
     reserializing the full packet or dumping ``query_output`` verbatim.
     Statements without a packet fall back to the marker-matched
     ``query_output`` path for non-research turns (e.g. ``search()``).
+
+    I01: Wave-A agent tool statements (``detail["tool_call"]``) are carried as
+    compact F01 ledger entries + evidence IDs ONLY — their raw result bodies
+    never enter prompt memory.
     """
     records: list[str] = []
+    tool_records: list[str] = _tool_evidence_ledger_records(state)
     for turn in getattr(state, "batch_turns", ()) or ():
         if not isinstance(turn, Mapping):
             continue
@@ -205,6 +210,11 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
                 continue
             detail = statement.get("detail")
             if not isinstance(detail, Mapping):
+                continue
+            # I01: agent tool statements are carried by the tool-evidence
+            # ledger path only (compact ledger entries + evidence IDs); they
+            # never ride the legacy query_output memory path.
+            if detail.get("tool_call"):
                 continue
 
             # ── packet-aware compact path ────────────────────────────
@@ -253,7 +263,7 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
     # or invent better ones.  The header only rides on actual prior-turn
     # records; with no records there is no memory block (the brief already
     # showed the directions on turn 0).
-    if not records:
+    if not records and not tool_records:
         return ""
     brief = getattr(state, "executor_research_brief", None)
     directions = (
@@ -268,7 +278,59 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
                 f"better ones): {shown}\n\n"
             )
     body = "\n\n".join(records[-max_items:])
+    if tool_records:
+        tool_block = (
+            "Tool evidence ledger (compact; entries + evidence IDs only, "
+            "resolve IDs with hivemind_get(...), never repeat raw bodies):\n"
+            + "\n".join(tool_records[-max_items:])
+        )
+        body = (body + "\n\n" if body else "") + tool_block
     return (header + body).strip()
+
+
+def _tool_evidence_ledger_records(state: Any) -> list[str]:
+    """Compact cross-turn ledger records for Wave-A agent tool statements.
+
+    Renders ONLY the F01 ledger entry (decision / conclusion) plus its
+    evidence IDs from each prior turn's statement detail.  Raw tool result
+    bodies are never included — that is the I01 ledger-only memory contract.
+    """
+    records: list[str] = []
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements")
+        if not isinstance(statements, list):
+            continue
+        turn_number = turn.get("turn_number")
+        for statement in statements:
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            tool_call = detail.get("tool_call")
+            if not tool_call:
+                continue
+            entry = detail.get("ledger_entry")
+            if not isinstance(entry, Mapping):
+                # budget/deadline refusals: typed state is preserved but not
+                # repeated as a ledger record (nothing was gathered)
+                continue
+            decision = str(entry.get("decision") or tool_call)
+            conclusion = str(entry.get("conclusion") or "")
+            evidence_ids = entry.get("evidence_ids")
+            evidence_text = (
+                ", ".join(str(item) for item in evidence_ids)
+                if isinstance(evidence_ids, (list, tuple)) and evidence_ids
+                else "(none)"
+            )
+            status = str(detail.get("tool_status") or "?")
+            records.append(
+                f"- [turn {turn_number}] {decision} ({status}) — "
+                f"{conclusion} — evidence: {evidence_text}"
+            )
+    return records
 
 
 def _summarize_precedent_packet(

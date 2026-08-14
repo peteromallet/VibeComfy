@@ -3424,3 +3424,313 @@ def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     )
     emitted = next(n for n in ui["nodes"] if str(n.get("id")) == "249")
     assert emitted["widgets_values"] == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
+
+
+# ---------------------------------------------------------------------------
+# S02 — B2: never drop an emitted edge.  An input edge is either emitted,
+# remapped onto a matching emitted socket (R2-D1 canonical-name/slot remap),
+# or the whole emit refuses with RefusedEmit — there is no warning-and-continue
+# drop path left.
+# ---------------------------------------------------------------------------
+
+
+def _s02_provider() -> _Provider:
+    return _Provider(
+        {
+            "SourceNode": _schema("SourceNode", [OutputSpec("A", "out")]),
+            "TargetNode": _schema("TargetNode", []),
+        }
+    )
+
+
+def _dangling_source_wf() -> VibeWorkflow:
+    """Source endpoint is a phantom slot (``5``) absent from the emitted output
+    array (schema node exposes a single output) and no canonical-name remap
+    exists."""
+    wf = _wf("s02-dangling-source")
+    wf.nodes["1"] = VibeNode("1", "SourceNode")
+    wf.nodes["2"] = VibeNode("2", "TargetNode")
+    wf.edges.append(VibeEdge("1", "5", "2", "in_a"))
+    return wf
+
+
+def _dangling_target_wf() -> VibeWorkflow:
+    """Target endpoint names a dynamic input (``in_3``) the emitted
+    ``vibecomfy.exec`` node does not declare (its io only has ``in_0``); no
+    remap exists."""
+    wf = _wf("s02-dangling-target")
+    wf.nodes["1"] = VibeNode("1", "SourceNode")
+    wf.nodes["2"] = VibeNode(
+        "2",
+        "vibecomfy.exec",
+        widgets={"io": {"inputs": [["a", "INT"]], "outputs": [["b", "INT"]]}},
+    )
+    wf.edges.append(VibeEdge("1", "0", "2", "in_3"))
+    return wf
+
+
+def _dangling_both_wf() -> VibeWorkflow:
+    """Both endpoints are phantom: source ``5`` vs a single schema output;
+    target ``in_9`` vs a single emitted exec ``in_0``."""
+    wf = _wf("s02-dangling-both")
+    wf.nodes["1"] = VibeNode("1", "SourceNode")
+    wf.nodes["2"] = VibeNode(
+        "2",
+        "vibecomfy.exec",
+        widgets={"io": {"inputs": [["a", "INT"]], "outputs": []}},
+    )
+    wf.edges.append(VibeEdge("1", "5", "2", "in_9"))
+    return wf
+
+
+def _simple_chain_wf() -> VibeWorkflow:
+    """Two schema nodes, one well-formed edge — emits cleanly."""
+    wf = _wf("s02-simple-chain")
+    wf.nodes["1"] = VibeNode("1", "SourceNode")
+    wf.nodes["2"] = VibeNode("2", "TargetNode")
+    wf.edges.append(VibeEdge("1", "0", "2", "in_a"))
+    return wf
+
+
+def _remap_phantom_slot_wf() -> VibeWorkflow:
+    """Schema-less source whose phantom slot (``2``) remaps to the emitted
+    socket by canonical name (``output_2``) — the legitimate R2-D1 remap."""
+    wf = _wf("s02-remap-phantom")
+    wf.nodes["1"] = VibeNode("1", "PhantomSource")
+    wf.nodes["2"] = VibeNode("2", "TargetNode")
+    wf.edges.append(VibeEdge("1", "2", "2", "in_a"))
+    return wf
+
+
+def _assert_refusal_evidence(entry: dict[str, Any]) -> None:
+    """Every dangling-link refusal entry must carry both endpoints, the
+    requested sockets/slots, the emitted socket arrays, and attempted remaps."""
+    assert set(entry) == {"source", "target", "missing"}
+    assert entry["missing"] in {
+        "source_socket",
+        "target_socket",
+        "source_and_target_socket",
+    }
+    for side in ("source", "target"):
+        endpoint = entry[side]
+        assert endpoint["node_id"]
+        assert isinstance(endpoint["requested_slot"], int)
+        assert isinstance(endpoint["emitted_sockets"], list)
+    source = entry["source"]
+    target = entry["target"]
+    if entry["missing"] in {"source_socket", "source_and_target_socket"}:
+        assert "requested_output" in source
+        assert "canonical_socket_name" in source
+        strategies = {s["strategy"]: s for s in source["attempted_remaps"]}
+        assert set(strategies) == {"in_range_slot", "canonical_name_scan", "slot_index_scan"}
+    if entry["missing"] in {"target_socket", "source_and_target_socket"}:
+        assert "requested_input" in target
+        strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
+        assert set(strategies) == {"in_range_slot", "canonical_name_scan", "slot_index_scan"}
+
+
+def test_s02_dangling_source_endpoint_refuses_with_full_evidence() -> None:
+    """A link whose source has no matching emitted socket refuses with evidence
+    covering both endpoints, requested slots, emitted arrays and remap attempts."""
+    wf = _dangling_source_wf()
+    with pytest.raises(RefusedEmit) as exc_info:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf, schema_provider=_s02_provider())
+    diff = exc_info.value.diff
+    assert list(diff) == ["links"]
+    entry = diff["links"]["1.5 -> 2.in_a"]
+    _assert_refusal_evidence(entry)
+    assert entry["missing"] == "source_socket"
+    assert "2 dangling link" not in exc_info.value.reason
+    assert "1 dangling link" in exc_info.value.reason
+
+    source = entry["source"]
+    assert source["node_id"] == "1"
+    assert source["requested_output"] == "5"
+    assert source["requested_slot"] == 5
+    assert source["canonical_socket_name"] == "output_5"
+    assert source["emitted_sockets"] == [{"slot": 0, "name": "out", "slot_index": 0}]
+    strategies = {s["strategy"]: s for s in source["attempted_remaps"]}
+    assert strategies["in_range_slot"]["requested_slot"] == 5
+    assert strategies["in_range_slot"]["out_of_range"] is True
+    assert strategies["canonical_name_scan"]["sought_name"] == "output_5"
+    assert strategies["canonical_name_scan"]["found_at"] == []
+    assert strategies["slot_index_scan"]["sought_slot"] == 5
+    assert strategies["slot_index_scan"]["found_at"] == []
+
+    # Both endpoints are present even though only the source dangled.
+    target = entry["target"]
+    assert target["node_id"] == "2"
+    assert target["requested_input"] == "in_a"
+    assert target["requested_slot"] == 0
+    assert target["emitted_sockets"] == [{"slot": 0, "name": "in_a", "slot_index": None}]
+
+    # Refusal evidence is JSON-serializable end to end.
+    blob = json.loads(json.dumps({"refused_emit": diff}))
+    assert blob["refused_emit"]["links"]["1.5 -> 2.in_a"]["missing"] == "source_socket"
+
+
+def test_s02_dangling_target_endpoint_refuses_with_full_evidence() -> None:
+    """A link whose target names a dynamic input the emitted exec node does not
+    declare refuses instead of dropping the edge."""
+    wf = _dangling_target_wf()
+    with pytest.raises(RefusedEmit) as exc_info:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf, schema_provider=_s02_provider())
+    entry = exc_info.value.diff["links"]["1.0 -> 2.in_3"]
+    _assert_refusal_evidence(entry)
+    assert entry["missing"] == "target_socket"
+
+    target = entry["target"]
+    assert target["node_id"] == "2"
+    assert target["requested_input"] == "in_3"
+    assert target["requested_slot"] == 3
+    assert target["emitted_sockets"] == [{"slot": 0, "name": "in_0", "slot_index": None}]
+    strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
+    assert strategies["in_range_slot"]["out_of_range"] is True
+    assert strategies["canonical_name_scan"]["sought_name"] == "in_3"
+    assert strategies["canonical_name_scan"]["found_at"] == []
+    assert strategies["slot_index_scan"]["sought_slot"] == 3
+    assert strategies["slot_index_scan"]["found_at"] == []
+
+    # Source endpoint evidence is included too.
+    source = entry["source"]
+    assert source["node_id"] == "1"
+    assert source["requested_output"] == "0"
+    assert source["requested_slot"] == 0
+    assert source["emitted_sockets"] == [{"slot": 0, "name": "out", "slot_index": 0}]
+
+
+def test_s02_both_endpoints_dangling_refuses_once_with_aggregated_evidence() -> None:
+    """Source AND target dangling accumulate into ONE RefusedEmit entry with
+    attempted-remap evidence on both sides."""
+    wf = _dangling_both_wf()
+    with pytest.raises(RefusedEmit) as exc_info:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf, schema_provider=_s02_provider())
+    diff = exc_info.value.diff
+    assert list(diff) == ["links"]
+    entry = diff["links"]["1.5 -> 2.in_9"]
+    _assert_refusal_evidence(entry)
+    assert entry["missing"] == "source_and_target_socket"
+    assert "1 dangling link" in exc_info.value.reason
+    # Both sides ran the full remap attempt set.
+    for side in ("source", "target"):
+        strategies = {s["strategy"]: s for s in entry[side]["attempted_remaps"]}
+        assert strategies["in_range_slot"]["out_of_range"] is True
+        assert strategies["canonical_name_scan"]["found_at"] == []
+        assert strategies["slot_index_scan"]["found_at"] == []
+
+
+def test_s02_phantom_slot_remap_by_canonical_name_still_emits() -> None:
+    """The legitimate R2-D1 remap is untouched: a phantom slot whose canonical
+    name matches an emitted socket is remapped, never refused."""
+    wf = _remap_phantom_slot_wf()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(wf, schema_provider=_s02_provider())
+    assert len(ui["links"]) == 1
+    link = ui["links"][0]
+    assert link[2] == 0  # from_output "2" remapped onto emitted socket index 0
+    source = next(n for n in ui["nodes"] if n["id"] == 1)
+    assert source["outputs"][0]["name"] == "output_2"
+    assert source["outputs"][0]["slot_index"] == 2
+
+
+_S02_WORKFLOWS = [
+    ("simple_chain", _simple_chain_wf),
+    ("remap_phantom_slot", _remap_phantom_slot_wf),
+    ("dangling_source", _dangling_source_wf),
+    ("dangling_target", _dangling_target_wf),
+    ("dangling_both", _dangling_both_wf),
+]
+
+
+@pytest.mark.parametrize(
+    "name,builder",
+    _S02_WORKFLOWS,
+    ids=[case[0] for case in _S02_WORKFLOWS],
+)
+def test_s02_property_every_edge_emitted_or_refused(name: str, builder: Any) -> None:
+    """Invariant (B2): the emitter never silently drops an input edge.
+
+    For every workflow, either ``emit_ui_json`` raises ``RefusedEmit`` (an
+    endpoint has no matching emitted socket and no remap) or the emitted link
+    set equals the input edge set — one link per edge, link ids a perfect
+    1..N permutation, every endpoint inside the emitted node's socket arrays.
+    """
+    wf = builder()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ui = emit_ui_json(wf, schema_provider=_s02_provider())
+    except RefusedEmit:
+        return  # refused — every edge was accounted for, none silently dropped
+
+    input_edges = sorted(
+        wf.edges,
+        key=lambda e: (e.from_node.zfill(20), e.from_output, e.to_node.zfill(20), e.to_input),
+    )
+    links = ui["links"]
+    assert len(links) == len(input_edges), (
+        f"{name}: emitted {len(links)} links for {len(input_edges)} input edges"
+    )
+    lids = sorted(link[0] for link in links)
+    assert lids == list(range(1, len(input_edges) + 1)), (
+        f"{name}: link id set {lids} is not a perfect 1..N permutation"
+    )
+    by_id = {str(n["id"]): n for n in ui["nodes"]}
+    for link in links:
+        source = by_id[str(link[1])]
+        target = by_id[str(link[3])]
+        assert 0 <= link[2] < len(source.get("outputs", [])), (
+            f"{name}: link {link[0]} source slot {link[2]} outside emitted outputs"
+        )
+        assert 0 <= link[4] < len(target.get("inputs", [])), (
+            f"{name}: link {link[0]} target slot {link[4]} outside emitted inputs"
+        )
+
+
+def test_s02_property_corpus_workflows_emit_every_edge_or_refuse() -> None:
+    """B2 invariant over live corpus workflows: either ``RefusedEmit`` or the
+    emitted link set equals the input edge set (one link per edge, ids a
+    1..N permutation, endpoints inside emitted socket arrays) — no silent
+    drops on real product data."""
+    from vibecomfy.ingest.normalize import from_api
+
+    for path in (
+        "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+        "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+        "tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json",
+    ):
+        wf = from_api(_corpus(path))
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ui = emit_ui_json(wf, include_main_positions=False)
+        except RefusedEmit:
+            continue  # refused — every edge accounted for, none dropped
+
+        input_edges = sorted(
+            wf.edges,
+            key=lambda e: (e.from_node.zfill(20), e.from_output, e.to_node.zfill(20), e.to_input),
+        )
+        links = ui["links"]
+        assert len(links) == len(input_edges), (
+            f"{path}: emitted {len(links)} links for {len(input_edges)} input edges"
+        )
+        lids = sorted(link[0] for link in links)
+        assert lids == list(range(1, len(input_edges) + 1)), (
+            f"{path}: link id set {lids} is not a perfect 1..N permutation"
+        )
+        by_id = {str(n["id"]): n for n in ui["nodes"]}
+        for link in links:
+            assert 0 <= link[2] < len(by_id[str(link[1])].get("outputs", [])), (
+                f"{path}: link {link[0]} source slot outside emitted outputs"
+            )
+            assert 0 <= link[4] < len(by_id[str(link[3])].get("inputs", [])), (
+                f"{path}: link {link[0]} target slot outside emitted inputs"
+            )

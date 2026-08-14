@@ -22,7 +22,11 @@ from vibecomfy.contracts.validation import comfyui_node_issue_specs
 from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import NodeSchema, schema_for
-from vibecomfy.schema.validate import sanitize_api_against_schema, validate_api_against_schema
+from vibecomfy.schema.validate import (
+    apply_schema_normalization,
+    propose_schema_normalization,
+    validate_api_against_schema,
+)
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -205,7 +209,7 @@ def test_attempt_bundle_redacts_runtime_source_and_records_contract_metadata(
     assert "runtime_source" in bundle["redactions"]
 
 
-def test_schema_sanitize_preserves_runtime_backed_code_inputs() -> None:
+def test_schema_normalization_preserves_runtime_backed_code_inputs() -> None:
     properties = intent_node_properties(
         kind="code",
         uid="runtime-code",
@@ -230,10 +234,14 @@ def test_schema_sanitize_preserves_runtime_backed_code_inputs() -> None:
         def get_schema(self, class_type: str) -> None:
             return None
 
-    sanitized = sanitize_api_against_schema(api, StrictProvider())
-    issues = validate_api_against_schema(sanitized, StrictProvider())
+    proposal = propose_schema_normalization(api, StrictProvider())
 
-    assert sanitized["1"]["inputs"] == api["1"]["inputs"]
+    # The builtin schema declares every runtime-backed input: no changes needed.
+    assert proposal.ops == ()
+    applied = apply_schema_normalization(api, proposal)
+    issues = validate_api_against_schema(applied, StrictProvider())
+
+    assert applied["1"]["inputs"] == api["1"]["inputs"]
     assert issues == []
     schema = schema_for(StrictProvider(), "vibecomfy.code")
     assert schema is not None

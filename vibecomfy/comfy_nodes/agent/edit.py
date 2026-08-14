@@ -2,6 +2,18 @@ from __future__ import annotations
 
 from importlib import import_module
 
+# I01 (agent tool surface): the ten Wave-A named tool calls
+# (hivemind_search/hivemind_get/registry_lookup/node_schema/ready_template_list/
+# ready_template_load/rank_edit_targets/suggest_seed_nodes/layout_hints/
+# web_search) are admitted to the batch protocol in
+# vibecomfy/porting/edit/_parse.py and resolved with typed ToolResults, effort
+# budgets (3 searches / 6 fetches / 1 registry batch / ~90s), and F01
+# EvidenceLedger entries in vibecomfy/porting/edit/_resolve.py
+# (_AgentToolSurface).  Cross-turn context is ledger-only: _frag_batch_memory
+# renders compact ledger entries + evidence IDs into _batch_research_memory_summary,
+# and provider.build_batch_messages documents the tools and renders the
+# evidence_ledger block.  legacy research() stays callable, flagged shadow-only
+# for H01 comparison.
 # T-037: the batch REPL loop now lives as real functions in edit_batch_repl.py,
 # reached through the thin _stage_agent_batch_repl delegate defined below.
 # Resolved here via import_module (never through a normal from-import) so there
