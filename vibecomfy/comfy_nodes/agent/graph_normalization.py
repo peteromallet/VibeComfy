@@ -50,10 +50,16 @@ def normalize_agent_edit_graph(
     ):
         raise ValueError("nodes must contain only node objects")
 
-    from vibecomfy.ingest.normalize import from_envelope
+    from vibecomfy.ingest.normalize import from_api, from_envelope
     from vibecomfy.porting.emit.ui import emit_ui_json
 
-    workflow = from_envelope(graph)
+    # A rich ``nodes`` mapping is a serialized Vibe envelope; anything else
+    # (no ``nodes`` key) is a ComfyUI API-format prompt dict (node id -> node),
+    # which the API importer consumes directly.
+    if isinstance(entries, Mapping):
+        workflow = from_envelope(graph)
+    else:
+        workflow = from_api(graph, schema_provider=schema_provider)
     return emit_ui_json(
         workflow,
         schema_provider=schema_provider,

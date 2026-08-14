@@ -1125,3 +1125,21 @@ def test_from_api_matches_api_fixture_invariants() -> None:
     assert _ir_projection(wf)["ids"]
     assert all(node.uid for node in wf.nodes.values())
     assert all(node.class_type for node in wf.nodes.values())
+
+
+def test_normalize_agent_edit_graph_accepts_api_prompt_dict() -> None:
+    """Agent Edit must accept a ComfyUI API-format prompt dict (node id -> node).
+
+    Regression guard for the Batch B migration: normalize_agent_edit_graph
+    previously hard-routed every non-list graph to ``from_envelope``, which
+    fail-closed on API-shaped payloads (no top-level ``nodes`` key) with
+    "serialized vibe envelope 'nodes' must be a mapping of node objects".
+    """
+    api_prompt = {
+        "107": {"class_type": "SaveImage", "inputs": {"images": ["108", 0]}},
+        "108": {"class_type": "VAEDecode", "inputs": {}},
+    }
+    normalized = normalize_agent_edit_graph(api_prompt)
+    node_ids = {node["id"] for node in normalized["nodes"]}
+    assert node_ids == {107, 108}, node_ids
+    assert normalized["links"], "API edges must become canonical UI links"
