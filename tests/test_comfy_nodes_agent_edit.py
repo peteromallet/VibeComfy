@@ -21303,19 +21303,23 @@ def test_entrypoint_enforces_max_batches_bounds_and_ignores_invalid(
     )
     assert "out of 250" in _budget_line()
 
-    # Boolean, zero, and >250 are rejected: the default 50 stays.
+    # Boolean, zero, and >250 are rejected (oracle P2a: no silent default).
     for bad in (True, 0, 251, 999):
         captured.clear()
-        handle_agent_edit(
-            {
-                "graph": _ui_graph(),
-                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-                "task": "inspect",
-                "session_id": f"prd-max-batches-invalid-{bad!r}",
-                "max_batches": bad,
-            },
-            schema_provider=provider,
-            deepseek_client=_fake_batch_client,
-            session_root=tmp_path,
-        )
-        assert "out of 50" in _budget_line(), f"invalid max_batches {bad!r} leaked"
+        try:
+            handle_agent_edit(
+                {
+                    "graph": _ui_graph(),
+                    "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+                    "task": "inspect",
+                    "session_id": f"prd-max-batches-invalid-{bad!r}",
+                    "max_batches": bad,
+                },
+                schema_provider=provider,
+                deepseek_client=_fake_batch_client,
+                session_root=tmp_path,
+            )
+        except ValueError as exc:
+            assert "max_batches must be an integer in 1..250" in str(exc)
+            continue
+        raise AssertionError(f"invalid max_batches {bad!r} was not rejected")
