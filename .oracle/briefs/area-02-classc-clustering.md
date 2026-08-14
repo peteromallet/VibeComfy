@@ -1,0 +1,5 @@
+Explore area: Class-C clustering — do wiring failures share one editor/catalog defect?
+
+Context: failure class C8 "missing stable link from/to port" (~6 scenarios) and C9 wrong-semantic edits were genuine model-output defects in the failure synthesis (docs/failure-analysis/agentic-pipeline-improvement-2026-08.md §2). The residual inventory will re-bin remaining failures; this area decides whether wiring failures share one editor/catalog defect or are independent model mistakes.
+
+Task: examine the wiring/link failure artifacts under out/agentic/ (live-final, live-g0 runs: agentic_summary.json, implementation_result.json, failure details), and the agent-edit catalog/wiring code (vibecomfy/comfy_nodes/agent/, porting/edit/). Report: verified patterns across the failing scenarios (same root? same code path? file:line evidence), whether any single editor/catalog defect explains multiple failures, unknowns, risks, and whether a final quality-tail batch is justified. Ranked findings, <300 words.

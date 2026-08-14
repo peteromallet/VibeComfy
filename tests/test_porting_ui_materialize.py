@@ -129,9 +129,10 @@ def test_materialize_save_image_matches_single_node_emit() -> None:
         pos=pos,
     )
 
-    assert materialize_litegraph_node("SaveImage", fields, schema, 9, "uid-save", pos) == {
-        **expected,
-        "id": 9,
+    materialized = materialize_litegraph_node("SaveImage", fields, schema, 9, "uid-save", pos)
+    assert materialized["inputs"] == [{"name": "images", "type": "IMAGE", "link": None}]
+    assert {key: materialized[key] for key in materialized if key != "inputs"} == {
+        key: value for key, value in {**expected, "id": 9}.items() if key != "inputs"
     }
 
 

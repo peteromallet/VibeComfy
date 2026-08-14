@@ -1,41 +1,42 @@
-# B04 — Real-schema authority and apply-time combo validation
+# MEGADO BATCH B04 — Real-schema authority (Flash executor)
 
-Executor: DeepSeek V4 Flash (normal executor).
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy (branch main).
-Work in place; DO NOT commit. Run the verification commands yourself; report PASS/FAIL with outputs.
+Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). Python: `.venv/bin/python`. You have file/web/terminal tools. Skip formatters/linters/full suites; run focused tests only.
 
-## Tasks
+## Context
+G0-R1 already swapped `_frag_research.py:821` to real-first. Exploration found 7 total construction sites; 4 are provisional-first and must be fixed (the oracle-verified list):
 
-1. Put real schemas before provisional evidence everywhere.
-   - Touch: `vibecomfy/comfy_nodes/agent/_frag_research.py`, `vibecomfy/comfy_nodes/agent/edit_batch_repl.py`, and focused agent tests.
-   - Change all applicable `CompositeSchemaProvider` construction so an existing live/real schema wins and provisional workflow/registry evidence fills only missing classes/fields. The `_frag_research.py:821` one-line swap already landed in G0 (rider); B04 covers the remaining inconsistent sites at `_frag_research.py:874` and `edit_batch_repl.py:1115` plus widget-name derivation.
-   - Derive widget/input names presented to the batch editor from the winning real schema.
+1. `vibecomfy/comfy_nodes/agent/_frag_research.py:874` — `(provisional, state)` ✗
+2. `vibecomfy/comfy_nodes/agent/_frag_response_contract.py:793` — `(provisional, session.schema_provider)` ✗ **poisons session AND state across turns**
+3. `vibecomfy/comfy_nodes/agent/_frag_batch_loop.py:910` — `(provisional, state)` ✗
+4. `vibecomfy/comfy_nodes/agent/edit_batch_repl.py:1115` — ✗ (remaining site)
 
-2. Enforce semantic combo membership before candidate mutation.
-   - Touch as required: `vibecomfy/porting/edit/apply_values.py`, `vibecomfy/porting/edit/apply_resolve_base.py`, `vibecomfy/porting/edit/apply_resolve_add.py`, `tests/test_porting_edit_apply_values.py`, and focused end-to-end edit tests.
-   - Ensure both add-node values and set-field values use the same validation. Invalid semantic choices are blocking `value_not_in_enum` issues and never reach a candidate. Retain the deliberate warning behavior for missing local asset filenames; do not turn asset inventory into a semantic enum.
+Real-first invariant: `CompositeSchemaProvider.get_schema` is first-match-wins and `schemas()` merges `reversed(providers)` — the FIRST provider dominates both views, so real-first is required at every site.
 
-## Verification (run all; exit 0 expected)
+## Tasks (from .oracle/tasklist.md B04)
 
+1. Introduce ONE small helper that composes real/runtime schemas first and provisional schemas only as gap-fillers.
+2. Migrate all four provisional-first sites to real-first.
+3. Assert precedence across ALL SEVEN construction sites for both `get_schema()` and merged `schemas()` (test).
+4. Add a cross-turn regression for `_frag_response_contract.py:793` (currently poisons session + state — verify it no longer does).
+5. Retain mechanism-level enum regressions for add and set (existing tests). Do NOT add new combo-validation machinery unless a post-precedence reproduction still bypasses existing pre-mutation validation.
+
+## Key files
+- vibecomfy/comfy_nodes/agent/_frag_research.py, _frag_response_contract.py, _frag_batch_loop.py, edit_batch_repl.py, _frag_entrypoint.py (baseline), routes.py
+- vibecomfy/comfy_nodes/agent/projection_registry_v1.py (get_schema/schemas semantics)
+- tests: focused agent tests + test_executor_contracts.py
+
+## Verification (run, retain output)
 ```bash
-.venv/bin/python -m pytest -q \
-  tests/test_porting_edit_apply_values.py \
-  tests/test_porting_edit_apply.py \
-  tests/test_comfy_nodes_agent_backend_spine.py \
-  tests/test_comfy_nodes_agent_edit.py \
-  -k 'real_schema_precedes_provisional or real_schema_widget_names_drive_batch_catalog or invalid_combo_rejected_before_candidate or asset_enum_accepts_missing_local_asset'
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_comfy_nodes_agent_backend_spine.py tests/test_comfy_nodes_agent_edit.py -k 'schema or precedence or provisional or real_schema or widget'
 ```
+Plus run the full targeted files: `.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_porting_edit_apply_values.py tests/test_porting_edit_apply.py` (expected exit 0; the rerunfailures plugin binds a socket and cannot run here).
 
-```bash
-.venv/bin/python -m pytest -q tests/test_porting_edit_apply_values.py tests/test_porting_edit_apply.py tests/test_comfy_nodes_agent_backend_spine.py tests/test_comfy_nodes_agent_edit.py
-```
-
-## Acceptance criteria
-
-- A conflicting provisional schema cannot shadow a real schema at any hydration site.
-- Batch-visible widget names and choices come from the winning real schema.
-- Invalid semantic combo values fail before graph mutation for both add and set paths; no candidate artifact contains the invalid value.
-- Valid/coercible choices still land, and missing local model/asset filenames retain their existing warning-only policy.
+## Acceptance
+- All seven sites real-first.
+- Session schema authority real-first across turns.
+- Provisional `widget_N` names and empty choices cannot shadow real semantic names/choices.
+- Invalid enum values rejected before mutation for add and set.
+- Missing local asset filenames remain warning-only.
 
 ## Report
-"B04 VERDICT: PASS|FAIL|BLOCKED — <one line>" + per-task changes (file:line), verification outputs, residuals. DO NOT commit.
+Return: helper name/location, per-site changes (file:line), the seven-site precedence test, cross-turn regression proof, enum regression results, pytest output. Do NOT commit.

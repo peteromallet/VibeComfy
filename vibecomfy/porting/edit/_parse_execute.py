@@ -68,72 +68,76 @@ class _ParseExecuteMixin:
             estimate_add_node_width=self._estimate_add_node_width,
         )
         snapshot = self._snapshot_mutable_state()
-        statement_results, landed_ops, diagnostics = self._execute_statements(
-            parsed.expanded,
-            placement_facts=placement_facts,
-        )
-        saw_landed_edit = False
-        saw_failed_edit = False
-        failed_edit = False
-        for statement in statement_results:
-            if not self._is_edit_statement(statement):
-                continue
-            if statement.landed:
-                saw_landed_edit = True
-                continue
-            if not statement.ok and (saw_landed_edit or saw_failed_edit):
-                failed_edit = True
-                break
-            if not statement.ok:
-                saw_failed_edit = True
-        if failed_edit:
-            self._restore_snapshot(snapshot)
-            rollback_diag = _diag(
-                "batch_transaction_rolled_back",
-                "A later edit statement failed, so all edits from this batch were rolled back.",
-                severity="error",
+        try:
+            statement_results, landed_ops, diagnostics = self._execute_statements(
+                parsed.expanded,
+                placement_facts=placement_facts,
             )
-            rolled_back: list[StatementResult] = []
-            for stmt in statement_results:
-                diagnostics_for_statement = stmt.diagnostics
-                ok = stmt.ok
-                if stmt.landed and self._is_edit_statement(stmt):
-                    diagnostics_for_statement = stmt.diagnostics + (rollback_diag,)
-                    ok = False
-                rolled_back.append(
-                    StatementResult(
-                        statement_index=stmt.statement_index,
-                        source=stmt.source,
-                        ok=ok,
-                        diagnostics=diagnostics_for_statement,
-                        landed=False,
-                        op_kind=stmt.op_kind,
-                        detail=dict(stmt.detail),
-                        touched_uids=(),
-                        dependency_cause=stmt.dependency_cause,
-                        teaching_hint=stmt.teaching_hint,
-                    )
+            saw_landed_edit = False
+            saw_failed_edit = False
+            failed_edit = False
+            for statement in statement_results:
+                if not self._is_edit_statement(statement):
+                    continue
+                if statement.landed:
+                    saw_landed_edit = True
+                    continue
+                if not statement.ok and (saw_landed_edit or saw_failed_edit):
+                    failed_edit = True
+                    break
+                if not statement.ok:
+                    saw_failed_edit = True
+            if failed_edit:
+                self._restore_snapshot(snapshot)
+                rollback_diag = _diag(
+                    "batch_transaction_rolled_back",
+                    "A later edit statement failed, so all edits from this batch were rolled back.",
+                    severity="error",
                 )
-            return BatchResult(
-                ok=False,
-                statements=tuple(rolled_back),
-                diagnostics=diagnostics + (rollback_diag,),
-                landed_ops=(),
-                field_changes=(),
+                rolled_back: list[StatementResult] = []
+                for stmt in statement_results:
+                    diagnostics_for_statement = stmt.diagnostics
+                    ok = stmt.ok
+                    if stmt.landed and self._is_edit_statement(stmt):
+                        diagnostics_for_statement = stmt.diagnostics + (rollback_diag,)
+                        ok = False
+                    rolled_back.append(
+                        StatementResult(
+                            statement_index=stmt.statement_index,
+                            source=stmt.source,
+                            ok=ok,
+                            diagnostics=diagnostics_for_statement,
+                            landed=False,
+                            op_kind=stmt.op_kind,
+                            detail=dict(stmt.detail),
+                            touched_uids=(),
+                            dependency_cause=stmt.dependency_cause,
+                            teaching_hint=stmt.teaching_hint,
+                        )
+                    )
+                return BatchResult(
+                    ok=False,
+                    statements=tuple(rolled_back),
+                    diagnostics=diagnostics + (rollback_diag,),
+                    landed_ops=(),
+                    field_changes=(),
+                )
+            if saw_failed_edit and not landed_ops:
+                self._restore_snapshot(snapshot)
+            field_changes, statement_results = self._build_field_changes(
+                landed_ops,
+                statement_results,
             )
-        if saw_failed_edit and not landed_ops:
+            return BatchResult(
+                ok=not diagnostics and all(statement.ok for statement in statement_results),
+                statements=statement_results,
+                diagnostics=diagnostics,
+                landed_ops=landed_ops,
+                field_changes=field_changes,
+            )
+        except Exception:
             self._restore_snapshot(snapshot)
-        field_changes, statement_results = self._build_field_changes(
-            landed_ops,
-            statement_results,
-        )
-        return BatchResult(
-            ok=not diagnostics and all(statement.ok for statement in statement_results),
-            statements=statement_results,
-            diagnostics=diagnostics,
-            landed_ops=landed_ops,
-            field_changes=field_changes,
-        )
+            raise
 
     def _snapshot_mutable_state(self) -> dict:
         return {
@@ -145,18 +149,27 @@ class _ParseExecuteMixin:
             "name_by_uid": dict(self.name_by_uid),
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
+            "render_count": self.render_count,
+            "last_rendered_source": self.last_rendered_source,
+            "last_rendered_workflow": self.last_rendered_workflow,
+            "last_render_diagnostics": self.last_render_diagnostics,
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
-        self.working_ui = snapshot["working_ui"]
+        self.working_ui = deepcopy(snapshot["working_ui"])
         self.ledger = EditLedger.ingest(self.working_ui)
-        self.landed_ops = snapshot["landed_ops"]
-        self.touched_uids = snapshot["touched_uids"]
-        self.touched_node_ids = snapshot["touched_node_ids"]
-        self.uid_by_name = snapshot["uid_by_name"]
-        self.name_by_uid = snapshot["name_by_uid"]
-        self.unbound_names = snapshot["unbound_names"]
+        self.landed_ops = list(snapshot["landed_ops"])
+        self.touched_uids = set(snapshot["touched_uids"])
+        self.touched_node_ids = set(snapshot["touched_node_ids"])
+        self.uid_by_name = dict(snapshot["uid_by_name"])
+        self.name_by_uid = dict(snapshot["name_by_uid"])
+        self.unbound_names = set(snapshot["unbound_names"])
         self.value_default_context = snapshot["value_default_context"]
+        if "render_count" in snapshot:
+            self.render_count = snapshot["render_count"]
+            self.last_rendered_source = snapshot["last_rendered_source"]
+            self.last_rendered_workflow = snapshot["last_rendered_workflow"]
+            self.last_render_diagnostics = snapshot["last_render_diagnostics"]
 
     @staticmethod
     def _is_edit_statement(statement: StatementResult) -> bool:

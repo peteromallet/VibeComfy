@@ -1,0 +1,19 @@
+## B05-lite rollback side effects — verified trace
+
+**Ranked findings**
+
+**1. Rendered Python + candidate UI are written MID-batch (must be snapshotted).** After every `session.apply_batch` (edit_batch_repl.py:1917), `after_py_path.write_text(next_render)` (:1925) and `candidate_ui_path` (:1927) are overwritten per turn. `before_py_path` is written once pre-loop (:1275). Uncaught exception ⇒ these files hold partial-batch state.
+
+**2. IR/ledger mutation is inside `apply_batch`, and only statement-failure-safe.** `working_ui = deepcopy(applied.candidate)` (_parse_execute.py:254), `ledger = EditLedger.ingest` (:255), plus `landed_ops`/`touched_uids`/`touched_node_ids`/`uid_by_name`/`name_by_uid`/`unbound_names`/`value_default_context` (:290–302, :278). An internal snapshot exists (:69, :137–158) but is only restored on statement-level failure (:89, :124); `_execute_statements` (:164) has no try/except — an exception in `apply_delta`/`EditLedger.ingest`/`_fold_constant` escapes with partial mutation.
+
+**3. Per-turn artifacts + telemetry precede the boundary.** `model_request_path` (:1511, :1544), `model_response_path` (:1561, :1621, :1657, :1680, :1734, :1859, :2159), `messages_path` appends (:1622, :1658, :1735, :1860, :2172); `_emit_agent_edit_turn_event` fires every turn (:1630, :1765, :1807, :1884, :2201, :2246, :2511, :2580, :2605, :2623).
+
+**4. Exception boundary.** Model-call failures re-raise (:1637, :1661); `session.render()` (:1923), `session.done()` (:2427), `_finalize_revision_evidence_with_candidate` (:2470), `json.loads(json.dumps(...))` (:1926) are unguarded. `_run_stage` (_frag_orchestration.py:31) catches all and returns a blocking failure **without rollback** — state/artifacts stay half-applied.
+
+**5. Session ledger is written pre-boundary.** `allocate_turn` (_frag_entrypoint.py:95) durably allocates the turn before `_run_batch_repl_product_path` (:331); `record_idempotent_response` only runs post-success (:291/:378) — exceptions leave an allocated-but-unrecorded turn. executor_durable.py is non-applyable-route-only, best-effort (:198–205).
+
+**Minimal snapshot** (at loop entry, post-:1275): session mutable state (reuse `_snapshot_mutable_state`, deepcopy `value_default_context`), bytes of after_py/candidate/model_request/model_response/messages (or existence flags), `ui_payload`, `batch_turns`, `batch_field_changes`/`batch_noop_field_changes`, `lint_noop_messages`, `batch_budget_state`, exit fields.
+
+**Unknowns/risks:** `write_json_artifact` redaction (audit.py:193) may alter restored bytes; event-emission target unknown (non-rollback-able, append-only); pre-loop mutations (`schema_provider`, provisional hashes :1109–1115) may need inclusion.
+
+**Approach:** journal-at-entry + `try/except` around the loop: restore session, rewrite byte-exact files, truncate ledgers, re-raise; buffer telemetry or declare it non-transactional.

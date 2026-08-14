@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Mapping
 
 from .ledger import EditLedger
@@ -29,11 +28,12 @@ from vibecomfy.porting.edit.apply_types import (
 )
 from vibecomfy.porting.edit.apply_values import _validate_literal_value
 from vibecomfy.porting.report import PortIssue
+from vibecomfy.porting.endpoint_invariant import (
+    assert_source_slot_in_bounds,
+    dynamic_port_authorized,
+)
 from vibecomfy.porting.resolution import _normalize_type
 from vibecomfy.schema import InputSpec, is_workflow_stub_schema, schema_for, socket_types_compatible
-
-
-_IMAGE_CONCAT_MULTI_INPUT_RE = re.compile(r"^image_(\d+)$")
 
 
 def _resolve_add_node(
@@ -230,6 +230,7 @@ def _resolve_add_node(
             input_name=input_name,
             fields=op.fields,
             schema_inputs=schema_inputs,
+            schema=schema,
         )
         if spec is None:
             return None, [
@@ -243,6 +244,20 @@ def _resolve_add_node(
         if source_issues:
             return None, source_issues
         assert source_ref is not None
+        source_port = assert_source_slot_in_bounds(
+            source_ref.node,
+            source_ref.slot_index,
+            class_type=source_ref.class_type,
+            slot_name=source_ref.slot_name,
+        )
+        if not source_port.ok:
+            return None, [
+                _issue(
+                    source_port.code or "source_slot_out_of_bounds",
+                    source_port.message,
+                    detail={"to_input": input_name, **source_port.detail},
+                )
+            ]
         if not isinstance(source_ref.node_id, int):
             return None, [
                 _issue(
@@ -470,34 +485,33 @@ def _dynamic_add_node_input_spec(
     input_name: str,
     fields: Mapping[str, Any],
     schema_inputs: Mapping[str, Any],
+    schema: Any = None,
 ) -> InputSpec | None:
     """Return a narrow schema spec for runtime-expanded add_node inputs."""
 
     if class_type in {"PreviewImage", "SaveImage", "SaveImageWebsocket"} and input_name == "images":
         return InputSpec(type="IMAGE", required=True)
-    if class_type != "ImageConcatMulti":
+    authorized, _reason = dynamic_port_authorized(
+        class_type,
+        "input",
+        input_name,
+        fields=fields,
+        schema=schema,
+    )
+    if not authorized:
         return None
-    match = _IMAGE_CONCAT_MULTI_INPUT_RE.match(input_name)
-    if match is None:
-        return None
-    try:
-        index = int(match.group(1))
-    except ValueError:
-        return None
-    if index < 1:
-        return None
-
-    raw_count = fields.get("inputcount")
-    if raw_count is None:
-        existing_count_spec = schema_inputs.get("inputcount")
-        raw_count = getattr(existing_count_spec, "default", None)
-    try:
-        count = int(raw_count)
-    except (TypeError, ValueError):
-        return None
-    if index > count:
-        return None
-    return InputSpec(type="IMAGE", required=True)
+    existing = schema_inputs.get(input_name)
+    if existing is not None:
+        return existing
+    socket_type = "IMAGE" if class_type in {"ImageConcatMulti", "LTXVAddGuide"} else "*"
+    if class_type == "LTXVImgToVideoInplaceKJ":
+        if "index" in input_name:
+            socket_type = "INT"
+        elif "strength" in input_name:
+            socket_type = "FLOAT"
+        else:
+            socket_type = "IMAGE"
+    return InputSpec(type=socket_type, required=True)
 
 
 def _resolve_reorder(

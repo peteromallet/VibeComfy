@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
+import re
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlsplit, urlunsplit
+
+from vibecomfy.executor.contracts import normalize_model_endpoint, redact_model_preview
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,9 +30,26 @@ _SENSITIVE_KEY_PARTS = frozenset({
 })
 _MODEL_ARTIFACT_NAMES = frozenset({
     "messages.jsonl",
+    "model_attempts.json",
     "model_request.json",
     "model_response.json",
 })
+_SENSITIVE_URL_QUERY_PARTS = frozenset({
+    "api_key",
+    "apikey",
+    "api-key",
+    "auth",
+    "authorization",
+    "key",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+})
+_URL_QUERY_CREDENTIAL_SUBSTRINGS = ("token", "secret", "api_key", "apikey", "api-key")
+_AUTHORIZATION_HEADER_RE = re.compile(r"(?im)\bauthorization\s*:\s*[^\r\n]*")
+_EMBEDDED_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 
 def _safe_write(path: Path, data: Any) -> None:
@@ -57,10 +77,89 @@ def _is_sensitive_key(key: str) -> bool:
     return any(part in lower for part in _SENSITIVE_KEY_PARTS)
 
 
-def _redact(value: Any, *, parent_key: str = "") -> Any:
-    """Return a JSON-safe copy with credential-like values redacted."""
-    if _is_sensitive_key(parent_key) and isinstance(value, str):
+def _is_credential_like_url_param(name: str) -> bool:
+    lower = name.lower()
+    if lower in _SENSITIVE_URL_QUERY_PARTS:
+        return True
+    return any(part in lower for part in _URL_QUERY_CREDENTIAL_SUBSTRINGS)
+
+
+def _redact_url_credentials(url: str) -> str:
+    """Redact userinfo and credential-like query params inside a URL string.
+
+    Only credential material is touched: userinfo is replaced wholesale and
+    query parameter VALUES whose names look credential-like (token/key/sig/
+    signature/api_key/apikey/secret + auth headers carried as query params)
+    become ``<redacted>``. Every other part of the URL is preserved byte for
+    byte (oracle finding 5).
+    """
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return url
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return url
+    netloc = parsed.netloc
+    if parsed.username is not None:
+        host = parsed.hostname or ""
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+        netloc = f"<redacted>@{host}"
+    query = parsed.query
+    if query:
+        parts = query.split("&")
+        redacted_parts: list[str] = []
+        query_changed = False
+        for part in parts:
+            name, sep, _value = part.partition("=")
+            if sep and _is_credential_like_url_param(name):
+                redacted_parts.append(f"{name}=<redacted>")
+                query_changed = True
+            else:
+                redacted_parts.append(part)
+        if query_changed:
+            query = "&".join(redacted_parts)
+    if netloc == parsed.netloc and query == parsed.query:
+        return url
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, parsed.fragment))
+
+
+def _redact_embedded_secrets(value: str) -> str:
+    """Redact authorization headers and credential-bearing URLs in ANY string.
+
+    Ordinary leaves (``content``, ``message``, ``error``, ``url``, ...) can
+    persist credentials inside prose, so every string is scanned: full
+    ``Authorization: <scheme> <credential>`` header values (every scheme) are
+    replaced, and credential-like URL query params / userinfo are redacted.
+    Everything else is left untouched.
+    """
+    redacted = _AUTHORIZATION_HEADER_RE.sub("Authorization: <redacted>", value)
+    redacted = _EMBEDDED_URL_RE.sub(
+        lambda match: _redact_url_credentials(match.group(0)), redacted
+    )
+    return redacted
+
+
+def _redact_string(value: str, *, parent_key: str) -> str:
+    if _is_sensitive_key(parent_key):
         return "<redacted>"
+    if parent_key.lower() == "endpoint":
+        return normalize_model_endpoint(value)
+    if parent_key.lower() == "raw_response_preview":
+        return redact_model_preview(value) or ""
+    return _redact_embedded_secrets(value)
+
+
+def _redact(value: Any, *, parent_key: str = "") -> Any:
+    """Return a JSON-safe copy with credential-like values redacted.
+
+    Walks the artifact recursively and sanitizes EVERY persisted string leaf:
+    values under sensitive keys are replaced wholesale, ``endpoint`` and
+    ``raw_response_preview`` use their canonical redactors, and ordinary fields
+    are scanned for embedded authorization headers and credential-bearing URLs.
+    """
+    if isinstance(value, str):
+        return _redact_string(value, parent_key=parent_key)
     if isinstance(value, Mapping):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -92,7 +191,22 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
     for source in sorted(turn_dir.iterdir()):
         if source.is_file() and source.suffix in {".json", ".jsonl"}:
             dest = output_dir / source.name
-            shutil.copy2(source, dest)
+            try:
+                if source.suffix == ".json":
+                    parsed = json.loads(source.read_text(encoding="utf-8"))
+                    _safe_write(dest, _redact(parsed))
+                else:
+                    rendered: list[str] = []
+                    for line in source.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        rendered.append(json.dumps(_redact(json.loads(line)), sort_keys=True))
+                    dest.write_text("\n".join(rendered) + ("\n" if rendered else ""), encoding="utf-8")
+            except (OSError, json.JSONDecodeError):
+                # Never raw-copy an unparseable model artifact: it may contain a
+                # credential in malformed structured text that free-text
+                # redaction cannot classify safely. Persist no source body.
+                _safe_write(dest, {"redacted_unparseable_artifact": True})
             copied.append(str(dest.relative_to(output_dir)))
     return copied
 
@@ -268,6 +382,115 @@ def _append_manifest(manifest: list[str], file_name: str) -> None:
         manifest.append(file_name)
 
 
+_EMPTY_UI: dict[str, Any] = {"nodes": [], "links": []}
+_UNCHANGED_UI_ROUTES = frozenset(
+    {"clarify", "respond", "inspect", "research", "requires_custom_nodes"}
+)
+
+
+def _as_graph_mapping(value: Any) -> dict[str, Any] | None:
+    """Return a JSON object graph, or None when no graph payload is present."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return None
+
+
+def _request_graph(request: Mapping[str, Any]) -> dict[str, Any] | None:
+    return _as_graph_mapping(request.get("graph"))
+
+
+def _result_graph(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    graph = getattr(result, "graph", None)
+    mapped = _as_graph_mapping(graph)
+    if mapped is not None:
+        return mapped
+    payload = _json_safe(result)
+    if isinstance(payload, Mapping):
+        return _as_graph_mapping(payload.get("graph"))
+    return None
+
+
+def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _route_projects_final_from_original(response: Mapping[str, Any]) -> bool:
+    """Unchanged / refused / clarify / inspect / research routes project final=original."""
+    route = response.get("route")
+    if isinstance(route, str) and route in _UNCHANGED_UI_ROUTES:
+        return True
+    if response.get("graph_unchanged") is True:
+        return True
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        kind = outcome.get("kind")
+        if kind in {"clarify", "requires_custom_nodes", "noop"}:
+            return True
+    return False
+
+
+def persist_universal_ui_evidence(
+    *,
+    request: Mapping[str, Any],
+    result: Any,
+    response: Mapping[str, Any],
+    output_dir: Path,
+    manifest: list[str],
+) -> None:
+    """Write authoritative original.ui.json and final.ui.json for every route.
+
+    Non-edit, refused, and unchanged routes explicitly project final from
+    original. Edit routes that produced a candidate persist that candidate as
+    final. Missing graphs become an empty UI document so both files always exist.
+    """
+    original_path = output_dir / "original.ui.json"
+    final_path = output_dir / "final.ui.json"
+    candidate_path = output_dir / "candidate.ui.json"
+
+    original = _load_ui_mapping(original_path)
+    if original is None:
+        original = _request_graph(request)
+    if original is None:
+        original = dict(_EMPTY_UI)
+
+    if _route_projects_final_from_original(response):
+        final = original
+    else:
+        final = _load_ui_mapping(final_path)
+        if final is None:
+            final = _load_ui_mapping(candidate_path)
+        if final is None:
+            artifacts = response.get("artifacts")
+            if isinstance(artifacts, Mapping):
+                for key in ("final_ui", "candidate_ui"):
+                    artifact_path = artifacts.get(key)
+                    if isinstance(artifact_path, str) and artifact_path:
+                        final = _load_ui_mapping(Path(artifact_path))
+                        if final is not None:
+                            break
+        if final is None:
+            final = _as_graph_mapping(
+                response.get("candidate_graph") or response.get("candidate")
+            )
+        if final is None:
+            final = _result_graph(result)
+        if final is None:
+            final = original
+
+    _safe_write(original_path, _redact(original))
+    _append_manifest(manifest, "original.ui.json")
+    _safe_write(final_path, _redact(final))
+    _append_manifest(manifest, "final.ui.json")
+
+
 def synthesize_headless_artifacts(
     *,
     request: Mapping[str, Any],
@@ -312,6 +535,13 @@ def synthesize_headless_artifacts(
     _append_manifest(manifest, "flow_metadata.json")
 
     report = _executor_report(result)
+    model_attempts = report.get("model_attempts")
+    if isinstance(model_attempts, (list, tuple)) and model_attempts:
+        _safe_write(
+            output_dir / "model_attempts.json",
+            {"attempts": _redact(model_attempts)},
+        )
+        _append_manifest(manifest, "model_attempts.json")
     classification = report.get("plan")
     model_response = report.get("model_response")
     if isinstance(classification, Mapping):
@@ -367,9 +597,17 @@ def synthesize_headless_artifacts(
         for copied_name in copied:
             _append_manifest(manifest, copied_name)
 
+    persist_universal_ui_evidence(
+        request=request,
+        result=result,
+        response=response,
+        output_dir=output_dir,
+        manifest=manifest,
+    )
+
     copied_set = set(copied)
     optional_model_artifacts = {
-        name: name in copied_set
+        name: name in copied_set or name in manifest
         for name in sorted(_MODEL_ARTIFACT_NAMES)
     }
 
@@ -386,4 +624,4 @@ def synthesize_headless_artifacts(
     }
 
 
-__all__ = ["synthesize_headless_artifacts"]
+__all__ = ["persist_universal_ui_evidence", "synthesize_headless_artifacts"]

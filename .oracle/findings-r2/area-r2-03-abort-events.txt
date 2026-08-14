@@ -1,0 +1,14 @@
+# B05-lite: Abort-Event Semantics — Verified Findings
+
+**Sinks & ordering (mutation boundary = `session.apply_batch`, edit_batch_repl.py:1917):**
+
+1. **WS turn events** — `_emit_agent_edit_turn_event` (_frag_entrypoint.py:626) → `_ws_send` (:474) via `PromptServer.send_sync`; best-effort, ephemeral, **no persistence**. Emitted before apply (progress, :1807), and success/done *after* apply (:2201, :2511, :2580, :2623). Uncaught exception in `_execute_statements` (_parse_execute.py:70-73) bypasses the in-memory restore (:89,:124) — **stale success telemetry survives**.
+2. **Durable ledger** — `lifecycle_events.jsonl` (session.py:66; _artifact_store.py:52-66) is append-only, fsync'd source of truth; states incl. `rollback_complete`/`recoverable_error` (:67-77). Written only by explicit route phases (finalize/rollback, routes.py:1999,:2030) — **not touched during batch**; already rollback-safe.
+3. **Candidate artifacts** — `write_json_artifact` (audit.py:192): candidate_ui.json written *after* mutations land (:1927), so rollback must rewrite it; request/response logs (:1511,:1680) are evidence, not success claims.
+4. **flow_metadata.json** — headless-only (artifacts.py:298-312); not in batch path. Low risk.
+
+**Answer: buffering is infeasible today** (no outbox; WS is fire-and-forget). **Compensating abort records are feasible**: journal_durable_v1 (projection_registry_v1.py:1058-1081) already binds baseline digests + inverse/restore authority; `recoverable_error`/`rollback_complete` states exist.
+
+**Risks/unknowns:** strict journal validation may reject aborts lacking prepared_authority (only `recoverable_error` valid); snapshot is local to `apply_batch` — lost on raise (needs pre-call deepcopy at :1916, mirroring :137-140); WS→UI commit ordering uncontrolled.
+
+**Approach:** wrap :1917 in try/except → restore working_ui/IR from pre-batch deepcopy, rewrite candidate_ui/after_py, emit `status="aborted"` WS event, append `recoverable_error` ledger record.

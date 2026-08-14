@@ -27,6 +27,7 @@ from vibecomfy.executor.contracts import (
     ManifestNode,
     ManifestOversized,
     ManifestValidation,
+    ModelAttemptEvidence,
     PrecedentAdaptationPlan,
     PrecedentOption,
     PrecedentPacket,
@@ -42,6 +43,7 @@ from vibecomfy.executor.contracts import (
     adaptation_plan_actionability_payload,
     build_topology_manifest,
     format_route_options_for_prompt,
+    redact_model_preview,
     warning_detail_from_exception,
 )
 from vibecomfy.executor.prompts import (
@@ -633,6 +635,105 @@ class TestImplementationResult:
 # ── Report ───────────────────────────────────────────────────────────────────
 
 
+class TestModelAttemptEvidence:
+    def test_preserves_requested_and_resolved_model_and_unknown_non_hermes_fields(self) -> None:
+        payload = ModelAttemptEvidence(
+            phase="reply",
+            attempt=2,
+            outcome="success",
+            requested_model="profile-alias",
+            resolved_model="provider/model-v2",
+            adapter="codex",
+            provider=None,  # type: ignore[arg-type]
+            transport=None,  # type: ignore[arg-type]
+            endpoint=None,  # type: ignore[arg-type]
+            finish_reason=None,  # type: ignore[arg-type]
+            token_usage={},
+            raw_response_preview="success content must be dropped",
+        ).to_dict()
+
+        assert payload["requested_model"] == "profile-alias"
+        assert payload["resolved_model"] == "provider/model-v2"
+        assert payload["provider"] == "unknown"
+        assert payload["transport"] == "unknown"
+        assert payload["endpoint"] == "unknown"
+        assert payload["finish_reason"] == "unknown"
+        assert payload["token_usage"] == {
+            "prompt_tokens": "unknown",
+            "completion_tokens": "unknown",
+            "total_tokens": "unknown",
+        }
+        assert "raw_response_preview" not in payload
+
+    @pytest.mark.parametrize("scheme", ["Basic", "Bearer", "ApiKey", "Custom"])
+    def test_preview_redacts_entire_authorization_header(self, scheme: str) -> None:
+        credential = "dXNlcjpwYXNz"
+        preview = redact_model_preview(
+            f"request failed\nAuthorization: {scheme} {credential}\nresponse invalid"
+        )
+
+        assert preview == "request failed Authorization: <redacted> response invalid"
+        assert scheme not in preview
+        assert credential not in preview
+
+    @pytest.fixture
+    def json_quoted_secret_preview(self) -> str:
+        """Failure preview embedding the three oracle finding 5 JSON-quoted secrets."""
+        return (
+            '{"api_key":"sk-secret",'
+            '"authorization":"Basic dXNlcjpwYXNz",'
+            '"token":"tok-secret"}'
+        )
+
+    def test_preview_redacts_json_quoted_sensitive_fields(
+        self, json_quoted_secret_preview: str
+    ) -> None:
+        preview = redact_model_preview(json_quoted_secret_preview)
+
+        assert preview is not None
+        assert "sk-secret" not in preview
+        assert "Basic dXNlcjpwYXNz" not in preview
+        assert "tok-secret" not in preview
+        assert preview.count("<redacted>") == 3
+
+    @pytest.mark.parametrize("quote", ['"', "'"])
+    def test_preview_redacts_single_and_double_quoted_json_fields(
+        self, quote: str
+    ) -> None:
+        preview = redact_model_preview(
+            f"{quote}api_key{quote}:{quote}sk-secret{quote} "
+            f"{quote}Authorization{quote}: {quote}Basic dXNlcjpwYXNz{quote} "
+            f"{quote}refresh_token{quote}:{quote}tok-secret{quote}"
+        )
+
+        assert "sk-secret" not in preview
+        assert "Basic dXNlcjpwYXNz" not in preview
+        assert "tok-secret" not in preview
+        assert preview.count("<redacted>") == 3
+
+    def test_preview_json_redaction_never_crashes_on_malformed_json(self) -> None:
+        preview = redact_model_preview('{broken "api_key": "sk-secret" trailing')
+
+        assert preview is not None
+        assert "sk-secret" not in preview
+        assert "<redacted>" in preview
+
+    def test_evidence_to_dict_redacts_json_quoted_sensitive_fields(
+        self, json_quoted_secret_preview: str
+    ) -> None:
+        payload = ModelAttemptEvidence(
+            phase="classify",
+            outcome="failure",
+            failure_type="malformed_json",
+            raw_response_preview=json_quoted_secret_preview,
+        ).to_dict()
+
+        assert "sk-secret" not in payload["raw_response_preview"]
+        assert "Basic dXNlcjpwYXNz" not in payload["raw_response_preview"]
+        assert "tok-secret" not in payload["raw_response_preview"]
+        assert payload["raw_response_preview"].count("<redacted>") == 3
+
+
 class TestReport:
     def test_default(self) -> None:
         r = Report()
@@ -657,6 +758,19 @@ class TestReport:
         assert d["executor"]["plan"]["plan_summary"] == "p"
         assert d["executor"]["research"]["summary"] == "r"
         assert "implementation" not in d["executor"]
+
+    def test_model_response_compatibility_view_is_derived_not_serialized(self) -> None:
+        attempt = ModelAttemptEvidence(
+            phase="classify",
+            outcome="failure",
+            failure_type="malformed_json",
+        ).to_dict()
+        report = Report(model_attempts=(attempt,))
+
+        assert report.model_response == {"attempts": [attempt]}
+        payload = report.to_dict()["executor"]
+        assert payload["model_attempts"] == [attempt]
+        assert "model_response" not in payload
 
 
 # ── AgentTurnResult ──────────────────────────────────────────────────────────

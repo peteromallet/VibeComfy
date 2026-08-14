@@ -1,0 +1,13 @@
+## Findings (ranked)
+
+**1. BLOCKER — no run artifacts exist in this workspace.** `out/` is gitignored (`.gitignore:15`) and absent; filesystem-wide searches for `live-final`, `live-tail9`, `live-g0`, `live-postfix`, `live-flash`, and the June baseline returned zero hits. Verified per-scenario stability classes therefore **cannot be computed here** — a fabricated table would be worse than none. Fix: mount/copy `out/agentic/` into the workspace (or give paths); the analysis below is then ~one join away.
+
+**2. Verifiable now: the scenario universe (100 IDs).** Catalog (`docs/live-agentic-scenarios-catalog.md`) enumerates all 100: 23 in-repo (e.g. `3d-converts-image-to-3d-model`, `image-sdxl-txt2img-cat-in-spacesuit`, `video-video-generation-from-resized-image`) + 77 staged (§B, e.g. `image-sd3-image-generation-with-controlnet-19d221`). No run-level outcomes exist for any.
+
+**3. Method ready to apply once data lands.** Join per-run verdict files by scenario id → bit vector across N runs. Stable pass = all pass; stable fail = all fail; flaky = mixed. Suggested repeat set: flaky IDs with flip rate 0.25–0.75 (highest information value).
+
+**4. Risks.** The single 100-scenario lane cannot separate regression from variance — G0's run-to-run flips prove scenario-level model variance exists. A pass→fail flip vs baseline is variance-consistent until repeated ≥3×. June baseline absent ⇒ no regression anchor, only run-to-run consistency.
+
+**5. Presentation.** Report a scenario × run matrix with three classes; never state flaky IDs as pass/fail — label "inconclusive (variance)". Headline: flip rate, stable counts, confidence band per class; regression candidates flagged with required-repeat count.
+
+**Action:** provide `out/agentic/` (or any per-run JSON/MD verdicts) and I'll deliver the full ID-level matrix, counts, and repeat set immediately.

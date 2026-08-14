@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -33,8 +32,11 @@ from vibecomfy.comfy_nodes.agent.provider import (
 )
 from vibecomfy.comfy_nodes.agent.runtime import (
     begin_deepseek_usage_capture,
+    begin_model_attempt_capture,
     end_deepseek_usage_capture,
+    end_model_attempt_capture,
     snapshot_deepseek_usage_capture,
+    snapshot_model_attempt_capture,
 )
 from vibecomfy.agent.deepseek_usage import estimate_deepseek_cost_usd
 from vibecomfy.executor.profiler import (
@@ -55,6 +57,7 @@ from .contracts import (
     ResearchResult,
     _ALLOWED_ROUTES,
     adaptation_plan_actionability_payload,
+    coerce_model_attempts,
     warning_detail_from_exception,
 )
 from .graph_inspection import _graph_inspection
@@ -68,10 +71,6 @@ from .research import _default_hivemind_client, research as run_research_phase
 from .revision_evidence import collect_graph_facts
 
 LOGGER = logging.getLogger(__name__)
-
-# Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
-# events emitted while the implement phase is running.
-_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 _INSTALL_RESEARCH_TERMS = (
     "install",
@@ -104,180 +103,43 @@ def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
     return {"route": spec.agent, "model": spec.model, "effort": spec.effort}
 
 
-# ── model-response parse evidence (classify/reply) ──────────────────────────
-# Additive evidence persisted when a classify/reply model turn fails to parse.
-# Mirrors the batch-repl model_response.json detail (parse_reason + raw
-# preview) plus observed usage, model, phase, and endpoint so a failed attempt
-# is diagnosable from the final failure envelope without re-resolving provider
-# internals. The failure envelope's public shape is unchanged.
-
-_MODEL_RESPONSE_EVIDENCE_KEYS = (
-    "parse_reason",
-    "raw_response_preview",
-    "finish_reason",
-    "completion_tokens_zero",
-    "completion_tokens",
-    "prompt_tokens",
-    "total_tokens",
-    "model",
-    "requested_model",
-    "resolved_model",
-    "adapter",
-    "provider",
-    "phase",
-    "endpoint",
-    "empty_response",
-)
-
-_PARSE_REASON_EMPTY = "empty"
-_PARSE_REASON_MISSING_CONTENT = "missing_content"
-_PARSE_REASON_MALFORMED_JSON = "malformed_json"
-_PARSE_REASON_NON_JSON_CONTENT = "non_json_content"
-
-_RAW_PREVIEW_LIMIT = 1200
-
-
-def _bound_raw_preview(text: str) -> str:
-    """Bound a raw response preview to the canonical window."""
-    if not isinstance(text, str):
-        return ""
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return ""
-    if len(normalized) <= _RAW_PREVIEW_LIMIT:
-        return normalized
-    return normalized[: _RAW_PREVIEW_LIMIT - 1].rstrip() + "…"
-
-
-def _evidence_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    return True
-
-
-def _infer_parse_reason(exc: BaseException) -> str:
-    """Derive a parse_reason from an exception when none was attached."""
-    if type(exc).__name__ == "JSONDecodeError":
-        return _PARSE_REASON_MALFORMED_JSON
-    message = str(exc).lower()
-    if "could not extract a json object" in message or "jsondecodeerror" in message:
-        return _PARSE_REASON_MALFORMED_JSON
-    if "not an object" in message or "non_json" in message:
-        return _PARSE_REASON_NON_JSON_CONTENT
-    if (
-        "did not contain" in message
-        or "must include" in message
-        or ("missing" in message and "field" in message)
-        or "empty" in message
-    ):
-        return _PARSE_REASON_MISSING_CONTENT
-    return ""
-
-
-def _model_response_evidence_from_exception(exc: BaseException) -> dict[str, Any]:
-    """Pull additive parse evidence off an exception and its cause chain.
-
-    Reads evidence attrs attached by the worker / runtime / provider /
-    agent-backend hops (including the worker result dict) and walks
-    ``__cause__`` so evidence survives provider wrapping. First non-empty value
-    wins.  Credentials are never read — only the bounded diagnostic fields.
-    """
-    evidence: dict[str, Any] = {}
+def _model_attempts_from_exception(exc: BaseException) -> tuple[dict[str, Any], ...]:
+    """Return the first canonical attempt sequence found in an exception chain."""
     seen: set[int] = set()
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        for key in _MODEL_RESPONSE_EVIDENCE_KEYS:
-            if key in evidence:
-                continue
-            value = getattr(current, key, None)
-            if _evidence_value(value):
-                evidence[key] = value
+        attempts = coerce_model_attempts(getattr(current, "model_attempts", None))
+        if attempts:
+            return attempts
         worker_result = getattr(current, "worker_result", None)
         if isinstance(worker_result, Mapping):
-            for key in _MODEL_RESPONSE_EVIDENCE_KEYS:
-                if key in evidence:
-                    continue
-                value = worker_result.get(key)
-                if _evidence_value(value):
-                    evidence[key] = value
-            usage = worker_result.get("deepseek_usage")
-            if isinstance(usage, Mapping):
-                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    if key in evidence:
-                        continue
-                    value = usage.get(key)
-                    if isinstance(value, int) and value >= 0:
-                        evidence[key] = value
+            attempts = coerce_model_attempts(worker_result.get("model_attempts"))
+            if attempts:
+                return attempts
         current = current.__cause__
-    if "parse_reason" not in evidence:
-        reason = _infer_parse_reason(exc)
-        if reason:
-            evidence["parse_reason"] = reason
-    # Defense-in-depth: even if a hop attached an unbounded preview, the
-    # persisted artifact never carries more than the bounded window.
-    preview = evidence.get("raw_response_preview")
-    if isinstance(preview, str) and len(preview) > _RAW_PREVIEW_LIMIT:
-        evidence["raw_response_preview"] = _bound_raw_preview(preview)
-    # Derive the typed zero/nonzero completion-token flag whenever the count is
-    # known (transport-level empty replies report 0; content/parser failures
-    # report >0).  Absence of the count is NOT evidence, so the flag is only
-    # emitted alongside the observed count.
-    if (
-        "completion_tokens_zero" not in evidence
-        and isinstance(evidence.get("completion_tokens"), int)
-    ):
-        evidence["completion_tokens_zero"] = evidence["completion_tokens"] == 0
-    if (
-        "requested_model" not in evidence
-        and isinstance(evidence.get("model"), str)
-    ):
-        evidence["requested_model"] = evidence["model"]
-    if (
-        "resolved_model" not in evidence
-        and isinstance(evidence.get("model"), str)
-    ):
-        evidence["resolved_model"] = evidence["model"]
-    return evidence
+    return ()
 
 
 def _enrich_failure_envelope(
     failure: Any,
     exc: BaseException,
-    *,
-    phase: str,
-    model: str | None,
 ) -> Any:
-    """Merge parse evidence into a failure envelope's agent_failure_context.
-
-    Additive only: the envelope's existing keys (``explanation``, ...) are kept.
-    """
-    evidence = _model_response_evidence_from_exception(exc)
-    evidence.setdefault("phase", phase)
-    if model:
-        evidence.setdefault("model", model)
-    if not evidence:
+    """Attach only canonical model-attempt evidence to a failure envelope."""
+    attempts = _model_attempts_from_exception(exc)
+    if not attempts:
         return failure
     context = dict(failure.agent_failure_context or {})
-    context.update(evidence)
+    context["model_attempts"] = list(attempts)
     return replace(failure, agent_failure_context=context)
 
 
-def _model_response_artifact(failure: Any) -> dict[str, Any] | None:
-    """Shape parse evidence into a batch-repl-style ``model_response`` artifact."""
+def _failure_model_attempts(failure: Any) -> tuple[dict[str, Any], ...]:
+    """Read canonical attempts previously attached to a failure envelope."""
     context = getattr(failure, "agent_failure_context", None)
     if not isinstance(context, Mapping):
-        return None
-    evidence = {
-        key: context[key]
-        for key in _MODEL_RESPONSE_EVIDENCE_KEYS
-        if context.get(key) is not None
-    }
-    if not evidence:
-        return None
-    return {"turns": [{"error": dict(evidence)}]}
+        return ()
+    return coerce_model_attempts(context.get("model_attempts"))
 
 
 def _allows_install_or_provider_research(query: str) -> bool:
@@ -1127,27 +989,23 @@ def _run_classify(
             MissingRequiredField, TimeoutError) as exc:
         # Map provider-level errors through the failure envelope machinery.
         failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(
-            failure, exc, phase="classify", model=spec.model
-        )
+        failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
             message=failure.user_facing_message,
             failure_envelope=failure,
-            model_response=_model_response_artifact(failure),
+            model_attempts=_failure_model_attempts(failure),
         ) from exc
     except Exception as exc:
         failure = classify_failure("classify", exc)
-        failure = _enrich_failure_envelope(
-            failure, exc, phase="classify", model=spec.model
-        )
+        failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
             message=failure.user_facing_message,
             failure_envelope=failure,
-            model_response=_model_response_artifact(failure),
+            model_attempts=_failure_model_attempts(failure),
         ) from exc
 
 
@@ -1861,27 +1719,23 @@ def _run_reply(
     except (ProviderError, AuthError, MalformedModelJSON,
             MissingRequiredField, TimeoutError) as exc:
         failure = classify_failure("agent_response", exc)
-        failure = _enrich_failure_envelope(
-            failure, exc, phase="reply", model=spec.model
-        )
+        failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="reply",
             failure_kind=failure.kind.value,
             message=failure.user_facing_message,
             failure_envelope=failure,
-            model_response=_model_response_artifact(failure),
+            model_attempts=_failure_model_attempts(failure),
         ) from exc
     except Exception as exc:
         failure = classify_failure("reply", exc)
-        failure = _enrich_failure_envelope(
-            failure, exc, phase="reply", model=spec.model
-        )
+        failure = _enrich_failure_envelope(failure, exc)
         raise _ExecutorPhaseError(
             stage="reply",
             failure_kind=failure.kind.value,
             message=failure.user_facing_message,
             failure_envelope=failure,
-            model_response=_model_response_artifact(failure),
+            model_attempts=_failure_model_attempts(failure),
         ) from exc
 
 
@@ -1941,14 +1795,14 @@ class _ExecutorPhaseError(Exception):
         message: str,
         failure_envelope: Any = None,
         warning_details: tuple[dict[str, Any], ...] = (),
-        model_response: dict[str, Any] | None = None,
+        model_attempts: tuple[dict[str, Any], ...] = (),
     ) -> None:
         super().__init__(message)
         self.stage = stage
         self.failure_kind = failure_kind
         self.failure_envelope = failure_envelope
         self.warning_details = tuple(warning_details)
-        self.model_response = model_response
+        self.model_attempts = coerce_model_attempts(model_attempts)
 
 
 # ── public entry point ───────────────────────────────────────────────────────
@@ -2061,6 +1915,7 @@ def run_executor(
 
     profiler_log(LOGGER, "executor.request", **request_fields)
     usage_token = begin_deepseek_usage_capture()
+    attempt_token = begin_model_attempt_capture()
 
     def _build_report(
         *,
@@ -2068,9 +1923,12 @@ def run_executor(
         research: ResearchResult | None = None,
         implementation: ImplementationResult | None = None,
         classification_status: str = "",
-        model_response: dict[str, Any] | None = None,
+        fallback_model_attempts: tuple[dict[str, Any], ...] = (),
     ) -> Report:
         usage, cache_breakout_complete = snapshot_deepseek_usage_capture()
+        model_attempts = snapshot_model_attempt_capture()
+        if not model_attempts:
+            model_attempts = coerce_model_attempts(fallback_model_attempts)
         est_cost_usd, cost_basis = estimate_deepseek_cost_usd(
             usage,
             cache_breakout_complete=cache_breakout_complete,
@@ -2083,11 +1941,12 @@ def run_executor(
             deepseek_est_cost_usd=est_cost_usd,
             deepseek_cost_basis=cost_basis,
             classification_status=classification_status,
-            model_response=model_response,
+            model_attempts=model_attempts,
         )
 
     def _finish(result: ExecutorResult) -> ExecutorResult:
         end_deepseek_usage_capture(usage_token)
+        end_model_attempt_capture(attempt_token)
         return result
 
     # ── Resolve profile specs ────────────────────────────────────────────
@@ -2203,7 +2062,7 @@ def run_executor(
         # route/task/intent.
         report = _build_report(
             classification_status="failed",
-            model_response=exc.model_response,
+            fallback_model_attempts=exc.model_attempts,
         )
         return _finish(ExecutorResult.failure(
             kind=exc.failure_kind,
@@ -2345,26 +2204,6 @@ def run_executor(
                 status="start",
                 client_id=client_id,
             )
-            # Keep the panel alive during long model-backed implement turns:
-            # a daemon thread re-emits phase="implement" status="working" every
-            # ~15s until _run_implement returns. send_sync is thread-safe.
-            heartbeat_stop = threading.Event()
-
-            def _implement_heartbeat() -> None:
-                while not heartbeat_stop.wait(_IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS):
-                    _emit_executor_phase_event(
-                        request,
-                        executor_id=executor_id,
-                        phase="implement",
-                        status="working",
-                        client_id=client_id,
-                    )
-
-            heartbeat_thread = threading.Thread(
-                target=_implement_heartbeat,
-                name="vibecomfy-executor-implement-heartbeat",
-                daemon=True,
-            )
             with profiler_span(
                 LOGGER,
                 "executor.phase",
@@ -2372,19 +2211,14 @@ def run_executor(
                 phase="implement",
                 **_spec_fields(implement_spec),
             ) as span:
-                try:
-                    heartbeat_thread.start()
-                    implementation_result = _run_implement(
-                        request,
-                        implement_spec,
-                        plan=plan,
-                        research_result=research_result,
-                        client_id=client_id,
-                        additive=additive,
-                    )
-                finally:
-                    heartbeat_stop.set()
-                    heartbeat_thread.join(timeout=2.0)
+                implementation_result = _run_implement(
+                    request,
+                    implement_spec,
+                    plan=plan,
+                    research_result=research_result,
+                    client_id=client_id,
+                    additive=additive,
+                )
                 # B04: hoist durable research findings onto report.research
                 # for the research route (agent-judgment evidence carry; NOT
                 # a latch and never a stop decision).
@@ -2553,7 +2387,7 @@ def run_executor(
                 plan=plan,
                 research=research_result,
                 implementation=implementation_result,
-                model_response=exc.model_response,
+                fallback_model_attempts=exc.model_attempts,
             )
             fallback_reply = (
                 implementation_result.message
@@ -2569,7 +2403,7 @@ def run_executor(
             plan=plan,
             research=research_result,
             implementation=implementation_result,
-            model_response=exc.model_response,
+            fallback_model_attempts=exc.model_attempts,
         )
         return _finish(ExecutorResult.failure(
             kind=exc.failure_kind,

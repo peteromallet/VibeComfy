@@ -1,0 +1,19 @@
+All facts verified. Here's the trace:
+
+## Verified facts (add-node path)
+
+**Resolution precedes materialization.** `_resolve_add_node` (apply_resolve_add.py:39–313) runs against the ledger + schema only; the node's id isn't minted until `_apply_add_node` (apply_mutate.py:224). Inputs resolve via `_input_spec_for_field`/`_dynamic_add_node_input_spec` (apply_resolve_add.py:228–233) — pure schema lookups; the future node's arrays are never consulted.
+
+**Port materialization at apply** (`materialize_litegraph_node`, ui.py:1282–1342): outputs built from schema — `_schema_outputs_for_unwired_node` (ui.py:1073–1083, called ui.py:1326) — **before** links; inputs start as `[]` (ui.py:1325) and only linked inputs materialize, one synthetic slot each via `_ensure_input_slot` (apply_mutate.py:276 → apply_links.py:289–300, appends `{"name","type","link":None}`). Declared-but-unlinked input sockets never appear.
+
+**Set/upsert path:** `resolve_target_endpoint` accepts raw slot OR schema-declared input (resolution.py:744 rejects only if both missing); slot_index may be None → `_apply_upsert_link` materializes the synthetic slot (apply_mutate.py:157, apply_links.py:299). Unknown class: add path hard-rejects (`unknown_add_node_class_type`, apply_resolve_add.py:52–59); set path never needs schema for existence (`_resolve_node`, apply_resolve_base.py:56–98), schema used only for types (resolution.py:735–742) — unknown classes tolerated.
+
+## Ranked findings
+
+1. **Add path: outputs materialize pre-link, inputs do not** — links resolve against schema, not ports.
+2. **Unknown class: add rejects; set proceeds** (schema-free).
+3. **Risk:** schema-resolved source output (resolution.py:641–678) absent from the node's outputs array → `_ensure_output_link_reference` silently drops (apply_links.py:324); `_set_input_link_reference` silently returns (apply_links.py:307) — dangling links, no diagnostic.
+
+## Minimal B08 fix
+
+Materialize-then-validate: build schema input sockets into `inputs` at ui.py:1325 (symmetric with outputs), then keep write-time bounds checks (apply_links.py:303/314) but emit diagnostics instead of silent returns.

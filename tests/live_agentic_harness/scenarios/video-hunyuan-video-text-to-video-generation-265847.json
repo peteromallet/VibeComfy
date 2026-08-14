@@ -30,5 +30,33 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "Flickering ties directly to tiled VAE decoding and advanced sampling, forcing diagnosis of per-frame tile alignment or seed handling."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/26584720cc4075d1.json",
+    "required_node_evidence": [
+      "EmptyHunyuanLatentVideo",
+      "BasicScheduler",
+      "SamplerCustomAdvanced",
+      "VAEDecodeTiled",
+      "SaveAnimatedWEBP"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Prioritize causes that can affect later/high-motion frames while sparing the first, grounding the diagnosis in latent length/schedule/sampling/tiled decode/WEBP settings and proposing isolating checks.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

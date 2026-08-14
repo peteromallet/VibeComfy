@@ -1,0 +1,14 @@
+## Interrupted-run recovery — verified findings
+
+**Ranked findings**
+
+1. **Partial state already survives kills — but nothing reads it.** `_persist_run_summary` atomically rewrites `run_summary.partial.json` after every completion (runner.py:92-96, 386-387, under lock 490-498); it's deleted only on clean completion (383-385). No code path ever reads it — search confirms the only `resume` in the harness is failure-analysis' (failure_analysis.py:343-348). Same-tag rerun overwrites all evidence; new-tag rerun preserves it but re-executes everything.
+2. **Per-scenario state is resume-ready.** Canonical `agentic_summary.json` per scenario (runner.py:617-622; also 459) is written *after* partial registration, so "canonical exists ⇒ recorded" holds; writes are atomic tmp+replace (92-96). Attempt dirs are tag/attempt-scoped (`{tag}/attempts/{sid}/attempt_N`, 190-191, 520) — no cross-run clobber. Infra retry loop (41, 517, 582-585) means failed/infra scenarios are also "done" and skippable.
+3. **Full rerun is costly but bounded: ~2h/round for 100.** `docs/live-agentic-scenarios-catalog.md:210-216`: ~25-30 min at 23 scenarios, "~2 h/round" at 100, "multi-hour"; default 12 workers (38), 1200s timeout (39). Mid-run kill at 70/100 wastes ~1.4h + LLM tokens — real, but no documented interrupted-run incident exists in this repo (no `out/agentic`, no incident docs).
+4. **Reuse across code changes is a documented confound** (docs/failure-analysis/PROPOSAL.md:41) — mandates a config hash.
+
+**Verdict: conditionally warranted.** Infrastructure is ~90% present; ~1.5h saved per interruption. But it's insurance, not a response to observed pain — gate on a real interruption.
+
+**Unknowns:** orphaned subprocesses survive parent SIGKILL (in-flight scenarios may finish writing after death → double-run races); LLM $/round.
+
+**Minimal design:** `--resume`: read partial; hash = sha256(scenario bytes + runner/adapter/guard code bytes) stored in partial; skip scenarios with canonical summary + matching hash; refuse if live `--single` processes detected; final write replaces partial.

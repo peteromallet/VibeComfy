@@ -660,3 +660,28 @@ def test_c0_ownership_guards():
     for module_name in ("layout_operation_v1.py", "mutation_materialization_v1.py", "_canonical_contract_primitives.py"):
         text = (agent_root / module_name).read_text()
         assert "candidate_graph" not in text.lower(), f"{module_name} references candidate_graph"
+
+
+def test_projection_resolves_named_port_with_validated_index_fallback() -> None:
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import ContractError, _native_port_name
+
+    node = {
+        "id": 1,
+        "type": "CheckpointLoaderSimple",
+        "outputs": [
+            {"name": "CLIP", "type": "CLIP"},
+            {"name": "MODEL", "type": "MODEL"},
+            {"name": "VAE", "type": "VAE"},
+        ],
+        "inputs": [
+            {"name": "model", "type": "MODEL"},
+            {"name": "positive", "type": "CONDITIONING"},
+        ],
+        "properties": {"vibecomfy_uid": "n1"},
+    }
+    assert _native_port_name(node, "from", "MODEL") == "MODEL"
+    assert _native_port_name(node, "from", 1) == "MODEL"
+    assert _native_port_name(node, "to", "positive") == "positive"
+    assert _native_port_name(node, "to", 1) == "positive"
+    with pytest.raises(ContractError, match="Missing stable link from port"):
+        _native_port_name(node, "from", 9)

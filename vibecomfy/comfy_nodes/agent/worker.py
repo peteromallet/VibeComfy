@@ -65,21 +65,14 @@ from vibecomfy.agent.deepseek_usage import (
     coerce_deepseek_usage,
     empty_deepseek_usage,
 )
+from vibecomfy.executor.contracts import (
+    ModelAttemptEvidence,
+    normalize_model_endpoint,
+    redact_model_preview,
+)
 from vibecomfy.executor.profiler import profiler_log, profiler_span, short_text, utc_now_iso
 
 LOGGER = logging.getLogger(__name__)
-
-
-class EmptyModelResponseError(ValueError):
-    """Typed marker: the model returned an empty (no-content) response.
-
-    Deliberately distinct from a bare ``ValueError`` / ``JSONDecodeError``:
-    an empty reply is a transport-level outcome (the call produced zero
-    completion tokens), while a nonempty-but-unparseable reply is a content
-    problem owned by the response-contract retry layer.  The parent runtime
-    uses ``error_type == \"EmptyModelResponseError\"`` to retry empty replies
-    as fresh transport attempts instead of re-prompting for JSON.
-    """
 
 
 def _extract_json_object(text: str) -> dict:
@@ -107,37 +100,78 @@ def _extract_json_object(text: str) -> dict:
 
 def _raw_response_preview(text: str | None, *, limit: int = 1200) -> str | None:
     """Return a bounded, whitespace-normalized preview of a raw model response."""
-    if not isinstance(text, str):
-        return None
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
+    return redact_model_preview(text, limit=limit)
 
 
-def _parse_failure_reason(exc: BaseException, raw_text: str | None) -> str:
-    """Classify a worker response-parse failure into the shared evidence vocabulary.
-
-    Values are ``empty`` | ``missing_content`` | ``malformed_json`` |
-    ``non_json_content`` — the same vocabulary the classify/reply evidence
-    plumbing persists upstream.
-    """
-    if isinstance(exc, EmptyModelResponseError):
-        return "empty"
+def _model_attempt_failure_type(exc: BaseException, raw_text: str | None) -> str:
+    """Classify an observed failed call without consulting response wording."""
     if raw_text is not None and not str(raw_text).strip():
-        return "empty"
+        return "empty_response"
+    if isinstance(exc, TimeoutError):
+        return "timeout"
     if isinstance(exc, json.JSONDecodeError):
-        return "malformed_json"
+        return "malformed_json" if "{" in (raw_text or "") else "non_json_content"
     message = str(exc).lower()
-    if "not an object" in message or "non_json" in message:
+    if "not an object" in message:
         return "non_json_content"
     if isinstance(exc, ValueError):
-        if "must include" in message or "field" in message or "empty" in message:
-            return "missing_content"
+        if "must include" in message or "field" in message:
+            return "missing_required_fields"
         return "malformed_json"
-    return "missing_content"
+    return "provider_failure"
+
+
+def _worker_provider_transport(
+    request: dict[str, Any],
+) -> tuple[str, str, str]:
+    agent_id = str(request.get("agent_id") or "hermes")
+    agent_kwargs = request.get("agent_kwargs")
+    if not isinstance(agent_kwargs, dict):
+        agent_kwargs = {}
+    endpoint = normalize_model_endpoint(agent_kwargs.get("base_url"))
+    if agent_id != "hermes":
+        return "unknown", "unknown", endpoint
+    if "openrouter.ai" in endpoint:
+        return "openrouter", "openrouter", endpoint
+    if "deepseek.com" in endpoint:
+        return "deepseek", "native", endpoint
+    if endpoint != "unknown":
+        return "unknown", "openai_compatible", endpoint
+    return "unknown", "unknown", endpoint
+
+
+def _model_attempt(
+    request: dict[str, Any],
+    profiling_context: dict[str, Any],
+    worker_metadata: dict[str, Any] | None,
+    *,
+    outcome: str,
+    failure_type: str | None = None,
+    raw_text: str | None = None,
+) -> dict[str, Any]:
+    agent_kwargs = request.get("agent_kwargs")
+    if not isinstance(agent_kwargs, dict):
+        agent_kwargs = {}
+    metadata = worker_metadata if isinstance(worker_metadata, dict) else {}
+    usage = metadata.get("deepseek_usage")
+    if not isinstance(usage, dict) or int(usage.get("n_calls") or 0) <= 0:
+        usage = {}
+    provider, transport, endpoint = _worker_provider_transport(request)
+    return ModelAttemptEvidence(
+        phase=profiling_context.get("backend_phase") or "agent_turn",
+        attempt=profiling_context.get("model_attempt") or 1,
+        outcome=outcome,
+        failure_type=failure_type,
+        requested_model=request.get("requested_model"),
+        resolved_model=agent_kwargs.get("model") or request.get("model"),
+        adapter=request.get("agent_id") or "hermes",
+        provider=provider,
+        transport=transport,
+        endpoint=endpoint,
+        finish_reason=metadata.get("finish_reason"),
+        token_usage=usage,
+        raw_response_preview=raw_text if outcome == "failure" else None,
+    ).to_dict()
 
 
 def _persist_parse_evidence(
@@ -154,39 +188,29 @@ def _persist_parse_evidence(
     unchanged. Mirrors the batch-repl ``model_response`` detail capture
     (parse_reason + raw preview) and adds the observed usage, model, phase,
     endpoint, and finish reason so classify/reply attempts are diagnosable.
-
-    Empty output is typed distinctly: ``parse_reason == \"empty\"`` plus an
-    ``empty_response: True`` marker so the runtime can retry it as a fresh
-    transport attempt rather than a content/parse failure.  Credentials are
-    never persisted — only the resolved model/adapter/provider/endpoint.
     """
     agent_kwargs = (
         request.get("agent_kwargs")
         if isinstance(request.get("agent_kwargs"), dict)
         else {}
     )
+    failure_type = _model_attempt_failure_type(exc, raw_text)
     preview = _raw_response_preview(raw_text)
     if preview:
         out["raw_response_preview"] = preview
-    out["parse_reason"] = _parse_failure_reason(exc, raw_text)
-    if out["parse_reason"] == "empty":
-        out["empty_response"] = True
+    out["parse_reason"] = {
+        "empty_response": "empty",
+        "missing_required_fields": "missing_content",
+    }.get(failure_type, failure_type)
     model = request.get("model") or agent_kwargs.get("model")
     if model:
         out["model"] = model
-        out["resolved_model"] = model
     phase = profiling_context.get("backend_phase") or "agent_turn"
     if phase:
         out["phase"] = phase
     endpoint = agent_kwargs.get("base_url")
     if endpoint:
-        out["endpoint"] = endpoint
-    adapter = request.get("agent_id") or "hermes"
-    if adapter:
-        out["adapter"] = adapter
-    provider = agent_kwargs.get("provider")
-    if provider:
-        out["provider"] = provider
+        out["endpoint"] = normalize_model_endpoint(endpoint)
     if isinstance(worker_metadata, dict):
         finish_reason = worker_metadata.get("finish_reason")
         if isinstance(finish_reason, str) and finish_reason.strip():
@@ -198,9 +222,16 @@ def _persist_parse_evidence(
                 value = usage.get(key)
                 if isinstance(value, int):
                     out[key] = value
-            completion = usage.get("completion_tokens")
-            if isinstance(completion, int):
-                out["completion_tokens_zero"] = completion == 0
+    out["model_attempts"] = [
+        _model_attempt(
+            request,
+            profiling_context,
+            worker_metadata,
+            outcome="failure",
+            failure_type=failure_type,
+            raw_text=raw_text,
+        )
+    ]
 
 
 def _anchor_agent_package_on_syspath() -> None:
@@ -509,15 +540,15 @@ def main() -> int:
             span.update(raw_text_length=len(text or ""))
             if response_contract == "batch_repl":
                 if not isinstance(text, str) or not text.strip():
-                    raise EmptyModelResponseError("Agent returned an empty batch_repl response.")
+                    raise ValueError("Agent returned an empty batch_repl response.")
                 out = {"content": text}
             elif response_contract == "text":
                 if not isinstance(text, str) or not text.strip():
-                    raise EmptyModelResponseError("Agent returned an empty text response.")
+                    raise ValueError("Agent returned an empty text response.")
                 out = {"content": text}
             elif response_contract == "json":
                 if not isinstance(text, str) or not text.strip():
-                    raise EmptyModelResponseError("Agent returned an empty json response.")
+                    raise ValueError("Agent returned an empty json response.")
                 payload = _extract_json_object(text)
                 out = {"content": text, "json": payload}
             elif response_contract in ("python", "delta"):
@@ -550,19 +581,20 @@ def main() -> int:
             model = request.get("model") or agent_kwargs.get("model")
             if model:
                 out["model"] = model
-                out["resolved_model"] = model
             phase = profiling_context.get("backend_phase") or "agent_turn"
             if phase:
                 out["phase"] = phase
             endpoint = agent_kwargs.get("base_url")
             if endpoint:
-                out["endpoint"] = endpoint
-            adapter = request.get("agent_id") or "hermes"
-            if adapter:
-                out["adapter"] = adapter
-            provider = agent_kwargs.get("provider")
-            if provider:
-                out["provider"] = provider
+                out["endpoint"] = normalize_model_endpoint(endpoint)
+            out["model_attempts"] = [
+                _model_attempt(
+                    request,
+                    profiling_context,
+                    worker_metadata,
+                    outcome="success",
+                )
+            ]
     except Exception as exc:  # noqa: BLE001 - report all failures to parent
         out = {"error": str(exc), "error_type": type(exc).__name__}
         # A LookupError means no adapter is registered for the requested agent id
@@ -584,6 +616,16 @@ def main() -> int:
                 request,
                 profiling_context,
             )
+        else:
+            out["model_attempts"] = [
+                _model_attempt(
+                    request,
+                    profiling_context,
+                    worker_metadata,
+                    outcome="failure",
+                    failure_type=_model_attempt_failure_type(exc, raw_text),
+                )
+            ]
 
     out["_profiling"] = {
         **profiling_context,

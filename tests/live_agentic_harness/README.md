@@ -8,6 +8,12 @@ using production-like tools, and the evidence comes from the actual run. Fake or
 faking actors, deterministic builders, scripted `messages.jsonl`, and structural
 contract scenarios do not belong here.
 
+The selected live lane is fixed by `scenario_manifest.json`. Before starting
+scenario subprocesses, the runner validates descriptor IDs/paths/hashes,
+source-workflow IDs/paths/hashes, and exact directory membership. A missing,
+changed, duplicate, or stray descriptor fails preflight. `--manifest` can select
+another equally strict manifest for an explicit scenario directory.
+
 Deterministic real-workflow agentic scenarios live in
 `tests/structural_harness/` as **structural agentic tests**:
 

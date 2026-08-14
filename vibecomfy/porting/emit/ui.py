@@ -78,6 +78,7 @@ from vibecomfy.contracts.intent_nodes import (
     validate_runtime_code_contract,
 )
 from vibecomfy.identity.uid import mint_local_uid
+from vibecomfy.porting.endpoint_invariant import schema_input_sockets_for_unwired_node
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode, _raise_embedded_api_links
@@ -1358,7 +1359,11 @@ def materialize_litegraph_node(
         "size": [_canonicalize_coord(s) for s in _STUB_NODE_SIZE],
     }
     furniture = _resolve_furniture(node, None)
-    inputs: list[dict[str, Any]] = []
+    inputs: list[dict[str, Any]] = schema_input_sockets_for_unwired_node(
+        schema,
+        class_type,
+        fields=merged_fields,
+    )
     outputs: list[dict[str, Any]] = _schema_outputs_for_unwired_node(schema)
     if class_type == "vibecomfy.exec":
         exec_io = _exec_io_for_node(node)
@@ -1621,7 +1626,7 @@ def _split_widget_shape_deltas(
         field_delta["widgets_values"] = delta["widget_values_sig"]
     if "public_input_binding" in delta:
         field_delta["public_input_binding"] = delta["public_input_binding"]
-    for key in ("incoming_edge_sig", "outgoing_edge_sig"):
+    for key in ("incoming_edge_sig", "outgoing_edge_sig", "semantic_link_set"):
         if key in delta:
             link_delta[key] = delta[key]
     for key, value in delta.items():
@@ -1630,6 +1635,7 @@ def _split_widget_shape_deltas(
             "public_input_binding",
             "incoming_edge_sig",
             "outgoing_edge_sig",
+            "semantic_link_set",
         }:
             field_delta[key] = value
     return field_delta, link_delta

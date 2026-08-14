@@ -1,6 +1,6 @@
 # Live Agent-Edit Pipeline — Forward Improvement Plan
 
-**Date:** 2026-08-12 · **Status:** ACTIVE — evidence complete, fixes beginning
+**Date:** 2026-08-12 · **Status:** COMPLETE — all 11 plan items landed via G0R/B01–B09 (cumulative oracle verdict PASS); retained as the historical plan + failure inventory. Current status: `.oracle/checkins/*.md`.
 **Owner:** vibecomfy agent-edit pipeline (live agentic harness + executor + contracts)
 **Headline:** True pass rate ~49/100 (was recorded 38/100; pre-fix 17/100). Baseline (2026-06-30) was 93/100 *executor-ok* but only **69/100 strict-guard passes**. The gap is ~20 points: ~9 harness matcher false-positives, ~11 genuine product/pipeline defects. One confirmed code bug already fixed (`c77fe228`).
 
@@ -115,7 +115,7 @@
 - **VibeWorkflow IR (in-memory Python)** — lossless itself; only ever built FROM lossy compiled_api when input is a vibe envelope.
 - **`EditSession.working_ui` / `guard_original_ui`** — canonical list-nodes; guard_original_ui is a stamped copy.
 
-**Conclusion:** standardize on the VibeWorkflow IR as canonical (lossless editable surface), `compile('api')` as a derived execution view. Missing piece: a `rich` ingest branch decoding the rich nodes mapping → IR (~50 lines, reusing `_normalize_ui_to_api`'s list-node handling). Cross-language parity already holds (frontend speaks UI JSON).
+**Conclusion:** standardize on the VibeWorkflow IR as canonical (lossless editable surface), `compile('api')` as a derived execution view. **The `rich`-ingest branch is LANDED**: `_decode_serialized_vibe` (`normalize.py:382-395`) decodes the rich nodes mapping → IR losslessly and is the sole structural authority (see §4 item 3 status and B02). Cross-language parity already holds (frontend speaks UI JSON).
 
 ---
 
@@ -147,7 +147,7 @@ Fix = reclassify by evidence (item 2), not phrase.
 
 1. Execute priority `4 → 1` (regression lock + matcher) — tiny, high-certainty.
 2. Implement `2+11` (typed evidence + truthful classification) together.
-3. Spec + land the `rich`-branch lossless decoder (item 3); corpus round-trip preservation test first.
+3. ~~Spec + land the `rich`-branch lossless decoder (item 3); corpus round-trip preservation test first.~~ **DONE** — item 3 is LANDED (B02/`192d4b8f` + elegance `0f515870`); `tests/test_b02_rich_preservation.py` is 4/4 with 0 corpus mismatches.
 4. Then `6` (pinned consumers) and `7` (schema precedence — one-line swap at `_frag_research.py:821` first).
 5. Transport 2×2 experiment (native/OpenRouter × default/all-Flash) after deterministic fixes; decide prompt/model by data, not intuition.
 

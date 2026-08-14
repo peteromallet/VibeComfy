@@ -10,9 +10,41 @@ under the old exec assembly; guarded imports stay function-local.
 """
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import json
 from typing import Any
+
+_TURN_EVENT_BUFFER: contextvars.ContextVar[list[tuple[dict[str, Any], str | None]] | None] = (
+    contextvars.ContextVar("vibecomfy_agent_edit_turn_event_buffer", default=None)
+)
+
+
+def begin_turn_event_buffer() -> None:
+    """Buffer websocket turn events until commit or abort."""
+    _TURN_EVENT_BUFFER.set([])
+
+
+def commit_turn_event_buffer() -> None:
+    """Flush buffered turn events. No-op when buffering is inactive."""
+    from vibecomfy.comfy_nodes.agent.edit import LOGGER, _ws_send
+
+    buffer = _TURN_EVENT_BUFFER.get()
+    _TURN_EVENT_BUFFER.set(None)
+    if not buffer:
+        return
+    for payload, client_id in buffer:
+        try:
+            _ws_send("vibecomfy.agent_edit.turn", payload, client_id=client_id)
+        except Exception:
+            LOGGER.debug("emit buffered agent-edit turn event failed (best-effort)", exc_info=True)
+
+
+def discard_turn_event_buffer() -> int:
+    """Drop buffered events so a rolled-back batch cannot look committed."""
+    buffer = _TURN_EVENT_BUFFER.get()
+    _TURN_EVENT_BUFFER.set(None)
+    return len(buffer) if buffer else 0
 
 
 def handle_agent_edit(
@@ -638,6 +670,16 @@ def _emit_agent_edit_turn_event(
         payload = _agent_edit_turn_event_payload(
             state, context, turn_record, entry_type=entry_type, status=status
         )
+        if status == "aborted":
+            payload["rolled_back"] = True
+            payload["committed"] = False
+            payload.pop("done_summary", None)
+            payload["batch_ok"] = False
+            payload["landed_op_count"] = 0
+        buffer = _TURN_EVENT_BUFFER.get()
+        if buffer is not None and status != "aborted":
+            buffer.append((payload, client_id))
+            return
         _ws_send("vibecomfy.agent_edit.turn", payload, client_id=client_id)
     except Exception:
         LOGGER.debug("emit agent-edit turn event failed (best-effort)", exc_info=True)
@@ -648,5 +690,8 @@ __all__ = (
     "_brief_batch_statements",
     "_emit_agent_edit_turn_event",
     "_ws_send",
+    "begin_turn_event_buffer",
+    "commit_turn_event_buffer",
+    "discard_turn_event_buffer",
     "handle_agent_edit",
 )

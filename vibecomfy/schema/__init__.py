@@ -23,6 +23,7 @@ from .provider import (
     schema_for,
     schema_registry_empty,
     schemas_for,
+    with_provisional_gap_filler,
 )
 from .validate import socket_types_compatible
 
@@ -52,4 +53,5 @@ __all__ = [
     "schemas_for",
     "socket_types_compatible",
     "validate_node_call",
+    "with_provisional_gap_filler",
 ]

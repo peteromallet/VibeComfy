@@ -221,6 +221,7 @@ _INPUT_AXIS_FIELDS = frozenset(
         "widget_values_sig",
         "incoming_edge_sig",
         "outgoing_edge_sig",
+        "semantic_link_set",
         "public_input_binding",
     }
 )

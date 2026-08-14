@@ -31,5 +31,34 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "A concrete luminance mismatch symptom forces the agent to trace the post\u2011processing chain, inspect color matching parameters, and identify a plausible root cause without reaching for a simple fix."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/435de2f6bb5d3eda.json",
+    "required_node_evidence": [
+      "ImagePadForOutpaint",
+      "DrawMaskOnImage",
+      "ReferenceLatent",
+      "VAEDecode",
+      "ColorMatch",
+      "ImageCompare"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Locate ColorMatch relative to generation/decoding/compositing, identify a graph-supported luminance mismatch mechanism, and propose checks that distinguish bad reference/mask/range settings from a broken color-match node.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

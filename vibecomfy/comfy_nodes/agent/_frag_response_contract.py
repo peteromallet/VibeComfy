@@ -779,7 +779,7 @@ def _enrich_schema_provider_from_resolver_candidates(
     ]
     if not new_candidates:
         return
-    from vibecomfy.schema import CompositeSchemaProvider, ProvisionalRegistrySchemaProvider
+    from vibecomfy.schema import ProvisionalRegistrySchemaProvider, with_provisional_gap_filler
 
     provisional = ProvisionalRegistrySchemaProvider(new_candidates)
     if not provisional.schemas():
@@ -790,7 +790,7 @@ def _enrich_schema_provider_from_resolver_candidates(
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    enriched = CompositeSchemaProvider(provisional, session.schema_provider)
+    enriched = with_provisional_gap_filler(session.schema_provider, provisional)
     session.schema_provider = enriched
     state.schema_provider = enriched
 

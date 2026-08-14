@@ -31,7 +31,7 @@ PUBLIC_EXPORT_SNAPSHOTS = {
         "RuntimeSchemaProvider", "SchemaIndexError", "SchemaProvider", "SchemaSourceInfo",
         "SourceSchemaProvider", "get_authoring_schema_provider", "get_schema_provider",
         "schema_for", "schema_registry_empty", "schemas_for", "socket_types_compatible",
-        "validate_node_call",
+        "validate_node_call", "with_provisional_gap_filler",
     ],
     "vibecomfy.artifacts": ["Artifact", "ArtifactKind", "Image", "Video", "Audio", "Latent", "Mask"],
     "vibecomfy.templates": [

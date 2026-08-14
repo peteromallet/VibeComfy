@@ -10,6 +10,7 @@ import pytest
 from vibecomfy.comfy_nodes.agent import runtime
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
 from vibecomfy.comfy_nodes.agent import worker
+from vibecomfy.executor.agent_backend import run_classify_turn, run_reply_turn
 
 
 def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,6 +53,38 @@ def test_provider_preserves_openrouter_route_at_runtime_boundary() -> None:
     assert agent_provider._runtime_dispatch_route(
         descriptor, descriptor.normalized_route
     ) == "openrouter"
+
+
+def test_unsupported_route_plumbs_unknown_provenance_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = agent_provider._resolve_agent_route("unsupported-route")
+    assert descriptor.requested_route == "unsupported-route"
+    assert descriptor.normalized_route == "unknown"
+    assert agent_provider._runtime_dispatch_route(descriptor, descriptor.normalized_route) == "unknown"
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: runtime)
+
+    with pytest.raises(ImportError) as raised:
+        agent_provider.run_model_turn(
+            "test unsupported route",
+            [{"role": "user", "content": "test unsupported route"}],
+            route="unsupported-route",
+            model="agent-edit",
+            response_contract="text",
+            profiling_context={"backend_phase": "classify"},
+        )
+
+    worker_result = raised.value.worker_result  # type: ignore[attr-defined]
+    attempt = worker_result["model_attempts"][0]
+    assert attempt["requested_model"] == "agent-edit"
+    assert attempt["resolved_model"] == "unknown"
+    assert attempt["adapter"] == "unknown"
+    assert attempt["provider"] == "unknown"
+    assert attempt["transport"] == "unknown"
+    assert attempt["endpoint"] == "unknown"
+    readiness = runtime.readiness(route="unsupported-route", model="agent-edit")
+    assert readiness["route"] == "unknown"
+    assert readiness["model"] == "unknown"
 
 
 def test_agent_edit_contract_model_uses_openrouter_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -525,3 +558,427 @@ def test_openrouter_worker_401_error_is_permission_error(
             route="openrouter",
             messages=[{"role": "user", "content": "User request:\nmake it brighter"}],
         )
+
+
+@pytest.mark.parametrize(
+    ("exc", "raw", "expected"),
+    [
+        (ValueError("empty"), "", "empty_response"),
+        (json.JSONDecodeError("bad", "{bad", 1), "{bad", "malformed_json"),
+        (json.JSONDecodeError("bad", "plain prose", 0), "plain prose", "non_json_content"),
+        (ValueError("must include field reply"), '{"other":"x"}', "missing_required_fields"),
+        (TimeoutError("late"), None, "timeout"),
+        (RuntimeError("capacity"), None, "provider_failure"),
+    ],
+)
+def test_worker_failure_taxonomy_is_structural(
+    exc: BaseException,
+    raw: str | None,
+    expected: str,
+) -> None:
+    assert worker._model_attempt_failure_type(exc, raw) == expected
+
+
+def test_worker_zero_filled_usage_without_calls_is_unavailable() -> None:
+    request = {
+        "agent_id": "hermes",
+        "requested_model": "requested",
+        "model": "resolved",
+        "agent_kwargs": {
+            "model": "resolved",
+            "base_url": "https://openrouter.ai/api/v1",
+        },
+    }
+    zero_usage = {
+        "deepseek_usage": {
+            "n_calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+    }
+
+    unavailable = worker._model_attempt(
+        request,
+        {"backend_phase": "classify"},
+        zero_usage,
+        outcome="failure",
+        failure_type="empty_response",
+    )
+    observed = worker._model_attempt(
+        request,
+        {"backend_phase": "classify"},
+        {"deepseek_usage": {**zero_usage["deepseek_usage"], "n_calls": 1}},
+        outcome="failure",
+        failure_type="empty_response",
+    )
+
+    assert unavailable["token_usage"]["completion_tokens"] == "unknown"
+    assert observed["token_usage"]["completion_tokens"] == 0
+
+
+def _canonical_success_attempt() -> dict:
+    return {
+        "phase": "batch",
+        "attempt": 1,
+        "outcome": "success",
+        "failure_type": None,
+        "requested_model": "openrouter:requested/model",
+        "resolved_model": "resolved/model",
+        "adapter": "hermes",
+        "provider": "openrouter",
+        "transport": "openrouter",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "finish_reason": "stop",
+        "token_usage": {
+            "prompt_tokens": 12,
+            "completion_tokens": 3,
+            "total_tokens": 15,
+        },
+    }
+
+
+def test_three_runtime_success_paths_preserve_worker_attempt_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_hermes_credential_for", lambda route, model: "key")
+    attempt = _canonical_success_attempt()
+
+    def fake_worker(*args, response_contract, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        base = {"model_attempts": [attempt], "deepseek_usage": attempt["token_usage"]}
+        if response_contract == "python":
+            return {**base, "python": "pass", "message": "ok"}
+        if response_contract == "delta":
+            return {**base, "delta": [], "message": "ok"}
+        return {**base, "content": "done\n```batch\ndone()\n```"}
+
+    monkeypatch.setattr(runtime, "_run_worker", fake_worker)
+
+    python_result = runtime.run_agent_turn(
+        task="x", python_source="", route="openrouter", model="requested/model"
+    )
+    delta_result = runtime.run_agent_turn_delta(
+        task="x", projection="{}", op_schema={}, route="openrouter", model="requested/model"
+    )
+    batch_result = runtime.run_agent_turn_batch(
+        task="x", route="openrouter", model="requested/model", messages=[]
+    )
+
+    for result in (python_result, delta_result, batch_result):
+        assert result["model_attempts"] == [attempt]
+        assert result["deepseek_usage"] == attempt["token_usage"]
+
+
+def test_batch_provider_audit_merges_worker_attempt_provenance() -> None:
+    attempt = _canonical_success_attempt()
+    result = agent_provider._normalize_batch_response(
+        {
+            "content": "Changed it.\n```batch\ndone()\n```",
+            "model_attempts": [attempt],
+            "deepseek_usage": attempt["token_usage"],
+        },
+        route="openrouter",
+        model="requested/model",
+        audit_metadata={"provider": "arnold"},
+    )
+
+    assert result.audit_metadata["model_attempts"] == [attempt]
+    assert result.audit_metadata["deepseek_usage"] == attempt["token_usage"]
+
+
+def test_batch_provider_retry_renumbers_all_worker_attempts_monotonically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    first_a = {**_canonical_success_attempt(), "outcome": "failure", "failure_type": "provider_failure"}
+    first_b = {
+        **_canonical_success_attempt(),
+        "attempt": 2,
+        "token_usage": {
+            "prompt_tokens": 8,
+            "completion_tokens": 0,
+            "total_tokens": 8,
+        },
+    }
+    second = _canonical_success_attempt()
+
+    class Runtime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):  # noqa: ANN003, ANN205, ARG004
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {"content": "", "model_attempts": [first_a, first_b]}
+            return {
+                "content": "done\n```batch\ndone()\n```",
+                "model_attempts": [second],
+            }
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.run_agent_turn_batch(
+        "edit it",
+        [{"role": "user", "content": "edit it"}],
+        route="openrouter",
+        model="requested/model",
+    )
+
+    attempts = result.audit_metadata["model_attempts"]
+    assert calls == 2
+    assert [attempt["attempt"] for attempt in attempts] == [1, 2, 3]
+    assert attempts[1]["failure_type"] == "empty_response"
+
+
+def test_successful_classify_and_reply_attempts_reach_executor_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_model_turn(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nonlocal calls
+        calls += 1
+        phase = "classify" if calls == 1 else "reply"
+        content = (
+            '{"research":false,"implement":false,"reply":true,"route":"respond"}'
+            if phase == "classify"
+            else '{"reply":"hello"}'
+        )
+        attempt = {**_canonical_success_attempt(), "phase": phase}
+        return {"content": content, "json": json.loads(content), "model_attempts": [attempt]}
+
+    monkeypatch.setattr(agent_provider, "run_model_turn", fake_model_turn)
+    token = runtime.begin_model_attempt_capture()
+    try:
+        decision = run_classify_turn("hello", route="openrouter", model="requested/model")
+        assert run_reply_turn(
+            "hello",
+            route="openrouter",
+            model="requested/model",
+            plan=decision,
+        ) == "hello"
+        attempts = runtime.snapshot_model_attempt_capture()
+    finally:
+        runtime.end_model_attempt_capture(token)
+
+    assert [item["phase"] for item in attempts] == ["classify", "reply"]
+    assert all(item["outcome"] == "success" for item in attempts)
+
+
+# ── B07-lite: explicit transport pinning beats ambient credentials ───────────
+
+
+def test_transport_native_pin_overrides_ambient_openrouter_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sense-check 2: ambient OpenRouter key/base URL cannot win over an
+    explicit native selection — endpoint resolves to api.deepseek.com with the
+    native key, and the resolved model is the native slug."""
+    from tests.live_agentic_harness import adapter
+
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-native-key")
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+
+    resolved = adapter._ensure_transport_env("native")
+    assert resolved == "native"
+    assert os.environ["VIBECOMFY_TRANSPORT"] == "native"
+    assert os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] == "https://api.deepseek.com/v1"
+
+    kwargs = runtime._build_agent_kwargs(
+        "hermes", route="unknown", model="openrouter:deepseek/deepseek-v4-pro"
+    )
+    assert kwargs["base_url"] == "https://api.deepseek.com/v1"
+    assert kwargs["api_key"] == "sk-native-key"
+    assert kwargs["model"] == "deepseek-v4-pro"
+
+
+def test_transport_openrouter_pin_overrides_ambient_native_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reverse direction: ambient native base URL + native key cannot win
+    over an explicit OpenRouter selection."""
+    from tests.live_agentic_harness import adapter
+
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-native-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+    # Isolate from the real ~/.hermes/.env: the ambient file must not clobber.
+    monkeypatch.setattr(runtime, "_read_env_file_entries", lambda *a, **k: [])
+    monkeypatch.setattr(runtime, "_read_env_file", lambda *a, **k: {})
+
+    resolved = adapter._ensure_transport_env("openrouter")
+    assert resolved == "openrouter"
+    assert os.environ["VIBECOMFY_TRANSPORT"] == "openrouter"
+    assert (
+        os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
+    )
+
+    kwargs = runtime._build_agent_kwargs(
+        "hermes", route="unknown", model="openrouter:deepseek/deepseek-v4-pro"
+    )
+    assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
+    assert kwargs["api_key"] == "sk-or-ambient"
+    assert kwargs["model"] == "deepseek/deepseek-v4-pro"
+
+
+def test_transport_default_is_deterministic_openrouter_ignoring_ambient_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rework 2 (oracle issue 1d): with no explicit selector the harness default
+    is the canonical OpenRouter product route — an ambient native base URL/key
+    can never silently switch the no-flag default to native."""
+    from tests.live_agentic_harness import adapter
+
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "***")
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+
+    resolved = adapter._ensure_transport_env(None)
+    assert resolved == "openrouter"
+    assert (
+        os.environ["VIBECOMFY_OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
+    )
+    assert runtime._base_url_for_route("unknown") == "https://openrouter.ai/api/v1"
+    assert runtime._is_native_deepseek_endpoint() is False
+
+
+def test_transport_native_pin_wins_over_route_openrouter_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explicit transport pin is the strongest contract: even with the
+    route-level OpenRouter default, an explicit native pin resolves the
+    endpoint, credential, and model slug to the native transport."""
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "native")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "***")
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-key")
+
+    kwargs = runtime._build_agent_kwargs(
+        "hermes", route="openrouter", model="openrouter:deepseek/deepseek-v4-pro"
+    )
+    assert kwargs["base_url"] == "https://api.deepseek.com/v1"
+    assert kwargs["api_key"] == "***"
+    assert kwargs["model"] == "deepseek-v4-pro"
+
+    provider, transport, endpoint = runtime._runtime_provider_transport(
+        agent_id="hermes", agent_kwargs=kwargs
+    )
+    assert (provider, transport, endpoint) == (
+        "deepseek",
+        "native",
+        "https://api.deepseek.com/v1",
+    )
+
+
+def test_transport_native_pin_wins_over_ambient_openrouter_key_on_all_phases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Conflicting-evidence regression: an ambient OpenRouter key present plus
+    an explicit ``--transport native`` selection MUST observe native on every
+    profile phase (classify/research/implement/reply).  The ambient OpenRouter
+    key/base URL can never silently switch the transport; the observed endpoint
+    is api.deepseek.com/v1 with the redacted native key on each phase."""
+    from tests.live_agentic_harness import adapter
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-ambient")
+    monkeypatch.setenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "***")
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+    # Isolate from the real ~/.hermes/.env: the ambient file must not clobber.
+    monkeypatch.setattr(runtime, "_read_env_file_entries", lambda *a, **k: [])
+    monkeypatch.setattr(runtime, "_read_env_file", lambda *a, **k: {})
+
+    resolved = adapter._ensure_transport_env("native")  # --transport native
+    assert resolved == "native"
+    assert os.environ["VIBECOMFY_TRANSPORT"] == "native"
+
+    for phase in ("classify", "research", "implement", "reply"):
+        kwargs = runtime._build_agent_kwargs(
+            "hermes", route="openrouter", model="openrouter:deepseek/deepseek-v4-pro"
+        )
+        provider, transport, endpoint = runtime._runtime_provider_transport(
+            agent_id="hermes", agent_kwargs=kwargs
+        )
+        assert provider == "deepseek", phase
+        assert transport == "native", phase
+        assert endpoint == "https://api.deepseek.com/v1", phase
+        assert kwargs["base_url"] == "https://api.deepseek.com/v1", phase
+        assert kwargs["api_key"] == "***", phase  # redacted native key, never sk-or-ambient
+        assert kwargs["model"] == "deepseek-v4-pro", phase
+
+        # The probe's observed transport is recorded worker-side; assert the
+        # same resolution through the worker's observation path.
+        w_provider, w_transport, w_endpoint = worker._worker_provider_transport(
+            {"agent_id": "hermes", "agent_kwargs": kwargs}
+        )
+        assert (w_provider, w_transport, w_endpoint) == (
+            "deepseek",
+            "native",
+            "https://api.deepseek.com/v1",
+        ), phase
+
+
+def test_runtime_never_hydrates_transport_selecting_keys_from_hermes_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """~/.hermes/.env provides credentials only: transport-selecting keys stored
+    there are ignored, so the ambient file cannot silently switch transports."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENROUTER_API_KEY=sk-or-file\n"
+        "DEEPSEEK_API_KEY=sk-native-file\n"
+        "VIBECOMFY_TRANSPORT=openrouter\n"
+        "VIBECOMFY_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1\n"
+        "VIBECOMFY_FORCE_MODEL=openrouter:deepseek/deepseek-v4-flash\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+    monkeypatch.delenv("VIBECOMFY_OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("VIBECOMFY_FORCE_MODEL", raising=False)
+
+    runtime._load_env_file_into_environ(env_file)
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-file"
+    assert os.environ.get("DEEPSEEK_API_KEY") == "sk-native-file"
+    assert "VIBECOMFY_TRANSPORT" not in os.environ
+    assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
+    assert "VIBECOMFY_FORCE_MODEL" not in os.environ
+
+
+def test_adapter_credential_env_file_skips_transport_selecting_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Rework 2 (oracle issue 3 — env-skip mirror): the adapter's credential
+    file hydrate mirrors ``runtime._load_env_file_into_environ`` — it supplies
+    keys only, and transport-selecting keys stored in an ambient .env never
+    hydrate, so the file cannot set ``VIBECOMFY_TRANSPORT`` when the explicit
+    flag is absent and the default is OpenRouter."""
+    from tests.live_agentic_harness import adapter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENROUTER_API_KEY=sk-or-file\n"
+        "DEEPSEEK_API_KEY=***\n"
+        "VIBECOMFY_TRANSPORT=native\n"
+        "VIBECOMFY_OPENROUTER_BASE_URL=https://api.deepseek.com/v1\n"
+        "VIBECOMFY_FORCE_MODEL=openrouter:deepseek/deepseek-v4-flash\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECOMFY_TRANSPORT", raising=False)
+    monkeypatch.delenv("VIBECOMFY_OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("VIBECOMFY_FORCE_MODEL", raising=False)
+
+    adapter._load_credential_env_file(env_file)
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-file"
+    assert os.environ.get("DEEPSEEK_API_KEY") == "***"
+    assert "VIBECOMFY_TRANSPORT" not in os.environ
+    assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
+    assert "VIBECOMFY_FORCE_MODEL" not in os.environ

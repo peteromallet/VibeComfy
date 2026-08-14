@@ -808,7 +808,7 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
     workflow_candidates = _workflow_schema_candidates_from_research_context(state)
     if workflow_candidates:
         try:
-            from vibecomfy.schema import CompositeSchemaProvider, ProvisionalRegistrySchemaProvider
+            from vibecomfy.schema import ProvisionalRegistrySchemaProvider, with_provisional_gap_filler
 
             provisional = ProvisionalRegistrySchemaProvider(workflow_candidates)
             if provisional.schemas():
@@ -818,7 +818,7 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
                         *(_candidate_stable_key(candidate) for candidate in workflow_candidates),
                     }
                 )
-                state.schema_provider = CompositeSchemaProvider(state.schema_provider, provisional)
+                state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
         except Exception as exc:  # noqa: BLE001 - keep registry fallback below available
             LOGGER.debug("workflow schema provisional hydration unavailable: %s", exc)
 
@@ -835,7 +835,7 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
 
     try:
         from vibecomfy.registry.pack_resolver import resolve_missing_nodes
-        from vibecomfy.schema import CompositeSchemaProvider, ProvisionalRegistrySchemaProvider
+        from vibecomfy.schema import ProvisionalRegistrySchemaProvider, with_provisional_gap_filler
     except Exception as exc:  # noqa: BLE001 - registry hydration is best-effort
         LOGGER.debug("research precedent schema hydration unavailable: %s", exc)
         return workflow_candidates
@@ -871,7 +871,7 @@ def _hydrate_research_precedent_node_schemas(state: AgentEditState) -> tuple[dic
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    state.schema_provider = CompositeSchemaProvider(provisional, state.schema_provider)
+    state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
     return (*workflow_candidates, *new_candidates)
 
 
@@ -883,7 +883,7 @@ def _hydrate_current_graph_unknown_node_schemas(state: AgentEditState) -> tuple[
 
     try:
         from vibecomfy.registry.pack_resolver import resolve_missing_nodes
-        from vibecomfy.schema import CompositeSchemaProvider, ProvisionalRegistrySchemaProvider
+        from vibecomfy.schema import ProvisionalRegistrySchemaProvider, with_provisional_gap_filler
     except Exception as exc:  # noqa: BLE001 - registry hydration is best-effort
         LOGGER.debug("registry schema hydration unavailable: %s", exc)
         return ()
@@ -919,7 +919,7 @@ def _hydrate_current_graph_unknown_node_schemas(state: AgentEditState) -> tuple[
             *(_candidate_stable_key(candidate) for candidate in new_candidates),
         }
     )
-    state.schema_provider = CompositeSchemaProvider(state.schema_provider, provisional)
+    state.schema_provider = with_provisional_gap_filler(state.schema_provider, provisional)
     return tuple(new_candidates)
 
 

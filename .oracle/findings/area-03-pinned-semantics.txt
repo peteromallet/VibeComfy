@@ -1,0 +1,13 @@
+**Ranked findings (verified file:line)**
+
+1. **Pin gate is boolean on any link delta** — `widget_shape_fence.py:93-109,249-250`: pin_opaque requires `not has_link_delta`; any delta routes to REFUSE/regenerate. `has_link_delta = bool(link_delta)` (fence:84).
+2. **Comparison is uid-keyed but multiset-counted, not cardinality-only** — `layout/delta.py:64,70,88-90`: sigs are `(to_input,(source_uid,from_output))` / `(from_output,(target_uid,to_input))`, `sorted()` keeps duplicates, so 1↔N same-source fan-out = delta. Routed to link_delta at `ui.py:1588-1590`.
+3. **Rewrite layer never refuses on count** — `ui.py:1709-1806` stamps IR ids unconditionally (1743-1748, 1786-1789); refusal strings `output_link_count_mismatch` etc. (`ui.py:1646-1658`) are dead — only `invalid_raw_inputs/outputs` (1720,1766) raise.
+4. **Repro is flat-mode-only** — display keeps helpers+edges (`ui.py:2172-2175`), flat drops them and fans out (`2176-2183,531`); `collect_broadcast_sources` is last-SetNode-wins on duplicate names (`_helpers.py:170-172`).
+5. **Reroute 1:1 also breaks pins** — passthrough rewrites source uid to terminal (`ui.py:561-566`); cycle-safe via visited, but even 1:1 changes sig.
+6. **Loop lowering clones consumer uids** (`lowering.py:317 clone_uid`, 865-907) — pinned loop-output consumers always see delta.
+7. **Nested subgraphs** resolve against top-level broadcast map (`subgraph_resolve.py:56-76`, `convert.py:257-292`) — same 1→N expansion inside them.
+
+**Edge cases/unknowns**: muted/bypassed helpers still counted as broadcast sources (no emit-path handling; mode only stamped post-pin, `ui.py:2431`); whether captured `_ui` is display- or flat-mode (determines reroute case); orphaned GetNode edges dropped (`ui.py:530`) = genuine consumer loss, must stay refused; named-vs-slot `from_output` mismatch on multi-output nodes (`ui.py:1777-1782`).
+
+**Suggested B03 comparison**: dedupe incoming sig per `(to_input,(source_uid,from_output))`; for outgoing, canonicalize cloned loop uids (`parse_uid`/`clone_uid`, `lowering.py:317`) then dedupe per `(from_output,(target_uid,to_input))`; also canonicalize reroute to terminal source. Relax multiplicity only; refuse when semantic consumer sets genuinely differ.

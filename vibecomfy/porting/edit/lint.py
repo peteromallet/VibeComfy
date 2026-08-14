@@ -52,6 +52,7 @@ Rules enforced:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 import re
 from typing import Any, Mapping, Sequence
 
@@ -79,9 +80,7 @@ from vibecomfy.porting.resolution import (
     build_lg_id_maps,
 )
 from vibecomfy.porting.edit._ir_utils import _canonical_input_name_for_class
-
-
-_IMAGE_CONCAT_MULTI_INPUT_RE = re.compile(r"^image_(\d+)$")
+from vibecomfy.porting.endpoint_invariant import dynamic_port_authorized
 
 
 def _is_dynamic_add_node_input(
@@ -91,27 +90,14 @@ def _is_dynamic_add_node_input(
     fields: Mapping[str, Any],
     schema_inputs: Mapping[str, Any],
 ) -> bool:
-    if class_type != "ImageConcatMulti":
-        return False
-    match = _IMAGE_CONCAT_MULTI_INPUT_RE.match(input_name)
-    if match is None:
-        return False
-    try:
-        index = int(match.group(1))
-    except ValueError:
-        return False
-    if index < 1:
-        return False
-
-    raw_count = fields.get("inputcount")
-    if raw_count is None:
-        inputcount_spec = schema_inputs.get("inputcount")
-        raw_count = getattr(inputcount_spec, "default", None)
-    try:
-        count = int(raw_count)
-    except (TypeError, ValueError):
-        return False
-    return index <= count
+    authorized, _reason = dynamic_port_authorized(
+        class_type,
+        "input",
+        input_name,
+        fields=fields,
+        schema=SimpleNamespace(inputs=schema_inputs),
+    )
+    return authorized
 
 
 # ── data model ──────────────────────────────────────────────────────────────

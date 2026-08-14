@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import os
 import subprocess
 import sys
 import tempfile
@@ -34,6 +34,8 @@ from .failure_analysis import (
     prepare_failure_analysis,
     recommendations_for_run,
 )
+from .scenario_manifest import discover_manifest_scenarios
+from .adapter import _HARNESS_DEFAULT_TRANSPORT, _TRANSPORT_SELECTING_ENV_KEYS
 
 DEFAULT_MAX_WORKERS = 12
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
@@ -41,30 +43,37 @@ DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 REPO = Path(__file__).resolve().parents[2]
 
-_PROVIDER_INFRA_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"OpenRouter rejected", re.IGNORECASE),
-    re.compile(r"model provider is temporarily unavailable", re.IGNORECASE),
-    re.compile(r"provider is temporarily unavailable", re.IGNORECASE),
-    re.compile(r"not have enough credits", re.IGNORECASE),
-    re.compile(r"insufficient credits", re.IGNORECASE),
-    re.compile(r"insufficient balance", re.IGNORECASE),
-    re.compile(r"quota exceeded", re.IGNORECASE),
-    re.compile(r"rate limit", re.IGNORECASE),
-    re.compile(r"too many requests", re.IGNORECASE),
-    re.compile(r"HTTP Error 429", re.IGNORECASE),
-)
 
-# "The model response could not be parsed" is infra ONLY with zero-token
-# evidence (an empty/transport response) — never on the phrase alone.  A
-# nonzero-token parse failure (e.g. markdown instead of JSON) is a product
-# failure.  See ``_provider_infra_failure_class``.
-_PARSE_FAILURE_PATTERN = re.compile(r"The model response could not be parsed", re.IGNORECASE)
+def _pinned_child_env(transport: str | None) -> dict[str, str]:
+    """Return the child environment with transport-selecting keys pinned.
 
+    With an explicit ``--transport`` the child must not inherit ANY ambient
+    transport-selecting variable (base URL, model force-overs, endpoint pins):
+    the explicit selector is the only authority and the adapter re-establishes
+    the pinned values from it.  Credential keys (OPENROUTER_API_KEY /
+    DEEPSEEK_API_KEY) are preserved — they supply keys, they do not select
+    transport.  ``run_tag``/``run_single`` resolve the no-flag default to the
+    canonical OpenRouter route BEFORE calling this, so a plain run never
+    inherits an ambient ``VIBECOMFY_TRANSPORT``; the ``None`` pass-through is
+    only reachable by direct callers, where an operator's deliberate
+    ``VIBECOMFY_TRANSPORT`` pin still applies.
+    """
+    if transport is None:
+        return dict(os.environ)
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key not in _TRANSPORT_SELECTING_ENV_KEYS
+    }
 
-def _scenario_paths(scenarios_dir: Path) -> list[Path]:
+def _scenario_paths(
+    scenarios_dir: Path,
+    *,
+    manifest_path: Path | None = None,
+) -> list[Path]:
     if not scenarios_dir.is_dir():
-        return []
-    return sorted(p for p in scenarios_dir.iterdir() if p.suffix in {".yaml", ".yml", ".json"})
+        raise FileNotFoundError(f"scenario directory is missing: {scenarios_dir}")
+    return discover_manifest_scenarios(scenarios_dir, manifest_path=manifest_path)
 
 
 def _load_scenario(path: Path) -> dict[str, Any]:
@@ -117,6 +126,7 @@ def _synthetic_guard(
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
         "assessment": {
             "passed": False,
+            "verdict": "fail",
             "expect_graph_changed": expect_graph_changed,
             "issue_count": 1,
             "error_count": 1,
@@ -158,7 +168,7 @@ def _failure_summary(
         ),
         "failure_class": failure_class,
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
-        "retryable_infra": failure_class.startswith("infra_"),
+        "retryable_infra": failure_class == "infra_empty_response",
         "agent_exercised": False,
         "attempt": attempt,
         "elapsed_s": elapsed_s,
@@ -207,40 +217,30 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "agent_exercised": summary.get("agent_exercised"),
         "elapsed_s": summary.get("elapsed_s"),
         "live_agentic_success": (summary.get("guard") or {}).get("live_agentic_success"),
+        "model_attempts": summary.get("model_attempts", []),
     }
 
 
-def _summary_text_for_infra_classification(summary: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("error", "stdout_tail", "stderr_tail"):
-        value = summary.get(key)
-        if isinstance(value, str):
-            parts.append(value)
-
-    guard = summary.get("guard")
-    if isinstance(guard, dict):
-        assessment = guard.get("assessment")
-        if isinstance(assessment, dict):
-            for issue in assessment.get("issues") or []:
-                if not isinstance(issue, dict):
-                    continue
-                if issue.get("check") == "soft_warning":
-                    continue
-                detail = issue.get("detail")
-                if isinstance(detail, str):
-                    parts.append(detail)
-    return "\n".join(parts)
+def _latest_failed_model_attempt(summary: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    attempts = summary.get("model_attempts")
+    if not isinstance(attempts, (list, tuple)):
+        return None
+    for attempt in reversed(attempts):
+        if isinstance(attempt, Mapping) and attempt.get("outcome") == "failure":
+            return attempt
+    return None
 
 
 def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     """Observed completion tokens of the attempt's model call, or None when absent.
 
     The attempt summary (agentic_summary) carries ``deepseek_usage`` at the top
-    level — the executor result's usage dict.  A completion-token count of 0 is
-    the structured evidence of an empty/transport response; absence of the
-    record is NOT evidence, so it never classifies as infra.
+    level — the executor result's usage dict.  ``completion_tokens == 0`` is the
+    structured evidence of an empty/transport response; absence of the record is
+    NOT evidence, so it never classifies as infra.
     """
-    usage = summary.get("deepseek_usage")
+    attempt = _latest_failed_model_attempt(summary)
+    usage = attempt.get("token_usage") if isinstance(attempt, Mapping) else None
     if not isinstance(usage, Mapping):
         return None
     value = usage.get("completion_tokens")
@@ -249,39 +249,17 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     return int(value)
 
 
-def _summary_parse_reason(summary: dict[str, Any]) -> str | None:
-    """Typed parse reason of the attempt's failed model call, or None when absent.
-
-    Mirrors the worker/executor ``parse_reason`` vocabulary (``empty``,
-    ``malformed_json``, ``missing_content``, ...).  The adapter persists it on
-    the attempt summary from the executor's ``model_response`` artifact.  Absence
-    is NOT evidence: a parse phrase with no typed reason never classifies as
-    infra.
-    """
-    value = summary.get("parse_reason")
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return value.strip()
-
-
 def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
-    text = _summary_text_for_infra_classification(summary)
-    if not text:
+    """Map only canonical typed attempt evidence; never inspect response prose."""
+    attempt = _latest_failed_model_attempt(summary)
+    if attempt is None:
         return None
-    if _PARSE_FAILURE_PATTERN.search(text):
-        # The parse phrase alone is never infra: markdown instead of JSON is a
-        # product failure.  Only a typed EMPTY model response — structured
-        # evidence that parse_reason == "empty" AND the call observed zero
-        # completion tokens (a transport-level reply) — is retryable
-        # infrastructure.  A nonzero-token parser/contract failure stays
-        # product_fail and never receives the subprocess infra retry.
-        if (
-            _summary_parse_reason(summary) == "empty"
-            and _summary_completion_tokens(summary) == 0
-        ):
-            return "infra_empty_response"
-        return None
-    if any(pattern.search(text) for pattern in _PROVIDER_INFRA_PATTERNS):
+    failure_type = attempt.get("failure_type")
+    if failure_type == "empty_response" and _summary_completion_tokens(summary) == 0:
+        return "infra_empty_response"
+    if failure_type == "timeout":
+        return "infra_timeout"
+    if failure_type == "provider_failure":
         return "infra_provider_capacity"
     return None
 
@@ -289,7 +267,7 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
 def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
     summary["failure_class"] = failure_class
     summary["score_class"] = "infra_blocked"
-    summary["retryable_infra"] = True
+    summary["retryable_infra"] = failure_class == "infra_empty_response"
     guard = summary.get("guard")
     if isinstance(guard, dict):
         guard["failure_class"] = failure_class
@@ -301,7 +279,7 @@ def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
                     "check": "infra_classification",
                     "severity": "warning",
                     "detail": (
-                        f"{failure_class} failure was classified as retryable "
+                        f"{failure_class} failure was classified as "
                         "infrastructure, not product quality."
                     ),
                     "failure_class": failure_class,
@@ -309,16 +287,64 @@ def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
             )
 
 
+def _clear_stale_retryable_infra_markers(summary: dict[str, Any]) -> None:
+    """Drop inherited retryable-infra markers the canonical evidence no longer supports.
+
+    ``failure_class``/``retryable_infra`` are authoritative ONLY while they are
+    re-derived from the canonical ``model_attempts`` evidence on the same
+    summary. A summary that previously persisted ``infra_empty_response`` (from
+    an earlier attempt or a resumed run) must not keep claiming retryability
+    when the typed evidence is now, say, ``malformed_json`` (oracle finding 4).
+    """
+    stale_retryable = (
+        summary.get("failure_class") == "infra_empty_response"
+        or summary.get("retryable_infra") is True
+    )
+    if summary.get("failure_class") == "infra_empty_response":
+        del summary["failure_class"]
+    if summary.get("retryable_infra") is True:
+        summary["retryable_infra"] = False
+    if stale_retryable and summary.get("score_class") == "infra_blocked":
+        del summary["score_class"]
+    guard = summary.get("guard")
+    if isinstance(guard, dict):
+        if guard.get("failure_class") == "infra_empty_response":
+            del guard["failure_class"]
+        if stale_retryable and guard.get("score_class") == "infra_blocked":
+            del guard["score_class"]
+
+
 def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive infra classification from canonical typed evidence only.
+
+    Never trusts inherited ``failure_class``/``retryable_infra`` flags: when the
+    canonical ``model_attempts`` evidence supports an infra class the summary is
+    marked; otherwise stale retryable-infra markers are cleared so persisted
+    summaries cannot mislead later decisions.
+    """
+    if summary.get("guard", {}).get("live_agentic_success") is True:
+        _clear_stale_retryable_infra_markers(summary)
+        return summary
     failure_class = _provider_infra_failure_class(summary)
-    if failure_class is not None and summary.get("guard", {}).get("live_agentic_success") is not True:
+    if failure_class is not None:
         _mark_summary_as_infra(summary, failure_class)
+    else:
+        _clear_stale_retryable_infra_markers(summary)
     return summary
 
 
 def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
+    """Decide retryability from the CANONICAL typed evidence on every call.
+
+    The decision is the latest failed ``model_attempts`` entry's failure type
+    plus the observed completion tokens — never the inherited
+    ``failure_class``/``retryable_infra`` flags, which can be stale from an
+    earlier attempt. A succeeded scenario is never retried.
+    """
     _classify_retryable_infra_summary(summary)
-    return bool(summary.get("retryable_infra")) or str(summary.get("failure_class") or "").startswith("infra_")
+    if summary.get("guard", {}).get("live_agentic_success") is True:
+        return False
+    return _provider_infra_failure_class(summary) == "infra_empty_response"
 
 
 def _build_run_summary(
@@ -327,6 +353,7 @@ def _build_run_summary(
     *,
     total_scenarios: int,
     complete: bool,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     passed = sum(1 for summary in summaries if summary["guard"].get("live_agentic_success") is True)
     failed = len(summaries) - passed
@@ -360,6 +387,7 @@ def _build_run_summary(
     )
     return {
         "tag": tag,
+        "transport": transport,
         "scenario_count": len(summaries),
         "total_scenarios": total_scenarios,
         "completed": len(summaries),
@@ -389,6 +417,7 @@ def _persist_run_summary(
     *,
     total_scenarios: int,
     complete: bool,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     summaries = [r for r in results if r]
     summary = _build_run_summary(
@@ -396,6 +425,7 @@ def _persist_run_summary(
         summaries,
         total_scenarios=total_scenarios,
         complete=complete,
+        transport=transport,
     )
     run_dir = _run_dir_for(output_base, tag)
     if complete:
@@ -462,18 +492,30 @@ def _run_failure_analysis_from_summary(
     return result
 
 
-def run_single(scenario_path: str, tag: str, output_base: Any, out_file: Path | None) -> dict[str, Any]:
+def run_single(
+    scenario_path: str,
+    tag: str,
+    output_base: Any,
+    out_file: Path | None,
+    transport: str | None = None,
+) -> dict[str, Any]:
     """Run ONE scenario in-process; write its summary JSON to *out_file* if given.
 
     This is the entry point invoked by the per-scenario subprocess in parallel mode.
+    ``transport=None`` resolves to the canonical OpenRouter product route
+    (``_HARNESS_DEFAULT_TRANSPORT``), never to an ambient credential.
     """
+    transport = transport or _HARNESS_DEFAULT_TRANSPORT
     from .adapter import run_headless_scenario
     from .guard import guard_output_dir
 
     path = Path(scenario_path)
     scenario = _load_scenario(path)
     scenario.setdefault("id", path.stem)
-    summary = run_headless_scenario(scenario, output_base=output_base, tag=tag)
+    summary = run_headless_scenario(
+        scenario, output_base=output_base, tag=tag, transport=transport
+    )
+    summary.setdefault("transport", transport)
     summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
@@ -492,12 +534,23 @@ def run_tag(
     per_scenario_timeout: int = DEFAULT_PER_SCENARIO_TIMEOUT,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     infra_retries: int = DEFAULT_INFRA_RETRIES,
+    manifest_path: Path | None = None,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     """Run every scenario under *scenarios_dir* CONCURRENTLY — each in its own
-    subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*."""
+    subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*.
+
+    *transport* (``"openrouter"`` / ``"native"`` / ``None``) is forwarded
+    explicitly onto every child command line and the child environment is
+    pinned against ambient transport-selecting variables, so the selector
+    survives subprocess isolation into every profile phase.  ``None`` resolves
+    to the canonical OpenRouter product route (``_HARNESS_DEFAULT_TRANSPORT``)
+    — the no-flag default is pinned to OpenRouter, never an ambient/native pin.
+    """
+    transport = transport or _HARNESS_DEFAULT_TRANSPORT
     if scenarios_dir is None:
         scenarios_dir = Path(__file__).with_name("scenarios")
-    paths = _scenario_paths(scenarios_dir)
+    paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
     results: list[dict[str, Any] | None] = [None] * len(paths)
     sem = threading.Semaphore(max(1, max_workers))
     lock = threading.Lock()
@@ -506,6 +559,7 @@ def run_tag(
         def record_result(idx: int, summary: dict[str, Any]) -> None:
             results[idx] = summary
             results[idx].setdefault("scenario_id", paths[idx].stem)
+            results[idx].setdefault("transport", transport)
             _persist_scenario_summary(results[idx], output_base, tag)
             with lock:
                 completed = sum(1 for r in results if r)
@@ -515,6 +569,7 @@ def run_tag(
                     output_base,
                     total_scenarios=len(paths),
                     complete=False,
+                    transport=transport,
                 )
                 if progress_every > 0 and (
                     completed == len(paths) or completed % progress_every == 0
@@ -546,11 +601,14 @@ def run_tag(
                     ]
                     if output_base is not None:
                         cmd += ["--output-base", str(output_base)]
+                    if transport is not None:
+                        cmd += ["--transport", transport]
+                    child_env = _pinned_child_env(transport)
                     started = time.monotonic()
                     try:
                         proc = subprocess.run(
                             cmd, cwd=str(REPO), capture_output=True, text=True,
-                            timeout=per_scenario_timeout,
+                            timeout=per_scenario_timeout, env=child_env,
                         )
                         elapsed_s = time.monotonic() - started
                         if out_file.exists():
@@ -666,6 +724,7 @@ def run_tag(
         output_base,
         total_scenarios=len(paths),
         complete=True,
+        transport=transport,
     )
 
 
@@ -676,6 +735,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--scenarios-dir",
         default=None,
         help="Directory containing scenario YAML/JSON files.",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help=(
+            "Authoritative scenario manifest (default: scenario_manifest.json "
+            "beside the scenarios directory)."
+        ),
     )
     parser.add_argument(
         "--output-base",
@@ -716,6 +783,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "retry subprocess-level infrastructure failures this many times "
             f"(default {DEFAULT_INFRA_RETRIES}; semantic guard failures are not retried)"
+        ),
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("openrouter", "native"),
+        default=None,
+        help=(
+            "Explicit model-call transport for every profile phase "
+            "(classify/research/implement/reply). When set, ambient "
+            "credentials/base URLs can never select the transport; the child "
+            "environment is pinned and this flag is forwarded to every "
+            "subprocess. Default: the canonical product route (openrouter), "
+            "pinned — never an ambient credential."
         ),
     )
     parser.add_argument(
@@ -815,7 +895,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.single:
         out_file = Path(args.single_out) if args.single_out else None
         ob = Path(args.output_base) if args.output_base else None
-        summary = run_single(args.single, args.tag, ob, out_file)
+        summary = run_single(args.single, args.tag, ob, out_file, transport=args.transport)
         # Compact one-line stdout for liveness; the real payload is in --single-out.
         print(json.dumps({"scenario_id": summary.get("scenario_id"),
                           "ok": summary["guard"]["live_agentic_success"]}))
@@ -830,6 +910,8 @@ def main(argv: list[str] | None = None) -> int:
         per_scenario_timeout=args.per_scenario_timeout,
         progress_every=args.progress_every,
         infra_retries=args.infra_retries,
+        manifest_path=Path(args.manifest) if args.manifest else None,
+        transport=args.transport,
     )
     if args.prepare_failure_analysis or args.analyze_failures or args.recommend_fixes:
         run_summary_path = _run_dir_for(output_base, summary["tag"]) / "run_summary.json"

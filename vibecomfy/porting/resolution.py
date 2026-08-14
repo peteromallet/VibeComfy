@@ -21,6 +21,7 @@ from vibecomfy.porting.edit.ops import (
     NodeFieldTarget,
     NodeTarget,
 )
+from vibecomfy.porting.endpoint_invariant import resolve_working_port
 from vibecomfy.porting.report import PortIssue
 
 T = TypeVar("T")
@@ -490,6 +491,7 @@ class ResolutionContext:
                     "available_slots": _available_output_names(outputs),
                 },
             )])
+        schema = None
         if schema_provider is not None:
             class_type = str(node.get("type") or node.get("class_type") or "")
             if class_type:
@@ -497,37 +499,16 @@ class ResolutionContext:
                     from vibecomfy.schema import schema_for  # noqa: PLC0415
 
                     schema = schema_for(schema_provider, class_type)
-                    output_specs = getattr(schema, "outputs", None) or []
-                    for index, output_spec in enumerate(output_specs):
-                        if getattr(output_spec, "name", None) == slot_str:
-                            return ResolveResult(index, [])
-                    if alias_index is not None and 0 <= alias_index < len(output_specs):
-                        if len(output_specs) == 1:
-                            return ResolveResult(alias_index, [])
-                        return ResolveResult(None, [_make_issue(
-                            "ambiguous_output_alias",
-                            (
-                                f"Node '{uid}' output {slot_str!r} is positional, but the node has "
-                                "multiple named outputs; use the exact output slot name instead."
-                            ),
-                            scope_path=scope_path, uid=uid,
-                            detail={
-                                "output_slot": output_slot,
-                                "slot_index": alias_index,
-                                "available_slots": [
-                                    str(getattr(item, "name", ""))
-                                    for item in output_specs
-                                    if getattr(item, "name", None)
-                                ],
-                            },
-                        )])
                 except ImportError:
-                    pass
+                    schema = None
+        port = resolve_working_port(node, "output", slot_str, schema=schema)
+        if port.ok and isinstance(port.slot_index, int):
+            return ResolveResult(port.slot_index, [])
         return ResolveResult(None, [_make_issue(
-            "unknown_output_slot",
-            f"Node '{uid}' has no output named {slot_str!r}.",
+            port.code or "unknown_output_slot",
+            port.message or f"Node '{uid}' has no output named {slot_str!r}.",
             scope_path=scope_path, uid=uid,
-            detail={"output_slot": output_slot},
+            detail={"output_slot": output_slot, **port.detail},
         )])
 
     def resolve_input_slot_index(
@@ -638,51 +619,31 @@ class ResolutionContext:
                             "available_slots": _available_output_names(outputs),
                         },
                     )])
-            if slot_index is None and schema_provider is not None:
-                try:
-                    from vibecomfy.schema import schema_for  # noqa: PLC0415
-                    schema = schema_for(schema_provider, class_type)
-                    output_specs = getattr(schema, "outputs", None) or []
-                    for index, output_spec in enumerate(output_specs):
-                        if getattr(output_spec, "name", None) == ref.output_slot:
-                            slot_index = index
-                            slot_name = str(ref.output_slot)
-                            socket_type = _normalize_type(getattr(output_spec, "type", None))
-                            break
-                    if slot_index is None and alias_index is not None and 0 <= alias_index < len(output_specs):
-                        if len(output_specs) == 1:
-                            output_spec = output_specs[alias_index]
-                            slot_index = alias_index
-                            slot_name = str(getattr(output_spec, "name", None) or ref.output_slot)
-                            socket_type = _normalize_type(getattr(output_spec, "type", None))
-                        else:
-                            return ResolveResult(None, [_make_issue(
-                                "ambiguous_output_alias",
-                                (
-                                    f"{class_type}.{ref.output_slot} is a positional output alias, but this node has "
-                                    "multiple named outputs; use the exact output slot name instead."
-                                ),
-                                scope_path=ref.scope_path,
-                                uid=resolved_uid,
-                                detail={
-                                    "output_slot": ref.output_slot,
-                                    "slot_index": alias_index,
-                                    "available_slots": [
-                                        str(getattr(item, "name", ""))
-                                        for item in output_specs
-                                        if getattr(item, "name", None)
-                                    ],
-                                },
-                            )])
-                except ImportError:
-                    pass
             if slot_index is None:
-                return ResolveResult(None, [_make_issue(
-                    "unknown_output_slot",
-                    f"{class_type} has no output named {ref.output_slot!r}.",
-                    scope_path=ref.scope_path, uid=resolved_uid,
-                    detail={"output_slot": ref.output_slot},
-                )])
+                schema = None
+                if schema_provider is not None:
+                    try:
+                        from vibecomfy.schema import schema_for  # noqa: PLC0415
+                        schema = schema_for(schema_provider, class_type)
+                    except ImportError:
+                        schema = None
+                port = resolve_working_port(
+                    node,
+                    "output",
+                    str(ref.output_slot),
+                    schema=schema,
+                    class_type=class_type,
+                )
+                if not port.ok or not isinstance(port.slot_index, int):
+                    return ResolveResult(None, [_make_issue(
+                        port.code or "unknown_output_slot",
+                        port.message or f"{class_type} has no output named {ref.output_slot!r}.",
+                        scope_path=ref.scope_path, uid=resolved_uid,
+                        detail={"output_slot": ref.output_slot, **port.detail},
+                    )])
+                slot_index = port.slot_index
+                slot_name = port.slot_name
+                socket_type = _normalize_type(port.socket_type)
 
         if slot_name is None:
             slot_name = str(ref.output_slot)
@@ -710,9 +671,9 @@ class ResolutionContext:
     ) -> ResolveResult[ResolvedEndpoint]:
         """Resolve a LinkTargetRef to a full ResolvedEndpoint.
 
-        Follows apply-side widget-field tolerance: if the raw input slot is
-        missing but the field exists in schema, the endpoint is valid (D3
-        convergence — lint side becomes more permissive to match apply).
+        Working-graph inputs are authoritative. Schema may enrich a present
+        socket's type; a missing name is accepted only when the shared
+        dynamic-port contract authorizes it.
         """
         uid_result = self.resolve_uid(backend, ref.scope_path, ref.uid)
         if uid_result.value is None:
@@ -729,8 +690,7 @@ class ResolutionContext:
 
         class_type = str(node.get("type") or node.get("class_type") or "")
         node_id = node.get("id")
-        raw_input = _find_named_slot(node.get("inputs"), ref.input_field)
-
+        schema = None
         schema_input = None
         if schema_provider is not None:
             try:
@@ -739,23 +699,25 @@ class ResolutionContext:
                 if schema is not None:
                     schema_input = (getattr(schema, "inputs", {}) or {}).get(ref.input_field)
             except ImportError:
-                pass
+                schema = None
 
-        if raw_input is None and schema_input is None:
+        port = resolve_working_port(
+            node,
+            "input",
+            ref.input_field,
+            schema=schema,
+            class_type=class_type,
+        )
+        if not port.ok:
             return ResolveResult(None, [_make_issue(
-                "unknown_target_input",
-                f"{class_type} has no input named {ref.input_field!r}.",
+                port.code or "unknown_target_input",
+                port.message or f"{class_type} has no input named {ref.input_field!r}.",
                 scope_path=ref.scope_path, uid=resolved_uid,
-                detail={"input": ref.input_field},
+                detail={"input": ref.input_field, **port.detail},
             )])
 
-        slot_index = None
-        socket_type = None
-        if raw_input is not None:
-            inputs = node.get("inputs")
-            if isinstance(inputs, list):
-                slot_index = inputs.index(raw_input)
-            socket_type = _normalize_type(raw_input.get("type"))
+        slot_index = port.slot_index
+        socket_type = _normalize_type(port.socket_type)
         if socket_type is None and schema_input is not None:
             socket_type = _normalize_type(getattr(schema_input, "type", None))
 

@@ -1,42 +1,59 @@
-# B05 — Transactional batch execution and bounded semantic repair (HARD — grok)
+# MEGADO BATCH B05-lite [HARD] — Journaled unexpected-exception rollback
 
-Executor: grok (per user directive: grok is the extremely hard task doer).
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy (branch main).
-Work in place; DO NOT commit. Run the verification commands yourself; report PASS/FAIL with outputs.
+Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). This is a [HARD] task — executor: Grok (grok-4.6, workspace-write). You may modify files and run tests. Skip formatters/linters/full suites; run focused tests only.
 
-## Tasks
+## Context
+The agent-edit loop executes one model-authored batch of edit statements via `session.apply_batch` (`vibecomfy/comfy_nodes/agent/edit_batch_repl.py:1917`). An uncaught exception mid-batch currently leaves partial state (working IR/UI, ledger, candidate artifacts, telemetry) — the failure analysis and exploration confirmed: WS turn events are fire-and-forget (no outbox), candidate_ui.json is written after mutations land, and the in-memory restore at `_parse_execute.py:89` is bypassed when `_execute_statements` raises at `:70-73`.
 
-1. **Make one model-authored batch an atomic transaction.**
-   - Touch as required: `vibecomfy/comfy_nodes/agent/edit_batch_repl.py`, `vibecomfy/porting/edit/_parse_execute.py`, and focused tests in `tests/test_comfy_nodes_agent_edit.py` / `tests/test_comfy_nodes_agent_backend_spine.py`.
-   - Snapshot the working IR/UI/rendered Python and relevant ledger before executing a batch. Any uncaught batch exception must restore the exact snapshot before another model turn or terminal response. Persist a bounded traceback and exception fingerprint without leaking secrets.
+**This batch makes one model-authored batch atomic: on unexpected exception, restore exact pre-batch state, close the durable turn as aborted, re-raise. NO repair turn, NO retry loop, NO fingerprint.**
 
-2. **Add one corrective semantic repair turn for eligible deterministic code exceptions.**
-   - Feed the model the failed batch, typed exception/traceback, and unchanged authoritative state. Permit exactly one repair attempt for NameError-class deterministic batch exceptions.
-   - Fingerprint failures and abort when the repair repeats the same fingerprint. Protocol/transport retries remain separate and do not multiply the semantic repair budget.
-   - Persist repair eligibility, attempted/not-attempted, initial and repair fingerprints, rollback result, and repair outcome so the measurement gate can compute eligible/attempted/succeeded rates.
+## Tasks (from .oracle/tasklist.md B05-lite)
 
-## Verification (run all; exit 0 expected)
+1. **Loop-entry rollback journal** covering: existing mutable session snapshot (graph, ledger, landed/touched sets, name maps, `value_default_context`, render caches and counters — `vibecomfy/porting/edit/session.py:132`), UI payload, batch accumulators, budget and exit fields, AND exact bytes-or-absence of rendered Python, candidate UI, model request/response, and messages artifacts.
+2. **Cover the FULL mutating path** through apply, render, `done()`, and final evidence promotion with ONE exception boundary.
+3. **On unexpected exception**: restore session state; restore files byte-for-byte; truncate appended state; close the allocated durable turn as aborted; re-raise.
+4. **Persist a separate bounded typed abort diagnostic** after restoration.
+5. **Telemetry**: buffer until commit where practical; otherwise emit an explicit abort marker and ensure no event claims the rolled-back candidate committed.
+6. **Add no repair call, retry loop, or fingerprint.**
 
+## Sense-check precommit (adversary predictions — cover these FIRST)
+
+From `.oracle/sensecheck-remaining-2026-08-13.md`:
+1. **Rollback boundary starts too late.** Model request/response and message artifacts are already changed at `edit_batch_repl.py:1512`, well before mutation at `:1918`. A snapshot immediately before `apply_batch` will not restore loop-entry bytes — the journal must capture the true loop-entry state.
+2. **Incomplete state restoration.** The oracle will inject faults after render, candidate write, `done()` and evidence finalization (`:2428`, `:2471`) and compare ALL session fields — not merely `working_ui`.
+3. **Irreversible success telemetry.** WS events send immediately and swallow errors (`_frag_entrypoint.py:626`); a fault after the `"done"` event (`edit_batch_repl.py:2512`) can leave committed-looking telemetry for rolled-back work.
+
+## Precommit fixtures (fault-injection matrix)
+- absent / empty / non-empty files at the fault point;
+- exact byte comparison of rendered Python + candidate UI before/after rollback;
+- closed aborted durable turn (no allocated-but-unrecorded turns);
+- bounded typed abort record present, no success claim;
+- unchanged model-call count (no additional model call).
+
+## Key files
+- `vibecomfy/comfy_nodes/agent/edit_batch_repl.py` (apply loop `:1516-1928`, `done()`/finalize `:2428-2471`)
+- `vibecomfy/porting/edit/session.py` (`:132` state), `_parse_execute.py` (`:70-90`)
+- `vibecomfy/comfy_nodes/agent/_frag_entrypoint.py` (`:626` WS events)
+- `vibecomfy/porting/edit/ledger.py` (`lifecycle_events.jsonl`, `rollback_complete`/`recoverable_error` states)
+- tests: `tests/test_porting_edit_session_harness.py`, `tests/test_porting_edit_corpus.py`, `tests/test_comfy_nodes_agent_edit.py`, `tests/test_comfy_nodes_agent_backend_spine.py`
+
+## Verification (run, retain output)
 ```bash
-.venv/bin/python -m pytest -q \
-  tests/test_porting_edit_session_harness.py \
-  tests/test_porting_edit_corpus.py \
-  tests/test_comfy_nodes_agent_edit.py \
-  tests/test_comfy_nodes_agent_backend_spine.py \
-  -k 'batch_transaction_rolls_back_on_exception or semantic_repair_succeeds_once or semantic_repair_repeated_fingerprint_aborts or ineligible_batch_exception_does_not_repair or semantic_repair_metrics_are_persisted'
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_porting_edit_session_harness.py tests/test_porting_edit_corpus.py tests/test_comfy_nodes_agent_edit.py tests/test_comfy_nodes_agent_backend_spine.py -k 'rollback or abort or transaction or journal or restore or telemetry or atomic'
+```
+Plus the full targeted files (expected exit 0; the rerunfailures plugin binds a socket and cannot run here):
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_porting_edit_session_harness.py tests/test_comfy_nodes_agent_edit.py -k 'not slow'
 ```
 
-```bash
-.venv/bin/python -m pytest -q tests/test_porting_edit_session_harness.py tests/test_porting_edit_corpus.py tests/test_comfy_nodes_agent_edit.py tests/test_comfy_nodes_agent_backend_spine.py
-```
-
-## Acceptance criteria
-
-- A batch that mutates one statement and then raises leaves IR, UI, rendered Python, ledger, hashes, and candidate artifacts byte-/structure-equivalent to the pre-batch snapshot.
-- Every eligible exception gets at most one semantic repair turn; a successful repair lands once from the restored state.
-- A repeated fingerprint terminates without a third model call or partial mutation.
-- Ineligible exceptions do not consume repair budget and preserve their typed failure.
-- Persisted evidence is sufficient to compute eligible, attempted, success, rollback-integrity, and repeated-loop counts.
+## Acceptance (from tasklist)
+- Faults after mutation, render, candidate write, `done()`, and finalization restore exact pre-batch state AND file existence.
+- Ledger, hashes, name maps, and candidate state match the restored graph.
+- No partial candidate is observable.
+- Durable turns do not remain allocated-but-unrecorded.
+- Telemetry cannot report rolled-back work as committed.
+- Ordinary validation failures are unchanged.
+- No additional model call occurs.
 
 ## Report
-"B05 VERDICT: PASS|FAIL|BLOCKED — <one line>" + per-task changes (file:line), verification outputs, residuals. DO NOT commit.
+Return: journal shape + snapshot surface, the exception boundary location, restoration mechanics (state + files + ledger + telemetry), the fault-injection matrix results, fixture names, pytest output. Do NOT commit.

@@ -9,6 +9,7 @@ from vibecomfy.porting.edit.apply_place import _next_node_order, _node_size, _pl
 from vibecomfy.porting.edit.apply_slots import _reorder_names, _widget_name_for_input
 from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, ResolvedAddNodeSpec, ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, VALUE_DEFAULT_FIELDS_MARKER, _issue
 from vibecomfy.porting.emit.ui import materialize_litegraph_node
+from vibecomfy.porting.endpoint_invariant import assert_source_slot_in_bounds
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import _find_named_slot, _normalize_type
 
@@ -164,7 +165,25 @@ def _apply_upsert_link(
     scope_path = source.ref.scope_path
     scope = ledger.scopes[scope_path]
     diagnostics: list[PortIssue] = []
-    target_slot = _ensure_input_slot(target.node, target.slot_name, target.socket_type)
+    source_port = assert_source_slot_in_bounds(
+        source.node,
+        source.slot_index,
+        class_type=source.class_type,
+        slot_name=source.slot_name,
+    )
+    if not source_port.ok:
+        return [
+            _issue(
+                source_port.code or "source_slot_out_of_bounds",
+                source_port.message,
+                detail=source_port.detail,
+            )
+        ]
+    origin_slot = source_port.slot_index
+    assert origin_slot is not None
+    target_slot, slot_issues = _ensure_input_slot(target.node, target.slot_name, target.socket_type)
+    if slot_issues or target_slot is None:
+        return slot_issues
     existing = _find_named_slot(target.node.get("inputs"), target.slot_name)
     duplicate_link_ids = (
         _link_ids_targeting_input(scope, target.node_id, target_slot)
@@ -210,7 +229,7 @@ def _apply_upsert_link(
         scope,
         link_id=link_id,
         origin_id=source.node_id,
-        origin_slot=source.slot_index or 0,
+        origin_slot=origin_slot,
         target_id=target.node_id,
         target_slot=target_slot,
         link_type=link_type,
@@ -221,8 +240,8 @@ def _apply_upsert_link(
         scope.graph["links"] = links
     links.append(link)
     ledger.link_index[(scope_path, link_id)] = link
-    _ensure_output_link_reference(scope.graph, source.node_id, source.slot_index or 0, link_id)
-    _set_input_link_reference(target.node, target_slot, link_id)
+    diagnostics.extend(_ensure_output_link_reference(scope.graph, source.node_id, origin_slot, link_id))
+    diagnostics.extend(_set_input_link_reference(target.node, target_slot, link_id))
     return diagnostics
 
 
@@ -231,6 +250,35 @@ def _apply_add_node(
     spec: ResolvedAddNodeSpec,
 ) -> tuple[AppliedAddNodeSpec, list[PortIssue]]:
     scope_path = spec.op.scope_path
+    source_issues: list[PortIssue] = []
+    for input_name, source in spec.resolved_inputs.items():
+        source_port = assert_source_slot_in_bounds(
+            source.node,
+            source.slot_index,
+            class_type=source.class_type,
+            slot_name=source.slot_name,
+        )
+        if not source_port.ok:
+            source_issues.append(
+                _issue(
+                    source_port.code or "source_slot_out_of_bounds",
+                    source_port.message,
+                    detail={"to_input": input_name, **source_port.detail},
+                )
+            )
+    if source_issues:
+        return (
+            AppliedAddNodeSpec(
+                op=spec.op,
+                scope_path=scope_path,
+                uid=spec.op.uid or "",
+                node_id=-1,
+                link_ids=(),
+                source_uids=(),
+                value_default_receipts=spec.value_default_receipts,
+            ),
+            source_issues,
+        )
     node_id = ledger.mint_node_id(scope_path)
     uid = ledger.mint_uid(scope_path)
     provisional = materialize_litegraph_node(
@@ -283,13 +331,32 @@ def _apply_add_node(
         source = spec.resolved_inputs[input_name]
         input_spec = spec.resolved_input_specs.get(input_name) or spec.schema_inputs.get(input_name)
         target_type = _normalize_type(getattr(input_spec, "type", None))
-        target_slot = _ensure_input_slot(node, input_name, target_type)
+        origin_slot = source.slot_index
+        if not isinstance(origin_slot, int):
+            diagnostics.append(
+                _issue(
+                    "source_slot_out_of_bounds",
+                    f"{source.class_type} source slot for {input_name!r} is missing.",
+                    detail={"to_input": input_name, "from_uid": source.ref.uid if hasattr(source.ref, "uid") else None},
+                )
+            )
+            continue
+        target_slot, slot_issues = _ensure_input_slot(
+            node,
+            input_name,
+            target_type,
+            schema=spec.schema,
+            fields=spec.op.fields,
+        )
+        if slot_issues or target_slot is None:
+            diagnostics.extend(slot_issues)
+            continue
         link_id = ledger.mint_link_id(scope_path)
         link = _new_link_for_scope(
             spec.scope,
             link_id=link_id,
             origin_id=source.node_id,
-            origin_slot=source.slot_index or 0,
+            origin_slot=origin_slot,
             target_id=node_id,
             target_slot=target_slot,
             link_type=source.socket_type or target_type or "*",
@@ -301,8 +368,8 @@ def _apply_add_node(
         links.append(link)
         ledger.link_index[(scope_path, link_id)] = link
         link_ids.append(link_id)
-        _ensure_output_link_reference(spec.scope.graph, source.node_id, source.slot_index or 0, link_id)
-        _set_input_link_reference(node, target_slot, link_id)
+        diagnostics.extend(_ensure_output_link_reference(spec.scope.graph, source.node_id, origin_slot, link_id))
+        diagnostics.extend(_set_input_link_reference(node, target_slot, link_id))
 
     diagnostics.append(
         _issue(

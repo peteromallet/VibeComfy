@@ -2378,7 +2378,16 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     calls: list[dict[str, object]] = []
     responses = iter(
         [
-            {"content": ""},
+            {
+                "content": "",
+                "model_attempts": [
+                    {
+                        "outcome": "failure",
+                        "failure_type": "empty_response",
+                        "token_usage": {"completion_tokens": 0},
+                    }
+                ],
+            },
             {
                 "content": (
                     "Applied.\n\n```batch\n"
@@ -2425,7 +2434,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     provider_metadata = response_turns[0]["batch_result"]["provider_metadata"]
     retry_meta = provider_metadata["batch_repl_retry"]
     assert retry_meta["count"] == 1
-    assert retry_meta["parse_reason"] is None
+    assert retry_meta["parse_reason"] == "empty"
     assert "batch_repl response was empty" in retry_meta["reason"]
 
 
@@ -20224,3 +20233,898 @@ def test_research_precedent_provisional_workflow_schema_does_not_shadow_real_sch
 
     # Hydration still surfaces the workflow candidates as reviewable evidence.
     assert any("CutAndDragOnPath" in cand.get("expected_classes", ()) for cand in candidates)
+
+
+# ── B04: real-schema authority — real-first at every construction site ───────
+# CompositeSchemaProvider.get_schema is first-match-wins and schemas() merges
+# reversed(providers), so the FIRST provider dominates BOTH views. Every site
+# that composes real/runtime schemas with provisional registry/workflow-JSON
+# schemas must keep real first; provisional may only fill classes the real
+# provider cannot answer.
+
+_SHADOW = "ShadowNode"
+# Underscore-bearing class so the workflow/registry hydration filters treat it
+# as a plausible custom node (custom_only requires "_" in the class name).
+_GAP = "GapNode_KJ"
+
+
+def _b04_real_shadow_schema() -> NodeSchema:
+    return NodeSchema(
+        class_type=_SHADOW,
+        pack="ComfyUI-KJNodes",
+        inputs={
+            "image": InputSpec("IMAGE", required=True),
+            "frame_width": InputSpec("INT", required=True),
+            "mode": InputSpec("STRING", choices=["real_a", "real_b"], required=True),
+        },
+        outputs=[OutputSpec("IMAGE", "IMAGE")],
+        source_provider="object_info",
+        confidence=1.0,
+    )
+
+
+def _b04_gap_schema() -> NodeSchema:
+    return NodeSchema(
+        class_type=_GAP,
+        pack=None,
+        inputs={"model": InputSpec("MODEL", required=True)},
+        outputs=[OutputSpec("MODEL", "MODEL")],
+        source_provider="object_info",
+        confidence=1.0,
+    )
+
+
+def _b04_weaker_shadow_schema() -> NodeSchema:
+    """Same class as the real schema but with widget_N names/empty choices."""
+    return NodeSchema(
+        class_type=_SHADOW,
+        pack=None,
+        inputs={"widget_0": InputSpec("STRING", choices=[])},
+        outputs=[],
+        source_provider="object_info",
+        confidence=0.5,
+    )
+
+
+def _b04_provisional_node(class_type: str, index: int) -> dict[str, Any]:
+    return {
+        "input": {"required": {f"widget_{index}": ["STRING", {"choices": []}]}},
+        "output": [["IMAGE", "IMAGE"]],
+    }
+
+
+def _b04_provisional_candidate(
+    *class_types: str,
+    validation_mode: str = "registry",
+) -> dict[str, Any]:
+    """Resolver-candidate dict shape consumed by ProvisionalRegistrySchemaProvider.
+
+    Carries only positional widget_N names and empty choices — exactly the weak
+    evidence that must never shadow a real semantic schema.
+    """
+    nodes = {
+        class_type: _b04_provisional_node(class_type, index)
+        for index, class_type in enumerate(class_types)
+    }
+    candidate: dict[str, Any] = {
+        "stable_install_hash": f"b04:{','.join(class_types)}",
+        "provisional_schema": {"schema": {"nodes": nodes}, "version": "1.0.0"},
+        "expected_classes": list(class_types),
+    }
+    if validation_mode == "workflow":
+        candidate["validation_mode"] = "workflow_json_provisional"
+    return candidate
+
+
+def _assert_b04_real_first(provider: Any, *, gap_source: str) -> None:
+    """Both get_schema() and merged schemas() must prefer the real schema."""
+    resolved = provider.get_schema(_SHADOW)
+    assert resolved is not None
+    assert resolved.source_provider == "object_info"
+    assert "frame_width" in resolved.inputs
+    assert "mode" in resolved.inputs
+    assert list(resolved.inputs["mode"].choices or []) == ["real_a", "real_b"]
+    assert not any(name.startswith("widget_") for name in resolved.inputs), (
+        f"real schema shadowed by provisional widget_N inputs: {sorted(resolved.inputs)}"
+    )
+    merged = provider.schemas()
+    assert merged[_SHADOW] is resolved, "merged schemas() view lost real-first precedence"
+    gap = provider.get_schema(_GAP)
+    assert gap is not None
+    assert gap.source_provider == gap_source, f"expected provisional gap fill, got {gap.source_provider}"
+    assert merged[_GAP] is gap, "merged schemas() view lost the provisional gap fill"
+
+
+def test_schema_precedence_helper_with_provisional_gap_filler_both_views() -> None:
+    """The one shared helper composes real first for get_schema() and schemas()."""
+    from vibecomfy.schema import ProvisionalRegistrySchemaProvider, with_provisional_gap_filler
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    provisional = ProvisionalRegistrySchemaProvider(
+        [_b04_provisional_candidate(_SHADOW, _GAP)]
+    )
+    composite = with_provisional_gap_filler(real, provisional)
+    assert isinstance(composite.providers[0], _Provider)
+    assert isinstance(composite.providers[1], ProvisionalRegistrySchemaProvider)
+    _assert_b04_real_first(composite, gap_source="comfy_registry_provisional")
+
+
+def test_schema_precedence_research_workflow_hydration_real_first() -> None:
+    """Site _frag_research.py:821 — workflow-JSON provisional cannot shadow real."""
+    from vibecomfy.comfy_nodes.agent.edit import _hydrate_research_precedent_node_schemas
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    workflow_schema = {
+        _SHADOW: _b04_provisional_node(_SHADOW, 0),
+        _GAP: _b04_provisional_node(_GAP, 1),
+    }
+    source = {
+        "source": "external_workflow",
+        "pack": "workflow",
+        "url": "https://example.test/b04-workflow.json",
+        "workflow_schema": workflow_schema,
+    }
+    state = _make_state(schema_provider=real, executor_research_sources=(source,))
+    _hydrate_research_precedent_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="workflow_json_provisional")
+
+
+def test_schema_precedence_research_registry_hydration_real_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Site _frag_research.py:874 — registry provisional cannot shadow real."""
+    from vibecomfy.comfy_nodes.agent.edit import _hydrate_research_precedent_node_schemas
+    from vibecomfy.registry import pack_resolver
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    monkeypatch.setattr(
+        pack_resolver,
+        "resolve_missing_nodes",
+        lambda query, **kwargs: types.SimpleNamespace(candidates=[candidate]),
+    )
+    source = {
+        "source": "external_workflow",
+        "pack": "workflow",
+        "url": "https://example.test/b04-registry.json",
+        # class evidence only: drives the registry fallback, not :821's workflow path
+        "workflow_schema_classes": [_GAP],
+    }
+    state = _make_state(schema_provider=real, executor_research_sources=(source,))
+    _hydrate_research_precedent_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+
+def test_schema_precedence_current_graph_unknown_hydration_real_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Site _frag_research.py:922 — graph-driven provisional cannot shadow real."""
+    from vibecomfy.comfy_nodes.agent.edit import _hydrate_current_graph_unknown_node_schemas
+    from vibecomfy.registry import pack_resolver
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    monkeypatch.setattr(
+        pack_resolver,
+        "resolve_missing_nodes",
+        lambda query, **kwargs: types.SimpleNamespace(candidates=[candidate]),
+    )
+    state = _make_state(
+        schema_provider=real,
+        graph={"nodes": [{"id": 1, "class_type": _GAP}]},
+    )
+    _hydrate_current_graph_unknown_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+
+def test_schema_precedence_batch_loop_registry_hydration_real_first() -> None:
+    """Site _frag_batch_loop.py:910 — planned-dependency provisional cannot shadow real."""
+    from vibecomfy.comfy_nodes.agent.edit import _hydrate_actionable_registry_dependencies
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    state = _make_state(
+        schema_provider=real,
+        runtime_dependencies=(
+            {
+                "availability": "registry_resolvable",
+                "resolver_candidates": [candidate],
+            },
+        ),
+    )
+    _hydrate_actionable_registry_dependencies(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+
+def test_schema_precedence_batch_repl_registry_hydration_real_first() -> None:
+    """Site edit_batch_repl.py:1115 — REPL planned-dependency provisional cannot shadow real."""
+    import logging
+
+    from vibecomfy.comfy_nodes.agent import edit_batch_repl
+    from vibecomfy.comfy_nodes.agent.edit import _candidate_stable_key
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    state = _make_state(
+        schema_provider=real,
+        runtime_dependencies=(
+            {
+                "availability": "registry_resolvable",
+                "resolver_candidates": [candidate],
+            },
+        ),
+    )
+    deps = types.SimpleNamespace(
+        LOGGER=logging.getLogger("b04_repl_test"),
+        _candidate_stable_key=_candidate_stable_key,
+    )
+    edit_batch_repl._hydrate_actionable_registry_dependencies(deps, state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+
+def test_schema_precedence_baseline_runtime_provider_real_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Site _frag_orchestration.py:434 — baseline [Runtime, Authoring] stays real-first."""
+    from vibecomfy.comfy_nodes.agent.edit import _default_runtime_schema_provider
+    from vibecomfy.schema import CompositeSchemaProvider
+
+    runtime_schema = _b04_real_shadow_schema()
+
+    class _FakeRuntimeProvider:
+        def __init__(self, *, server_url: str | None = None) -> None:
+            self.server_url = server_url
+            self._schemas = {_SHADOW: runtime_schema}
+
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            return self._schemas.get(class_type)
+
+        def schemas(self) -> dict[str, NodeSchema]:
+            return dict(self._schemas)
+
+    class _FakeConn:
+        def __enter__(self) -> "_FakeConn":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+    authoring = _Provider(
+        {
+            _SHADOW: _b04_weaker_shadow_schema(),
+            _GAP: _b04_gap_schema(),
+        }
+    )
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit._build_object_info_in_process",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent._frag_orchestration._RUNTIME_OBJECT_INFO_PATH",
+        [],
+    )
+    monkeypatch.setenv("VIBECOMFY_COMFYUI_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr("socket.create_connection", lambda *args, **kwargs: _FakeConn())
+    monkeypatch.setattr(
+        "vibecomfy.schema.provider.RuntimeSchemaProvider",
+        _FakeRuntimeProvider,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        lambda **kwargs: authoring,
+    )
+
+    provider = _default_runtime_schema_provider(on_demand_schemas=False)
+    assert isinstance(provider, CompositeSchemaProvider)
+    assert isinstance(provider.providers[0], _FakeRuntimeProvider), (
+        "baseline runtime provider must stay first"
+    )
+    assert provider.providers[0].server_url == "http://127.0.0.1:9"
+    resolved = provider.get_schema(_SHADOW)
+    assert resolved is runtime_schema
+    assert provider.schemas()[_SHADOW] is runtime_schema
+    assert provider.get_schema(_GAP) is authoring._schemas[_GAP]
+    assert provider.schemas()[_GAP] is authoring._schemas[_GAP]
+
+
+def test_schema_precedence_across_all_seven_construction_sites(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every construction site keeps real-first for get_schema() AND schemas()."""
+    from vibecomfy.comfy_nodes.agent import edit_batch_repl
+    from vibecomfy.comfy_nodes.agent.edit import (
+        _candidate_stable_key as _stable_key,
+        _default_runtime_schema_provider,
+        _enrich_schema_provider_from_resolver_candidates,
+        _hydrate_actionable_registry_dependencies,
+        _hydrate_current_graph_unknown_node_schemas,
+        _hydrate_research_precedent_node_schemas,
+    )
+    from vibecomfy.registry import pack_resolver
+    from vibecomfy.schema import (
+        CompositeSchemaProvider,
+        ProvisionalRegistrySchemaProvider,
+        with_provisional_gap_filler,
+    )
+
+    # Site 1 — helper (vibecomfy/schema/provider.py)
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    provisional = ProvisionalRegistrySchemaProvider(
+        [_b04_provisional_candidate(_SHADOW, _GAP)]
+    )
+    _assert_b04_real_first(
+        with_provisional_gap_filler(real, provisional),
+        gap_source="comfy_registry_provisional",
+    )
+
+    # Site 2 — _frag_research.py:821 (workflow-JSON path)
+    workflow_source = {
+        "source": "external_workflow",
+        "pack": "workflow",
+        "url": "https://example.test/b04-seven.json",
+        "workflow_schema": {
+            _SHADOW: _b04_provisional_node(_SHADOW, 0),
+            _GAP: _b04_provisional_node(_GAP, 1),
+        },
+    }
+    state = _make_state(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
+        executor_research_sources=(workflow_source,),
+    )
+    _hydrate_research_precedent_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="workflow_json_provisional")
+
+    # Site 3 — _frag_research.py:874 (registry path, class-evidence source)
+    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    monkeypatch.setattr(
+        pack_resolver,
+        "resolve_missing_nodes",
+        lambda query, **kwargs: types.SimpleNamespace(candidates=[candidate]),
+    )
+    state = _make_state(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
+        executor_research_sources=(
+            {
+                "source": "external_workflow",
+                "pack": "workflow",
+                "url": "https://example.test/b04-seven-registry.json",
+                "workflow_schema_classes": [_GAP],
+            },
+        ),
+    )
+    _hydrate_research_precedent_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Site 4 — _frag_research.py:922 (current-graph unknown nodes)
+    state = _make_state(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
+        graph={"nodes": [{"id": 1, "class_type": _GAP}]},
+    )
+    _hydrate_current_graph_unknown_node_schemas(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Site 5 — _frag_batch_loop.py:910 (planned registry dependencies)
+    state = _make_state(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
+        runtime_dependencies=(
+            {"availability": "registry_resolvable", "resolver_candidates": [candidate]},
+        ),
+    )
+    _hydrate_actionable_registry_dependencies(state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Site 6 — edit_batch_repl.py:1115 (REPL planned registry dependencies)
+    import logging
+
+    state = _make_state(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
+        runtime_dependencies=(
+            {"availability": "registry_resolvable", "resolver_candidates": [candidate]},
+        ),
+    )
+    deps = types.SimpleNamespace(
+        LOGGER=logging.getLogger("b04_seven_test"),
+        _candidate_stable_key=_stable_key,
+    )
+    edit_batch_repl._hydrate_actionable_registry_dependencies(deps, state)
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Site 7 — _frag_orchestration.py:434 (baseline runtime + authoring)
+    runtime_schema = _b04_real_shadow_schema()
+
+    class _FakeRuntimeProvider:
+        def __init__(self, *, server_url: str | None = None) -> None:
+            self.server_url = server_url
+            self._schemas = {_SHADOW: runtime_schema}
+
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            return self._schemas.get(class_type)
+
+        def schemas(self) -> dict[str, NodeSchema]:
+            return dict(self._schemas)
+
+    class _FakeConn:
+        def __enter__(self) -> "_FakeConn":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+    authoring = _Provider(
+        {
+            _SHADOW: _b04_weaker_shadow_schema(),
+            _GAP: _b04_gap_schema(),
+        }
+    )
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit._build_object_info_in_process",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent._frag_orchestration._RUNTIME_OBJECT_INFO_PATH",
+        [],
+    )
+    monkeypatch.setenv("VIBECOMFY_COMFYUI_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr("socket.create_connection", lambda *args, **kwargs: _FakeConn())
+    monkeypatch.setattr(
+        "vibecomfy.schema.provider.RuntimeSchemaProvider",
+        _FakeRuntimeProvider,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        lambda **kwargs: authoring,
+    )
+    baseline = _default_runtime_schema_provider(on_demand_schemas=False)
+    assert isinstance(baseline, CompositeSchemaProvider)
+    assert isinstance(baseline.providers[0], _FakeRuntimeProvider)
+    assert baseline.get_schema(_SHADOW) is runtime_schema
+    assert baseline.schemas()[_SHADOW] is runtime_schema
+    assert baseline.get_schema(_GAP) is authoring._schemas[_GAP]
+    assert baseline.schemas()[_GAP] is authoring._schemas[_GAP]
+
+    # Cross-turn authority: :793 enrichment must not poison session or state.
+    session = types.SimpleNamespace(
+        schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()})
+    )
+    state = _make_state(schema_provider=session.schema_provider)
+    _enrich_schema_provider_from_resolver_candidates(
+        state,
+        session,
+        [_b04_provisional_candidate(_GAP, _SHADOW)],
+    )
+    _assert_b04_real_first(session.schema_provider, gap_source="comfy_registry_provisional")
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+    assert state.schema_provider is session.schema_provider
+
+
+def test_schema_enrichment_cross_turn_keeps_real_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session + state authority stays real-first across turns (regression for :793).
+
+    Before B04, _enrich_schema_provider_from_resolver_candidates composed
+    (provisional, session.schema_provider): the provisional provider became the
+    FIRST provider on BOTH session and durable state, so every later turn —
+    including a fresh EditSession built from state.schema_provider — resolved
+    overlapping classes through weak widget_N schemas.
+    """
+    from vibecomfy.comfy_nodes.agent.edit import _enrich_schema_provider_from_resolver_candidates
+    from vibecomfy.porting.edit.session import EditSession
+
+    real = _Provider({_SHADOW: _b04_real_shadow_schema()})
+    session = types.SimpleNamespace(schema_provider=real)
+    state = _make_state(schema_provider=real)
+
+    # Turn 1: enrichment with a provisional carrying the shadow class + a gap class.
+    _enrich_schema_provider_from_resolver_candidates(
+        state,
+        session,
+        [_b04_provisional_candidate(_GAP, _SHADOW)],
+    )
+    _assert_b04_real_first(session.schema_provider, gap_source="comfy_registry_provisional")
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Turn 2: the durable state provider feeds a brand-new session (the batch-REPL
+    # construction path) — authority must remain real-first, not drift provisional.
+    turn2_session = EditSession(
+        {"nodes": [], "links": []},
+        schema_provider=state.schema_provider,
+    )
+    _assert_b04_real_first(turn2_session.schema_provider, gap_source="comfy_registry_provisional")
+
+    # Turn 2 enrichment with NEW candidates (fresh stable hash) must not rotate
+    # the earlier provisional ahead of the real provider either.
+    second_candidate = _b04_provisional_candidate(_GAP)
+    second_candidate["stable_install_hash"] = "b04:turn2:GapNode"
+    _enrich_schema_provider_from_resolver_candidates(
+        state,
+        turn2_session,
+        [second_candidate],
+    )
+    _assert_b04_real_first(turn2_session.schema_provider, gap_source="comfy_registry_provisional")
+    _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
+    assert state.schema_provider is turn2_session.schema_provider
+
+
+# ── B05-lite: journaled unexpected-exception rollback ───────────────────────
+
+_B05_FAULT_POINTS = (
+    "after_apply",
+    "after_render",
+    "after_candidate_write",
+    "after_done",
+    "after_finalize",
+)
+_B05_JOURNALED_FILES = (
+    "after.py",
+    "candidate.ui.json",
+    "model_request.json",
+    "model_response.json",
+    "messages.jsonl",
+    "revision_evidence.json",
+)
+
+
+def _b05_journal_mod():
+    return importlib.import_module("vibecomfy.comfy_nodes.agent.batch_rollback_journal")
+
+
+def _b05_file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.exists() else None
+
+
+def _b05_install_fault(
+    monkeypatch: pytest.MonkeyPatch,
+    point: str,
+    *,
+    fire_on_nth: int = 1,
+) -> dict[str, int]:
+    journal = _b05_journal_mod()
+    seen = {"count": 0}
+
+    def _injector(seen_point: str) -> None:
+        if seen_point != point:
+            return
+        seen["count"] += 1
+        if seen["count"] >= fire_on_nth:
+            raise journal.InjectedBatchFault(seen_point)
+
+    monkeypatch.setattr(journal, "BATCH_FAULT_INJECTOR", _injector)
+    return seen
+
+
+def _b05_capture_loop_entry(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    journal = _b05_journal_mod()
+    captured: dict[str, object] = {"journals": []}
+    real_capture = journal.capture_loop_entry_journal
+
+    def _capture(session, state, *, turn_number, context=None):
+        item = real_capture(session, state, turn_number=turn_number, context=context)
+        captured["session"] = session
+        captured["state"] = state
+        captured["journals"].append(item)
+        captured["journal"] = item
+        return item
+
+    monkeypatch.setattr(journal, "capture_loop_entry_journal", _capture)
+    return captured
+
+
+def _b05_assert_session_restored(session, snapshot: dict) -> None:
+    assert session.working_ui == snapshot["working_ui"]
+    assert session.landed_ops == snapshot["landed_ops"]
+    assert session.touched_uids == snapshot["touched_uids"]
+    assert session.touched_node_ids == snapshot["touched_node_ids"]
+    assert session.uid_by_name == snapshot["uid_by_name"]
+    assert session.name_by_uid == snapshot["name_by_uid"]
+    assert session.unbound_names == snapshot["unbound_names"]
+    assert session.value_default_context == snapshot["value_default_context"]
+    assert session.render_count == snapshot["render_count"]
+    assert session.last_rendered_source == snapshot["last_rendered_source"]
+    assert session.last_rendered_workflow is snapshot["last_rendered_workflow"]
+    assert session.last_render_diagnostics == snapshot["last_render_diagnostics"]
+    restored_ids = {
+        str(node.get("id"))
+        for node in session.working_ui.get("nodes") or []
+        if isinstance(node, dict)
+    }
+    original_ids = {
+        str(node.get("id"))
+        for node in snapshot["working_ui"].get("nodes") or []
+        if isinstance(node, dict)
+    }
+    assert restored_ids == original_ids
+
+
+def _b05_assert_files_restored(turn_dir: Path, files: dict) -> None:
+    names = {
+        "after_py_path": "after.py",
+        "candidate_ui_path": "candidate.ui.json",
+        "model_request_path": "model_request.json",
+        "model_response_path": "model_response.json",
+        "messages_path": "messages.jsonl",
+        "revision_evidence_path": "revision_evidence.json",
+    }
+    for attr, name in names.items():
+        snapshot = files[attr]
+        path = turn_dir / name
+        if snapshot.existed:
+            assert path.is_file()
+            assert path.read_bytes() == (snapshot.data or b"")
+        else:
+            assert not path.exists()
+
+
+@pytest.mark.parametrize("file_precond", ("absent", "empty", "nonempty"))
+def test_file_snapshot_journal_restores_absent_empty_and_nonempty(
+    tmp_path: Path,
+    file_precond: str,
+) -> None:
+    journal = _b05_journal_mod()
+    path = tmp_path / "after.py"
+    if file_precond == "empty":
+        path.write_bytes(b"")
+    elif file_precond == "nonempty":
+        path.write_bytes(b"print('loop-entry')\n")
+    snap = journal.snapshot_file(path)
+    if file_precond == "absent":
+        path.write_bytes(b"partial-after-mutation")
+    elif file_precond == "empty":
+        path.write_bytes(b"no-longer-empty")
+    else:
+        path.unlink()
+        path.write_bytes(b"replaced")
+    journal.restore_file(path, snap)
+    if file_precond == "absent":
+        assert not path.exists()
+    elif file_precond == "empty":
+        assert path.exists()
+        assert path.read_bytes() == b""
+    else:
+        assert path.read_bytes() == b"print('loop-entry')\n"
+
+
+@pytest.mark.parametrize("fault_point", _B05_FAULT_POINTS)
+def test_batch_repl_unexpected_exception_journal_restores_loop_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_point: str,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = f"b05-rollback-{fault_point}"
+    captured = _b05_capture_loop_entry(monkeypatch)
+    _b05_install_fault(monkeypatch, fault_point)
+    events: list[tuple[str, dict[str, object], str | None]] = []
+    model_calls: list[list[dict[str, str]]] = []
+
+    def _capture_ws_send(
+        event: str,
+        payload: dict[str, object],
+        *,
+        client_id: str | None = None,
+    ) -> None:
+        events.append((event, payload, client_id))
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
+
+    def _fake_batch_client(messages):
+        model_calls.append(messages)
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result.get("canvas_apply_allowed") is False
+    assert len(model_calls) == 1
+    journal = captured["journal"]
+    session = captured["session"]
+    _b05_assert_session_restored(session, journal.session_snapshot)
+    turn_id = str(result.get("turn_id") or journal.turn_id)
+    turn_dir = turn_dir_for(tmp_path, session_id, turn_id)
+    _b05_assert_files_restored(turn_dir, journal.files)
+    assert not (turn_dir / "model_request.json").exists()
+    assert not (turn_dir / "model_response.json").exists()
+    assert not (turn_dir / "candidate.ui.json").exists()
+    assert not (turn_dir / "after.py").exists()
+    abort_path = turn_dir / "abort.json"
+    assert abort_path.is_file()
+    abort = json.loads(abort_path.read_text(encoding="utf-8"))
+    assert abort["contract_version"] == "batch_repl_abort_v1"
+    assert abort["code"] == "unexpected_batch_exception"
+    assert abort["status"] == "aborted"
+    assert abort["restored"] is True
+    assert abort["committed"] is False
+    assert abort["fault_point"] == fault_point
+    assert abort["error_type"] == "InjectedBatchFault"
+    assert "success" not in json.dumps(abort).lower()
+    assert (turn_dir / "response.json").is_file()
+    session_state = read_state(tmp_path / session_id)
+    turn_record = session_state["turns"][turn_id]
+    assert turn_record.get("abort", {}).get("status") == "aborted"
+    assert turn_record.get("state") != "candidate" or turn_record.get("abort")
+    assert turn_record.get("candidate_graph_hash") is None
+    assert all(payload.get("status") != "done" for _, payload, _ in events)
+    abort_events = [payload for _, payload, _ in events if payload.get("status") == "aborted"]
+    assert abort_events
+    assert abort_events[0].get("rolled_back") is True
+    assert abort_events[0].get("committed") is False
+    assert abort_events[0].get("landed_op_count") == 0
+    if isinstance(result.get("graph"), dict):
+        assert result["graph"] != {"nodes": []}
+
+
+def test_batch_repl_abort_restores_nonempty_loop_entry_files_on_second_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    session_id = "b05-rollback-nonempty"
+    captured = _b05_capture_loop_entry(monkeypatch)
+    _b05_install_fault(monkeypatch, "after_candidate_write", fire_on_nth=2)
+    model_calls: list[object] = []
+
+    def _fake_batch_client(_messages):
+        model_calls.append(_messages)
+        if len(model_calls) == 1:
+            return {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Applied the first change.",
+            }
+        return {
+            "batch": 'saveimage.filename_prefix = "again"\ndone()',
+            "message": "Tried a second change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix twice",
+            "session_id": session_id,
+            "max_batches": 3,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert len(model_calls) == 2
+    journals = captured["journals"]
+    assert len(journals) >= 2
+    second = journals[1]
+    session = captured["session"]
+    _b05_assert_session_restored(session, second.session_snapshot)
+    turn_dir = turn_dir_for(tmp_path, session_id, str(second.turn_id))
+    _b05_assert_files_restored(turn_dir, second.files)
+    assert second.files["after_py_path"].existed
+    assert second.files["candidate_ui_path"].existed
+    assert (turn_dir / "after.py").read_bytes() == second.files["after_py_path"].data
+    assert (turn_dir / "candidate.ui.json").read_bytes() == second.files["candidate_ui_path"].data
+    abort = json.loads((turn_dir / "abort.json").read_text(encoding="utf-8"))
+    assert abort["status"] == "aborted"
+    assert abort["fault_point"] == "after_candidate_write"
+    assert abort["committed"] is False
+
+
+def test_batch_repl_abort_does_not_make_another_model_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    _b05_install_fault(monkeypatch, "after_done")
+    model_calls = {"n": 0}
+
+    def _fake_batch_client(_messages):
+        model_calls["n"] += 1
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        }
+
+    handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "b05-no-retry",
+            "max_batches": 4,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+    assert model_calls["n"] == 1
+
+
+def test_batch_repl_abort_telemetry_does_not_claim_done(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    _b05_install_fault(monkeypatch, "after_finalize")
+    events: list[dict[str, object]] = []
+
+    def _capture_ws_send(event: str, payload: dict[str, object], *, client_id: str | None = None) -> None:
+        events.append(payload)
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
+
+    handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "b05-telemetry",
+            "max_batches": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested save-prefix change.",
+        },
+        session_root=tmp_path,
+    )
+    statuses = [event.get("status") for event in events]
+    assert "done" not in statuses
+    assert "aborted" in statuses
+    abort_event = next(event for event in events if event.get("status") == "aborted")
+    assert abort_event.get("rolled_back") is True
+    assert abort_event.get("committed") is False
+
+
+def test_projection_named_port_fallback_does_not_raise_missing_stable_link() -> None:
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        ContractError,
+        _graph_link_identities,
+        _native_port_name,
+    )
+
+    node = {
+        "id": 6,
+        "type": "VAEDecode",
+        "outputs": [
+            {"name": "IMAGE", "type": "IMAGE", "links": [9], "slot_index": 0},
+        ],
+        "inputs": [{"name": "samples", "type": "LATENT", "link": None}],
+        "properties": {"vibecomfy_uid": "decode"},
+    }
+    assert _native_port_name(node, "from", "IMAGE") == "IMAGE"
+    assert _native_port_name(node, "from", 0) == "IMAGE"
+    identities = _graph_link_identities(
+        {"links": [[9, 6, 0, 7, 0, "IMAGE"]]},
+        [
+            node,
+            {
+                "id": 7,
+                "type": "SaveImage",
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 9}],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "save"},
+            },
+        ],
+    )
+    assert identities[0]["from"]["port"] == "IMAGE"
+    assert identities[0]["to"]["port"] == "images"
+    with pytest.raises(ContractError, match="Missing stable link from port"):
+        _native_port_name(node, "from", 4)

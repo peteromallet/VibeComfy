@@ -31,5 +31,35 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "Points to LoRA loading/selection and latent scaling, two distinct issues that require diagnosis."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/374aa988d0a133be.json",
+    "required_node_evidence": [
+      "UnetLoaderGGUF",
+      "LoraLoaderModelOnly",
+      "KSamplerAdvanced",
+      "Frames Concat Latent",
+      "LatentLoaderAdvanced",
+      "SetLatentNoiseMask",
+      "VAEDecode"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Verify whether the high/low LoRA branches actually reach distinct model/sampling paths and diagnose brightness through latent concat/load/noise-mask/decode scaling, with tests for bypassed or identical inputs.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

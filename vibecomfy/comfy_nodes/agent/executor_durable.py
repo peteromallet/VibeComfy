@@ -117,6 +117,17 @@ def maybe_write_executor_only_durable_turn(
         turn_dir = allocation.turn_dir
         write_json_artifact(turn_dir / "request.json", request_artifact_payload)
 
+        # Non-edit routes still need authoritative UI evidence. Project final
+        # from the submitted original so unchanged/clarify/refusal turns carry
+        # both original.ui.json and final.ui.json.
+        original_ui = (
+            dict(request_graph)
+            if isinstance(request_graph, dict)
+            else {"nodes": [], "links": []}
+        )
+        write_json_artifact(turn_dir / "original.ui.json", original_ui)
+        write_json_artifact(turn_dir / "final.ui.json", original_ui)
+
         response_path = turn_dir / "response.json"
         stamped = dict(response)
         stamped["session_id"] = context.session_id

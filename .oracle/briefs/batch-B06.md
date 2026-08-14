@@ -1,41 +1,50 @@
-# B06 — Grounded-refusal adjudication and UI evidence coverage (HARD — grok)
+# MEGADO BATCH B06 [HARD] — Universal UI evidence and semantic adjudication
 
-Executor: grok (per user directive: grok is the extremely hard task doer).
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy (branch main).
-Work in place; DO NOT commit. Run the verification commands yourself; report PASS/FAIL with outputs.
+Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). This is a [HARD] task — executor: Grok (grok-4.6, workspace-write). You may modify files and run tests. Skip formatters/linters/full suites; run focused tests only.
 
-## Tasks
+## Context
+Two gaps from the failure analysis: (1) refusal/unchanged/clarify/non-edit turns lack universal UI evidence (`original.ui.json`/`final.ui.json`), and (2) the 35 D13 semantic non-edit scenarios have rubrics but NO judge — they'd pass on health alone. Also: refusal-kind auto-acceptance currently bypasses groundedness judging.
 
-1. **Add an explicit refusal adjudication mode.**
-   - Touch as required: `tests/live_agentic_harness/assessor.py`, `tests/live_agentic_harness/intent_judge.py`, `vibecomfy/intent/prompts/refusal_judge.prompt.md` (new, if a separate prompt is used), `tests/test_live_agentic_harness_guard_contract.py`, and focused judge tests.
-   - For a no-edit refusal, adjudicate exactly: the stated blocker is supported by artifacts/schema, no viable representable edit was available, the response gives a specific next action, and it does not fabricate inability. Broaden `allow_safe_refusal` configuration without auto-passing the allowed outcome kind.
-   - Return `pass`, `fail`, or `undetermined`; a judge outage/missing evidence is `undetermined` and never a pass.
+D13 already delivered: 100-scenario manifest, 35 scenarios with `semantic_answer` rubrics (grounded/relevant/correct → pass; hallucinated/wrong/irrelevant/vacuous/empty → fail), 2 health controls (`excluded_from_semantic_product_rates: true`), 3 corrected edits, fail-closed judge verdict parsers (malformed verdicts fail, never pass). B01 delivered typed evidence. G0R/D13 made the assessor structured-only.
 
-2. Make UI evidence universal for adjudicated turns.
-   - Touch: `vibecomfy/agent/artifacts.py`, `tests/test_headless_agent_artifacts.py`, plus any minimal durable-artifact plumbing required.
-   - Always persist `original.ui.json` and `final.ui.json`; for an unchanged/refused turn, final is an explicit copy/projection of the authoritative original. Keep `candidate.ui.json` for edit-candidate compatibility where applicable.
+## Tasks (from .oracle/tasklist.md B06)
 
-## Verification (run all; exit 0 expected)
+1. **Persist authoritative `original.ui.json` and `final.ui.json` for EVERY adjudicated route.** Unchanged/refused/clarify routes explicitly project final from original.
+2. **Replace refusal-kind auto-acceptance with tri-state grounded-refusal adjudication**: supported blocker + no representable edit → pass; unsupported/fabricated inability → fail; missing evidence/judge outage → undetermined.
+3. **Implement ONE rubric-driven tri-state answer judge for the 35 D13 semantic non-edits**: grounded, relevant, correct response → pass; hallucinated/wrong/irrelevant/vacuous/empty-but-valid → fail; unavailable evidence/judge outage → undetermined.
+4. **Keep the two health controls structurally scored and separately reported.**
+5. **Ensure the three corrected edits use the edit-intent judge.**
+6. **Never use prose substrings as evidence.**
 
+## Sense-check precommit (adversary predictions — cover these FIRST)
+
+From `.oracle/sensecheck-remaining-2026-08-13.md`:
+1. **"Universal" evidence misses non-edit routes.** Headless synthesis only copies whatever durable JSON happens to exist (`vibecomfy/agent/artifacts.py:467`); executor-only routes explicitly lack the normal edit turn (`vibecomfy/agent/service.py:207`). Require route-matrix fixtures proving BOTH files exist and `final == original` for respond/research/inspect/clarify/refusal.
+2. **Refusal remains label-first.** `safe_refusal_accepted` is established BEFORE judging (`tests/live_agentic_harness/assessor.py:641`), and non-`desired` allowlisted refusals bypass the judge. Replace this exemption UNIVERSALLY — identical plausible prose with contradictory schema/graph evidence must fail.
+3. **Tri-state collapses to Boolean.** Assessment returns only `passed` (`assessor.py:964`) and the guard maps directly to pass/product-fail. Persist `pass|fail|undetermined`; outage is `undetermined` but still cannot satisfy the scenario. Preserve D13's rule: malformed judge verdicts FAIL, not mislabeled outages.
+4. **The 35 rubric scenarios never enter a judge** because judging is gated on expected edits (`assessor.py:821`). The semantic-answer judge must run for the 35 regardless of edit expectation.
+
+## Key files
+- `tests/live_agentic_harness/assessor.py`, `intent_judge.py`, `guard.py`, `runner.py`
+- `vibecomfy/agent/artifacts.py` (`:467` headless synthesis), `vibecomfy/agent/service.py` (`:207` executor-only route)
+- `tests/test_live_agentic_harness_guard_contract.py`, `tests/test_live_agentic_intent_judge_schema_context.py`, `tests/test_headless_agent_artifacts.py`, `tests/test_live_agentic_assessor_score_honesty.py`
+
+## Verification (run, retain output)
 ```bash
-.venv/bin/python -m pytest -q \
-  tests/test_live_agentic_harness_guard_contract.py \
-  tests/test_live_agentic_intent_judge_schema_context.py \
-  tests/test_headless_agent_artifacts.py \
-  -k 'grounded_refusal or refusal_judge_outage_is_undetermined or every_adjudicated_turn_has_original_and_final_ui'
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_live_agentic_harness_guard_contract.py tests/test_live_agentic_intent_judge_schema_context.py tests/test_headless_agent_artifacts.py -k 'grounded_refusal or refusal or undetermined or original or final or semantic or rubric or ui_evidence or outage or judge'
+```
+Plus the full files (expected exit 0; rerunfailures plugin binds a socket and cannot run here):
+```bash
+.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_live_agentic_harness_guard_contract.py tests/test_live_agentic_assessor_score_honesty.py tests/test_live_agentic_intent_judge_schema_context.py tests/test_headless_agent_artifacts.py
 ```
 
-```bash
-.venv/bin/python -m pytest -q tests/test_live_agentic_harness_guard_contract.py tests/test_live_agentic_assessor_score_honesty.py tests/test_live_agentic_intent_judge_schema_context.py tests/test_headless_agent_artifacts.py
-```
-
-## Acceptance criteria
-
-- Merely configuring `allow_safe_refusal` cannot produce a pass; all four groundedness criteria must be positively supported.
-- Grounded, ungrounded-give-up, fabricated-inability, and judge-outage fixtures produce `pass`, `fail`, `fail`, and `undetermined` respectively; only the first can satisfy the guard.
-- Missing judge service or UI evidence is visible and counted as undetermined, never silently green.
-- Deterministic fixtures have 100% `original.ui.json` + `final.ui.json` coverage for edit, refusal, clarify, and executor-only routes.
-- Output exposes enough counts to calculate grounded-refusal precision/recall and judge availability in B09.
+## Acceptance (from tasklist)
+- Refusal fixtures produce pass/fail/fail/undetermined for grounded, unsupported, fabricated, and outage cases.
+- A healthy but false explanation fails.
+- Judge outage never passes.
+- Every selected semantic non-edit has a rubric and judge result.
+- All routes carry original/final UI evidence.
+- Only `pass` satisfies a semantic scenario.
 
 ## Report
-"B06 VERDICT: PASS|FAIL|BLOCKED — <one line>" + per-task changes (file:line), verification outputs, residuals. DO NOT commit.
+Return: per-task changes (file:line), the route-matrix fixtures, the tri-state persistence shape, refusal-judge + semantic-judge fixture results, pytest output. Do NOT commit.

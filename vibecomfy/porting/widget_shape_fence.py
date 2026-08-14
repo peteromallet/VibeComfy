@@ -81,7 +81,7 @@ def decide_widget_shape(
     field_delta = dict(_lookup(field_deltas, node_id) or {})
     link_delta = dict(_lookup(link_deltas, node_id) or {})
     has_widget_delta = _has_widget_delta(field_delta)
-    has_link_delta = bool(link_delta)
+    has_link_delta = _has_link_delta(link_delta)
 
     static_reasons = _static_refusal_reasons(evidence)
 
@@ -199,6 +199,21 @@ def decide_widget_shape(
             recovery="observed_dynamic_widgets_regenerate",
         )
 
+    # Canonical semantic differences and resolution issues are both link
+    # deltas.  Neither regeneration nor opaque carry-forward can make an
+    # unresolved endpoint safe, so refuse before the schema-backed fast path
+    # below can return SAFE_TO_REGENERATE (B03 rework8).
+    if has_link_delta:
+        return _verdict(
+            evidence,
+            WidgetShapeDecision.REFUSE,
+            (*static_reasons, WidgetShapeReason.LINK_DELTA),
+            raw_ui_node=raw_ui_node,
+            layout_entry=layout_entry,
+            field_delta=field_delta,
+            link_delta=link_delta,
+        )
+
     if evidence.explicit_widget_overflow:
         refuse_reasons = list(static_reasons)
         if not static_reasons and evidence.explicit_widget_overflow:
@@ -211,8 +226,6 @@ def decide_widget_shape(
             refuse_reasons.append(WidgetShapeReason.MISSING_LAYOUT_ENTRY)
         if has_widget_delta:
             refuse_reasons.append(WidgetShapeReason.WIDGET_DELTA)
-        if has_link_delta:
-            refuse_reasons.append(WidgetShapeReason.LINK_DELTA)
         return _verdict(
             evidence,
             WidgetShapeDecision.REFUSE,
@@ -246,8 +259,6 @@ def decide_widget_shape(
         pin_blockers.append(WidgetShapeReason.MISSING_LAYOUT_ENTRY)
     if has_widget_delta:
         pin_blockers.append(WidgetShapeReason.WIDGET_DELTA)
-    if has_link_delta:
-        pin_blockers.append(WidgetShapeReason.LINK_DELTA)
 
     if len(pin_blockers) == len(static_reasons):
         return _verdict(
@@ -390,6 +401,30 @@ def _has_widget_delta(field_delta: Mapping[str, Any]) -> bool:
     return any(
         field in _WIDGET_FIELDS or str(field).startswith(_WIDGET_FIELD_PREFIX)
         for field in field_delta
+    )
+
+
+def _has_link_delta(link_delta: Mapping[str, Any]) -> bool:
+    """Interpret the canonical semantic-set comparison supplied by the emitter.
+
+    The fallback preserves compatibility for direct policy callers that still
+    provide an opaque link-delta mapping. Resolution issues always fail closed,
+    even when the successfully resolved portions of the two sets are equal.
+    Unattributed *global* resolution issues (e.g. a fully ghost edge whose
+    endpoints are both missing) also fail closed: they ride on every
+    live fence target, so any widget-shape blocker anywhere in the
+    graph refuses the emit with a typed ``RefusedEmit`` instead of a bare
+    ``KeyError`` downstream (B03 rework7).
+    """
+    semantic = link_delta.get("semantic_link_set")
+    if not isinstance(semantic, Mapping):
+        return bool(link_delta)
+    return bool(
+        semantic.get("before") != semantic.get("after")
+        or semantic.get("before_resolution_issues")
+        or semantic.get("after_resolution_issues")
+        or semantic.get("global_before_resolution_issues")
+        or semantic.get("global_after_resolution_issues")
     )
 
 

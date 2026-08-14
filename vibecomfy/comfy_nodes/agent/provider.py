@@ -12,6 +12,11 @@ from typing import Any, Callable, Mapping
 
 from .audit import redact_closed_set
 from .contracts import AGENT_EDIT_TURN_CONTRACT_VERSION
+from vibecomfy.executor.contracts import (
+    ModelAttemptEvidence,
+    coerce_model_attempts,
+    redact_model_preview,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -199,14 +204,7 @@ _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
 
 
 def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str | None:
-    if not isinstance(text, str):
-        return None
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
+    return redact_model_preview(text, limit=limit)
 
 
 # Additive evidence attributes that classify/reply failure plumbing forwards
@@ -215,6 +213,7 @@ def _preview_raw_model_response(text: str | None, *, limit: int = 1200) -> str |
 # unchanged; these attributes only ride on exceptions in between.
 _EVIDENCE_ATTRS = (
     "worker_result",
+    "model_attempts",
     "parse_reason",
     "raw_response_preview",
     "finish_reason",
@@ -231,6 +230,23 @@ _EVIDENCE_ATTRS = (
     "endpoint",
     "empty_response",
 )
+
+
+def _audit_with_runtime_attempts(
+    audit_metadata: Mapping[str, Any] | None,
+    response: Any,
+) -> dict[str, Any]:
+    """Merge worker-observed canonical attempt evidence into provider audit data."""
+    merged = dict(audit_metadata or {})
+    if not isinstance(response, Mapping):
+        return merged
+    attempts = coerce_model_attempts(response.get("model_attempts"))
+    if attempts:
+        merged["model_attempts"] = [dict(item) for item in attempts]
+    usage = response.get("deepseek_usage")
+    if isinstance(usage, Mapping):
+        merged["deepseek_usage"] = dict(usage)
+    return merged
 
 
 def _forward_evidence_attrs(source: BaseException, target: BaseException) -> None:
@@ -918,7 +934,14 @@ def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
             browser_api_key_allowed=False,
             guidance=_ARNOLD_GUIDANCE,
         )
-    if requested in {"openrouter", "deepseek"}:
+    if requested in {"openrouter", "deepseek", "hermes"}:
+        # ``hermes`` is the profile agent for the default executor profile; it
+        # is the Hermes adapter configured for an OpenRouter-shaped backend and
+        # normalizes exactly like the runtime's ``_normalize_route("hermes")``.
+        # Keeping its normalized route OpenRouter means readiness/metadata are
+        # truthful, while ``_runtime_dispatch_route`` still preserves the
+        # ``hermes`` spelling so an explicit VIBECOMFY_TRANSPORT pin (native /
+        # openrouter) controls the actual endpoint.
         return AgentRouteDescriptor(
             requested_route=requested,
             normalized_route="openrouter",
@@ -949,7 +972,7 @@ def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
         )
     return AgentRouteDescriptor(
         requested_route=requested,
-        normalized_route=requested,
+        normalized_route="unknown",
         browser_api_key_allowed=False,
     )
 
@@ -987,8 +1010,11 @@ def _runtime_dispatch_route(route_descriptor: AgentRouteDescriptor, selected_rou
     # is the transport contract that pins endpoint and credential resolution.
     if requested == "openrouter":
         return "openrouter"
-    if requested == "deepseek":
-        return "deepseek"
+    if requested in {"deepseek", "hermes"}:
+        # Preserve the spelling so the runtime's transport pin (VIBECOMFY_TRANSPORT
+        # or the configured base URL) — not the normalized route — decides the
+        # endpoint for these hermes-backed routes.
+        return requested
     return selected_route
 
 
@@ -1091,6 +1117,7 @@ def _normalize_agent_response(
 ) -> AgentTurnResult:
     if isinstance(response, AgentTurnResult):
         return response
+    merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         payload = _extract_json_object(response)
     elif isinstance(response, Mapping):
@@ -1112,7 +1139,7 @@ def _normalize_agent_response(
         message=message,
         route=route,
         model=model,
-        audit_metadata=audit_metadata or {},
+        audit_metadata=merged_audit,
     )
 
 
@@ -1315,14 +1342,14 @@ def run_agent_turn_delta(
             response,
             route=dispatch_route,
             model=selected_model,
-            audit_metadata={
+            audit_metadata=_audit_with_runtime_attempts({
                 "provider": "arnold",
                 "requested_route": route_descriptor.requested_route,
                 "route_metadata": route_descriptor.to_dict(),
                 "legacy_deepseek_fallback_enabled": False,
                 "credential_presence": _credential_presence(),
                 "response_contract": "delta",
-            },
+            }, response),
         )
     except EditOpParseError as exc:
         raise MalformedModelJSON(str(exc), parse_reason=exc.code) from exc
@@ -1343,6 +1370,7 @@ def _normalize_batch_response(
     """
     if isinstance(response, BatchTurnResult):
         return response
+    merged_audit = _audit_with_runtime_attempts(audit_metadata, response)
     if isinstance(response, str):
         text = response
     elif isinstance(response, Mapping):
@@ -1358,7 +1386,7 @@ def _normalize_batch_response(
                 message=message,
                 route=route,
                 model=model,
-                audit_metadata=audit_metadata or {},
+                audit_metadata=merged_audit,
             )
         else:
             text = str(response)
@@ -1366,7 +1394,9 @@ def _normalize_batch_response(
         raise MalformedModelJSON("Agent response must be a string or object.")
     if not text.strip():
         raise MalformedModelJSON(
-            "Agent batch_repl response was empty. Expected exactly one ```batch fenced block."
+            "Agent batch_repl response was empty. Expected exactly one ```batch fenced block.",
+            raw_response=text,
+            parse_reason="empty",
         )
     batch_code, prose = extract_batch_fence(text)
     # Preserve prose as-is (possibly empty); the backend synthesizer
@@ -1377,7 +1407,7 @@ def _normalize_batch_response(
         message=message,
         route=route,
         model=model,
-        audit_metadata=audit_metadata or {},
+        audit_metadata=merged_audit,
     )
 
 
@@ -1441,6 +1471,61 @@ def _batch_retry_messages(
     return [*messages, {"role": "system", "content": prompt}]
 
 
+def _batch_failure_type(exc: BaseException) -> str:
+    raw = getattr(exc, "raw_response", None)
+    if isinstance(raw, str) and not raw.strip():
+        return "empty_response"
+    reason = getattr(exc, "parse_reason", None)
+    if reason in {"missing_batch_fence"}:
+        return "missing_required_fields"
+    return "malformed_json"
+
+
+def _revise_failed_runtime_attempt(
+    response: Any,
+    exc: BaseException,
+    *,
+    attempt_offset: int,
+) -> tuple[dict[str, Any], ...]:
+    if not isinstance(response, Mapping):
+        return ()
+    attempts = list(coerce_model_attempts(response.get("model_attempts")))
+    if not attempts:
+        return ()
+    latest = dict(attempts[-1])
+    latest.update({
+        "outcome": "failure",
+        "failure_type": _batch_failure_type(exc),
+        "raw_response_preview": getattr(exc, "raw_response", None),
+    })
+    attempts[-1] = latest
+    revised_attempts: list[dict[str, Any]] = []
+    for local_index, attempt in enumerate(attempts, start=1):
+        numbered = dict(attempt)
+        numbered["attempt"] = attempt_offset + local_index
+        revised_attempts.append(ModelAttemptEvidence.from_mapping(numbered).to_dict())
+    try:
+        from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
+
+        replace_last_model_attempts(revised_attempts)
+    except Exception:  # noqa: BLE001 - evidence capture is additive
+        pass
+    exc.model_attempts = list(revised_attempts)  # type: ignore[attr-defined]
+    return tuple(revised_attempts)
+
+
+def _typed_empty_attempt(attempts: tuple[dict[str, Any], ...]) -> bool:
+    if not attempts:
+        return False
+    latest = attempts[-1]
+    usage = latest.get("token_usage")
+    return (
+        latest.get("failure_type") == "empty_response"
+        and isinstance(usage, Mapping)
+        and usage.get("completion_tokens") == 0
+    )
+
+
 def run_agent_turn_batch(
     task: str,
     messages: list[dict[str, str]],
@@ -1485,6 +1570,7 @@ def run_agent_turn_batch(
         retry_count = 0
         last_exc: MalformedModelJSON | MissingRequiredField | None = None
         current_messages = messages
+        attempt_log: list[dict[str, Any]] = []
         for attempt_index in range(attempts):
             if attempt_index > 0 and last_exc is not None:
                 current_messages = _batch_retry_messages(messages, last_exc)
@@ -1504,11 +1590,38 @@ def run_agent_turn_batch(
                     audit_metadata=audit_metadata,
                 )
             except (MalformedModelJSON, MissingRequiredField) as exc:
+                failed_attempts = _revise_failed_runtime_attempt(
+                    response,
+                    exc,
+                    attempt_offset=len(attempt_log),
+                )
+                attempt_log.extend(failed_attempts)
                 last_exc = exc
-                if attempt_index >= attempts - 1:
+                if attempt_index >= attempts - 1 or not _typed_empty_attempt(failed_attempts):
                     raise
                 retry_count += 1
                 continue
+            current_attempts = list(
+                coerce_model_attempts((result.audit_metadata or {}).get("model_attempts"))
+            )
+            numbered_current_attempts: list[dict[str, Any]] = []
+            for local_index, current_attempt in enumerate(current_attempts, start=1):
+                numbered = dict(current_attempt)
+                numbered["attempt"] = len(attempt_log) + local_index
+                numbered_current_attempts.append(
+                    ModelAttemptEvidence.from_mapping(numbered).to_dict()
+                )
+            if numbered_current_attempts:
+                try:
+                    from vibecomfy.comfy_nodes.agent.runtime import replace_last_model_attempts
+
+                    replace_last_model_attempts(numbered_current_attempts)
+                except Exception:  # noqa: BLE001 - evidence capture is additive
+                    pass
+            if attempt_log or numbered_current_attempts != current_attempts:
+                metadata = dict(result.audit_metadata or {})
+                metadata["model_attempts"] = [*attempt_log, *numbered_current_attempts]
+                result = dataclasses.replace(result, audit_metadata=metadata)
             if retry_count:
                 metadata = dict(result.audit_metadata or {})
                 metadata["batch_repl_retry"] = {

@@ -1,16 +1,16 @@
 {
   "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
-  "query": "The video output is way too short; I need it to be at least 5 seconds long. Increase the frame count accordingly and adjust the frame rate to keep motion smooth.",
+  "query": "Reduce the Moonvalley image-to-video generation steps from 100 to 80 for a faster preview. Keep prompt adherence at 7, and leave the prompt, resolution, image input, and SaveVideo connection unchanged.",
   "workflow_path": "external_workflows/corpus/d7853cd7421f9ebc.json",
   "network": true,
   "timeout": 280,
   "apply": true,
   "assessment": {
-    "expect_graph_changed": false
+    "expect_graph_changed": true
   },
   "desired": {
-    "outcome": "Output video is 5 seconds long with smooth motion at an appropriate frame rate.",
-    "quality": "Frame count and fps parameters are correctly updated, no nodes are broken, and the save node outputs the new duration video.",
+    "outcome": "The Moonvalley node uses 80 generation steps for a faster preview.",
+    "quality": "Only the generation-step count changes from 100 to 80; prompt adherence remains 7 and the image input, prompt, 16:9 resolution, seed controls, and SaveVideo wiring remain intact.",
     "alternatives_ok": false
   },
   "_tags": {
@@ -32,5 +32,8 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "A simple, concrete parameter edit that requires reasoning about frame count vs. fps to hit a target duration."
+  },
+  "classification": {
+    "kind": "edit"
   }
 }

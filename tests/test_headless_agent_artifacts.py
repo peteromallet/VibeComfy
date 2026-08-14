@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.agent.artifacts import _execute_research_sources, synthesize_headless_artifacts
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
@@ -79,7 +81,13 @@ def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: P
         "research.json",
         "implementation_payload.json",
         "implementation_result.json",
+        "original.ui.json",
+        "final.ui.json",
     ]
+    original_ui = _read_json(output_dir / "original.ui.json")
+    final_ui = _read_json(output_dir / "final.ui.json")
+    assert original_ui == request["graph"]
+    assert final_ui == {"nodes": [{"id": 2}]}
     assert _read_json(output_dir / "request.json")["extra"]["api_key"] == "<redacted>"
     assert (
         _read_json(output_dir / "request.json")["extra"]["nested"]["access_token"]
@@ -203,6 +211,7 @@ def test_headless_artifacts_copy_only_real_durable_turn_files(tmp_path: Path) ->
     ]
     assert manifest["optional_model_artifacts"] == {
         "messages.jsonl": False,
+        "model_attempts.json": False,
         "model_request.json": False,
         "model_response.json": False,
     }
@@ -237,6 +246,7 @@ def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: P
 
     assert manifest["optional_model_artifacts"] == {
         "messages.jsonl": True,
+        "model_attempts.json": False,
         "model_request.json": True,
         "model_response.json": True,
     }
@@ -245,95 +255,389 @@ def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: P
     assert (output_dir / "model_response.json").is_file()
 
 
-def test_failed_model_call_artifact_has_complete_provenance(tmp_path: Path) -> None:
-    """Every failed model call persists the complete provenance field set:
-    phase, parse reason, zero/nonzero completion-token flag and count, finish
-    reason, bounded raw preview, requested and resolved model, adapter/provider,
-    and endpoint/base URL.  Previews are bounded and credentials are absent."""
-    from vibecomfy.executor.core import _enrich_failure_envelope, _model_response_artifact
-    from vibecomfy.comfy_nodes.agent.contracts import classify_failure
-
-    class _FakeModelError(Exception):
-        pass
-
-    exc = _FakeModelError("boom")
-    exc.parse_reason = "malformed_json"  # type: ignore[attr-defined]
-    exc.raw_response_preview = "x" * 5000  # type: ignore[attr-defined]  # must be bounded
-    exc.finish_reason = "stop"  # type: ignore[attr-defined]
-    exc.completion_tokens = 42  # type: ignore[attr-defined]
-    exc.completion_tokens_zero = False  # type: ignore[attr-defined]
-    exc.prompt_tokens = 100  # type: ignore[attr-defined]
-    exc.total_tokens = 142  # type: ignore[attr-defined]
-    exc.model = "deepseek-v4-flash"  # type: ignore[attr-defined]
-    exc.requested_model = "deepseek-v4-flash"  # type: ignore[attr-defined]
-    exc.resolved_model = "deepseek-v4-flash"  # type: ignore[attr-defined]
-    exc.adapter = "hermes"  # type: ignore[attr-defined]
-    exc.provider = "openrouter"  # type: ignore[attr-defined]
-    exc.phase = "classify"  # type: ignore[attr-defined]
-    exc.endpoint = "https://api.deepseek.com/v1"  # type: ignore[attr-defined]
-    exc.api_key = "sk-secret-credential"  # type: ignore[attr-defined]  # never persisted
-
-    failure = classify_failure("agent_response", exc)
-    failure = _enrich_failure_envelope(failure, exc, phase="classify", model="deepseek-v4-flash")
-    artifact = _model_response_artifact(failure)
-
-    assert artifact is not None
-    error = artifact["turns"][0]["error"]
-    required = {
-        "phase",
-        "parse_reason",
-        "completion_tokens_zero",
-        "completion_tokens",
-        "finish_reason",
-        "raw_response_preview",
-        "requested_model",
-        "resolved_model",
-        "adapter",
-        "provider",
-        "endpoint",
-    }
-    missing = required - set(error)
-    assert not missing, f"provenance fields missing: {sorted(missing)}"
-    assert error["phase"] == "classify"
-    assert error["parse_reason"] == "malformed_json"
-    assert error["completion_tokens_zero"] is False
-    assert error["completion_tokens"] == 42
-    assert error["finish_reason"] == "stop"
-    assert error["requested_model"] == "deepseek-v4-flash"
-    assert error["resolved_model"] == "deepseek-v4-flash"
-    assert error["adapter"] == "hermes"
-    assert error["provider"] == "openrouter"
-    assert error["endpoint"] == "https://api.deepseek.com/v1"
-    # Bounded preview.
-    assert len(error["raw_response_preview"]) <= 1200
-    # Secrets never persisted.
-    assert "sk-secret-credential" not in json.dumps(artifact)
-    assert "api_key" not in error
-
-    # The headless artifact boundary persists the same complete field set.
+def test_malformed_json_artifact_body_is_omitted(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "malformed-json"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    secret = "sk-malformed-json-secret"
+    (turn_dir / "model_request.json").write_text(
+        '{"api_key":"' + secret + '"', encoding="utf-8"
+    )
     output_dir = tmp_path / "out"
-    failed_result = ExecutorResult.failure(
-        kind="MalformedModelJSON",
-        stage="classify",
-        message="The model response could not be parsed. The graph is unchanged.",
-        report=Report(
-            classification_status="failed",
-            model_response=artifact,
-        ),
-    )
-    manifest = synthesize_headless_artifacts(
-        request={"query": "parse me"},
-        result=failed_result,
-        response=failed_result.to_dict(),
+
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
         output_dir=output_dir,
-        status="executor_failure",
+        status="error",
     )
-    assert "model_response.json" in manifest["manifest"]
-    persisted = json.loads((output_dir / "model_response.json").read_text(encoding="utf-8"))
-    persisted_error = persisted["turns"][0]["error"]
-    missing_persisted = required - set(persisted_error)
-    assert not missing_persisted, f"persisted provenance fields missing: {sorted(missing_persisted)}"
-    assert "sk-secret-credential" not in json.dumps(persisted)
-    classification = json.loads((output_dir / "classification.json").read_text(encoding="utf-8"))
-    assert classification["classification_status"] == "failed"
-    assert "plan" not in classification
+
+    assert _read_json(output_dir / "model_request.json") == {
+        "redacted_unparseable_artifact": True
+    }
+    assert secret not in "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+
+
+def test_malformed_jsonl_artifact_body_is_omitted(tmp_path: Path) -> None:
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "malformed-jsonl"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    credential = "dXNlcjpwYXNz"
+    (turn_dir / "messages.jsonl").write_text(
+        '{"role":"user","content":"safe"}\n'
+        '{"authorization":"Basic ' + credential + '"\n',
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
+        output_dir=output_dir,
+        status="error",
+    )
+
+    assert _read_json(output_dir / "messages.jsonl") == {
+        "redacted_unparseable_artifact": True
+    }
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert credential not in persisted
+    assert "Basic" not in persisted
+
+
+def test_model_attempt_artifact_is_canonical_and_redacts_secrets(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    result = ExecutorResult.success(
+        report=Report(
+            model_attempts=(
+                {
+                    "phase": "classify",
+                    "attempt": 1,
+                    "outcome": "failure",
+                    "failure_type": "malformed_json",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "hermes",
+                    "provider": "openrouter",
+                    "transport": "openrouter",
+                    "endpoint": (
+                        "https://user:password@OpenRouter.ai/api/v1/?api_key=sk-secret"
+                        "&signature=sig-secret"
+                    ),
+                    "finish_reason": "stop",
+                    "token_usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 4,
+                        "total_tokens": 15,
+                    },
+                    "raw_response_preview": (
+                        "Authorization: Bearer top-secret "
+                        "https://example.test/v1?token=url-secret"
+                    ),
+                },
+                {
+                    "phase": "reply",
+                    "attempt": 1,
+                    "outcome": "success",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "codex",
+                    "provider": "unknown",
+                    "transport": "unknown",
+                    "endpoint": "unknown",
+                    "finish_reason": "unknown",
+                    "token_usage": {},
+                    "raw_response_preview": "must never persist on success",
+                },
+            )
+        ),
+        reply="ok",
+    )
+
+    manifest = synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=result,
+        response={"ok": True},
+        output_dir=output_dir,
+        status="success",
+    )
+
+    assert "model_attempts.json" in manifest["manifest"]
+    assert manifest["optional_model_artifacts"]["model_attempts.json"] is True
+    attempts = _read_json(output_dir / "model_attempts.json")["attempts"]
+    assert attempts[0]["endpoint"] == "https://openrouter.ai/api/v1"
+    assert "top-secret" not in attempts[0]["raw_response_preview"]
+    assert "url-secret" not in attempts[0]["raw_response_preview"]
+    assert "raw_response_preview" not in attempts[1]
+    assert attempts[1]["provider"] == "unknown"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in output_dir.iterdir()
+        if path.is_file()
+    )
+    assert "sk-secret" not in persisted
+    assert "sig-secret" not in persisted
+    assert "top-secret" not in persisted
+    assert "url-secret" not in persisted
+
+
+@pytest.fixture
+def json_quoted_secret_raw_preview() -> str:
+    """raw_response_preview embedding oracle finding 5 JSON-quoted secrets."""
+    return (
+        '{"api_key":"sk-secret",'
+        '"authorization":"Basic dXNlcjpwYXNz",'
+        '"token":"tok-secret"}'
+    )
+
+
+def test_model_attempt_artifact_redacts_json_quoted_secrets(
+    tmp_path: Path, json_quoted_secret_raw_preview: str
+) -> None:
+    """Oracle finding 5 durable: model_attempts.json must not persist JSON-quoted secrets."""
+    output_dir = tmp_path / "out"
+    result = ExecutorResult.success(
+        report=Report(
+            model_attempts=(
+                {
+                    "phase": "classify",
+                    "attempt": 1,
+                    "outcome": "failure",
+                    "failure_type": "malformed_json",
+                    "requested_model": "requested-model",
+                    "resolved_model": "resolved-model",
+                    "adapter": "hermes",
+                    "provider": "openrouter",
+                    "transport": "openrouter",
+                    "endpoint": "https://openrouter.ai/api/v1",
+                    "finish_reason": "unknown",
+                    "token_usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 0,
+                        "total_tokens": 1,
+                    },
+                    "raw_response_preview": json_quoted_secret_raw_preview,
+                },
+            )
+        ),
+        reply="ok",
+    )
+
+    manifest = synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=result,
+        response={"ok": True},
+        output_dir=output_dir,
+        status="success",
+    )
+
+    assert "model_attempts.json" in manifest["manifest"]
+    attempts = _read_json(output_dir / "model_attempts.json")["attempts"]
+    preview = attempts[0]["raw_response_preview"]
+    assert "sk-secret" not in preview
+    assert "Basic dXNlcjpwYXNz" not in preview
+    assert "tok-secret" not in preview
+    assert preview.count("<redacted>") == 3
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in output_dir.iterdir()
+        if path.is_file()
+    )
+    assert "sk-secret" not in persisted
+    assert "Basic dXNlcjpwYXNz" not in persisted
+    assert "tok-secret" not in persisted
+
+
+def test_turn_artifact_secrets_in_ordinary_fields_are_redacted(tmp_path: Path) -> None:
+    """Oracle finding 5: parsed JSON artifacts with secrets in ordinary leaves.
+
+    A durable turn artifact persisting ``Authorization`` headers or
+    credential-bearing URLs under ordinary keys (``content``, ``url``,
+    ``message``, ``error``) must come out fully redacted.
+    """
+    turn_dir = tmp_path / "sessions" / "session-1" / "turns" / "leaky"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "response.json").write_text('{"ok": false}\n', encoding="utf-8")
+    (turn_dir / "request.json").write_text(
+        json.dumps(
+            {
+                "content": "Authorization: Basic dXNlcjpwYXNz",
+                "url": "https://example.test/v1?token=url-secret&sig=abc123",
+                "message": "retry with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9",
+                "error": "call https://api.example.test/v2?api_key=sk-live-123",
+                "safe": "plain text without secrets",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "out"
+    synthesize_headless_artifacts(
+        request={"query": "test"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={"ok": False, "detail_json_path": str(turn_dir / "response.json")},
+        output_dir=output_dir,
+        status="error",
+    )
+
+    copied = _read_json(output_dir / "request.json")
+    assert copied["content"] == "Authorization: <redacted>"
+    assert copied["url"] == "https://example.test/v1?token=<redacted>&sig=<redacted>"
+    assert copied["message"] == "retry with Authorization: <redacted>"
+    assert copied["error"] == "call https://api.example.test/v2?api_key=<redacted>"
+    assert copied["safe"] == "plain text without secrets"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert "dXNlcjpwYXNz" not in persisted
+    assert "url-secret" not in persisted
+    assert "abc123" not in persisted
+    assert "eyJhbGciOiJIUzI1NiJ9" not in persisted
+    assert "sk-live-123" not in persisted
+
+
+def test_synthesized_response_secrets_in_ordinary_fields_are_redacted(tmp_path: Path) -> None:
+    """Oracle finding 5: synthesized response with secrets in ordinary leaves.
+
+    The response/request payloads synthesized by ``synthesize_headless_artifacts``
+    must redact authorization headers and credential-bearing URLs even when they
+    arrive under ordinary ``content``/``url``/``error`` fields.
+    """
+    output_dir = tmp_path / "out"
+    synthesize_headless_artifacts(
+        request={"query": "test", "url": "https://api.example.test/v1?apikey=req-secret"},
+        result=ExecutorResult.failure(kind="ProviderError", stage="classify", message="bad"),
+        response={
+            "ok": False,
+            "reply": "auth failed",
+            "content": (
+                "see https://api.example.test/v1?token=url-secret "
+                "then Authorization: Bearer live-token"
+            ),
+            "error": "Authorization: ApiKey live-abcdef",
+        },
+        output_dir=output_dir,
+        status="error",
+    )
+
+    response_json = _read_json(output_dir / "response.json")
+    assert response_json["reply"] == "auth failed"
+    assert response_json["content"] == (
+        "see https://api.example.test/v1?token=<redacted> then Authorization: <redacted>"
+    )
+    assert response_json["error"] == "Authorization: <redacted>"
+    request_json = _read_json(output_dir / "request.json")
+    assert request_json["url"] == "https://api.example.test/v1?apikey=<redacted>"
+    persisted = "\n".join(
+        path.read_text(encoding="utf-8") for path in output_dir.iterdir() if path.is_file()
+    )
+    assert "req-secret" not in persisted
+    assert "url-secret" not in persisted
+    assert "live-token" not in persisted
+    assert "live-abcdef" not in persisted
+
+
+_NON_EDIT_UI_ROUTES = (
+    "respond",
+    "research",
+    "inspect",
+    "clarify",
+    "requires_custom_nodes",
+)
+
+
+@pytest.mark.parametrize("route", _NON_EDIT_UI_ROUTES)
+def test_universal_ui_evidence_for_non_edit_routes_without_turn_dir(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Every adjudicated non-edit route persists original/final with final==original."""
+    graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    output_dir = tmp_path / route
+    synthesize_headless_artifacts(
+        request={"query": f"{route} this graph", "graph": graph},
+        result=ExecutorResult.success(
+            report=Report(plan=ClassifyDecision(route=route, task=route)),
+            reply="ok",
+            graph=graph,
+        ),
+        response={"ok": True, "route": route, "graph_unchanged": True},
+        output_dir=output_dir,
+        status="success",
+    )
+    original = _read_json(output_dir / "original.ui.json")
+    final = _read_json(output_dir / "final.ui.json")
+    assert original == graph
+    assert final == original
+
+
+@pytest.mark.parametrize("route", _NON_EDIT_UI_ROUTES)
+def test_universal_ui_evidence_for_non_edit_routes_with_turn_dir(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Turn-dir synthesis still projects final from original for unchanged routes."""
+    graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+    turn_dir = tmp_path / "sessions" / "s1" / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "request.json").write_text(json.dumps({"query": route, "graph": graph}))
+    (turn_dir / "response.json").write_text(
+        json.dumps({"ok": True, "route": route, "graph_unchanged": True})
+    )
+    output_dir = tmp_path / f"out-{route}"
+    synthesize_headless_artifacts(
+        request={"query": route, "graph": graph},
+        result=ExecutorResult.success(
+            report=Report(plan=ClassifyDecision(route=route, task=route)),
+            reply="ok",
+        ),
+        response={
+            "ok": True,
+            "route": route,
+            "graph_unchanged": True,
+            "detail_json_path": str(turn_dir / "response.json"),
+        },
+        output_dir=output_dir,
+        status="success",
+    )
+    original = _read_json(output_dir / "original.ui.json")
+    final = _read_json(output_dir / "final.ui.json")
+    assert original == graph
+    assert final == original
+
+
+def test_edit_route_final_ui_uses_candidate_when_graph_changed(tmp_path: Path) -> None:
+    original_graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    candidate_graph = {"nodes": [{"id": 1, "type": "LoadImage"}, {"id": 2, "type": "SaveImage"}], "links": []}
+    turn_dir = tmp_path / "sessions" / "s1" / "turns" / "0002"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "original.ui.json").write_text(json.dumps(original_graph))
+    (turn_dir / "candidate.ui.json").write_text(json.dumps(candidate_graph))
+    (turn_dir / "response.json").write_text(json.dumps({"ok": True, "route": "revise"}))
+    output_dir = tmp_path / "edit-out"
+    synthesize_headless_artifacts(
+        request={"query": "add save", "graph": original_graph},
+        result=ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise", implement=True),
+                implementation=ImplementationResult(message="edited"),
+            ),
+            graph=candidate_graph,
+        ),
+        response={
+            "ok": True,
+            "route": "revise",
+            "graph_unchanged": False,
+            "detail_json_path": str(turn_dir / "response.json"),
+        },
+        output_dir=output_dir,
+        status="success",
+    )
+    assert _read_json(output_dir / "original.ui.json") == original_graph
+    assert _read_json(output_dir / "final.ui.json") == candidate_graph

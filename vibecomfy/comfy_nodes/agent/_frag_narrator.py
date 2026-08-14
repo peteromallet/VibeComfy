@@ -250,8 +250,9 @@ _NARRATOR_SYSTEM_PROMPT = (
     "Rules:\n"
     "- Respond with exactly one JSON object: {\"message\": \"...\"}\n"
     "- The message must be one natural-language sentence ending in punctuation.\n"
-    "- Never mention internal agent machinery (gates, validation, scoring, "
-    "batch REPL, field changes). Use the user-facing narrative context only.\n"
+    "- Never mention internal agent machinery (gate names, scoring, batch REPL, "
+    "field-level diffs). Describe the validation outcome truthfully — "
+    "validation.passed below is user-facing and must be reported as-is.\n"
     "- If the outcome is a clarification question, the message should ask it "
     "politely.\n"
     "- If the outcome is a failure, be honest but helpful about what went wrong.\n"
@@ -454,13 +455,24 @@ def _narrate_final_message(
             "selected_source": selected_source,
             "fallback_reason": fallback_reason,
         }
-        _write_narrative_artifacts(
-            state,
-            narrative_context,
-            validation,
-            request_messages=llm_request,
-            llm_response=llm_response,
-        )
+        # Artifact persistence is best-effort: even if the writer itself
+        # raises (not just per-file write errors), the already-selected agent
+        # message must still ship.  The outer fallback catch below must never
+        # replace a selected narrator message with the deterministic fallback.
+        try:
+            _write_narrative_artifacts(
+                state,
+                narrative_context,
+                validation,
+                request_messages=llm_request,
+                llm_response=llm_response,
+            )
+        except Exception as exc:  # noqa: BLE001 - artifacts are presentation-only
+            LOGGER.warning(
+                "Narrative artifact write raised for turn %s (best-effort; selected message preserved): %s",
+                getattr(state, "turn_dir", None),
+                exc,
+            )
         return selected_message
 
     except Exception as exc:

@@ -916,6 +916,62 @@ class TestNarrateFinalMessage:
         assert (state.turn_dir / "narrative_context.json").is_file()
         assert (state.turn_dir / "narrative_validation.json").is_file()
 
+    def test_artifact_write_failure_preserves_selected_agent_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """G0R: a raise from _write_narrative_artifacts must not replace the
+        already-selected narrator message with the deterministic fallback.
+
+        The write call sits inside the outer fallback catch; without the
+        best-effort guard, a raising writer would discard the selected agent
+        message and ship the deterministic fallback instead.
+        """
+        def _fake_run_model_turn(**kwargs: Any) -> dict[str, Any]:
+            return {"json": {"message": "Changed the sampler seed to 42."}}
+
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+            _fake_run_model_turn,
+        )
+
+        def _failing_artifact_write(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("artifact write exploded")
+
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.edit._write_narrative_artifacts",
+            _failing_artifact_write,
+        )
+
+        state = _make_state(
+            graph={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            ui_payload={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            batch_field_changes=(
+                FieldChange(uid="1", field_path="filename_prefix", old="before", new="after"),
+            ),
+            batch_exit_mode="done",
+            session_dir=tmp_path / "session",
+            turn_dir=tmp_path / "turns" / "0001",
+            narrative_context_path=Path("narrative_context.json"),
+            narrative_request_path=Path("narrative_request.json"),
+            narrative_response_path=Path("narrative_response.json"),
+            narrative_validation_path=Path("narrative_validation.json"),
+            artifacts={},
+        )
+        state.turn_dir.mkdir(parents=True, exist_ok=True)
+        context = TurnContext(session_id="artifact-write-fail", turn_id="0001")
+        for gate_name in context.gate_results:
+            context.set_gate(gate_name, True)
+
+        message = _narrate_final_message(
+            state,
+            context,
+            outcome=TurnOutcome.edit(changes=state.batch_field_changes),
+            public_outcome="candidate",
+        )
+
+        # The selected agent message ships unchanged — never the fallback.
+        assert message == "Changed the sampler seed to 42."
+
 
 # ── _assemble_narrative_context integration ────────────────────────────────
 

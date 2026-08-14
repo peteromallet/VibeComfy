@@ -33,6 +33,227 @@ _SENSITIVE_QUERY_KEYS = frozenset({
     "token",
 })
 
+MODEL_ATTEMPT_FAILURE_TYPES = frozenset({
+    "empty_response",
+    "malformed_json",
+    "non_json_content",
+    "missing_required_fields",
+    "timeout",
+    "provider_failure",
+})
+_MODEL_ATTEMPT_OUTCOMES = frozenset({"success", "failure"})
+_MODEL_ATTEMPT_UNKNOWN = "unknown"
+_MODEL_ATTEMPT_PREVIEW_LIMIT = 1200
+_MODEL_ATTEMPT_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|authorization|bearer[_-]?token|access[_-]?token|secret|token)"
+    r"(\s*[:=]\s*)([^\s,;]+)"
+)
+_MODEL_ATTEMPT_BEARER_RE = re.compile(r"(?i)\bBearer\s+[^\s,;]+")
+_MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE = re.compile(
+    r"(?im)\bauthorization\s*:\s*[^\r\n]*"
+)
+_MODEL_ATTEMPT_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+# Oracle finding 5: failure previews can embed the secret as a JSON-quoted
+# value (``{"api_key": "sk-..."}``), which the unquoted assignment and
+# authorization-header patterns cannot see.  Match quoted sensitive fields in
+# BOTH ``"key": "value"`` and ``'key': 'value'`` styles; the value is matched
+# best-effort so malformed/truncated JSON never crashes the redactor.
+_MODEL_ATTEMPT_JSON_QUOTED_SECRET_RE = re.compile(
+    r"""(?ix)
+    (["'])                                    # key quote (double or single)
+    (api[_-]?key|authorization|auth|token|access[_-]?token|refresh[_-]?token)
+    \1\s*:\s*                                 # closing key quote, colon
+    (["'])(?:(?!\3)[^"'\r])*(\3)?             # quoted value (may be truncated)
+    """
+)
+
+
+def normalize_model_endpoint(value: Any) -> str:
+    """Return a credential-free, query-free endpoint or ``"unknown"``.
+
+    Model-attempt evidence intentionally records only the scheme, host, port,
+    and normalized path. Userinfo, query parameters, and fragments are never
+    provenance and can contain credentials, so they are discarded wholesale.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return _MODEL_ATTEMPT_UNKNOWN
+    try:
+        parsed = urlsplit(value.strip())
+    except ValueError:
+        return _MODEL_ATTEMPT_UNKNOWN
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return _MODEL_ATTEMPT_UNKNOWN
+    host = parsed.hostname.lower()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        return _MODEL_ATTEMPT_UNKNOWN
+    netloc = f"{host}:{port}" if port is not None else host
+    path = re.sub(r"/{2,}", "/", parsed.path or "")
+    if path != "/":
+        path = path.rstrip("/")
+    return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
+
+
+def _redact_json_quoted_secret(match: re.Match[str]) -> str:
+    """Collapse a quoted sensitive JSON field to ``"key": "<redacted>"``.
+
+    The key's original casing and quote style are preserved so the preview
+    keeps its JSON-ish shape; only the value is replaced.
+    """
+    key_quote = match.group(1)
+    value_quote = match.group(3)
+    return f"{key_quote}{match.group(2)}{key_quote}: {value_quote}<redacted>{value_quote}"
+
+
+def redact_model_preview(value: Any, *, limit: int = _MODEL_ATTEMPT_PREVIEW_LIMIT) -> str | None:
+    """Return a bounded failure preview with credentials and URL queries removed."""
+    if not isinstance(value, str):
+        return None
+    redacted = _MODEL_ATTEMPT_JSON_QUOTED_SECRET_RE.sub(
+        _redact_json_quoted_secret, value
+    )
+    redacted = _MODEL_ATTEMPT_AUTHORIZATION_HEADER_RE.sub(
+        "Authorization: <redacted>", redacted
+    )
+    normalized = " ".join(redacted.strip().split())
+    if not normalized:
+        return None
+    normalized = _MODEL_ATTEMPT_URL_RE.sub(
+        lambda match: normalize_model_endpoint(match.group(0)), normalized
+    )
+    normalized = _MODEL_ATTEMPT_BEARER_RE.sub("Bearer <redacted>", normalized)
+    normalized = _MODEL_ATTEMPT_SECRET_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}<redacted>", normalized
+    )
+    if len(normalized) > limit:
+        normalized = normalized[: limit - 1].rstrip() + "…"
+    return normalized
+
+
+def _model_attempt_text(value: Any) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return _MODEL_ATTEMPT_UNKNOWN
+
+
+def _model_attempt_token_usage(value: Any) -> dict[str, int | str]:
+    usage = value if isinstance(value, Mapping) else {}
+    normalized: dict[str, int | str] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        token_value = usage.get(key)
+        normalized[key] = (
+            max(0, int(token_value))
+            if isinstance(token_value, (int, float)) and not isinstance(token_value, bool)
+            else _MODEL_ATTEMPT_UNKNOWN
+        )
+    return normalized
+
+
+@dataclass(frozen=True)
+class ModelAttemptEvidence:
+    """Canonical evidence for one actual model-provider call.
+
+    The shape is shared by worker envelopes, runtime/provider results, executor
+    reports, durable artifacts, and the live harness. Raw model output is never
+    retained on success and is bounded/redacted on failure.
+    """
+
+    phase: str = _MODEL_ATTEMPT_UNKNOWN
+    attempt: int = 1
+    outcome: str = "failure"
+    failure_type: str | None = None
+    requested_model: str = _MODEL_ATTEMPT_UNKNOWN
+    resolved_model: str = _MODEL_ATTEMPT_UNKNOWN
+    adapter: str = _MODEL_ATTEMPT_UNKNOWN
+    provider: str = _MODEL_ATTEMPT_UNKNOWN
+    transport: str = _MODEL_ATTEMPT_UNKNOWN
+    endpoint: str = _MODEL_ATTEMPT_UNKNOWN
+    finish_reason: str = _MODEL_ATTEMPT_UNKNOWN
+    token_usage: Mapping[str, Any] = field(default_factory=dict)
+    raw_response_preview: str | None = None
+
+    def __post_init__(self) -> None:
+        outcome = self.outcome if self.outcome in _MODEL_ATTEMPT_OUTCOMES else "failure"
+        failure_type = self.failure_type
+        if outcome == "success":
+            failure_type = None
+        elif failure_type not in MODEL_ATTEMPT_FAILURE_TYPES:
+            failure_type = "provider_failure"
+        object.__setattr__(self, "phase", _model_attempt_text(self.phase))
+        object.__setattr__(self, "attempt", max(1, int(self.attempt or 1)))
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "failure_type", failure_type)
+        for name in (
+            "requested_model", "resolved_model", "adapter", "provider",
+            "transport", "finish_reason",
+        ):
+            object.__setattr__(self, name, _model_attempt_text(getattr(self, name)))
+        object.__setattr__(self, "endpoint", normalize_model_endpoint(self.endpoint))
+        object.__setattr__(
+            self,
+            "token_usage",
+            MappingProxyType(_model_attempt_token_usage(self.token_usage)),
+        )
+        preview = (
+            redact_model_preview(self.raw_response_preview)
+            if outcome == "failure"
+            else None
+        )
+        object.__setattr__(self, "raw_response_preview", preview)
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "ModelAttemptEvidence":
+        return cls(
+            phase=value.get("phase", _MODEL_ATTEMPT_UNKNOWN),
+            attempt=value.get("attempt", 1),
+            outcome=value.get("outcome", "failure"),
+            failure_type=value.get("failure_type"),
+            requested_model=value.get("requested_model", _MODEL_ATTEMPT_UNKNOWN),
+            resolved_model=value.get("resolved_model", _MODEL_ATTEMPT_UNKNOWN),
+            adapter=value.get("adapter", _MODEL_ATTEMPT_UNKNOWN),
+            provider=value.get("provider", _MODEL_ATTEMPT_UNKNOWN),
+            transport=value.get("transport", _MODEL_ATTEMPT_UNKNOWN),
+            endpoint=value.get("endpoint", _MODEL_ATTEMPT_UNKNOWN),
+            finish_reason=value.get("finish_reason", _MODEL_ATTEMPT_UNKNOWN),
+            token_usage=value.get("token_usage", {}),
+            raw_response_preview=value.get("raw_response_preview"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "phase": self.phase,
+            "attempt": self.attempt,
+            "outcome": self.outcome,
+            "failure_type": self.failure_type,
+            "requested_model": self.requested_model,
+            "resolved_model": self.resolved_model,
+            "adapter": self.adapter,
+            "provider": self.provider,
+            "transport": self.transport,
+            "endpoint": self.endpoint,
+            "finish_reason": self.finish_reason,
+            "token_usage": dict(self.token_usage),
+        }
+        if self.outcome == "failure" and self.raw_response_preview:
+            payload["raw_response_preview"] = self.raw_response_preview
+        return payload
+
+
+def coerce_model_attempts(value: Any) -> tuple[dict[str, Any], ...]:
+    """Normalize untrusted attempt mappings into the canonical serialized shape."""
+    if not isinstance(value, (list, tuple)):
+        return ()
+    attempts: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, ModelAttemptEvidence):
+            attempts.append(item.to_dict())
+        elif isinstance(item, Mapping):
+            attempts.append(ModelAttemptEvidence.from_mapping(item).to_dict())
+    return tuple(attempts)
+
 
 _NODE_TYPE_MARKER_RE = re.compile(
     r"(?:class(?:_type|\s+type)?|node(?:\s+of)?(?:\s+type)?|of\s+type)\s*[:=]?\s*"
@@ -2119,11 +2340,9 @@ class Report:
     # (the plan is then None — no invented respond_only placeholder). Empty
     # string means the signal was not recorded (legacy paths).
     classification_status: str = ""
-    # Mirrors the batch-repl model_response.json attempt artifact: parse-failure
-    # evidence (parse_reason, raw preview, usage, model, phase, endpoint) for the
-    # last classify/reply model attempt. None when the turn did not fail on a
-    # model response.
-    model_response: dict[str, Any] | None = None
+    # Canonical per-call evidence for every successful and failed model attempt
+    # observed across classify, implement/batch, and reply.
+    model_attempts: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -2134,12 +2353,20 @@ class Report:
                 for k, v in coerce_deepseek_usage(self.deepseek_usage).items()
             }),
         )
-        if self.model_response is not None:
-            object.__setattr__(
-                self,
-                "model_response",
-                _freeze_jsonish(self.model_response),
-            )
+        object.__setattr__(
+            self,
+            "model_attempts",
+            tuple(_freeze_jsonish(item) for item in coerce_model_attempts(self.model_attempts)),
+        )
+
+    @property
+    def model_response(self) -> dict[str, Any] | None:
+        """Compatibility view derived solely from canonical ``model_attempts``."""
+        if not self.model_attempts:
+            return None
+        return {
+            "attempts": [_thaw_jsonish(item) for item in self.model_attempts]
+        }
 
     def to_dict(self) -> dict[str, Any]:
         inner: dict[str, Any] = {}
@@ -2163,8 +2390,9 @@ class Report:
             inner["deepseek_cost_basis"] = self.deepseek_cost_basis
         if self.classification_status:
             inner["classification_status"] = self.classification_status
-        if self.model_response is not None:
-            inner["model_response"] = _thaw_jsonish(self.model_response)
+        inner["model_attempts"] = [
+            _thaw_jsonish(item) for item in self.model_attempts
+        ]
         return {"executor": inner}
 
 
@@ -2429,6 +2657,9 @@ class ExecutorResult:
         }
         usage_payload = coerce_deepseek_usage(self.report.deepseek_usage)
         payload["deepseek_usage"] = usage_payload
+        payload["model_attempts"] = [
+            _thaw_jsonish(item) for item in self.report.model_attempts
+        ]
         if self.report.deepseek_est_cost_usd is not None:
             payload["deepseek_est_cost_usd"] = float(self.report.deepseek_est_cost_usd)
         if isinstance(self.report.deepseek_cost_basis, str) and self.report.deepseek_cost_basis:
@@ -2509,12 +2740,16 @@ __all__ = [
     "ManifestNode",
     "ManifestOversized",
     "ManifestValidation",
+    "ModelAttemptEvidence",
     "TopologyFindings",
     "TopologyManifest",
     "WorkflowSlice",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",
+    "coerce_model_attempts",
     "is_actionable_adaptation_plan",
+    "normalize_model_endpoint",
+    "redact_model_preview",
     "warning_detail_from_exception",
 ]

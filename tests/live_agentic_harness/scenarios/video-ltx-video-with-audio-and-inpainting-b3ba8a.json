@@ -30,5 +30,35 @@
     "staged": true,
     "authored_by": "deepseek-v4-flash",
     "author_rationale": "Targets a common inpainting failure mode that requires checking mask wiring, blending nodes, and latent handling."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/b3ba8a025a649a3b.json",
+    "required_node_evidence": [
+      "ImageToMask",
+      "GrowMaskWithBlur",
+      "InvertMask",
+      "LatentInpaintTTM",
+      "LTXVImgToVideoInplace",
+      "ImageBlend",
+      "VAEDecodeTiled"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Connect sharp edges to the mask grow/blur/invert route and gray color to latent/encode/decode/blend compatibility, then give checks that separately isolate mask geometry and color-space/latent issues.",
+      "Give a prioritized, causal diagnosis tied to concrete settings or connections, plus discriminating checks or remedies and explicit uncertainty where evidence is incomplete.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

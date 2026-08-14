@@ -76,6 +76,23 @@ def guard_output_dir(
     metadata_success = is_live_agentic_success(metadata)
     assessment = assess_live_output_dir(output_dir, scenario=scenario)
 
+    assessment_verdict = assessment.get("verdict")
+    if assessment_verdict not in {"pass", "fail", "undetermined"}:
+        assessment_verdict = "pass" if assessment.get("passed") else "fail"
+
+    if not metadata_success:
+        live_agentic_success = False
+        score_class = "product_fail"
+    elif assessment_verdict == "pass":
+        live_agentic_success = True
+        score_class = "pass"
+    elif assessment_verdict == "undetermined":
+        live_agentic_success = False
+        score_class = "undetermined"
+    else:
+        live_agentic_success = False
+        score_class = "product_fail"
+
     verdict: dict[str, Any] = {
         "output_dir": str(output_dir),
         "flow_kind": metadata.get("flow_kind"),
@@ -84,7 +101,8 @@ def guard_output_dir(
         "model_behavior": metadata.get("model_behavior"),
         "metadata_success": metadata_success,
         "assessment": assessment,
-        "live_agentic_success": metadata_success and assessment["passed"],
+        "verdict": assessment_verdict,
+        "live_agentic_success": live_agentic_success,
+        "score_class": score_class,
     }
-    verdict["score_class"] = "pass" if verdict["live_agentic_success"] else "product_fail"
     return verdict

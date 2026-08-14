@@ -30,5 +30,35 @@
     "staged": true,
     "authored_by": "deepseek-v4-pro",
     "author_rationale": "Requires explaining dual text encoders and the temporal generation logic specific to WanVideo, not generic text-to-image extension."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/71f825e4550c95b7.json",
+    "required_node_evidence": [
+      "LoadWanVideoT5TextEncoder",
+      "LoadWanVideoClipTextEncoder",
+      "WanVideoTextEncode",
+      "WanVideoModelLoader",
+      "WanVideoSampler",
+      "WanVideoDecode",
+      "VHS_VideoCombine"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Trace T5 and CLIP inputs through WanVideo text encoding, model sampling, VAE decode, and combine, accurately explaining conditioning and latent temporal generation without claiming the encoders themselves generate motion.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
   }
 }

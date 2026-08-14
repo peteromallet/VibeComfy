@@ -4,7 +4,7 @@
 |---|---|
 | **Author** | megado planner (grok-4.6), revising the 2026-08-12 architecture assessment |
 | **Date** | 2026-08-13 |
-| **Status** | Revised (round 1) — not STABLE |
+| **Status** | **LANDED** — B02 (`192d4b8f`) + elegance declaration (`0f515870`) shipped the P0–P10 expression: envelope = serialized IR, `compile()` a pure function, UI/API named importers, `ir/` clone deleted. Preservation proof: `tests/test_b02_rich_preservation.py` 4/4, 0 corpus mismatches. This document is retained as the design record. |
 | **Audience** | engineers landing B02 and the next cleanup PRs; megado executors |
 | **Constraint** | this document does not change code; it decides what *not* to change |
 | **Revision inputs** | `.oracle/findings/` — ir clone, dual-contract, shape detector, envelope API, stale-comment / leftover-reader |

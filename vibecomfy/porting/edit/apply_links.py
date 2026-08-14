@@ -5,6 +5,13 @@ from typing import Any, Mapping
 from .ledger import EditLedger, ScopeState
 from vibecomfy.porting.edit.apply_slots import _find_named_slot_index
 from vibecomfy.porting.edit.apply_types import ResolvedLinkRewire, _issue
+from vibecomfy.porting.endpoint_invariant import (
+    SOURCE_SLOT_OUT_OF_BOUNDS,
+    TARGET_SLOT_OUT_OF_BOUNDS,
+    UNDECLARED_SYNTHETIC_PORT,
+    dynamic_port_authorized,
+    named_socket_index,
+)
 from vibecomfy.porting.object_info.consume import output_names as cached_output_names
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import _normalize_type
@@ -286,29 +293,81 @@ def _scope_uses_dict_links(scope: ScopeState) -> bool:
     return scope.kind == "subgraph"
 
 
-def _ensure_input_slot(node: Mapping[str, Any], input_name: str, socket_type: str | None) -> int:
+def _ensure_input_slot(
+    node: Mapping[str, Any],
+    input_name: str,
+    socket_type: str | None,
+    *,
+    schema: Any = None,
+    fields: Mapping[str, Any] | None = None,
+) -> tuple[int | None, list[PortIssue]]:
     if not isinstance(node, dict):
-        return 0
+        return None, [
+            _issue(
+                UNDECLARED_SYNTHETIC_PORT,
+                f"Cannot materialize input {input_name!r} on a non-object node.",
+                detail={"input": input_name},
+            )
+        ]
     inputs = node.get("inputs")
     if not isinstance(inputs, list):
         inputs = []
         node["inputs"] = inputs
     index = _find_named_slot_index(inputs, input_name)
     if index is not None:
-        return index
+        return index, []
+    class_type = str(node.get("type") or node.get("class_type") or "")
+    authorized, reason = dynamic_port_authorized(
+        class_type,
+        "input",
+        input_name,
+        node=node,
+        fields=fields,
+        schema=schema,
+    )
+    if not authorized:
+        return None, [
+            _issue(
+                reason or UNDECLARED_SYNTHETIC_PORT,
+                f"{class_type or 'Node'} does not declare input {input_name!r}.",
+                detail={"class_type": class_type, "input": input_name},
+            )
+        ]
+    helper_index = named_socket_index(inputs, "") if class_type in {"Reroute", "PrimitiveNode"} else None
+    if helper_index is not None and class_type == "Reroute":
+        return helper_index, []
     inputs.append({"name": input_name, "type": socket_type or "*", "link": None})
-    return len(inputs) - 1
+    return len(inputs) - 1, []
 
 
-def _set_input_link_reference(node: Mapping[str, Any], slot_index: int, link_id: int) -> None:
+def _set_input_link_reference(node: Mapping[str, Any], slot_index: int, link_id: int) -> list[PortIssue]:
     if not isinstance(node, dict):
-        return
+        return [
+            _issue(
+                TARGET_SLOT_OUT_OF_BOUNDS,
+                "Cannot write an input link reference on a non-object node.",
+                detail={"slot_index": slot_index, "link_id": link_id},
+            )
+        ]
     inputs = node.get("inputs")
     if not isinstance(inputs, list) or not (0 <= slot_index < len(inputs)):
-        return
+        class_type = str(node.get("type") or node.get("class_type") or "")
+        return [
+            _issue(
+                TARGET_SLOT_OUT_OF_BOUNDS,
+                f"{class_type or 'Node'} input slot {slot_index} is outside working inputs.",
+                detail={
+                    "class_type": class_type,
+                    "slot_index": slot_index,
+                    "link_id": link_id,
+                    "working_count": len(inputs) if isinstance(inputs, list) else 0,
+                },
+            )
+        ]
     slot = inputs[slot_index]
     if isinstance(slot, dict):
         slot["link"] = link_id
+    return []
 
 
 def _ensure_output_link_reference(
@@ -316,22 +375,48 @@ def _ensure_output_link_reference(
     node_id: int,
     slot_index: int,
     link_id: int,
-) -> None:
+) -> list[PortIssue]:
     node = _node_by_id(scope_graph, node_id)
     if node is None:
-        return
+        return [
+            _issue(
+                SOURCE_SLOT_OUT_OF_BOUNDS,
+                f"Cannot write an output link reference; node {node_id} is missing.",
+                detail={"node_id": node_id, "slot_index": slot_index, "link_id": link_id},
+            )
+        ]
     outputs = node.get("outputs")
     if not isinstance(outputs, list) or not (0 <= slot_index < len(outputs)):
-        return
+        class_type = str(node.get("type") or node.get("class_type") or "")
+        return [
+            _issue(
+                SOURCE_SLOT_OUT_OF_BOUNDS,
+                f"{class_type or 'Node'} output slot {slot_index} is outside working outputs.",
+                detail={
+                    "class_type": class_type,
+                    "node_id": node_id,
+                    "slot_index": slot_index,
+                    "link_id": link_id,
+                    "working_count": len(outputs) if isinstance(outputs, list) else 0,
+                },
+            )
+        ]
     output = outputs[slot_index]
     if not isinstance(output, dict):
-        return
+        return [
+            _issue(
+                SOURCE_SLOT_OUT_OF_BOUNDS,
+                f"Output slot {slot_index} on node {node_id} is not a socket object.",
+                detail={"node_id": node_id, "slot_index": slot_index, "link_id": link_id},
+            )
+        ]
     links = output.get("links")
     if not isinstance(links, list):
         links = []
         output["links"] = links
     if link_id not in links:
         links.append(link_id)
+    return []
 
 
 def _sync_scope_counters(ledger: EditLedger) -> None:
