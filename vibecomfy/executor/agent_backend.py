@@ -230,6 +230,8 @@ def run_reply_turn(
     model: str,
     effort: str | None = None,
     plan: ClassifyDecision | None = None,
+    research_memo: dict[str, Any] | None = None,
+    research_ledger: dict[str, Any] | None = None,
     research_summary: str | None = None,
     research_sources: tuple[dict[str, Any], ...] | None = None,
     research_warnings: tuple[str, ...] | None = None,
@@ -286,6 +288,8 @@ def run_reply_turn(
     messages = build_reply_messages(
         query,
         plan=plan,
+        research_memo=research_memo,
+        research_ledger=research_ledger,
         research_summary=research_summary,
         research_sources=research_sources,
         research_warnings=research_warnings,

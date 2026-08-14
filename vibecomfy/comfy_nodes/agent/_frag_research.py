@@ -946,9 +946,6 @@ def _effective_implementation_task(state: AgentEditState) -> str:
     # classifier's one-sentence plan commits to a semantic solution/placement,
     # and on ambiguous requests it commits wrongly (e.g. "add ImageScale after
     # VAEDecode"). Let the editor decide placement from the raw graph + request.
-    # The guard in _runtime_code_additive_request still reads the full
-    # classification text via _executor_classification_text, so this only
-    # changes what the editor SEES, not the safety predicates.
     classification = state.request_payload.get("executor_classification")
     context = ""
     if isinstance(classification, Mapping):
@@ -965,78 +962,23 @@ def _effective_implementation_task(state: AgentEditState) -> str:
     )
 
 
-def _runtime_code_additive_request(state: AgentEditState) -> bool:
-    classification_text = _executor_classification_text(state)
-    task = (
-        f"{state.task} {state.request_payload.get('query') or ''} "
-        f"{classification_text}"
-    ).lower()
-    explicit_frame_extraction = (
-        ("extract" in task and "frame" in task)
-        or ("first frame" in task and ("save" in task or "png" in task or "image" in task))
-    )
-    return (
-        (
-            "code node" in task
-            or "runtime code" in task
-            or "vibecomfy.exec" in task
-            or "imagecode" in task
-            or ("pil" in task and "transformation" in task)
-            or explicit_frame_extraction
-        )
-        and ("pil" in task or "image" in task or "frame" in task or "process" in task)
-    )
-
-
-def _executor_requested_implementation(state: AgentEditState) -> bool:
-    classification = state.request_payload.get("executor_classification")
-    if isinstance(classification, Mapping) and "implement" in classification:
-        return bool(classification.get("implement"))
-    return _canonical_agent_edit_route(state.route) in {"revise", "adapt", "dev"}
-
-
-def _state_runtime_execution_requested(state: AgentEditState) -> bool:
-    runtime = state.request_payload.get("runtime")
-    return isinstance(runtime, Mapping) and bool(runtime.get("execution_requested"))
-
-
-
-def _empty_graph_authoring_request(state: AgentEditState) -> bool:
-    evidence = state.revision_evidence
-    if evidence is None or not evidence.topology.missing_graph:
-        return False
-    if _state_runtime_execution_requested(state):
-        return False
-    return _executor_requested_implementation(state)
-
-
-_TEXT_TO_IMAGE_SEED_TYPES = (
-    "CheckpointLoaderSimple",
-    "CLIPTextEncode",
-    "EmptyLatentImage",
-    "KSampler",
-    "VAEDecode",
-    "SaveImage",
-)
-
-
 __all__ = (
-     "_MANIFEST_PRESERVE_INSTRUCTIONS", "_TEXT_TO_IMAGE_SEED_TYPES",
+     "_MANIFEST_PRESERVE_INSTRUCTIONS",
      "_adaptation_slice_domain_mismatch_diagnostic", "_build_graph_report",
      "_build_precedent_adaptation_prompt", "_build_precedent_semantic_check_entries",
      "_build_topology_manifest_prompt_block", "_candidate_dict",
      "_canonical_agent_edit_route", "_effective_implementation_task",
-     "_empty_graph_authoring_request", "_executor_classification_text",
-     "_executor_requested_implementation", "_graph_class_types",
+     "_executor_classification_text",
+     "_graph_class_types",
      "_graph_class_types_missing_from_schema",
      "_hydrate_current_graph_unknown_node_schemas",
      "_hydrate_research_precedent_node_schemas", "_is_code_node_intent",
      "_is_graph_explain_intent", "_iter_research_precedent_sources",
      "_prefetch_research_summary", "_resolver_candidate_supports_class",
      "_revision_no_candidate_reason", "_route_blocks_apply",
-     "_route_change_focus_label", "_runtime_code_additive_request",
+     "_route_change_focus_label",
      "_schema_provider_available", "_schema_provider_has_class",
-     "_semantic_validation_description", "_state_runtime_execution_requested",
+     "_semantic_validation_description",
      "_structural_validation_description",
      "_workflow_class_types_from_research_context",
      "_workflow_schema_candidates_from_research_context",

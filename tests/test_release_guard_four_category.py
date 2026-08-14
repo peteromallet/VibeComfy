@@ -58,7 +58,6 @@ from vibecomfy.executor.contracts import (
 )
 from vibecomfy.executor.core import (
     _canonical_route_for_plan,
-    _headless_clarify_research_plan,
     _should_research,
 )
 from vibecomfy.executor.prompts import build_reply_messages
@@ -114,34 +113,12 @@ def test_repair_and_debug_route_to_revise_without_research() -> None:
     assert _should_research(debug_plan) is False
 
 
-def test_additive_and_multinode_clarify_falls_through_to_adapt_only_when_additive() -> None:
-    """ADDITIVE/MULTINODE turn an unanswerable clarify into adapt (research+fix).
-
-    ``_headless_clarify_research_plan`` is the dispatch seam: it must promote a
-    ``clarify`` route to ``adapt`` for additive restores, and leave the
-    non-additive (REPAIR/DEBUG) clarify path untouched.
-    """
-    request = ExecutorRequest(
-        query="restore the removed capability",
-        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
-    )
+def test_typed_clarify_output_is_authoritative_for_headless_additive_runs() -> None:
+    """An additive caller hint cannot rewrite agent-authored clarification."""
     clarify = ClassifyDecision(route="clarify", task="respond", reply=True)
-
-    additive_plan = _headless_clarify_research_plan(request, clarify, additive=True)
-    non_additive_plan = _headless_clarify_research_plan(
-        request, clarify, additive=False
-    )
-
-    # ADDITIVE / MULTINODE: clarify is converted to adapt (classify -> research
-    # -> fixer), matching the additive dispatch in run_executor.
-    assert additive_plan is not None
-    assert additive_plan.effective_route == "adapt"
-    assert additive_plan.research is True
-    assert additive_plan.implement is True
-
-    # REPAIR / DEBUG: a clarify is NOT silently promoted — they keep their
-    # direct/revise prompt semantics.
-    assert non_additive_plan is None
+    assert clarify.effective_route == "clarify"
+    assert clarify.research is False
+    assert clarify.implement is False
 
 
 def test_additive_and_multinode_adapt_route_requires_research() -> None:

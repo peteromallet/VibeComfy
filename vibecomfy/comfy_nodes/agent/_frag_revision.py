@@ -15,23 +15,6 @@ import re
 from typing import Any, Mapping
 
 
-def _seed_focus_types_for_authoring(state: AgentEditState) -> set[str]:
-    from vibecomfy.comfy_nodes.agent.edit import (_TEXT_TO_IMAGE_SEED_TYPES, _effective_implementation_task, _empty_graph_authoring_request)  # T-039 late import: host namespace lookup; resolved at call time
-    task = _effective_implementation_task(state).lower()
-    if not _empty_graph_authoring_request(state):
-        return set()
-    if (
-        "sd1.5" in task
-        or "sd 1.5" in task
-        or "sd15" in task
-        or "stable diffusion" in task
-        or "text-to-image" in task
-        or "text to image" in task
-    ):
-        return set(_TEXT_TO_IMAGE_SEED_TYPES)
-    return set()
-
-
 def _focus_types_from_research_brief(brief: Mapping[str, Any] | None) -> set[str]:
     """Return exact authoring focus types from structured classifier fields only.
 
@@ -85,58 +68,6 @@ def _focus_types_from_research_sources(sources: Any) -> set[str]:
     return candidates
 
 
-def _can_attempt_local_additive_revise(state: AgentEditState) -> bool:
-    from vibecomfy.comfy_nodes.agent.edit import (_empty_graph_authoring_request, _runtime_code_additive_request)  # T-039 late import: host namespace lookup; resolved at call time
-    evidence = state.revision_evidence
-    if evidence is None:
-        return False
-    topology = evidence.topology
-    readiness = evidence.readiness
-    if _empty_graph_authoring_request(state):
-        if topology.dangling_links or topology.absent_endpoint_nodes:
-            return False
-        if readiness.no_gpu_detected or readiness.validation_errors or readiness.readiness_blockers:
-            return False
-        return True
-    if not _runtime_code_additive_request(state):
-        return False
-    if topology.missing_graph or topology.dangling_links or topology.absent_endpoint_nodes:
-        return False
-    if readiness.no_gpu_detected or readiness.validation_errors or readiness.readiness_blockers:
-        return False
-    return bool(
-        topology.unknown_class_types
-        or topology.missing_required_inputs
-        or readiness.missing_models
-        or readiness.missing_node_packs
-    )
-
-
-def _can_attempt_direct_existing_parameter_tweak(state: AgentEditState) -> bool:
-    from vibecomfy.comfy_nodes.agent.edit import (_existing_parameter_tweak_targets, _task_looks_like_parameter_tweak)  # T-039 late import: host namespace lookup; resolved at call time
-    """Allow concrete local parameter edits despite unrelated readiness blockers."""
-    evidence = state.revision_evidence
-    if evidence is None:
-        return False
-    if not _task_looks_like_parameter_tweak(state):
-        return False
-    if not _existing_parameter_tweak_targets(state, max_targets=1):
-        return False
-    topology = evidence.topology
-    readiness = evidence.readiness
-    if topology.missing_graph or topology.dangling_links or topology.absent_endpoint_nodes:
-        return False
-    if readiness.no_gpu_detected or readiness.validation_errors or readiness.readiness_blockers:
-        return False
-    return bool(
-        topology.unknown_class_types
-        or topology.missing_required_inputs
-        or readiness.missing_models
-        or readiness.missing_node_packs
-        or not evidence.safe_candidate_possible
-    )
-
-
 def _stable_blocker_key(value: Any) -> str:
     try:
         return json.dumps(value, sort_keys=True, default=str)
@@ -164,27 +95,24 @@ def _localized_additive_scoped_evidence(
     TopologyFindings | None,
     ReadinessReport | None,
 ]:
-    from vibecomfy.comfy_nodes.agent.edit import (ReadinessReport, TopologyFindings, _can_attempt_direct_existing_parameter_tweak, _can_attempt_local_additive_revise, _empty_graph_authoring_request, _subtract_existing_blockers)  # T-039 late import: host namespace lookup; resolved at call time
-    scoped_local_edit = (
-        _can_attempt_local_additive_revise(state)
-        or _can_attempt_direct_existing_parameter_tweak(state)
-    )
-    if not scoped_local_edit or state.revision_evidence is None:
+    from vibecomfy.comfy_nodes.agent.edit import (ReadinessReport, TopologyFindings, _subtract_existing_blockers)  # T-039 late import: host namespace lookup; resolved at call time
+    if state.revision_evidence is None:
         return None, None, None, None
     topology = state.revision_evidence.topology
     readiness = state.revision_evidence.readiness
-    empty_graph_authoring = _empty_graph_authoring_request(state)
+    candidate_fills_empty_graph = (
+        topology.missing_graph and not candidate_topology.missing_graph
+    )
     filtered_original_topology = TopologyFindings(
-        missing_graph=False if empty_graph_authoring else topology.missing_graph,
+        missing_graph=False if candidate_fills_empty_graph else topology.missing_graph,
         dangling_links=topology.dangling_links,
         absent_endpoint_nodes=topology.absent_endpoint_nodes,
         socket_type_mismatches=topology.socket_type_mismatches,
         schema_available=topology.schema_available,
         summary=(
-            "pre-existing empty-graph authoring baseline ignored for new workflow"
-            if empty_graph_authoring
-            else "pre-existing unknown/custom-node blockers ignored for localized "
-            "runtime code-node addition"
+            "pre-existing empty-graph baseline ignored for populated candidate"
+            if candidate_fills_empty_graph
+            else "pre-existing topology blockers scoped out of candidate validation"
         ),
     )
     filtered_original_readiness = ReadinessReport(
@@ -193,8 +121,7 @@ def _localized_additive_scoped_evidence(
         readiness_blockers=readiness.readiness_blockers,
         object_info_available=readiness.object_info_available,
         summary=(
-            "pre-existing missing model/node-pack blockers ignored for localized "
-            "runtime code-node addition"
+            "pre-existing readiness blockers scoped out of candidate validation"
         ),
     )
     filtered_candidate_topology = TopologyFindings(
@@ -215,8 +142,7 @@ def _localized_additive_scoped_evidence(
         ),
         schema_available=candidate_topology.schema_available,
         summary=(
-            "pre-existing unknown/custom-node blockers subtracted for localized "
-            "runtime code-node addition"
+            "pre-existing topology blockers subtracted from candidate validation"
         ),
     )
     filtered_candidate_readiness = ReadinessReport(
@@ -233,8 +159,7 @@ def _localized_additive_scoped_evidence(
         readiness_blockers=candidate_readiness.readiness_blockers,
         object_info_available=candidate_readiness.object_info_available,
         summary=(
-            "pre-existing missing model/node-pack blockers subtracted for localized "
-            "runtime code-node addition"
+            "pre-existing readiness blockers subtracted from candidate validation"
         ),
     )
     return (
@@ -420,8 +345,6 @@ def _write_revision_evidence_artifact(
 
 
 __all__ = (
-    "_can_attempt_direct_existing_parameter_tweak",
-    "_can_attempt_local_additive_revise",
     "_extract_readiness_diagnostics",
     "_extract_ready_metadata",
     "_focus_types_from_research_brief",
@@ -431,7 +354,6 @@ __all__ = (
     "_revision_evidence_artifact_payload",
     "_revision_target_node_ids",
     "_runtime_execution_requested",
-    "_seed_focus_types_for_authoring",
     "_session_reference_map_for_evidence",
     "_stable_blocker_key",
     "_subtract_existing_blockers",

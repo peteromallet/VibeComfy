@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from vibecomfy.agent.contracts import HeadlessAgentRequest
+from vibecomfy.agent.contracts import HeadlessAgentRequest, NeedsInput
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class HeadlessAgentResult:
     readiness: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     request: HeadlessAgentRequest | None = None
+    needs_input: NeedsInput | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -56,6 +57,8 @@ class HeadlessAgentResult:
             payload["error"] = self.error
         if self.request is not None:
             payload["request"] = self.request.to_dict()
+        if self.needs_input is not None:
+            payload["needs_input"] = self.needs_input.to_dict()
         return payload
 
 
@@ -86,6 +89,30 @@ def _check_live_readiness(request: HeadlessAgentRequest) -> dict[str, Any]:
             "model": model,
             "reason": f"Readiness probe failed: {exc}",
         }
+
+
+def _typed_ambiguity_from_result(result: Any) -> NeedsInput | None:
+    """Return only classifier-authored ambiguity; never inspect query phrases."""
+
+    report = getattr(result, "report", None)
+    plan = getattr(report, "plan", None)
+    if plan is None:
+        return None
+    typed = getattr(plan, "needs_input", None)
+    if isinstance(typed, NeedsInput):
+        return typed
+    if getattr(plan, "effective_route", "") != "clarify":
+        return None
+    question = str(getattr(plan, "clarification_question", "") or "").strip()
+    if not question:
+        return None
+    decision = str(getattr(plan, "plan_summary", "") or "").strip()
+    return NeedsInput(
+        decision=decision or "A decision-critical input is missing.",
+        question=question,
+        missing_information=(decision or question,),
+        options=tuple(getattr(plan, "clarification_options", ()) or ()),
+    )
 
 
 def _synthesize_artifacts(
@@ -197,6 +224,14 @@ def run_headless(
         additive=request.additive,
     )
     response = serialize_executor_result(result)
+    typed_ambiguity = _typed_ambiguity_from_result(result)
+    plan = getattr(getattr(result, "report", None), "plan", None)
+    effective_route = getattr(plan, "effective_route", "")
+    if typed_ambiguity is not None:
+        if effective_route == "clarify":
+            response["needs_input"] = typed_ambiguity.to_dict()
+        elif typed_ambiguity.bounded_assumption:
+            response["bounded_assumption"] = typed_ambiguity.bounded_assumption
     if not result.ok and not response.get("error"):
         response["error"] = (
             response.get("failure_message")
@@ -233,6 +268,11 @@ def run_headless(
         readiness=readiness,
         error=response.get("error") if not result.ok and not request.dry_run else None,
         request=request,
+        needs_input=(
+            typed_ambiguity
+            if typed_ambiguity is not None and effective_route == "clarify"
+            else None
+        ),
     )
 
 

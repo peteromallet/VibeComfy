@@ -226,7 +226,7 @@ def _run_batch_repl_product_path(
     client_id: str | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> AgentEditState:
-    from vibecomfy.comfy_nodes.agent.edit import (_adaptation_slice_domain_mismatch_diagnostic, _can_attempt_direct_existing_parameter_tweak, _can_attempt_local_additive_revise, _run_batch_repl_queue_validate_if_needed, _run_stage, _stage_agent_batch_repl, _stage_ingest_v2, _stage_readonly_diagnostic_report, _stage_revision_evidence, _stage_revision_readonly_report)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (_adaptation_slice_domain_mismatch_diagnostic, _run_batch_repl_queue_validate_if_needed, _run_stage, _stage_agent_batch_repl, _stage_ingest_v2, _stage_readonly_diagnostic_report, _stage_revision_evidence, _stage_revision_readonly_report)  # T-039 late import: host namespace lookup; resolved at call time
     _run_stage("ingest", state, context, _stage_ingest_v2)
     _run_stage(
         "revision_evidence",
@@ -253,11 +253,11 @@ def _run_batch_repl_product_path(
             no_candidate_reason=readonly_diagnostic.get("no_candidate_reason"),
         )
         return state
-    if (
-        state.revision_evidence is not None
-        and not state.revision_evidence.safe_candidate_possible
-        and not _can_attempt_local_additive_revise(state)
-        and not _can_attempt_direct_existing_parameter_tweak(state)
+    evidence = state.revision_evidence
+    if evidence is not None and (
+        evidence.topology.dangling_links
+        or evidence.topology.absent_endpoint_nodes
+        or evidence.readiness.has_blockers
     ):
         _run_stage(
             "agent_batch",

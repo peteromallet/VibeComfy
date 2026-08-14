@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import types
 
@@ -18,9 +19,55 @@ from vibecomfy.executor.contracts import (
 from vibecomfy.executor.core import (
     _canonical_route_for_plan,
     _context_text_mentions_ltx_audio,
-    _delegated_clarification_plan,
     _route_behavior,
 )
+from vibecomfy.executor.prompts import parse_classify_response
+
+
+def test_classifier_json_emits_typed_needs_input() -> None:
+    decision = parse_classify_response(
+        json.dumps(
+            {
+                "route": "clarify",
+                "intent": "respond",
+                "clarification_question": "Which output format should I use?",
+                "needs_input": {
+                    "decision": "output_format",
+                    "question": "Which output format should I use?",
+                    "missing_information": ["output format"],
+                    "evidence_ids": [],
+                    "options": ["Image", "Video"],
+                },
+            }
+        )
+    )
+
+    assert decision.effective_route == "clarify"
+    assert decision.needs_input.question == "Which output format should I use?"
+    assert decision.needs_input.bounded_assumption is None
+
+
+def test_classifier_json_records_bounded_assumption_without_forcing_clarify() -> None:
+    decision = parse_classify_response(
+        json.dumps(
+            {
+                "route": "revise",
+                "intent": "edit",
+                "implement": True,
+                "needs_input": {
+                    "decision": "default_output",
+                    "question": "Which output should be produced?",
+                    "missing_information": ["output format"],
+                    "evidence_ids": [],
+                    "options": [],
+                    "bounded_assumption": "Use a still image for this unattended run.",
+                },
+            }
+        )
+    )
+
+    assert decision.effective_route == "revise"
+    assert decision.needs_input.bounded_assumption.startswith("Use a still image")
 
 
 def test_agent_executor_http_route_uses_shared_serializer_and_durable_helper(
@@ -588,68 +635,6 @@ class TestRepresentativeRouteScenarios:
 
     # ── delegated clarification ──────────────────────────────────────────
 
-    def test_delegated_clarification_detects_triggers(self) -> None:
-        """'Pick some please' with prior clarification context triggers delegation."""
-        request = ExecutorRequest(query="Pick some please")
-        # Session context: prior_clarification must be a dict (checked by callee);
-        # blocked_route/prior_route are read from the top-level session_context.
-        session_context = {
-            "prior_clarification": {"question_asked": "Which model family?"},
-            "blocked_route": "revise",
-        }
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is not None
-        assert delegated.effective_route == "revise"
-        # Delegated plan must NOT be clarify (loop prevention).
-        assert delegated.effective_route != "clarify"
-
-    def test_delegated_clarification_you_figure_it_out(self) -> None:
-        """'You figure it out' triggers delegation to the previously blocked route."""
-        request = ExecutorRequest(query="You figure it out")
-        session_context = {
-            "prior_clarification": {"question_asked": "What edit?"},
-            "blocked_route": "adapt",
-        }
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is not None
-        assert delegated.effective_route == "adapt"
-
-    def test_delegated_clarification_prior_route_fallback(self) -> None:
-        """prior_route is used when blocked_route is absent."""
-        request = ExecutorRequest(query="choose for me")
-        session_context = {
-            "prior_clarification": {"question_asked": "Which approach?"},
-            "prior_route": "adapt",
-        }
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is not None
-        assert delegated.effective_route == "adapt"
-
-    def test_delegated_clarification_without_context_returns_none(self) -> None:
-        """'Pick some please' without prior clarification context — delegation
-        should not fire (no blocked route to resume)."""
-        request = ExecutorRequest(query="Pick some please")
-        session_context = {}
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is None
-
-    def test_delegated_clarification_without_prior_clarification_returns_none(self) -> None:
-        """Delegation requires prior_clarification to be present in session_context."""
-        request = ExecutorRequest(query="pick some please")
-        session_context = {"blocked_route": "revise"}
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is None
-
-    def test_delegated_clarification_non_matching_query_returns_none(self) -> None:
-        """Non-delegation query should return None."""
-        request = ExecutorRequest(query="Use the Flux model please")
-        session_context = {
-            "prior_clarification": {},
-            "blocked_route": "revise",
-        }
-        delegated = _delegated_clarification_plan(request, session_context)
-        assert delegated is None
-
     # ── logs-in-prompt diagnosis → respond or inspect ─────────────────────
 
     def test_log_diagnosis_routes_to_respond(self) -> None:
@@ -893,128 +878,6 @@ class TestLTXAudioRouteBehavior:
             ],
         }
         assert _context_text_mentions_ltx_audio(ctx) is True
-
-    # ── _delegated_clarification_plan: LTX/audio does NOT force adapt ──────
-
-    def test_ltx_audio_does_not_force_adapt_route(self) -> None:
-        """LTX+audio context with blocked_route='revise' must NOT force adapt.
-
-        T5 neutralized the LTX/audio→adapt route override. The delegated
-        clarification plan must respect the prior_route and NOT elevate to
-        research-backed adapt just because LTX+audio terms appear.
-        """
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="you figure it out")
-        session_context = {
-            "prior_clarification": {"clarification_question": "Which LTX audio loader?"},
-            "blocked_route": "revise",
-            "recent_messages": [
-                {"text": "I want LTX audio output"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        # Must NOT be adapt (no research-backed precedent lookups).
-        assert plan.effective_route == "revise"
-        assert plan.research is False
-        assert plan.implement is True
-
-    def test_ltx_audio_respects_explicit_adapt_prior_route(self) -> None:
-        """LTX+audio with blocked_route='adapt' remains adapt.
-
-        When the prior route was already adapt (classifier-set), the LTX/audio
-        context should not downgrade it — it was already research-capable.
-        """
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="decide for me")
-        session_context = {
-            "prior_clarification": {"clarification_question": "Which LTX audio approach?"},
-            "blocked_route": "adapt",
-            "recent_messages": [
-                {"text": "LTX video with audio"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        assert plan.effective_route == "adapt"
-        assert plan.research is True
-        assert plan.implement is True
-
-    def test_ltx_audio_with_prior_route_fallback_to_revise(self) -> None:
-        """LTX+audio with prior_route='revise' (not blocked_route) stays revise."""
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="choose for me")
-        session_context = {
-            "prior_clarification": {"clarification_question": "LTX audio VAE?"},
-            "prior_route": "revise",
-            "recent_messages": [
-                {"text": "LTX audio lipsync"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        assert plan.effective_route == "revise"
-        assert plan.research is False
-
-    def test_ltx_audio_no_graph_fallback_does_not_become_adapt(self) -> None:
-        """LTX+audio with no graph and fallback → inspect, never adapt."""
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="use your judgment", graph=None)
-        session_context = {
-            "prior_clarification": {"clarification_question": "LTX audio?"},
-            "prior_route": "clarify",  # not in {revise, adapt}
-            "recent_messages": [
-                {"text": "LTX audio"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        # Falls back to inspect when no graph and prior_route not edit-capable.
-        assert plan.effective_route in ("inspect", "revise")
-        # Must NOT become adapt.
-        assert plan.effective_route != "adapt"
-        assert plan.effective_route != "research"
-
-    def test_ltx_audio_delegated_plan_is_not_clarify_loop(self) -> None:
-        """LTX+audio delegation must never produce a clarify loop."""
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="decide")
-        session_context = {
-            "prior_clarification": {"clarification_question": "LTX audio VAE selection?"},
-            "blocked_route": "revise",
-            "recent_messages": [
-                {"text": "LTX voice generation"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        assert plan.effective_route != "clarify", (
-            "LTX/audio delegated clarification must not loop back to clarify"
-        )
-
-    def test_ltx_audio_delegated_plan_no_concrete_node_suggestions(self) -> None:
-        """The plan_summary for LTX+audio delegation must not suggest concrete nodes."""
-        from vibecomfy.executor.contracts import ExecutorRequest
-
-        request = ExecutorRequest(query="you figure it out")
-        session_context = {
-            "prior_clarification": {"clarification_question": "LTX audio VAE?"},
-            "blocked_route": "revise",
-            "recent_messages": [
-                {"text": "LTX audio pipeline"},
-            ],
-        }
-        plan = _delegated_clarification_plan(request, session_context)
-        assert plan is not None
-        # plan_summary must be the generic delegation message, not LTX-specific.
-        assert "conservative default" in plan.plan_summary.lower()
-        assert "LTX" not in plan.plan_summary
-        assert "audio" not in plan.plan_summary.lower()
 
     # ── _context_text_mentions_ltx_audio: detector remains available ────────
 

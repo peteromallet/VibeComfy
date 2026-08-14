@@ -4,10 +4,16 @@ import argparse
 
 
 def _cmd_agentic(args: argparse.Namespace) -> int:
-    print("agentic affordances live under `port` and `nodes` commands")
+    print(
+        "headless agent: `python -m vibecomfy.agent --help`; "
+        "typed clarification is returned as `needs_input`"
+    )
     return 0
 
 
 def register(subparsers) -> None:
-    parser = subparsers.add_parser("agentic", help="Show agent-oriented CLI affordance pointers.")
+    parser = subparsers.add_parser(
+        "agentic",
+        help="Show the headless agent entrypoint and typed ambiguity contract.",
+    )
     parser.set_defaults(func=_cmd_agentic)

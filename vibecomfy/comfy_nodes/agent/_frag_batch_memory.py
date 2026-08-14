@@ -490,45 +490,6 @@ def _workflow_schema_classes_from_context(state: Any) -> list[str]:
     return classes
 
 
-def _workflow_schema_relevant_clarify(clarify_message: str) -> bool:
-    text = str(clarify_message or "").casefold()
-    if not text:
-        return False
-    schema_terms = ("schema", "signature", "input", "output", "wire", "construct", "missing")
-    capability_terms = ("cannot", "couldn't", "unable", "need", "required", "lack", "not present", "not found")
-    return any(term in text for term in schema_terms) and any(
-        term in text for term in capability_terms
-    )
-
-
-def _premature_workflow_schema_clarify_feedback(
-    state: Any,
-    clarify_message: str,
-) -> str:
-    """Reject stops that ignore parseable workflow schema already in context."""
-    if not _workflow_schema_relevant_clarify(clarify_message):
-        return ""
-
-    class_names = _class_names_from_text(str(clarify_message or ""))
-    workflow_schema_classes = _workflow_schema_classes_from_context(state)
-    if not workflow_schema_classes:
-        return ""
-
-    mentioned_available = [
-        class_type for class_type in class_names if class_type in workflow_schema_classes
-    ]
-    if class_names and not mentioned_available:
-        return ""
-
-    class_text = ", ".join((mentioned_available or workflow_schema_classes)[:8])
-    return (
-        "Premature workflow-schema clarification rejected: parseable workflow precedent "
-        f"already provides provisional authoring evidence for ({class_text}). Do not ask "
-        "the user for signatures that are already in "
-        "execution_protocol_notes.research_sources[].workflow_schema."
-    )
-
-
 def _selected_precedent_unknown_class_feedback(
     state: Any,
     batch_result: Any,
@@ -603,18 +564,6 @@ def _selected_precedent_unknown_class_feedback(
     )
 
 
-_PARAMETER_TWEAK_ACTION_TERMS = (
-    "increase",
-    "decrease",
-    "adjust",
-    "tweak",
-    "change",
-    "set",
-    "raise",
-    "lower",
-    "reduce",
-    "boost",
-)
 _PARAMETER_TWEAK_TARGET_TERMS = (
     "detail",
     "frame",
@@ -635,135 +584,6 @@ _PARAMETER_TWEAK_TARGET_TERMS = (
     "format",
     "codec",
 )
-
-
-def _task_looks_like_parameter_tweak(state: Any) -> bool:
-    # Additive / restore intent (add/re-add/restore/insert a node, "missing",
-    # "gone", "no longer") must NEVER be classified as a parameter tweak: the
-    # tweak path injects "Stop searching, do not add or replace nodes" before
-    # turn 1, which poisons additive edits.  Bail out first.
-    from ._frag_research import _executor_classification_text  # T-038 late import: sibling cycle broken; resolved at call time
-    if _task_looks_like_additive(state):
-        return False
-    text = (
-        f"{getattr(state, 'task', '')} "
-        f"{getattr(state, 'request_payload', {}).get('query', '')} "
-        f"{_executor_classification_text(state)}"
-    ).casefold()
-    return any(term in text for term in _PARAMETER_TWEAK_ACTION_TERMS) and any(
-        term in text for term in _PARAMETER_TWEAK_TARGET_TERMS
-    )
-
-
-# Structural verbs that signal ADDITIVE / restore intent (re-add a removed
-# feature, insert a node, attach/rewire something missing).  When present, the
-# task is NOT a parameter tweak and must NOT receive "edit an existing node /
-# do not add nodes" hardening.  Prefer multi-word phrases to avoid false
-# positives ("add" as a bare substring would match "address"/"added").
-_ADDITIVE_INTENT_PHRASES = (
-    "re-add",
-    "re-add",
-    "readd",
-    "re-introduce",
-    "re-introduce",
-    "re-instate",
-    "reinstate",
-    "bring back",
-    "put back",
-    "add back",
-    "no longer",
-    "add an",
-    "add a ",
-    "add the",
-    "add new",
-    "missing",
-    "removed",
-    "gone",
-    "disappeared",
-    "restore",
-    "insert",
-    "attach",
-    "rewire",
-    "connect",
-)
-_ADDITIVE_INTENT_STANDALONE = (
-    "restore",
-    "reinstate",
-    "insert",
-    "attach",
-    "rewire",
-    "missing",
-    "removed",
-    "gone",
-    "disappeared",
-)
-
-
-def _task_looks_like_additive(state: Any) -> bool:
-    """Return True when the task text signals ADDITIVE / restore intent.
-
-    Composes ``state.task``, ``request_payload['query']``, and the executor
-    classification text (intent/route/task), casefolded.  Matches explicit
-    multi-word structural phrases (``"add back"``, ``"bring back"``, ``"missing"``,
-    ``"restore"``, …) plus the conservative ``"add a/an/the/new"`` lead-ins.
-
-    Conservative by design: bare ``"add"`` is NOT matched on its own (it would
-    false-fire on ``"address"``/``"added"``/``"add-on"``); only the multi-word
-    phrases and standalone structural verbs are.
-    """
-    from ._frag_research import _executor_classification_text  # T-038 late import: sibling cycle broken; resolved at call time
-    text = (
-        f"{getattr(state, 'task', '')} "
-        f"{getattr(state, 'request_payload', {}).get('query', '')} "
-        f"{_executor_classification_text(state)}"
-    ).casefold()
-    if any(phrase in text for phrase in _ADDITIVE_INTENT_PHRASES):
-        return True
-    # Word-boundary match for standalone structural verbs so "restore"/"insert"
-    # fire even when they appear without a multi-word phrase, but never as a
-    # substring of a larger word.
-    tokens = set()
-    for chunk in text.split():
-        # strip lightweight punctuation so "restore." / "insert," match.
-        tokens.add(chunk.strip(".,;:!?\"'()[]{}"))
-    return any(token in tokens for token in _ADDITIVE_INTENT_STANDALONE)
-
-
-
-def _existing_parameter_tweak_targets(state: Any, *, max_targets: int = 4) -> list[str]:
-    graphs: list[Mapping[str, Any]] = []
-    graph = getattr(state, "graph", None)
-    if isinstance(graph, Mapping):
-        graphs.append(graph)
-    request_payload = getattr(state, "request_payload", None)
-    if isinstance(request_payload, Mapping):
-        request_graph = request_payload.get("graph")
-        if isinstance(request_graph, Mapping) and request_graph is not graph:
-            graphs.append(request_graph)
-    if not graphs and graph is not None:
-        nodes = getattr(graph, "nodes", None)
-        if isinstance(nodes, (Mapping, list)):
-            graphs.append({"nodes": nodes})
-
-    if not graphs:
-        return []
-
-    query_text = (
-        f"{getattr(state, 'task', '')} {getattr(state, 'request_payload', {}).get('query', '')}"
-    ).casefold()
-    ranked_targets: list[tuple[int, str]] = []
-    seen_targets: set[str] = set()
-    for graph_payload in graphs:
-        ranked_targets.extend(
-            _existing_parameter_tweak_targets_from_graph(
-                graph_payload,
-                query_text=query_text,
-                seen_targets=seen_targets,
-            )
-        )
-
-    ranked_targets.sort(key=lambda item: (-item[0], item[1]))
-    return [target for _score, target in ranked_targets[:max_targets]]
 
 
 def _existing_parameter_tweak_targets_from_graph(
@@ -915,39 +735,6 @@ def _existing_parameter_tweak_targets_from_graph(
     return ranked_targets
 
 
-def _direct_existing_parameter_tweak_feedback(
-    state: Any,
-    clarify_message: str | None = None,
-) -> str:
-    # Additive / restore intent must not receive "edit an existing node / do not
-    # add or replace nodes" guidance — that poisons additive edits across the
-    # intro/apply/finish call sites.  (Also covered by
-    # _task_looks_like_parameter_tweak, but the explicit guard keeps the
-    # contract obvious and survives refactors.)
-    if _task_looks_like_additive(state):
-        return ""
-    if not _task_looks_like_parameter_tweak(state):
-        return ""
-    if clarify_message is not None:
-        message_text = str(clarify_message or "").casefold()
-        if not any(
-            term in message_text
-            for term in ("precedent", "schema", "custom node", "not found", "missing", "cannot")
-        ):
-            return ""
-    targets = _existing_parameter_tweak_targets(state)
-    if not targets:
-        return ""
-    target_text = "; ".join(targets)
-    return (
-        "Direct existing-node tweak fallback applies here: the current graph already contains editable "
-        f"target nodes ({target_text}). Stop searching for workflow precedent. Land the smallest local "
-        "parameter change on the existing node instead. Prefer a visible named field when present; when "
-        "the node is already in the graph and only stable widget slots are visible, a minimal existing "
-        "`widget_N` tweak is allowed as a last-resort local parameter edit. Do not add or replace nodes."
-    )
-
-
 def _edit_noop_requires_graph_evidence_feedback(state: Any) -> str:
     from ._frag_research import _canonical_agent_edit_route, _executor_classification_text  # T-038 late import: sibling cycle broken; resolved at call time
     route = _canonical_agent_edit_route(getattr(state, "route", None))
@@ -983,68 +770,16 @@ def _edit_noop_requires_graph_evidence_feedback(state: Any) -> str:
     )
 
 
-def _targeted_edit_hardening_feedback(state: Any) -> str:
-    """Return narrow deterministic guidance for known ambiguous edit intents."""
-    # Additive / restore intent: same-type siblings must NOT trigger "edit an
-    # existing node" hardening for an explicit add/restore request.
-    from ._frag_research import _executor_classification_text  # T-038 late import: sibling cycle broken; resolved at call time
-    if _task_looks_like_additive(state):
-        return ""
-    text = (
-        f"{getattr(state, 'task', '')} "
-        f"{getattr(state, 'request_payload', {}).get('query', '')} "
-        f"{_executor_classification_text(state)}"
-    ).casefold()
-    notes: list[str] = []
-    if (
-        "first frame" in text
-        and "save" in text
-        and ("png" in text or "image" in text)
-    ):
-        notes.append(
-            "First-frame extraction hardening: if a video-producing node is already wired directly "
-            "to SaveImage for the requested static PNG/image output, do not no-op just because the "
-            "video node's custom class is unknown. Insert a minimal local `vibecomfy.exec` frame "
-            "extractor (`image[0:1]`) between the video output and SaveImage, then rewire SaveImage "
-            "to that extractor. This is a localized additive edit; do not replace the video node."
-        )
-    if (
-        "controlnet" in text
-        and ("strength" in text or "pose" in text or "conditioning" in text)
-        and ("increase" in text or "raise" in text or "boost" in text or "stronger" in text)
-    ):
-        notes.append(
-            "ACN ControlNet strength hardening: when editing an existing "
-            "`ACN_AdvancedControlNetApply` node for stronger pose/conditioning and the rendered graph "
-            "shows a concrete strength-like field/widget, increase that existing knob first. Do not "
-            "prefer ambiguous override fields unless the user explicitly asks for that override."
-        )
-    targets = _existing_parameter_tweak_targets(state, max_targets=2)
-    if targets:
-        target_text = "; ".join(targets)
-        notes.append(
-            "Targeted edit hardening: this was a read-only turn, but the current canvas already exposes "
-            f"concrete editable targets ({target_text}). On the next turn, make a minimal local edit against "
-            "one of those existing nodes instead of continuing analysis."
-        )
-    return "\n\n".join(notes)
-
-
 __all__ = (
-     "_ADDITIVE_INTENT_PHRASES", "_ADDITIVE_INTENT_STANDALONE",
-     "_PARAMETER_TWEAK_ACTION_TERMS", "_PARAMETER_TWEAK_TARGET_TERMS",
+     "_PARAMETER_TWEAK_TARGET_TERMS",
      "_batch_research_memory_summary", "_class_names_from_text",
-     "_direct_existing_parameter_tweak_feedback",
-     "_edit_noop_requires_graph_evidence_feedback", "_existing_parameter_tweak_targets",
+     "_edit_noop_requires_graph_evidence_feedback",
      "_existing_parameter_tweak_targets_from_graph", "_format_available_node_names",
      "_format_node_variable_index", "_format_query_output", "_format_statement_source",
      "_iter_ui_nodes", "_normalize_test_client_batch_response",
      "_normalize_test_client_response",
-     "_premature_missing_custom_node_clarify_feedback",
-     "_premature_workflow_schema_clarify_feedback", "_present_class_types",
+     "_premature_missing_custom_node_clarify_feedback", "_present_class_types",
      "_render_batch_diff", "_resolver_candidate_is_authoring_capability",
      "_selected_precedent_unknown_class_feedback", "_summarize_precedent_packet",
-     "_targeted_edit_hardening_feedback", "_task_looks_like_additive",
-     "_task_looks_like_parameter_tweak", "_workflow_schema_classes_from_context",
-     "_workflow_schema_relevant_clarify", "node_settings_for",
+     "_workflow_schema_classes_from_context", "node_settings_for",
 )

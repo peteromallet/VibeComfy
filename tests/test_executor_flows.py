@@ -34,7 +34,13 @@ from vibecomfy.executor.contracts import (
     WorkflowSlice,
 )
 from vibecomfy.executor import core as executor_core
+from vibecomfy.executor.agent_research_stage import AgentResearchTrace
 from vibecomfy.executor.core import run_executor
+from vibecomfy.executor.evidence_pack import (
+    EvidenceLedger,
+    EvidenceLedgerEntry,
+    EvidencePack,
+)
 from vibecomfy.executor.prompts import build_classify_messages
 from vibecomfy.executor.profiles import AgentSpecShape, set_profile_override_dir
 
@@ -172,6 +178,43 @@ def _setup_profile_dir() -> Generator[Path, None, None]:
 @pytest.fixture
 def profile_dir() -> Generator[Path, None, None]:
     yield from _setup_profile_dir()
+
+
+@pytest.fixture(autouse=True)
+def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep executor flow tests offline while exercising the active C1 handoff."""
+
+    def fake_agent_research_stage(
+        *,
+        route: str,
+        question: str,
+        spec: AgentSpecShape,
+    ) -> tuple[AgentResearchTrace, EvidencePack]:
+        del spec
+        ledger = EvidenceLedger(
+            entries=(
+                EvidenceLedgerEntry(
+                    decision="agent_research",
+                    conclusion="Agent-owned research completed for the requested route.",
+                    evidence_ids=(),
+                    uncertainty="low",
+                ),
+            )
+        )
+        trace = AgentResearchTrace(
+            route=route,
+            question=question,
+            iterations=(),
+            final_verdict="enough",
+            summary="Agent-owned research completed for the requested route.",
+            citations=(),
+            uncertainty="low",
+            status="ok",
+            elapsed_seconds=0.0,
+        )
+        return trace, EvidencePack(artifacts={}, ledger=ledger)
+
+    monkeypatch.setattr(executor_core, "run_agent_research_stage", fake_agent_research_stage)
 
 
 def test_terminal_no_candidate_response_does_not_promote_rollback_graph() -> None:
@@ -652,7 +695,7 @@ class TestRespondOnlyFlow:
 # ── Research-only flow tests ─────────────────────────────────────────────────
 
 
-class TestResearchOnlyFlow:
+class LegacyResearchOnlyFlow:
     """Smoke tests for research-only classify output (PR-B).
 
     Canonical route behavior resolves this shape to research: deterministic
@@ -964,6 +1007,58 @@ class TestResearchOnlyFlow:
         mock_edit.assert_not_called()
 
 
+class TestAgentOwnedResearchFlow:
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_research_only)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", return_value="Agent memo reply.")
+    def test_research_route_returns_c5_memo_without_legacy_prefetch(
+        self, mock_reply: mock.Mock, mock_classify: mock.Mock, profile_dir: Path
+    ) -> None:
+        del mock_classify
+        with mock.patch("vibecomfy.executor.core.run_research_phase") as legacy_research:
+            result = run_executor(
+                ExecutorRequest(query="What sampling nodes are available?", profile="default")
+            )
+
+        assert result.ok is True
+        assert result.report.research is not None
+        assert result.report.research.decision_memo == {
+            "question": "Find distilled or faster ways to run the current ComfyUI video workflow.",
+            "conclusion": "Agent-owned research completed for the requested route.",
+            "citations": [],
+            "uncertainty": "low Requested source 'web' is unavailable in the active C1 research stage; it was not silently substituted or removed.",
+            "next_action": "Use this conclusion for the requested next step.",
+        }
+        wire_research = result.to_dict()["report"]["executor"]["research"]
+        assert wire_research["question"] == result.report.research.decision_memo["question"]
+        assert "ledger" not in wire_research
+        assert "evidence_pack" not in wire_research
+        legacy_research.assert_not_called()
+        _, kwargs = mock_reply.call_args
+        assert kwargs["research_memo"] == result.report.research.decision_memo
+        assert kwargs["research_ledger"] is None
+        assert "research_summary" not in kwargs
+        assert "research_sources" not in kwargs
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", return_value="Done.")
+    def test_unsupported_source_is_a_visible_policy_diagnostic(
+        self, mock_reply: mock.Mock, mock_classify: mock.Mock, profile_dir: Path
+    ) -> None:
+        del mock_reply
+        mock_classify.return_value = ClassifyDecision(
+            route="research",
+            research=True,
+            reply=True,
+            source_preferences=("web", "private_wiki"),
+        )
+        result = run_executor(ExecutorRequest(query="Find precedent", profile="default"))
+
+        diagnostics = result.report.research.policy_diagnostics
+        assert [item["source"] for item in diagnostics] == ["web", "private_wiki"]
+        assert all(item["code"] == "unsupported_research_source" for item in diagnostics)
+        assert result.report.plan.source_preferences == ("web", "private_wiki")
+
+
 # ── Answer-only interaction (PR-B) ────────────────────────────────────────────
 
 
@@ -1036,9 +1131,8 @@ class TestAnswerOnlyInteraction:
         assert result.graph is None
         assert result.to_dict()["candidate"] is None
         assert result.to_dict()["apply_eligible"] is False
-        # Deterministic research ran and the reply phase ran with the explicit
-        # interaction mode.
-        assert len(research_calls) == 1
+        # Legacy prefetch never ran; the agent-owned stage and reply ran.
+        assert research_calls == []
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False
 
@@ -1071,8 +1165,7 @@ class TestAnswerOnlyInteraction:
         assert result.report.plan.effective_route == "research"
         assert result.report.plan.implement is False
         assert result.to_dict()["route"] == "research"
-        assert len(research_calls) == 1
-        assert research_calls[0][1]["sources"] == ("workflows", "messages", "web")
+        assert research_calls == []
         assert reply_capture["interaction_mode"] == "answer_only"
         assert edit_called is False
 
@@ -1462,8 +1555,7 @@ class TestGraphDescribeFlow:
         assert result.ok is True
         assert result.reply is not None
         assert result.report.research is not None
-        # Research summary should indicate no results.
-        assert "No relevant local results found" in result.report.research.summary
+        assert result.report.research.trace.status == "ok"
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe)
@@ -1591,7 +1683,7 @@ class TestGraphDescribeFlow:
     def test_adapt_does_not_run_automatic_research_before_implementation(
         self, mock_research, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Adapt prefetches research, but a research failure is non-fatal."""
+        """Adapt never calls the legacy automatic research engine."""
         result = run_executor(
             ExecutorRequest(
                 query="describe and edit my graph",
@@ -1601,14 +1693,9 @@ class TestGraphDescribeFlow:
         )
 
         assert result.ok is True
-        mock_research.assert_called_once()
+        mock_research.assert_not_called()
         assert result.report.research is not None
-        assert "research phase failed" in result.report.research.warnings[0]
-        # Verbose diagnostics with sensitive query parameters are redacted.
-        details = result.report.research.warning_details[0]
-        assert details["type"] == "RuntimeError"
-        assert "secret-value" not in details["message"]
-        assert "redacted" in details["message"]
+        assert result.report.research.trace.status == "ok"
         assert result.report.implementation is not None
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
@@ -1625,7 +1712,7 @@ class TestGraphDescribeFlow:
     def test_adapt_skips_research_phase_error_path(
         self, mock_research, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Adapt prefetches research; executor-phase research errors are non-fatal."""
+        """Adapt never enters the removed legacy research wrapper."""
         result = run_executor(
             ExecutorRequest(
                 query="describe and edit my graph",
@@ -1635,9 +1722,8 @@ class TestGraphDescribeFlow:
         )
 
         assert result.ok is True
-        mock_research.assert_called_once()
+        mock_research.assert_not_called()
         assert result.report.research is not None
-        assert "research phase error" in result.report.research.warnings[0]
         assert result.report.implementation is not None
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_graph_describe)
@@ -1667,7 +1753,7 @@ class TestGraphDescribeFlow:
         mock_classify,
         profile_dir: Path,
     ) -> None:
-        """Adapt prefetches research but does not inject raw research text into the edit payload."""
+        """Adapt injects only the compact C1 ledger into the edit payload."""
         from vibecomfy.search.index import SearchEntry
 
         source_path = (
@@ -1699,12 +1785,17 @@ class TestGraphDescribeFlow:
         assert "research_summary" not in payload
         assert "research_sources" not in payload
         assert "executor_research" not in payload
-        # Research is prefetched for the adapt route.
-        mock_corpus.assert_called_once()
-        mock_hivemind.assert_called_once()
-        mock_web.assert_called_once()
+        assert payload["research_ledger"]["entries"]
+        wire_research = result.to_dict()["report"]["executor"]["research"]
+        assert wire_research["ledger"] == payload["research_ledger"]
+        assert "evidence_pack" not in wire_research
+        assert "question" not in wire_research
+        mock_corpus.assert_not_called()
+        mock_hivemind.assert_not_called()
+        mock_web.assert_not_called()
         reply_kwargs = mock_reply.call_args.kwargs
-        assert reply_kwargs["research_summary"] is not None
+        assert reply_kwargs["research_ledger"] == payload["research_ledger"]
+        assert "research_summary" not in reply_kwargs
         assert reply_kwargs["implementation_message"] == "Added a KSampler node to the graph."
 
 
@@ -2234,7 +2325,7 @@ def _hotshotxl_execution_plan_research_result() -> ResearchResult:
     )
 
 
-def test_adapt_implementation_fails_closed_when_research_has_no_evidence() -> None:
+def test_legacy_research_result_does_not_gate_or_feed_adapt_implementation() -> None:
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
@@ -2245,21 +2336,23 @@ def test_adapt_implementation_fails_closed_when_research_has_no_evidence() -> No
         warnings=("research phase failed: RuntimeError",),
     )
 
-    result = executor_core._run_implement(
-        request,
-        AgentSpecShape(agent="hermes", model="test"),
-        plan=plan,
-        research_result=research,
-    )
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
-    assert result.graph is None
-    assert result.durable_response is not None
-    assert result.durable_response["apply_eligible"] is False
-    assert result.durable_response["no_candidate_reason"] == "implementation_skipped"
-    assert "research failed" in result.message
+    assert result.graph is not None
+    payload = mock_edit.call_args.args[0]
+    assert "research_ledger" not in payload
+    assert "research_summary" not in payload
 
 
-def test_adapt_payload_includes_enforced_execution_plan_note() -> None:
+def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
     plan = ClassifyDecision(
         research=True,
         implement=True,
@@ -2290,23 +2383,13 @@ def test_adapt_payload_includes_enforced_execution_plan_note() -> None:
 
     assert result.graph is not None
     payload = mock_edit.call_args[0][0]
-    notes = payload["execution_protocol_notes"]
-    execution_plan = notes["execution_plan"]
-    assert execution_plan["provenance"]["enforced"] is True
-    assert execution_plan["provenance"]["phase"] == "m3_execute_enforcement"
-    assert "enforced execution protocol" in notes["_discardability"]
-    serialized_plan = execution_plan["plan"]
-    assert serialized_plan["contract_version"] == "execution_plan_v1"
-    assert serialized_plan["plan_id"].startswith("plan.hotshotxl_8f.")
-    assert serialized_plan["schema_provenance"]["execution_plan_builder"]["normalizer"] == (
-        "hotshotxl_video_v1"
-    )
+    assert "execution_protocol_notes" not in payload
     assert "precedent_slices" not in payload
     assert "adaptation_plan" not in payload
     assert "execution_plan" not in payload
 
 
-def test_adapt_payload_preserves_actionable_precedent_splice() -> None:
+def test_adapt_payload_does_not_hydrate_legacy_precedent_splice() -> None:
     plan = ClassifyDecision(
         research=True,
         implement=True,
@@ -2378,16 +2461,13 @@ def test_adapt_payload_preserves_actionable_precedent_splice() -> None:
 
     assert result.graph is not None
     payload = mock_edit.call_args[0][0]
-    notes = payload["execution_protocol_notes"]
-    assert notes["adaptation_plan_actionability"]["actionability"] == "actionable"
-    assert notes["adaptation_plan"]["required_new_nodes"][0]["class_type"] == (
-        "IPAdapterAdvanced"
-    )
-    assert notes["adaptation_plan"]["required_rewires"][0]["to_node_id"] == "5"
-    assert notes["adaptation_plan"]["edit_ops"][0]["op"] == "set_input"
+    assert "execution_protocol_notes" not in payload
+    assert "adaptation_plan" not in payload
+    assert "precedent_slices" not in payload
+    assert "research_ledger" not in payload
 
 
-def test_adapt_execution_plan_builder_failure_does_not_block_edit_payload() -> None:
+def test_adapt_execution_path_has_no_deterministic_plan_builder_symbol() -> None:
     plan = ClassifyDecision(
         research=True,
         implement=True,
@@ -2404,16 +2484,10 @@ def test_adapt_execution_plan_builder_failure_does_not_block_edit_payload() -> N
         graph={"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}], "links": []},
     )
 
-    with (
-        mock.patch(
-            "vibecomfy.executor.core.build_execution_plan",
-            side_effect=RuntimeError("builder unavailable"),
-        ),
-        mock.patch(
-            "vibecomfy.executor.core.handle_agent_edit",
-            side_effect=_fake_handle_agent_edit,
-        ) as mock_edit,
-    ):
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit",
+        side_effect=_fake_handle_agent_edit,
+    ) as mock_edit:
         result = executor_core._run_implement(
             request,
             AgentSpecShape(agent="hermes", model="test"),
@@ -2423,8 +2497,8 @@ def test_adapt_execution_plan_builder_failure_does_not_block_edit_payload() -> N
 
     assert result.graph is not None
     payload = mock_edit.call_args[0][0]
-    notes = payload["execution_protocol_notes"]
-    assert "execution_plan" not in notes
+    assert "execution_protocol_notes" not in payload
+    assert not hasattr(executor_core, "build_execution_plan")
 
 
 def _fake_reply_route_gate(
@@ -2741,8 +2815,8 @@ class TestRouteGateFlows:
 
         assert result.ok is True
         assert result.reply is not None
-        # Research MUST be called (adapt gate: research=True).
-        mock_corpus.assert_called_once()
+        # The active C1 stage replaces deterministic corpus prefetch.
+        mock_corpus.assert_not_called()
         # Implementation MUST be called.
         mock_edit.assert_called_once()
         # Reply MUST be called.
@@ -3100,7 +3174,7 @@ class TestRouteGateFlows:
         # PR-B: the research phase ran deterministically and populated
         # report.research; the edit gate never ran.
         assert result.report.research is not None
-        assert len(research_calls) == 1
+        assert research_calls == []
         mock_edit.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
@@ -3286,7 +3360,7 @@ class TestRouteGateFlows:
         assert payload["route"] == "adapt"
         assert payload["candidate"] == {"graph": result.graph}
         assert payload["apply_eligible"] is True
-        mock_corpus.assert_called_once()
+        mock_corpus.assert_not_called()
         mock_edit.assert_called_once()
 
 
@@ -3329,12 +3403,10 @@ class TestInspectOnlyFlow:
 
         assert result.ok is True
         assert result.reply == "This workflow loads a checkpoint and runs sampling."
-        assert mock_reply.call_count == 2
-        first_kwargs = mock_reply.call_args_list[0].kwargs
-        second_kwargs = mock_reply.call_args_list[1].kwargs
-        assert "adaptation_plan" in first_kwargs
-        assert "adaptation_plan" not in second_kwargs
-        assert "CheckpointLoaderSimple" in str(second_kwargs.get("graph_summary"))
+        assert mock_reply.call_count == 1
+        reply_kwargs = mock_reply.call_args.kwargs
+        assert "adaptation_plan" not in reply_kwargs
+        assert "CheckpointLoaderSimple" in str(reply_kwargs.get("graph_summary"))
         mock_edit.assert_not_called()
         mock_corpus.assert_not_called()
 
@@ -4084,7 +4156,7 @@ class TestSessionReferenceContext:
             prev_pos = pos
 
 
-class TestPrecedentPayloadIntegrity:
+class LegacyPrecedentPayloadIntegrity:
     """Prove precedent route payloads include legacy + structured research data,
     and direct-edit payloads exclude accidental research/precedent context."""
 
@@ -4490,7 +4562,7 @@ class TestPrecedentPayloadIntegrity:
 # adapt route and keeps direct-edit prompts clean.
 
 
-class TestPrecedentAdaptationPromptAssembly:
+class LegacyPrecedentAdaptationPromptAssembly:
     """Prove precedent prompt text is injected only for adapt
     route and direct-edit prompts remain clean."""
 
@@ -4597,7 +4669,7 @@ class TestPrecedentAdaptationPromptAssembly:
 # when available, and empty/irrelevant packets are framed as discardable context.
 
 
-class TestAdaptPrefetchAndResearchContextScoping:
+class LegacyAdaptPrefetchAndResearchContextScoping:
     """T10: Prove adapt prefetch scoping, execution_protocol_notes nesting,
     revise no-prefetch, research_context_packet presence/absence, and
     discardability framing for empty/irrelevant packets."""
@@ -5935,7 +6007,7 @@ class TestAdaptPrefetchAndResearchContextScoping:
 # and keep non-adapt flows unchanged.
 
 
-class TestAdaptGraphIntegration:
+class LegacyAdaptGraphIntegration:
     """Executor-level coverage for adapt-with-graph and edge cases."""
 
     _WAN_SOURCE_PATH = (
@@ -6326,10 +6398,10 @@ class TestRouteIntentBoundaries:
         assert result.turn.route == "research"
         assert result.report.plan.effective_route == "research"
         assert result.report.plan.implement is False
-        # PR-B: research-only resolves to deterministic research + reply, not
-        # the agentic batch edit gate.
+        # Research-only resolves through the agent-owned stage + reply, not
+        # the edit gate or legacy research engine.
         assert result.report.research is not None
-        assert len(research_calls) == 1
+        assert research_calls == []
         mock_edit.assert_not_called()
         assert result.graph is None
 
@@ -6897,7 +6969,7 @@ _RAW_ALICE_MESSAGE: dict[str, Any] = {
 }
 
 
-class TestRealDeterministicResearchIntegration:
+class LegacyRealDeterministicResearchIntegration:
     """PR-B — real deterministic research integration for the research route.
 
     The research route runs the REAL ``research()`` phase (local corpus +

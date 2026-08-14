@@ -84,7 +84,7 @@ def test_run_headless_blocked_when_not_ready(
         "_check_live_readiness",
         lambda request: {"ready": False, "reason": "no key"},
     )
-    sys.modules.pop("vibecomfy.executor.core", None)
+    monkeypatch.delitem(sys.modules, "vibecomfy.executor.core", raising=False)
 
     run_result = svc.run_headless(request)
 
@@ -194,6 +194,88 @@ def test_run_headless_executor_failure_status(
     assert run_result.ok is False
     assert run_result.error == "model timed out"
     assert (output_dir / "flow_metadata.json").is_file()
+
+
+def test_run_headless_emits_classifier_authored_typed_needs_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    svc = _import_service()
+    from vibecomfy.agent.contracts import HeadlessAgentRequest
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorResult, Report
+    from vibecomfy.executor.stage_contracts import NeedsInput
+
+    plan = ClassifyDecision(
+        route="clarify",
+        plan_summary="The output format is decision-critical.",
+        clarification_question="Which output format should I use?",
+        clarification_options=("Image", "Video"),
+    )
+    typed = NeedsInput(
+        decision="output_format",
+        question="Which output format should I use?",
+        missing_information=("output format",),
+        options=("Image", "Video"),
+    )
+    object.__setattr__(plan, "needs_input", typed)
+    executor_result = ExecutorResult.success(
+        report=Report(plan=plan),
+        reply="Which output format should I use?",
+    )
+    request = HeadlessAgentRequest(
+        query="pick some please",
+        output_dir=tmp_path / "out",
+        additive=True,
+    )
+    monkeypatch.setattr(svc, "_check_live_readiness", lambda request: {"ready": True})
+    monkeypatch.setattr(
+        "vibecomfy.executor.core.run_executor",
+        lambda *args, **kwargs: executor_result,
+    )
+
+    run_result = svc.run_headless(request)
+
+    assert run_result.status == "success"
+    assert run_result.needs_input == typed
+    assert run_result.response["needs_input"] == typed.to_dict()
+    assert run_result.response["route"] == "clarify"
+
+
+def test_run_headless_accepts_agent_recorded_bounded_assumption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    svc = _import_service()
+    from vibecomfy.agent.contracts import HeadlessAgentRequest
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorResult, Report
+    from vibecomfy.executor.stage_contracts import NeedsInput
+
+    plan = ClassifyDecision(route="revise", intent="edit", implement=True)
+    typed = NeedsInput(
+        decision="default_output",
+        question="Which output should be produced?",
+        missing_information=("output format",),
+        bounded_assumption="Use a still image for this unattended run.",
+    )
+    object.__setattr__(plan, "needs_input", typed)
+    executor_result = ExecutorResult.success(
+        report=Report(plan=plan),
+        reply="Used a bounded still-image assumption.",
+    )
+    request = HeadlessAgentRequest(query="you decide", output_dir=tmp_path / "out")
+    monkeypatch.setattr(svc, "_check_live_readiness", lambda request: {"ready": True})
+    monkeypatch.setattr(
+        "vibecomfy.executor.core.run_executor",
+        lambda *args, **kwargs: executor_result,
+    )
+
+    run_result = svc.run_headless(request)
+
+    assert run_result.needs_input is None
+    assert run_result.response["route"] == "revise"
+    assert run_result.response["bounded_assumption"] == typed.bounded_assumption
 
 
 def test_service_refuses_import_without_guard(monkeypatch: pytest.MonkeyPatch) -> None:

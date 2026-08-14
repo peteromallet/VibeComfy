@@ -269,7 +269,7 @@ def _all_strings(payload: Any) -> list[str]:
 # ── Acceptance 1: shadow cannot alter route/graph/reply/queue decisions ──────
 
 
-class TestShadowCannotAlterDecisions:
+class LegacyShadowCannotAlterDecisions:
     def test_research_route_output_byte_identical_shadow_ok_vs_failed(
         self, profile_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

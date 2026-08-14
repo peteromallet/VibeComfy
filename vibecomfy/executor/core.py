@@ -50,7 +50,12 @@ from vibecomfy.executor.profiler import (
 )
 
 from .agent_backend import run_classify_turn, run_reply_turn
-from .agent_research_stage import run_agent_research_shadow
+from .agent_research_stage import (
+    AgentResearchTrace,
+    form_research_question,
+    run_agent_research_stage,
+)
+from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
 from .prompts import build_classify_messages
 from .contracts import (
     ClassifyDecision,
@@ -60,18 +65,14 @@ from .contracts import (
     Report,
     ResearchResult,
     _ALLOWED_ROUTES,
-    adaptation_plan_actionability_payload,
     coerce_model_attempts,
     warning_detail_from_exception,
 )
 from .graph_inspection import _graph_inspection
-from .execution_plan_builder import build_execution_plan, needs_precedent_plan
 from .profiles import (
     AgentSpecShape,
     load_profile,
 )
-from .research import _default_hivemind_client, research as run_research_phase
-from .revision_evidence import collect_graph_facts
 
 LOGGER = logging.getLogger(__name__)
 
@@ -213,19 +214,6 @@ def _sanitize_search_directions(
         result.append(sanitized)
     return tuple(result)
 
-
-def _sanitize_source_preferences(
-    source_preferences: tuple[str, ...] | list[str],
-    *,
-    query: str = "",
-) -> tuple[str, ...]:
-    if _allows_install_or_provider_research(query):
-        return tuple(str(source) for source in source_preferences if str(source).strip())
-    return tuple(
-        str(source)
-        for source in source_preferences
-        if str(source).strip() and str(source).casefold() != "registry"
-    )
 
 # ── route-aware behavior helpers (SD2) ───────────────────────────────────────
 
@@ -377,106 +365,6 @@ def _answer_only_plan(plan: ClassifyDecision) -> ClassifyDecision:
 def _should_research(plan: ClassifyDecision) -> bool:
     """Determine if the research phase should run for *plan*."""
     return _route_behavior(plan).needs_research
-
-
-def _graph_has_provenance_breadcrumb(graph: Mapping[str, Any] | None) -> bool:
-    if not isinstance(graph, Mapping):
-        return False
-    extra = graph.get("extra")
-    breadcrumb = extra.get("vibecomfy") if isinstance(extra, Mapping) else None
-    if not isinstance(breadcrumb, Mapping):
-        return False
-    return any(
-        isinstance(breadcrumb.get(key), str) and breadcrumb.get(key).strip()
-        for key in ("source_template", "prior_path")
-    )
-
-
-def _graph_has_duplicate_node_types(graph: Mapping[str, Any] | None) -> bool:
-    counts: dict[str, int] = {}
-    for _node_id, node in _iter_graph_nodes(graph):
-        class_type = str(node.get("class_type") or node.get("type") or "").strip()
-        if class_type:
-            counts[class_type] = counts.get(class_type, 0) + 1
-    return any(count > 1 for count in counts.values())
-
-
-def _graph_has_parallel_branches(graph: Mapping[str, Any] | None) -> bool:
-    links = graph.get("links") if isinstance(graph, Mapping) else None
-    outgoing: dict[str, set[str]] = {}
-    if isinstance(links, (list, tuple)):
-        for link in links:
-            if isinstance(link, Mapping):
-                origin = link.get("origin_id")
-                target = link.get("target_id")
-            elif isinstance(link, (list, tuple)) and len(link) >= 4:
-                origin, target = link[1], link[3]
-            else:
-                continue
-            if origin is not None and target is not None:
-                outgoing.setdefault(str(origin), set()).add(str(target))
-    return any(len(targets) > 1 for targets in outgoing.values())
-
-
-_ROLE_PLACEMENT_VALUE_TERMS = frozenset({
-    "first", "second", "stage", "pass", "branch", "parallel", "role",
-    "per-node", "per node", "refine", "refinement", "override", "schedule",
-    "sigma", "denoise", "specific setting", "specific value",
-})
-
-
-def _revise_research_uncertainty_triggers(
-    plan: ClassifyDecision,
-    request: ExecutorRequest,
-) -> tuple[str, ...]:
-    """Return iterable uncertainty reasons that permit provenance research."""
-    if not _graph_has_provenance_breadcrumb(request.graph):
-        return ()
-    signals: list[str] = []
-    if not plan.target_node_type:
-        signals.append("target_node_type_uncertain")
-    if _graph_has_duplicate_node_types(request.graph):
-        signals.append("duplicate_node_types")
-    if _graph_has_parallel_branches(request.graph):
-        signals.append("parallel_branches")
-    query_text = " ".join(
-        str(value)
-        for value in (
-            request.query,
-            plan.change_goal,
-            plan.research_goal,
-            plan.known_graph_context,
-        )
-    ).casefold()
-    if any(term in query_text for term in _ROLE_PLACEMENT_VALUE_TERMS):
-        signals.append("role_or_value_specific_request")
-    return tuple(signals)
-
-
-def _should_prefetch_research(
-    plan: ClassifyDecision,
-    *,
-    request: ExecutorRequest | None = None,
-) -> bool:
-    """Return True for routes that should prefetch research.
-
-    Research route: runs deterministic executor retrieval (local corpus +
-    injectable external tiers) instead of the agentic batch REPL, then feeds
-    the semantic reply phase — no edit gate.
-    Adapt route: prefetches scoped research from classifier fields,
-    nested under execution_protocol_notes — does NOT inject raw query
-    results into the implementation prompt.
-    Revise route: prefetches only when provenance exists and the named
-    uncertainty triggers indicate role, placement, or value ambiguity.
-    """
-    route = _canonical_route_for_plan(plan)
-    if route == "research":
-        return True
-    if route == "adapt":
-        return _route_behavior(plan).needs_research
-    if route == "revise" and request is not None:
-        return bool(_revise_research_uncertainty_triggers(plan, request))
-    return False
 
 
 def _should_implement(plan: ClassifyDecision) -> bool:
@@ -817,30 +705,6 @@ def _save_clarification_context(
         )
 
 
-_DELEGATED_CLARIFICATION_ANSWERS = (
-    "you figure it out",
-    "figure it out",
-    "choose for me",
-    "choose some",
-    "choose some please",
-    "pick some",
-    "pick some please",
-    "pick for me",
-    "decide for me",
-    "decide",
-    "please decide",
-    "your call",
-    "use your judgement",
-    "use your judgment",
-    "use your best judgement",
-    "use your best judgment",
-    "default for now",
-    "use the default",
-    "whatever you think",
-    "whatever seems best",
-)
-
-
 def _context_text_mentions_ltx_audio(session_context: dict[str, Any]) -> bool:
     texts: list[str] = []
     prior = session_context.get("prior_clarification")
@@ -861,91 +725,6 @@ def _context_text_mentions_ltx_audio(session_context: dict[str, Any]) -> bool:
     return (
         "ltx" in combined
         and any(term in combined for term in ("audio", "voice", "lipsync", "lip sync", "runexx"))
-    )
-
-
-def _delegated_clarification_plan(
-    request: ExecutorRequest,
-    session_context: dict[str, Any] | None,
-) -> ClassifyDecision | None:
-    """Resolve "you choose" follow-ups to the pending edit route.
-
-    A clarify turn asks the user to make a decision.  When the user explicitly
-    delegates that decision back to the agent, another clarify is a loop: the
-    executor should continue with the previously blocked edit route and let the
-    implementation prompt make the conservative default choice.
-    """
-    if not isinstance(session_context, dict):
-        return None
-    if not isinstance(session_context.get("prior_clarification"), dict):
-        return None
-    query = request.query.strip().lower()
-    if not query:
-        return None
-    if not any(phrase in query for phrase in _DELEGATED_CLARIFICATION_ANSWERS):
-        return None
-
-    prior_route = str(
-        session_context.get("blocked_route")
-        or session_context.get("prior_route")
-        or ""
-    ).strip()
-    if prior_route not in {"revise", "adapt"}:
-        prior_route = "revise" if request.graph is not None else "inspect"
-    # LTX/audio route safety net: classifier-proven removal only.
-    # When the context mentions LTX + audio, do NOT force a research-backed
-    # route (adapt) — that would introduce concrete node-family suggestions
-    # through precedent lookups.  Instead, treat this as a temporary
-    # process-shape fallback: the existing prior_route (typically revise)
-    # provides process-shape editing without research-driven node suggestions.
-    # The _context_text_mentions_ltx_audio detector remains available for
-    # classifier-proven context awareness in future routing decisions.
-
-    return ClassifyDecision(
-        research=(prior_route == "adapt"),
-        implement=(prior_route in {"revise", "adapt"}),
-        reply=True,
-        effort="medium",
-        intent="edit" if prior_route in {"revise", "adapt"} else "explain_graph",
-        route=prior_route,
-        task="edit_graph" if prior_route in {"revise", "adapt"} else "inspect_graph",
-        plan_summary=(
-            "The user delegated the pending clarification; proceed with a "
-            "conservative default decision instead of asking again."
-        ),
-    )
-
-
-def _headless_clarify_research_plan(
-    request: ExecutorRequest,
-    plan: ClassifyDecision,
-    *,
-    additive: bool,
-) -> ClassifyDecision | None:
-    """Turn an unanswerable headless additive clarify into research/adapt.
-
-    ``additive`` is the existing headless-only restore hint used by the
-    campaign.  Interactive requests keep the ordinary clarification contract.
-    """
-    if (
-        not additive
-        or request.graph is None
-        or plan.effective_route != "clarify"
-    ):
-        return None
-    return replace(
-        plan,
-        research=True,
-        implement=True,
-        intent="edit",
-        route="adapt",
-        task="research_precedent",
-        research_goal=plan.research_goal or request.query,
-        change_goal=plan.change_goal or request.query,
-        plan_summary=(
-            "Headless additive repair cannot answer a clarification; research "
-            "the inquiry and current graph before attempting the repair."
-        ),
     )
 
 
@@ -1085,158 +864,166 @@ def _run_classify(
 # ── research phase ───────────────────────────────────────────────────────────
 
 
-def _run_research(
-    request: ExecutorRequest,
-    _spec: AgentSpecShape,
-    *,
-    plan: ClassifyDecision | None = None,
-    deadline: float | None = None,
-) -> ResearchResult:
-    """Run the research phase (local corpus + optional Hivemind).
+def run_research_phase(*args: Any, **kwargs: Any) -> Any:
+    """Legacy automatic research engine — REMOVED by the agent-judgment rework.
 
-    Research failures are non-fatal; they are captured as warnings in the
-    :class:`ResearchResult` and never propagate as exceptions.
-
-    When *plan* is provided and the route is ``adapt`` or ``research``, the
-    query is scoped from classifier fields (research_goal, pattern_category,
-    change_goal, model_families) instead of the raw user query, keeping
-    implementation prompts free of undirected retrieval pollution.  For the
-    ``research`` route the classifier's ``source_preferences`` are forwarded
-    as an explicit tier tuple so community-messages/web evidence runs when the
-    classifier asked for it (the answer IS the research findings).
+    Kept only so tests can prove the active path never calls it
+    (``mock.assert_not_called()``). Any live call raises: research is
+    agent-owned (C01); the prefetch is gone.
     """
-    try:
-        query = request.query
-        if plan is not None and _canonical_route_for_plan(plan) in ("adapt", "research"):
-            # Prefer focused classifier search_directions; they contain the named
-            # targets (e.g. ``Hotshot``) without the verbose explanatory glue
-            # that drowns out rare terms in Hivemind keyword search.
-            search_directions = _sanitize_search_directions(
-                plan.search_directions,
-                query=request.query,
-            )
-            if search_directions:
-                query = "; ".join(search_directions)
-            else:
-                # Build a scoped research query from classifier-derived fields
-                # so the adapt prefetch does not inject raw-query results.
-                scoped_parts: list[str] = []
-                if plan.research_goal:
-                    research_goal = _sanitize_research_hint_text(
-                        plan.research_goal,
-                        query=request.query,
-                    )
-                    if research_goal:
-                        scoped_parts.append(f"Research goal: {research_goal}")
-                if plan.pattern_category:
-                    scoped_parts.append(f"Pattern category: {plan.pattern_category}")
-                if plan.change_goal:
-                    scoped_parts.append(f"Change goal: {plan.change_goal}")
-                if plan.model_families:
-                    families = ", ".join(plan.model_families)
-                    scoped_parts.append(f"Model families: {families}")
-                if scoped_parts:
-                    query = "; ".join(scoped_parts)
-        sources: tuple[str, ...] | None = None
-        if plan is not None and _canonical_route_for_plan(plan) == "research":
-            source_prefs = _sanitize_source_preferences(
-                plan.source_preferences,
-                query=request.query,
-            )
-            if source_prefs:
-                sources = tuple(source_prefs)
-        result = run_research_phase(
-            query,
-            graph=request.graph,
-            target_node_type=plan.target_node_type if plan is not None else "",
-            hivemind_client=_default_hivemind_client,
-            sources=sources,
-            deadline=deadline,
-        )
-        inspection = _graph_inspection(request.graph)
-        if inspection:
-            summary = f"{result.summary}\n\nGraph inspection:\n{inspection}"
-            result = ResearchResult(
-                summary=summary,
-                sources=result.sources,
-                warnings=result.warnings,
-                warning_details=result.warning_details,
-                precedent_slices=result.precedent_slices,
-                adaptation_plan=result.adaptation_plan,
-                precedent_packet=result.precedent_packet,
-                precedent_sources=result.precedent_sources,
-                workflow_precedent_status=result.workflow_precedent_status,
-                selected_precedent=result.selected_precedent,
-                community_summary=result.community_summary,
-            )
-        return result
-    except Exception as exc:
-        LOGGER.exception("executor research phase failed", exc_info=exc)
-        # Research is always best-effort.  A total failure (e.g. search
-        # index corruption) produces an empty result with a warning so the
-        # executor can still produce a reply.
-        return ResearchResult(
-            summary="Research skipped due to an internal error.",
-            warnings=(f"research phase failed: {type(exc).__name__}",),
-            warning_details=(warning_detail_from_exception(exc),),
-        )
+    raise RuntimeError(
+        "legacy automatic research engine removed (C01); research is agent-owned — "
+        "use run_agent_research_stage via _run_agent_owned_research"
+    )
 
+
+def _run_research(*args: Any, **kwargs: Any) -> Any:
+    """Legacy executor research phase — removed (C01); see ``run_research_phase``."""
+    return run_research_phase(*args, **kwargs)
+
+
+def _default_hivemind_client(*args: Any, **kwargs: Any) -> Any:
+    """Legacy default Hivemind client — removed (C01); research is agent-owned."""
+    raise RuntimeError(
+        "legacy _default_hivemind_client removed (C01); hivemind access is via "
+        "the agent-invoked hivemind_search/hivemind_get tools"
+    )
+
+
+# ── research phase ───────────────────────────────────────────────────────────
 
 # ── implement phase ──────────────────────────────────────────────────────────
 
 
-def _adapt_execution_plan_note(
-    request: ExecutorRequest,
-    plan: ClassifyDecision,
-    research_result: ResearchResult | None,
-) -> dict[str, Any] | None:
-    """Return serialized M3-enforced execution-plan context for adapt requests."""
+_C1_SUPPORTED_SOURCE_PREFERENCES = frozenset({"hivemind", "messages", "workflows"})
 
-    if research_result is None or _canonical_route_for_plan(plan) != "adapt":
-        return None
 
-    graph_facts = None
-    should_plan = needs_precedent_plan(plan, task=request.query)
-    if request.graph is not None:
-        try:
-            graph_facts = collect_graph_facts(request.graph)
-        except Exception:
-            LOGGER.debug("execution plan graph-fact collection failed", exc_info=True)
-            graph_facts = None
-        if not should_plan:
-            should_plan = needs_precedent_plan(
-                plan,
-                task=request.query,
-                graph_facts=graph_facts,
-            )
-    if not should_plan:
-        return None
+@dataclass(frozen=True)
+class AgentResearchResult:
+    """Active C1 output; edit agents receive only its compact ledger."""
 
-    try:
-        execution_plan = build_execution_plan(
-            research_result=research_result,
-            classify_result=plan,
-            task=request.query,
-            graph_facts=graph_facts,
-            graph=request.graph,
+    route: str
+    trace: AgentResearchTrace
+    evidence_pack: EvidencePack
+    policy_diagnostics: tuple[dict[str, Any], ...] = ()
+    decision_memo: Mapping[str, Any] | None = None
+
+    @property
+    def ledger(self) -> EvidenceLedger:
+        return self.evidence_pack.ledger
+
+    @property
+    def summary(self) -> str:
+        return self.trace.summary
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        return tuple(self.trace.warnings) + tuple(
+            str(item.get("message") or "")
+            for item in self.policy_diagnostics
+            if item.get("message")
         )
-    except Exception:
-        LOGGER.debug("execution plan builder failed", exc_info=True)
-        return None
-    if execution_plan is None:
-        return None
 
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "mode": "agent_owned",
+            "route": self.route,
+            "status": self.trace.status,
+            "verdict": self.trace.final_verdict,
+            "diagnostics": [dict(item) for item in self.policy_diagnostics],
+        }
+        if self.decision_memo is not None:
+            # Research-only exposes the bounded C5 memo, never source bodies,
+            # iterations, or the full C1 artifact pack.
+            payload.update(dict(self.decision_memo))
+        else:
+            # Edit routes expose only the compact C1 ledger.
+            payload["ledger"] = self.ledger.to_dict()
+        return payload
+
+
+def _source_policy_entries(
+    plan: ClassifyDecision,
+) -> tuple[tuple[EvidenceLedgerEntry, ...], tuple[dict[str, Any], ...]]:
+    """Make unsupported classifier source requests visible, never rewrite them."""
+
+    entries: list[EvidenceLedgerEntry] = []
+    diagnostics: list[dict[str, Any]] = []
+    for source in plan.source_preferences:
+        source_name = str(source).strip()
+        if not source_name or source_name.casefold() in _C1_SUPPORTED_SOURCE_PREFERENCES:
+            continue
+        message = (
+            f"Requested source '{source_name}' is unavailable in the active C1 "
+            "research stage; it was not silently substituted or removed."
+        )
+        entries.append(EvidenceLedgerEntry(
+            decision="source_policy",
+            conclusion=message,
+            evidence_ids=(),
+            uncertainty=f"No {source_name} evidence was inspected.",
+        ))
+        diagnostics.append({
+            "code": "unsupported_research_source",
+            "severity": "warning",
+            "source": source_name,
+            "message": message,
+        })
+    return tuple(entries), tuple(diagnostics)
+
+
+def _research_decision_memo(
+    trace: AgentResearchTrace,
+    *,
+    diagnostics: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    inspected = [
+        evidence_id
+        for evidence_id in trace.citations
+        if str(evidence_id).startswith("hivemind_get:")
+    ] or list(trace.citations)
+    uncertainty_parts = [trace.uncertainty.strip()] if trace.uncertainty.strip() else []
+    uncertainty_parts.extend(
+        str(item.get("message") or "").strip()
+        for item in diagnostics
+        if str(item.get("message") or "").strip()
+    )
     return {
-        "plan": execution_plan.to_dict(),
-        "provenance": {
-            "builder": "vibecomfy.executor.execution_plan_builder.build_execution_plan",
-            "routing": "vibecomfy.executor.execution_plan_builder.needs_precedent_plan",
-            # B3/H03: execution plans are advisory, agent-authored, revisable —
-            # never enforced at the executor note level.
-            "phase": "advisory_plan_suggestion",
-            "enforced": False,
-        },
+        "question": trace.question,
+        "conclusion": trace.summary or "No supported conclusion was produced.",
+        "citations": inspected[:6],
+        "uncertainty": " ".join(uncertainty_parts),
+        "next_action": (
+            "Use this conclusion for the requested next step."
+            if trace.final_verdict == "enough"
+            else "Refine the unresolved research question before acting on this conclusion."
+        ),
     }
+
+
+def _run_agent_owned_research(
+    request: ExecutorRequest,
+    spec: AgentSpecShape,
+    *,
+    plan: ClassifyDecision,
+) -> AgentResearchResult:
+    route = _canonical_route_for_plan(plan)
+    question, _source_field = form_research_question(request=request, plan=plan)
+    trace, pack = run_agent_research_stage(route=route, question=question, spec=spec)
+    policy_entries, diagnostics = _source_policy_entries(plan)
+    if policy_entries:
+        pack = EvidencePack(
+            artifacts=pack.artifacts,
+            ledger=EvidenceLedger(entries=pack.ledger.entries + policy_entries),
+        )
+    memo = _research_decision_memo(trace, diagnostics=diagnostics) if route == "research" else None
+    return AgentResearchResult(
+        route=route,
+        trace=trace,
+        evidence_pack=pack,
+        policy_diagnostics=diagnostics,
+        decision_memo=memo,
+    )
 
 
 def _run_implement(
@@ -1244,7 +1031,7 @@ def _run_implement(
     spec: AgentSpecShape,
     *,
     plan: ClassifyDecision,
-    research_result: ResearchResult | None = None,
+    research_result: AgentResearchResult | None = None,
     client_id: str | None = None,
     additive: bool = False,
 ) -> ImplementationResult:
@@ -1254,8 +1041,7 @@ def _run_implement(
     session_id, idempotency_key}`` (SD2).
     The resolved *spec* supplies ``route`` and ``model`` so the edit engine
     uses the profile-configured provider path.
-    When research has run, its summary and structured sources are forwarded so
-    implementation can act on the discovered workflow/template context.
+    When C1 research has run, only its compact evidence ledger is forwarded.
     Converts the result to an :class:`ImplementationResult`; failures from
     the edit engine are surfaced as :class:`_ExecutorPhaseError`.
     """
@@ -1263,35 +1049,6 @@ def _run_implement(
     if request.graph is None and executor_route != "research":
         return ImplementationResult(
             message="No graph attached; implementation skipped.",
-        )
-    if executor_route == "adapt" and _adapt_research_failed_closed(research_result):
-        message = (
-            "I could not safely adapt this workflow because the required workflow "
-            "research failed before finding any precedent evidence. The graph is unchanged."
-        )
-        return ImplementationResult(
-            message=message,
-            durable_response={
-                "ok": True,
-                "message": message,
-                "graph_unchanged": True,
-                "no_candidate_reason": "implementation_skipped",
-                "apply_eligible": False,
-                "apply_allowed": False,
-                "canvas_apply_allowed": False,
-                "apply_eligibility": {
-                    "applyable": False,
-                    "reason": "no_candidate",
-                    "message": "No candidate is available to apply.",
-                    "warnings": ["research_failed"],
-                },
-                "outcome": {
-                    "kind": "noop",
-                    "message": message,
-                    "graph_unchanged": True,
-                },
-            },
-            diagnostics={"research_failed": True},
         )
     classification = plan.to_dict()
     classification["route"] = executor_route
@@ -1315,144 +1072,13 @@ def _run_implement(
     graph_inspection = _graph_inspection(request.graph)
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         payload["graph_inspection"] = graph_inspection
-    if research_result is not None:
-        if executor_route == "adapt":
-            # Adapt route: nest scoped research under execution_protocol_notes,
-            # include research_context_packet as discardable context, and do
-            # NOT inject raw research_summary/sources into the payload.
-            protocol_notes: dict[str, Any] = {}
-            # Classifier-derived scoping fields (unranked, context-only).
-            if plan.research_goal:
-                protocol_notes["research_goal"] = plan.research_goal
-            if plan.pattern_category:
-                protocol_notes["pattern_category"] = plan.pattern_category
-            if plan.change_goal:
-                protocol_notes["change_goal"] = plan.change_goal
-            if plan.model_families:
-                protocol_notes["model_families"] = list(plan.model_families)
-            if research_result.workflow_precedent_status:
-                protocol_notes["workflow_precedent_status"] = (
-                    research_result.workflow_precedent_status
-                )
-            if research_result.selected_precedent is not None:
-                protocol_notes["selected_precedent"] = (
-                    research_result.selected_precedent.to_dict()
-                )
-            # Research summary as contextual note (not directive).
-            if research_result.summary:
-                protocol_notes["research_summary"] = research_result.summary
-            if research_result.precedent_sources:
-                protocol_notes["research_sources"] = list(
-                    research_result.precedent_sources
-                )
-            if research_result.warnings:
-                protocol_notes["research_warnings"] = list(research_result.warnings)
-            if research_result.adaptation_plan is not None:
-                actionability = adaptation_plan_actionability_payload(
-                    research_result.adaptation_plan
-                )
-                protocol_notes["adaptation_plan_actionability"] = actionability
-                if actionability.get("actionability") == "actionable":
-                    # Preserve the concrete splice across the executor ->
-                    # Agent Edit boundary.  Forwarding only the word
-                    # "actionable" discards the required nodes, rewires, and
-                    # edit operations that made the precedent actionable.
-                    protocol_notes["adaptation_plan"] = (
-                        research_result.adaptation_plan.to_dict()
-                    )
-            provenance_slices = [
-                s.to_dict()
-                for s in research_result.precedent_slices
-                if s.source_template or s.widget_values or s.incident_edges
-            ]
-            if provenance_slices:
-                # Evidence priors remain visible even when the broader
-                # adaptation plan is non-actionable.
-                protocol_notes["precedent_slices"] = provenance_slices
-                payload["precedent_slices"] = provenance_slices
-            execution_plan_note = _adapt_execution_plan_note(
-                request,
-                plan,
-                research_result,
-            )
-            if execution_plan_note is not None:
-                protocol_notes["execution_plan"] = execution_plan_note
-            if protocol_notes:
-                if execution_plan_note is not None:
-                    protocol_notes["_discardability"] = (
-                        "The nested execution_plan is enforced execution protocol "
-                        "and is hydrated into runtime state. Other research context "
-                        "in this packet is evidence only: it is NOT authoritative "
-                        "guidance or a required implementation. Discard any non-plan "
-                        "packet that is empty, irrelevant, or contradicts the user's "
-                        "explicit request."
-                    )
-                elif research_result.selected_precedent is not None:
-                    protocol_notes["_discardability"] = (
-                        "This research context is provided as evidence. "
-                        "It is NOT authoritative guidance or a required "
-                        "implementation. Discard any packet that is empty, "
-                        "irrelevant, or contradicts the user's explicit request. "
-                        "Use selected_precedent as the grounding workflow "
-                        "interpretation unless it contradicts the user's "
-                        "explicit request. Other packets remain supporting "
-                        "context."
-                    )
-                else:
-                    protocol_notes["_discardability"] = (
-                        "This research context is provided as evidence only. "
-                        "It is NOT authoritative guidance or a required "
-                        "implementation. Discard any packet that is empty, "
-                        "irrelevant, or contradicts the user's explicit request."
-                    )
-                actionability = protocol_notes.get("adaptation_plan_actionability")
-                if (
-                    isinstance(actionability, Mapping)
-                    and actionability.get("actionability") == "non_actionable"
-                ):
-                    protocol_notes["_discardability"] += (
-                        " The adaptation plan is explicitly non-actionable: "
-                        "do not use a failed or empty adaptation plan as edit "
-                        "instructions. Instead use current graph facts for a "
-                        "bounded direct edit when schema is sufficient, follow "
-                        "an execution_plan with concrete required nodes/rewires, "
-                        "or return a typed refusal/clarification naming the "
-                        "missing authoring surface."
-                    )
-                payload["execution_protocol_notes"] = protocol_notes
-            # Include precedent packet as discardable research context.
-            if (
-                research_result.workflow_precedent_status == "compatible_workflow_found"
-                and research_result.precedent_packet is not None
-            ):
-                payload["research_context_packet"] = (
-                    research_result.precedent_packet.to_dict()
-                )
-        else:
-            # Non-adapt routes: forward full research payload as before.
-            research_payload = research_result.to_dict()
-            payload["research_summary"] = research_payload.get("summary", "")
-            payload["research_sources"] = research_payload.get("sources", [])
-            payload["executor_research"] = research_payload
-            # Forward structured precedent data to the edit engine (SD2).
-            # The adaptation plan is neutral context — selected_slice is
-            # presentation context only, not a winner/recommendation/required
-            # implementation.  All available slices are included in all_slices.
-            if research_result.precedent_slices:
-                payload["precedent_slices"] = [
-                    s.to_dict() for s in research_result.precedent_slices
-                ]
-            if research_result.adaptation_plan is not None:
-                payload["adaptation_plan"] = research_result.adaptation_plan.to_dict()
-    suppress_research_avoid = (
-        executor_route == "adapt"
-        and research_result is not None
-        and research_result.selected_precedent is not None
-    )
+    research_ledger = getattr(research_result, "ledger", None)
+    if isinstance(research_ledger, EvidenceLedger) and executor_route == "adapt":
+        payload["research_ledger"] = research_ledger.to_dict()
     research_brief = _research_brief_from_plan(
         plan,
         query=request.query,
-        suppress_avoid=suppress_research_avoid,
+        suppress_avoid=False,
     )
     if research_brief:
         payload["research_brief"] = research_brief
@@ -1572,24 +1198,6 @@ def _run_implement(
     )
 
 
-def _adapt_research_failed_closed(research_result: ResearchResult | None) -> bool:
-    """Adapt needs precedent evidence; total research failure must not edit."""
-    if research_result is None:
-        return True
-    has_precedent = bool(
-        research_result.precedent_packet
-        or research_result.adaptation_plan
-        or research_result.precedent_slices
-        or research_result.precedent_sources
-        or research_result.selected_precedent
-    )
-    if has_precedent:
-        return False
-    summary = str(research_result.summary or "").lower()
-    warnings = " ".join(str(warning) for warning in (research_result.warnings or ())).lower()
-    return "research skipped" in summary or "research phase failed" in warnings
-
-
 def _implementation_response_is_terminal_no_candidate(result: dict[str, Any]) -> bool:
     """Return true when agent-edit succeeded by declining an applyable candidate."""
     outcome = result.get("outcome")
@@ -1642,7 +1250,11 @@ def _research_brief_from_plan(
         if search_directions:
             brief["search_directions"] = list(search_directions)
     if plan.source_preferences:
-        source_preferences = _sanitize_source_preferences(plan.source_preferences, query=query)
+        source_preferences = tuple(
+            str(source).strip()
+            for source in plan.source_preferences
+            if str(source).strip()
+        )
         if source_preferences:
             brief["source_preferences"] = list(source_preferences)
     if plan.avoid and not suppress_avoid:
@@ -1686,7 +1298,7 @@ def _run_reply(
     *,
     plan: ClassifyDecision,
     effective_graph: dict[str, Any] | None,
-    research_result: ResearchResult | None = None,
+    research_result: AgentResearchResult | None = None,
     implementation_result: ImplementationResult | None = None,
     graph_inspection: str | None = None,
 ) -> str:
@@ -1698,14 +1310,6 @@ def _run_reply(
 
     Converts provider exceptions through ``classify_failure``.
     """
-    # B04: the research route's answer is the community display paragraph.
-    # Prefer ResearchResult.community_summary over summary when non-empty
-    # (summary stays the fallback for legacy prefetched research).
-    research_summary: str | None = (
-        research_result.community_summary
-        if research_result is not None and research_result.community_summary
-        else (research_result.summary if research_result else None)
-    )
     implementation_message: str | None = (
         implementation_result.message if implementation_result else None
     )
@@ -1718,10 +1322,6 @@ def _run_reply(
     if graph_inspection:
         effective_graph_context = graph_inspection
 
-    adaptation_plan: dict[str, Any] | None = None
-    if research_result is not None and research_result.adaptation_plan is not None:
-        adaptation_plan = research_result.adaptation_plan.to_dict()
-
     route_behavior = _route_behavior(plan)
     effective_route = _canonical_route_for_plan(plan)
     effective_task = plan.effective_task
@@ -1730,20 +1330,18 @@ def _run_reply(
         and implementation_result is not None
         and implementation_result.graph is not None
     )
-    research_sources: tuple[dict[str, Any], ...] | None = None
-    if research_result is not None:
-        if effective_route == "adapt" and research_result.precedent_sources:
-            research_sources = research_result.precedent_sources
-        elif research_result.sources:
-            research_sources = research_result.sources
-    research_warnings: tuple[str, ...] | None = (
-        research_result.warnings if research_result and research_result.warnings else None
+    research_memo = (
+        dict(research_result.decision_memo)
+        if research_result is not None
+        and effective_route == "research"
+        and research_result.decision_memo is not None
+        else None
     )
-    research_precedent_slices: tuple[dict[str, Any], ...] | None = None
-    if research_result and research_result.precedent_slices:
-        research_precedent_slices = tuple(
-            s.to_dict() for s in research_result.precedent_slices
-        )
+    research_ledger = (
+        research_result.ledger.to_dict()
+        if research_result is not None and effective_route == "adapt"
+        else None
+    )
 
     try:
         reply_kwargs: dict[str, Any] = {
@@ -1751,13 +1349,10 @@ def _run_reply(
             "model": spec.model,
             "effort": spec.effort,
             "plan": plan,
-            "research_summary": research_summary,
-            "research_sources": research_sources,
-            "research_warnings": research_warnings,
-            "research_precedent_slices": research_precedent_slices,
+            "research_memo": research_memo,
+            "research_ledger": research_ledger,
             "implementation_message": implementation_message,
             "graph_summary": effective_graph_context,
-            "adaptation_plan": adaptation_plan,
             "effective_route": effective_route,
             "effective_task": effective_task,
             "candidate_present": candidate_present,
@@ -1766,8 +1361,7 @@ def _run_reply(
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
         optional_reply_kwargs = (
-            "graph_summary", "adaptation_plan",
-            "research_sources", "research_warnings", "research_precedent_slices",
+            "graph_summary", "research_memo", "research_ledger",
             "effective_route", "effective_task",
             "candidate_present", "interaction_mode",
         )
@@ -1954,7 +1548,7 @@ def run_executor(
         shape, never raised as raw exceptions.
     """
     plan: ClassifyDecision | None = None
-    research_result: ResearchResult | None = None
+    research_result: AgentResearchResult | None = None
     implementation_result: ImplementationResult | None = None
     effective_graph: dict[str, Any] | None = request.graph
     result_graph: dict[str, Any] | None = None
@@ -1974,7 +1568,7 @@ def run_executor(
     def _build_report(
         *,
         plan: ClassifyDecision | None = None,
-        research: ResearchResult | None = None,
+        research: AgentResearchResult | None = None,
         implementation: ImplementationResult | None = None,
         classification_status: str = "",
         fallback_model_attempts: tuple[dict[str, Any], ...] = (),
@@ -2064,50 +1658,15 @@ def run_executor(
             plan=plan,
             client_id=client_id,
         )
-        # ── Delegated clarification loop-break ───────────────────────────
-        # When the user responds to a prior clarification with a delegation
-        # phrase ("pick some please", "you decide", etc.), deterministically
-        # continue with the previously blocked edit route instead of asking
-        # again.  This check runs after classify so the model is still called
-        # (preserving prompt context assembly), but the route is overridden
-        # to avoid a clarification loop.
-        delegated_plan: ClassifyDecision | None = None
+        # The typed classifier output is authoritative for ambiguity.  Code
+        # records clarify context but never rewrites the selected route.
         if plan.effective_route == "clarify":
-            delegated_plan = _delegated_clarification_plan(
-                request, session_context
-            )
-        if delegated_plan is not None:
-            plan = delegated_plan
-            LOGGER.info(
-                "executor: delegated clarification follow-up → route=%s task=%s",
-                plan.effective_route,
-                plan.effective_task,
-            )
-        elif plan.effective_route == "clarify":
-            headless_plan = _headless_clarify_research_plan(
+            _save_clarification_context(
                 request,
                 plan,
-                additive=additive,
+                blocked_route=None,
+                blocked_task=None,
             )
-            if headless_plan is not None:
-                plan = headless_plan
-                LOGGER.info(
-                    "executor: clarify_route_blocked_research → headless adapt"
-                )
-            else:
-                intended_route = "adapt" if plan.research else None
-                if plan.intent == "edit":
-                    intended_route = intended_route or "revise"
-                _save_clarification_context(
-                    request,
-                    plan,
-                    blocked_route=intended_route,
-                    blocked_task=(
-                        "edit_graph"
-                        if intended_route in {"revise", "adapt"}
-                        else None
-                    ),
-                )
     except _ExecutorPhaseError as exc:
         # The classify phase raised — the report must NOT claim a model
         # decision (respond_only) that never happened. Record
@@ -2177,7 +1736,7 @@ def run_executor(
     # for diagnosis/advice turns: no graph edit may be produced, whatever the
     # classifier decided.  It is never inferred from apply=false — that flag
     # only declares whether a candidate is applied, not whether editing is
-    # permitted.  Edit-capable routes are downgraded to deterministic research
+    # permitted.  Edit-capable routes are downgraded to agent-owned research
     # + semantic reply so the user still gets a grounded answer.
     if request.interaction_mode == "answer_only":
         plan = _answer_only_plan(plan)
@@ -2189,22 +1748,17 @@ def run_executor(
         )
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
-    if _should_prefetch_research(plan, request=request):
+    if _canonical_route_for_plan(plan) in {"research", "adapt"}:
         try:
             research_spec = _resolve_spec(request.profile, "research")
-        except Exception:
-            # Profile missing research spec is non-fatal — skip research.
-            research_result = ResearchResult(
-                summary="Research skipped (no research spec in profile).",
-                warnings=("research profile missing",),
-            )
-            _emit_executor_phase_event(
-                request,
-                executor_id=executor_id,
-                phase="research",
-                status="skipped",
-                client_id=client_id,
-            )
+        except Exception as exc:
+            failure = classify_failure("profile", exc)
+            return _finish(ExecutorResult.failure(
+                kind=failure.kind.value,
+                stage="profile",
+                message=failure.user_facing_message,
+                report=_build_report(plan=plan),
+            ))
         else:
             _emit_executor_phase_event(
                 request,
@@ -2220,63 +1774,17 @@ def run_executor(
                 phase="research",
                 **_spec_fields(research_spec),
             ) as span:
-                try:
-                    # R2-B1: bound the synchronous Phase-2 research wait with a
-                    # cooperative wall-clock deadline.  research() propagates
-                    # the remaining time to every external tier and returns
-                    # partial evidence when it expires instead of raising.
-                    research_result = _run_research(
-                        request,
-                        research_spec,
-                        plan=plan,
-                        deadline=_phase_2_research_deadline(),
-                    )
-                    span.update(
-                        warning_count=len(research_result.warnings or ()),
-                        summary_preview=short_text(research_result.summary),
-                    )
-                    # H01: run the C1 agent-owned research stage BESIDE legacy
-                    # research (shadow/dual-evaluation) for research/adapt
-                    # routes.  Both evidence packs are captured; the shadow
-                    # result is inert and NEVER alters route, graph, reply, or
-                    # queue decisions — legacy behavioral output stays
-                    # authoritative until the C01 cutover.  It rides on the
-                    # legacy ResearchResult as a private attribute so every
-                    # existing serialization path stays byte-identical.
-                    # The stage is opt-in via VIBECOMFY_RESEARCH_SHADOW (the
-                    # dual-evaluation harness sets it) so default executor
-                    # runs — and unpatched test environments — never perform
-                    # shadow tool/model I/O.
-                    if _research_shadow_enabled():
-                        try:
-                            shadow_result = run_agent_research_shadow(
-                                request,
-                                plan=plan,
-                                spec=research_spec,
-                                legacy_result=research_result,
-                            )
-                            object.__setattr__(
-                                research_result,
-                                "research_shadow",
-                                shadow_result,
-                            )
-                            span.update(
-                                research_shadow_status=shadow_result.trace.status,
-                                research_shadow_verdict=shadow_result.trace.final_verdict,
-                            )
-                        except Exception as exc:  # noqa: BLE001 - shadow is best-effort
-                            LOGGER.warning(
-                                "executor research shadow stage failed: %s", exc
-                            )
-                except _ExecutorPhaseError as exc:
-                    # Research failure is non-fatal; capture as empty result.
-                    research_result = ResearchResult(
-                        summary="Research skipped due to an error.",
-                        warnings=("research phase error; continuing",),
-                        warning_details=exc.warning_details
-                        or (warning_detail_from_exception(exc),),
-                    )
-                    span.update(warning_count=len(research_result.warnings or ()))
+                research_result = _run_agent_owned_research(
+                    request,
+                    research_spec,
+                    plan=plan,
+                )
+                span.update(
+                    research_status=research_result.trace.status,
+                    research_verdict=research_result.trace.final_verdict,
+                    ledger_entries=len(research_result.ledger.entries),
+                    summary_preview=short_text(research_result.summary),
+                )
     else:
         _emit_executor_phase_event(
             request,

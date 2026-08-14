@@ -2975,10 +2975,15 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
         audit_ref_expected=True,
     )
     assert session_stats["init"] == 1
-    assert session_stats["search_calls"] == [
-        {"formatted": True, "focus_types": ["LoadImage", "SaveImage"]},
-        {"formatted": False},
+    assert len(session_stats["search_calls"]) == 2
+    initial_search = session_stats["search_calls"][0]
+    assert initial_search["formatted"] is True
+    assert initial_search["focus_types"] == ["LoadImage", "SaveImage"]
+    assert [node["type"] for node in initial_search["in_graph_nodes"]["nodes"]] == [
+        "LoadImage",
+        "SaveImage",
     ]
+    assert session_stats["search_calls"][1] == {"formatted": False}
     assert len(captured_messages) == 2
 
     turn0_system = captured_messages[0][0]["content"]
@@ -4325,7 +4330,7 @@ def test_missing_custom_node_clarify_does_not_force_registry_after_schema_miss()
 def test_workflow_schema_clarify_does_not_force_uninstalled_provisional_nodes() -> None:
     from types import SimpleNamespace
 
-    from vibecomfy.comfy_nodes.agent.edit import _premature_workflow_schema_clarify_feedback
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     state = SimpleNamespace(
         batch_turns=[
@@ -4370,18 +4375,14 @@ def test_workflow_schema_clarify_does_not_force_uninstalled_provisional_nodes() 
         ]
     )
 
-    feedback = _premature_workflow_schema_clarify_feedback(
-        state,
-        "The current graph lacks the required AnimateDiff nodes, so I cannot build this.",
-    )
-
-    assert feedback == ""
+    assert state.batch_turns
+    assert not hasattr(agent_edit_module, "_premature_workflow_schema_clarify_feedback")
 
 
-def test_workflow_schema_clarify_rejects_asking_for_present_workflow_signatures() -> None:
+def test_workflow_schema_clarify_is_not_overridden_by_deterministic_feedback() -> None:
     from types import SimpleNamespace
 
-    from vibecomfy.comfy_nodes.agent.edit import _premature_workflow_schema_clarify_feedback
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     state = SimpleNamespace(
         execution_protocol_notes={
@@ -4421,18 +4422,8 @@ def test_workflow_schema_clarify_rejects_asking_for_present_workflow_signatures(
         executor_research_sources=(),
     )
 
-    feedback = _premature_workflow_schema_clarify_feedback(
-        state,
-        (
-            "I need to look up the exact schemas for "
-            "ADE_AnimateDiffLoaderWithContext and "
-            "ADE_AnimateDiffUniformContextOptions to wire this."
-        ),
-    )
-
-    assert "Premature workflow-schema clarification rejected" in feedback
-    assert "ADE_AnimateDiffLoaderWithContext" in feedback
-    assert "execution_protocol_notes.research_sources[].workflow_schema" in feedback
+    assert state.execution_protocol_notes["research_sources"]
+    assert not hasattr(agent_edit_module, "_premature_workflow_schema_clarify_feedback")
 
 
 def test_selected_precedent_unknown_constructor_stops_as_authoring_blocker(
@@ -4915,7 +4906,7 @@ def test_ambiguous_registry_evidence_only_candidates_are_not_exact_resolution(
     assert "resolver_candidates" not in dependencies[0]
 
 
-def test_rejected_terminal_clarify_is_durable_budget_failure(
+def test_justified_terminal_clarify_is_accepted_and_evidenced(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4933,8 +4924,11 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
                 "message": "I checked the workflow-derived constructor schema.",
             },
             {
-                "batch": 'clarify("The current graph lacks the required node, so I cannot build this.")',
-                "message": "I cannot continue without the missing node.",
+                "batch": (
+                    'clarify("I need you to choose which branch should receive '
+                    'ADE_AnimateDiffLoaderWithContext before I wire its available schema.")'
+                ),
+                "message": "The placement choice is decision-critical.",
             },
         ]
     )
@@ -4947,6 +4941,18 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
             "session_id": "rejected-terminal-clarify",
             "max_batches": 5,
             "max_consecutive_errors": 1,
+            "execution_protocol_notes": {
+                "research_sources": [
+                    {
+                        "workflow_schema": {
+                            "ADE_AnimateDiffLoaderWithContext": {
+                                "input": {"required": {}, "optional": {}},
+                                "outputs": [{"name": "MODEL", "type": "MODEL"}],
+                            }
+                        }
+                    }
+                ]
+            },
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -4954,13 +4960,12 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
         client_id="client-rejected-clarify",
     )
 
-    # The rejected terminal clarify is now a durable, successful non-commit
-    # outcome instead of a budget failure: the turn is persisted and audited,
-    # and the clarify is recorded as a plain clarification turn.
+    # Agent-owned clarification is a durable, successful non-commit outcome:
+    # the turn is persisted, audited, and recorded as evidence.
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert "so i cannot build this" in result["outcome"]["question"].lower()
+    assert "choose which branch" in result["outcome"]["question"].lower()
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
     assert result["audit_ref"] is not None
@@ -4980,7 +4985,7 @@ def test_rejected_terminal_clarify_is_durable_budget_failure(
         )
     )
     clarification = model_response["turns"][1]["clarification"]
-    assert clarification["clarification_message"] == "The current graph lacks the required node, so I cannot build this."
+    assert "choose which branch" in clarification["clarification_message"].lower()
     assert clarification["clarification_required"] is True
     assert "rejected_clarification" not in model_response["turns"][1]
 
@@ -7008,27 +7013,25 @@ def test_handle_agent_edit_batch_repl_nudges_after_three_discovery_only_turns(
     assert 'clarify("...")' in nudged_prompt
 
 
-def test_handle_agent_edit_batch_repl_converges_repeated_discovery_to_existing_tweak(
+def test_handle_agent_edit_batch_repl_does_not_inject_existing_tweak_targets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     calls = 0
-    saw_direct_tweak_feedback = False
+    prompts: list[str] = []
 
     def _fake_batch_client(messages):
-        nonlocal calls, saw_direct_tweak_feedback
+        nonlocal calls
         calls += 1
         prompt_text = json.dumps(messages)
-        if "Direct existing-node tweak fallback applies here" in prompt_text:
-            saw_direct_tweak_feedback = True
+        prompts.append(prompt_text)
         if calls <= 3:
             return {
                 "batch": 'search(focus_types=["SaveImage"])',
                 "message": "Looking up the save node schema.",
             }
-        assert saw_direct_tweak_feedback
         return {
             "batch": 'saveimage.filename_prefix = "after"\ndone()',
             "message": "Changing the existing save prefix.",
@@ -7055,7 +7058,8 @@ def test_handle_agent_edit_batch_repl_converges_repeated_discovery_to_existing_t
     ]
     assert result["debug"]["batch_repl"]["exit_mode"] == "done"
     assert calls == 4
-    assert saw_direct_tweak_feedback is True
+    assert all("Direct existing-node tweak fallback applies here" not in prompt for prompt in prompts)
+    assert all("SaveImage [2]" not in prompt for prompt in prompts)
 
 
 def test_handle_agent_edit_batch_repl_discovery_nudge_suppressed_after_landed_edit(
@@ -7591,11 +7595,9 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
     assert '"saveimage.filename_prefix.after"' in retry_prompt
     assert '"step_id": "save-prefix-step"' in retry_prompt
     assert "done() was NOT accepted" in retry_prompt
-    assert "missing required execution-plan step ids: save-prefix-step" in retry_prompt
-    assert (
-        "failed execution-plan condition ids: saveimage.filename_prefix.after"
-        in retry_prompt
-    )
+    # The structured plan evaluation is authoritative; do not pin an additional
+    # deterministic prose recipe for how the agent should repair the failure.
+    assert "Fix the failing plan conditions (invariants)" in retry_prompt
     assert result["batch_turns"][0]["execution_plan_status"]["ok"] is False
     assert result["batch_turns"][0]["execution_plan_status"]["blocking"] is True
     assert result["batch_turns"][0]["execution_plan_status"]["failed_condition_ids"] == [
@@ -7722,7 +7724,6 @@ def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
     assert result["execution_plan_status"]["ok"] is False
     assert result["execution_plan_status"]["blocking"] is True
     assert set(result["execution_plan_status"]["failed_condition_ids"]) == {
-        "add-video-terminal.required_class",
         "hotshotxl.motion_reaches_video_terminal",
         "hotshotxl.active_output_is_video",
     }
@@ -14434,7 +14435,7 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
     ]
 
 
-def test_handle_agent_edit_revise_parameter_tweak_reaches_provider_despite_missing_model(
+def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recipe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -14486,6 +14487,11 @@ def test_handle_agent_edit_revise_parameter_tweak_reaches_provider_despite_missi
 
     def _provider(messages):
         captured_messages.append(messages)
+        if len(captured_messages) == 1:
+            return {
+                "batch": 'rank_edit_targets("increase ControlNet conditioning strength")',
+                "message": "I am requesting candidate edit targets from the graph.",
+            }
         return {
             "batch": "done()",
             "message": "No concrete graph change was emitted.",
@@ -14502,23 +14508,29 @@ def test_handle_agent_edit_revise_parameter_tweak_reaches_provider_despite_missi
             "provider_route": "codex",
             "executor_classification": {"route": "revise", "task": "edit_graph"},
             "session_id": "revise-parameter-tweak-missing-model",
-            "max_batches": 1,
+            "max_batches": 2,
         },
         schema_provider=provider,
         deepseek_client=_provider,
         session_root=tmp_path,
     )
 
-    assert captured_messages, "concrete existing-node tweaks should reach provider"
-    prompt = captured_messages[0][1]["content"]
-    assert "Direct existing-node tweak fallback applies here" in prompt
-    assert "No-op proof requirement" in prompt
+    assert captured_messages, "the agent should receive the revise request"
+    assert len(captured_messages) == 2
+    first_prompt = captured_messages[0][1]["content"]
+    assert "Direct existing-node tweak fallback applies here" not in first_prompt
+    assert "ACN ControlNet strength hardening" not in first_prompt
+    assert "ACN_AdvancedControlNetApply [56]" not in first_prompt
+    assert "No-op proof requirement" in first_prompt
+    second_prompt = captured_messages[1][1]["content"]
+    assert "rank_edit_targets 'increase ControlNet conditioning strength'" in second_prompt
+    assert "ACN_AdvancedControlNetApply" in second_prompt
     assert result["ok"] is True
     turn_dir = turn_dir_for(tmp_path, "revise-parameter-tweak-missing-model", str(result["turn_id"]))
     assert (turn_dir / "model_request.json").exists()
 
 
-def test_handle_agent_edit_revise_parameter_tweak_candidate_ignores_preexisting_missing_model(
+def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -14687,7 +14699,7 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
     assert (turn_dir / "model_request.json").exists()
 
 
-def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signatures(
+def test_handle_agent_edit_empty_sd15_seed_suggestions_require_explicit_tool_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -14783,24 +14795,14 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
 
     def _provider(messages):
         captured_messages.append(messages)
+        if len(captured_messages) == 1:
+            return {
+                "batch": 'suggest_seed_nodes("text to image")',
+                "message": "I am asking for schema-aware seed candidates.",
+            }
         return {
-            "batch": (
-                'ckpt = CheckpointLoaderSimple(ckpt_name="v1-5-pruned-emaonly.safetensors")\n'
-                'pos = CLIPTextEncode(text="a beautiful landscape", clip=ckpt.CLIP)\n'
-                'neg = CLIPTextEncode(text="blurry, low quality", clip=ckpt.CLIP)\n'
-                "latent = EmptyLatentImage(width=512, height=512, batch_size=1)\n"
-                "sampler = KSampler(model=ckpt.MODEL, positive=pos.CONDITIONING, "
-                "negative=neg.CONDITIONING, latent_image=latent.LATENT, seed=42, "
-                'steps=20, cfg=7.0, sampler_name="euler", scheduler="normal", denoise=1.0)\n'
-                "decode = VAEDecode(samples=sampler.LATENT, vae=ckpt.VAE)\n"
-                'save = SaveImage(images=decode.IMAGE, filename_prefix="SD1.5")\n'
-                "done()"
-            ),
-            "message": (
-                "I created a standard SD1.5 text-to-image workflow with a "
-                "CheckpointLoaderSimple, positive and negative CLIPTextEncode "
-                "nodes, an EmptyLatentImage, KSampler, VAEDecode, and SaveImage."
-            ),
+            "batch": 'clarify("Which checkpoint should the new workflow use?")',
+            "message": "The seed candidates are available; the checkpoint choice is decision-critical.",
         }
 
     result = handle_agent_edit(
@@ -14836,72 +14838,38 @@ def test_handle_agent_edit_empty_sd15_workflow_reaches_provider_with_seed_signat
                 "task": "edit_graph",
             },
             "session_id": "empty-sd15-workflow",
-            "max_batches": 1,
+            "max_batches": 2,
         },
         schema_provider=provider,
         deepseek_client=_provider,
         session_root=tmp_path,
     )
 
-    assert captured_messages, "empty-canvas workflow generation should reach provider"
+    assert len(captured_messages) == 2
     first_user_prompt = captured_messages[0][1]["content"]
     assert "Resolved executor context" in first_user_prompt
     assert "Create a standard SD1.5 text-to-image workflow" in first_user_prompt
-    assert "def CheckpointLoaderSimple" in first_user_prompt
-    assert "def CLIPTextEncode" in first_user_prompt
-    assert "def KSampler" in first_user_prompt
-    assert "def VAEDecode" in first_user_prompt
-    assert "def SaveImage" in first_user_prompt
+    assert "def CheckpointLoaderSimple" not in first_user_prompt
+    assert "def CLIPTextEncode" not in first_user_prompt
+    assert "def KSampler" not in first_user_prompt
+    assert "def VAEDecode" not in first_user_prompt
+    assert "def SaveImage" not in first_user_prompt
+    assert "suggestion(s): CLIPTextEncode" not in first_user_prompt
+    second_user_prompt = captured_messages[1][1]["content"]
+    assert "suggest_seed_nodes 'text to image'" in second_user_prompt
+    assert "CLIPTextEncode" in second_user_prompt
+    assert "KSampler" in second_user_prompt
+    assert "VAEDecode" in second_user_prompt
     system_prompt = captured_messages[0][0]["content"]
     assert "user-facing prose sentence" in system_prompt
     assert "Never respond with only a fenced block" in system_prompt
     assert result["ok"] is True
-    assert result["outcome"]["kind"] == "candidate"
-    assert result["message"].startswith("Added CheckpointLoaderSimple")
-    assert "KSampler" in result["message"]
-    assert "VAEDecode" in result["message"]
-    assert "SaveImage" in result["message"]
-    assert result["apply_allowed"] is True
-    assert result["queue_allowed"] is True
-    assert result["change_details"]["landed_operation_count"] == 7
-    assert result["candidate"] is not None
-    assert len(result["candidate"]["graph"]["nodes"]) == 7
-    sampler_node = next(
-        node for node in result["candidate"]["graph"]["nodes"] if node["type"] == "KSampler"
-    )
-    assert [input_slot["name"] for input_slot in sampler_node["inputs"]] == [
-        "model",
-        "positive",
-        "negative",
-        "latent_image",
-    ]
-    sampler_links = {
-        link[4]: link[5]
-        for link in result["candidate"]["graph"]["links"]
-        if str(link[3]) == str(sampler_node["id"])
-    }
-    assert sampler_links == {
-        0: "MODEL",
-        1: "CONDITIONING",
-        2: "CONDITIONING",
-        3: "LATENT",
-    }
-    sampler_projection = next(
-        node
-        for node in result["candidate_transaction"]["candidate_authority"]["postcondition"]["canonical"]["nodes"]
-        if node["type"] == "KSampler"
-    )
-    assert sampler_projection["widgets_values"][3] == 7
-    assert isinstance(sampler_projection["widgets_values"][3], int)
-    evidence = result["report"]["revision_evidence"]
-    assert evidence["candidate_eligible"] is True
-    assert evidence["scoped_diff"]["candidate_eligible"] is True
-    assert evidence["scoped_diff"]["eligibility_blockers"] == []
+    assert result["outcome"]["kind"] == "clarify"
+    assert result.get("candidate") is None
+    assert result.get("apply_allowed", False) is False
     turn_dir = turn_dir_for(tmp_path, "empty-sd15-workflow", str(result["turn_id"]))
     assert (turn_dir / "model_request.json").exists()
     assert (turn_dir / "response.json").exists()
-    assert (turn_dir / "authority" / "receipt.json").exists()
-    assert len(list((turn_dir / "transactions").glob("*/candidate_transaction.json"))) == 1
 
 
 
@@ -18240,8 +18208,8 @@ class TestBuildBatchMessagesResearchToolExposure:
 
     def test_research_only_prompt_documents_omit_default_and_judgment(self) -> None:
         """B03: the research-only prompt documents the messages+web omit
-        default, omits graph-construction + the 4-turn apply-edit cap, and
-        leaves search-again-vs-done to the agent's judgment."""
+        default, omits graph-construction and deterministic turn caps, and leaves
+        search-again-vs-done to the agent's judgment."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         messages = build_batch_messages(
@@ -18259,10 +18227,10 @@ class TestBuildBatchMessagesResearchToolExposure:
         assert "If sources are omitted on this informational route" in system
         assert "messages and web" in system
         assert "NOT workflows" in system
-        # no 4-turn apply-edit cap (only the explicit "no cap" sentence)
+        # no deterministic research-turn cap wording
         assert "Research cap:" not in system
         assert "after 4 consecutive turns" not in system
-        assert "There is no 4-turn" in system
+        assert "4-turn" not in system
         assert "Add:" not in system
         assert "Change:" not in system
         assert "Two moves:" not in system
@@ -19906,17 +19874,7 @@ def test_executor_revise_idempotency_conflict_through_edit(
 
 
 def test_additive_flag_does_not_bypass_pre_edit_readonly_gate(tmp_path) -> None:
-    """The revise pre-edit readonly gate must NOT read the ``additive`` flag.
-
-    Safety contract (revert): a prior commit added ``not _state_additive_request``
-    to the readonly gate so an ``additive=True`` hint could bypass the
-    dangling-endpoint check. That bypass was (a) flag-driven rather than
-    registry-grounded and (b) proven non-functional (0 additive passes). It was
-    reverted. This test pins the revert: the helper must be gone from the agent
-    package, and the gate predicate must not mention ``additive`` /
-    ``_state_additive_request`` at all. Additive relaxations, if any, must come
-    through the registry-grounded ``_can_attempt_local_additive_revise`` path.
-    """
+    """Only evidence-backed hard blockers may stop a revise before the agent."""
     import inspect
 
     from vibecomfy.comfy_nodes.agent import _frag_orchestration, _frag_research
@@ -19929,7 +19887,10 @@ def test_additive_flag_does_not_bypass_pre_edit_readonly_gate(tmp_path) -> None:
         "_frag_orchestration references _state_additive_request -- the additive "
         "flag-bypass was re-added to the readonly gate"
     )
-    assert "_can_attempt_local_additive_revise" in src
+    assert "_can_attempt_local_additive_revise" not in src
+    assert "_can_attempt_direct_existing_parameter_tweak" not in src
+    assert "evidence.topology.dangling_links" in src
+    assert "evidence.readiness.has_blockers" in src
 
 
 # ── W-07 Manifest protocol allowlist + dependency derivation tests ──────────
@@ -21205,13 +21166,11 @@ def test_projection_named_port_fallback_does_not_raise_missing_stable_link() -> 
 # ── PR-D: distinct budget-exit codes ─────────────────────────────────────────
 
 
-def test_rejected_clarify_after_incomplete_edit_is_not_budget_exhaustion(
+def test_clarify_after_landed_edit_is_accepted_as_edit_and_clarify(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PR-D cluster I: a rejected clarification while an edit remains incomplete
-    must emit `batch_rejected_clarify_incomplete_edit`, NOT `batch_budget_exhausted`
-    — even when many turns remain."""
+    """A justified agent clarification cannot be rewritten into a failure."""
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     events: list[tuple[str, dict[str, object], str | None]] = []
@@ -21246,24 +21205,22 @@ def test_rejected_clarify_after_incomplete_edit_is_not_budget_exhaustion(
         session_root=tmp_path,
     )
 
-    issue = result["agent_failure_context"]["issues"][0]
-    assert issue["code"] == "batch_rejected_clarify_incomplete_edit"
-    assert issue["detail"]["turn_count"] == 2
-    assert issue["detail"]["budget_state"]["remaining_batches"] == 48
-    assert "clarification" in issue["message"]
-    assert "incomplete" in issue["message"]
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["internal_outcome"]["kind"] == "edit+clarify"
+    assert result["clarification_required"] is True
+    assert result["apply_allowed"] is True
+    assert "node schema" in result["outcome"]["question"].lower()
+    assert "agent_failure_context" not in result
 
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     batch_meta = audit["metadata"]["batch_repl"]
-    assert batch_meta["exit_mode"] == "stuck"
+    assert batch_meta["exit_mode"] == "edit_clarify"
     assert batch_meta["turn_count"] == 2
     assert batch_meta["budget_state"]["remaining_batches"] == 48
-    assert batch_meta["final_summary"].startswith(
-        "Stopped because the model requested a clarification"
-    )
     assert [payload["status"] for _, payload, _ in events] == [
         "in_progress",
-        "stuck",
+        "clarify",
     ]
 
 

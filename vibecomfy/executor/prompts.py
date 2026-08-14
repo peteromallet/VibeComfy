@@ -23,6 +23,7 @@ from .contracts import (
     format_task_options_for_prompt,
     parse_target_node_type,
 )
+from .stage_contracts import NeedsInput
 
 # ── classify prompt ──────────────────────────────────────────────────────────
 
@@ -50,6 +51,9 @@ _CLASSIFY_SYSTEM = (
     "to the research direction; leave blank if unknown.\n"
     '  "target_node_type": string (optional) — the exact class_type token being '
     "added, changed, or restored; leave blank when unclear.\n"
+    '  "needs_input": object or null — typed decision-critical ambiguity. The '
+    'object must contain "decision", "question", "missing_information", '
+    '"evidence_ids", "options", and optional "bounded_assumption".\n'
     '  "intent": "edit" | "research" | "explain_graph" | "respond" — the primary '
     "user intent.\n"
     f"{format_route_options_for_prompt()}"
@@ -73,7 +77,7 @@ _CLASSIFY_SYSTEM = (
     "reply=true, task=\"layout_reorganise\". This route may move, group, "
     "or tidy nodes but must not change workflow semantics.\n"
     "- route=\"clarify\": ask only when load-bearing information is missing and "
-    "the next safe route cannot be chosen.\n"
+    "the next safe route cannot be chosen. Emit needs_input with no bounded_assumption.\n"
     "\n"
     "Negative rules:\n"
     "- intent must be exactly one of: edit, research, explain_graph, respond.\n"
@@ -171,7 +175,8 @@ _CLASSIFY_SYSTEM = (
     "edit: route to route=\"revise\", never route=\"clarify\".\n"
     "- When the user asks you to choose, decide, pick defaults, or use your "
     "judgment, do not clarify merely because options exist. Continue with the "
-    "most reasonable route and summarize the default choice in plan_summary.\n"
+    "most reasonable route, record that choice as needs_input.bounded_assumption, "
+    "and summarize it in plan_summary. A bounded assumption must use a non-clarify route.\n"
     "- A chat / question with no graph edit intent and no requested lookup "
     "→ route=\"respond\".\n"
     "- A request to explain, describe, analyze, or inspect an attached graph "
@@ -374,16 +379,6 @@ def build_classify_messages(
                     parts.append(f"Prior clarification options:\n{opts}")
 
         # ── blocked route context ────────────────────────────────────────
-        prior_route = session_context.get("prior_route")
-        prior_task = session_context.get("prior_task")
-        if isinstance(prior_route, str) and prior_route.strip():
-            parts.append(
-                f"\nThe previous turn was blocked on route=\"{prior_route}\""
-                + (f", task=\"{prior_task}\"" if isinstance(prior_task, str) and prior_task.strip() else "")
-                + ". The user's follow-up should be classified with this "
-                + "original intent in mind."
-            )
-
         # ── latest candidate reference ──────────────────────────────────
         latest_candidate = session_context.get("latest_candidate")
         if isinstance(latest_candidate, dict):
@@ -505,16 +500,13 @@ _REPLY_SYSTEM = (
     "plainly and do not imply work has run; for route=\"respond\", answer from "
     "existing context only; for route=\"inspect\", explain the current graph "
     "from inspection evidence only; for route=\"research\", summarize the "
-    "research findings without implying an edit; for route=\"revise\", describe "
+    "C5 decision memo without implying an edit; for route=\"revise\", describe "
     "the concrete graph edit; for route=\"reorganise\", describe the layout "
     "cleanup without implying semantic workflow changes; for route=\"adapt\", "
     "explain how the researched precedent informed the edit.\n"
-    "- For route=\"research\", lead with the community findings, not with a "
-    "graph-change status line: no edit was made. Do not claim community "
-    "consensus, majority opinion, or aggregate sentiment unless the findings "
-    "literally state it. Cite community sources only by the author/channel or "
-    "title/status/confidence shown in the research sources; never invent "
-    "authors, channels, titles, or quotes.\n"
+    "- For route=\"research\", return the supplied C5 memo: question, conclusion, "
+    "resolvable citation IDs, uncertainty/conflicts, and next action. Do not add "
+    "sources or claims that are absent from that memo.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -547,6 +539,8 @@ def build_reply_messages(
     query: str,
     *,
     plan: ClassifyDecision | None = None,
+    research_memo: dict[str, Any] | None = None,
+    research_ledger: dict[str, Any] | None = None,
     research_summary: str | None = None,
     research_sources: tuple[dict[str, Any], ...] | None = None,
     research_warnings: tuple[str, ...] | None = None,
@@ -603,6 +597,16 @@ def build_reply_messages(
         )
     if candidate_present:
         parts.append("\nA graph edit candidate was produced and is available for review.")
+    if research_memo:
+        parts.append(
+            "\nC5 research decision memo (return this bounded content, with no "
+            f"invented sources):\n{json.dumps(research_memo, sort_keys=True)}"
+        )
+    if research_ledger:
+        parts.append(
+            "\nC1 research ledger (compact evidence handoff only):\n"
+            + json.dumps(research_ledger, sort_keys=True)
+        )
     if research_summary:
         parts.append(f"\nResearch findings: {research_summary}")
     if research_sources:
@@ -750,6 +754,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
     target_node_type = parsed.get("target_node_type")
     clarification_question = parsed.get("clarification_question")
     clarification_options = parsed.get("clarification_options")
+    needs_input_payload = parsed.get("needs_input")
 
     # Coerce booleans; missing keys default to sensible values.
     if not isinstance(research, bool):
@@ -828,7 +833,7 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
         clarification_options = []
     clarification_options = tuple(str(o) for o in clarification_options if isinstance(o, str) and o.strip())
 
-    return ClassifyDecision(
+    decision = ClassifyDecision(
         research=research,
         implement=implement,
         reply=reply,
@@ -849,6 +854,14 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
         clarification_question=clarification_question,
         clarification_options=clarification_options,
     )
+    if isinstance(needs_input_payload, dict):
+        needs_input = NeedsInput.from_dict(needs_input_payload)
+        if decision.effective_route == "clarify" and needs_input.bounded_assumption:
+            raise ValueError(
+                "A clarify decision cannot also record a bounded assumption."
+            )
+        object.__setattr__(decision, "needs_input", needs_input)
+    return decision
 
 
 _ITERATION_LIMIT_SENTINEL_PATTERNS: tuple[str, ...] = (

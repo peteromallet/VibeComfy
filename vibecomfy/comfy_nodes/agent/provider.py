@@ -425,10 +425,8 @@ def build_batch_messages(
         else "You edit a ComfyUI canvas as live Python objects.\n"
     )
     if research_only:
-        # B03 research-only prompt: no graph-construction surface, no 4-turn
-        # apply-edit cap, omit default documented, search-again-vs-done left to
-        # the agent's judgment.  The resolver (not this prompt) selects the
-        # corpus; this text only orients the model.
+        # B03 research-only prompt: no graph-construction surface; the
+        # resolver (not this prompt) selects the corpus.
         system = (
             "You are answering a research question for a ComfyUI canvas. Gather auditable "
             "evidence with the agent tool calls (`hivemind_search`, `hivemind_get`, "
@@ -439,8 +437,7 @@ def build_batch_messages(
             "  — `messages` searches Banodoco Discord / unified_feed community knowledge, NOT workflows.\n"
             "If sources are omitted on this informational route, the executor searches "
             "messages and web. Do not pass sources=[\"workflows\"] for community opinion. "
-            "There is no 4-turn \"apply the best edit\" cap. Do not emit Add/Change "
-            "statements or code-node construction.\n\n"
+            "Do not emit Add/Change statements or code-node construction.\n\n"
             "If the community evidence is thin or off-topic, search again with different "
             "terms (model name + version, or a complaint/praise phrase). When you have "
             "citable community answers, call `done()`. Candidate terms in the Research "
@@ -475,8 +472,6 @@ def build_batch_messages(
         "- No list sockets/reorder/group/cross-subgraph edits\n\n"
         f"{effective_surface_rule}"
         "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()`.\n\n"
-        "Research cap: after 4 consecutive turns that only search/research/report and land 0 edits, stop researching. "
-        "Either apply the best edit supported by precedent and current authoring signatures, or call `clarify()` / `done()` with no candidate if no defensible edit exists.\n\n"
         "Undo abandoned edits before done().\n\n"
         "Code node rule:\n"
         "For code-node, Python, PIL, or custom image-processing requests, use exactly "
@@ -495,16 +490,6 @@ def build_batch_messages(
         "`search(...)` is factual current authoring-schema lookup, not workflow/web research, and never justifies substituting a merely similar node for the user's named target. "
         "A local miss is not a product-level failure: use workflow precedent and visible graph evidence to choose the smallest defensible edit, then let the edit/apply path validate whether it is authorable. "
         "Do not tell the user to install nodes.\n\n"
-        # TODO(additive): the output-side heuristic below biases NEW output-node
-        # discovery toward terminal-output-type compatibility searches.  For an
-        # additive/RESTORATION request (restore a removed feature, "add back X",
-        # "missing"/"gone") this can push placement toward the output side even
-        # when the user wants to restore an interior node.  Qualifying this
-        # prompt text for additive intent is risky: the 10 passing bug-fixing
-        # demos depend on the exact guidance here, and a runtime gate upstream
-        # would need access to _task_looks_like_additive(state) which lives in
-        # the _frag_batch_memory fragment namespace (not wired into this module).
-        # Left as-is for now; revisit when wiring additive-aware placement.
         "For generic save/export/view/output requests, start from the graph's actual terminal output type. "
         "If the graph ends in `IMAGE`, search local consumers with `search(compatible_output_type=\"IMAGE\")`; "
         "if you need an mp4-style video sink, search both the image-to-video step and video sink, e.g. "

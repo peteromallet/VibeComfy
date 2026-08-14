@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from vibecomfy.executor.stage_contracts import NeedsInput
+
 
 def _require_optional_str(value: Any, *, field_name: str) -> str | None:
     if value is None:
@@ -98,7 +100,7 @@ class HeadlessAgentRequest:
     additive: bool = False
     # Explicit interaction contract for diagnosis/advice turns:
     # ``"answer_only"`` declares that this interaction must never produce a
-    # graph edit (the executor routes to deterministic research + semantic
+    # graph edit (the executor routes to agent-owned research + semantic
     # reply regardless of classification).  Deliberately NOT inferred from
     # ``apply`` — that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
@@ -284,4 +286,4 @@ class HeadlessAgentRequest:
         )
 
 
-__all__ = ["HeadlessAgentRequest"]
+__all__ = ["HeadlessAgentRequest", "NeedsInput"]

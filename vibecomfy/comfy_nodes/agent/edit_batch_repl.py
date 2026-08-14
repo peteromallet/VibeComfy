@@ -9,8 +9,8 @@ WHY A DEPENDENCY OBJECT
     names from that globals dict. Once the loop is extracted into its own
     module (T-037)
     it CANNOT use normal imports: a scope-aware analysis of the three fragments
-    shows 80 names they reference are not defined inside them, and 75 of those
-    (58 private + 17 public) are defined in OTHER exec'd host fragments
+    shows 77 names they reference are not defined inside them, and 72 of those
+    (55 private + 17 public) are defined in OTHER exec'd host fragments
     (edit_state, edit_humanize, edit_batch_reports, ...). Those hosts are
     themselves stitched by the same exec machinery, so their private helpers
     and classes are not importable as module attributes. The only reliable
@@ -45,12 +45,12 @@ STDLIB-ONLY IMPORT POLICY
     ``importlib.import_module`` / ``_import_from`` calls so this module keeps
     its stdlib-only import surface (enforced by the T-036 deps test).
 
-THE 75-NAME FIELD SET
+THE 72-NAME FIELD SET
     Derived mechanically from the fragments' free names (scope-aware
     ``symtable`` analysis of the concatenated fragment source): 80 external
     names, of which 5 are stdlib-importable (``Any``, ``Mapping``,
-    ``dataclasses``, ``json``, ``time``) and 75 are real dependencies — the S4
-    ground truth: 58 private + 17 public across the 18 host fragment modules
+    ``dataclasses``, ``json``, ``time``) and 72 are real dependencies — the S4
+    ground truth: 55 private + 17 public across the 18 host fragment modules
     (19 modules counting the ``edit.py`` façade itself). Fields are grouped
     private-then-public, alphabetical, each annotated with the host fragment
     that defines it. Every field is ``Any``-typed on purpose: the concrete
@@ -100,7 +100,7 @@ class EditBatchReplDeps:
     namespace; see the module docstring for the design rationale.
     """
 
-    # -- private façade helpers (58) --
+    # -- private façade helpers (55) --
     _BATCH_EXIT_BUDGET: Any  # host: _frag_batch_reports
     _BATCH_EXIT_DONE: Any  # host: _frag_batch_reports
     _BATCH_EXIT_EDIT_CLARIFY: Any  # host: _frag_batch_reports
@@ -119,7 +119,6 @@ class EditBatchReplDeps:
     _candidate_stable_key: Any  # host: _frag_response_contract
     _canonical_agent_edit_route: Any  # host: _frag_research
     _compact_diag_to_dict: Any  # host: _frag_session_bundle
-    _direct_existing_parameter_tweak_feedback: Any  # host: _frag_batch_memory
     _discovery_construction_nudge: Any  # host: _frag_state
     _discovery_stop_message: Any  # host: _frag_state
     _duplicate_search_cycle_feedback: Any  # host: _frag_batch_reports
@@ -146,7 +145,6 @@ class EditBatchReplDeps:
     _normalize_test_client_batch_response: Any  # host: _frag_batch_memory
     _prefetch_research_summary: Any  # host: _frag_research
     _premature_missing_custom_node_clarify_feedback: Any  # host: _frag_batch_memory
-    _premature_workflow_schema_clarify_feedback: Any  # host: _frag_batch_memory
     _present_class_types: Any  # host: _frag_batch_memory
     _read_only_discovery_turn_count: Any  # host: _frag_state
     _real_field_changes: Any  # host: _frag_humanize
@@ -155,9 +153,7 @@ class EditBatchReplDeps:
     _resolver_candidates_from_batch_result: Any  # host: _frag_response_contract
     _revision_candidate_retry_hint: Any  # host: _frag_humanize
     _revision_evidence_prompt_json: Any  # host: _frag_revision_stages
-    _seed_focus_types_for_authoring: Any  # host: _frag_revision
     _selected_precedent_unknown_class_feedback: Any  # host: _frag_batch_memory
-    _targeted_edit_hardening_feedback: Any  # host: _frag_batch_memory
     _workflow_class_types_from_research_context: Any  # host: _frag_research
     _workflow_schema_candidates_from_research_context: Any  # host: _frag_research
 
@@ -1385,7 +1381,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     present_types = deps._present_class_types(session)
     focus_types = set(present_types)
     effective_task = deps._effective_implementation_task(state)
-    focus_types.update(deps._seed_focus_types_for_authoring(state))
     focus_types.update(
         deps._workflow_class_types_from_research_context(
             state,
@@ -1549,9 +1544,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     initial_report_notes = [
         note
         for note in (
-            deps._direct_existing_parameter_tweak_feedback(state),
             deps._edit_noop_requires_graph_evidence_feedback(state),
-            deps._targeted_edit_hardening_feedback(state),
         )
         if note
     ]
@@ -1890,169 +1883,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         )
         deps.write_json_artifact(state.model_response_path, {"turns": response_log})
         if clarify_message is not None and not editable_batch.strip():
-            clarify_feedback = (
-                deps._premature_workflow_schema_clarify_feedback(
-                    state,
-                    clarify_message,
-                )
-                or deps._premature_missing_custom_node_clarify_feedback(
-                    state,
-                    clarify_message,
-                )
-                or deps._direct_existing_parameter_tweak_feedback(
-                    state,
-                    clarify_message,
-                )
-            )
-            if clarify_feedback:
-                consecutive_errors += 1
-                turn_record = {
-                    "turn_number": turn_number,
-                    "batch": turn_result.batch,
-                    "message": turn_result.message,
-                    "route": turn_result.route,
-                    "model": turn_result.model,
-                    "provider_metadata": deps._json_safe(dict(turn_result.audit_metadata or {})),
-                    "batch_ok": False,
-                    "landed_op_count": 0,
-                    "raw_landed_op_count": 0,
-                    "statement_count": 1,
-                    "diagnostics": [
-                        {
-                            "code": "premature_missing_custom_node_clarify",
-                            "message": clarify_feedback,
-                            "severity": "error",
-                        }
-                    ],
-                    "report": clarify_feedback,
-                    "field_changes": [],
-                }
-                state.batch_turns.append(turn_record)
-                state.batch_feedback = clarify_feedback
-                state.batch_turn_count = turn_number + 1
-                state.batch_budget_state = {
-                    "max_batches": max_batches,
-                    "max_consecutive_errors": max_consecutive_errors,
-                    "remaining_batches": max_batches - state.batch_turn_count,
-                    "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
-                    "consecutive_errors": consecutive_errors,
-                }
-                response_log[-1] = {
-                    "turn_number": turn_number,
-                    "response": turn_result.to_dict(),
-                    "rejected_clarification": turn_record,
-                }
-                deps.write_json_artifact(state.model_response_path, {"turns": response_log})
-                state.messages_path.open("a", encoding="utf-8").write(
-                    json.dumps(
-                        {
-                            "turn_number": turn_number,
-                            "task": state.task,
-                            "message": turn_result.message,
-                            "batch": turn_result.batch,
-
-                            "report": clarify_feedback,
-                        },
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-                budget_turn_exhausted = (turn_number + 1) >= max_batches
-                budget_consecutive_exhausted = consecutive_errors >= max_consecutive_errors
-                incomplete_edit_pending = (
-                    deps._batch_candidate_graph_changed(state)
-                    or (
-                        last_failed_edit_turn >= 0
-                        and last_successful_edit_turn_after_failure < last_failed_edit_turn
-                    )
-                )
-                terminal_rejected_clarify = (
-                    budget_turn_exhausted
-                    or budget_consecutive_exhausted
-                    or incomplete_edit_pending
-                )
-                if terminal_rejected_clarify:
-                    failure_kind = deps._batch_budget_failure_kind(state.batch_turns)
-                    # PR-D: unresolved-prior-edit/graph-change state is NOT
-                    # budget exhaustion.  Emit distinct codes for (a) actual
-                    # turn exhaustion, (b) consecutive-error exhaustion, and
-                    # (c) rejected clarification after an incomplete edit.
-                    if budget_turn_exhausted:
-                        exit_code = "batch_budget_exhausted"
-                        state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
-                        state.batch_final_summary = (
-                            f"Stopped after {state.batch_turn_count} turn(s); "
-                            "0 turn(s) remaining."
-                        )
-                    elif budget_consecutive_exhausted:
-                        exit_code = "batch_consecutive_errors_exhausted"
-                        state.batch_exit_mode = deps._BATCH_EXIT_BUDGET
-                        state.batch_final_summary = (
-                            f"Stopped after {state.batch_turn_count} turn(s) with "
-                            f"{consecutive_errors} consecutive error turn(s) "
-                            f"(limit {max_consecutive_errors})."
-                        )
-                    else:
-                        exit_code = "batch_rejected_clarify_incomplete_edit"
-                        state.batch_exit_mode = deps._BATCH_EXIT_STUCK
-                        state.batch_final_summary = (
-                            "Stopped because the model requested a clarification "
-                            "while an edit remained incomplete after "
-                            f"{state.batch_turn_count} turn(s)."
-                        )
-                    deps._emit_agent_edit_turn_event(
-                        state,
-                        _context,
-                        turn_record,
-                        client_id=client_id,
-                        status="stuck" if incomplete_edit_pending and not (
-                            budget_turn_exhausted or budget_consecutive_exhausted
-                        ) else "budget_exhausted",
-                    )
-                    return deps.StageResult(
-                        stage="agent_batch",
-                        ok=False,
-                        blocking=True,
-                        duration_ms=deps._duration_ms(start),
-                        artifacts=(
-                            deps._artifact(state.before_py_path),
-                            deps._artifact(state.after_py_path),
-                            deps._artifact(state.model_request_path),
-                            deps._artifact(state.model_response_path),
-                            deps._artifact(state.candidate_ui_path),
-                            deps._artifact(state.messages_path),
-                        ),
-                        issues=(
-                            {
-                                "code": exit_code,
-                                "severity": "error",
-                                "failure_kind": failure_kind.value,
-                                "message": state.batch_final_summary,
-                                "detail": {
-                                    "turn_count": state.batch_turn_count,
-                                    "budget_state": dict(state.batch_budget_state),
-                                    "budget_classification": failure_kind.value,
-                                },
-                            },
-                        ),
-                        value={
-                            "failure_kind": failure_kind.value,
-                            "turn_count": state.batch_turn_count,
-                            "budget_state": dict(state.batch_budget_state),
-                            "budget_classification": failure_kind.value,
-                        },
-                    )
-                last_report = clarify_feedback
-                last_landed_count = 0
-                deps._emit_agent_edit_turn_event(
-                    state,
-                    _context,
-                    turn_record,
-                    client_id=client_id,
-                    status="in_progress",
-                )
-                continue
-        if clarify_message is not None and not editable_batch.strip():
             state.batch_turn_count = turn_number + 1
             state.batch_exit_mode = (
                 deps._BATCH_EXIT_EDIT_CLARIFY
@@ -2309,12 +2139,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_dropped_count=lint_dropped_count,
                 lint_diagnostics=lint_diag_dicts,
             )
-            direct_tweak_feedback = (
-                deps._direct_existing_parameter_tweak_feedback(state)
-                if turn_is_read_only
-                else ""
-            )
-            hardening_feedback = deps._targeted_edit_hardening_feedback(state) if turn_is_read_only else ""
             # Duplicate-query cycle guard (Part C): detect when the agent re-emits
             # an identical search() on consecutive turns after the prior search
             # landed nothing.  Reads the PRIOR turn's search record
@@ -2338,7 +2162,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 prior_search_landed = False
             extra_feedback = "\n\n".join(
                 note
-                for note in (direct_tweak_feedback, hardening_feedback, duplicate_search_feedback)
+                for note in (duplicate_search_feedback,)
                 if note
             )
             if extra_feedback:
@@ -2850,22 +2674,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 and not deps._batch_candidate_graph_changed(state)
             ):
                 read_only_discovery_turns = deps._read_only_discovery_turn_count(state)
-                direct_tweak_feedback = deps._direct_existing_parameter_tweak_feedback(state)
-                if (
-                    direct_tweak_feedback
-                    and read_only_discovery_turns < 6
-                    and turn_number + 1 < max_batches
-                ):
-                    last_report = direct_tweak_feedback
-                    last_landed_count = 0
-                    deps._emit_agent_edit_turn_event(
-                        state,
-                        _context,
-                        turn_record,
-                        client_id=client_id,
-                        status="in_progress",
-                    )
-                    continue
                 if read_only_discovery_turns < 6:
                     continue
                 state.batch_exit_mode = deps._BATCH_EXIT_PURE_CLARIFY
