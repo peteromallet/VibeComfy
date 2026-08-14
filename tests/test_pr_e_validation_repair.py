@@ -13,7 +13,6 @@ import pytest
 from vibecomfy.comfy_nodes.agent.edit import (
     _class_names_from_text,
     _compact_diag_to_dict,
-    _premature_workflow_schema_clarify_feedback,
     handle_agent_edit,
 )
 from vibecomfy.porting.edit._session_types import CompactDiagnostic, DoneResult
@@ -159,31 +158,6 @@ def test_class_names_from_text_matches_camelcase_concrete_classes() -> None:
     assert "WanVideoModelLoader" in names
     assert "StableZero123" in names
     assert "Rodin3D_Fusion" in names
-
-
-def test_workflow_schema_clarify_only_rejects_when_named_target_exists() -> None:
-    state = SimpleNamespace(
-        executor_research_sources=[
-            {"workflow_schema": {"WanVideoModelLoader": {"inputs": {}}}}
-        ],
-        execution_protocol_notes=None,
-    )
-    # A concrete class named in the clarify that is NOT in the schema must not
-    # be rejected against unrelated schema evidence.
-    assert (
-        _premature_workflow_schema_clarify_feedback(
-            state,
-            "AudioLDM2 is not an authorable node type here — can I use it?",
-        )
-        == ""
-    )
-    # A named target that IS in the schema is still rejected as premature.
-    feedback = _premature_workflow_schema_clarify_feedback(
-        state,
-        "WanVideoModelLoader needs an input I can't find in the schema.",
-    )
-    assert "Premature workflow-schema clarification rejected" in feedback
-    assert "WanVideoModelLoader" in feedback
 
 
 def _batch_provider() -> _Provider:

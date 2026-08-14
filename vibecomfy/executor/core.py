@@ -985,12 +985,16 @@ def _research_package_is_usable(research_result: AgentResearchResult | None) -> 
     OK AND the research agent produced an ``enough`` synthesis.  Failed,
     exhausted (deadline / max-turn), and ``refine`` verdicts mean there is no
     usable synthesis to implement from — proceeding would act on unsupported
-    conclusions.  Manually-constructed results without a typed package
-    (direct-call tests, legacy callers) are not gated.
+    conclusions.  A missing research result or a result without a typed
+    ``StagePackage`` is NOT usable on the adapt route: the executor always
+    supplies a typed package, so anything else is a caller bug and must not
+    silently proceed.
     """
+    if research_result is None:
+        return False
     package = getattr(research_result, "package", None)
     if not isinstance(package, StagePackage):
-        return True
+        return False
     if package.status is not ToolStatus.OK:
         return False
     trace = getattr(research_result, "trace", None)

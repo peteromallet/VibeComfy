@@ -851,13 +851,16 @@ def phase_allows(phase: str | None, name: str) -> bool:
     return phase_for_tool(name) == phase
 
 
-def tool_catalog_docs(phase: str | None = None) -> str:
-    """Prompt-doc bullet list for *phase* (all tools when *phase* is None)."""
-    specs = (
-        TOOL_SPECS
-        if phase is None
-        else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
-    )
+def tool_catalog_docs(phase: str | None = None, *, allowed_names: frozenset[str] | None = None) -> str:
+    """Prompt-doc bullet list for *phase* (all tools when *phase* is None).
+
+    ``allowed_names`` further filters the catalog to the names the runtime
+    actually admits — e.g. the research stage passes its effective allowlist
+    so a disabled-by-default tool (``web_search``) is never advertised.
+    """
+    specs = TOOL_SPECS if phase is None else tuple(spec for spec in TOOL_SPECS if spec.phase == phase)
+    if allowed_names is not None:
+        specs = tuple(spec for spec in specs if spec.name in allowed_names)
     return "\n".join(spec.catalog_line() for spec in specs)
 
 

@@ -206,7 +206,7 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
             "C1 research ledger (executor research stage; compact; entries + "
             "evidence IDs only — already resolved; IDs are provenance labels, "
             "not callable handles; never repeat raw bodies):\n"
-            + "\n".join(payload_records[-max_items:])
+            + "\n".join(payload_records)
         )
     tool_records: list[str] = _tool_evidence_ledger_records(state)
     if tool_records:

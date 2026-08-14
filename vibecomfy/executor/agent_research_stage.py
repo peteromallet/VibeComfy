@@ -334,7 +334,7 @@ def build_agent_research_messages(
     downstream consumer of the synthesis, and the per-turn budget display;
     the agent chooses every tool call.
     """
-    catalog = tool_catalog_docs(PHASE_RESEARCH)
+    catalog = tool_catalog_docs(PHASE_RESEARCH, allowed_names=RESEARCH_ALLOWED_TOOLS)
     system = (
         "You are the research stage of a ComfyUI workflow assistant. "
         "Resolve the specific open question(s) blocking the current request "
@@ -364,6 +364,15 @@ def build_agent_research_messages(
         "certainty; do not over-search. Each turn's digest shows the "
         "remaining searches/fetches/registry calls, turns, and time — watch "
         "it and leave room to finish with a synthesis.\n"
+        "- Before finishing, SELF-CHECK that your synthesis answers the "
+        "original question with concrete substance: for an adapt request that "
+        "means exact class types and roles, wiring/socket/terminal pattern, "
+        "settings or defaults to preserve, tradeoffs, and uncertainty — each "
+        "material claim backed by a fetched evidence ID you cite. A finish "
+        "with zero cited evidence IDs, or a conclusion that just restates the "
+        "question, is not acceptable: fetch and cite support, or refine the "
+        "question. The implement agent (or the user, on research routes) "
+        "relies on this synthesis alone.\n"
         "- Effort budgets: 3 searches, 6 fetches, 1 registry lookup, up to "
         "16 decision turns, ~240s wall clock.\n"
         "Reply with exactly one JSON object per turn:\n"

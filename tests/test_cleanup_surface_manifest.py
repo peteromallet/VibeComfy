@@ -38,7 +38,7 @@ MANIFEST_PATH = ROOT / "tests/fixtures/agent_edit/cleanup_surface_manifest.json"
 
 # Frozen counts pinned by the ORACLE-1 capture; the name sets themselves are
 # read from the manifest (never hardcoded here), only the counts are pinned.
-PINNED_EDIT_EXPORT_COUNT = 459  # 463 - 1 peer removal - 3 precedent/adaptation prompt machinery removed in R1-B (fix 5)
+PINNED_EDIT_EXPORT_COUNT = 441  # R2 dead-code deletions (_fold_research_statement, _dedupe_sources_by_id, etc.)
 PINNED_SESSION_ALL_COUNT = 23
 PINNED_SESSION_PUBLIC_DIRECT_COUNT = 31
 PINNED_SESSION_PRIVATE_IMPORTED_COUNT = 23

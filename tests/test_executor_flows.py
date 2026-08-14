@@ -1850,16 +1850,23 @@ def _agent_owned_research_result(
             "hivemind_get:abc123": EvidenceArtifact(
                 evidence_id="hivemind_get:abc123",
                 kind="hivemind_get",
-                body={"title": "HotshotXL workflow note"},
+                body={"content": "fixture fetched record"},
                 source="hivemind",
-            ),
+            )
         },
-        ledger=ledger,
+        ledger=EvidenceLedger(entries=ledger.entries),
+    )
+    package = executor_core._research_stage_package(
+        route="adapt",
+        trace=trace,
+        pack=pack,
+        policy_diagnostics=(),
     )
     return AgentResearchResult(
         route="adapt",
         trace=trace,
         evidence_pack=pack,
+        package=package,
     )
 
 

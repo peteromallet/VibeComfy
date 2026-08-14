@@ -3175,7 +3175,7 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     # C01/I01 partition: the implement prompt has NO research/search tools —
     # the research phase gathered workflow/community evidence as ledger
     # entries + evidence IDs; implement documents only its own tool set.
-    assert "implement phase has NO research/search tools" in system
+    assert "implement phase has NO external research/search tools" in system
     assert "node_schema" in system
     assert "ready_template_load" in system
     assert "Do not research installation, provider packs, registry, or local addability" in system
@@ -17052,7 +17052,7 @@ class TestBuildBatchMessagesResearchToolExposure:
         assert "ready_template_load" in system
         assert "hivemind_search" not in system
         assert "hivemind_get" not in system
-        assert "implement phase has NO research/search tools" in system
+        assert "implement phase has NO external research/search tools" in system
 
     def test_bounded_guidance_label_present(self) -> None:
         """The authoring strategy section is labeled as bounded guidance."""
@@ -17078,7 +17078,7 @@ class TestBuildBatchMessagesResearchToolExposure:
         # ledger entries + evidence IDs; the implement phase has no
         # research/search tools.
         assert "compact ledger entries + evidence IDs" in system
-        assert "implement phase has NO research/search tools" in system
+        assert "implement phase has NO external research/search tools" in system
         assert "Do not research installation, provider packs, registry, or local addability" in system
 
     def test_effective_surface_guidance_is_execute_only(self) -> None:
