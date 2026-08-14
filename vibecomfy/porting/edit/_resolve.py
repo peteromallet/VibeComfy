@@ -1695,56 +1695,19 @@ class _ResolveMixin:
                 )
             assert query is not None
             try:
-                import importlib
-
-                research_module = importlib.import_module("vibecomfy.executor.research")
-                research_sources_module = importlib.import_module(
-                    "vibecomfy.executor.research_sources"
-                )
-                pack_resolver_module = importlib.import_module("vibecomfy.registry.pack_resolver")
-                httpx_module = importlib.import_module("httpx")
-                # B03 omit-site: None / () / [] are OMISSION, not "search
-                # nothing".  Research-only sessions default to ("messages",
-                # "web"); every other route stays ("workflows",).  Explicit
-                # non-empty sources= wins with no union.  Classify
-                # source_preferences are never read here (prompt-visible only).
-                requested_source_tuple = research_sources_module.resolve_repl_research_sources(
-                    requested_sources,
-                    research_only=bool(getattr(self, "research_only", False)),
-                )
-                source_set = set(requested_source_tuple)
-                registry_resolver = None
-                if "registry" in source_set:
-                    def registry_resolver(registry_query: str) -> Any:
-                        client = httpx_module.Client(timeout=3.0, follow_redirects=True)
-                        return pack_resolver_module.resolve_missing_nodes(
-                            registry_query,
-                            registry_client=client,
-                            manager_client=client,
-                            github_client=client,
-                        )
-                output = research_module.research(
-                    query,
-                    local_limit=5 if "workflows" in source_set else 0,
-                    hivemind_timeout=3.0,
-                    web_search_timeout=3.0,
-                    registry_resolver=registry_resolver,
-                    hivemind_client=(
-                        research_module._default_hivemind_client
-                        if "workflows" in source_set
-                        else None
-                    ),
-                    hivemind_messages_client=(
-                        research_module._default_hivemind_messages_client
-                        if "messages" in source_set
-                        else None
-                    ),
-                    web_search_client=(
-                        research_module._default_web_search_client
-                        if "web" in source_set
-                        else None
-                    ),
-                    sources=requested_source_tuple,
+                # The deterministic research engine was deleted (Wave D). The
+                # agent-owned research surface is the ten named tool calls
+                # (hivemind_search/hivemind_get/registry_lookup/node_schema/
+                # ready_template_list/ready_template_load/rank_edit_targets/
+                # suggest_seed_nodes/layout_hints/web_search) integrated by I01.
+                # This legacy statement fails closed with guidance instead of
+                # ImportError so agents migrate off it.
+                raise RuntimeError(
+                    "research(...) is no longer supported: the deterministic research "
+                    "engine was removed (agent-judgment rework). Use the named tool "
+                    "statements instead: hivemind_search/hivemind_get/registry_lookup/"
+                    "node_schema/ready_template_list/ready_template_load/"
+                    "rank_edit_targets/suggest_seed_nodes/layout_hints/web_search."
                 )
             except Exception as exc:  # noqa: BLE001 - report query failures in-band
                 return StatementResult(

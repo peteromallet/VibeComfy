@@ -123,11 +123,79 @@ def _patch_ready_speed_research(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     def fake_run_executor(*args: Any, **kwargs: Any) -> Any:
+        from vibecomfy.executor.agent_research_stage import (
+            AgentResearchIteration,
+            AgentResearchTrace,
+        )
         from vibecomfy.executor.contracts import (
             ClassifyDecision,
             ExecutorResult,
             Report,
-            ResearchResult,
+        )
+        from vibecomfy.executor.core import AgentResearchResult
+        from vibecomfy.executor.evidence_pack import (
+            EvidenceArtifact,
+            EvidenceLedger,
+            EvidenceLedgerEntry,
+            EvidencePack,
+        )
+
+        evidence_id = "harness:evidence:1"
+        summary = (
+            "Research found a distilled model path plus lightning/LCM "
+            "sampler settings as the safest speed-focused options."
+        )
+        research = AgentResearchResult(
+            route="research",
+            trace=AgentResearchTrace(
+                route="research",
+                question="Find faster distilled variants for the video workflow.",
+                iterations=(
+                    AgentResearchIteration(
+                        iteration=1,
+                        question="Find faster distilled variants for the video workflow.",
+                        tool_calls=(),
+                        synthesis={"summary": summary},
+                        verdict="enough",
+                    ),
+                ),
+                final_verdict="enough",
+                summary=summary,
+                citations=(evidence_id,),
+                uncertainty="",
+                status="ok",
+                elapsed_seconds=0.0,
+            ),
+            evidence_pack=EvidencePack(
+                artifacts={
+                    evidence_id: EvidenceArtifact(
+                        evidence_id=evidence_id,
+                        kind="harness_research_result",
+                        body={
+                            "title": "Distilled video workflow precedent",
+                            "url": "local://workflow-precedents/distilled-video",
+                        },
+                        source="harness",
+                    ),
+                },
+                ledger=EvidenceLedger(
+                    entries=(
+                        EvidenceLedgerEntry(
+                            decision="research question",
+                            conclusion=summary,
+                            evidence_ids=(evidence_id,),
+                            uncertainty="",
+                        ),
+                    )
+                ),
+            ),
+            decision_memo={
+                "question": "Find faster distilled variants for the video workflow.",
+                "conclusion": summary,
+                "citations": [evidence_id],
+                "uncertainty": "",
+                "next_action": "Use this conclusion for the requested next step.",
+            },
         )
 
         return ExecutorResult.success(
@@ -151,18 +219,7 @@ def _patch_ready_speed_research(monkeypatch: pytest.MonkeyPatch) -> None:
                     model_families=("distilled", "lightning", "LCM"),
                     pattern_category="speed_optimization",
                 ),
-                research=ResearchResult(
-                    summary=(
-                        "Research found a distilled model path plus lightning/LCM "
-                        "sampler settings as the safest speed-focused options."
-                    ),
-                    sources=(
-                        {
-                            "title": "Distilled video workflow precedent",
-                            "url": "local://workflow-precedents/distilled-video",
-                        },
-                    ),
-                ),
+                research=research,
             ),
             graph={"1": {"class_type": "KSampler", "inputs": {"steps": 8}}},
             reply=(

@@ -985,23 +985,117 @@ def _build_run_metadata(
 _EXECUTOR_FAKE_LOCK = Lock()
 
 
+def _agent_research_result(
+    *,
+    route: str,
+    question: str,
+    summary: str,
+    source_records: tuple[dict[str, Any], ...] = (),
+) -> Any:
+    """Build an active-shape AgentResearchResult for offline harness fakes.
+
+    The deterministic research engine was deleted (Wave D); the executor's
+    active research phase is agent-owned (C01): ``_run_agent_owned_research``
+    wraps a ``run_agent_research_stage`` trace + EvidencePack into an
+    ``AgentResearchResult``.  Harness fakes return this shape so
+    ``report.research`` serializes and the reply phase receives the memo.
+    """
+    from vibecomfy.executor.agent_research_stage import (
+        AgentResearchIteration,
+        AgentResearchTrace,
+    )
+    from vibecomfy.executor.core import AgentResearchResult
+    from vibecomfy.executor.evidence_pack import (
+        EvidenceArtifact,
+        EvidenceLedger,
+        EvidenceLedgerEntry,
+        EvidencePack,
+    )
+
+    evidence_id = "harness:agent-research:1"
+    artifacts = {
+        evidence_id: EvidenceArtifact(
+            evidence_id=evidence_id,
+            kind="harness_research_result",
+            body={
+                "route": route,
+                "question": question,
+                "summary": summary,
+                "sources": [dict(source) for source in source_records],
+            },
+            source="harness",
+        )
+    }
+    ledger = EvidenceLedger(
+        entries=(
+            EvidenceLedgerEntry(
+                decision=f"research {question!r}",
+                conclusion=summary,
+                evidence_ids=(evidence_id,),
+                uncertainty="",
+            ),
+        )
+    )
+    pack = EvidencePack(artifacts=artifacts, ledger=ledger)
+    trace = AgentResearchTrace(
+        route=route,
+        question=question,
+        iterations=(
+            AgentResearchIteration(
+                iteration=1,
+                question=question,
+                tool_calls=(),
+                synthesis={"summary": summary},
+                verdict="enough",
+            ),
+        ),
+        final_verdict="enough",
+        summary=summary,
+        citations=(evidence_id,),
+        uncertainty="",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    return AgentResearchResult(
+        route=route,
+        trace=trace,
+        evidence_pack=pack,
+        decision_memo=(
+            {
+                "question": question,
+                "conclusion": summary,
+                "citations": [evidence_id],
+                "uncertainty": "",
+                "next_action": (
+                    "Use this conclusion for the requested next step."
+                    if route == "research"
+                    else "Refine the unresolved research question before acting on this conclusion."
+                ),
+            }
+            if route == "research"
+            else None
+        ),
+    )
+
+
 def build_research_hotshot_xl_evidence(
     report_dir: Path,
     *,
     query: str = "Hotshot XL SVD-XT workflow",
 ) -> dict[str, Any]:
-    """Write evidence that the executor runs deterministic research for Hotshot XL.
+    """Write evidence that the executor runs agent-owned research for Hotshot XL.
 
-    The research route runs the deterministic research phase (scoped query
-    from classifier search_directions, source_preferences as the explicit tier
-    tuple) and feeds the semantic reply — the agent-edit batch gate never runs.
+    The research route runs the agent-owned research stage (C01): the scoped
+    question is formed from classifier search_directions, source_preferences
+    become the explicit tier tuple, and the evidence pack + memo feed the
+    semantic reply — the agent-edit batch gate never runs.
     """
     from vibecomfy.executor.contracts import (
         ClassifyDecision,
         ExecutorRequest,
-        ResearchResult,
     )
     from vibecomfy.executor.core import run_executor
+    from vibecomfy.executor.agent_research_stage import form_research_question
 
     root = report_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -1022,7 +1116,6 @@ def build_research_hotshot_xl_evidence(
             intent="research",
             route="research",
             task="research_nodes",
-            research_goal="Find Hotshot XL SVD-XT workflow evidence.",
             search_directions=(
                 "Hotshot XL SVD-XT ComfyUI workflow",
                 "Hotshot XL image-to-video workflow pattern",
@@ -1033,16 +1126,19 @@ def build_research_hotshot_xl_evidence(
 
     research_calls: list[dict[str, Any]] = []
 
-    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+    def fake_research(request: Any, spec: Any, *, plan: ClassifyDecision) -> Any:
+        question, _source_field = form_research_question(request=request, plan=plan)
         research_calls.append(
-            {"query": query, "sources": kwargs.get("sources")}
+            {"query": question, "sources": list(plan.source_preferences or ())}
         )
-        return ResearchResult(
+        return _agent_research_result(
+            route="research",
+            question=question,
             summary=(
                 "Found a Hotshot XL SVD-XT workflow source. "
                 "Sources: Hotshot XL SVD-XT workflow notes."
             ),
-            sources=(
+            source_records=(
                 {
                     "source": "hivemind_workflow",
                     "title": "Hotshot XL SVD-XT workflow",
@@ -1050,7 +1146,6 @@ def build_research_hotshot_xl_evidence(
                     "url": "https://example.com/hotshot-svdxl",
                 },
             ),
-            warnings=(),
         )
 
     def fake_reply(
@@ -1067,7 +1162,10 @@ def build_research_hotshot_xl_evidence(
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch(
+                "vibecomfy.executor.core._run_agent_owned_research",
+                side_effect=fake_research,
+            ),
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
         ):
@@ -1092,7 +1190,7 @@ def build_research_hotshot_xl_evidence(
         json.dumps(
             {
                 "route": "research",
-                "phase": "deterministic",
+                "phase": "agent_owned",
                 "calls": research_calls,
                 "edit_called": edit_called,
             },
@@ -1137,7 +1235,7 @@ def build_research_hotshot_xl_evidence(
                 "via": "run_executor",
                 "query": query,
                 "through_agent_edit": False,
-                "phase": "deterministic",
+                "phase": "agent_owned",
                 "scoped_query": research_calls[0]["query"] if research_calls else "",
                 "sources": research_calls[0].get("sources") if research_calls else None,
             },
@@ -1154,7 +1252,7 @@ def build_research_hotshot_xl_evidence(
                 "## 1. Executor Path",
                 f"Ran the full executor classify → research → reply pipeline for query {query!r}.",
                 "The classifier chose the research route, so implementation was skipped; "
-                "deterministic research fed the semantic reply.",
+                "agent-owned research fed the semantic reply.",
                 "",
                 "## 2. Frozen Evidence",
                 "Evidence is in executor_result.json, executor_report.json, research.json, "
@@ -1180,9 +1278,9 @@ def build_distilled_faster_research_route_evidence(
     *,
     query: str = "is there a distilled/faster way to run?",
 ) -> dict[str, Any]:
-    """Write evidence that research triage direction reaches deterministic research.
+    """Write evidence that research triage direction reaches agent-owned research.
 
-    The classifier's search_directions scope the deterministic research query
+    The classifier's search_directions scope the agent-owned research question
     (domain anchors, never generic words from the raw sentence) and its
     source_preferences become the explicit tier tuple.  The agent-edit batch
     gate never runs.
@@ -1190,9 +1288,9 @@ def build_distilled_faster_research_route_evidence(
     from vibecomfy.executor.contracts import (
         ClassifyDecision,
         ExecutorRequest,
-        ResearchResult,
     )
     from vibecomfy.executor.core import run_executor
+    from vibecomfy.executor.agent_research_stage import form_research_question
 
     root = report_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -1213,10 +1311,6 @@ def build_distilled_faster_research_route_evidence(
             intent="research",
             route="research",
             task="research_nodes",
-            research_goal=(
-                "Find distilled or lightning-accelerated video/motion model "
-                "inference paths for AnimateDiff/ComfyUI."
-            ),
             search_directions=(
                 "AnimateDiff distilled faster inference ComfyUI",
                 "lightning video motion model distilled steps",
@@ -1236,17 +1330,20 @@ def build_distilled_faster_research_route_evidence(
 
     research_calls: list[dict[str, Any]] = []
 
-    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+    def fake_research(request: Any, spec: Any, *, plan: ClassifyDecision) -> Any:
+        question, _source_field = form_research_question(request=request, plan=plan)
         research_calls.append(
-            {"query": query, "sources": kwargs.get("sources")}
+            {"query": question, "sources": list(plan.source_preferences or ())}
         )
-        return ResearchResult(
+        return _agent_research_result(
+            route="research",
+            question=question,
             summary=(
                 "Found AnimateDiff distilled/lightning workflow sources. "
                 "Key levers include LCM/Turbo-style samplers, fewer steps, "
                 "reduced context length, and lower frame count."
             ),
-            sources=(
+            source_records=(
                 {
                     "source": "hivemind_workflow",
                     "title": "AnimateDiff distilled/lightning workflow",
@@ -1254,7 +1351,6 @@ def build_distilled_faster_research_route_evidence(
                     "url": "https://example.com/animatediff-distilled",
                 },
             ),
-            warnings=(),
         )
 
     def fake_reply(
@@ -1272,7 +1368,10 @@ def build_distilled_faster_research_route_evidence(
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
-            mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=fake_research),
+            mock.patch(
+                "vibecomfy.executor.core._run_agent_owned_research",
+                side_effect=fake_research,
+            ),
             mock.patch("vibecomfy.executor.core.handle_agent_edit") as mock_edit,
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
         ):
@@ -1291,7 +1390,7 @@ def build_distilled_faster_research_route_evidence(
         json.dumps(
             {
                 "route": "research",
-                "phase": "deterministic",
+                "phase": "agent_owned",
                 "calls": research_calls,
                 "edit_called": edit_called,
             },
@@ -1336,7 +1435,7 @@ def build_distilled_faster_research_route_evidence(
                 "via": "run_executor",
                 "query": query,
                 "through_agent_edit": False,
-                "phase": "deterministic",
+                "phase": "agent_owned",
                 "scoped_query": research_calls[0]["query"] if research_calls else "",
                 "sources": research_calls[0].get("sources") if research_calls else None,
             },
@@ -1353,7 +1452,7 @@ def build_distilled_faster_research_route_evidence(
                 "## 1. Executor Path",
                 f"Ran the full executor classify → research → reply pipeline for query {query!r}.",
                 "The classifier chose the research route, so implementation was skipped; "
-                "deterministic research fed the semantic reply.",
+                "agent-owned research fed the semantic reply.",
                 "",
                 "## 2. Frozen Evidence",
                 "Evidence is in executor_result.json, executor_report.json, research.json, "
@@ -1379,11 +1478,7 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
     from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit as real_handle_agent_edit
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
     from vibecomfy.executor.core import run_executor
-    from vibecomfy.executor.research import (
-        PrecedentOption,
-        PrecedentPacket,
-        ResearchResult,
-    )
+    from vibecomfy.executor.agent_research_stage import form_research_question
     from vibecomfy.schema import get_authoring_schema_provider
 
     root = report_dir.resolve()
@@ -1426,91 +1521,67 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
             change_goal="Switch the existing text-to-image workflow to generate 16 Hotshot frames.",
         )
 
-    hotshot_packet = PrecedentPacket(
-        options=(
-            PrecedentOption(
-                source_class_type="HotshotXL_AnimateDiff_Workflow",
-                source_workflow_path="community/workflows/hotshot_xl_animatediff.json",
-                node_types=("ADE_AnimateDiffLoaderWithContext", "ADE_UseEvolvedSampling"),
-                description=(
-                    "Pattern: add ADE_AnimateDiffLoaderWithContext and "
-                    "ADE_UseEvolvedSampling around the existing model/sampler path."
-                ),
+    # H03 active shape: workflow precedent sources reach the agent-edit batch
+    # via execution_protocol_notes.research_sources (the research() statement
+    # now fails closed), so the harness injects the frozen workflow evidence
+    # the executor would pass on an adapt route.
+    hotshot_research_sources = [
+        {
+            "source": "external_workflow",
+            "source_type": "github_workflow_json",
+            "class_type": "HotshotXL_AnimateDiff_Workflow",
+            "pack": "github.com",
+            "source_workflow_path": "community/workflows/hotshot_xl_animatediff.json",
+            "node_types": ("ADE_AnimateDiffLoaderWithContext", "ADE_UseEvolvedSampling"),
+            "workflow_schema_classes": (
+                "ADE_AnimateDiffLoaderWithContext",
+                "ADE_UseEvolvedSampling",
             ),
-        ),
-        context_note="Hotshot XL AnimateDiff-Evolved workflow precedent.",
-    )
+            "workflow_schema": {
+                "ADE_AnimateDiffLoaderWithContext": {
+                    "input": {"required": {"model": ["MODEL", {}]}, "optional": {}},
+                    "output": ["MODEL"],
+                    "output_name": ["MODEL"],
+                },
+                "ADE_UseEvolvedSampling": {
+                    "input": {"required": {"model": ["MODEL", {}]}, "optional": {}},
+                    "output": ["MODEL"],
+                    "output_name": ["MODEL"],
+                },
+            },
+        },
+    ]
 
-    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-        sources = kwargs.get("sources") or kwargs.get("research_sources")
-        is_workflow_query = (
-            "workflow" in query.casefold()
-            or sources == ("workflows",)
-            or "precedent" in query.casefold()
-        )
-        if is_workflow_query:
-            return ResearchResult(
-                summary=(
-                    "Found a Hotshot XL workflow precedent that uses AnimateDiff-Evolved "
-                    "nodes as the Hotshot motion module pattern before sampling."
-                ),
-                sources=(
-                    {
-                        "source": "ready_template",
-                        "title": "Hotshot XL AnimateDiff workflow",
-                        "path": "community/workflows/hotshot_xl_animatediff.json",
-                        "description": (
-                            "Pattern: add ADE_AnimateDiffLoaderWithContext and "
-                            "ADE_UseEvolvedSampling around the existing model/sampler path."
-                        ),
-                        "class_type": "HotshotXL_AnimateDiff_Workflow",
-                    },
-                ),
-                precedent_packet=hotshot_packet,
-            )
-        return ResearchResult(
+    def fake_research(request: Any, spec: Any, *, plan: ClassifyDecision) -> Any:
+        question, _source_field = form_research_question(request=request, plan=plan)
+        return _agent_research_result(
+            route="adapt",
+            question=question,
             summary=(
-                "Comfy Registry/Manager evidence maps the workflow's Hotshot/AnimateDiff "
-                "classes to ComfyUI-AnimateDiff-Evolved."
+                "Found a Hotshot XL workflow precedent that uses AnimateDiff-Evolved "
+                "nodes as the Hotshot motion module pattern before sampling, plus "
+                "Comfy Registry/Manager evidence mapping the classes to "
+                "ComfyUI-AnimateDiff-Evolved."
             ),
-            sources=(
+            source_records=(
+                {
+                    "source": "ready_template",
+                    "title": "Hotshot XL AnimateDiff workflow",
+                    "path": "community/workflows/hotshot_xl_animatediff.json",
+                    "description": (
+                        "Pattern: add ADE_AnimateDiffLoaderWithContext and "
+                        "ADE_UseEvolvedSampling around the existing model/sampler path."
+                    ),
+                    "class_type": "HotshotXL_AnimateDiff_Workflow",
+                },
                 {
                     "source": "comfy-registry",
                     "class_type": "ADE_AnimateDiffLoaderWithContext",
                     "pack": "ComfyUI-AnimateDiff-Evolved",
-                    "description": "Expected classes: ADE_AnimateDiffLoaderWithContext, ADE_UseEvolvedSampling",
-                    "resolver_candidate": {
-                        "pack": {
-                            "slug": "ComfyUI-AnimateDiff-Evolved",
-                            "source": "comfy-registry",
-                            "url": "https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved",
-                        },
-                        "expected_classes": [
-                            "ADE_AnimateDiffLoaderWithContext",
-                            "ADE_UseEvolvedSampling",
-                        ],
-                        "validation_mode": "class_validatable",
-                        "provisional_schema": {
-                            "version": "structural",
-                            "runnable": False,
-                            "schema": {
-                                "nodes": {
-                                    "ADE_AnimateDiffLoaderWithContext": {
-                                        "input": {"required": {"model": ["MODEL", {}]}, "optional": {}},
-                                        "output": ["MODEL"],
-                                        "output_name": ["MODEL"],
-                                    },
-                                    "ADE_UseEvolvedSampling": {
-                                        "input": {"required": {"model": ["MODEL", {}]}, "optional": {}},
-                                        "output": ["MODEL"],
-                                        "output_name": ["MODEL"],
-                                    },
-                                }
-                            },
-                        },
-                        "runnable": False,
-                        "stable_install_hash": "agentic-hotshot-animatediff-evolved",
-                    },
+                    "description": (
+                        "Expected classes: ADE_AnimateDiffLoaderWithContext, "
+                        "ADE_UseEvolvedSampling"
+                    ),
                 },
             ),
         )
@@ -1563,8 +1634,12 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
 
     def fake_handle_agent_edit(payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         implementation_payloads.append(json.loads(json.dumps(payload)))
+        harness_payload = dict(payload)
+        harness_payload["execution_protocol_notes"] = {
+            "research_sources": hotshot_research_sources,
+        }
         result = real_handle_agent_edit(
-            payload,
+            harness_payload,
             schema_provider=get_authoring_schema_provider(),
             deepseek_client=lambda _messages: next(responses),
             session_root=session_root,
@@ -1599,7 +1674,10 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
             mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
-            mock.patch("vibecomfy.executor.research.research", side_effect=fake_research),
+            mock.patch(
+                "vibecomfy.executor.core._run_agent_owned_research",
+                side_effect=fake_research,
+            ),
         ):
             executor_result = run_executor(request)
 
@@ -1703,9 +1781,7 @@ def build_hotshot_16_frames_agent_edit_evidence(report_dir: Path) -> dict[str, A
             {
                 "op": "research",
                 "source_preferences": list(executor_result.report.plan.source_preferences or ()),
-                "precedent_packet_present": bool(
-                    research.precedent_packet is not None
-                ),
+                "ledger_entries": len(research.ledger.entries),
             },
             {
                 "op": "implementation",
@@ -2310,6 +2386,7 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
     """
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
     from vibecomfy.executor.core import run_executor
+    from vibecomfy.executor.agent_research_stage import form_research_question
 
     root = report_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -2361,13 +2438,11 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
         )
 
     # ── research: internal precedent first, then external ────────────────
-    from vibecomfy.executor.research import ResearchResult as _ResearchResult
+    fake_source_kinds: list[str] = []
 
-    def fake_research(
-        _query: str,
-        **kwargs: Any,
-    ) -> _ResearchResult:
-        """Return research with internal precedent first, no forbidden keys."""
+    def fake_research(request: Any, spec: Any, *, plan: ClassifyDecision) -> Any:
+        """Return agent-owned research with internal precedent first."""
+        question, _source_field = form_research_question(request=request, plan=plan)
         internal_sources: list[dict[str, Any]] = [
             {
                 "source": "ready_template",
@@ -2419,7 +2494,12 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
                 "url": "https://example.invalid/save-video-comfyui",
             },
         ]
-        return _ResearchResult(
+        fake_source_kinds.extend(
+            str(source.get("source") or "") for source in (internal_sources + external_sources)
+        )
+        return _agent_research_result(
+            route="adapt",
+            question=question,
             summary=(
                 "Research found internal precedent (ready_template, curated, "
                 "object_info) and external evidence (hivemind, comfy-registry, web) "
@@ -2427,7 +2507,7 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
                 "VAEDecode. Internal sources appear first as evidence/context, "
                 "not as recommendations."
             ),
-            sources=tuple(internal_sources + external_sources),
+            source_records=tuple(internal_sources + external_sources),
         )
 
     implementation_payloads: list[dict[str, Any]] = []
@@ -2472,7 +2552,7 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
             mock.patch(
-                "vibecomfy.executor.core.run_research_phase",
+                "vibecomfy.executor.core._run_agent_owned_research",
                 side_effect=fake_research,
             ),
             mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
@@ -2491,7 +2571,14 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
     if research is None:
         raise RuntimeError("Save generated video scenario did not produce research evidence.")
     research_path = root / "research_result.json"
-    research_path.write_text(json.dumps(research.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    research_payload = dict(research.to_dict())
+    # The harness freezes the evidence source records the fake agent-owned
+    # research produced (the AgentResearchResult carries them only behind its
+    # evidence artifact ids).
+    research_payload["sources"] = [
+        {"source": kind} for kind in fake_source_kinds
+    ]
+    research_path.write_text(json.dumps(research_payload, indent=2, sort_keys=True), encoding="utf-8")
 
     implementation = executor_result.report.implementation
     if implementation is None:
@@ -2543,23 +2630,19 @@ def build_save_generated_video_research_execute_evidence(report_dir: Path) -> di
         for node in graph_nodes
     )
 
-    research_source_kinds = [
-        str(source.get("source") or source.get("kind", ""))
-        for source in research.sources
-        if isinstance(source, dict)
-    ]
+    research_source_kinds = list(fake_source_kinds)
 
     last_payload = implementation_payloads[-1] if implementation_payloads else {}
-    # Adapt route nests research_summary inside execution_protocol_notes.
-    protocol_notes = last_payload.get("execution_protocol_notes", {}) if isinstance(last_payload, dict) else {}
+    # The adapt payload carries research context as the compact C1 ledger plus
+    # the classifier-derived research brief (D03).
     has_research_context = bool(
-        protocol_notes.get("research_summary")
-        or last_payload.get("research_context_packet")
+        last_payload.get("research_ledger")
+        or last_payload.get("research_brief")
     )
-    # Graph facts are passed via the graph itself and execution_protocol_notes.
+    # Graph facts are passed via the graph itself and the research brief.
     has_graph_facts = bool(
         last_payload.get("graph")
-        or protocol_notes
+        or last_payload.get("research_brief")
     )
     _write_actions(
         root / "actions.jsonl",

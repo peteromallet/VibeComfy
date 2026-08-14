@@ -33,10 +33,37 @@ from vibecomfy.executor.contracts import (
     ExecutorRequest,
     ExecutorResult,
     Report,
-    ResearchResult,
 )
 from vibecomfy.executor.profiles import AgentSpecShape, set_profile_override_dir
 from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
+
+
+class _LegacyResult:
+    """Duck-typed stand-in for the deleted legacy research-result contract.
+
+    The legacy ``ResearchResult`` class was removed by the agent-judgment
+    rework (D02); the shadow/dual-evaluation seam consumes this shape via
+    ``getattr`` and ``Report`` requires a ``to_dict()``-bearing research
+    result, so the fixture keeps a minimal local replica for test patching.
+    """
+
+    def __init__(
+        self,
+        summary: str = "",
+        sources: tuple = (),
+        warnings: tuple = (),
+        community_summary: str = "",
+    ) -> None:
+        self.summary = summary
+        self.sources = sources
+        self.warnings = warnings
+        self.community_summary = community_summary
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "summary": self.summary,
+            "sources": list(self.sources),
+        }
 
 # ── Profile fixture (research/adapt routes need a resolved research spec) ────
 
@@ -217,9 +244,9 @@ def _fake_reply(
     return "Audio-conditioned Wan uses LoadAudio before the video model."
 
 
-def _fake_legacy_research(query: str, **kwargs: Any) -> ResearchResult:
+def _fake_legacy_research(query: str, **kwargs: Any) -> _LegacyResult:
     """Fake legacy deterministic research with distinctive marker text."""
-    return ResearchResult(
+    return _LegacyResult(
         summary=f"Deterministic research for: {query}",
         sources=(
             {
@@ -422,7 +449,7 @@ class TestTraceRecordsQuestionAndJudgment:
     ) -> None:
         judge_log: list[dict[str, Any]] = []
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = ResearchResult(
+        legacy = _LegacyResult(
             summary="legacy summary",
             sources=({"source": "object_info", "title": "KSampler"},),
             warnings=(),
@@ -503,7 +530,7 @@ class TestTraceRecordsQuestionAndJudgment:
             ExecutorRequest(query=_EXPLICIT_QUESTION, profile="default"),
             plan=_research_plan(),
             spec=spec,
-            legacy_result=ResearchResult(summary="s", sources=()),
+            legacy_result=_LegacyResult(summary="s", sources=()),
             search_fn=_fake_search,
             get_fn=_fake_get,
             judge_fn=never_enough,
@@ -539,7 +566,7 @@ class TestNoLegacyInjectionIntoModelRequest:
                 "refine_question": None,
             }
 
-        legacy = ResearchResult(
+        legacy = _LegacyResult(
             summary="LEGACY_MARKER_SUMMARY deterministic research",
             sources=(
                 {
@@ -670,7 +697,7 @@ class TestDualReportAndArtifacts:
     ) -> None:
         judge_log: list[dict[str, Any]] = []
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = ResearchResult(
+        legacy = _LegacyResult(
             summary="legacy summary",
             sources=(
                 {
@@ -731,7 +758,7 @@ class TestDualReportAndArtifacts:
         from vibecomfy.agent.artifacts import synthesize_headless_artifacts
 
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
-        legacy = ResearchResult(
+        legacy = _LegacyResult(
             summary="legacy summary",
             sources=({"source": "object_info", "title": "KSampler"},),
             warnings=(),
@@ -747,7 +774,7 @@ class TestDualReportAndArtifacts:
         )
         assert shadow.legacy_evidence_pack is not None
 
-        research = ResearchResult(summary="legacy summary")
+        research = _LegacyResult(summary="legacy summary")
         object.__setattr__(research, "research_shadow", shadow)
         result = ExecutorResult.success(
             report=Report(plan=_research_plan(), research=research),
@@ -795,7 +822,7 @@ class TestDualReportAndArtifacts:
     ) -> None:
         from vibecomfy.agent.artifacts import synthesize_headless_artifacts
 
-        research = ResearchResult(summary="legacy summary")
+        research = _LegacyResult(summary="legacy summary")
         result = ExecutorResult.success(
             report=Report(plan=_research_plan(), research=research),
             reply="ok",

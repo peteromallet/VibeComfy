@@ -14,7 +14,7 @@ Shadow contract (H01):
       through ``vibecomfy.agent.artifacts``.
     * The judgment model request contains ONLY the explicit question plus a
       compact, bounded digest of tool statuses, evidence IDs, and hit
-      previews — never the full legacy ``ResearchResult`` and never a
+      previews — never the full research result object and never a
       workflow/graph schema dump.
     * The stage never raises: every failure is captured as a typed shadow
       result with ``status="failed"`` so the executor pipeline is unaffected.
@@ -212,7 +212,7 @@ def _extract_content(result: dict[str, Any]) -> str:
 
 # ── model request construction (H01 acceptance 3) ────────────────────────────
 # The judgment request carries ONLY the question + compact evidence digest.
-# It must never contain the full legacy ResearchResult nor a workflow schema
+# It must never contain the full research result object nor a workflow schema
 # dump — the digest builder below is the only evidence channel into the prompt.
 
 
@@ -764,7 +764,7 @@ def _get_conclusion(result: ToolResult, body: Mapping[str, Any]) -> str:
 
 
 def derive_legacy_evidence_pack(legacy_result: Any) -> EvidencePack:
-    """Capture the legacy ``ResearchResult`` as a comparable F01 evidence pack.
+    """Capture the research result as a comparable F01 evidence pack.
 
     Source rows become ``legacy_source:<i>`` artifacts with one ledger entry
     each; the summary/warnings/community paragraph live behind

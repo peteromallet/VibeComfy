@@ -41,6 +41,52 @@ Evidence lands under `out/agentic/reports/<tag>/`. Structural runs stamp
 dispatcher, and non-agentic model behavior. They must never be treated as live
 agentic proof.
 
+### Agent-judgment evidence scenarios (V01 suite)
+
+The eight end-to-end agent-judgment scenarios (revise without forced research,
+empty-graph authoring, research-only decision memo, headless ambiguity
+`needs_input`, schema drift + approved normalization, Hivemind rate limiting,
+invalid emitted socket, queue refusal with a valid runtime probe) exercise the
+classify → research → implement → apply/validate → queue → reply spine through
+the deterministic fake actor:
+
+```bash
+python -m tests.structural_harness.runner \
+  --mode structural --actor fake --tag v02-release \
+  revise-without-forced-research empty-graph-authoring \
+  research-only-decision-memo headless-ambiguity-needs_input \
+  schema-drift-approved-normalization hivemind-rate-limiting \
+  invalid-emitted-socket queue-refusal-valid-runtime-probe
+```
+
+Evidence-pack proof level for these runs is `validated`: the F01 evidence-pack
+validation resolves every citation against the IDs actually returned by the
+tools, and a dangling citation fails the scenario. The scenarios freeze
+request, stage packages, evidence pack, tool trace, diagnostics, and final
+effect; the assessor scores effects and evidence, never exact node recipes or
+prose.
+
+### Assessment: evidence over narrative
+
+Scoring is evidence-over-narrative everywhere the harness touches the agent
+surface (`tests/live_agentic_harness/assessor.py` +
+`research_assessment.py`). Research-route scenarios enforce:
+
+- **Question-before-search** — the evidence ledger records the question before
+  any tool call; an un-asked search does not count.
+- **Query relevance** — tool queries must match the recorded question.
+- **Hivemind invoked when required** — research-route scenarios require a
+  Hivemind call; no local-search path may substitute for it.
+- **Citations resolvable** — every cited evidence ID must resolve to an ID the
+  tools actually returned (the citation resolver reports zero dangling IDs).
+- **Evidence-pack capture** — grounding is reconstructed from the pack (tool
+  inputs, result IDs, fetched records, ledger, final diff), not from reply
+  prose. "Prose never gates."
+
+Effect scoring means shared-source edit errors and prose wording never penalize
+a scenario; a landing edit with resolvable evidence passes even when it is not
+the exact recipe the oracle would have picked.
+
 ## Headless Agent CLI
 
 The headless CLI sets `VIBECOMFY_HEADLESS=1` before importing the service so it

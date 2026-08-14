@@ -1171,7 +1171,6 @@ class TestBuildClassifyMessages:
         assert "[user]: Change the sampler" in content
         assert "Prior clarification question: Which sampler setting?" in content
         assert "2. steps" in content
-        assert 'previous turn was blocked on route="revise", task="edit_graph"' in content
         assert "Latest candidate reference" in content
         assert "turn=0003" in content
         assert "changed KSampler steps" in content
@@ -1334,14 +1333,18 @@ class TestBuildReplyMessages:
         assert "Draft distillation (pending)" in content
 
     def test_research_route_reply_instruction(self) -> None:
+        """Research-route replies must follow the C5 decision-memo contract
+        (question, conclusion, resolvable citation IDs, uncertainty, next
+        action) and never add sources absent from the memo. The pre-rework
+        community-findings framing was removed with the legacy research
+        engine (Wave C)."""
         msgs = build_reply_messages("ltx")
         system = msgs[0]["content"]
-        assert 'For route="research", lead with the community findings' in system
-        assert "no edit was made" in system
-        assert "Do not claim community consensus" in system
-        assert "never invent" in system
-        assert "title/status/confidence" in system
-        assert "authors, channels, titles, or quotes" in system
+        assert 'for route="research"' in system
+        assert "C5 decision memo" in system
+        assert "without implying an edit" in system
+        assert "Do not add sources or claims that are absent from that memo" in system
+        assert "question, conclusion, resolvable citation IDs, uncertainty/conflicts, and next action" in system
 
 
 # ── Response parsers ─────────────────────────────────────────────────────────

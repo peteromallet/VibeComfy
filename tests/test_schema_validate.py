@@ -106,10 +106,20 @@ def test_dynamic_file_picker_choices_do_not_reject_task_inputs() -> None:
 
     report = workflow.validate(schema_provider=provider)
 
-    assert not report.ok
-    assert [(issue.code, issue.detail["class_type"], issue.detail["input"]) for issue in report.issues] == [
-        ("value_not_in_enum", "UNETLoader", "unet_name")
+    # Dynamic file pickers never reject task inputs: LoadImage is exempt
+    # entirely, and a not-yet-installed model asset is a warning (structurally
+    # valid), never a hard error (S01 / PR-E contract).
+    assert report.ok
+    issues = [
+        issue for issue in report.issues
+        if issue.code == "value_not_in_enum" and issue.detail.get("class_type") == "UNETLoader"
     ]
+    assert issues, "UNETLoader env-asset mismatch should surface as a warning issue"
+    assert issues[0].severity == "warning"
+    assert issues[0].detail.get("choice_scope") == "environment_asset"
+    assert not any(
+        issue.detail.get("class_type") == "LoadImage" for issue in report.issues
+    )
 
 
 def test_normalization_proposal_drops_unknown_inputs_and_coerces_portable_choices() -> None:

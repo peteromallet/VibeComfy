@@ -20,8 +20,22 @@ import pytest
 
 from tests.live_agentic_harness.guard import guard_output_dir
 from vibecomfy.agent.contracts import HeadlessAgentRequest
-from vibecomfy.executor.contracts import ClassifyDecision, ResearchResult
+from vibecomfy.executor.contracts import ClassifyDecision
 from vibecomfy.executor.profiles import set_profile_override_dir
+
+
+class _LegacyResearchResult:
+    """Duck-typed stand-in for the deleted legacy ``ResearchResult`` contract.
+
+    The class was removed by the agent-judgment rework (D02); the shadow /
+    dual-evaluation seam consumes this shape via ``getattr`` only.
+    """
+
+    def __init__(self, summary: str = "", sources: tuple = (), warnings: tuple = (), community_summary: str = "") -> None:
+        self.summary = summary
+        self.sources = sources
+        self.warnings = warnings
+        self.community_summary = community_summary
 
 
 _BASE_PROFILE = """
@@ -276,9 +290,9 @@ def test_headless_research_route_runs_full_executor_pipeline(
             known_graph_context="Video workflow attached.",
         )
 
-    def fake_research(query: str, **kwargs: Any) -> ResearchResult:
+    def fake_research(query: str, **kwargs: Any) -> _LegacyResearchResult:
         research_called.append({"query": query, "kwargs": kwargs})
-        return ResearchResult(
+        return _LegacyResearchResult(
             summary="Research found distilled checkpoints and Lightning/LCM samplers.",
             sources=(),
             warnings=(),
@@ -291,8 +305,39 @@ def test_headless_research_route_runs_full_executor_pipeline(
         edit_called.append({"payload": payload, "kwargs": kwargs})
         raise AssertionError("research route must never reach the agent-edit gate")
 
+    from vibecomfy.executor.agent_research_stage import AgentResearchTrace
+    from vibecomfy.executor.core import AgentResearchResult
+    from vibecomfy.executor.evidence_pack import EvidenceLedger, EvidencePack
+
+    def fake_agent_research(request: Any, spec: Any, *, plan: Any) -> AgentResearchResult:
+        research_called.append({"request": request, "spec": spec, "plan": plan})
+        trace = AgentResearchTrace(
+            route="research",
+            question="Is there a faster way to run this video workflow?",
+            iterations=(),
+            final_verdict="enough",
+            summary="Research found distilled checkpoints and Lightning/LCM samplers.",
+            citations=(),
+            uncertainty="",
+            status="ok",
+            elapsed_seconds=0.01,
+            warnings=(),
+        )
+        return AgentResearchResult(
+            route="research",
+            trace=trace,
+            evidence_pack=EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=())),
+            decision_memo={
+                "question": "Is there a faster way to run this video workflow?",
+                "conclusion": "Research found distilled checkpoints and Lightning/LCM samplers.",
+                "citations": [],
+                "uncertainty": "",
+                "next_action": "Use this conclusion for the requested next step.",
+            },
+        )
+
     monkeypatch.setattr(executor_core, "run_classify_turn", fake_classify)
-    monkeypatch.setattr(executor_core, "run_research_phase", fake_research)
+    monkeypatch.setattr(executor_core, "_run_agent_owned_research", fake_agent_research)
     monkeypatch.setattr(executor_core, "run_reply_turn", fake_reply)
     monkeypatch.setattr(executor_core, "handle_agent_edit", fake_handle_agent_edit)
 
@@ -311,11 +356,10 @@ def test_headless_research_route_runs_full_executor_pipeline(
     assert result.ok is True
     assert classify_called
     assert not edit_called
-    # Deterministic research ran with the classifier's scoped directions and
-    # its source_preferences as the explicit tier tuple.
+    # C01: research is agent-owned — the C1 stage runs once with the research
+    # route; the legacy deterministic engine is never invoked.
     assert len(research_called) == 1
-    assert "distilled video models; lightning/LCM samplers" == research_called[0]["query"]
-    assert research_called[0]["kwargs"]["sources"] == ("workflows", "node documentation")
+    assert research_called[0]["plan"].effective_route == "research"
 
     classification = _read_json(output_dir / "classification.json")
     research_artifact = _read_json(output_dir / "research.json")
@@ -326,7 +370,8 @@ def test_headless_research_route_runs_full_executor_pipeline(
     assert classification["task"] == "research_nodes"
     assert classification["research"] is True
     assert classification["implement"] is False
-    assert research_artifact["summary"].startswith(
+    assert research_artifact["mode"] == "agent_owned"
+    assert research_artifact["conclusion"].startswith(
         "Research found distilled checkpoints and Lightning/LCM samplers."
     )
     assert response["ok"] is True
@@ -388,6 +433,13 @@ def test_headless_harness_runner_dispatches_through_real_executor_pipeline(
                 "graph": _minimal_graph(),
             }
         ),
+        encoding="utf-8",
+    )
+
+    from tests.live_agentic_harness.scenario_manifest import build_manifest
+
+    (tmp_path / "scenario_manifest.json").write_text(
+        json.dumps(build_manifest(scenarios_dir)),
         encoding="utf-8",
     )
 

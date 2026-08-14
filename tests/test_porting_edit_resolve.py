@@ -785,31 +785,21 @@ class TestHasUrlOnlyWebLeads:
         assert _has_url_only_web_leads(result) is False
 
 
-# ── _resolve_query_statement research tier wiring (B02) ───────────────────────
+# ── _resolve_query_statement research statement (Wave D fail-closed) ─────────
 
 
 class TestResolveResearchStatementSources:
-    """research() resolution passes the resolved sources tuple + split clients.
+    """research() fails closed: the deterministic engine was deleted (Wave D).
 
-    Omitted ``sources=`` still resolves to ``("workflows",)`` in this batch
-    (the research-route omit default lands in B03).  Explicit tuples null
-    unlisted tiers; invalid explicit sources keep the existing diagnostic.
+    Source normalization still runs before the raise — invalid explicit
+    sources keep the ``unsupported_research_source`` diagnostic and never
+    reach the fail-closed path.  A well-formed query then always returns
+    ``ok=False`` with a ``research_query_failed`` diagnostic that names the
+    ten agent-owned tool statements as the replacement surface.
     """
 
-    def _resolve(self, code: str, monkeypatch: pytest.MonkeyPatch):
+    def _resolve(self, code: str):
         import ast
-        import importlib
-
-        from vibecomfy.executor.contracts import ResearchResult
-
-        calls: list[dict[str, Any]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            calls.append({"query": query, **kwargs})
-            return ResearchResult(summary="Summary.", sources=())
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-        monkeypatch.setattr(research_module, "research", fake_research)
 
         tree = ast.parse(code)
         assert isinstance(tree.body[0], ast.Expr)
@@ -822,109 +812,103 @@ class TestResolveResearchStatementSources:
             call=tree.body[0].value,
             env={},
         )
-        return result, calls
+        return result
 
-    def test_omitted_sources_resolve_to_workflows_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve('research("Hotshot XL ComfyUI 16 frames")', monkeypatch)
-
-        assert result.ok is True
-        assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
-        assert calls[0]["sources"] == ("workflows",)
-        assert calls[0]["local_limit"] == 5
-        assert calls[0]["hivemind_client"] is not None
-        assert calls[0]["hivemind_messages_client"] is None
-        assert calls[0]["web_search_client"] is None
-        assert result.detail["research_sources"] == ("workflows",)
-        assert result.detail["requested_research_sources"] == ("workflows",)
-
-    def test_messages_source_uses_messages_client_and_nulls_workflow(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve('research("MiniMax H3", sources=["messages"])', monkeypatch)
-
-        assert result.ok is True
-        assert calls[0]["query"] == "MiniMax H3"
-        assert calls[0]["sources"] == ("messages",)
-        assert calls[0]["local_limit"] == 0
-        assert calls[0]["hivemind_client"] is None
-        assert calls[0]["hivemind_messages_client"] is not None
-        assert calls[0]["web_search_client"] is None
-        assert result.detail["research_sources"] == ("messages",)
-
-    def test_messages_web_combination_sets_both_clients(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
-            'research("LTX 2.5", sources=["messages", "web"])', monkeypatch
-        )
-
-        assert result.ok is True
-        assert calls[0]["sources"] == ("messages", "web")
-        assert calls[0]["local_limit"] == 0
-        assert calls[0]["hivemind_client"] is None
-        assert calls[0]["hivemind_messages_client"] is not None
-        assert calls[0]["web_search_client"] is not None
-        assert result.detail["research_sources"] == ("messages", "web")
-
-    def test_workflows_web_keeps_workflow_client_and_nulls_messages(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
-            'research("Hotshot XL", sources=["workflows", "web"])', monkeypatch
-        )
-
-        assert result.ok is True
-        assert calls[0]["sources"] == ("workflows", "web")
-        assert calls[0]["local_limit"] == 5
-        assert calls[0]["hivemind_client"] is not None
-        assert calls[0]["hivemind_messages_client"] is None
-        assert calls[0]["web_search_client"] is not None
-        assert result.detail["research_sources"] == ("workflows", "web")
-
-    def test_invalid_explicit_sources_diagnostic_unchanged(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve('research("q", sources=["bogus"])', monkeypatch)
+    def test_research_statement_fails_closed_with_tool_guidance(self) -> None:
+        result = self._resolve('research("Hotshot XL ComfyUI 16 frames")')
 
         assert result.ok is False
-        assert calls == []  # research() is never invoked for invalid sources
+        assert result.op_kind == "query"
+        codes = [d.code for d in result.diagnostics]
+        assert codes == ["research_query_failed"]
+        message = result.diagnostics[0].message
+        assert "no longer supported" in message
+        for tool in (
+            "hivemind_search",
+            "hivemind_get",
+            "registry_lookup",
+            "node_schema",
+            "ready_template_list",
+            "ready_template_load",
+            "rank_edit_targets",
+            "suggest_seed_nodes",
+            "layout_hints",
+            "web_search",
+        ):
+            assert tool in message
+
+    def test_detail_carries_research_query_only(self) -> None:
+        result = self._resolve('research("Hotshot XL ComfyUI 16 frames")')
+
+        # The old structured fields (research_sources / research_summary /
+        # community_summary / evidence_card / legacy_shadow_only) are gone;
+        # the fail-closed detail carries just query + research_query.
+        assert dict(result.detail) == {
+            "query": "research",
+            "research_query": "Hotshot XL ComfyUI 16 frames",
+        }
+
+    def test_invalid_explicit_sources_diagnostic_unchanged(self) -> None:
+        result = self._resolve('research("q", sources=["bogus"])')
+
+        # Source normalization runs before the fail-closed raise, so invalid
+        # sources keep the existing diagnostic and never see research_query_failed.
+        assert result.ok is False
         codes = [d.code for d in result.diagnostics]
         assert "unsupported_research_source" in codes
+        assert "research_query_failed" not in codes
+
+    def test_messages_web_sources_still_fail_closed(self) -> None:
+        result = self._resolve(
+            'research("MiniMax H3", sources=["messages", "web"])'
+        )
+
+        # Valid explicit sources no longer resolve to clients/tiers — the
+        # statement fails closed with the query carried in detail.
+        assert result.ok is False
+        codes = [d.code for d in result.diagnostics]
+        assert "research_query_failed" in codes
+        assert result.detail["research_query"] == "MiniMax H3"
+
+    def test_research_only_flag_does_not_resurrect_engine(self) -> None:
+        import ast
+
+        tree = ast.parse('research("Hotshot XL")')
+        resolver = _ResolveMixin()
+        resolver.research_only = True
+        result = resolver._resolve_query_statement(
+            statement_index=0,
+            source="user",
+            call=tree.body[0].value,
+            env={},
+        )
+
+        assert result.ok is False
+        codes = [d.code for d in result.diagnostics]
+        assert "research_query_failed" in codes
+        assert "legacy_shadow_only" not in result.detail
+        assert "research_sources" not in result.detail
 
 
-# ── B03 research-route omit default ──────────────────────────────────────────
+# ── research() fail-closed across the old omit/source surface (B03) ──────────
 
 
 class TestResolveResearchOmitDefault:
-    """Omitted sources= (None / () / []) on a research-only session resolve to
-    ("messages", "web"); adapt/revise omission stays ("workflows",); explicit
-    non-empty sources= wins with NO union.  Classify source_preferences stay
-    prompt-visible and are never read here.
+    """The old omit-default / source-union semantics are dead with the engine.
+
+    The statement fails closed identically whether sources= is omitted,
+    empty, or explicit, and regardless of ``research_only`` or the classify
+    brief — the ten named tool statements are the only research surface.
     """
 
     def _resolve(
         self,
         code: str,
-        monkeypatch: pytest.MonkeyPatch,
         *,
         research_only: bool = False,
         brief: dict[str, Any] | None = None,
     ):
         import ast
-        import importlib
-
-        from vibecomfy.executor.contracts import ResearchResult
-
-        calls: list[dict[str, Any]] = []
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            calls.append({"query": query, **kwargs})
-            return ResearchResult(summary="Summary.", sources=())
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-        monkeypatch.setattr(research_module, "research", fake_research)
 
         tree = ast.parse(code)
         assert isinstance(tree.body[0], ast.Expr)
@@ -940,177 +924,90 @@ class TestResolveResearchOmitDefault:
             call=tree.body[0].value,
             env={},
         )
-        return result, calls
+        return result
 
-    def test_resolve_omitted_sources_research_only_defaults_to_messages_web(
-        self, monkeypatch: pytest.MonkeyPatch
+    def test_resolve_omitted_sources_research_only_defaults_to_fail_closed(
+        self,
     ) -> None:
-        result, calls = self._resolve(
-            'research("MiniMax H3")', monkeypatch, research_only=True
+        result = self._resolve(
+            'research("MiniMax H3")', research_only=True
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("messages", "web")
-        assert calls[0]["local_limit"] == 0
-        assert calls[0]["hivemind_client"] is None
-        assert calls[0]["hivemind_messages_client"] is not None
-        assert calls[0]["web_search_client"] is not None
-        assert result.detail["requested_research_sources"] == ("messages", "web")
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
+        assert result.detail["research_query"] == "MiniMax H3"
 
-    def test_resolve_empty_sources_list_is_omit_not_no_tiers(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
-            'research("LTX 2.5", sources=[])', monkeypatch, research_only=True
+    def test_resolve_empty_sources_list_is_omit_not_no_tiers(self) -> None:
+        result = self._resolve(
+            'research("LTX 2.5", sources=[])', research_only=True
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("messages", "web")
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
+        assert result.detail["research_query"] == "LTX 2.5"
 
-    def test_resolve_omitted_sources_adapt_defaults_to_workflows(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve('research("Hotshot XL ComfyUI 16 frames")', monkeypatch)
+    def test_resolve_omitted_sources_adapt_defaults_to_fail_closed(self) -> None:
+        result = self._resolve('research("Hotshot XL ComfyUI 16 frames")')
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("workflows",)
-        assert calls[0]["local_limit"] == 5
-        assert calls[0]["hivemind_messages_client"] is None
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
 
     def test_resolve_omitted_sources_ignores_distilled_faster_brief_workflows(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
     ) -> None:
-        # Brief source_preferences are prompt-visible only — omit still resolves
-        # to ("messages", "web") on the research route regardless of the brief.
+        # Brief source_preferences were prompt-visible only; they no longer
+        # influence any resolution because the statement fails closed.
         brief = {
             "source_preferences": ["workflows", "messages", "web"],
             "research_goal": "Find distilled or faster ways to run the workflow.",
         }
-        result, calls = self._resolve(
-            'research("distilled faster")', monkeypatch, research_only=True, brief=brief
+        result = self._resolve(
+            'research("distilled faster")', research_only=True, brief=brief
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("messages", "web")
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
 
-    def test_resolve_explicit_web_sources_not_unioned_with_messages(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
-            'research("Hotshot XL", sources=["web"])', monkeypatch, research_only=True
+    def test_resolve_explicit_web_sources_not_unioned_with_messages(self) -> None:
+        result = self._resolve(
+            'research("Hotshot XL", sources=["web"])', research_only=True
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("web",)
-        assert calls[0]["hivemind_client"] is None
-        assert calls[0]["hivemind_messages_client"] is None
-        assert calls[0]["web_search_client"] is not None
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
 
-    def test_resolve_explicit_workflows_not_unioned_with_messages(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
-            'research("KSampler", sources=["workflows"])', monkeypatch, research_only=True
+    def test_resolve_explicit_workflows_not_unioned_with_messages(self) -> None:
+        result = self._resolve(
+            'research("KSampler", sources=["workflows"])', research_only=True
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("workflows",)
-        assert calls[0]["hivemind_client"] is not None
-        assert calls[0]["hivemind_messages_client"] is None
-        assert calls[0]["web_search_client"] is None
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
 
-    def test_resolve_omitted_research_only_requests_web_client_without_http(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import importlib
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-
-        def fake_web_client(query: str, timeout: float) -> dict[str, Any]:
-            return {"results": []}
-
-        monkeypatch.setattr(research_module, "_default_web_search_client", fake_web_client)
-        result, calls = self._resolve(
-            'research("MiniMax H3")', monkeypatch, research_only=True
-        )
-
-        assert result.ok is True
-        # research() is monkeypatched to a fake, so no live web HTTP runs; the
-        # resolver must still hand the web tier the default callable.
-        assert calls[0]["web_search_client"] is fake_web_client
-        assert calls[0]["hivemind_messages_client"] is not None
-
-    def test_resolve_messages_and_workflows_sets_both_clients(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result, calls = self._resolve(
+    def test_resolve_messages_and_workflows_sets_no_clients(self) -> None:
+        result = self._resolve(
             'research("MiniMax H3", sources=["messages", "workflows"])',
-            monkeypatch,
             research_only=True,
         )
 
-        assert result.ok is True
-        assert calls[0]["sources"] == ("messages", "workflows")
-        assert calls[0]["hivemind_client"] is not None
-        assert calls[0]["hivemind_messages_client"] is not None
+        assert result.ok is False
+        assert [d.code for d in result.diagnostics] == ["research_query_failed"]
+        assert result.detail["research_query"] == "MiniMax H3"
 
-    def test_resolve_attaches_structured_detail_fields(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import ast
-        import importlib
+    def test_resolve_attaches_no_structured_detail_fields(self) -> None:
+        result = self._resolve('research("MiniMax H3")', research_only=True)
 
-        from vibecomfy.executor.contracts import ResearchResult
-
-        message_source = {
-            "source": "hivemind_message",
-            "class_type": "MiniMax H3 is amazing",
-            "author": "alice",
-            "channel": "minimax_h3_chatter",
-            "hivemind_id": "9007199254740993",
-            "description": "loving the new model",
-            "_retrieval_time": "2026-08-13T00:00:00Z",
-            "_content_hash": "abc",
-            "score": 5,
-        }
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(
-                summary="Found community evidence.",
-                sources=(message_source,),
-                community_summary='alice in #minimax_h3_chatter: loving the new model',
-            )
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-        monkeypatch.setattr(research_module, "research", fake_research)
-
-        tree = ast.parse('research("MiniMax H3")')
-        resolver = _ResolveMixin()
-        resolver.research_only = True
-        result = resolver._resolve_query_statement(
-            statement_index=0,
-            source="user",
-            call=tree.body[0].value,
-            env={},
-        )
-
-        assert result.ok is True
-        assert result.detail["community_summary"] == (
-            "alice in #minimax_h3_chatter: loving the new model"
-        )
-        assert result.detail["research_summary"] == "Found community evidence."
-        sources = result.detail["research_result_sources"]
-        assert len(sources) == 1
-        assert sources[0]["source"] == "hivemind_message"
-        assert sources[0]["author"] == "alice"
-        assert sources[0]["channel"] == "minimax_h3_chatter"
-        # underscore audit keys are dropped except the three public stamp keys;
-        # non-underscore keys (score, author, ...) stay (display metadata)
-        assert "_content_hash" not in sources[0]
-        assert "_query_transform_trace" not in sources[0]
-        assert sources[0]["score"] == 5
-        assert sources[0]["_retrieval_time"] == "2026-08-13T00:00:00Z"
+        assert result.ok is False
+        # The structured research detail (community_summary / research_summary /
+        # research_result_sources / evidence_card) is never attached.
+        assert "community_summary" not in result.detail
+        assert "research_summary" not in result.detail
+        assert "research_result_sources" not in result.detail
         assert "evidence_card" not in result.detail
+        assert dict(result.detail) == {
+            "query": "research",
+            "research_query": "MiniMax H3",
+        }
 
 
 # ── B03 query_output formatting (community_summary + 12-cap) ─────────────────
@@ -1339,21 +1236,11 @@ class TestFoldResearchStatement:
 
 
 class TestLegacyResearchShadowFlag:
-    """I01/H01: research() stays callable but is flagged shadow-only so the
-    named Wave-A tool calls are the canonical evidence surface."""
+    """research() is legacy and fails closed; the named tool calls are the
+    canonical evidence surface (I01/H01)."""
 
-    def _resolve_research(self, code: str, monkeypatch: pytest.MonkeyPatch):
+    def _resolve_research(self, code: str):
         import ast
-        import importlib
-
-        from vibecomfy.executor.contracts import ResearchResult
-
-        research_module = importlib.import_module("vibecomfy.executor.research")
-
-        def fake_research(query: str, **kwargs: Any) -> ResearchResult:
-            return ResearchResult(summary="Summary.", sources=())
-
-        monkeypatch.setattr(research_module, "research", fake_research)
 
         tree = ast.parse(code)
         resolver = _ResolveMixin()
@@ -1365,13 +1252,19 @@ class TestLegacyResearchShadowFlag:
         )
         return result
 
-    def test_research_detail_flagged_legacy_shadow_only(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        result = self._resolve_research('research("wan t2v")', monkeypatch)
-        assert result.ok is True
-        assert result.detail["legacy_shadow_only"] is True
+    def test_research_statement_fails_closed_with_guidance(self) -> None:
+        result = self._resolve_research('research("wan t2v")')
+
+        # The shadow-only flag is moot: the statement always fails closed with
+        # guidance to the named tool statements instead of returning output.
+        assert result.ok is False
+        codes = [d.code for d in result.diagnostics]
+        assert codes == ["research_query_failed"]
+        message = result.diagnostics[0].message
+        assert "hivemind_search" in message
+        assert "web_search" in message
         assert result.detail["research_query"] == "wan t2v"
+        assert "legacy_shadow_only" not in result.detail
 
     def test_tool_calls_are_not_flagged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import ast

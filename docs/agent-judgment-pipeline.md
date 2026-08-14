@@ -1,6 +1,10 @@
 # Agent-Judgment Pipeline — End-State Design
 
-Status: design doc (in-progress rework; tasks below are the migration).
+Status: **DELIVERED** — the rework described below is fully landed at
+`4358aaa6` (main). F01 → V01 are merged; the legacy machinery is deleted; the
+eight V01 evidence scenarios validate 8/8 under the structural harness; V02 is
+this release proof. The migration table in §8 is a record of what shipped, not
+an open task list. See §10 for the delivered-vs-design mapping.
 Applies to: the VibeComfy headless agent pipeline (classify → research → implement →
 apply/validate → reply) and the live-agentic harness that scores it.
 
@@ -178,3 +182,27 @@ Transaction integrity (apply/authority/replay), fail-closed guards (emit fence,
 queue readiness, validation), typed contracts, rate-limit circuits, provenance,
 evidence capture, and all harness scoring. The line: **code may refuse, verify, and
 record — it may not decide, rewrite, or preempt.**
+
+## 10. Delivered — what landed vs this design
+
+Landed at `4358aaa6` (main). Ownership and module locations are pinned in
+`vibecomfy/comfy_nodes/agent/OWNERSHIP.md`; verification evidence is in the V02
+release proof.
+
+| Design element | Delivered as |
+|---|---|
+| Goal / priority brief / package handoffs (§1, §2) | Typed stage requests + packages in `vibecomfy/executor/stage_contracts.py`; the classify stage emits goal + priorities + route; `core.py` owns phase orchestration (`_ROUTE_BEHAVIORS`, typed `needs_input` routing). |
+| Evidence ledger + evidence pack (§2, §7) | `vibecomfy/executor/evidence_pack.py` — ledger entries carry conclusions + evidence IDs only; source bodies live in `EvidenceArtifact` values resolved by `evidence_id`. |
+| Research phase, agent-owned (§2, §7) | `vibecomfy/executor/agent_research_stage.py` — question-first loop with I01 effort budgets (3 searches / 6 fetches / 1 registry / ~90s), typed shadow result, never raises. |
+| Research tools (§4) | `hivemind_search`/`hivemind_get` → `vibecomfy/executor/hivemind_tools.py` (rate-limit circuit, single-flight, `Retry-After`); `registry_lookup` → `lookup_tools.py`; `web_search` → `web_tools.py` (last resort, disabled by default). |
+| Implement tools (§4) | `node_schema`/`ready_template_list`/`ready_template_load` → `lookup_tools.py`; `rank_edit_targets`/`suggest_seed_nodes` → `edit_suggestion_tools.py`; `layout_hints` → `layout_hints.py`. Typed statuses (`ok | no_results | rate_limited | …`) in `tool_contracts.py`. |
+| Apply + validate rails (§5) | Compare-and-swap candidate transaction + authority receipts (`candidate_transaction.py`, `authority_receipts.py`); `RefusedEmit` never drops an edge (`porting/emit`); field-level compatibility policy, no class-wide suppression (`schema/validate.py`, `graph_normalization.py`); queue normalization is a typed proposal. |
+| Queue gate consumes probe receipts (§5) | `vibecomfy/comfy_nodes/agent/gates.py` verifies `live_runtime_schema_probe()` receipts (`vibecomfy/runtime/schema_probe.py`); a bare tier label no longer satisfies readiness. |
+| Advisory, agent-authored, revisable plans (H03) | `execution_plan.py`/`execution_plan_runtime.py` — executor-built plans are advisory diagnostics; the done()-refusal gate is gone. |
+| Evidence-over-narrative scoring (§5) | `tests/live_agentic_harness/assessor.py` + `research_assessment.py` — question-before-search, query relevance, Hivemind required, citations resolvable to returned evidence IDs, no-local-search path, evidence-pack capture; shared-source edits are fine; prose never gates. |
+| Deleted machinery (§6) | `vibecomfy/executor/research.py` (6,412 lines), `research_sources.py`, `execution_plan_builder.py`, the `ResearchResult` class + precedent contracts, the giant prompt-injection path — all removed in Wave C/D; keyword classifiers and hardcoded recipes deleted. Verified by the V02 banned-symbol audit (zero hits in live code). |
+| Eight evidence scenarios (V01) | `tests/structural_harness/actors_agent_judgment.py` + eight scenario YAMLs/briefs; 8/8 validate under `--mode structural --actor fake`, proof level `validated` (evidence-pack citation resolver: zero dangling IDs). |
+
+The one principle (§1) is unchanged and enforced: the agent owns intent,
+approach, research, and the enough-check; deterministic code refuses, verifies,
+and records.

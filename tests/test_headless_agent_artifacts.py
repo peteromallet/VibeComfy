@@ -11,8 +11,43 @@ from vibecomfy.executor.contracts import (
     ExecutorResult,
     ImplementationResult,
     Report,
-    ResearchResult,
 )
+
+
+class _LegacyResearchResult:
+    """Duck-typed stand-in for the deleted legacy ``ResearchResult`` contract.
+
+    The class was removed by the agent-judgment rework (D02); artifact
+    serialization consumes this shape via ``to_dict()`` / ``getattr``.
+    """
+
+    def __init__(
+        self,
+        *,
+        summary: str = "",
+        sources: tuple = (),
+        warnings: tuple = (),
+        community_summary: str = "",
+        precedent_sources: tuple = (),
+        workflow_precedent_status: str = "",
+    ) -> None:
+        self.summary = summary
+        self.sources = sources
+        self.warnings = warnings
+        self.community_summary = community_summary
+        self.precedent_sources = precedent_sources
+        self.workflow_precedent_status = workflow_precedent_status
+
+    def to_dict(self) -> dict:
+        return {
+            "summary": self.summary,
+            "sources": list(self.sources),
+            "warnings": list(self.warnings),
+            "community_summary": self.community_summary,
+            "precedent_sources": list(self.precedent_sources),
+            "workflow_precedent_status": self.workflow_precedent_status,
+        }
+
 
 
 def _read_json(path: Path) -> dict:
@@ -39,7 +74,7 @@ def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: P
                 task="research_precedent",
                 research_goal="Find useful precedent.",
             ),
-            research=ResearchResult(
+            research=_LegacyResearchResult(
                 summary="Found precedent.",
                 sources=(
                     {"class_type": "wrong_ltx", "api_key": "source-secret"},
@@ -155,7 +190,7 @@ def test_adapt_artifacts_do_not_emit_packet_without_compatible_workflow(tmp_path
                 route="adapt",
                 research_goal="Find precedent.",
             ),
-            research=ResearchResult(
+            research=_LegacyResearchResult(
                 summary="Found supplemental docs only.",
                 sources=({"class_type": "wrong_ltx", "source": "object_info"},),
                 workflow_precedent_status="no_compatible_workflow_found",

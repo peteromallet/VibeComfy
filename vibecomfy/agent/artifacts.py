@@ -212,8 +212,8 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
 
 
 def _executor_report(result: Any) -> dict[str, Any]:
-    # H01 shadow/dual-evaluation: the agent research stage rides on the legacy
-    # ResearchResult as a private attribute (attached by core.run_executor).
+    # H01 shadow/dual-evaluation: the agent research stage rides on the
+    # AgentResearchResult as a private attribute (attached by core.run_executor).
     # It is persisted as evidence only — it never feeds routing, reply text,
     # graphs, or queue decisions.
     research_shadow = None

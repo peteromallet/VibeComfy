@@ -53,8 +53,6 @@ from vibecomfy.demo_factory.run_campaign import (
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
-    PrecedentAdaptationPlan,
-    WorkflowSlice,
 )
 from vibecomfy.executor.core import (
     _canonical_route_for_plan,
@@ -267,19 +265,21 @@ def test_forbidden_token_registry_covers_construction_metadata() -> None:
 # ===========================================================================
 
 
-def test_default_adaptation_plan_has_no_topology_manifest() -> None:
-    """A legacy (manifest-free) plan serializes without ``topology_manifest``.
+def test_precedent_adaptation_plan_contract_removed() -> None:
+    """The precedent adaptation-plan contract was removed by the rework (D02).
 
-    W-02's manifest field defaults to None; when it is None the plan takes the
-    legacy dependency-only consumption path. This is the current behavior and
-    the release guard pins it.
+    W-02's ``topology_manifest`` lived on the deleted ``PrecedentAdaptationPlan``;
+    nothing in the release guard carries ``selected_slice`` / ``topology_manifest``
+    anymore.  The guard pins the absence so a resurrected precedent contract
+    cannot silently leak construction metadata into the fixer.
     """
-    plan = PrecedentAdaptationPlan(
-        selected_slice=WorkflowSlice(source_class_type="legacy precedent")
-    )
-    assert plan.topology_manifest is None
-    payload = plan.to_dict()
-    assert "topology_manifest" not in payload
+    import vibecomfy.executor.contracts as contracts_module
+
+    for name in ("PrecedentAdaptationPlan", "WorkflowSlice", "PrecedentPacket", "PrecedentOption"):
+        assert not hasattr(contracts_module, name), f"{name} must be deleted"
+    # The legacy adaptation-plan dict shape is not produced by the campaign:
+    # the guard's injection predicates stay manifest-free by construction.
+    assert "topology_manifest" not in _legacy_adaptation_plan()
 
 
 def test_additive_injection_without_manifest_uses_legacy_predicates() -> None:

@@ -172,20 +172,20 @@ def test_explore_hotshot_xl_research_route_evidence_stays_structural_fake(
     assert executor_result["route"] == "research"
     assert executor_result["candidate"] is None
     assert executor_result["apply_eligible"] is False
-    # PR-B: the research route runs deterministic research (scoped query +
+    # PR-B: the research route runs agent-owned research (scoped question +
     # explicit source tier tuple) — the agent-edit batch gate never runs.
-    assert research["phase"] == "deterministic"
+    assert research["phase"] == "agent_owned"
     assert research["edit_called"] is False
     calls = research["calls"]
     assert len(calls) == 1
-    assert calls[0]["query"] == (
-        "Hotshot XL SVD-XT ComfyUI workflow; Hotshot XL image-to-video workflow pattern"
-    )
+    # The agent-owned research question is the first scoped search_direction
+    # (C1 question contract) — never the raw user sentence.
+    assert calls[0]["query"] == "Hotshot XL SVD-XT ComfyUI workflow"
     assert calls[0]["sources"] == ["workflows", "messages", "web"]
     assert any(
         action.get("op") == "research"
         and action.get("through_agent_edit") is False
-        and action.get("phase") == "deterministic"
+        and action.get("phase") == "agent_owned"
         for action in actions
     )
     assert any(action.get("op") == "executor.run" for action in actions)
@@ -211,21 +211,20 @@ def test_distilled_faster_research_route_evidence_scopes_deterministic_research(
     assert executor_result["candidate"] is None
     assert executor_result["apply_eligible"] is False
 
-    # PR-B: deterministic research, never the agent-edit batch gate.
-    assert research["phase"] == "deterministic"
+    # PR-B: agent-owned research, never the agent-edit batch gate.
+    assert research["phase"] == "agent_owned"
     assert research["edit_called"] is False
     calls = research["calls"]
     assert len(calls) == 1
     scoped_query = calls[0]["query"]
-    # The focused research query uses domain anchors, never generic words from
-    # the raw sentence.
-    assert "AnimateDiff distilled faster inference ComfyUI" in scoped_query
-    assert "lightning video motion model distilled steps" in scoped_query
+    # The focused research question uses a domain anchor (the first scoped
+    # search_direction), never generic words from the raw sentence.
+    assert scoped_query == "AnimateDiff distilled faster inference ComfyUI"
     assert calls[0]["sources"] == ["workflows", "messages", "web"]
     assert any(
         action.get("op") == "research"
         and action.get("through_agent_edit") is False
-        and action.get("phase") == "deterministic"
+        and action.get("phase") == "agent_owned"
         for action in actions
     )
     assert any(action.get("op") == "executor.run" for action in actions)
@@ -1131,11 +1130,11 @@ def test_save_generated_video_research_execute_process_shape(
         (report_dir / "implementation_payload.json").read_text(encoding="utf-8")
     )
     # Research context must be present in implementation payload.
-    # The adapt route nests research under research_context_packet and
-    # execution_protocol_notes (classifier-derived scoping).
+    # The adapt route forwards the compact C1 ledger plus the classifier-derived
+    # research brief (D03) — legacy research_context_packet is gone.
     has_research_context = (
-        impl_payload.get("research_context_packet") is not None
-        or bool(impl_payload.get("execution_protocol_notes"))
+        impl_payload.get("research_ledger") is not None
+        or bool(impl_payload.get("research_brief"))
     )
     assert has_research_context, (
         "Implementation must receive research context; "

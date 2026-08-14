@@ -58,7 +58,6 @@ from vibecomfy.comfy_nodes.agent.contracts import (
 )
 from vibecomfy.executor.contracts import (
     ReadinessReport,
-    ResearchResult,
     RevisionEvidence,
     ScopedDiff,
     TopologyFindings,
@@ -3387,140 +3386,45 @@ def test_batch_repl_search_partial_exact_miss_reports_missing_classes() -> None:
     assert "ADE_AnimateDiffLoaderWithContext" in report
 
 
-def test_batch_repl_research_query_output_is_in_next_turn_report(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+def test_batch_repl_web_url_only_research_prompts_concrete_workflow_followup() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(
-            summary="Found Hotshot XL custom-node installation and workflow precedent.",
-            sources=(
-                {
-                    "title": "ComfyUI-HotshotXL",
-                    "url": "https://example.test/hotshot",
-                    "description": "HotshotXL provides video generation custom nodes for ComfyUI.",
-                },
-            ),
-            warnings=("local corpus unavailable",),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
-
-    result = session.apply_batch('research("Hotshot XL ComfyUI 16 frames")')
-    report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
-
-    assert result.ok is True
-    assert result.statements[0].op_kind == "query"
-    assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
-    assert calls[0]["local_limit"] == 5
-    assert calls[0]["registry_resolver"] is None
-    assert calls[0]["hivemind_client"] is None
-    assert calls[0]["web_search_client"] is None
-    assert result.statements[0].detail["research_sources"] == ("workflows",)
-    assert result.statements[0].detail["requested_research_sources"] == ("workflows",)
-    assert "Found Hotshot XL custom-node installation" in result.statements[0].detail["query_output"]
-    assert "Workflow-first check" in result.statements[0].detail["query_output"]
-    assert "ComfyUI-HotshotXL" in report
-    assert "local corpus unavailable" in report
-
-
-def test_batch_repl_research_can_choose_web_only_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vibecomfy.porting.edit.session import EditSession
-
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(summary="Web-only result.", sources=())
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
-
-    result = session.apply_batch('research("HotshotXL ComfyUI", sources=["web"])')
-
-    assert result.ok is True
-    assert calls[0]["query"] == "HotshotXL ComfyUI"
-    assert calls[0]["local_limit"] == 0
-    assert calls[0]["hivemind_client"] is None
-    assert calls[0]["web_search_client"] is not None
-    assert result.statements[0].detail["research_sources"] == ("web",)
-
-
-def test_batch_repl_web_url_only_research_prompts_concrete_workflow_followup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from vibecomfy.porting.edit.session import EditSession
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary="Found URL leads.",
-            sources=(
-                {
-                    "source": "web",
-                    "title": "Hotshot XL OpenArt workflow",
-                    "url": "https://openart.ai/workflows/example/hotshot-xl/abc",
-                    "description": "External search result from openart.ai",
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["web"])')
 
-    query_output = result.statements[0].detail["query_output"]
-    assert "External workflow check" in query_output
-    assert "URL/title leads, not yet a workflow pattern" in query_output
-    assert "workflow JSON, repo example, or page result" in query_output
+    # The old URL-lead followup guidance is gone with the engine; the
+    # statement fails closed with tool-statement guidance instead.
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": "Hotshot XL ComfyUI workflow",
+    }
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "web_search" in message
 
-
-def test_batch_repl_web_workflow_json_prompts_exact_schema_followup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_batch_repl_web_workflow_json_prompts_exact_schema_followup() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary="Found GitHub workflow JSON.",
-            sources=(
-                {
-                    "source": "external_workflow",
-                    "source_type": "github_workflow_json",
-                    "title": "workflow-vid2vid-hotshotXL.json",
-                    "url": "https://github.com/example/repo/blob/main/workflow-vid2vid-hotshotXL.json",
-                    "description": "Fetched GitHub workflow JSON.",
-                    "node_types": [
-                        "ADE_AnimateDiffUniformContextOptions",
-                        "VHS_LoadImagesPath",
-                        "KSamplerAdvanced",
-                    ],
-                    "source_workflow_path": "/tmp/workflow-vid2vid-hotshotXL.json",
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["web"])')
 
-    query_output = result.statements[0].detail["query_output"]
-    assert "Concrete workflow pattern found" in query_output
-    assert "ADE_AnimateDiffUniformContextOptions" in query_output
-    assert "VHS_LoadImagesPath" in query_output
-    assert "/tmp/workflow-vid2vid-hotshotXL.json" in query_output
-    assert "python() only shows the current graph" in query_output
-    assert "broad custom-node queries such as only the model name" in query_output
-
+    # The old exact-schema followup is gone with the engine; the statement
+    # fails closed and points at the named tool statements instead.
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": "Hotshot XL ComfyUI workflow",
+    }
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "ready_template_load" in message
 
 def test_batch_repl_research_memory_is_ledger_only() -> None:
     """D03/I01: cross-turn memory carries ONLY compact tool-evidence ledger
@@ -4653,155 +4557,75 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
     assert "rejected_clarification" not in model_response["turns"][2]
 
 
-def test_batch_repl_research_honors_workflows_plus_web_sources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_batch_repl_research_honors_workflows_plus_web_sources() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(summary="External workflow result.", sources=())
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
-    result = session.apply_batch(
-        'research("Hotshot XL ComfyUI workflow", sources=["workflows", "web"])'
-    )
+    result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["workflows", "web"])')
 
-    assert result.ok is True
-    assert calls[0]["query"] == "Hotshot XL ComfyUI workflow"
-    assert calls[0]["local_limit"] == 5
-    assert calls[0]["registry_resolver"] is None
-    assert calls[0]["web_search_client"] is not None
-    assert result.statements[0].detail["research_sources"] == ("workflows", "web")
-    assert "Workflow-first check" in result.statements[0].detail["query_output"]
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": 'Hotshot XL ComfyUI workflow',
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "hivemind_search" in message
+    assert 'hivemind_get' in message
 
-
-def test_batch_repl_research_honors_web_plus_registry_sources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_batch_repl_research_honors_web_plus_registry_sources() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(summary="External workflow result.", sources=())
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
-    result = session.apply_batch(
-        'research("Hotshot XL ComfyUI workflow nodes", sources=["web", "registry", "messages"])'
-    )
+    result = session.apply_batch('research("Hotshot XL ComfyUI workflow nodes", sources=["web", "registry", "messages"])')
 
-    assert result.ok is True
-    assert calls[0]["local_limit"] == 0
-    assert callable(calls[0]["registry_resolver"])
-    assert calls[0]["hivemind_client"] is None
-    assert calls[0]["hivemind_messages_client"] is not None
-    assert calls[0]["web_search_client"] is not None
-    assert result.statements[0].detail["research_sources"] == ("web", "registry", "messages")
-    assert "Research-order check" not in result.statements[0].detail["query_output"]
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": 'Hotshot XL ComfyUI workflow nodes',
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "hivemind_search" in message
+    assert 'registry_lookup' in message
 
-
-def test_batch_repl_research_can_choose_registry_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vibecomfy.executor.research import ResearchResult
+def test_batch_repl_research_can_choose_registry_source() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(
-            summary="Found registry candidate.",
-            sources=(
-                {
-                    "source": "comfy-registry",
-                    "class_type": "ComfyUI-AnimateDiff-Evolved",
-                    "pack": "ComfyUI-AnimateDiff-Evolved",
-                    "description": "Expected classes: ADE_AnimateDiffLoaderWithContext",
-                    "resolver_candidate": {
-                        "pack": {"slug": "ComfyUI-AnimateDiff-Evolved"},
-                        "expected_classes": ["ADE_AnimateDiffLoaderWithContext"],
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-    monkeypatch.setattr(research_module, "resolve_missing_nodes", object())
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("Hotshot XL ComfyUI nodes", sources=["registry"])')
 
-    assert result.ok is True
-    assert calls[0]["query"] == "Hotshot XL ComfyUI nodes"
-    assert calls[0]["local_limit"] == 0
-    assert callable(calls[0]["registry_resolver"])
-    assert calls[0]["hivemind_client"] is None
-    assert calls[0]["web_search_client"] is None
-    assert result.statements[0].detail["research_sources"] == ("registry",)
-    assert result.statements[0].detail["resolver_candidates"]
-    assert "ComfyUI-AnimateDiff-Evolved" in result.statements[0].detail["query_output"]
-    assert "Registry check" in result.statements[0].detail["query_output"]
-
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": 'Hotshot XL ComfyUI nodes',
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "hivemind_search" in message
+    assert 'node_schema' in message
 
 def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.executor.research import ResearchResult
-
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary=f"Concrete workflow evidence for {query}.",
-            sources=(
-                {
-                    "source": "external_workflow",
-                    "source_type": "github_workflow_json",
-                    "class_type": "workflow vid2vid hotshotXL ipadapterplusface ipadapter.json",
-                    "pack": "github.com",
-                    "url": "https://github.com/fictions-ai/sharing-is-caring/blob/main/workflow-vid2vid-hotshotXL-ipadapterplusface-ipadapter.json",
-                    "source_workflow_path": "/tmp/hotshot-workflow.json",
-                    "node_types": ["ADE_AnimateDiffUniformContextOptions"],
-                    "workflow_schema_classes": ["ADE_AnimateDiffUniformContextOptions"],
-                    "workflow_schema": {
-                        "ADE_AnimateDiffUniformContextOptions": {
-                            "input": {
-                                "required": {},
-                                "optional": {
-                                    "widget_0": {"type": "INT", "default": 8},
-                                    "widget_1": {"type": "INT", "default": 1},
-                                    "widget_2": {"type": "INT", "default": 3},
-                                    "widget_3": {"type": "STRING", "default": "uniform"},
-                                    "widget_4": {"type": "BOOLEAN", "default": False},
-                                },
-                            },
-                            "outputs": [{"name": "CONTEXT_OPTIONS", "type": "CONTEXT_OPTIONS"}],
-                            "object_info_widget_order": [
-                                "widget_0",
-                                "widget_1",
-                                "widget_2",
-                                "widget_3",
-                                "widget_4",
-                            ],
-                        }
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     responses = iter(
         [
             {
@@ -4827,6 +4651,45 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
             "session_id": "hotshot-workflow-json-provisional-node",
             "max_batches": 4,
             "max_consecutive_errors": 2,
+            # H03 active shape: workflow precedent sources arrive as executor
+            # input — the research() statement now fails closed instead of
+            # producing research_sources.
+            "execution_protocol_notes": {
+                "research_sources": [
+                    {
+                        "source": "external_workflow",
+                        "source_type": "github_workflow_json",
+                        "class_type": "workflow vid2vid hotshotXL ipadapterplusface ipadapter.json",
+                        "pack": "github.com",
+                        "url": "https://github.com/fictions-ai/sharing-is-caring/blob/main/workflow-vid2vid-hotshotXL-ipadapterplusface-ipadapter.json",
+                        "source_workflow_path": "/tmp/hotshot-workflow.json",
+                        "node_types": ["ADE_AnimateDiffUniformContextOptions"],
+                        "workflow_schema_classes": ["ADE_AnimateDiffUniformContextOptions"],
+                        "workflow_schema": {
+                            "ADE_AnimateDiffUniformContextOptions": {
+                                "input": {
+                                    "required": {},
+                                    "optional": {
+                                        "widget_0": {"type": "INT", "default": 8},
+                                        "widget_1": {"type": "INT", "default": 1},
+                                        "widget_2": {"type": "INT", "default": 3},
+                                        "widget_3": {"type": "STRING", "default": "uniform"},
+                                        "widget_4": {"type": "BOOLEAN", "default": False},
+                                    },
+                                },
+                                "outputs": [{"name": "CONTEXT_OPTIONS", "type": "CONTEXT_OPTIONS"}],
+                                "object_info_widget_order": [
+                                    "widget_0",
+                                    "widget_1",
+                                    "widget_2",
+                                    "widget_3",
+                                    "widget_4",
+                                ],
+                            }
+                        },
+                    }
+                ]
+            },
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
@@ -4841,92 +4704,42 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
         for node in result["graph"].get("nodes", [])
         if isinstance(node, dict)
     )
+    # The legacy research() statement failed closed inside the loop.
+    assert [
+        statement["diagnostics"][0]["code"]
+        for statement in result["batch_turns"][0]["statements"]
+        if statement["diagnostics"]
+    ] == ["research_query_failed"]
 
-
-def test_workflow_json_research_does_not_hydrate_local_search(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from vibecomfy.executor.research import ResearchResult
+def test_workflow_json_research_does_not_hydrate_local_search() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary=f"Concrete workflow evidence for {query}.",
-            sources=(
-                {
-                    "source": "external_workflow",
-                    "source_type": "github_workflow_json",
-                    "class_type": "workflow vid2vid hotshotXL ipadapterplusface ipadapter.json",
-                    "pack": "github.com",
-                    "url": "https://github.com/fictions-ai/sharing-is-caring/blob/main/workflow-vid2vid-hotshotXL-ipadapterplusface-ipadapter.json",
-                    "workflow_schema_classes": ["ADE_AnimateDiffUniformContextOptions"],
-                    "workflow_schema": {
-                        "ADE_AnimateDiffUniformContextOptions": {
-                            "input": {
-                                "required": {},
-                                "optional": {"widget_0": {"type": "INT", "default": 8}},
-                            },
-                            "outputs": [{"name": "CONTEXT_OPTIONS", "type": "CONTEXT_OPTIONS"}],
-                            "object_info_widget_order": ["widget_0"],
-                        }
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_batch_repl_provider())
 
-    session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["web"])')
+    research_result = session.apply_batch(
+        'research("Hotshot XL ComfyUI workflow", sources=["web"])'
+    )
+    assert research_result.ok is False
+    assert [d.code for d in research_result.statements[0].diagnostics] == [
+        "research_query_failed"
+    ]
+
     result = session.apply_batch(
         'search(focus_types=["ADE_AnimateDiffUniformContextOptions"])'
     )
     query_output = result.statements[0].detail["query_output"]
 
+    # A failed research statement hydrates nothing into the local schema
+    # search — the class stays absent from the authoring surface.
     assert "No node signature found for exact class type(s)" in query_output
     assert "def ADE_AnimateDiffUniformContextOptions" not in query_output
-
 
 def test_registry_class_only_research_does_not_hydrate_local_search(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.executor.research import ResearchResult
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary=f"Registry evidence for {query}.",
-            sources=(
-                {
-                    "source": "github",
-                    "class_type": "ComfyUIWorkflowSuite",
-                    "pack": "ComfyUIWorkflowSuite",
-                    "description": "Expected classes: Limbicnation, ComfyUIWorkflowSuite, HotshotXL, User",
-                    "resolver_candidate": {
-                        "pack": {
-                            "slug": "ComfyUIWorkflowSuite",
-                            "source": "github",
-                            "url": "https://github.com/Limbicnation/ComfyUIWorkflowSuite",
-                        },
-                        "expected_classes": [
-                            "Limbicnation",
-                            "ComfyUIWorkflowSuite",
-                            "Txt2Vid",
-                            "HotshotXL",
-                            "User",
-                        ],
-                        "validation_mode": "class_validatable",
-                        "provisional_schema": {},
-                        "runnable": False,
-                        "stable_install_hash": "workflow-suite-class-only",
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     responses = iter(
         [
             {
@@ -4954,6 +4767,15 @@ def test_registry_class_only_research_does_not_hydrate_local_search(
         session_root=tmp_path,
     )
 
+    # The research() statement failed closed (Wave D); the registry class is
+    # never hydrated into the local schema search.
+    assert result["ok"] is True
+    assert [
+        statement["diagnostics"][0]["code"]
+        for statement in result["batch_turns"][0]["statements"]
+        if statement["diagnostics"]
+    ] == ["research_query_failed"]
+
     search_turn = result["batch_turns"][1]
     query_output = search_turn["statements"][0]["detail"]["query_output"]
 
@@ -4961,55 +4783,12 @@ def test_registry_class_only_research_does_not_hydrate_local_search(
     assert "No node signature found for exact class type(s): 'HotshotXL'." in query_output
     assert "def HotshotXL" not in query_output
 
-
 def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.executor.research import ResearchResult
-
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary=f"Registry evidence for {query}.",
-            sources=(
-                {
-                    "source": "comfy-registry",
-                    "class_type": "ADE_AnimateDiffLoaderWithContext",
-                    "pack": "ComfyUI-AnimateDiff-Evolved",
-                    "description": "Expected classes: ADE_AnimateDiffLoaderWithContext",
-                    "resolver_candidate": {
-                        "pack": {
-                            "slug": "ComfyUI-AnimateDiff-Evolved",
-                            "source": "comfy-registry",
-                            "url": "https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved",
-                        },
-                        "expected_classes": ["ADE_AnimateDiffLoaderWithContext"],
-                        "validation_mode": "class_validatable",
-                        "provisional_schema": {
-                            "version": "1.0.0",
-                            "runnable": False,
-                            "schema": {
-                                "nodes": {
-                                    "ADE_AnimateDiffLoaderWithContext": {
-                                        "input": {"required": {}, "optional": {}},
-                                        "output": ["MODEL"],
-                                        "output_name": ["MODEL"],
-                                    }
-                                }
-                            },
-                        },
-                        "runnable": False,
-                        "stable_install_hash": "ade-registry-evidence",
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-    monkeypatch.setattr(research_module, "resolve_missing_nodes", object())
     responses = iter(
         [
             {
@@ -5031,6 +4810,28 @@ def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
             "session_id": "hotshot-provisional-node",
             "max_batches": 4,
             "max_consecutive_errors": 2,
+            # H03 active shape: the provisional schema rides in
+            # execution_protocol_notes research_sources (workflow evidence).
+            "execution_protocol_notes": {
+                "research_sources": [
+                    {
+                        "source": "external_workflow",
+                        "source_type": "github_workflow_json",
+                        "class_type": "ADE_AnimateDiffLoaderWithContext workflow",
+                        "pack": "github.com",
+                        "source_workflow_path": "/tmp/hotshot-loader-workflow.json",
+                        "node_types": ["ADE_AnimateDiffLoaderWithContext"],
+                        "workflow_schema_classes": ["ADE_AnimateDiffLoaderWithContext"],
+                        "workflow_schema": {
+                            "ADE_AnimateDiffLoaderWithContext": {
+                                "input": {"required": {}, "optional": {}},
+                                "output": ["MODEL"],
+                                "output_name": ["MODEL"],
+                            }
+                        },
+                    }
+                ]
+            },
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
@@ -5044,7 +4845,12 @@ def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
         for node in result["graph"].get("nodes", [])
         if isinstance(node, dict)
     )
-
+    # The legacy research() statement failed closed inside the loop.
+    assert [
+        statement["diagnostics"][0]["code"]
+        for statement in result["batch_turns"][0]["statements"]
+        if statement["diagnostics"]
+    ] == ["research_query_failed"]
 
 def test_research_required_unresolved_capability_clarify_does_not_force_registry_before_stopping(
     tmp_path: Path,
@@ -5052,11 +4858,6 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        raise AssertionError(f"unexpected forced research call: {query!r} {kwargs!r}")
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     responses = iter(
         [
             {
@@ -5098,7 +4899,10 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
     assert len(result["batch_turns"]) == 1
-
+    # The batch loop never forces a legacy research() statement: research is
+    # agent-owned and the statement fails closed when the agent issues it.
+    batches = "".join(str(turn.get("batch") or "") for turn in result["batch_turns"])
+    assert "research(" not in batches
 
 def test_adapt_prefetch_compiles_workflow_classes_into_schema_backed_capabilities(
     tmp_path: Path,
@@ -5473,37 +5277,6 @@ def test_weak_registry_code_search_allows_install_blocker_clarify_without_author
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        assert kwargs.get("registry_resolver") is not None
-        return ResearchResult(
-            summary="Found 1 research result(s): ComfyUIWorkflowSuite",
-            sources=(
-                {
-                    "source": "github",
-                    "class_type": "ComfyUIWorkflowSuite",
-                    "pack": "ComfyUIWorkflowSuite",
-                    "description": "Expected classes: Limbicnation, ComfyUIWorkflowSuite, HotshotXL, User",
-                    "resolver_candidate": {
-                        "pack": {
-                            "slug": "ComfyUIWorkflowSuite",
-                            "source": "github",
-                            "url": "https://github.com/Limbicnation/ComfyUIWorkflowSuite",
-                        },
-                        "expected_classes": ["HotshotXL", "ComfyUIWorkflowSuite", "User"],
-                        "validation_mode": "class_validatable",
-                        "evidence": [
-                            {"source": "code-search", "tier": "github"},
-                        ],
-                        "provisional_schema": {},
-                        "runnable": False,
-                        "stable_install_hash": "weak-hotshot-code-search",
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     responses = iter(
         [
             {
@@ -5546,6 +5319,13 @@ def test_weak_registry_code_search_allows_install_blocker_clarify_without_author
     assert "could not find an authorable HotShotXL workflow adaptation" in result["message"]
     assert "apply_allowed" not in result
     assert "queue_allowed" not in result
+    # The research() statement failed closed (Wave D); the loop still proceeds
+    # to the clarify that stops the turn.
+    assert [
+        statement["diagnostics"][0]["code"]
+        for statement in result["batch_turns"][0]["statements"]
+        if statement["diagnostics"]
+    ] == ["research_query_failed"]
     messages_path = tmp_path / "hotshot-weak-registry-clarify" / "turns" / "0001" / "messages.jsonl"
     turns = [
         json.loads(line)
@@ -5554,7 +5334,6 @@ def test_weak_registry_code_search_allows_install_blocker_clarify_without_author
     ]
     assert turns[1]["batch"] == 'clarify("I could not find an authorable HotShotXL workflow adaptation from the available evidence.")'
     assert turns[1]["clarification_required"] == "I could not find an authorable HotShotXL workflow adaptation from the available evidence."
-
 
 def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gate(
     tmp_path: Path,
@@ -5664,44 +5443,6 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
     assert evidence["readiness"]["missing_node_packs"] == []
 
 
-def test_batch_repl_research_output_includes_later_web_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
-    from vibecomfy.porting.edit.session import EditSession
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        local_sources = tuple(
-            {
-                "class_type": f"local/template/{index}",
-                "source": "ready_template",
-                "description": "Local template result.",
-            }
-            for index in range(7)
-        )
-        return ResearchResult(
-            summary="Found mixed local and web evidence.",
-            sources=(
-                *local_sources,
-                {
-                    "class_type": "KintCark/Hotshot-XL-Gradio-Cpu-Termux",
-                    "source": "web",
-                    "url": "https://github.com/KintCark/Hotshot-XL-Gradio-Cpu-Termux",
-                    "description": "GitHub result mentioning HotshotXL and ComfyUI.",
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
-
-    result = session.apply_batch('research("ComfyUI HotshotXL")')
-    report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
-
-    assert result.ok is True
-    assert "local/template/0" in report
-    assert "KintCark/Hotshot-XL-Gradio-Cpu-Termux" in report
-
-
 def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
@@ -5731,106 +5472,72 @@ def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
     assert "No available local class names contain the requested terms." in report
 
 
-def test_batch_repl_research_query_output_is_in_next_turn_report(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_batch_repl_research_query_output_is_in_next_turn_report() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(
-            summary="Found Hotshot XL custom-node installation and workflow precedent.",
-            sources=(
-                {
-                    "title": "ComfyUI-HotshotXL",
-                    "url": "https://example.test/hotshot",
-                    "description": "HotshotXL provides video generation custom nodes for ComfyUI.",
-                },
-            ),
-            warnings=("local corpus unavailable",),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("Hotshot XL ComfyUI 16 frames")')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
 
-    assert result.ok is True
-    assert result.statements[0].op_kind == "query"
-    assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
-    assert calls[0]["local_limit"] == 5
-    assert calls[0]["hivemind_client"] is not None
-    # Default ``workflows`` source now maps to local templates + Hivemind external
-    # workflows; web search is only enabled when ``sources=["web"]`` is requested.
-    assert calls[0]["web_search_client"] is None
-    assert "Found Hotshot XL custom-node installation" in result.statements[0].detail["query_output"]
-    assert "ComfyUI-HotshotXL" in report
-    assert "local corpus unavailable" in report
+    # Wave D: the deterministic engine is gone; research() fails closed with
+    # guidance to the named tool statements, and the batch report surfaces it.
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": "Hotshot XL ComfyUI 16 frames",
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    message = stmt.diagnostics[0].message
+    assert "no longer supported" in message
+    assert "hivemind_search" in message
+    assert "web_search" in message
+    assert "named tool statements" in report
 
-
-def test_batch_repl_research_can_choose_web_only_source(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_batch_repl_research_can_choose_web_only_source() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    calls: list[dict[str, object]] = []
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        calls.append({"query": query, **kwargs})
-        return ResearchResult(summary="Web-only result.", sources=())
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("HotshotXL ComfyUI", sources=["web"])')
 
-    assert result.ok is True
-    assert calls[0]["query"] == "HotshotXL ComfyUI"
-    assert calls[0]["local_limit"] == 0
-    assert calls[0]["hivemind_client"] is None
-    assert calls[0]["web_search_client"] is not None
-    assert result.statements[0].detail["research_sources"] == ("web",)
+    # Explicit sources no longer select clients/tiers — the statement fails
+    # closed with the query carried in detail.
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert stmt.op_kind == "query"
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": "HotshotXL ComfyUI",
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    assert "hivemind_search" in stmt.diagnostics[0].message
 
-
-def test_batch_repl_research_output_includes_later_web_source(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_batch_repl_research_output_includes_later_web_source() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        local_sources = tuple(
-            {
-                "class_type": f"local/template/{index}",
-                "source": "ready_template",
-                "description": "Local template result.",
-            }
-            for index in range(7)
-        )
-        return ResearchResult(
-            summary="Found mixed local and web evidence.",
-            sources=(
-                *local_sources,
-                {
-                    "class_type": "KintCark/Hotshot-XL-Gradio-Cpu-Termux",
-                    "source": "web",
-                    "url": "https://github.com/KintCark/Hotshot-XL-Gradio-Cpu-Termux",
-                    "description": "GitHub result mentioning HotshotXL and ComfyUI.",
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
     session = EditSession(_ui_graph(), schema_provider=_Provider({}))
 
     result = session.apply_batch('research("ComfyUI HotshotXL")')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
 
-    assert result.ok is True
-    assert "local/template/0" in report
-    assert "KintCark/Hotshot-XL-Gradio-Cpu-Termux" in report
-
+    # The old mixed-source rendering is gone; the fail-closed statement
+    # surfaces the tool-statement guidance in the batch report.
+    assert result.ok is False
+    stmt = result.statements[0]
+    assert dict(stmt.detail) == {
+        "query": "research",
+        "research_query": "ComfyUI HotshotXL",
+    }
+    codes = [d.code for d in stmt.diagnostics]
+    assert codes == ["research_query_failed"]
+    assert "named tool statements" in report
 
 def test_batch_budget_failure_kind_prefers_schema_gap_then_unrepresentable_then_model_mistake() -> None:
     from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
@@ -6506,23 +6213,13 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary="No workflow/template precedents found.",
-            sources=(),
-            warnings=("precedent research: no workflow/template precedents found",),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-
     calls = 0
 
     def _fake_batch_client(_messages):
         nonlocal calls
         calls += 1
         return {
-            "batch": 'research("Hotshot XL ComfyUI workflow", sources=["workflows"])',
+            "batch": 'search(focus_types=["HotshotXL"])',
             "message": "Looking for the Hotshot XL workflow pattern.",
         }
 
@@ -6539,6 +6236,9 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
         session_root=tmp_path,
     )
 
+    # Wave D: research() fails closed, so the discovery loop is driven by the
+    # active search() statement; repeated read-only discovery still stops with
+    # a pure clarification after 6 turns.
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "clarify"
     assert result["graph_unchanged"] is True
@@ -6550,7 +6250,6 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
     for turn in result["batch_turns"]:
         assert turn["landed_op_count"] == 0
         assert [statement["op_kind"] for statement in turn["statements"]] == ["query"]
-
 
 def test_handle_agent_edit_batch_repl_nudges_after_three_discovery_only_turns(
     tmp_path: Path,
@@ -6722,27 +6421,6 @@ def test_handle_agent_edit_batch_repl_unresolved_schema_capability_does_not_emit
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary="Found registry-backed Hotshot schema evidence.",
-            sources=(
-                {
-                    "source": "comfy-registry",
-                    "class_type": "ComfyUI-AnimateDiff-Evolved",
-                    "pack": "ComfyUI-AnimateDiff-Evolved",
-                    "description": "Expected classes: ADE_AnimateDiffLoaderWithContext",
-                    "resolver_candidate": {
-                        "pack": {"slug": "ComfyUI-AnimateDiff-Evolved"},
-                        "expected_classes": ["ADE_AnimateDiffLoaderWithContext"],
-                        "evidence": [{"source": "custom-node-map", "tier": "comfy-manager"}],
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-
     responses = iter(
         [
             {
@@ -6775,7 +6453,13 @@ def test_handle_agent_edit_batch_repl_unresolved_schema_capability_does_not_emit
     assert result["graph_unchanged"] is True
     assert result["message"] == "I could not find an authorable Hotshot workflow adaptation from the available evidence."
     assert result["message"] != "No graph changes were needed."
-
+    # The research() statement failed closed (Wave D); the clarify turn still
+    # ships the real message instead of a noop summary.
+    assert [
+        statement["diagnostics"][0]["code"]
+        for statement in result["batch_turns"][0]["statements"]
+        if statement["diagnostics"]
+    ] == ["research_query_failed"]
 
 def test_handle_agent_edit_batch_repl_treats_followup_after_clarify_as_continuation(
     tmp_path: Path,
@@ -8166,80 +7850,6 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
     assert audit["metadata"]["batch_repl"]["exit_mode"] == "edit_clarify"
 
 
-def test_handle_agent_edit_batch_repl_edit_clarify_with_unresolved_schema_capability_downgrades(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Regression guard for the unresolved schema-capability trigger being broadened to
-    # edit_clarify (the Moonvalley widget-guess path: agent lands an edit, then
-    # appends a clarifying question, while unresolved schema evidence was surfaced).
-    # Such a run must downgrade to a clarification and drop the landed
-    # edit, NOT report it as a successful candidate. The `bool(resolver_candidates)`
-    # conjunct is what keeps the plain edit_clarify case above (real edit + a
-    # genuine follow-up question, no unresolved schema evidence) on the candidate path.
-    provider = _batch_repl_provider()
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
-
-    def fake_research(query: str, **kwargs: object) -> ResearchResult:
-        return ResearchResult(
-            summary="Found registry-backed Hotshot schema evidence.",
-            sources=(
-                {
-                    "source": "comfy-registry",
-                    "class_type": "ComfyUI-AnimateDiff-Evolved",
-                    "pack": "ComfyUI-AnimateDiff-Evolved",
-                    "description": "Expected classes: ADE_AnimateDiffLoaderWithContext",
-                    "resolver_candidate": {
-                        "pack": {"slug": "ComfyUI-AnimateDiff-Evolved"},
-                        "expected_classes": ["ADE_AnimateDiffLoaderWithContext"],
-                        "evidence": [{"source": "custom-node-map", "tier": "comfy-manager"}],
-                    },
-                },
-            ),
-        )
-
-    research_module = importlib.import_module("vibecomfy.executor.research")
-    monkeypatch.setattr(research_module, "research", fake_research)
-
-    responses = iter(
-        [
-            {
-                "batch": 'research("Hotshot XL ComfyUI nodes", sources=["registry"])',
-                "message": "Looking for Hotshot workflow precedent.",
-            },
-            {
-                "batch": 'saveimage.filename_prefix = "after"',
-                "message": "Adjusted the save prefix.",
-            },
-            {
-                "batch": 'clarify("I could not find an authorable Hotshot workflow adaptation from the available evidence.")',
-                "message": "I could not find an authorable Hotshot workflow adaptation from the available evidence.",
-            },
-        ]
-    )
-
-    result = handle_agent_edit(
-        {
-            "graph": _ui_graph(),
-            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-            "task": "Switch to generating 16 frames with Hotshot",
-            "session_id": "batch-edit-clarify-missing-custom-nodes",
-            "max_batches": 5,
-        },
-        schema_provider=provider,
-        deepseek_client=lambda _messages: next(responses),
-        session_root=tmp_path,
-    )
-
-    # The landed save-prefix edit must be dropped: the request cannot be
-    # satisfied without the unresolved schema capability, so this is not a candidate.
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] == "clarify"
-    assert result["clarification_required"] is True
-    assert result["graph_unchanged"] is True
-    assert result["message"] == "I could not find an authorable Hotshot workflow adaptation from the available evidence."
-
-
 def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_keeps_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -8490,7 +8100,6 @@ def test_handle_agent_edit_batch_repl_refused_done_skips_emit_and_budget_failure
     assert all(client_id == "client-budget" for _, _, client_id in events)
     assert events[0][1]["message"] == "Applied the requested rename."
     assert events[1][1]["message"] == "Applied the requested rename."
-
 
 
 def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
@@ -8840,7 +8449,6 @@ def test_handle_agent_edit_batch_repl_reincludes_render_after_search_only_turn(
     assert "Previous agent message:" in second_user
     assert "I checked the SaveImage signature." in second_user
     assert second_user.count("Budget: 1 turn(s) remaining out of 2.") == 1
-
 
 
 def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_previous_message_and_index(
@@ -10159,7 +9767,6 @@ def test_agent_edit_hostile_loader_failure_keeps_exact_failure_envelope(
         audit_ref_expected=True,
     )
     assert result["agent_failure_context"]["scan_code"] == "forbidden_import"
-
 
 
 @pytest.mark.parametrize(
@@ -13450,7 +13057,6 @@ def test_synthesize_message_stale_state_failure_describes_baseline_mismatch() ->
     assert "did not land" not in msg.lower()
 
 
-
 def test_synthesize_message_all_messages_are_non_empty() -> None:
     """Every code path produces a non-empty sentence-shaped message."""
     from vibecomfy.porting.edit.types import FieldChange
@@ -14464,7 +14070,6 @@ def test_handle_agent_edit_empty_sd15_seed_suggestions_require_explicit_tool_cal
     turn_dir = turn_dir_for(tmp_path, "empty-sd15-workflow", str(result["turn_id"]))
     assert (turn_dir / "model_request.json").exists()
     assert (turn_dir / "response.json").exists()
-
 
 
 def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(
@@ -19158,7 +18763,6 @@ def test_batch_repl_response_noop_has_no_candidate_no_apply() -> None:
     assert eligibility.get("reason") == "no_candidate"
     assert response.get("canvas_apply_allowed") is False
     assert response.get("graph_unchanged") is True
-
 
 
 # ── Integration: legacy handle_agent_edit wrapper preserves canonical envelope ─
