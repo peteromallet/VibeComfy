@@ -130,6 +130,15 @@ def _fake_search(query: str, limit: int = 5, **kwargs: Any) -> ToolResult:
 def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
     """Deterministic Hivemind get returning the full record for a hit id."""
     row_id = evidence_id.rsplit(":", 1)[-1]
+    # Deliberately longer than the digest's record-preview limit so tests can
+    # prove the digest carries a BOUNDED preview of the fetched body (head
+    # present, tail absent) — never the full raw body.
+    body = (
+        "expanded record body with wiring detail — the exact socket/terminal "
+        "pattern and preserved settings for the audio-conditioned Wan chain. "
+        + ("x" * 400)
+        + " END-OF-EXPANDED-RECORD"
+    )
     return ToolResult(
         tool_name="hivemind_get",
         status=ToolStatus.OK,
@@ -140,7 +149,7 @@ def _fake_get(evidence_id: str, **kwargs: Any) -> ToolResult:
             "row": {
                 "id": row_id,
                 "title": f"full record {row_id}",
-                "body": "expanded record body with wiring detail",
+                "body": body,
                 "kind": "workflow",
             },
         },
@@ -252,10 +261,12 @@ class TestTraceRecordsQuestionAndJudgment:
         # Tool results were captured as evidence artifacts.
         assert "hivemind:workflows:111" in pack.artifacts
         assert "hivemind_get:workflows:111" in pack.artifacts
-        # The digest the agent saw carried only compact evidence, never raw
-        # bodies (RAW body markers absent).
-        for entry in judge_log:
-            assert "expanded record body" not in entry["digest"]
+        # P1-b: the fetch digest previews the FETCHED ROW body (bounded) so
+        # the agent synthesizes from content, not a title — while the full
+        # raw body never enters the digest (head present, tail truncated).
+        get_digest = judge_log[-1]["digest"]
+        assert "expanded record body" in get_digest
+        assert "END-OF-EXPANDED-RECORD" not in get_digest
 
     def test_budget_exhaustion_terminates_with_refine_verdict(
         self, profile_dir: Path
@@ -279,7 +290,9 @@ class TestTraceRecordsQuestionAndJudgment:
             get_fn=_fake_get,
             judge_fn=always_search,
         )
-        assert trace.status == "ok"
+        # P1-a: a loop that stops without an agent finish (max-turns here) is
+        # "exhausted", never "ok" — the executor fails closed on it.
+        assert trace.status == "exhausted"
         assert trace.final_verdict == "refine"
         # Exactly the search budget was consumed by successful agent-chosen
         # calls; every later call was a typed refusal (visible to the agent)
@@ -299,6 +312,83 @@ class TestTraceRecordsQuestionAndJudgment:
         assert refused, "exhausted search calls must be recorded as typed refusals"
         assert len(trace.iterations) == stage._MAX_TURNS
         assert "search budget exhausted" in " ".join(trace.warnings)
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_deadline_exhaustion_is_exhausted_not_ok(self, profile_dir: Path) -> None:
+        """A wall-clock deadline stop without an agent finish is
+        ``status="exhausted"``, never ``"ok"`` (P1-a), so the executor can
+        fail closed instead of implementing from nothing."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        calls: list[str] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            calls.append(question)
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question},
+            }
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+            deadline_seconds=0.0,
+        )
+        assert trace.status == "exhausted"
+        assert trace.final_verdict == "refine"
+        assert not trace.citations
+        assert "deadline" in " ".join(trace.warnings)
+
+    def test_duplicate_citations_dedupe_without_crashing_synthesis(
+        self, profile_dir: Path
+    ) -> None:
+        """P2: a finish citing the same valid evidence ID twice must not crash
+        synthesis — the compact ledger contract rejects duplicate evidence_ids
+        — citations are deduped order-preserving before the finish is
+        recorded."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "hivemind_search" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "Use LoadAudio before the video model.",
+                "evidence_ids": [
+                    "hivemind:workflows:111",
+                    "hivemind:workflows:111",
+                    "hivemind:workflows:111",
+                ],
+                "uncertainty": "low",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        # The duplicate citation must not raise inside the loop (which would
+        # have flipped status to "failed").
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        assert trace.citations == ("hivemind:workflows:111",)
+        synth = [
+            entry
+            for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_SYNTHESIZE
+        ][-1]
+        assert synth.evidence_ids == ("hivemind:workflows:111",)
         assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
     def test_phase_allowlist_refuses_implement_tools(self, profile_dir: Path) -> None:
@@ -338,8 +428,6 @@ class TestTraceRecordsQuestionAndJudgment:
 
     def test_registry_lookup_is_agent_callable(self, profile_dir: Path) -> None:
         """registry_lookup is a research-phase tool the agent may choose."""
-        from vibecomfy.executor.lookup_tools import registry_lookup as _real_registry_lookup
-
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
         calls: list[str] = []
 
@@ -370,7 +458,7 @@ class TestTraceRecordsQuestionAndJudgment:
             return {
                 "action": "finish",
                 "conclusion": "KSampler is owned by comfyui-core.",
-                "evidence_ids": ["tool:registry-lookup-KSampler"],
+                "evidence_ids": ["tool:registry_lookup-ksampler"],
                 "uncertainty": "",
             }
 
@@ -392,7 +480,122 @@ class TestTraceRecordsQuestionAndJudgment:
         assert trace.final_verdict == "enough"
         decisions = [entry.decision for entry in pack.ledger.entries]
         assert stage.DECISION_REGISTRY in decisions
-        assert "tool:registry-lookup-KSampler" in pack.artifacts
+        # The stage uses the registry's canonical evidence id.
+        assert "tool:registry_lookup-ksampler" in pack.artifacts
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_missing_required_query_is_typed_invalid_request(self, profile_dir: Path) -> None:
+        """A search call without the required ``query`` is the registry's typed
+        ``invalid_request`` — never a handler KeyError and never a stage
+        failure — and the loop continues to a finish."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "invalid_request" not in digest:
+                return {"action": "call", "tool": "hivemind_search", "args": {}}
+            return {
+                "action": "finish",
+                "conclusion": "recorded the invalid search call",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        entries = [e for e in pack.ledger.entries if e.decision == stage.DECISION_SEARCH]
+        assert entries, "the invalid call must still be recorded in the ledger"
+        assert entries[0].conclusion.startswith("invalid_request")
+        assert entries[0].conclusion == entries[0].uncertainty  # typed, not silent
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_declared_search_args_reach_the_handler(self, profile_dir: Path) -> None:
+        """The registry handler receives the agent's declared arguments
+        (filters/cursor/limit/timeout) — the bespoke dispatch no longer drops
+        them (P1-c routing fix)."""
+        captured: dict[str, Any] = {}
+
+        def recording_search(query: str, **kwargs: Any) -> ToolResult:
+            captured["kwargs"] = kwargs
+            return _fake_search(query, **kwargs)
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "hivemind_search →" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {
+                        "query": question,
+                        "filters": {"source_type": "workflow"},
+                        "cursor": "offset-5",
+                        "limit": 2,
+                        "timeout": 3,
+                    },
+                }
+            return {
+                "action": "finish",
+                "conclusion": "declared arguments were honored",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=recording_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        assert captured["kwargs"]["filters"] == {"source_type": "workflow"}
+        assert captured["kwargs"]["cursor"] == "offset-5"
+        assert captured["kwargs"]["limit"] == 2
+        assert captured["kwargs"]["timeout"] == 3
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_malformed_limit_is_typed_invalid_request(self, profile_dir: Path) -> None:
+        """A malformed ``limit`` is the tool's typed ``invalid_request``
+        (validation precedes any transport) — never a raise that fails the
+        stage, and the loop continues to a finish."""
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            if "invalid_request" not in digest:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question, "limit": "not-an-int"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "typed invalid limit",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        entries = [e for e in pack.ledger.entries if e.decision == stage.DECISION_SEARCH]
+        assert entries and entries[0].conclusion.startswith("invalid_request")
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
 
 
 # ── Acceptance 3: no full research result / workflow schema in the model request ─
@@ -488,8 +691,13 @@ class TestNoLegacyInjectionIntoModelRequest:
             "run_reply_turn",
             lambda *a, **k: "Audio-conditioned Wan uses LoadAudio before the video model.",
         )
-        monkeypatch.setattr(stage, "_default_hivemind_search", _fake_search)
-        monkeypatch.setattr(stage, "_default_hivemind_get", _fake_get)
+        # The stage dispatches through the ToolSpec registry, whose handlers
+        # call the hivemind_tools module functions — patch those, not stage
+        # attributes.
+        import vibecomfy.executor.hivemind_tools as hivemind_tools
+
+        monkeypatch.setattr(hivemind_tools, "hivemind_search", _fake_search)
+        monkeypatch.setattr(hivemind_tools, "hivemind_get", _fake_get)
         monkeypatch.setattr(stage, "run_agent_research_turn", recording_turn)
 
         request = ExecutorRequest(

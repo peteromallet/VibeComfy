@@ -273,15 +273,11 @@ def test_json_schemas_are_valid_json_and_freeze_required_wire_fields() -> None:
         "evidence_pack.schema.json",
         "needs_input.schema.json",
         "stage_package.schema.json",
-        "stage_request.schema.json",
         "tool_result.schema.json",
     }
     schemas = {path.name: json.loads(path.read_text()) for path in SCHEMAS.glob("*.json")}
 
     assert set(schemas) == expected
-    assert set(schemas["stage_request.schema.json"]["required"]) >= {
-        "goal", "priorities", "previous_package_refs"
-    }
     assert schemas["stage_package.schema.json"]["properties"]["status"]["$ref"]
     ledger_properties = schemas["evidence_pack.schema.json"]["$defs"][
         "evidence_ledger_entry"

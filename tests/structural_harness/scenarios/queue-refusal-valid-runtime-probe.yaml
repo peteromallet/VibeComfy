@@ -32,6 +32,7 @@ extras:
   required_frozen_evidence:
     - evidence/executor_result.json
     - evidence/executor_report.json
+    - evidence/executor_result_verified.json
     - evidence/probe_gate.json
     - evidence/receipt.json
     - evidence/metadata.json

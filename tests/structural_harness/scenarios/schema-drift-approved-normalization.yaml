@@ -33,6 +33,7 @@ extras:
   required_frozen_evidence:
     - evidence/executor_result.json
     - evidence/executor_report.json
+    - evidence/executor_result_approved.json
     - evidence/drift_proposal.json
     - evidence/unapproved_error.json
     - evidence/approved_metadata.json

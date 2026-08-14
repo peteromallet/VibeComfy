@@ -1043,11 +1043,12 @@ def build_schema_drift_approved_normalization_evidence(report_dir: Path) -> dict
     assert approved_payload["graph"] is not None
     assert "bogus_extra_input" not in approved_payload["graph"]["3"]["inputs"]
 
-    # The common envelope is the approved run's executor_result.json; the
-    # blocked run is frozen separately so both pipeline outcomes are provable.
-    _write_json(root / "executor_result.json", approved_payload)
-    _write_json(root / "executor_report.json", approved_payload.get("report", {}).get("executor", {}))
-    _write_json(root / "executor_result_unapproved.json", unapproved_payload)
+    # The common envelope is the UNAPPROVED run — the rubric requires
+    # executor_result.json to record ok=false (the fail-closed outcome); the
+    # approved run is frozen in a second file so both outcomes are provable.
+    _write_json(root / "executor_result.json", unapproved_payload)
+    _write_json(root / "executor_report.json", unapproved_payload.get("report", {}).get("executor", {}))
+    _write_json(root / "executor_result_approved.json", approved_payload)
 
     proposal_path = root / "drift_proposal.json"
     _write_json(proposal_path, {"ops": [op.to_dict() for op in proposal.ops]})
@@ -1129,7 +1130,7 @@ def build_hivemind_rate_limiting_evidence(report_dir: Path) -> dict[str, Any]:
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
     from vibecomfy.executor.core import run_executor
     from vibecomfy.executor.hivemind_clients import HivemindError
-    from vibecomfy.executor.hivemind_tools import hivemind_get, hivemind_search
+    from vibecomfy.executor.hivemind_tools import hivemind_search
     from vibecomfy.executor.tool_contracts import ToolResult, ToolStatus
 
     root = report_dir.resolve()
@@ -1645,11 +1646,13 @@ def build_queue_refusal_valid_runtime_probe_evidence(report_dir: Path) -> dict[s
     assert verified_payload["ok"] is True
     assert verified_payload["graph"] is not None
 
-    # The common envelope is the verified run's executor_result.json; the
-    # blocked run is frozen separately so both pipeline outcomes are provable.
-    _write_json(root / "executor_result.json", verified_payload)
-    _write_json(root / "executor_report.json", verified_payload.get("report", {}).get("executor", {}))
-    _write_json(root / "executor_result_bare.json", bare_payload)
+    # The common envelope is the BARE-TIER run — the rubric requires
+    # executor_result.json to record ok=false (the gate blocker surfaced);
+    # the verified-receipt run is frozen in a second file so both outcomes
+    # are provable.
+    _write_json(root / "executor_result.json", bare_payload)
+    _write_json(root / "executor_report.json", bare_payload.get("report", {}).get("executor", {}))
+    _write_json(root / "executor_result_verified.json", verified_payload)
 
     gate_path = root / "probe_gate.json"
     _write_json(gate_path, probe_gate)

@@ -3473,6 +3473,117 @@ def test_batch_repl_research_memory_is_ledger_only() -> None:
     assert "Concrete workflow pattern" not in memory
 
 
+def test_batch_repl_turn0_hydrates_executor_research_ledger_from_payload() -> None:
+    """P0-a: on the adapt route the executor's C1 research ledger
+    (payload["research_ledger"]) is rendered into turn-0 prompt memory so the
+    implement agent sees research conclusions/evidence instead of an empty
+    block (the in-loop tool statements only exist from turn 1 on)."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[],
+        request_payload={
+            "research_ledger": {
+                "entries": [
+                    {
+                        "decision": "synthesize",
+                        "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
+                        "evidence_ids": ["hivemind_get:workflows:111"],
+                        "uncertainty": "low",
+                    },
+                    {
+                        "decision": "enough_refine",
+                        "conclusion": "enough=True",
+                        "evidence_ids": ["hivemind_get:workflows:111"],
+                        "uncertainty": "",
+                    },
+                ]
+            }
+        },
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "C1 research ledger" in memory
+    assert "synthesize" in memory
+    assert "Use LoadAudio -> ConditioningCombine" in memory
+    assert "hivemind_get:workflows:111" in memory
+    # Phase-truthful: the implement phase has no research tools, so ledger IDs
+    # are provenance labels, not callable handles.
+    assert "provenance labels" in memory
+    assert "hivemind_get(" not in memory
+    assert "enough_refine" in memory
+
+
+def test_batch_repl_research_memory_merges_payload_ledger_with_tool_records() -> None:
+    """P0-a: the executor C1 ledger stays visible even after the implement
+    agent's own tool statements produce in-loop ledger records."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[
+            {
+                "turn_number": 1,
+                "statements": [
+                    {
+                        "source": 'search(node_class="KSampler")',
+                        "detail": {
+                            "tool_call": "node_schema",
+                            "tool_status": "ok",
+                            "ledger_entry": {
+                                "decision": "node_schema",
+                                "conclusion": "KSampler schema resolved",
+                                "evidence_ids": ["tool:node-schema-KSampler"],
+                                "uncertainty": "",
+                            },
+                        },
+                    }
+                ],
+            }
+        ],
+        request_payload={
+            "research_ledger": {
+                "entries": [
+                    {
+                        "decision": "synthesize",
+                        "conclusion": "Use LoadAudio before the video model",
+                        "evidence_ids": ["hivemind_get:workflows:111"],
+                        "uncertainty": "low",
+                    }
+                ]
+            }
+        },
+    )
+
+    memory = _batch_research_memory_summary(state)
+
+    assert "C1 research ledger" in memory
+    assert "Use LoadAudio before the video model" in memory
+    assert "Tool evidence ledger" in memory
+    assert "KSampler schema resolved" in memory
+    # Never repeat raw bodies in either section.
+    assert "RAW BODY" not in memory
+
+
+def test_batch_repl_research_memory_payload_without_ledger_is_empty() -> None:
+    """A request payload without research_ledger (non-adapt routes) keeps the
+    turn-0 memory empty when no in-loop tool records exist either."""
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.edit import _batch_research_memory_summary
+
+    state = SimpleNamespace(
+        batch_turns=[],
+        request_payload={"route": "revise"},
+    )
+
+    assert _batch_research_memory_summary(state) == ""
+
+
 def test_batch_repl_research_memory_non_tool_statements_carry_nothing() -> None:
     """D03: legacy research()/search() statements (no tool_call) carry NO
     memory — no query_output, no community paragraphs, no packets, no briefs."""

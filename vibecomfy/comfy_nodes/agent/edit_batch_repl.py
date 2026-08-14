@@ -231,92 +231,6 @@ def _import_from(module_path: str, name: str) -> Any:
 # query_output and judges relevance itself.
 
 
-def _dedupe_sources_by_id(
-    *batches: tuple[Mapping[str, Any], ...],
-) -> tuple[dict[str, Any], ...]:
-    """Cross-turn union of research sources. Dedupe key kind:hivemind_id
-    (fallback url). First-seen wins. Does not re-query HTTP. Does not rank by
-    IDF. Display order is applied at stamp/hoist time.
-    """
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for batch in batches:
-        for source in batch:
-            if not isinstance(source, Mapping):
-                continue
-            kind = str(source.get("source") or source.get("kind") or "")
-            item_id = str(source.get("hivemind_id") or source.get("item_id") or "")
-            url = str(source.get("url") or "")
-            key = f"{kind}:{item_id}" if kind and item_id else url
-            if not key:
-                key = str(source.get("title") or source.get("class_type") or "")[:80]
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            merged.append(dict(source))
-    return tuple(merged)
-
-
-def _fold_research_statement(state: Any, detail: Mapping[str, Any]) -> None:
-    """Fold one resolved research statement's detail into the collected state.
-
-    First-seen-wins on sources is enough: if a later research() returns a
-    better excerpt for the same id, losing it is acceptable — the agent already
-    saw both in query_output.  Last-write-wins on the paragraphs is intentional
-    (the agent already saw the earlier paragraph in Prior research/query
-    memory).  Never picks the "better" summary with a strength rank.
-    """
-    incoming = tuple(
-        s
-        for s in (detail.get("research_result_sources") or ())
-        if isinstance(s, Mapping)
-    )
-    state.collected_research_sources = _dedupe_sources_by_id(
-        getattr(state, "collected_research_sources", ()) or (),
-        incoming,
-    )
-    community = str(detail.get("community_summary") or "").strip()
-    if community:
-        state.collected_community_summary = community
-    summary = str(detail.get("research_summary") or "").strip()
-    if summary:
-        state.collected_research_summary = summary
-
-
-# ── Batch REPL loop (T-037 extraction) ─────────────────────────────────────
-# The batch loop (formerly stitched into the edit façade from the three
-# edit_batch_loop_{intro,apply,finish} fragments, group 11 of the old
-# exec-assembler source groups) now lives here as real Python functions. Every
-# façade-level name is resolved through the invocation-time EditBatchReplDeps
-# object (``deps``); the edit façade passes its own ``globals()`` into
-# _stage_agent_batch_repl, which builds the deps at the top of every call. The
-# fragment source strings were removed with the exec machinery (T-041); the
-# live path is this module (the façade keeps _stage_agent_batch_repl as a
-# thin delegate).
-
-_BATCH_PROTOCOL_RETRY_PROMPT = """Your previous response could not be applied because it did not include a valid batch block.
-
-Reply in exactly this format:
-
-One short sentence for the user.
-```batch
-# one or more edit statements, or clarify("question"), or done()
-```
-
-If you cannot safely edit the graph, still use the same format and put your question or blocker inside `clarify("...")` in the batch block.
-Do not include markdown other than the single batch block."""
-
-
-def _malformed_model_json_detail(exc: BaseException) -> dict[str, str]:
-    detail: dict[str, str] = {}
-    parse_reason = getattr(exc, "parse_reason", None)
-    if isinstance(parse_reason, str) and parse_reason.strip():
-        detail["parse_reason"] = parse_reason.strip()
-    raw_preview = getattr(exc, "raw_response_preview", None)
-    if isinstance(raw_preview, str) and raw_preview.strip():
-        detail["raw_response_preview"] = raw_preview.strip()
-    return detail
-
 
 def _batch_protocol_parse_reason(exc: BaseException) -> str:
     explicit = getattr(exc, "parse_reason", None)
@@ -1163,7 +1077,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         node_variable_index = deps._format_node_variable_index(session)
         # D03/I01: cross-turn research context is ledger-only — compact ledger
         # entries + evidence IDs, never raw bodies/schemas. Full evidence stays
-        # in the evidence-pack artifact behind the resolvable IDs.
+        # in the evidence-pack artifact behind the resolvable IDs. On the adapt
+        # route the executor's C1 ledger (payload["research_ledger"]) is also
+        # rendered here, so turn 0 shows the research conclusions/evidence the
+        # implement agent adapts from instead of an empty block.
         evidence_ledger = deps._batch_research_memory_summary(state)
         discovery_nudge = (
             deps._discovery_construction_nudge(state)
@@ -1487,19 +1404,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         try:
             batch_result = session.apply_batch(editable_batch)
             _batch_journal_mod.maybe_inject_batch_fault("after_apply")
-            # ── B03: fold live research StatementResult.detail after resolve ──
-            # Collection plumbing on the LIVE statements (not the serialized
-            # turn_record): message/distillation sources union by id, and
-            # last-write-wins community/research paragraphs.  Never a latch, never
-            # a stop decision — the agent already judged these rows in query_output.
-            for item in batch_result.statements:
-                if not getattr(item, "ok", False):
-                    continue
-                if str(getattr(item, "op_kind", "") or "") != "query":
-                    continue
-                detail = getattr(item, "detail", None)
-                if isinstance(detail, Mapping) and detail.get("research_query"):
-                    _fold_research_statement(state, detail)
             deps._enrich_schema_provider_from_resolver_candidates(
                 state,
                 session,

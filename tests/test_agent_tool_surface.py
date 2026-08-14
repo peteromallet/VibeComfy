@@ -873,6 +873,175 @@ class TestPromptSurface:
         assert "Tool evidence ledger" not in messages[1]["content"]
 
 
+class TestR2AgentTrustPromptSurface:
+    """R2 agent-trust contracts: phase-truthful prompts, advisory hints,
+    honest research budgets, and per-turn budget visibility."""
+
+    def test_implement_prompt_is_phase_truthful_about_ledger(self) -> None:
+        """The implement phase has no research tools, so the ledger must be
+        described as already resolved — IDs are provenance, not handles."""
+        ledger = "- hivemind_search query='wan t2v' (ok) — 2 hit(s) — evidence: hivemind:external_resources:1"
+        messages = build_batch_messages(
+            task="adapt",
+            turn_number=1,
+            python_source="",
+            evidence_ledger=ledger,
+        )
+        all_text = messages[0]["content"] + "\n" + messages[1]["content"]
+        # Never instruct the implement agent to resolve IDs with a research
+        # tool it does not have.
+        assert "resolve IDs with hivemind_get" not in all_text
+        assert "already resolved" in all_text
+        assert "provenance labels" in all_text
+        assert "not callable handles" in all_text
+
+    def test_implement_prompt_labels_advisory_hints_and_drops_rank_fork(self) -> None:
+        system = build_batch_messages(task="adapt", python_source="x = LoadImage()")[0]["content"]
+        # rank/suggest are lossy advisory hints, never an override.
+        assert "lossy advisory hints" in system
+        assert "never override your judgment" in system
+        # The forced 'use rank_edit_targets or clarify' fork is removed.
+        assert "use `rank_edit_targets`" not in system
+        assert "or `clarify()` instead of splicing" not in system
+        # Downstream acceptance is stated before done().
+        assert "state downstream acceptance explicitly" in system
+        assert "deterministic validation owns that" in system
+        assert "queue blockers" in system
+
+    def test_research_digest_shows_remaining_budget_each_turn(self) -> None:
+        from vibecomfy.executor.agent_research_stage import build_evidence_digest
+
+        digest = build_evidence_digest(
+            question="q",
+            tool_calls=[],
+            artifacts={},
+            searches_left=2,
+            fetches_left=5,
+            registry_left=1,
+            turns_left=12,
+            seconds_left=200,
+        )
+        assert "Remaining budget:" in digest
+        assert "2 search(es)" in digest
+        assert "5 fetch(es)" in digest
+        assert "1 registry lookup(s)" in digest
+        assert "12 turn(s)" in digest
+        assert "~200s" in digest
+        # No counters supplied -> compact digest unchanged (no budget line).
+        plain = build_evidence_digest(question="q", tool_calls=[], artifacts={})
+        assert "Remaining budget:" not in plain
+
+    def test_research_prompt_carries_full_brief_and_consumer_contract(self) -> None:
+        from vibecomfy.executor.agent_research_stage import build_agent_research_messages
+
+        messages = build_agent_research_messages(
+            question="Which node chain produces audio-conditioned Wan video?",
+            evidence_digest="(no tool evidence gathered yet)",
+            route="adapt",
+            research_brief=(
+                "Research brief:\n"
+                "- Search directions (try each that may apply):\n"
+                "  1. Wan 2.1 t2v steps\n"
+                "  2. Wan 2.2 i2v quality\n"
+                "- Avoid: generic searches"
+            ),
+        )
+        all_text = " ".join(str(message["content"]) for message in messages)
+        assert "Research brief:" in all_text
+        assert "Wan 2.1 t2v steps" in all_text
+        assert "Wan 2.2 i2v quality" in all_text
+        assert "Avoid: generic searches" in all_text
+        # Consumer contract: the implement agent consumes the synthesis.
+        assert "IMPLEMENT agent turns your synthesis" in all_text
+        assert "fetch every Hivemind record" in all_text
+        # Honest budgets in the research-stage prompt.
+        assert "16 decision turns" in all_text
+        assert "~240s" in all_text
+
+    def test_research_stage_budgets_are_honest(self) -> None:
+        from vibecomfy.executor import agent_research_stage as stage
+
+        assert stage.TOOL_PHASE_DEADLINE_SECONDS == 240.0
+        assert stage._MAX_TURNS == 16
+
+    def test_research_deadline_enforced_after_provider_call(self) -> None:
+        """A slow provider decision turn cannot slip past the deadline and
+        still execute a tool call."""
+        from vibecomfy.executor import agent_research_stage as stage
+
+        calls: dict[str, int] = {"judge": 0, "tool": 0}
+        clock = {"t": 100.0}
+
+        def fake_judge(
+            question: str, digest: str, messages: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+            calls["judge"] += 1
+            clock["t"] += 200.0  # the provider call burns the whole budget
+            return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
+
+        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
+            calls["tool"] += 1
+            return _ok_result("hivemind_search", {"count": 0, "hits": []}, ())
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question="q",
+            judge_fn=fake_judge,
+            tool_fn=fake_tool,
+            search_fn=lambda query, **kw: _ok_result(
+                "hivemind_search", {"count": 0, "hits": []}, ()
+            ),
+            get_fn=lambda evidence_id, **kw: _ok_result(
+                "hivemind_get", {"row": {"title": "t"}}, ()
+            ),
+            now_fn=lambda: clock["t"],
+            deadline_seconds=150.0,
+            max_turns=10,
+        )
+        assert calls["judge"] == 1
+        assert calls["tool"] == 0, "deadline must stop before executing the tool call"
+        assert any("after the decision turn" in warning for warning in trace.warnings)
+
+    def test_research_deadline_enforced_after_tool_call(self) -> None:
+        """A slow tool execution cannot silently overrun the budget; the
+        call's evidence is still preserved in the trace."""
+        from vibecomfy.executor import agent_research_stage as stage
+
+        calls: dict[str, int] = {"judge": 0, "tool": 0}
+        clock = {"t": 100.0}
+
+        def fake_judge(
+            question: str, digest: str, messages: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+            calls["judge"] += 1
+            return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
+
+        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
+            calls["tool"] += 1
+            clock["t"] += 200.0  # the tool call burns the whole budget
+            return _ok_result("hivemind_search", {"count": 0, "hits": []}, ())
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question="q",
+            judge_fn=fake_judge,
+            tool_fn=fake_tool,
+            search_fn=lambda query, **kw: _ok_result(
+                "hivemind_search", {"count": 0, "hits": []}, ()
+            ),
+            get_fn=lambda evidence_id, **kw: _ok_result(
+                "hivemind_get", {"row": {"title": "t"}}, ()
+            ),
+            now_fn=lambda: clock["t"],
+            deadline_seconds=150.0,
+            max_turns=10,
+        )
+        assert calls["tool"] == 1
+        assert any("after the tool call" in warning for warning in trace.warnings)
+        # The executed call is preserved in the trace even though the loop stopped.
+        assert len(trace.iterations) == 1
+
+
 # ── End-to-end batch-REPL interleave ─────────────────────────────────────────
 
 

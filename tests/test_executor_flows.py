@@ -38,6 +38,7 @@ from vibecomfy.executor.evidence_pack import (
 )
 from vibecomfy.executor.prompts import build_classify_messages
 from vibecomfy.executor.profiles import AgentSpecShape, set_profile_override_dir
+from vibecomfy.executor.tool_contracts import ToolStatus
 
 
 # ── Profile fixture helpers ─────────────────────────────────────────────────
@@ -184,7 +185,9 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
         route: str,
         question: str,
         spec: AgentSpecShape,
+        research_brief: str = "",
     ) -> tuple[AgentResearchTrace, EvidencePack]:
+        del research_brief
         del spec
         ledger = EvidenceLedger(
             entries=(
@@ -1896,6 +1899,165 @@ def test_agent_research_handoff_carries_only_compact_ledger() -> None:
     assert "precedent_slices" not in payload
     assert "adaptation_plan" not in payload
     assert "execution_plan" not in payload
+
+
+def _agent_owned_research_result_with_trace(trace: AgentResearchTrace) -> AgentResearchResult:
+    """AgentResearchResult carrying a typed research StagePackage — the live
+    shape the executor hands from research to implement."""
+    pack = EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=()))
+    package = executor_core._research_stage_package(
+        route="adapt",
+        trace=trace,
+        pack=pack,
+        policy_diagnostics=(),
+    )
+    return AgentResearchResult(
+        route="adapt",
+        trace=trace,
+        evidence_pack=pack,
+        package=package,
+    )
+
+
+def _failed_research_trace(*, status: str = "failed", verdict: str = "failed") -> AgentResearchTrace:
+    return AgentResearchTrace(
+        route="adapt",
+        question="q",
+        iterations=(),
+        final_verdict=verdict,
+        summary="",
+        citations=(),
+        uncertainty="",
+        status=status,
+        elapsed_seconds=0.0,
+        error="boom" if status == "failed" else None,
+    )
+
+
+def test_adapt_implement_fails_closed_when_research_failed() -> None:
+    """P0-b: a failed C1 research package (status=unavailable) must stop the
+    adapt implement phase — handle_agent_edit is never called and the request
+    fails instead of proceeding to success without usable synthesis."""
+    plan = _fake_classify_adapt("Switch to Hotshot")
+    request = ExecutorRequest(
+        query="Switch to Hotshot",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _agent_owned_research_result_with_trace(_failed_research_trace())
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
+            executor_core._run_implement(
+                request,
+                AgentSpecShape(agent="hermes", model="test"),
+                plan=plan,
+                research_result=research,
+            )
+
+    mock_edit.assert_not_called()
+    assert excinfo.value.stage == "research"
+    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
+    assert "no usable synthesis" in explanation
+    assert "status=failed" in explanation
+
+
+def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
+    """P0-b + P1-a: deadline/max-turn exhaustion (status=exhausted) is
+    consumed fail-closed — no implement without an agent finish."""
+    plan = _fake_classify_adapt("Switch to Hotshot")
+    request = ExecutorRequest(
+        query="Switch to Hotshot",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _agent_owned_research_result_with_trace(
+        _failed_research_trace(status="exhausted", verdict="refine")
+    )
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
+            executor_core._run_implement(
+                request,
+                AgentSpecShape(agent="hermes", model="test"),
+                plan=plan,
+                research_result=research,
+            )
+
+    mock_edit.assert_not_called()
+    assert excinfo.value.stage == "research"
+    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
+    assert "status=exhausted" in explanation
+    # The typed package carries the exhausted diagnostic and unavailable status.
+    assert research.package.status is ToolStatus.UNAVAILABLE
+    codes = [diag.code for diag in research.package.diagnostics]
+    assert "research_stage_exhausted" in codes
+
+
+def test_adapt_implement_fails_closed_when_research_refined() -> None:
+    """P0-b: an agent finish with a refine verdict (no enough synthesis) must
+    not proceed to implement either."""
+    plan = _fake_classify_adapt("Switch to Hotshot")
+    request = ExecutorRequest(
+        query="Switch to Hotshot",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _agent_owned_research_result_with_trace(
+        _failed_research_trace(status="ok", verdict="refine")
+    )
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
+            executor_core._run_implement(
+                request,
+                AgentSpecShape(agent="hermes", model="test"),
+                plan=plan,
+                research_result=research,
+            )
+
+    mock_edit.assert_not_called()
+    assert excinfo.value.stage == "research"
+    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
+    assert "verdict=refine" in explanation
+
+
+def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Path) -> None:
+    """P0-b end-to-end: run_executor with a failing research stage returns a
+    research-stage failure and never calls handle_agent_edit."""
+    def failing_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
+        del route, question, spec, research_brief
+        return _failed_research_trace(), EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=()))
+
+    with mock.patch(
+        "vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt
+    ), mock.patch(
+        "vibecomfy.executor.core.run_agent_research_stage", side_effect=failing_research_stage
+    ), mock.patch(
+        "vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe
+    ) as mock_reply, mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = run_executor(
+            ExecutorRequest(
+                query="Switch to Hotshot",
+                graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+                profile="default",
+            )
+        )
+
+    assert result.ok is False
+    assert result.failure_stage == "research"
+    assert result.failure_kind == "ValidationError"
+    impl_failure = result.report.implementation.failure
+    assert impl_failure is not None
+    explanation = impl_failure["agent_failure_context"]["explanation"]
+    assert "no usable synthesis" in explanation
+    mock_edit.assert_not_called()
+    mock_reply.assert_not_called()
 
 
 def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:

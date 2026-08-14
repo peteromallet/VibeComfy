@@ -6,7 +6,7 @@ Proves the Wave D fail-closed contract:
   machinery remains and no structured research detail is attached;
 - the refusal is identical whether ``sources=`` is omitted, empty, or
   explicit, and regardless of ``research_only`` or a classify brief;
-- the B03 research fold helpers still merge collected research state;
+  sources by id;
 - named tool calls (e.g. ``hivemind_search``) resolve normally and are not
   flagged as legacy shadow.
 """
@@ -258,81 +258,6 @@ def _message_source(
         "description": f"community message body {index}",
         "kind": "message",
     }
-
-
-# ── B03 research fold helpers (edit_batch_repl.py) ───────────────────────────
-
-
-class TestFoldResearchStatement:
-    def test_fold_research_statement_unions_sources_by_id(self) -> None:
-        from types import SimpleNamespace
-
-        from vibecomfy.comfy_nodes.agent.edit_batch_repl import (
-            _dedupe_sources_by_id,
-            _fold_research_statement,
-        )
-
-        first = {
-            "research_result_sources": [
-                _message_source(1, author="alice"),
-                _message_source(2, author="bob"),
-            ],
-            "community_summary": "first paragraph",
-            "research_summary": "first summary",
-        }
-        second = {
-            "research_result_sources": [
-                _message_source(1, author="alice2"),  # same id → first-seen wins
-                _message_source(3, author="carol"),
-            ],
-            "community_summary": "second paragraph",
-            "research_summary": "second summary",
-        }
-
-        state = SimpleNamespace(
-            collected_research_sources=(),
-            collected_community_summary="",
-            collected_research_summary="",
-        )
-        _fold_research_statement(state, first)
-        _fold_research_statement(state, second)
-
-        sources = state.collected_research_sources
-        assert len(sources) == 3
-        assert [s["hivemind_id"] for s in sources] == ["1", "2", "3"]
-        # first-seen wins on sources
-        assert sources[0]["author"] == "alice"
-        # last-write-wins on paragraphs
-        assert state.collected_community_summary == "second paragraph"
-        assert state.collected_research_summary == "second summary"
-
-    def test_dedupe_sources_by_id_keeps_first_seen(self) -> None:
-        from vibecomfy.comfy_nodes.agent.edit_batch_repl import _dedupe_sources_by_id
-
-        merged = _dedupe_sources_by_id(
-            (_message_source(1, author="alice"),),
-            (_message_source(1, author="alice2"), _message_source(4, author="dana")),
-        )
-
-        assert len(merged) == 2
-        assert merged[0]["author"] == "alice"
-        assert merged[1]["author"] == "dana"
-
-    def test_fold_ignores_statements_without_research_fields(self) -> None:
-        from types import SimpleNamespace
-
-        from vibecomfy.comfy_nodes.agent.edit_batch_repl import _fold_research_statement
-
-        state = SimpleNamespace(
-            collected_research_sources=(),
-            collected_community_summary="",
-            collected_research_summary="",
-        )
-        _fold_research_statement(state, {"query": "search", "query_output": "No node signature found"})
-
-        assert state.collected_research_sources == ()
-        assert state.collected_community_summary == ""
-        assert state.collected_research_summary == ""
 
 
 # ── I01: legacy research() shadow flag ─────────────────────────────────────────

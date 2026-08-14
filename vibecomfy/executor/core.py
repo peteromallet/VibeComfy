@@ -51,6 +51,7 @@ from vibecomfy.executor.profiler import (
 from .agent_backend import run_classify_turn, run_reply_turn
 from .agent_research_stage import (
     AgentResearchTrace,
+    build_research_brief,
     form_research_question,
     run_agent_research_stage,
 )
@@ -911,6 +912,17 @@ def _research_stage_package(
                 severity="error",
             )
         )
+    elif trace.status == "exhausted":
+        diagnostics.append(
+            StageDiagnostic(
+                code="research_stage_exhausted",
+                message=(
+                    "research stage stopped without an agent finish "
+                    "(deadline or max-turn exhaustion); no usable synthesis"
+                ),
+                severity="error",
+            )
+        )
     status = (
         ToolStatus.OK
         if trace.status == "ok"
@@ -937,7 +949,13 @@ def _run_agent_owned_research(
 ) -> AgentResearchResult:
     route = _canonical_route_for_plan(plan)
     question, _source_field = form_research_question(request=request, plan=plan)
-    trace, pack = run_agent_research_stage(route=route, question=question, spec=spec)
+    brief = build_research_brief(plan=plan, request=request)
+    trace, pack = run_agent_research_stage(
+        route=route,
+        question=question,
+        research_brief=brief,
+        spec=spec,
+    )
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
@@ -960,6 +978,27 @@ def _run_agent_owned_research(
     )
 
 
+def _research_package_is_usable(research_result: AgentResearchResult | None) -> bool:
+    """Fail-closed gate for the research→implement handoff.
+
+    An adapt implementation may proceed only when the C1 research package is
+    OK AND the research agent produced an ``enough`` synthesis.  Failed,
+    exhausted (deadline / max-turn), and ``refine`` verdicts mean there is no
+    usable synthesis to implement from — proceeding would act on unsupported
+    conclusions.  Manually-constructed results without a typed package
+    (direct-call tests, legacy callers) are not gated.
+    """
+    package = getattr(research_result, "package", None)
+    if not isinstance(package, StagePackage):
+        return True
+    if package.status is not ToolStatus.OK:
+        return False
+    trace = getattr(research_result, "trace", None)
+    if trace is not None and getattr(trace, "final_verdict", None) not in (None, "enough"):
+        return False
+    return True
+
+
 def _run_implement(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -980,6 +1019,34 @@ def _run_implement(
     the edit engine are surfaced as :class:`_ExecutorPhaseError`.
     """
     executor_route = _canonical_route_for_plan(plan)
+    # P0-b: consume the research package status fail-closed.  An adapt
+    # implementation must not run — and must not report success — when the
+    # C1 research stage failed, exhausted its loop without an agent finish,
+    # or concluded with a refine verdict: there is no usable synthesis to
+    # implement from.
+    if (
+        executor_route == "adapt"
+        and research_result is not None
+        and not _research_package_is_usable(research_result)
+    ):
+        trace = research_result.trace
+        failure = failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            "research",
+            agent_failure_context={
+                "explanation": (
+                    "C1 research produced no usable synthesis "
+                    f"(status={trace.status}, verdict={trace.final_verdict}); "
+                    "implement was skipped so no edit is made from unsupported conclusions."
+                )
+            },
+        )
+        raise _ExecutorPhaseError(
+            stage="research",
+            failure_kind=failure.kind.value,
+            message=failure.user_facing_message,
+            failure_envelope=failure,
+        )
     if request.graph is None and executor_route != "research":
         return ImplementationResult(
             message="No graph attached; implementation skipped.",

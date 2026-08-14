@@ -191,15 +191,67 @@ def _batch_research_memory_summary(state: Any, *, max_items: int = 3) -> str:
     result bodies, ``query_output`` text, precedent packets, research briefs,
     and workflow schema dumps NEVER enter prompt memory.  Full evidence stays
     in the evidence-pack artifact behind the resolvable IDs.
+
+    On the adapt route the executor runs C1 research and forwards its compact
+    F01 ledger in the request payload (``payload["research_ledger"]``).  Turn
+    0 has no in-loop statements yet, so that executor ledger is rendered
+    FIRST (via :func:`_payload_research_ledger_records`) — the implement agent
+    must see the research conclusions/evidence it is adapting from, never an
+    empty block — and in-loop records follow on later turns.
     """
+    sections: list[str] = []
+    payload_records = _payload_research_ledger_records(state)
+    if payload_records:
+        sections.append(
+            "C1 research ledger (executor research stage; compact; entries + "
+            "evidence IDs only — already resolved; IDs are provenance labels, "
+            "not callable handles; never repeat raw bodies):\n"
+            + "\n".join(payload_records[-max_items:])
+        )
     tool_records: list[str] = _tool_evidence_ledger_records(state)
-    if not tool_records:
-        return ""
-    return (
-        "Tool evidence ledger (compact; entries + evidence IDs only, "
-        "resolve IDs with hivemind_get(...), never repeat raw bodies):\n"
-        + "\n".join(tool_records[-max_items:])
-    )
+    if tool_records:
+        sections.append(
+            "Tool evidence ledger (compact; entries + evidence IDs only — "
+            "already resolved; IDs are provenance labels, not callable "
+            "handles; never repeat raw bodies):\n"
+            + "\n".join(tool_records[-max_items:])
+        )
+    return "\n\n".join(sections)
+
+
+def _payload_research_ledger_records(state: Any) -> list[str]:
+    """Compact records from the executor-provided C1 research ledger.
+
+    The adapt route runs research in the executor
+    (``vibecomfy/executor/core.py::_run_implement``) and forwards the F01
+    evidence ledger via ``payload["research_ledger"]`` — the dict form of
+    ``EvidenceLedger.to_dict()``: ``{"entries": [{decision, conclusion,
+    evidence_ids, uncertainty}, ...]}``.  Rendered in the same compact shape
+    as the in-loop records so the implement agent sees consistent evidence.
+    """
+    request_payload = getattr(state, "request_payload", None)
+    if not isinstance(request_payload, Mapping):
+        return []
+    raw_ledger = request_payload.get("research_ledger")
+    if not isinstance(raw_ledger, Mapping):
+        return []
+    entries = raw_ledger.get("entries")
+    if not isinstance(entries, list):
+        return []
+    records: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        decision = str(entry.get("decision") or "?")
+        conclusion = str(entry.get("conclusion") or "")
+        evidence_ids = entry.get("evidence_ids")
+        evidence_text = (
+            ", ".join(str(item) for item in evidence_ids)
+            if isinstance(evidence_ids, (list, tuple)) and evidence_ids
+            else "(none)"
+        )
+        records.append(f"- {decision} — {conclusion} — evidence: {evidence_text}")
+    return records
 
 
 def _tool_evidence_ledger_records(state: Any) -> list[str]:

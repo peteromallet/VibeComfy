@@ -1381,52 +1381,6 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-# -- Evidence-tier helpers for plan-backed runtime readiness -------------------
-
-
-# Evidence tiers that carry direct node-installation knowledge.  Queue /
-# runtime-readiness proof must only pass when backed by one of these tiers.
-_RUNTIME_READINESS_STRONG_TIERS: frozenset[str] = frozenset(
-    {"live_runtime_schema", "object_info"}
-)
-
-def collect_plan_runtime_evidence_tiers(
-    plan: ExecutionPlan | Mapping[str, Any] | None,
-) -> frozenset[str]:
-    """Return the set of evidence tiers referenced by *plan* runtime provenance.
-
-    Walk ``runtime_provenance`` on the plan and every required step looking
-    for ``tier`` / ``_tier`` keys.  An empty frozenset means no tier metadata
-    was present — callers should treat that as weak evidence.
-    """
-    tiers: set[str] = set()
-    if plan is None:
-        return frozenset(tiers)
-
-    def _add_from_mapping(m: Mapping[str, Any]) -> None:
-        for key in ("tier", "_tier", "_evidence_tier"):
-            v = m.get(key)
-            if isinstance(v, str) and v:
-                tiers.add(v)
-                return
-
-    # plan-level runtime_provenance
-    rp = _mapping_value(plan, "runtime_provenance")
-    if isinstance(rp, Mapping):
-        _add_from_mapping(rp)
-
-    # step-level runtime_provenance (in case individual steps carry their own)
-    steps = _mapping_value(plan, "required_steps")
-    if isinstance(steps, (list, tuple)):
-        for step in steps:
-            if isinstance(step, Mapping):
-                step_rp = step.get("runtime_provenance")
-                if isinstance(step_rp, Mapping):
-                    _add_from_mapping(step_rp)
-
-    return frozenset(tiers)
-
-
 __all__ = (
     "COMPLETION_PROOF_CONTRACT_VERSION",
     "CURRENT_EXECUTION_PLAN_VERSION",
@@ -1467,8 +1421,6 @@ __all__ = (
     "PlanRevision",
     "PlanStep",
     "SocketRef",
-    "_RUNTIME_READINESS_STRONG_TIERS",
-    "collect_plan_runtime_evidence_tiers",
     "execution_plan_version_status",
     "fail_closed_evaluation_for_evaluation_version",
     "fail_closed_evaluation_for_plan_version",

@@ -18,13 +18,18 @@ Contract:
       (``hivemind_search``/``hivemind_get``/``registry_lookup``) are typed
       refusals, never executed, never silently rewritten.
     * The stage never raises: every failure is captured as a typed trace
-      with ``status="failed"`` so the executor pipeline is unaffected.
+      with ``status="failed"`` (or ``status="exhausted"`` when the loop
+      stopped without an agent finish) so the executor pipeline is
+      unaffected and can fail closed.
 
-Budgets mirror I01 (3 searches / 6 fetches / 1 registry / ~90s); the
-enforceable constants live in ``vibecomfy/executor/tool_specs.py`` — this
-module keeps local copies to avoid pulling the Comfy-heavy agent-edit import
-graph into the executor stage, and must be reconciled with them at D01
-cleanup (the batch protocol enforces the same numbers).
+Budgets mirror I01 (3 searches / 6 fetches / 1 registry / ~240s / 16
+decision turns); the enforceable constants live in
+``vibecomfy/executor/tool_specs.py`` — this module keeps local copies to
+avoid pulling the Comfy-heavy agent-edit import graph into the executor
+stage, and must be reconciled with them at D01 cleanup (the batch protocol
+enforces the same numbers).  The deadline and turn budgets are deliberately
+honest for a genuine search/fetch loop (180-240s, 16 turns): the agent is
+shown remaining calls + time every turn so it can wind down to a finish.
 """
 
 from __future__ import annotations
@@ -41,16 +46,14 @@ from .evidence_pack import (
     EvidenceLedgerEntry,
     EvidencePack,
 )
-from .hivemind_tools import (
-    HIVE_MIND_GET_TOOL,
-    HIVE_MIND_SEARCH_TOOL,
-    hivemind_get as _default_hivemind_get,
-    hivemind_search as _default_hivemind_search,
-)
+from .hivemind_tools import HIVE_MIND_GET_TOOL, HIVE_MIND_SEARCH_TOOL
 from .tool_contracts import ToolResult, ToolStatus
 from .tool_specs import (
     PHASE_RESEARCH,
     RESEARCH_PHASE_TOOLS,
+    TOOL_SPEC_BY_NAME,
+    invoke_tool,
+    project_tool_evidence,
     tool_catalog_docs,
 )
 
@@ -60,15 +63,22 @@ LOGGER = logging.getLogger(__name__)
 TOOL_SEARCH_BUDGET = 3
 TOOL_FETCH_BUDGET = 6
 TOOL_REGISTRY_BUDGET = 1
-TOOL_PHASE_DEADLINE_SECONDS = 90.0
+# R2: honest research budget — 180-240s of wall clock for a genuine
+# search/fetch/refine loop (was 90s, which starved real research).
+TOOL_PHASE_DEADLINE_SECONDS = 240.0
 
 # Stage tuning (not enforced elsewhere; keep bounded and deterministic).
-_SEARCH_LIMIT = 5
-_MAX_TURNS = TOOL_SEARCH_BUDGET + TOOL_FETCH_BUDGET + TOOL_REGISTRY_BUDGET + 2
+# R2: 16 decision turns — 10 tool-budget calls (3 search + 6 fetch +
+# 1 registry) plus 6 refinement/refusal/synthesis turns (was 12).
+_MAX_TURNS = 16
 _MAX_DIGEST_CHARS = 4_000
 _MAX_JUDGMENT_CITATIONS = 8
 _MAX_CONCLUSION_PREVIEW_CHARS = 240
 _MAX_HIT_PREVIEW_CHARS = 140
+# Fetched Hivemind records are synthesis-grade evidence: their content is
+# previewed (bounded) so the agent can reason from the fetched body, not a
+# title.  Search hits stay title-only leads.
+_MAX_RECORD_PREVIEW_CHARS = 320
 
 _QUESTION_ARTIFACT_ID = "research_question"
 _HIVEMIND_EVIDENCE_ID_PREFIX = "hivemind:"
@@ -128,6 +138,69 @@ def form_research_question(*, request: Any, plan: Any | None = None) -> tuple[st
     if query:
         return query, "query"
     return "Research the user request.", "query"
+
+
+def build_research_brief(*, plan: Any, request: Any | None = None) -> str:
+    """Assemble the FULL research brief from the classifier plan.
+
+    The narrow ``form_research_question`` result is the question-before-search
+    marker; this brief carries everything else the research agent needs to
+    work on its own judgment: ALL search directions (not just the first),
+    known graph context, source preferences, the avoid-list, model families,
+    and the pattern category.  Only non-empty sections are emitted; an empty
+    plan yields an empty string (the stage then relies on the question alone).
+
+    ``request`` is accepted for caller symmetry and future source fields; it
+    is not currently consumed.
+    """
+    del request  # reserved for future brief sources; plan is the active source
+    if plan is None:
+        return ""
+    sections: list[str] = []
+    research_goal = _clean_text(getattr(plan, "research_goal", ""))
+    if research_goal:
+        sections.append(f"- Research goal: {research_goal}")
+    change_goal = _clean_text(getattr(plan, "change_goal", ""))
+    if change_goal:
+        sections.append(f"- Change goal: {change_goal}")
+    directions = [
+        _clean_text(direction)
+        for direction in (getattr(plan, "search_directions", ()) or ())
+        if _clean_text(direction)
+    ]
+    if directions:
+        bullets = "\n".join(f"  {index}. {direction}" for index, direction in enumerate(directions, start=1))
+        sections.append(f"- Search directions (try each that may apply):\n{bullets}")
+    sources = [
+        _clean_text(source)
+        for source in (getattr(plan, "source_preferences", ()) or ())
+        if _clean_text(source)
+    ]
+    if sources:
+        sections.append(f"- Source preferences: {', '.join(sources)}")
+    graph_context = _clean_text(getattr(plan, "known_graph_context", ""))
+    if graph_context:
+        sections.append(f"- Known graph context: {graph_context}")
+    avoid = [
+        _clean_text(item)
+        for item in (getattr(plan, "avoid", ()) or ())
+        if _clean_text(item)
+    ]
+    if avoid:
+        sections.append(f"- Avoid: {'; '.join(avoid)}")
+    model_families = [
+        _clean_text(item)
+        for item in (getattr(plan, "model_families", ()) or ())
+        if _clean_text(item)
+    ]
+    if model_families:
+        sections.append(f"- Model families: {', '.join(model_families)}")
+    pattern_category = _clean_text(getattr(plan, "pattern_category", ""))
+    if pattern_category:
+        sections.append(f"- Pattern category: {pattern_category}")
+    if not sections:
+        return ""
+    return "Research brief:\n" + "\n".join(sections)
 
 
 # ── agent decision parsing (fail-closed) ─────────────────────────────────────
@@ -220,68 +293,6 @@ def _finish_payload(parsed: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def parse_agent_research_judgment(raw: str) -> dict[str, Any]:
-    """Parse a legacy synthesize + enough/refine judgment JSON, fail-closed.
-
-    Retained for compatibility with the historical judgment contract; the
-    active seam is :func:`parse_agent_research_decision`, which normalizes
-    this shape into a finish decision.
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        raise ValueError("agent research judgment: empty response")
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.removeprefix("```json").removeprefix("```")
-        text = text.rsplit("```", 1)[0].strip()
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"agent research judgment: malformed JSON: {exc}") from None
-    if not isinstance(parsed, Mapping):
-        raise ValueError("agent research judgment: expected a JSON object")
-
-    conclusion = _clean_text(parsed.get("conclusion"))
-    if not conclusion:
-        raise ValueError("agent research judgment: missing conclusion")
-
-    raw_ids = parsed.get("evidence_ids")
-    if raw_ids is None:
-        raw_ids = []
-    if not isinstance(raw_ids, (list, tuple)):
-        raise ValueError("agent research judgment: evidence_ids must be a list")
-    evidence_ids: list[str] = []
-    for item in raw_ids:
-        if isinstance(item, str) and item.strip():
-            evidence_ids.append(item.strip())
-
-    uncertainty_raw = parsed.get("uncertainty")
-    uncertainty = _clean_text(uncertainty_raw) if uncertainty_raw is not None else ""
-
-    enough_raw = parsed.get("enough")
-    if isinstance(enough_raw, bool):
-        enough = enough_raw
-    elif isinstance(enough_raw, str) and enough_raw.strip().casefold() in {"1", "true", "yes"}:
-        enough = True
-    else:
-        enough = False
-
-    refine_raw = parsed.get("refine_question")
-    refine_question: str | None = None
-    if refine_raw is not None:
-        if not isinstance(refine_raw, str):
-            raise ValueError("agent research judgment: refine_question must be a string or null")
-        cleaned = _clean_text(refine_raw)
-        refine_question = cleaned or None
-
-    return {
-        "conclusion": conclusion,
-        "evidence_ids": evidence_ids,
-        "uncertainty": uncertainty,
-        "enough": enough,
-        "refine_question": refine_question,
-    }
-
-
 def _extract_content(result: dict[str, Any]) -> str:
     """Extract the raw model output text from a provider result dict."""
     content = result.get("content")
@@ -308,14 +319,20 @@ def build_agent_research_messages(
     question: str,
     evidence_digest: str,
     route: str,
+    research_brief: str = "",
 ) -> list[dict[str, str]]:
     """System + user messages for one agent research decision turn.
 
     ``evidence_digest`` is the compact, bounded ledger-only digest built by
     :func:`build_evidence_digest` — never raw tool bodies, never the legacy
-    result, never the workflow graph.  The system prompt documents the
-    research-phase tool catalog and the call/finish action contract; the
-    agent chooses every tool call.
+    result, never the workflow graph.  ``research_brief`` is the optional
+    full brief from the classifier plan (all search directions, known graph
+    context, source preferences, avoid-list) assembled by
+    :func:`build_research_brief`; the narrow ``question`` remains the
+    question-before-search marker.  The system prompt documents the
+    research-phase tool catalog, the call/finish action contract, the
+    downstream consumer of the synthesis, and the per-turn budget display;
+    the agent chooses every tool call.
     """
     catalog = tool_catalog_docs(PHASE_RESEARCH)
     system = (
@@ -324,15 +341,31 @@ def build_agent_research_messages(
         "by choosing and calling evidence tools yourself; then finish when the "
         "evidence answers the question.\n"
         f"Available tools (research phase only):\n{catalog}\n"
+        "Who consumes your result:\n"
+        "- On adapt routes, an IMPLEMENT agent turns your synthesis into "
+        "concrete graph edits; it has NO research tools, so your conclusion "
+        "must be actionable on its own: recommend the exact class types and "
+        "their roles, the wiring/socket pattern, settings to preserve, and "
+        "the tradeoffs you weighed.\n"
+        "- On research-only routes, your synthesis becomes the user-facing "
+        "answer.\n"
         "Rules:\n"
         "- Call a tool to gather evidence; the tool result will be returned in "
         "the next digest. Choose the query and the tool yourself.\n"
+        "- Search hits are LEADS, not answers: fetch every Hivemind record "
+        "you rely on materially (hivemind_get) so your claims are attributed "
+        "to fetched content, not titles.\n"
         "- Cite ONLY evidence IDs that were returned by the tools; never "
-        "invent IDs or quote sources that were not returned.\n"
-        "- Record genuine uncertainty instead of guessing.\n"
+        "invent IDs or quote sources that were not returned. Attach the "
+        "evidence IDs you actually used.\n"
+        "- Record genuine uncertainty instead of guessing, and name the "
+        "tradeoffs you found.\n"
         "- Finish when the evidence answers the question with acceptable "
-        "certainty; do not over-search.\n"
-        "- Effort budgets: 3 searches, 6 fetches, 1 registry lookup, ~90s.\n"
+        "certainty; do not over-search. Each turn's digest shows the "
+        "remaining searches/fetches/registry calls, turns, and time — watch "
+        "it and leave room to finish with a synthesis.\n"
+        "- Effort budgets: 3 searches, 6 fetches, 1 registry lookup, up to "
+        "16 decision turns, ~240s wall clock.\n"
         "Reply with exactly one JSON object per turn:\n"
         '{"action": "call", "tool": "<name>", "args": {<tool arguments>}} — '
         "gather more evidence, or\n"
@@ -342,9 +375,16 @@ def build_agent_research_messages(
     user_lines = [
         f"Research question: {question}",
         f"Route: {route}",
-        "Evidence digest (tool statuses, evidence IDs, and previews only):",
-        evidence_digest,
     ]
+    brief = _clean_text(research_brief)
+    if brief:
+        user_lines.append(brief)
+    user_lines.extend(
+        [
+            "Evidence digest (tool statuses, evidence IDs, and previews only):",
+            evidence_digest,
+        ]
+    )
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": "\n".join(user_lines)},
@@ -357,14 +397,36 @@ def build_evidence_digest(
     tool_calls: Sequence[Mapping[str, Any]],
     artifacts: Mapping[str, EvidenceArtifact],
     limit: int = _MAX_DIGEST_CHARS,
+    searches_left: int | None = None,
+    fetches_left: int | None = None,
+    registry_left: int | None = None,
+    turns_left: int | None = None,
+    seconds_left: float | None = None,
 ) -> str:
     """Compact, bounded digest of the tool evidence gathered so far.
 
     Each tool call contributes one line (name, status, query, evidence IDs,
     bounded conclusion) plus bounded previews of its cited artifacts.  Raw
     bodies never enter the digest; the total is truncated at ``limit``.
+
+    When budget counters are supplied, a ``Remaining budget`` line is
+    prepended (so it survives truncation): the agent sees the calls and time
+    it has left every turn and can wind down to a finish.
     """
     lines: list[str] = []
+    budget_parts: list[str] = []
+    if searches_left is not None:
+        budget_parts.append(f"{int(searches_left)} search(es)")
+    if fetches_left is not None:
+        budget_parts.append(f"{int(fetches_left)} fetch(es)")
+    if registry_left is not None:
+        budget_parts.append(f"{int(registry_left)} registry lookup(s)")
+    if turns_left is not None:
+        budget_parts.append(f"{int(turns_left)} turn(s)")
+    if seconds_left is not None:
+        budget_parts.append(f"~{max(0, int(seconds_left))}s")
+    if budget_parts:
+        lines.append("Remaining budget: " + ", ".join(budget_parts) + ".")
     for call in tool_calls:
         tool = str(call.get("tool") or "")
         status = str(call.get("status") or "")
@@ -385,10 +447,24 @@ def build_evidence_digest(
                 continue
             body = artifact.body if isinstance(artifact.body, Mapping) else {"value": artifact.body}
             title = _bounded(body.get("title") or body.get("name") or body.get("evidence_id") or evidence_id, 90)
-            preview = _bounded(
-                str(body.get("body") or body.get("description") or body.get("snippet") or ""),
-                _MAX_HIT_PREVIEW_CHARS,
-            )
+            kind = str(artifact.kind or "")
+            preview = ""
+            if kind == "hivemind_record":
+                # A fetched record is synthesis-grade evidence: preview its
+                # content (bounded) so the agent can reason from the fetched
+                # body — not a title (P1-b).
+                preview = _bounded(
+                    str(body.get("body") or body.get("description") or body.get("content") or ""),
+                    _MAX_RECORD_PREVIEW_CHARS,
+                )
+            elif kind != "hivemind_search_hit":
+                # Search hits are LEADS (title only — the agent fetches the
+                # records it relies on); other artifacts carry at most a
+                # short snippet.
+                preview = _bounded(
+                    str(body.get("description") or body.get("snippet") or ""),
+                    _MAX_HIT_PREVIEW_CHARS,
+                )
             line = f"    [{evidence_id}] {title}"
             if preview:
                 line += f": {preview}"
@@ -409,6 +485,7 @@ def run_agent_research_turn(
     model: str,
     effort: str | None = None,
     messages: list[dict[str, Any]] | None = None,
+    research_brief: str = "",
 ) -> dict[str, Any]:
     """Run one agent research DECISION turn through the provider seam.
 
@@ -421,6 +498,7 @@ def run_agent_research_turn(
             question=question,
             evidence_digest=evidence_digest,
             route=route,
+            research_brief=research_brief,
         )
     from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
 
@@ -489,7 +567,7 @@ class AgentResearchTrace:
     summary: str
     citations: tuple[str, ...]
     uncertainty: str
-    status: str  # "ok" | "failed" | "skipped"
+    status: str  # "ok" | "exhausted" | "failed" | "skipped"
     elapsed_seconds: float
     warnings: tuple[str, ...] = ()
     error: str | None = None
@@ -522,34 +600,19 @@ def _tool_call_digest(
     result: ToolResult,
     query: str = "",
     conclusion: str = "",
+    evidence_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
+    # The digest shows the RECORDED artifact ids (what the agent can cite),
+    # not ``result.evidence_ids`` — for ``hivemind_get`` the recorded id is
+    # the namespaced ``hivemind_get:...`` artifact id, so digest ids and
+    # artifact ids always agree (P1-b parity).
     return {
         "tool": tool,
         "status": result.status.value,
         "query": query,
-        "evidence_ids": list(result.evidence_ids),
+        "evidence_ids": list(evidence_ids),
         "conclusion": conclusion,
     }
-
-
-def _search_hit_artifact_body(result: ToolResult, evidence_id: str) -> dict[str, Any]:
-    """Extract the matching hit dict from a search ToolResult body."""
-    body = result.result if isinstance(result.result, Mapping) else {}
-    hits = body.get("hits") if isinstance(body.get("hits"), list) else []
-    for hit in hits:
-        if isinstance(hit, Mapping) and hit.get("evidence_id") == evidence_id:
-            return dict(hit)
-    return {"evidence_id": evidence_id}
-
-
-def _search_conclusion(result: ToolResult) -> str:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    count = body.get("count")
-    if result.status is ToolStatus.OK and isinstance(count, int):
-        return f"{count} hit(s)"
-    if result.status is ToolStatus.NO_RESULTS:
-        return "no results"
-    return f"status={result.status.value}"
 
 
 def _get_record_evidence_id(result: ToolResult, requested_id: str) -> str | None:
@@ -561,89 +624,52 @@ def _get_record_evidence_id(result: ToolResult, requested_id: str) -> str | None
     return f"hivemind_get:{requested_id.removeprefix(_HIVEMIND_EVIDENCE_ID_PREFIX)}"
 
 
-def _get_conclusion(result: ToolResult, body: Mapping[str, Any]) -> str:
-    if result.status is not ToolStatus.OK:
-        return f"status={result.status.value}"
-    row = body.get("row") if isinstance(body.get("row"), Mapping) else {}
-    title = row.get("title") or row.get("name") or row.get("class_type") or body.get("evidence_id")
-    return _bounded(str(title or "record fetched"), _MAX_CONCLUSION_PREVIEW_CHARS)
+class _StageToolSession:
+    """Per-stage session namespace handed to the registry handlers.
 
+    Carries the injected fakes (``search_fn`` / ``get_fn``) and the
+    ``cache_root`` the tool modules need; the registry handlers read these
+    attributes so the stage and the batch resolver share ONE dispatch path.
+    """
 
-def _registry_conclusion(result: ToolResult, body: Mapping[str, Any]) -> str:
-    if result.status is not ToolStatus.OK:
-        return f"status={result.status.value}"
-    node_class = str(body.get("node_class") or "class")
-    candidates = [c for c in (body.get("candidates") or ()) if isinstance(c, Mapping)]
-    pack_names = "; ".join(
-        str(c.get("ref", {}).get("slug") or c.get("ref", {}).get("name") or "pack")
-        for c in candidates
-    )
-    return (
-        f"{node_class}: exact ownership {bool(body.get('exact_ownership'))}"
-        + (f"; candidates: {pack_names}" if pack_names else "")
-    )
+    __slots__ = ("search_fn", "get_fn", "cache_root")
 
-
-def _registry_artifact(args: Mapping[str, Any], result: ToolResult) -> EvidenceArtifact:
-    body = result.result if isinstance(result.result, Mapping) else {}
-    node_class = str(body.get("node_class") or args.get("node_class") or "class")
-    return EvidenceArtifact(
-        evidence_id=f"tool:registry-lookup-{node_class}",
-        kind="registry_resolution",
-        body=dict(body),
-        source="comfy-registry",
-    )
+    def __init__(
+        self,
+        *,
+        search_fn: Callable[..., ToolResult] | None,
+        get_fn: Callable[..., ToolResult] | None,
+        cache_root: Any,
+    ) -> None:
+        self.search_fn = search_fn
+        self.get_fn = get_fn
+        self.cache_root = cache_root
 
 
 def _default_tool_fn(
     tool: str,
     args: Mapping[str, Any],
     *,
-    search_fn: Callable[..., ToolResult],
-    get_fn: Callable[..., ToolResult],
-    search_limit: int,
+    search_fn: Callable[..., ToolResult] | None = None,
+    get_fn: Callable[..., ToolResult] | None = None,
     cache_root: Any = None,
 ) -> ToolResult:
-    """Execute one agent-chosen research tool call.
+    """Execute one agent-chosen research tool call through the ToolSpec registry.
 
     The AGENT chooses the tool and arguments; Python only executes.  The
-    allowlist was already enforced by the loop before dispatch.
+    allowlist and budgets were already enforced by the loop.  Dispatch and
+    argument validation live in the registry: the registered handler receives
+    the agent's declared arguments (filters/cursor/limit/timeout included) and
+    a missing required argument or malformed value is a typed
+    ``invalid_request`` — never a raise, never a dropped argument.
     """
-    if tool == "hivemind_search":
-        query = args.get("query")
-        if not isinstance(query, str) or not query.strip():
-            return _typed_invalid_tool_result(
-                HIVE_MIND_SEARCH_TOOL, "hivemind_search requires a non-empty query"
-            )
-        return search_fn(query, limit=int(args.get("limit", search_limit)), cache_root=cache_root)
-    if tool == "hivemind_get":
-        evidence_id = args.get("evidence_id")
-        if not isinstance(evidence_id, str) or not evidence_id.strip():
-            return _typed_invalid_tool_result(
-                HIVE_MIND_GET_TOOL, "hivemind_get requires a non-empty evidence_id"
-            )
-        return get_fn(evidence_id, cache_root=cache_root)
-    if tool == "registry_lookup":
-        node_class = args.get("node_class")
-        if not isinstance(node_class, str) or not node_class.strip():
-            return _typed_invalid_tool_result(
-                "registry_lookup", "registry_lookup requires a non-empty node_class"
-            )
-        from vibecomfy.executor.lookup_tools import registry_lookup  # noqa: PLC0415
-
-        return registry_lookup(node_class)
-    raise ValueError(f"Unknown research tool {tool!r}.")
-
-
-def _typed_invalid_tool_result(tool: str, message: str) -> ToolResult:
-    from .tool_contracts import ToolDiagnostic  # noqa: PLC0415
-
-    return ToolResult(
-        tool_name=tool,
-        status=ToolStatus.INVALID_REQUEST,
-        result={},
-        diagnostics=(ToolDiagnostic(code="tool_call_invalid", message=message),),
+    spec = TOOL_SPEC_BY_NAME[tool]
+    session = _StageToolSession(
+        search_fn=search_fn,
+        get_fn=get_fn,
+        cache_root=cache_root,
     )
+    return invoke_tool(spec, session, args, None)
 
 
 def run_agent_research_stage(
@@ -658,8 +684,8 @@ def run_agent_research_stage(
     now_fn: Callable[[], float] | None = None,
     deadline_seconds: float = TOOL_PHASE_DEADLINE_SECONDS,
     max_turns: int = _MAX_TURNS,
-    search_limit: int = _SEARCH_LIMIT,
     cache_root: Any = None,
+    research_brief: str = "",
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -675,18 +701,26 @@ def run_agent_research_stage(
     typed refusal recorded in the ledger; the agent sees it in the next
     digest and may finish or refine.
 
+    ``research_brief`` (optional) is the full classifier brief assembled by
+    :func:`build_research_brief`; it is embedded in every decision-turn
+    message so the agent works from ALL search directions, graph context,
+    source preferences, and the avoid-list — not just the narrow question.
+    Each turn's digest also shows remaining calls, turns, and time so the
+    agent can wind down to a finish.  The wall-clock deadline is enforced
+    before the provider call, after the provider call (before executing a
+    chosen tool), and after tool execution — slow provider/tool calls cannot
+    silently overrun the budget.
+
     ``search_fn`` / ``get_fn`` / ``tool_fn`` / ``judge_fn`` default to the
     module-level tool implementations / provider decision turn, resolved at
     call time so tests and callers may inject fakes.  Never raises: failures
-    are captured in the returned trace (``status="failed"``) and the evidence
-    pack recorded so far.
+    are captured in the returned trace (``status="failed"`` / ``"exhausted"``)
+    and the evidence pack recorded so far.
     """
     now = now_fn or time.monotonic
-    search_fn = search_fn or _default_hivemind_search
-    get_fn = get_fn or _default_hivemind_get
     if tool_fn is None:
         tool_fn = lambda tool, args, **kwargs: _default_tool_fn(  # noqa: E731
-            tool, args, search_fn=search_fn, get_fn=get_fn, search_limit=search_limit, cache_root=cache_root
+            tool, args, search_fn=search_fn, get_fn=get_fn, cache_root=cache_root
         )
     if judge_fn is None:
         judge_fn = _default_judge_fn(spec)
@@ -744,6 +778,7 @@ def run_agent_research_stage(
             result=result,
             query=query,
             conclusion=conclusion,
+            evidence_ids=evidence_ids,
         )
         tool_call_digests.append(digest)
         iterations.append(
@@ -808,6 +843,7 @@ def run_agent_research_stage(
         )
 
         turns_taken = 0
+        agent_finished = False
         while turns_taken < int(max_turns):
             if now() > deadline:
                 warnings.append("research stage phase deadline exceeded; stopped early")
@@ -817,16 +853,33 @@ def run_agent_research_stage(
                 question=current_question,
                 tool_calls=tool_call_digests,
                 artifacts=artifacts,
+                searches_left=searches_left,
+                fetches_left=fetches_left,
+                registry_left=registry_left,
+                turns_left=int(max_turns) - turns_taken,
+                seconds_left=max(0.0, deadline - now()),
             )
-            decision = judge_fn(current_question, digest, None)
+            messages = build_agent_research_messages(
+                question=current_question,
+                evidence_digest=digest,
+                route=route,
+                research_brief=research_brief,
+            )
+            decision = judge_fn(current_question, digest, messages)
             turns_taken += 1
 
             action = str(decision.get("action") or "finish")
             if action == "finish":
+                agent_finished = True
+                # P2: order-preserving dedupe — the compact ledger contract
+                # rejects duplicate evidence_ids, and a duplicated citation
+                # must not crash synthesis or poison the trace.
                 cited = tuple(
-                    evidence_id
-                    for evidence_id in (decision.get("evidence_ids") or ())
-                    if evidence_id in artifacts
+                    dict.fromkeys(
+                        evidence_id
+                        for evidence_id in (decision.get("evidence_ids") or ())
+                        if evidence_id in artifacts
+                    )
                 )[:_MAX_JUDGMENT_CITATIONS]
                 conclusion = _clean_text(decision.get("conclusion"))
                 uncertainty = _clean_text(decision.get("uncertainty"))
@@ -881,6 +934,13 @@ def run_agent_research_stage(
                 )
                 break
 
+            if now() > deadline:
+                warnings.append(
+                    "research stage phase deadline exceeded after the decision "
+                    "turn; stopped before executing the tool call"
+                )
+                break
+
             tool = str(decision.get("tool") or "")
             args = decision.get("args") if isinstance(decision.get("args"), Mapping) else {}
             if tool not in RESEARCH_ALLOWED_TOOLS:
@@ -910,65 +970,90 @@ def run_agent_research_stage(
                 registry_left -= 1
 
             result = tool_fn(tool, args)
+            # Evidence projection is the registry's job: artifacts (full hit /
+            # fetched-row bodies, correctly extracted from frozen results),
+            # the compact ledger entry, and the current-turn digest all come
+            # from ToolSpec.project.  The stage records the projected evidence
+            # under its own decision identifiers and per-turn digest.
+            spec = TOOL_SPEC_BY_NAME[tool]
+            artifacts_map, entry, _ = project_tool_evidence(
+                spec,
+                args,
+                result,
+                _StageToolSession(
+                    search_fn=search_fn,
+                    get_fn=get_fn,
+                    cache_root=cache_root,
+                ),
+            )
             if tool == "hivemind_search":
-                hit_ids = tuple(result.evidence_ids or ())
-                hit_artifacts: list[EvidenceArtifact] = []
-                for evidence_id in hit_ids:
-                    hit_body = _search_hit_artifact_body(result, evidence_id)
-                    hit_artifacts.append(
-                        EvidenceArtifact(
-                            evidence_id=evidence_id,
-                            kind="hivemind_search_hit",
-                            body=hit_body,
-                            source="hivemind",
-                        )
-                    )
                 _record_call(
                     tool=HIVE_MIND_SEARCH_TOOL,
                     result=result,
                     query=str(args.get("query") or current_question),
                     decision=DECISION_SEARCH,
-                    conclusion=_search_conclusion(result),
-                    artifacts_to_add=hit_artifacts,
-                    evidence_ids=hit_ids,
+                    conclusion=entry["conclusion"],
+                    artifacts_to_add=tuple(artifacts_map.values()),
+                    evidence_ids=tuple(entry["evidence_ids"]),
                 )
             elif tool == "hivemind_get":
                 requested_id = str(args.get("evidence_id") or "")
                 get_evidence_id = _get_record_evidence_id(result, requested_id)
-                get_body = result.result if isinstance(result.result, Mapping) else {}
+                # The registry projector stores the fetched row under the plain
+                # evidence id; the stage re-keys it to the namespaced
+                # ``hivemind_get:...`` id so search-hit ids never collide and
+                # the digest ids / citations always agree with the artifacts.
                 get_artifacts: list[EvidenceArtifact] = []
                 if get_evidence_id is not None:
-                    get_artifacts.append(
-                        EvidenceArtifact(
-                            evidence_id=get_evidence_id,
-                            kind="hivemind_record",
-                            body=get_body,
-                            source="hivemind",
+                    for artifact in artifacts_map.values():
+                        get_artifacts.append(
+                            EvidenceArtifact(
+                                evidence_id=get_evidence_id,
+                                kind=artifact.kind,
+                                body=artifact.body,
+                                source=artifact.source,
+                            )
                         )
-                    )
                 _record_call(
                     tool=HIVE_MIND_GET_TOOL,
                     result=result,
                     query=requested_id,
                     decision=DECISION_GET,
-                    conclusion=_get_conclusion(result, get_body),
+                    conclusion=entry["conclusion"],
                     artifacts_to_add=get_artifacts,
                     evidence_ids=(get_evidence_id,) if get_evidence_id is not None else (),
                 )
             elif tool == "registry_lookup":
-                registry_body = result.result if isinstance(result.result, Mapping) else {}
-                registry_artifact = _registry_artifact(args, result)
                 _record_call(
                     tool="registry_lookup",
                     result=result,
                     query=str(args.get("node_class") or ""),
                     decision=DECISION_REGISTRY,
-                    conclusion=_registry_conclusion(result, registry_body),
-                    artifacts_to_add=(registry_artifact,),
-                    evidence_ids=(registry_artifact.evidence_id,),
+                    conclusion=entry["conclusion"],
+                    artifacts_to_add=tuple(artifacts_map.values()),
+                    evidence_ids=tuple(entry["evidence_ids"]),
                 )
             else:  # pragma: no cover - allowlist check above already rejects
                 _refusal_call(tool, _bounded(str(args), 120), f"unknown research tool {tool!r}")
+
+            if now() > deadline:
+                warnings.append(
+                    "research stage phase deadline exceeded after the tool "
+                    "call; stopped early (the call's evidence is preserved)"
+                )
+                break
+
+        if not agent_finished:
+            # P1-a: the loop stopped WITHOUT an agent finish — deadline
+            # exceeded, max_turns exhausted, or a malformed decision.  Never
+            # label that "ok": a stage that produced no synthesis must be
+            # distinguishable from a successful research run so the executor
+            # can fail closed instead of implementing from nothing.
+            status = "exhausted"
+            warnings.append(
+                "research stage stopped without an agent finish "
+                "(deadline or max-turn exhaustion); status=exhausted"
+            )
     except Exception as exc:  # noqa: BLE001 - research failures are typed, never raised
         status = "failed"
         final_verdict = "failed"
@@ -1007,9 +1092,9 @@ __all__ = [
     "TOOL_SEARCH_BUDGET",
     "build_agent_research_messages",
     "build_evidence_digest",
+    "build_research_brief",
     "form_research_question",
     "parse_agent_research_decision",
-    "parse_agent_research_judgment",
     "run_agent_research_stage",
     "run_agent_research_turn",
 ]

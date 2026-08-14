@@ -506,13 +506,25 @@ def _layout_hints_projector(
 def _hivemind_search_handler(
     session: Any, args: Mapping[str, Any], budget_payload: Any
 ) -> ToolResult:
+    # The declared argument surface is passed through untouched: filters,
+    # cursor, limit and timeout are the agent's arguments, never dropped.
     mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
+    search_fn = getattr(session, "search_fn", None)
+    if search_fn is not None:
+        return search_fn(
+            args["query"],
+            filters=args.get("filters"),
+            cursor=args.get("cursor"),
+            limit=args.get("limit", 10),
+            timeout=args.get("timeout", 5.0),
+        )
     return mod.hivemind_search(
         args["query"],
         filters=args.get("filters"),
         cursor=args.get("cursor"),
         limit=args.get("limit", 10),
         timeout=args.get("timeout", 5.0),
+        cache_root=getattr(session, "cache_root", None),
     )
 
 
@@ -520,7 +532,14 @@ def _hivemind_get_handler(
     session: Any, args: Mapping[str, Any], budget_payload: Any
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.hivemind_tools")
-    return mod.hivemind_get(args["evidence_id"], timeout=args.get("timeout", 5.0))
+    get_fn = getattr(session, "get_fn", None)
+    if get_fn is not None:
+        return get_fn(args["evidence_id"], timeout=args.get("timeout", 5.0))
+    return mod.hivemind_get(
+        args["evidence_id"],
+        timeout=args.get("timeout", 5.0),
+        cache_root=getattr(session, "cache_root", None),
+    )
 
 
 def _registry_lookup_handler(
@@ -688,6 +707,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         ),
         positional_names=("query",),
         keywords=("query", "filters", "cursor", "limit", "timeout"),
+        required=("query",),
         budget_class="search",
         handler=_hivemind_search_handler,
         projector=_hivemind_search_projector,
@@ -847,7 +867,35 @@ def invoke_tool(
     args: Mapping[str, Any],
     budget_payload: Any,
 ) -> ToolResult:
-    """Invoke one validated tool call through its registered handler."""
+    """Invoke one validated tool call through its registered handler.
+
+    The declared ``spec.required`` arguments are validated here — a missing or
+    blank required argument is a typed ``invalid_request``, never a handler
+    ``KeyError``/``AttributeError`` and never a raise.  Callers that pre-validate
+    (the batch resolver) are unaffected: the check is a no-op when all required
+    arguments are present.
+    """
+    missing = [
+        name
+        for name in spec.required
+        if not str(args.get(name) or "").strip()
+    ]
+    if missing:
+        from .tool_contracts import ToolDiagnostic  # noqa: PLC0415
+
+        return ToolResult(
+            tool_name=spec.name,
+            status=ToolStatus.INVALID_REQUEST,
+            result={},
+            diagnostics=(
+                ToolDiagnostic(
+                    code="tool_arg_required",
+                    message=(
+                        f"{spec.name} requires argument(s): {', '.join(missing)}"
+                    ),
+                ),
+            ),
+        )
     return spec.handler(session, args, budget_payload)
 
 
