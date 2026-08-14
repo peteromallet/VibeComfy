@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibecomfy.dev/schemas/executor/evidence_pack.schema.json",
+  "title": "EvidencePack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifacts", "ledger"],
+  "properties": {
+    "artifacts": {
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"$ref": "#/$defs/evidence_artifact"}
+    },
+    "ledger": {"$ref": "#/$defs/evidence_ledger"}
+  },
+  "$defs": {
+    "evidence_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "body", "metadata"],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "body": {},
+        "source": {"type": "string", "minLength": 1},
+        "metadata": {"type": "object"}
+      }
+    },
+    "evidence_ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence_ledger_entry"}
+        }
+      }
+    },
+    "evidence_ledger_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "conclusion", "evidence_ids", "uncertainty"],
+      "properties": {
+        "decision": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "conclusion": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "uncertainty": {"type": "string", "maxLength": 2000}
+      }
+    }
+  }
+}

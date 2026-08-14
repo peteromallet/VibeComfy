@@ -1,0 +1,359 @@
+"""Typed requests and packages for the agent-judgment stage pipeline."""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Mapping
+
+from .evidence_pack import (
+    EvidenceArtifact,
+    EvidenceLedger,
+    _check_keys,
+    _freeze_json,
+    _required_text,
+    _text_tuple,
+    _thaw_json,
+    canonical_json,
+    normalize_artifacts,
+)
+from .tool_contracts import ToolStatus, normalize_tool_status
+
+
+def _canonical_timestamp(value: Any) -> str:
+    text = _required_text(value, "produced_at")
+    candidate = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise ValueError("`produced_at` must be an ISO-8601 timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("`produced_at` must include a timezone offset.")
+    utc = parsed.astimezone(timezone.utc)
+    rendered = utc.isoformat(timespec="microseconds" if utc.microsecond else "seconds")
+    return rendered.replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class StageRequest:
+    """GOAL + advisory PRIORITY + explicit previous PACKAGE references."""
+
+    goal: str
+    priorities: tuple[str, ...]
+    route: str
+    interaction_mode: str
+    previous_package_refs: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "goal", _required_text(self.goal, "goal"))
+        object.__setattr__(self, "priorities", _text_tuple(self.priorities, "priorities"))
+        object.__setattr__(self, "route", _required_text(self.route, "route"))
+        object.__setattr__(
+            self,
+            "interaction_mode",
+            _required_text(self.interaction_mode, "interaction_mode"),
+        )
+        object.__setattr__(
+            self,
+            "previous_package_refs",
+            _text_tuple(self.previous_package_refs, "previous_package_refs"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        # All five keys are deliberately mandatory on the wire. In particular,
+        # an empty list is the classify stage's explicit "no previous package".
+        return {
+            "goal": self.goal,
+            "priorities": list(self.priorities),
+            "route": self.route,
+            "interaction_mode": self.interaction_mode,
+            "previous_package_refs": list(self.previous_package_refs),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StageRequest":
+        if not isinstance(payload, Mapping):
+            raise ValueError("StageRequest must be an object.")
+        _check_keys(
+            payload,
+            required=frozenset({
+                "goal",
+                "priorities",
+                "route",
+                "interaction_mode",
+                "previous_package_refs",
+            }),
+            contract="StageRequest",
+        )
+        return cls(
+            goal=payload["goal"],
+            priorities=payload["priorities"],
+            route=payload["route"],
+            interaction_mode=payload["interaction_mode"],
+            previous_package_refs=payload["previous_package_refs"],
+        )
+
+    def deterministic_gate_payload(self) -> dict[str, Any]:
+        """Return safety/gate inputs, excluding advisory priority semantics."""
+        return {
+            "goal": self.goal,
+            "route": self.route,
+            "interaction_mode": self.interaction_mode,
+            "previous_package_refs": list(self.previous_package_refs),
+        }
+
+    def deterministic_gate_digest(self) -> str:
+        payload = canonical_json(self.deterministic_gate_payload()).encode()
+        return hashlib.sha256(payload).hexdigest()
+
+
+@dataclass(frozen=True)
+class StageDiagnostic:
+    """Structured stage diagnostic; evidence references must resolve locally."""
+
+    code: str
+    message: str
+    severity: str = "error"
+    evidence_ids: tuple[str, ...] = ()
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", _required_text(self.code, "code"))
+        object.__setattr__(self, "message", _required_text(self.message, "message"))
+        severity = _required_text(self.severity, "severity")
+        if severity not in {"info", "warning", "error"}:
+            raise ValueError("`severity` must be info, warning, or error.")
+        object.__setattr__(self, "severity", severity)
+        object.__setattr__(self, "evidence_ids", _text_tuple(self.evidence_ids, "evidence_ids"))
+        if not isinstance(self.details, Mapping):
+            raise ValueError("`details` must be an object.")
+        object.__setattr__(self, "details", _freeze_json(self.details, "details"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "severity": self.severity,
+            "evidence_ids": list(self.evidence_ids),
+            "details": _thaw_json(self.details),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StageDiagnostic":
+        if not isinstance(payload, Mapping):
+            raise ValueError("StageDiagnostic must be an object.")
+        _check_keys(
+            payload,
+            required=frozenset({"code", "message", "severity", "evidence_ids", "details"}),
+            contract="StageDiagnostic",
+        )
+        return cls(
+            code=payload["code"],
+            message=payload["message"],
+            severity=payload["severity"],
+            evidence_ids=payload["evidence_ids"],
+            details=payload["details"],
+        )
+
+
+@dataclass(frozen=True)
+class NeedsInput:
+    """Decision-critical clarification authored by an agent stage."""
+
+    decision: str
+    question: str
+    missing_information: tuple[str, ...]
+    evidence_ids: tuple[str, ...] = ()
+    options: tuple[str, ...] = ()
+    bounded_assumption: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "decision", _required_text(self.decision, "decision"))
+        object.__setattr__(self, "question", _required_text(self.question, "question"))
+        object.__setattr__(
+            self,
+            "missing_information",
+            _text_tuple(self.missing_information, "missing_information", non_empty=True),
+        )
+        object.__setattr__(self, "evidence_ids", _text_tuple(self.evidence_ids, "evidence_ids"))
+        object.__setattr__(self, "options", _text_tuple(self.options, "options"))
+        if self.bounded_assumption is not None:
+            object.__setattr__(
+                self,
+                "bounded_assumption",
+                _required_text(self.bounded_assumption, "bounded_assumption"),
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "decision": self.decision,
+            "question": self.question,
+            "missing_information": list(self.missing_information),
+            "evidence_ids": list(self.evidence_ids),
+            "options": list(self.options),
+        }
+        if self.bounded_assumption is not None:
+            payload["bounded_assumption"] = self.bounded_assumption
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "NeedsInput":
+        if not isinstance(payload, Mapping):
+            raise ValueError("NeedsInput must be an object.")
+        _check_keys(
+            payload,
+            required=frozenset({
+                "decision", "question", "missing_information", "evidence_ids", "options"
+            }),
+            optional=frozenset({"bounded_assumption"}),
+            contract="NeedsInput",
+        )
+        return cls(
+            decision=payload["decision"],
+            question=payload["question"],
+            missing_information=payload["missing_information"],
+            evidence_ids=payload["evidence_ids"],
+            options=payload["options"],
+            bounded_assumption=payload.get("bounded_assumption"),
+        )
+
+
+@dataclass(frozen=True)
+class StagePackage:
+    """Validated envelope handed from one stage to the next."""
+
+    stage_id: str
+    produced_at: str
+    artifacts: Mapping[str, EvidenceArtifact]
+    diagnostics: tuple[StageDiagnostic, ...]
+    status: ToolStatus
+    next_stage_hints: tuple[str, ...]
+    ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
+    needs_input: NeedsInput | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "stage_id", _required_text(self.stage_id, "stage_id"))
+        object.__setattr__(self, "produced_at", _canonical_timestamp(self.produced_at))
+        artifacts = normalize_artifacts(self.artifacts)
+        object.__setattr__(self, "artifacts", artifacts)
+
+        if not isinstance(self.diagnostics, (list, tuple)):
+            raise ValueError("`diagnostics` must be a list.")
+        diagnostics = tuple(
+            item if isinstance(item, StageDiagnostic) else StageDiagnostic.from_dict(item)
+            for item in self.diagnostics
+        )
+        object.__setattr__(self, "diagnostics", diagnostics)
+        object.__setattr__(self, "status", normalize_tool_status(self.status))
+        object.__setattr__(
+            self,
+            "next_stage_hints",
+            _text_tuple(self.next_stage_hints, "next_stage_hints"),
+        )
+        ledger = (
+            self.ledger
+            if isinstance(self.ledger, EvidenceLedger)
+            else EvidenceLedger.from_dict(self.ledger)
+        )
+        object.__setattr__(self, "ledger", ledger)
+        needs_input = self.needs_input
+        if needs_input is not None and not isinstance(needs_input, NeedsInput):
+            needs_input = NeedsInput.from_dict(needs_input)
+        object.__setattr__(self, "needs_input", needs_input)
+
+        referenced_ids = set(ledger.evidence_ids)
+        for diagnostic in diagnostics:
+            referenced_ids.update(diagnostic.evidence_ids)
+        if needs_input is not None:
+            referenced_ids.update(needs_input.evidence_ids)
+        unresolved = sorted(referenced_ids - set(artifacts))
+        if unresolved:
+            raise ValueError(
+                "StagePackage contains unresolved evidence ID(s): "
+                + ", ".join(unresolved)
+                + "."
+            )
+
+    @property
+    def evidence_ids(self) -> tuple[str, ...]:
+        return tuple(self.artifacts)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stage_id": self.stage_id,
+            "produced_at": self.produced_at,
+            "artifacts": {
+                evidence_id: artifact.to_dict()
+                for evidence_id, artifact in self.artifacts.items()
+            },
+            "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
+            "status": self.status.value,
+            "next_stage_hints": list(self.next_stage_hints),
+            "ledger": self.ledger.to_dict(),
+            "needs_input": self.needs_input.to_dict() if self.needs_input is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StagePackage":
+        if not isinstance(payload, Mapping):
+            raise ValueError("StagePackage must be an object.")
+        _check_keys(
+            payload,
+            required=frozenset({
+                "stage_id",
+                "produced_at",
+                "artifacts",
+                "diagnostics",
+                "status",
+                "next_stage_hints",
+                "ledger",
+                "needs_input",
+            }),
+            contract="StagePackage",
+        )
+        needs_input = payload["needs_input"]
+        return cls(
+            stage_id=payload["stage_id"],
+            produced_at=payload["produced_at"],
+            artifacts=payload["artifacts"],
+            diagnostics=payload["diagnostics"],
+            status=payload["status"],
+            next_stage_hints=payload["next_stage_hints"],
+            ledger=EvidenceLedger.from_dict(payload["ledger"]),
+            needs_input=NeedsInput.from_dict(needs_input) if needs_input is not None else None,
+        )
+
+
+def validate_stage_handoff(
+    request: StageRequest,
+    previous_packages: Mapping[str, StagePackage],
+) -> dict[str, Any]:
+    """Resolve PACKAGE refs and return a deterministic, priority-blind gate result."""
+    if not isinstance(request, StageRequest):
+        raise ValueError("`request` must be a StageRequest.")
+    if not isinstance(previous_packages, Mapping):
+        raise ValueError("`previous_packages` must be an object keyed by package ref.")
+    unresolved = sorted(set(request.previous_package_refs) - set(previous_packages))
+    if unresolved:
+        raise ValueError("Unresolved previous package ref(s): " + ", ".join(unresolved) + ".")
+    package_statuses: dict[str, str] = {}
+    for package_ref in request.previous_package_refs:
+        package = previous_packages[package_ref]
+        if not isinstance(package, StagePackage):
+            raise ValueError(f"Previous package {package_ref!r} must be a StagePackage.")
+        package_statuses[package_ref] = package.status.value
+    return {
+        "valid": True,
+        "request_gate_digest": request.deterministic_gate_digest(),
+        "package_statuses": package_statuses,
+    }
+
+
+__all__ = [
+    "NeedsInput",
+    "StageDiagnostic",
+    "StagePackage",
+    "StageRequest",
+    "validate_stage_handoff",
+]

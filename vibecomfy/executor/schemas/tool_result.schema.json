@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibecomfy.dev/schemas/executor/tool_result.schema.json",
+  "title": "ToolResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool_name", "status", "result", "evidence_ids", "diagnostics"],
+  "properties": {
+    "tool_name": {"type": "string", "minLength": 1},
+    "status": {
+      "enum": [
+        "ok",
+        "no_results",
+        "rate_limited",
+        "timeout",
+        "unavailable",
+        "invalid_request",
+        "refused"
+      ]
+    },
+    "result": {},
+    "evidence_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "details"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1},
+          "details": {"type": "object"}
+        }
+      }
+    },
+    "retry_after_seconds": {"type": "number", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"required": ["retry_after_seconds"]},
+      "then": {"properties": {"status": {"const": "rate_limited"}}}
+    }
+  ]
+}
