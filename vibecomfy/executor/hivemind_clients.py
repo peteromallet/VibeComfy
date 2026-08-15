@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -154,6 +155,43 @@ _HIVEMIND_SEMANTIC_TASK_TERMS: dict[str, tuple[str, ...]] = {
     "upscale": ("upscale", "upscaler", "upscaling"),
 }
 
+# REC-A: Postgres statement-timeout (SQLSTATE 57014) surfaces as HTTP 500 with
+# a body like ``{"code":"57014",...,"message":"canceling statement due to
+# statement timeout"}``.  These queries are valid — the backend just hit its
+# per-statement time budget — so retry ONCE with a short backoff before typing
+# the failure as a soft miss.  A persistent 57014 is still a soft miss
+# (UNAVAILABLE / ``hivemind_statement_timeout``), never a hard error.
+_HIVEMIND_STATEMENT_TIMEOUT_RETRIES = 1
+_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS = 0.5
+
+# REC-A: off-family demotion vocabulary for relevance ranking.  Beyond the
+# semantic family terms above, recognize the model families that actually
+# pollute video/audio/3D searches (MiniMax H3 workflows drowning LTX/SDXL
+# questions in the live corpus) so wrong-family hits can be demoted when the
+# query or the brief names a specific family.
+_HIVEMIND_RANK_FAMILY_MARKERS: dict[str, tuple[str, ...]] = {
+    "wan": ("wan", "wan2", "wanvideo", "wan_2"),
+    "ltx": ("ltx", "ltxv", "lightricks", "ltx2"),
+    "hotshot": ("hotshot", "hotshotxl"),
+    "animatediff": ("animatediff",),
+    "sdxl": ("sdxl", "sd_xl", "sd xl", "stable diffusion xl"),
+    "sd3": ("sd3", "stable diffusion 3"),
+    "flux": ("flux", "flux1", "flux.1"),
+    "qwen": ("qwen",),
+    "hunyuan": ("hunyuan", "hyvideo"),
+    "cogvideo": ("cogvideo",),
+    "minimax": ("minimax", "mini-max", "h3"),
+    "kling": ("kling",),
+    "veo": ("veo",),
+    "sora": ("sora",),
+    "runway": ("runway",),
+    "moonvalley": ("moonvalley", "moon valley"),
+    "pixverse": ("pixverse",),
+    "krea": ("krea",),
+    "acestep": ("acestep", "ace step"),
+    "stable_audio": ("stable audio", "stableaudio"),
+}
+
 
 class HivemindError(Exception):
     """Non-fatal Hivemind error — caught by the research runner and converted
@@ -168,6 +206,9 @@ class HivemindError(Exception):
     * ``status_code`` — HTTP status when ``reason == "http"``.
     * ``retry_after_seconds`` — parsed ``Retry-After`` header when the server
       sent one (rate limits).
+    * ``statement_timeout`` — True when an HTTP 500 carried Postgres
+      SQLSTATE 57014 (statement timeout) after the retry budget was spent;
+      the tool layer maps this to a soft miss, never a hard error.
     """
 
     def __init__(
@@ -177,15 +218,29 @@ class HivemindError(Exception):
         reason: str | None = None,
         status_code: int | None = None,
         retry_after_seconds: float | None = None,
+        statement_timeout: bool = False,
     ) -> None:
         super().__init__(message)
         self.reason = reason
         self.status_code = status_code
         self.retry_after_seconds = retry_after_seconds
+        self.statement_timeout = statement_timeout
 
 
 def _parse_json_response(body: str) -> Any:
     return json.loads(body)
+
+
+def _is_statement_timeout(body: str, status_code: int) -> bool:
+    """True when an HTTP error body carries Postgres SQLSTATE 57014.
+
+    PostgREST returns 500 for a statement timeout; the body embeds the
+    Postgres error as ``{"code":"57014","message":"canceling statement due
+    to statement timeout"}``.  Match on either the SQLSTATE or the message.
+    """
+    if status_code != 500:
+        return False
+    return '"57014"' in body or "canceling statement due to statement timeout" in body
 
 
 def _hivemind_get_table(
@@ -199,6 +254,12 @@ def _hivemind_get_table(
     ``table`` is one of: external_resources, unified_feed, message_feed.
     Raises :class:`HivemindError` on HTTP / timeout / invalid JSON. Never
     logs the key.
+
+    REC-A resilience: a Postgres statement-timeout (HTTP 500 + SQLSTATE
+    57014) is retried ONCE with a short backoff — the query is valid, the
+    backend just hit its statement budget.  A persistent 57014 still raises,
+    but flags ``statement_timeout=True`` so the tool layer types it as a
+    soft miss rather than a hard failure.
     """
     url = f"{_HIVEMIND_REST_ROOT}/{table}?{urlencode(dict(params))}"
     req = urllib.request.Request(
@@ -210,34 +271,42 @@ def _hivemind_get_table(
         },
         method="GET",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
-            return _parse_json_response(body)
-    except urllib.error.HTTPError as exc:
-        body = exc.read(800).decode("utf-8", errors="replace")
-        retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
-        raise HivemindError(
-            f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})",
-            reason="http",
-            status_code=exc.code,
-            retry_after_seconds=retry_after,
-        ) from exc
-    except TimeoutError as exc:
-        raise HivemindError(
-            f"Hivemind request timed out after {timeout}s",
-            reason="timeout",
-        ) from exc
-    except urllib.error.URLError as exc:
-        raise HivemindError(
-            f"Hivemind HTTP error: {exc}",
-            reason="unavailable",
-        ) from exc
-    except ValueError as exc:
-        raise HivemindError(
-            f"Hivemind returned invalid JSON: {exc}",
-            reason="invalid_json",
-        ) from exc
+    attempts = 1 + _HIVEMIND_STATEMENT_TIMEOUT_RETRIES
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8")
+                return _parse_json_response(body)
+        except urllib.error.HTTPError as exc:
+            body = exc.read(800).decode("utf-8", errors="replace")
+            retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
+            statement_timeout = _is_statement_timeout(body, exc.code)
+            if statement_timeout and attempt < _HIVEMIND_STATEMENT_TIMEOUT_RETRIES:
+                time.sleep(_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS)
+                continue
+            raise HivemindError(
+                f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})",
+                reason="http",
+                status_code=exc.code,
+                retry_after_seconds=retry_after,
+                statement_timeout=statement_timeout,
+            ) from exc
+        except TimeoutError as exc:
+            raise HivemindError(
+                f"Hivemind request timed out after {timeout}s",
+                reason="timeout",
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise HivemindError(
+                f"Hivemind HTTP error: {exc}",
+                reason="unavailable",
+            ) from exc
+        except ValueError as exc:
+            raise HivemindError(
+                f"Hivemind returned invalid JSON: {exc}",
+                reason="invalid_json",
+            ) from exc
+    raise AssertionError("unreachable")  # pragma: no cover - retry loop bounded
 
 
 def _query_tokens(query: str) -> list[str]:
@@ -384,6 +453,94 @@ def _excerpt(text: str, *, limit: int = 500) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+# REC-A: relevance demotion.  ``_query_model_family`` names the single model
+# family the query points at (LTXV -> ltx, SDXL refiner -> sdxl); when exactly
+# one family is named, ``_rank_hivemind_rows`` buckets rows: family-matching
+# hits first, family-neutral rows second, wrong-family hits last.  This fixes
+# the live failure where MiniMax H3 video workflows drowned LTX / SDXL queries
+# because their generic "video/upscaling" tokens outranked the real match.
+
+def _query_model_family(query: str) -> str | None:
+    """Canonical family the query names, or None when it names none or many.
+
+    Only a SINGLE named family triggers demotion — a "switch wan to ltx"
+    question names two on-topic families and must not demote either.
+    Markers match on word boundaries so ``wan`` is not triggered by
+    ``want`` while ``wan2.1`` / ``wanvideo`` still hit their own markers.
+    """
+    haystack = query.casefold()
+    named: list[str] = []
+    for family, markers in _HIVEMIND_RANK_FAMILY_MARKERS.items():
+        for marker in markers:
+            pattern = re.compile(rf"\b{re.escape(marker.casefold())}\b")
+            if pattern.search(haystack):
+                named.append(family)
+                break
+    return named[0] if len(named) == 1 else None
+
+
+def _row_model_families(row: Mapping[str, Any]) -> frozenset[str]:
+    """Families a row itself names, with truthful signals taking precedence.
+
+    The corpus labels MiniMax H3 workflows with ``model_families: ["ltx"]``
+    (pipeline metadata/aliases are unreliable — the live failure shows a
+    MiniMax workflow carrying ltx metadata).  The row TITLE is the most
+    authoritative family identity; the body DESCRIPTION region (before the
+    embedded workflow JSON) is the second signal.  Signals:
+
+    1. title word-boundary marker matches;
+    2. else body-prefix (first ~800 chars, description region) matches;
+    3. else ``searchable_aliases`` substring matches;
+    4. else ``workflow_semantics.model_families`` (weakest, known-mislabeled).
+
+    A row naming no family yields an empty set (family-neutral).
+    """
+
+    def _match(text: str) -> frozenset[str]:
+        haystack = text.casefold()
+        found: set[str] = set()
+        for family, markers in _HIVEMIND_RANK_FAMILY_MARKERS.items():
+            for marker in markers:
+                pattern = re.compile(rf"\b{re.escape(marker.casefold())}\b")
+                if pattern.search(haystack):
+                    found.add(family)
+                    break
+        return frozenset(found)
+
+    title = _first_text(row, "title", "name", "class_type")
+    if title:
+        title_families = _match(title)
+        if title_families:
+            return title_families
+    body = _first_text(row, "body", "content", "description", "text")
+    if body:
+        body_families = _match(body[:800])
+        if body_families:
+            return body_families
+    semantics = _workflow_semantics(row)
+    for alias in semantics.get("searchable_aliases") or ():
+        if not isinstance(alias, str):
+            continue
+        alias_lower = alias.casefold()
+        for family, markers in _HIVEMIND_RANK_FAMILY_MARKERS.items():
+            if any(marker.casefold() in alias_lower for marker in markers):
+                return frozenset({family})
+    found: set[str] = set()
+    for raw_family in semantics.get("model_families") or ():
+        if not isinstance(raw_family, str):
+            continue
+        key = raw_family.casefold()
+        for family, markers in _HIVEMIND_RANK_FAMILY_MARKERS.items():
+            if key == family or any(marker.casefold() == key for marker in markers):
+                found.add(family)
+    return frozenset(found)
+
+
+# Score offsets applied when the query names exactly one model family.
+_HIVEMIND_FAMILY_MATCH_OFFSET = 10_000
+_HIVEMIND_FAMILY_MISMATCH_OFFSET = -10_000
+
+
 def _rank_hivemind_rows(rows: list[Any], query: str) -> list[dict[str, Any]]:
     # Score both multi-word phrases and individual tokens so that rows returned
     # by an OR-style full-text query still get credit for partial matches.
@@ -396,6 +553,7 @@ def _rank_hivemind_rows(rows: list[Any], query: str) -> list[dict[str, Any]]:
         and len(t) > 1
     ]
     query_terms = list(dict.fromkeys(phrase_terms + token_terms))
+    query_family = _query_model_family(query)
 
     # Pre-compute how many rows each term matches so rare, specific terms
     # (e.g. ``hotshot``) outweigh common domain words (``video``,
@@ -465,6 +623,20 @@ def _rank_hivemind_rows(rows: list[Any], query: str) -> list[dict[str, Any]]:
             if reason not in seen_reasons:
                 seen_reasons.add(reason)
                 reasons.append(reason)
+        if query_family is not None:
+            row_families = _row_model_families(row)
+            if query_family in row_families:
+                score += _HIVEMIND_FAMILY_MATCH_OFFSET
+                reasons.append(f"hivemind:family matches query ({query_family})")
+            elif row_families:
+                # Wrong-family hits are demoted below family-neutral rows so
+                # off-topic corpora (MiniMax H3 flooding an LTX query) cannot
+                # outrank genuinely matching or neutral evidence.
+                score += _HIVEMIND_FAMILY_MISMATCH_OFFSET
+                reasons.append(
+                    "hivemind:wrong family demoted "
+                    f"({', '.join(sorted(row_families))})"
+                )
         if score <= 0:
             continue
         ranked = dict(row)
@@ -510,17 +682,26 @@ _SOURCE_TYPE_SCOPES: dict[str | None, tuple[tuple[str, str], ...]] = {
 _SCOPE_FETCH_LIMIT = 20
 
 
-def _evidence_id(table: str, row: Mapping[str, Any]) -> str:
+def _evidence_id(table: str, row: Mapping[str, Any]) -> str | None:
     """Stable, resolvable evidence ID for a Hivemind row.
 
     ``hivemind:<table>:<row_id>`` where ``row_id`` is the table's natural id
     column, stringified so Discord snowflakes survive JSON precision loss.
     :func:`hivemind_get` resolves the same ID back to a full-row fetch.
+
+    REC-A: the natural id column is the ONLY valid source.  Falling back to
+    ``external_id``/``url``/``title`` produced parseable-looking IDs that
+    ``hivemind_get`` could never resolve (``id=eq.vibecomfy:wf-1`` finds no
+    row), surfacing as "no such record".  Returns None when the row lacks its
+    natural id — such rows are unfetchable and are dropped by the search
+    transport instead of being offered as evidence.
     """
-    column = _HIVEMIND_TABLE_ID_COLUMNS.get(table, "id")
+    column = _HIVEMIND_TABLE_ID_COLUMNS.get(table)
+    if column is None:
+        return None
     raw = row.get(column)
     if raw is None:
-        raw = row.get("external_id", row.get("url", row.get("title")))
+        return None
     return f"{_HIVEMIND_EVIDENCE_PREFIX}:{table}:{raw}"
 
 
@@ -708,8 +889,13 @@ def _order_hivemind_rows(
     query: str,
 ) -> list[dict[str, Any]]:
     """Deterministic ordering for a single candidate pool (no judgment)."""
+    def _evidence_key(row: Mapping[str, Any]) -> str:
+        # Transport guarantees a resolvable natural id; defensive fallback
+        # keeps the sort total even for synthetic rows in tests.
+        return _evidence_id(str(row.get("_hivemind_table") or ""), row) or ""
+
     def _recent_key(row: Mapping[str, Any]) -> tuple[float, str]:
-        return (-_created_at_ts(row), _evidence_id(str(row.get("_hivemind_table") or ""), row))
+        return (-_created_at_ts(row), _evidence_key(row))
 
     if sort == "recent":
         return sorted(rows, key=_recent_key)
@@ -719,7 +905,7 @@ def _order_hivemind_rows(
             key=lambda r: (
                 _validated_bucket(r),
                 -_created_at_ts(r),
-                _evidence_id(str(r.get("_hivemind_table") or ""), r),
+                _evidence_key(r),
             ),
         )
     # relevance: reuse the existing deterministic ranker.  A query with no
@@ -731,7 +917,7 @@ def _order_hivemind_rows(
         ranked,
         key=lambda r: (
             -int(r.get("score") or 0),
-            _evidence_id(str(r.get("_hivemind_table") or ""), r),
+            _evidence_key(r),
         ),
     )
 
@@ -817,6 +1003,10 @@ def _hivemind_search_transport(
             for row in parsed if isinstance(parsed, list) else []:
                 if not isinstance(row, dict):
                     continue
+                # REC-A: rows without their natural id column are unfetchable
+                # via hivemind_get — never surface them as evidence.
+                if _evidence_id(table, row) is None:
+                    continue
                 stamped = dict(row)
                 stamped["_hivemind_table"] = table
                 rows.append(stamped)
@@ -835,6 +1025,8 @@ def _hivemind_search_transport(
     seen: set[str] = set()
     for row in rows:
         evidence_id = _evidence_id(str(row.get("_hivemind_table") or ""), row)
+        if evidence_id is None:
+            continue
         if evidence_id in seen:
             continue
         seen.add(evidence_id)

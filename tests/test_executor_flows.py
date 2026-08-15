@@ -28,7 +28,7 @@ from vibecomfy.executor.contracts import (
     ExecutorRequest,
 )
 from vibecomfy.executor import core as executor_core
-from vibecomfy.executor.agent_research_stage import AgentResearchTrace
+from vibecomfy.executor.agent_research_stage import DECISION_SYNTHESIZE, AgentResearchTrace
 from vibecomfy.executor.core import AgentResearchResult, run_executor
 from vibecomfy.executor.evidence_pack import (
     EvidenceArtifact,
@@ -2003,9 +2003,10 @@ def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
     assert "research_stage_exhausted" in codes
 
 
-def test_adapt_implement_fails_closed_when_research_refined() -> None:
-    """P0-b: an agent finish with a refine verdict (no enough synthesis) must
-    not proceed to implement either."""
+def test_adapt_implement_fails_closed_when_research_refined_without_synthesis() -> None:
+    """REC-B gate rule: a refine verdict alone no longer skips implement — but
+    a refine verdict with NO recorded synthesis in the ledger still fails
+    closed (there is nothing evidence-backed to implement from)."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
@@ -2030,6 +2031,145 @@ def test_adapt_implement_fails_closed_when_research_refined() -> None:
     assert excinfo.value.stage == "research"
     explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
     assert "verdict=refine" in explanation
+
+
+def _refined_research_result_with_synthesis() -> AgentResearchResult:
+    """Refine-verdict research result whose ledger records an evidence-backed
+    partial synthesis — the REC-B recovery shape (research concluded a
+    direction despite a Hivemind hiccup / unresolved refine question)."""
+    trace = AgentResearchTrace(
+        route="adapt",
+        question="q",
+        iterations=(),
+        final_verdict="refine",
+        summary="Partial direction: LoadAudio before the video model.",
+        citations=("hivemind_get:abc123",),
+        uncertainty="Hivemind statement timeout; direction is provisional",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    ledger = EvidenceLedger(entries=(
+        EvidenceLedgerEntry(
+            decision=DECISION_SYNTHESIZE,
+            conclusion="Use LoadAudio -> ConditioningCombine before WanImageToVideo",
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="provisional",
+        ),
+    ))
+    pack = EvidencePack(
+        artifacts={
+            "hivemind_get:abc123": EvidenceArtifact(
+                evidence_id="hivemind_get:abc123",
+                kind="hivemind_get",
+                body={"content": "fixture fetched record"},
+                source="hivemind",
+            )
+        },
+        ledger=ledger,
+    )
+    package = executor_core._research_stage_package(
+        route="adapt",
+        trace=trace,
+        pack=pack,
+        policy_diagnostics=(),
+    )
+    return AgentResearchResult(
+        route="adapt",
+        trace=trace,
+        evidence_pack=pack,
+        package=package,
+    )
+
+
+def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None:
+    """REC-B gate rule: a refine verdict WITH an evidence-backed partial
+    synthesis in the ledger must proceed to implement — the gate checks 'was
+    there a synthesis at all', not 'was it perfect'."""
+    plan = _fake_classify_adapt("Switch to Hotshot")
+    request = ExecutorRequest(
+        query="Switch to Hotshot",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _refined_research_result_with_synthesis()
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    assert result.graph is not None
+    mock_edit.assert_called_once()
+    payload = mock_edit.call_args.args[0]
+    ledger = payload["research_ledger"]["entries"]
+    assert any(
+        entry["decision"] == DECISION_SYNTHESIZE and entry["evidence_ids"]
+        for entry in ledger
+    )
+
+
+def test_research_package_usable_gate_matrix() -> None:
+    """REC-B gate matrix: strict about package validity + status; the verdict
+    requirement is 'an evidence-backed synthesis was recorded', not 'enough'.
+    Skip happens ONLY when no synthesis whatsoever was recorded."""
+    base_kwargs = dict(
+        route="adapt",
+        question="q",
+        iterations=(),
+        summary="",
+        citations=(),
+        uncertainty="",
+        status="ok",
+        elapsed_seconds=0.0,
+    )
+    assert executor_core._research_package_is_usable(None) is False
+    # Typed package validity + status stay fail-closed.
+    failed = _agent_owned_research_result_with_trace(
+        _failed_research_trace(status="failed", verdict="failed")
+    )
+    assert executor_core._research_package_is_usable(failed) is False
+    exhausted = _agent_owned_research_result_with_trace(
+        _failed_research_trace(status="exhausted", verdict="refine")
+    )
+    assert executor_core._research_package_is_usable(exhausted) is False
+    # Enough verdict → usable without needing a ledger.
+    enough = _agent_owned_research_result_with_trace(
+        AgentResearchTrace(final_verdict="enough", **base_kwargs)
+    )
+    assert executor_core._research_package_is_usable(enough) is True
+    # Refine with NO synthesis in the ledger → skip.
+    refined_empty = _agent_owned_research_result_with_trace(
+        AgentResearchTrace(final_verdict="refine", **base_kwargs)
+    )
+    assert executor_core._research_package_is_usable(refined_empty) is False
+    # Refine WITH an evidence-backed synthesis → usable (the recovery path).
+    assert executor_core._research_package_is_usable(
+        _refined_research_result_with_synthesis()
+    ) is True
+    # Refine with a synthesize entry that cites NO evidence → still skip.
+    trace = AgentResearchTrace(final_verdict="refine", **base_kwargs)
+    pack = EvidencePack(
+        artifacts={},
+        ledger=EvidenceLedger(entries=(
+            EvidenceLedgerEntry(
+                decision=DECISION_SYNTHESIZE,
+                conclusion="direction with no backing citation",
+                evidence_ids=(),
+                uncertainty="",
+            ),
+        )),
+    )
+    package = executor_core._research_stage_package(
+        route="adapt", trace=trace, pack=pack, policy_diagnostics=(),
+    )
+    ungrounded = AgentResearchResult(
+        route="adapt", trace=trace, evidence_pack=pack, package=package,
+    )
+    assert executor_core._research_package_is_usable(ungrounded) is False
 
 
 def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Path) -> None:

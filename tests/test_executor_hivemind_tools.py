@@ -21,8 +21,12 @@ from urllib.parse import unquote_plus
 import pytest
 
 from vibecomfy.executor.hivemind_clients import (
+    _evidence_id,
     _hivemind_scope_params,
     _parse_evidence_id,
+    _query_model_family,
+    _rank_hivemind_rows,
+    _row_model_families,
 )
 from vibecomfy.executor.hivemind_tools import (
     HIVE_MIND_GET_TOOL,
@@ -969,3 +973,200 @@ class TestToolResultContract:
         assert result.retry_after_seconds == 7.0
         rebuilt = ToolResult.from_dict(result.to_dict())
         assert rebuilt == result
+
+
+# ── REC-A: statement-timeout (57014) retry-once + soft-miss typing ──────────
+
+
+def _statement_timeout_error(req: Any, *args: Any, **kwargs: Any) -> Any:
+    raise urllib.error.HTTPError(
+        req.full_url,
+        500,
+        "statement timeout",
+        {},
+        io.BytesIO(b'{"code":"57014","message":"canceling statement due to statement timeout"}'),
+    )
+
+
+class TestStatementTimeoutRetry:
+    def test_57014_retried_once_then_ok(self) -> None:
+        calls = {"n": 0}
+
+        def _flaky(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    500,
+                    "statement timeout",
+                    {},
+                    io.BytesIO(b'{"code":"57014","message":"canceling statement due to statement timeout"}'),
+                )
+            return _json_response([_workflow_row("wf-1", title="LTX workflow")])
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ) as sleep, patch("urllib.request.urlopen", side_effect=_flaky):
+            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.OK
+        assert result.result["count"] == 1
+        assert calls["n"] == 2
+        sleep.assert_called_once()
+
+    def test_persistent_57014_is_soft_miss_not_hard_failure(self) -> None:
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch("urllib.request.urlopen", side_effect=_statement_timeout_error):
+            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.UNAVAILABLE
+        assert result.diagnostics[0].code == "hivemind_statement_timeout"
+        assert result.evidence_ids == ()
+        assert result.result is None
+
+    def test_57014_on_get_also_soft_miss(self) -> None:
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch("urllib.request.urlopen", side_effect=_statement_timeout_error):
+            result = hivemind_get("hivemind:external_resources:wf-1")
+        assert result.status is ToolStatus.UNAVAILABLE
+        assert result.diagnostics[0].code == "hivemind_statement_timeout"
+
+    def test_generic_500_not_retried(self) -> None:
+        calls = {"n": 0}
+
+        def _boom(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            raise urllib.error.HTTPError(req.full_url, 500, "boom", {}, io.BytesIO(b"{}"))
+
+        with patch("urllib.request.urlopen", side_effect=_boom):
+            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.UNAVAILABLE
+        assert result.diagnostics[0].code == "hivemind_unavailable"
+        assert calls["n"] == 1  # no retry on a generic 500
+
+
+# ── REC-A: model-family / capability relevance (off-family demotion) ────────
+
+
+class TestFamilyRelevance:
+    def test_query_family_detection(self) -> None:
+        assert _query_model_family("LTXV blurry video upscaling") == "ltx"
+        assert _query_model_family("SDXL refiner LoRA placement") == "sdxl"
+        assert _query_model_family("want to build a workflow") is None
+        assert _query_model_family("switch wan to ltx") is None  # two families -> neutral
+
+    def test_row_family_prefers_title_over_mislabeled_metadata(self) -> None:
+        # The corpus labels MiniMax H3 workflows with model_families ["ltx"];
+        # the title is the authoritative signal.
+        minimax = _workflow_row(
+            "2823",
+            title="MiniMax H3 Turbo Video Generation with Audio and Upscaling",
+            metadata={
+                "workflow_semantics": {
+                    "model_families": ["ltx", "controlnet"],
+                    "searchable_aliases": ["minimax-h3", "i2v"],
+                }
+            },
+        )
+        assert _row_model_families(minimax) == frozenset({"minimax"})
+
+        ltx = _workflow_row(
+            "2773",
+            title="External workflow: 011326 LTX2 AudioSync i2v WIP.json",
+            metadata={
+                "workflow_semantics": {
+                    "model_families": ["ltx", "controlnet"],
+                    "searchable_aliases": ["ltx", "ltxv", "ltx-video"],
+                }
+            },
+        )
+        assert _row_model_families(ltx) == frozenset({"ltx"})
+
+    def test_relevance_ranks_matching_family_first_demotes_wrong(self) -> None:
+        rows = [
+            _workflow_row("2823", title="MiniMax H3 Video Generation with Audio and Upscaling"),
+            _workflow_row("2773", title="External workflow: 011326 LTX2 AudioSync i2v WIP.json"),
+            _workflow_row("2771", title="External workflow: generic pipeline"),
+        ]
+        ranked = _rank_hivemind_rows(rows, "LTXV blurry video upscaling")
+        order = [row["id"] for row in ranked]
+        # Wrong-family (minimax) hit is demoted below the family match AND the
+        # family-neutral row; the family match leads.
+        assert order[0] == "2773"
+        assert "2823" not in order[:2]
+        assert ranked[0]["score"] > ranked[1]["score"]
+        assert any("family" in r for r in ranked[0]["reasons"])
+
+    def test_explicit_family_filter_still_translated(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen(seen, _json_response([])),
+        ):
+            hivemind_search(
+                "ltx",
+                filters={"source_type": "workflow", "model_family": "ltx"},
+            )
+        assert 'metadata=cs.{"workflow_semantics":{"model_families":["ltx"]}}' in seen[0]
+
+
+# ── REC-A: evidence-ID resolvability (no fabricated fallback IDs) ───────────
+
+
+class TestEvidenceIdResolvability:
+    def test_evidence_id_requires_natural_id_column(self) -> None:
+        row = _workflow_row("wf-1", title="LTX pipeline")
+        assert _evidence_id("external_resources", row) == "hivemind:external_resources:wf-1"
+        # A row missing its natural id must NOT fabricate an ID from
+        # external_id/url/title — those parse but never resolve.
+        broken = {
+            "external_id": "vibecomfy:wf-1",
+            "url": "https://example.com/wf-1.json",
+            "title": "LTX pipeline",
+        }
+        assert _evidence_id("external_resources", broken) is None
+
+    def test_search_drops_unresolvable_rows(self) -> None:
+        rows = [
+            _workflow_row("wf-1", title="LTX pipeline"),
+            {
+                "external_id": "vibecomfy:orphan",
+                "url": "https://example.com/orphan.json",
+                "title": "orphan workflow",
+                "kind": "workflow",
+                "created_at": "2026-08-06T00:00:00Z",
+            },
+        ]
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _json_response(rows)),
+        ):
+            result = hivemind_search("ltx", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.OK
+        assert [h["evidence_id"] for h in result.result["hits"]] == [
+            "hivemind:external_resources:wf-1"
+        ]
+        assert result.evidence_ids == ("hivemind:external_resources:wf-1",)
+
+    def test_returned_ids_all_resolve_through_get(self) -> None:
+        rows = [
+            _workflow_row("wf-1", title="LTX pipeline"),
+            _workflow_row("wf-2", title="LTX fast mode"),
+        ]
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=_capture_urlopen([], _json_response(rows)),
+        ):
+            search = hivemind_search("ltx", filters={"source_type": "workflow"})
+        assert search.status is ToolStatus.OK
+        for evidence_id in search.evidence_ids:
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=_capture_urlopen(
+                    [],
+                    _json_response([_workflow_row(evidence_id.rsplit(":", 1)[-1])]),
+                ),
+            ):
+                got = hivemind_get(evidence_id)
+            assert got.status is ToolStatus.OK, evidence_id
+            assert got.result["evidence_id"] == evidence_id

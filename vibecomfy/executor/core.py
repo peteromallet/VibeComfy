@@ -50,6 +50,7 @@ from vibecomfy.executor.profiler import (
 
 from .agent_backend import run_classify_turn, run_reply_turn
 from .agent_research_stage import (
+    DECISION_SYNTHESIZE,
     AgentResearchTrace,
     build_research_brief,
     form_research_question,
@@ -978,17 +979,37 @@ def _run_agent_owned_research(
     )
 
 
+def _research_recorded_synthesis(research_result: AgentResearchResult | None) -> bool:
+    """True when the research ledger records a usable partial synthesis.
+
+    A usable synthesis is a ``synthesize`` ledger entry that cites at least
+    one evidence ID: the research agent concluded a direction grounded in
+    evidence, even if it also recorded uncertainty or an unresolved refine
+    question.  A synthesize entry with no citations, or no synthesize entry
+    at all, means there is nothing evidence-backed to implement from.
+    """
+    ledger = getattr(research_result, "ledger", None)
+    if ledger is None:
+        return False
+    for entry in ledger.entries:
+        if entry.decision == DECISION_SYNTHESIZE and entry.evidence_ids:
+            return True
+    return False
+
+
 def _research_package_is_usable(research_result: AgentResearchResult | None) -> bool:
     """Fail-closed gate for the research→implement handoff.
 
-    An adapt implementation may proceed only when the C1 research package is
-    OK AND the research agent produced an ``enough`` synthesis.  Failed,
-    exhausted (deadline / max-turn), and ``refine`` verdicts mean there is no
-    usable synthesis to implement from — proceeding would act on unsupported
-    conclusions.  A missing research result or a result without a typed
-    ``StagePackage`` is NOT usable on the adapt route: the executor always
-    supplies a typed package, so anything else is a caller bug and must not
-    silently proceed.
+    The gate stays strict about research-RESULT validity: an adapt
+    implementation may proceed only when the C1 research package is a typed
+    ``StagePackage`` with ``status=OK`` (failed / exhausted / untyped results
+    are never implementable).  The ``enough`` verdict requirement is relaxed:
+    a verdict of ``refine`` (or any non-``enough`` verdict on an OK package)
+    still hands a usable direction to implement when the research agent
+    recorded a partial synthesis — a ``synthesize`` ledger entry citing
+    evidence.  The only research that skips implement is one that produced NO
+    synthesis whatsoever: an unavailable package, or an OK package whose
+    ledger records no evidence-backed synthesize entry.
     """
     if research_result is None:
         return False
@@ -998,9 +1019,11 @@ def _research_package_is_usable(research_result: AgentResearchResult | None) -> 
     if package.status is not ToolStatus.OK:
         return False
     trace = getattr(research_result, "trace", None)
-    if trace is not None and getattr(trace, "final_verdict", None) not in (None, "enough"):
-        return False
-    return True
+    if trace is not None and getattr(trace, "final_verdict", None) in (None, "enough"):
+        return True
+    # Refine (or otherwise non-enough) verdict: proceed iff the research agent
+    # recorded a usable partial synthesis; skip only when there is none.
+    return _research_recorded_synthesis(research_result)
 
 
 def _run_implement(

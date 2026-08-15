@@ -1346,6 +1346,70 @@ class TestBuildReplyMessages:
         assert "Do not add sources or claims that are absent from that memo" in system
         assert "question, conclusion, resolvable citation IDs, uncertainty/conflicts, and next action" in system
 
+    def test_reply_prompt_requires_traced_link_citations_for_connectivity(self) -> None:
+        """Connectivity claims must enumerate the actual links/nodes traced
+        from the workflow IR and cite link ids (REC-C grounding rule)."""
+        msgs = build_reply_messages(
+            "what connects to the ksampler?",
+            graph_inspection="[10] CheckpointLoaderSimple\nEdges:\n  10 -> 12",
+        )
+        system = msgs[0]["content"]
+        user = msgs[1]["content"]
+        assert "before asserting that two nodes are connected" in system
+        assert "enumerate the actual links/nodes you traced" in system
+        assert "cite the link ids" in system
+        assert "link 35 connects node 5027 to node 4852" in system
+        assert "Never assert a connection you cannot point to in the provided IR" in system
+        # The graph-inspection user block frames the IR as the authoritative
+        # source of node ids, widget values, and link ids.
+        assert "authoritative" in user
+        assert "cite link ids and widget" in user
+
+    def test_reply_prompt_requires_exact_widget_key_value_citations(self) -> None:
+        """Widget/parameter claims must cite the exact widget key and value
+        present in the IR; no invented parameters (REC-C grounding rule)."""
+        msgs = build_reply_messages(
+            "what does the ipadapter do?",
+            graph_inspection="[40] IPAdapterApply\nWidgets: weight=0.7",
+        )
+        system = msgs[0]["content"]
+        assert "Ground every widget/parameter claim in the exact widget key and value" in system
+        assert "IPAdapterApply widgets are only" in system
+        assert "[weight=0.7]" in system
+        assert "Never invent parameters, modes, or settings that are " in system
+        assert "absent from the IR" in system
+        assert "say it is not present rather than guessing" in system
+
+    def test_reply_prompt_forbids_unknowable_refusals_with_ir_evidence(self) -> None:
+        """'Semantics unknowable' refusals are forbidden when the workflow IR
+        provides labeled inputs / node inventory / widget values / link ids
+        (REC-C grounding rule)."""
+        msgs = build_reply_messages(
+            "what does node 20 do?",
+            graph_inspection="[20] DetailDaemonSamplerNode\nWidgets: w0=0.1",
+        )
+        system = msgs[0]["content"]
+        assert '"semantics unknowable"' in system
+        assert '"cannot be determined"' in system
+        assert "reason from those provided graph facts" in system
+        assert 'Reserve "unknowable" only for facts the provided evidence genuinely' in system
+
+    def test_reply_prompt_handles_zero_on_topic_research_evidence(self) -> None:
+        """When research returned zero on-topic evidence, the reply must say so
+        explicitly and ground claims only in the workflow IR, never the
+        off-topic research records (REC-C grounding rule)."""
+        msgs = build_reply_messages(
+            "how does detail daemon work here?",
+            research_summary="searches returned only off-topic MiniMax video records",
+            graph_inspection="[20] DetailDaemonSamplerNode in an audio chain",
+        )
+        system = msgs[0]["content"]
+        assert "When research produced zero on-topic evidence" in system
+        assert "say so explicitly in the reply" in system
+        assert "instead of presenting those non-results as findings" in system
+        assert "make claims only from the workflow IR" in system
+        assert "never from the off-topic research records" in system
+
 
 # ── Response parsers ─────────────────────────────────────────────────────────
 

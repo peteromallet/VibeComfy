@@ -4495,7 +4495,7 @@ def test_build_batch_messages_turn_zero_includes_full_python_scoped_catalog_and_
     assert "do NOT search for them" in system
     assert "search(" in system
     # Size ceiling: prompt should stay bounded even with research/code-node guidance.
-    assert len(system) < 8500, f"system prompt is {len(system)} chars, expected <8500"
+    assert len(system) < 9200, f"system prompt is {len(system)} chars, expected <9200"
     # No execution-semantics phrasing
     assert "return only json" not in system.lower()
     assert "delta" not in system.lower()
@@ -4530,7 +4530,7 @@ def test_build_batch_messages_later_turn_includes_diff_and_report_only() -> None
     assert "delta" not in system.lower()
     assert "execute the code" not in system.lower()
     assert "run the code" not in system.lower()
-    assert len(system) < 8500, f"system prompt is {len(system)} chars, expected <8500"
+    assert len(system) < 9200, f"system prompt is {len(system)} chars, expected <9200"
 
     # User message includes diff + report, NOT full Python
     assert "Fix the field" in user
@@ -4680,7 +4680,7 @@ def test_build_batch_messages_no_json_delta_wording() -> None:
         assert "execute the code" not in system.lower()
         assert "run the code" not in system.lower()
         # Size ceiling
-        assert len(system) < 8500, f"system prompt is {len(system)} chars, expected <8500"
+        assert len(system) < 9200, f"system prompt is {len(system)} chars, expected <9200"
 
 
 def test_build_batch_messages_system_prompt_contains_all_three_mode_strings() -> None:
@@ -4765,7 +4765,7 @@ def test_build_batch_messages_system_prompt_size_under_ceiling() -> None:
         max_batches=5,
     )
     system = messages[0]["content"]
-    assert len(system) < 8500, f"system prompt is {len(system)} chars, expected <8500"
+    assert len(system) < 9200, f"system prompt is {len(system)} chars, expected <9200"
 
 
 def test_build_batch_messages_conversation_memory_included_on_turn_zero() -> None:

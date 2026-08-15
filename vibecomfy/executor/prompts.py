@@ -534,6 +534,27 @@ _REPLY_SYSTEM = (
     "code for node names, parameter names, and widget values when it improves "
     "readability. Do NOT suggest edits or changes — only explain the current "
     "graph. Use node names and widget values from the inspection evidence.\n"
+    "- Ground every connectivity claim in the workflow IR you were given: "
+    "before asserting that two nodes are connected or that data flows from "
+    "one node to another, enumerate the actual links/nodes you traced and "
+    "cite the link ids, e.g. \"link 35 connects node 5027 to node 4852\". "
+    "Never assert a connection you cannot point to in the provided IR.\n"
+    "- Ground every widget/parameter claim in the exact widget key and value "
+    "present in the workflow IR, e.g. \"IPAdapterApply widgets are only "
+    "[weight=0.7]\". Never invent parameters, modes, or settings that are "
+    "absent from the IR; if the IR does not show a parameter, say it is not "
+    "present rather than guessing.\n"
+    "- Do NOT reply with \"semantics unknowable\", \"cannot be determined\", "
+    "or similar refusals when the workflow IR provides labeled inputs, a node "
+    "inventory, widget values, or link ids: reason from those provided graph "
+    "facts and answer as concretely as the evidence allows. Reserve "
+    "\"unknowable\" only for facts the provided evidence genuinely does not "
+    "contain.\n"
+    "- When research produced zero on-topic evidence (for example Hivemind "
+    "returned off-topic or failed results), say so explicitly in the reply "
+    "instead of presenting those non-results as findings; make claims only "
+    "from the workflow IR and the evidence actually provided, never from the "
+    "off-topic research records.\n"
 )
 
 
@@ -582,7 +603,11 @@ def build_reply_messages(
     parts = [f"User request:\n{query}"]
     if graph_inspection:
         parts.append(
-            f"\nGraph inspection (describe the workflow without suggesting edits):\n{graph_inspection}"
+            "\nGraph inspection (the workflow IR below is the authoritative "
+            "source of node ids, widget values, and link ids; describe the "
+            "workflow without suggesting edits, and cite link ids and widget "
+            "keys/values from it exactly as listed):\n"
+            f"{graph_inspection}"
         )
     elif graph_summary:
         parts.append(f"\nAttached workflow graph: {graph_summary}")

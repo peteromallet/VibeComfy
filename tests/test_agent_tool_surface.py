@@ -853,6 +853,34 @@ class TestPromptSurface:
         assert "research(" not in system
         assert "LEGACY shadow-only" not in system
 
+    def test_research_only_prompt_grounds_claims_in_workflow_facts(self) -> None:
+        """Research-route answers must cite node ids/link ids/exact widget
+        keys+values from the provided workflow, never invent parameters, and
+        explicitly flag zero on-topic evidence (REC-C grounding rule)."""
+        messages = build_batch_messages(
+            task="question", python_source="", research_only=True, max_batches=4, budget_remaining=4
+        )
+        system = messages[0]["content"]
+        assert "Ground every claim you make" in system
+        assert "cite the node ids, link ids, and exact widget keys/values" in system
+        assert "link 35" in system
+        assert "connects node 5027 to node 4852" in system
+        assert "IPAdapterApply widgets are only" in system
+        assert "Never invent parameters, connections, or settings absent" in system
+        assert "zero on-topic evidence" in system
+        assert "do not present off-topic records as findings" in system
+        assert "answer from the workflow facts you can see" in system
+
+    def test_implement_prompt_question_mode_grounds_in_render(self) -> None:
+        """Question/explanation mode in the implement prompt must ground claims
+        in the visible render's node ids/link ids/widget keys+values (REC-C
+        grounding rule)."""
+        messages = build_batch_messages(task="what does this do?", python_source="x=1")
+        system = messages[0]["content"]
+        assert "Question / explanation mode" in system
+        assert "ground every claim in the visible render's node ids" in system
+        assert "never invent parameters or connections" in system
+
     def test_evidence_ledger_block_rendered_in_user_message(self) -> None:
         ledger = (
             "- hivemind_search query='wan t2v' (ok) — 2 hit(s) — "

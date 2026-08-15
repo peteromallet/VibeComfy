@@ -91,6 +91,10 @@ DECISION_GET = "hivemind_get"
 DECISION_REGISTRY = "registry_lookup"
 DECISION_SYNTHESIZE = "synthesize"
 DECISION_ENOUGH_REFINE = "enough_refine"
+# P1-c: typed marker for a finish attempted before ANY evidence tool call —
+# the loop feeds it back as a refinement turn instead of accepting the
+# ungrounded finish (or auto-failing the stage).
+DECISION_FINISH_PREMATURE = "finish_premature"
 
 # Research-phase tool allowlist (C01): the agent may only call these tools.
 # web_search is intentionally absent — it is disabled by default (A06) and the
@@ -314,6 +318,41 @@ def _extract_content(result: dict[str, Any]) -> str:
 # is the only evidence channel into the prompt.
 
 
+def _brief_model_family_nudge(research_brief: str) -> str:
+    """Return a hivemind_search filter nudge when the brief names model families.
+
+    The classifier brief carries the request's model families (e.g.
+    ``- Model families: LTXV, Wan``) and the Hivemind corpus mixes families —
+    off-topic MiniMax H3 rows drown LTXV/SDXL queries.  When a family is
+    named, the agent is instructed to pass it as a ``hivemind_search``
+    ``filters={"model_family": ...}`` and prefer family-matching hits.  This
+    is a SOFT nudge: the agent still chooses the query and may omit the filter
+    when the question is family-agnostic — no hard filter is injected, so a
+    wrong family guess can never zero out a search.
+    """
+    family_line = ""
+    for text_line in research_brief.splitlines():
+        if text_line.strip().startswith("- Model families:"):
+            family_line = text_line.strip()
+            break
+    if not family_line:
+        return ""
+    families = [
+        part.strip()
+        for part in family_line.split(":", 1)[1].split(",")
+        if part.strip()
+    ]
+    if not families:
+        return ""
+    return (
+        "Model-family focus: the classifier brief names model families "
+        f"{', '.join(families)}. hivemind_search accepts "
+        'filters={"model_family": "<family>"} — pass the named family when '
+        "the question targets it, and prefer hits that match it over "
+        "off-family leads."
+    )
+
+
 def build_agent_research_messages(
     *,
     question: str,
@@ -388,6 +427,9 @@ def build_agent_research_messages(
     brief = _clean_text(research_brief)
     if brief:
         user_lines.append(brief)
+    family_nudge = _brief_model_family_nudge(research_brief)
+    if family_nudge:
+        user_lines.append(family_nudge)
     user_lines.extend(
         [
             "Evidence digest (tool statuses, evidence IDs, and previews only):",
@@ -741,6 +783,9 @@ def run_agent_research_stage(
     warnings: list[str] = []
     iterations: list[AgentResearchIteration] = []
     tool_call_digests: list[dict[str, Any]] = []
+    # P1-c: count EXECUTED agent-chosen tool calls (not refusal/premature
+    # digest entries) so a finish with zero research activity is detectable.
+    tool_calls_made = 0
     searches_left = TOOL_SEARCH_BUDGET
     fetches_left = TOOL_FETCH_BUDGET
     registry_left = TOOL_REGISTRY_BUDGET
@@ -770,6 +815,8 @@ def run_agent_research_stage(
         artifacts_to_add: Sequence[EvidenceArtifact] = (),
         evidence_ids: Sequence[str] = (),
     ) -> None:
+        nonlocal tool_calls_made
+        tool_calls_made += 1
         for artifact in artifacts_to_add:
             _add_artifact(artifact)
         _add_entry(
@@ -817,6 +864,41 @@ def run_agent_research_stage(
             "tool": tool,
             "status": ToolStatus.REFUSED.value,
             "query": query,
+            "evidence_ids": [],
+            "conclusion": message,
+        }
+        tool_call_digests.append(digest)
+        iterations.append(
+            AgentResearchIteration(
+                iteration=len(iterations) + 1,
+                question=current_question,
+                tool_calls=(digest,),
+                synthesis={},
+                verdict="refine",
+            )
+        )
+
+    def _finish_premature_turn(conclusion: str, message: str) -> None:
+        # P1-c: a finish with zero citable evidence AND zero tool calls made is
+        # malformed — nothing was researched, so there is no synthesis to
+        # record.  Do NOT auto-fail the stage: record the typed
+        # ``finish_premature`` marker (ledger + digest + one refinement
+        # iteration) so the next turn nudges the agent to make at least one
+        # evidence tool call before finishing.  The turn budget still bounds
+        # the loop if the agent keeps refusing to call a tool.
+        _add_entry(
+            EvidenceLedgerEntry(
+                decision=DECISION_FINISH_PREMATURE,
+                conclusion=message,
+                evidence_ids=(),
+                uncertainty=message,
+            )
+        )
+        warnings.append(message)
+        digest = {
+            "tool": "finish",
+            "status": ToolStatus.REFUSED.value,
+            "query": _bounded(conclusion, _MAX_CONCLUSION_PREVIEW_CHARS),
             "evidence_ids": [],
             "conclusion": message,
         }
@@ -879,7 +961,6 @@ def run_agent_research_stage(
 
             action = str(decision.get("action") or "finish")
             if action == "finish":
-                agent_finished = True
                 # P2: order-preserving dedupe — the compact ledger contract
                 # rejects duplicate evidence_ids, and a duplicated citation
                 # must not crash synthesis or poison the trace.
@@ -890,6 +971,31 @@ def run_agent_research_stage(
                         if evidence_id in artifacts
                     )
                 )[:_MAX_JUDGMENT_CITATIONS]
+                # P1-c: finish-with-zero-evidence prevention.  A finish that
+                # cites no evidence AND was preceded by zero tool calls is a
+                # malformed finish (nothing was researched).  Do not accept it
+                # and do not auto-fail — feed the typed 'finish_premature'
+                # back as a refinement turn so the agent calls at least one
+                # evidence tool before finishing.  The research_question
+                # artifact is never surfaced as citable in the digest, so it
+                # does not count as evidence here.
+                citable_citations = tuple(
+                    citation for citation in cited if citation != _QUESTION_ARTIFACT_ID
+                )
+                if not citable_citations and tool_calls_made == 0:
+                    _finish_premature_turn(
+                        conclusion=_clean_text(decision.get("conclusion")),
+                        message=(
+                            "finish_premature: you finished before making any "
+                            "evidence tool call, so there is nothing to "
+                            "synthesize from. Call at least one evidence tool "
+                            "(hivemind_search / hivemind_get / "
+                            "registry_lookup) before finishing, then cite the "
+                            "evidence ids the tool returned."
+                        ),
+                    )
+                    continue
+                agent_finished = True
                 conclusion = _clean_text(decision.get("conclusion"))
                 uncertainty = _clean_text(decision.get("uncertainty"))
                 refine_question = decision.get("refine_question")
@@ -1090,6 +1196,7 @@ __all__ = [
     "AgentResearchIteration",
     "AgentResearchTrace",
     "DECISION_ENOUGH_REFINE",
+    "DECISION_FINISH_PREMATURE",
     "DECISION_GET",
     "DECISION_QUESTION",
     "DECISION_REGISTRY",

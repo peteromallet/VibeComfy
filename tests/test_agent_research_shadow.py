@@ -393,7 +393,8 @@ class TestTraceRecordsQuestionAndJudgment:
 
     def test_phase_allowlist_refuses_implement_tools(self, profile_dir: Path) -> None:
         """An agent that tries an implement-phase tool gets a typed refusal —
-        the call is never executed and the ledger records the refusal."""
+        the call is never executed and the ledger records the refusal — and the
+        loop still lets the agent gather real evidence and finish."""
         spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
 
         def out_of_phase(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -403,10 +404,12 @@ class TestTraceRecordsQuestionAndJudgment:
                     "tool": "node_schema",
                     "args": {"node_class": "KSampler"},
                 }
+            if "hivemind_search →" not in digest:
+                return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
             return {
                 "action": "finish",
-                "conclusion": "no research evidence gathered",
-                "evidence_ids": [],
+                "conclusion": "refusal recorded; search evidence gathered",
+                "evidence_ids": ["hivemind:workflows:111"],
                 "uncertainty": "implement-phase tool was refused",
             }
 
@@ -425,6 +428,10 @@ class TestTraceRecordsQuestionAndJudgment:
         assert "allowlist" in refusals[0].conclusion
         # No node_schema artifact was produced (never executed).
         assert not any(key.startswith("tool:node-schema") for key in pack.artifacts)
+        # The finish cited real search evidence (a finish with zero evidence
+        # AND zero executed tool calls would be rejected as finish_premature).
+        synth = [e for e in pack.ledger.entries if e.decision == stage.DECISION_SYNTHESIZE]
+        assert synth and synth[0].evidence_ids == ("hivemind:workflows:111",)
 
     def test_registry_lookup_is_agent_callable(self, profile_dir: Path) -> None:
         """registry_lookup is a research-phase tool the agent may choose."""
@@ -677,7 +684,12 @@ class TestNoLegacyInjectionIntoModelRequest:
             built = messages or stage.build_agent_research_messages(
                 question=question, evidence_digest=evidence_digest, route=route
             )
-            captured["messages"] = built
+            # Capture the decision-turn messages on the first turn (before any
+            # tool evidence exists), like the original single-turn fake.
+            if captured["messages"] is None:
+                captured["messages"] = built
+            if "hivemind_search" not in evidence_digest:
+                return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
             return {
                 "action": "finish",
                 "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
@@ -726,3 +738,142 @@ class TestNoLegacyInjectionIntoModelRequest:
                 raise AssertionError(
                     f"agent_research_stage.py:{lineno}: legacy result content is still referenced"
                 )
+
+
+# ── REC-B: finish-with-zero-evidence prevention (P1-c) ───────────────────────
+
+
+class TestFinishPrematureGuard:
+    def test_finish_before_any_tool_call_is_finish_premature_refinement(self, profile_dir: Path) -> None:
+        """P1-c: a finish with zero citable evidence_ids AND zero tool calls
+        made is a malformed finish — the loop records the typed
+        'finish_premature' marker and feeds it back as a refinement turn
+        instead of accepting the ungrounded synthesis or auto-failing."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        judge_log: list[dict[str, Any]] = []
+
+        def judge(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            judge_log.append({"question": question, "digest": digest})
+            if "finish_premature" not in digest:
+                return {
+                    "action": "finish",
+                    "conclusion": "I already know the answer",
+                    "evidence_ids": [],
+                    "uncertainty": "",
+                }
+            if "hivemind_search →" not in digest:
+                return {"action": "call", "tool": "hivemind_search", "args": {"query": question}}
+            return {
+                "action": "finish",
+                "conclusion": "Use LoadAudio -> ConditioningCombine before WanImageToVideo",
+                "evidence_ids": ["hivemind:workflows:111"],
+                "uncertainty": "low",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=judge,
+        )
+        # Neither auto-failed nor accepted: the loop recovered and finished.
+        assert trace.status == "ok"
+        assert trace.final_verdict == "enough"
+        # The premature finish was recorded as a typed refinement turn.
+        premature = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_FINISH_PREMATURE
+        ]
+        assert len(premature) == 1
+        assert "finish_premature" in premature[0].conclusion
+        assert premature[0].evidence_ids == ()
+        # The agent saw the nudge in the digest before calling a tool.
+        assert "finish_premature" in judge_log[1]["digest"]
+        # No synthesize entry for the premature finish; the final synthesis
+        # cites real evidence returned by the tool.
+        synth = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_SYNTHESIZE
+        ]
+        assert len(synth) == 1
+        assert synth[0].evidence_ids == ("hivemind:workflows:111",)
+        # One iteration per decision: premature-finish, search, finish.
+        assert len(trace.iterations) == 3
+        assert pack.ledger.validate_references(set(pack.artifacts)) is None
+
+    def test_repeated_premature_finishes_stay_bounded_and_exhausted(self, profile_dir: Path) -> None:
+        """P1-c: an agent that keeps finishing without any tool call consumes
+        refinement turns (never accepted, never auto-failed) and the loop
+        still terminates bounded at max_turns with an exhausted trace and no
+        synthesize entry — the executor gate can fail closed on it."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+
+        def always_premature(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            del question, digest, messages
+            return {
+                "action": "finish",
+                "conclusion": "no tool calls",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        trace, pack = stage.run_agent_research_stage(
+            route="research",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=_fake_search,
+            get_fn=_fake_get,
+            judge_fn=always_premature,
+            max_turns=3,
+        )
+        assert trace.status == "exhausted"
+        assert trace.final_verdict == "refine"
+        premature = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_FINISH_PREMATURE
+        ]
+        assert len(premature) == 3
+        synth = [
+            entry for entry in pack.ledger.entries
+            if entry.decision == stage.DECISION_SYNTHESIZE
+        ]
+        assert synth == []
+        assert trace.citations == ()
+
+
+class TestModelFamilyBriefNudge:
+    def test_named_model_families_nudge_hivemind_search_filters(self) -> None:
+        """REC-A/REC-B coordination: when the classifier brief names model
+        families, the decision-turn messages instruct the agent to pass them
+        as hivemind_search filters and prefer family-matching hits — a soft
+        nudge, never a hard injected filter."""
+        messages = stage.build_agent_research_messages(
+            question=_EXPLICIT_QUESTION,
+            evidence_digest="Remaining budget: 3 searches, 6 fetches.",
+            route="research",
+            research_brief=(
+                "Research brief:\n"
+                "- Search directions: LTXV upscaling patterns\n"
+                "- Model families: LTXV, Wan\n"
+                "- Source preferences: workflows"
+            ),
+        )
+        all_text = " ".join(_all_strings(messages))
+        assert "Model-family focus" in all_text
+        assert "LTXV, Wan" in all_text
+        assert '"model_family"' in all_text
+
+    def test_no_model_families_named_means_no_nudge(self) -> None:
+        """Without a named family in the brief there is no filter nudge — the
+        agent keeps full freedom over search args."""
+        messages = stage.build_agent_research_messages(
+            question=_EXPLICIT_QUESTION,
+            evidence_digest="Remaining budget: 3 searches.",
+            route="research",
+            research_brief="Research brief:\n- Search directions: generic patterns",
+        )
+        all_text = " ".join(_all_strings(messages))
+        assert "Model-family focus" not in all_text
+        assert '"model_family"' not in all_text

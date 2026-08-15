@@ -197,6 +197,21 @@ def _failure_result(
                 ),
             ),
         )
+    if reason == "http" and exc.statement_timeout:
+        # REC-A soft miss: the query is valid, Postgres just hit its
+        # statement-time budget (SQLSTATE 57014) after the retry budget.
+        # Typed UNAVAILABLE with a distinct code so the research loop can
+        # treat one bad search as a transient miss, not a hard failure.
+        return ToolResult(
+            tool_name=tool_name,
+            status=ToolStatus.UNAVAILABLE,
+            diagnostics=(
+                ToolDiagnostic(
+                    code="hivemind_statement_timeout",
+                    message=f"Hivemind statement timeout (retried once): {exc}",
+                ),
+            ),
+        )
     if reason == "http" and code in {400, 422}:
         return ToolResult(
             tool_name=tool_name,
