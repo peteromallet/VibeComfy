@@ -46,9 +46,52 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 # original bytes for an UNTOUCHED graph.  The blob is door-owned wire data —
 # per plan.md π_edit, positions/sizes/groups/opaque ``_ui``/wire metadata are
 # excluded from the editable quotient and belong to the door law.  Only the
-# door boundary (``ingest/normalize.py``, ``porting/emit/ui.py``, and the
-# envelope serializer ``VibeWorkflow.to_envelope``) reads or writes it.
+# door boundary (``ingest/normalize.py`` and ``porting/emit/ui.py``) reads or
+# writes it; ``VibeWorkflow.to_envelope`` delegates the untouched-graph
+# restore decision to this module rather than touching the blob itself.
 _UI_DOOR_KEY = "_ui_door"
+
+
+def _door_freeze(value: Any) -> Any:
+    """Deterministic freeze of an editable IR value for the door fingerprint.
+
+    Dicts/lists/tuples/sets are normalized to sorted tuples so the same
+    logical value always fingerprints identically regardless of insertion
+    order; ``RawWidgetPayload`` is reduced to its five payload fields.
+    """
+    if isinstance(value, RawWidgetPayload):
+        return (
+            "raw_widgets",
+            _door_freeze(value.values),
+            str(value.shape),
+            str(value.source),
+            bool(value.has_dict_rows),
+            int(value.length),
+        )
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _door_freeze(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_door_freeze(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted(_door_freeze(item) for item in value))
+    return value
+
+
+def _door_schema_status(metadata: Mapping[str, Any]) -> str:
+    """Schema status derived from the IR-only ``schema_source`` metadata.
+
+    Mirrors the pi_edit classification (known/provisional/unknown) but is
+    computed WITHOUT a schema provider, so ingest and emit agree on the same
+    IR.  Nodes ingested without a provider carry no ``schema_source`` and
+    fingerprint as ``unknown``.
+    """
+    source = metadata.get("schema_source")
+    if not isinstance(source, Mapping):
+        return "unknown"
+    provider = str(source.get("provider", "") or "")
+    if provider in ("comfy_registry_provisional", "workflow_json_provisional"):
+        return "provisional"
+    return "known" if provider else "unknown"
 
 
 def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
@@ -56,10 +99,20 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
 
     Stored in the door blob at ingest and recomputed at emit.  Equal
     fingerprints prove the graph is UNTOUCHED since ingest, so the emit
-    boundary may pass the captured raw wire bytes through unchanged.  Anything
-    excluded here (pos/size/groups/opaque ``_ui``/order/link ids) is door-owned
-    wire data that byte-fidelity preserves for untouched graphs and that the
-    editable quotient (π_edit) deliberately does not include.
+    boundary may pass the captured raw wire bytes through unchanged.  The
+    fingerprint covers the full editable quotient: every semantic edit through
+    ANY path (``set_prompt``/``set_input``/``set_seed``, ``confirm_node``,
+    direct input/widget/metadata/raw_widgets mutation) changes at least one
+    component, so an edited graph is never byte-passthrough with the edit
+    silently discarded.
+
+    Inputs and widgets are fingerprinted as SEPARATE channels: a ``set_input``
+    on a widget-backed field is a real edit even when the same field name
+    exists in both channels.  ``node.metadata`` (which carries provenance and
+    the schema source) is included in full — over-refusal on furniture-only
+    metadata churn is conservative and acceptable, while the wire bytes
+    themselves (pos/size/order/opaque ``_ui`` values) are still preserved
+    verbatim for untouched graphs by the door restore.
     """
     nodes = tuple(
         (
@@ -67,12 +120,28 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
             str(node.class_type),
             str(node.uid),
             int(node.mode),
+            str(node.pack) if node.pack is not None else None,
             tuple(
                 sorted(
-                    (str(key), repr(value))
-                    for key, value in {**node.inputs, **node.widgets}.items()
+                    (str(key), _door_freeze(value))
+                    for key, value in node.inputs.items()
                 )
             ),
+            tuple(
+                sorted(
+                    (str(key), _door_freeze(value))
+                    for key, value in node.widgets.items()
+                )
+            ),
+            tuple(
+                sorted(
+                    (str(key), _door_freeze(value))
+                    for key, value in node.metadata.items()
+                )
+            ),
+            _door_freeze(node.raw_widgets),
+            str(node.provenance),
+            _door_schema_status(node.metadata),
         )
         for node_id, node in sorted(
             workflow.nodes.items(),
@@ -87,7 +156,18 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
     )
     public_inputs = tuple(
         sorted(
-            (str(name), str(item.node_id), str(item.field))
+            (
+                str(name),
+                str(item.node_id),
+                str(item.field),
+                _door_freeze(item.value),
+                str(item.type) if item.type is not None else None,
+                _door_freeze(item.default),
+                bool(item.required),
+                _door_freeze(item.range),
+                tuple(str(alias) for alias in item.aliases),
+                str(item.media_semantics) if item.media_semantics is not None else None,
+            )
             for name, item in workflow.inputs.items()
         )
     )
@@ -121,7 +201,11 @@ def _capture_ui_door(
     not guaranteed to normalize back to the same API, so it keeps the
     deterministic reconstruction path).
     """
-    top = {key: deepcopy(value) for key, value in raw.items() if key != "nodes"}
+    top = {
+        key: deepcopy(value)
+        for key, value in raw.items()
+        if key != "nodes" and key != _UI_DOOR_KEY
+    }
     nodes_raw = raw.get("nodes")
     node_payloads: dict[str, Any] = {}
     node_order: list[str] = []
@@ -153,7 +237,8 @@ def _restore_untouched_door(door: Mapping[str, Any]) -> dict[str, Any]:
 
     Preserves the raw top-level key order (``top_order``), the raw top-level
     fields, and the raw node payloads in raw order.  The result is a detached
-    deep copy — mutating it never touches the IR or the blob.
+    deep copy — mutating it never touches the IR or the blob.  The door key
+    itself is never wire data: a stale blob that captured it is stripped.
     """
     top = door.get("top")
     nodes_raw = door.get("nodes")
@@ -172,14 +257,34 @@ def _restore_untouched_door(door: Mapping[str, Any]) -> dict[str, Any]:
         if key == "nodes":
             envelope["nodes"] = nodes
             nodes_placed = True
-        elif key in top:
+        elif key in top and key != _UI_DOOR_KEY:
             envelope[key] = deepcopy(top[key])
     for key, value in top.items():
-        if key not in envelope and key != "nodes":
+        if key not in envelope and key != "nodes" and key != _UI_DOOR_KEY:
             envelope[key] = deepcopy(value)
     if not nodes_placed:
         envelope["nodes"] = nodes
     return envelope
+
+
+def _restore_untouched_envelope(workflow: "VibeWorkflow") -> dict[str, Any] | None:
+    """Door-owned Law-1 restore for the envelope serializer.
+
+    Returns the raw ingest bytes verbatim when the IR is UNTOUCHED since
+    ingest (door shape ``envelope`` and fingerprint match), else ``None`` so
+    the serializer falls through to the plain IR rendering.  This keeps ALL
+    door-blob inspection at the door boundary: ``workflow.py`` never reads the
+    blob or compares fingerprints itself.
+    """
+    metadata = getattr(workflow, "metadata", None)
+    door = metadata.get(_UI_DOOR_KEY) if isinstance(metadata, dict) else None
+    if (
+        isinstance(door, Mapping)
+        and door.get("shape") == "envelope"
+        and _door_node_fingerprint(workflow) == door.get("fingerprint")
+    ):
+        return _restore_untouched_door(door)
+    return None
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:

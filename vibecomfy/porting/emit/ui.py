@@ -816,7 +816,10 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
         return None
     out_subgraphs: list[dict[str, Any]] = []
     for raw_sg in subgraphs:
-        sg = dict(raw_sg)
+        # Detached copy: stamping uids/state below must never mutate the IR's
+        # metadata definitions (``dict(raw_sg)`` alone would alias the inner
+        # ``nodes`` list into the caller's data).
+        sg = deepcopy(raw_sg)
         links = sg.get("links")
         if isinstance(links, list):
             sg["links"] = [
@@ -3120,9 +3123,12 @@ def emit_ui_json(
     breadcrumb = _breadcrumb(wf, source_template, prior_path)
 
     # --- extra: merge caller-provided extra (e.g. sidecar ds) with vibecomfy breadcrumb ---
-    # For door workflows (edited graphs), start from the captured wire ``extra``
-    # so ds/frontendVersion/VHS_* and opaque keys survive re-emission (Law 1
-    # wire preference); the fresh breadcrumb is still stamped on top.
+    # ``extra`` has exactly ONE storage owner per emit: the caller's explicit
+    # ``extra`` kwarg XOR the door-captured wire ``extra`` — never both.  When
+    # the caller supplies ``extra`` it is the sole source (sidecar/ds state);
+    # otherwise the door-captured wire ``extra`` is the sole source so
+    # ds/frontendVersion/VHS_* and opaque keys survive re-emission (Law 1
+    # wire preference).  The fresh breadcrumb is stamped on top either way.
     merged_extra: dict[str, Any] = {}
     if extra:
         merged_extra.update(dict(extra))
@@ -3165,7 +3171,8 @@ def emit_ui_json(
     # Subgraph definitions: caller-provided `definitions` (from sidecar envelope)
     # takes precedence; door-captured definitions (the raw wire blob) come next
     # so edited graphs preserve them; re-emitting from IR metadata is the
-    # fallback.
+    # fallback.  The breadcrumb stamp below runs on a detached copy so the
+    # caller's dict is never mutated.
     effective_defs = definitions
     if effective_defs is None:
         captured_defs = (
@@ -3177,6 +3184,8 @@ def emit_ui_json(
             deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
         )
     if effective_defs is not None:
+        if effective_defs is definitions:
+            effective_defs = deepcopy(effective_defs)
         for sg in effective_defs.get("subgraphs", []):
             sg_extra = dict(sg.get("extra") or {})
             sg_extra["vibecomfy"] = dict(breadcrumb)

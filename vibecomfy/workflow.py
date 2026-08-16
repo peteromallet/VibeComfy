@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 import math
 import warnings
@@ -291,7 +290,7 @@ class VibeWorkflow:
         """Serialize this IR as the stored vibe envelope.
 
         Public dataclass fields plus ``vibecomfy_format_version``. No
-        ``compiled_api`` — ``compile(\"api\")`` is a function, not stored data.
+        ``compiled_api`` — ``compile(\\\"api\\\")`` is a function, not stored data.
         Transport stamps such as ``workflow_id`` are applied by callers after
         this, not here.
 
@@ -299,7 +298,10 @@ class VibeWorkflow:
         envelope by :func:`from_envelope` and is UNTOUCHED since ingest, the
         raw envelope bytes are reproduced verbatim (``to_envelope(from_envelope(J))
         == J``) — the door-owned wire fields (raw node geometry presence,
-        opaque keys, key order) are preserved exactly.
+        opaque keys, key order) are preserved exactly.  The untouched-graph
+        restore decision is door-owned: this serializer delegates the
+        fingerprint comparison and raw-byte restore to the ingest door and
+        only renders the IR (plus the format stamp) for edited graphs.
         """
         _raise_embedded_api_links(self, surface="envelope serialization")
         invalid_geometry = _invalid_geometry_details(self)
@@ -309,17 +311,12 @@ class VibeWorkflow:
                 f"node {detail['node_id']!r}: {detail['field']} {detail['reason']}"
             )
         from vibecomfy.ingest.normalize import (  # noqa: PLC0415
-            _door_node_fingerprint,
-            _restore_untouched_door,
+            _restore_untouched_envelope,
         )
 
-        door = self.metadata.get("_ui_door") if isinstance(self.metadata, dict) else None
-        if (
-            isinstance(door, Mapping)
-            and door.get("shape") == "envelope"
-            and _door_node_fingerprint(self) == door.get("fingerprint")
-        ):
-            return _restore_untouched_door(door)
+        restored = _restore_untouched_envelope(self)
+        if restored is not None:
+            return restored
         plain = _to_plain(self)
         plain["vibecomfy_format_version"] = FORMAT_VERSION
         # The door blob is door-owned wire data, never stored envelope content.

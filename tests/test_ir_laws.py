@@ -91,11 +91,16 @@ def _freeze(value: Any) -> Any:
 
 
 def canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
-    """Canonical bytes used by the door law (order retained, whitespace fixed)."""
+    """Canonical bytes used by the door law (order retained, whitespace fixed).
+
+    Non-finite floats (NaN/Infinity) are serialized deterministically (the
+    JSON spec's ``NaN``/``Infinity`` tokens) rather than raising, so a fixture
+    or edit that introduces them never makes the door law flaky.
+    """
     return json.dumps(
         payload,
         ensure_ascii=False,
-        allow_nan=False,
+        allow_nan=True,
         separators=(",", ":"),
     ).encode("utf-8")
 
@@ -506,6 +511,98 @@ def test_law_1_door_fidelity(kind: str, path: Path) -> None:
     assert canonical_json_bytes(emitted) == canonical_json_bytes(raw)
 
 
+def test_door_fingerprint_detects_every_semantic_edit_path() -> None:
+    """Law 1 fingerprint: any edit through set_prompt/set_input/set_seed/
+    confirm_node/raw_widgets flips the door fingerprint, so the edited value is
+    never silently discarded by the untouched-byte passthrough."""
+    from vibecomfy.ingest.normalize import _door_node_fingerprint
+    from vibecomfy.workflow import RawWidgetPayload
+
+    path = SPIKE_CORPUS[2][1]  # LTX specimen: registers prompt/seed/model inputs
+
+    def ingest() -> VibeWorkflow:
+        return from_ui(
+            json.loads(path.read_bytes()),
+            source_path=str(path),
+            use_comfy_converter=False,
+        )
+
+    workflow = ingest()
+    door = workflow.metadata["_ui_door"]
+    assert _door_node_fingerprint(workflow) == door["fingerprint"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        emitted = emit_ui_json(workflow)
+    assert canonical_json_bytes(emitted) == canonical_json_bytes(
+        json.loads(path.read_bytes())
+    )
+
+    def assert_touched(mutate) -> None:
+        edited = ingest()
+        mutate(edited)
+        assert _door_node_fingerprint(edited) != door["fingerprint"], (
+            f"edit not detected: {mutate}"
+        )
+
+    assert_touched(lambda wf: wf.set_prompt("an edited prompt"))
+    assert_touched(lambda wf: wf.set_seed(987654321))
+    assert_touched(lambda wf: wf.set_input("model", "other_model.safetensors"))
+    assert_touched(lambda wf: wf.confirm_node("160"))
+    assert_touched(
+        lambda wf: setattr(
+            wf.nodes["160"],
+            "raw_widgets",
+            RawWidgetPayload(["1", "True"], "list", "ui.widgets_values", False, 2),
+        )
+    )
+    # Channel distinction: a widget-backed field edit is detected even when the
+    # same field name also exists in the input channel.
+    assert_touched(lambda wf: wf.nodes["160"].widgets.__setitem__("seed", 1234))
+
+
+def test_door_envelope_edit_is_not_silently_discarded() -> None:
+    """An edited envelope takes the IR rendering (not the byte passthrough),
+    and the edit is reflected in the serialized output."""
+    path = SPIKE_CORPUS[0][1]
+    raw = json.loads(path.read_bytes())
+    workflow = from_envelope(raw)
+    untouched = workflow.to_envelope()
+    assert canonical_json_bytes(untouched) == canonical_json_bytes(raw)
+
+    edited = from_envelope(raw)
+    edited.nodes["17"].widgets["widget_0"] = "edited-seed"
+    emitted = edited.to_envelope()
+    assert canonical_json_bytes(emitted) != canonical_json_bytes(raw)
+    assert emitted["nodes"]["17"]["widgets"]["widget_0"] == "edited-seed"
+    assert "_ui_door" not in emitted.get("metadata", {})
+
+
+def test_door_subgraph_edit_keeps_definitions_structure() -> None:
+    """An edit to a NON-subgraph node must not flatten the 5-node +
+    definitions form into the inner-node expansion: definitions stay intact and
+    the edit is reflected in the emitted envelope."""
+    path = SPIKE_CORPUS[1][1]
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    workflow.nodes["97"].inputs["image"] = "edited_input.png"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        emitted = emit_ui_json(workflow)
+
+    # Structure preserved: 5 top-level nodes, definitions present, inner
+    # subgraph contents untouched (no 5 -> 17/19 expansion).
+    assert len(emitted["nodes"]) == len(raw["nodes"])
+    assert "definitions" in emitted
+    raw_sg = raw["definitions"]["subgraphs"][0]
+    emitted_sg = emitted["definitions"]["subgraphs"][0]
+    assert emitted_sg["id"] == raw_sg["id"]
+    assert len(emitted_sg["nodes"]) == len(raw_sg["nodes"])
+
+    # The edit is reflected — the graph was NOT byte-passthrough.
+    node_97 = next(node for node in emitted["nodes"] if node["id"] == 97)
+    assert node_97["widgets_values"] == ["edited_input.png", "image"]
+
+
 @pytest.mark.parametrize(
     ("kind", "path", "_hash"),
     [
@@ -520,7 +617,7 @@ def test_law_1_door_fidelity(kind: str, path: Path) -> None:
             *SPIKE_CORPUS[1],
             marks=pytest.mark.xfail(
                 strict=False,
-                reason="batch 2: door law retains definitions",
+                reason="batch 7: immutable interpreter completes editable isomorphism",
             ),
         ),
         pytest.param(

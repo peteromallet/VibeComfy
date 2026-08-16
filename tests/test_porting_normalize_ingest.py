@@ -1007,7 +1007,11 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     written = wf.to_envelope()
     assert "compiled_api" not in written
     assert written["nodes"]["1"]["uid"] == "uid-loader"
-    assert written["nodes"]["2"]["mode"] == 4
+    # Law 1 door: an UNTOUCHED old-style envelope round-trips byte-identically
+    # (wire form preserved — mode stays in the legacy metadata location rather
+    # than being re-rendered as a first-class field).
+    assert written == envelope
+    assert written["nodes"]["2"]["metadata"]["mode"] == 4
     assert written["nodes"]["2"]["metadata"]["_ui"]["mode"] == 4
 
 
