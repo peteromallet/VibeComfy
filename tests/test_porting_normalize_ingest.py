@@ -1143,3 +1143,35 @@ def test_normalize_agent_edit_graph_accepts_api_prompt_dict() -> None:
     node_ids = {node["id"] for node in normalized["nodes"]}
     assert node_ids == {107, 108}, node_ids
     assert normalized["links"], "API edges must become canonical UI links"
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="batch 2: the lossless UI ingest door retains all wire-only top-level payloads",
+)
+def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+
+    retained_roots = (workflow.id, workflow.metadata)
+
+    def retained(expected: object, value: object) -> bool:
+        if value == expected:
+            return True
+        if isinstance(value, dict):
+            return any(retained(expected, item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(retained(expected, item) for item in value)
+        return False
+
+    for key in (
+        "id",
+        "version",
+        "last_node_id",
+        "last_link_id",
+        "links",
+        "extra",
+        "definitions",
+    ):
+        assert retained(raw[key], retained_roots), f"UI door dropped top-level {key!r}"

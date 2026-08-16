@@ -381,7 +381,7 @@ def _iter_research_precedent_sources(state: AgentEditState) -> tuple[Mapping[str
     notes = getattr(state, "execution_protocol_notes", None)
     if isinstance(notes, Mapping):
         raw_sources = notes.get("research_sources")
-        if isinstance(raw_sources, list):
+        if isinstance(raw_sources, (list, tuple)):
             sources.extend(source for source in raw_sources if isinstance(source, Mapping))
     return tuple(sources)
 

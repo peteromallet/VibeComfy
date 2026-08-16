@@ -5,6 +5,7 @@ import json
 import sys
 import types
 import warnings
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -3734,3 +3735,25 @@ def test_s02_property_corpus_workflows_emit_every_edge_or_refuse() -> None:
             assert 0 <= link[4] < len(by_id[str(link[3])].get("inputs", [])), (
                 f"{path}: link {link[0]} target slot outside emitted inputs"
             )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="batch 2: UI emitter restores exact retained definitions and top-level wire bytes",
+)
+def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
+    from vibecomfy.ingest.normalize import from_ui
+
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(workflow)
+    assert emitted["definitions"] == raw["definitions"]
+    assert emitted["extra"] == raw["extra"]
+    assert json.dumps(emitted, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+        raw,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )

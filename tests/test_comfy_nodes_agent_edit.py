@@ -19163,7 +19163,7 @@ def test_research_precedent_provisional_workflow_schema_does_not_shadow_real_sch
 _SHADOW = "ShadowNode"
 # Underscore-bearing class so the workflow/registry hydration filters treat it
 # as a plausible custom node (custom_only requires "_" in the class name).
-_GAP = "GapNode_KJ"
+_PROVISIONAL_ONLY = "GapNode_KJ"
 
 
 def _b04_real_shadow_schema() -> NodeSchema:
@@ -19183,7 +19183,7 @@ def _b04_real_shadow_schema() -> NodeSchema:
 
 def _b04_gap_schema() -> NodeSchema:
     return NodeSchema(
-        class_type=_GAP,
+        class_type=_PROVISIONAL_ONLY,
         pack=None,
         inputs={"model": InputSpec("MODEL", required=True)},
         outputs=[OutputSpec("MODEL", "MODEL")],
@@ -19247,10 +19247,10 @@ def _assert_b04_real_first(provider: Any, *, gap_source: str) -> None:
     )
     merged = provider.schemas()
     assert merged[_SHADOW] is resolved, "merged schemas() view lost real-first precedence"
-    gap = provider.get_schema(_GAP)
+    gap = provider.get_schema(_PROVISIONAL_ONLY)
     assert gap is not None
     assert gap.source_provider == gap_source, f"expected provisional gap fill, got {gap.source_provider}"
-    assert merged[_GAP] is gap, "merged schemas() view lost the provisional gap fill"
+    assert merged[_PROVISIONAL_ONLY] is gap, "merged schemas() view lost the provisional gap fill"
 
 
 def test_schema_precedence_helper_with_provisional_gap_filler_both_views() -> None:
@@ -19259,7 +19259,7 @@ def test_schema_precedence_helper_with_provisional_gap_filler_both_views() -> No
 
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
     provisional = ProvisionalRegistrySchemaProvider(
-        [_b04_provisional_candidate(_SHADOW, _GAP)]
+        [_b04_provisional_candidate(_SHADOW, _PROVISIONAL_ONLY)]
     )
     composite = with_provisional_gap_filler(real, provisional)
     assert isinstance(composite.providers[0], _Provider)
@@ -19274,7 +19274,7 @@ def test_schema_precedence_research_workflow_hydration_real_first() -> None:
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
     workflow_schema = {
         _SHADOW: _b04_provisional_node(_SHADOW, 0),
-        _GAP: _b04_provisional_node(_GAP, 1),
+        _PROVISIONAL_ONLY: _b04_provisional_node(_PROVISIONAL_ONLY, 1),
     }
     source = {
         "source": "external_workflow",
@@ -19295,7 +19295,7 @@ def test_schema_precedence_research_registry_hydration_real_first(
     from vibecomfy.registry import pack_resolver
 
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
-    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)
     monkeypatch.setattr(
         pack_resolver,
         "resolve_missing_nodes",
@@ -19306,7 +19306,7 @@ def test_schema_precedence_research_registry_hydration_real_first(
         "pack": "workflow",
         "url": "https://example.test/b04-registry.json",
         # class evidence only: drives the registry fallback, not :821's workflow path
-        "workflow_schema_classes": [_GAP],
+        "workflow_schema_classes": [_PROVISIONAL_ONLY],
     }
     state = _make_state(schema_provider=real, execution_protocol_notes={'research_sources': [source]})
     _hydrate_research_precedent_node_schemas(state)
@@ -19321,7 +19321,7 @@ def test_schema_precedence_current_graph_unknown_hydration_real_first(
     from vibecomfy.registry import pack_resolver
 
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
-    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)
     monkeypatch.setattr(
         pack_resolver,
         "resolve_missing_nodes",
@@ -19329,7 +19329,7 @@ def test_schema_precedence_current_graph_unknown_hydration_real_first(
     )
     state = _make_state(
         schema_provider=real,
-        graph={"nodes": [{"id": 1, "class_type": _GAP}]},
+        graph={"nodes": [{"id": 1, "class_type": _PROVISIONAL_ONLY}]},
     )
     _hydrate_current_graph_unknown_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
@@ -19340,7 +19340,7 @@ def test_schema_precedence_batch_loop_registry_hydration_real_first() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _hydrate_actionable_registry_dependencies
 
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
-    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)
     state = _make_state(
         schema_provider=real,
         runtime_dependencies=(
@@ -19362,7 +19362,7 @@ def test_schema_precedence_batch_repl_registry_hydration_real_first() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _candidate_stable_key
 
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
-    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)
     state = _make_state(
         schema_provider=real,
         runtime_dependencies=(
@@ -19410,7 +19410,7 @@ def test_schema_precedence_baseline_runtime_provider_real_first(
     authoring = _Provider(
         {
             _SHADOW: _b04_weaker_shadow_schema(),
-            _GAP: _b04_gap_schema(),
+            _PROVISIONAL_ONLY: _b04_gap_schema(),
         }
     )
     monkeypatch.setattr(
@@ -19441,8 +19441,8 @@ def test_schema_precedence_baseline_runtime_provider_real_first(
     resolved = provider.get_schema(_SHADOW)
     assert resolved is runtime_schema
     assert provider.schemas()[_SHADOW] is runtime_schema
-    assert provider.get_schema(_GAP) is authoring._schemas[_GAP]
-    assert provider.schemas()[_GAP] is authoring._schemas[_GAP]
+    assert provider.get_schema(_PROVISIONAL_ONLY) is authoring._schemas[_PROVISIONAL_ONLY]
+    assert provider.schemas()[_PROVISIONAL_ONLY] is authoring._schemas[_PROVISIONAL_ONLY]
 
 
 def test_schema_precedence_across_all_seven_construction_sites(
@@ -19468,7 +19468,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     # Site 1 — helper (vibecomfy/schema/provider.py)
     real = _Provider({_SHADOW: _b04_real_shadow_schema()})
     provisional = ProvisionalRegistrySchemaProvider(
-        [_b04_provisional_candidate(_SHADOW, _GAP)]
+        [_b04_provisional_candidate(_SHADOW, _PROVISIONAL_ONLY)]
     )
     _assert_b04_real_first(
         with_provisional_gap_filler(real, provisional),
@@ -19482,7 +19482,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
         "url": "https://example.test/b04-seven.json",
         "workflow_schema": {
             _SHADOW: _b04_provisional_node(_SHADOW, 0),
-            _GAP: _b04_provisional_node(_GAP, 1),
+            _PROVISIONAL_ONLY: _b04_provisional_node(_PROVISIONAL_ONLY, 1),
         },
     }
     state = _make_state(
@@ -19493,7 +19493,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     _assert_b04_real_first(state.schema_provider, gap_source="workflow_json_provisional")
 
     # Site 3 — _frag_research.py:874 (registry path, class-evidence source)
-    candidate = _b04_provisional_candidate(_GAP, _SHADOW)
+    candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)
     monkeypatch.setattr(
         pack_resolver,
         "resolve_missing_nodes",
@@ -19507,7 +19507,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
                     "source": "external_workflow",
                     "pack": "workflow",
                     "url": "https://example.test/b04-seven-registry.json",
-                    "workflow_schema_classes": [_GAP],
+                    "workflow_schema_classes": [_PROVISIONAL_ONLY],
                 },
             )
         },
@@ -19518,7 +19518,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     # Site 4 — _frag_research.py:922 (current-graph unknown nodes)
     state = _make_state(
         schema_provider=_Provider({_SHADOW: _b04_real_shadow_schema()}),
-        graph={"nodes": [{"id": 1, "class_type": _GAP}]},
+        graph={"nodes": [{"id": 1, "class_type": _PROVISIONAL_ONLY}]},
     )
     _hydrate_current_graph_unknown_node_schemas(state)
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
@@ -19573,7 +19573,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     authoring = _Provider(
         {
             _SHADOW: _b04_weaker_shadow_schema(),
-            _GAP: _b04_gap_schema(),
+            _PROVISIONAL_ONLY: _b04_gap_schema(),
         }
     )
     monkeypatch.setattr(
@@ -19599,8 +19599,8 @@ def test_schema_precedence_across_all_seven_construction_sites(
     assert isinstance(baseline.providers[0], _FakeRuntimeProvider)
     assert baseline.get_schema(_SHADOW) is runtime_schema
     assert baseline.schemas()[_SHADOW] is runtime_schema
-    assert baseline.get_schema(_GAP) is authoring._schemas[_GAP]
-    assert baseline.schemas()[_GAP] is authoring._schemas[_GAP]
+    assert baseline.get_schema(_PROVISIONAL_ONLY) is authoring._schemas[_PROVISIONAL_ONLY]
+    assert baseline.schemas()[_PROVISIONAL_ONLY] is authoring._schemas[_PROVISIONAL_ONLY]
 
     # Cross-turn authority: :793 enrichment must not poison session or state.
     session = types.SimpleNamespace(
@@ -19610,7 +19610,7 @@ def test_schema_precedence_across_all_seven_construction_sites(
     _enrich_schema_provider_from_resolver_candidates(
         state,
         session,
-        [_b04_provisional_candidate(_GAP, _SHADOW)],
+        [_b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)],
     )
     _assert_b04_real_first(session.schema_provider, gap_source="comfy_registry_provisional")
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
@@ -19639,7 +19639,7 @@ def test_schema_enrichment_cross_turn_keeps_real_first(
     _enrich_schema_provider_from_resolver_candidates(
         state,
         session,
-        [_b04_provisional_candidate(_GAP, _SHADOW)],
+        [_b04_provisional_candidate(_PROVISIONAL_ONLY, _SHADOW)],
     )
     _assert_b04_real_first(session.schema_provider, gap_source="comfy_registry_provisional")
     _assert_b04_real_first(state.schema_provider, gap_source="comfy_registry_provisional")
@@ -19654,7 +19654,7 @@ def test_schema_enrichment_cross_turn_keeps_real_first(
 
     # Turn 2 enrichment with NEW candidates (fresh stable hash) must not rotate
     # the earlier provisional ahead of the real provider either.
-    second_candidate = _b04_provisional_candidate(_GAP)
+    second_candidate = _b04_provisional_candidate(_PROVISIONAL_ONLY)
     second_candidate["stable_install_hash"] = "b04:turn2:GapNode"
     _enrich_schema_provider_from_resolver_candidates(
         state,

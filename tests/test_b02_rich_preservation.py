@@ -13,6 +13,7 @@ the checker's projections are not vacuous (a corrupted copy is detected).
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import shutil
 from copy import deepcopy
@@ -358,3 +359,18 @@ def test_synthetic_projection_detects_corruption() -> None:
     ]
     assert b02.rich_edge_tuples(truncated) != b02.rich_edge_tuples(intact)
     assert b02.check_envelope(intact)["mismatches"] == []
+
+
+def test_phase0_spike_vibe_envelope_identity_is_frozen() -> None:
+    """The rich-envelope spike specimen cannot drift under later law work."""
+    path = MINI_CORPUS / "90a1d5ff9044902e.json"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "3f7fe8c665328f4ffa8db8f851da2081f288c9e2d107fd697c89de8655cf5f63"
+    )
+    raw = json.loads(path.read_bytes())
+    workflow = from_envelope(raw)
+    assert workflow.id == "880d642726389e77"
+    assert len(workflow.nodes) == 15
+    assert len(workflow.edges) == 10
+    assert {node.mode for node in workflow.nodes.values()} == {0, 4}
+    assert all(node.uid and isinstance(node.metadata.get("_ui"), dict) for node in workflow.nodes.values())
