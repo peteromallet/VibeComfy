@@ -40,7 +40,7 @@ from vibecomfy.porting.edit._parse import (
     _fold_constant,
     _parse_and_validate_batch,
 )
-from vibecomfy.porting.edit._ir_utils import _uids_for_op, apply_edits_cow
+from vibecomfy.porting.edit._ir_utils import _uids_for_op
 
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 
@@ -48,6 +48,9 @@ _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 class _ParseExecuteMixin:
 
     def apply_batch(self, code: str) -> BatchResult:
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+        from vibecomfy.porting.edit.interpret import interpret
+
         parsed = _parse_and_validate_batch(
             code,
             max_batch_bytes=self.max_batch_bytes,
@@ -66,12 +69,6 @@ class _ParseExecuteMixin:
             graph_name_exists=self._graph_name_exists,
             estimate_add_node_width=self._estimate_add_node_width,
         )
-        # Capture the PRE-batch JSON store before statements mutate it:
-        # apply_delta REASSIGNS self.working_ui (deepcopy of its candidate),
-        # never mutating the prior object, so this reference stays the
-        # pre-batch state.  A lazy first workflow build (sessions without
-        # `initial_workflow`) must derive from THIS, never from the post-batch
-        # JSON — the COW rebuild applies the batch's own ops on top.
         pre_batch_ui = self.working_ui
         snapshot = self._snapshot_mutable_state()
         try:
@@ -131,18 +128,32 @@ class _ParseExecuteMixin:
             if saw_failed_edit and not landed_ops:
                 self._restore_snapshot(snapshot)
             if landed_ops:
-                # Batch 7: the retained IR is copy-on-write from the landed
-                # ops (the same engine interpret uses).  working_ui remains
-                # the emit-side snapshot only.  History records (wf_i, Δ_i)
-                # so rollback can replay via interpret.
                 if self.workflow is None:
                     self.workflow = self._workflow_from_ui(pre_batch_ui)
-                pre_ir = self.workflow
-                self.workflow = apply_edits_cow(
-                    pre_ir,
-                    landed_ops,
-                    schema_provider=self.schema_provider,
-                )
+                pre_ir = _cow_workflow_copy(self.workflow)
+                cas_old = self._cas_snapshot(pre_ir)
+                try:
+                    interpreted = interpret(
+                        pre_ir,
+                        code,
+                        schema_provider=self.schema_provider,
+                        max_batch_bytes=self.max_batch_bytes,
+                        max_statements=self.max_statements,
+                        max_expanded_statements=self.max_expanded_statements,
+                        max_for_iterations=self.max_for_iterations,
+                        cas_old=cas_old,
+                    )
+                except Exception:
+                    interpreted = None
+                if interpreted is not None and interpreted.ok and interpreted.workflow is not None:
+                    self.workflow = interpreted.workflow
+                else:
+                    ops_result = interpret(
+                        pre_ir,
+                        landed_ops,
+                        schema_provider=self.schema_provider,
+                    )
+                    self.workflow = ops_result.workflow
                 if getattr(self, "history", None) is None:
                     self.history = []
                 self.history.append((pre_ir, code))

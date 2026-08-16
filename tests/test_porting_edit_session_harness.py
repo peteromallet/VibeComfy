@@ -799,7 +799,8 @@ def test_session_history_is_workflow_delta_pairs(flat_ui: dict[str, Any]) -> Non
     session.apply_batch('cliptextencode.text = "history-1"')
     session.apply_batch('cliptextencode.text = "history-2"')
     assert len(session.history) == 2
-    assert session.history[0][0] is wf0
+    assert session.history[0][0] == wf0
+    assert session.history[0][0] is not session.workflow
     assert "history-1" in session.history[0][1]
     assert session.history[1][0] is not wf0
     assert session.rollback()

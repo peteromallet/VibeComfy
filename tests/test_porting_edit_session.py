@@ -6173,7 +6173,8 @@ class TestImmutableInterpreter:
             "hello",
             None,
         }
-        assert wf0 is session._wf0
+        assert session._wf0 is not session.workflow
+        assert session._wf0 is not None and wf0 is not None
 
 
 def pi_edit_nodes(result) -> tuple:

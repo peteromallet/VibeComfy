@@ -1105,6 +1105,11 @@ def from_ui(
     workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
         raw, workflow, use_comfy_converter=use_comfy_converter
     )
+    # Subgraph signatures are part of π_edit.  The door also retains the raw
+    # bytes; this copy is the IR-visible interface the quotient reads.
+    raw_definitions = raw.get("definitions")
+    if isinstance(raw_definitions, dict):
+        workflow.metadata["definitions"] = deepcopy(raw_definitions)
     return workflow
 
 

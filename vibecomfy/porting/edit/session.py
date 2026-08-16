@@ -176,10 +176,14 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
-        # Batch 7 (Law 2): committed history is (wf_i, Δ_i).  wf_0 is the
-        # ingest IR; each successful batch appends the pre-state plus the
-        # source that produced wf_{i+1} = interpret(wf_i, Δ_i).
-        self._wf0: VibeWorkflow | None = self.workflow
+        # Batch 7 (Law 2): committed history is (wf_i, Δ_i).  wf_0 is a COPY
+        # of the ingest IR so later mutation of self.workflow cannot alias it.
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+        self._wf0: VibeWorkflow | None = (
+            _cow_workflow_copy(self.workflow) if self.workflow is not None else None
+        )
+        self._ui0: dict[str, Any] = deepcopy(self.working_ui)
         self.history: list[tuple[VibeWorkflow, str]] = []
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
@@ -216,23 +220,28 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         return self._derived_name_maps()[1]
 
     def rollback(self, steps: int = 1) -> bool:
-        """Pop the last committed ``(wf_i, Δ_i)`` pair(s) and restore the IR.
+        """Pop the last committed ``(wf_i, Δ_i)`` pair(s) and restore IR + UI.
 
-        Replay from ``wf_0`` through the remaining deltas so no in-place
-        mutation is required.  Returns True when at least one pair was popped.
+        Replay from ``wf_0`` through the remaining deltas via ``interpret`` so
+        no in-place mutation is required.  ``working_ui`` is rebuilt by
+        projecting each remaining batch's landed ops onto ``_ui0``.
         """
         if steps <= 0 or not self.history:
             return False
-        popped = self.history[-steps:]
         del self.history[-steps:]
         from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
         workflow = self._wf0
         if workflow is None:
             workflow = self._workflow_from_ui(self.original_ui)
-            self._wf0 = workflow
+            self._wf0 = _cow_workflow_copy(workflow)
+        workflow = _cow_workflow_copy(workflow)
+        working_ui = deepcopy(getattr(self, "_ui0", self.original_ui))
+        remaining_ops: list[Any] = []
+        remaining_resolved: list[Any] = []
         for _pre, delta in self.history:
-            workflow = interpret(
+            result = interpret(
                 workflow,
                 delta,
                 schema_provider=self.schema_provider,
@@ -240,10 +249,55 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 max_statements=self.max_statements,
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
-            ).workflow
+            )
+            workflow = result.workflow
+            remaining_ops.extend(result.landed_ops)
+            working_ui = self._project_ops_onto_ui(working_ui, result.landed_ops)
         self.workflow = workflow
-        _ = popped
+        self.working_ui = working_ui
+        self.ledger = EditLedger.ingest(self.working_ui)
+        self.landed_ops = remaining_ops
+        self.resolved_ops = remaining_resolved
+        self.touched_uids = set()
+        self.touched_node_ids = set()
+        self._transient_name_index = {}
+        self._transient_uid_index = {}
+        self.unbound_names = set()
         return True
+
+    def _cas_snapshot(self, workflow: VibeWorkflow | None) -> dict[tuple[str, str], Any]:
+        snapshot: dict[tuple[str, str], Any] = {}
+        if workflow is None:
+            return snapshot
+        for node in workflow.nodes.values():
+            uid = str(getattr(node, "uid", "") or "")
+            if not uid:
+                continue
+            for name, value in {**node.inputs, **node.widgets}.items():
+                snapshot[(uid, str(name))] = value
+        return snapshot
+
+    def _project_ops_onto_ui(
+        self,
+        working_ui: dict[str, Any],
+        ops: tuple[Any, ...] | list[Any],
+    ) -> dict[str, Any]:
+        """UI projector for interpret's landed ops (apply layer, batch 15 target)."""
+        if not ops:
+            return working_ui
+        projected = working_ui
+        for op in ops:
+            applied = apply_delta(
+                projected,
+                (op,),
+                schema_provider=self.schema_provider,
+                value_default_context=self.value_default_context,
+            )
+            if applied.ok and applied.candidate is not None:
+                projected = deepcopy(applied.candidate)
+                if applied.resolved_ops:
+                    self.resolved_ops.extend(applied.resolved_ops)
+        return projected
 
 
 __all__ = [

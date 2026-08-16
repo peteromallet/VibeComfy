@@ -2251,21 +2251,21 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
 
 
 def test_agent_edit_render_resolves_primitive_float_helpers_before_emission() -> None:
-    from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
     from vibecomfy.porting.edit.session import EditSession
 
     session = EditSession(_primitive_float_helper_ui_graph())
+    retained = session.workflow
     source = session.render()
     workflow = session.last_rendered_workflow
 
     assert workflow is not None
-    assert "PrimitiveFloat" not in source
-    assert "285" not in workflow.nodes
-    assert all(
-        node.class_type not in RESOLVABLE_HELPER_CLASS_TYPES
-        for node in workflow.nodes.values()
-    )
-    assert workflow.nodes["287"].inputs["b"] == 24.0
+    assert retained is not None
+    # Render must not strip Primitive* from the retained IR (π_edit
+    # includes their values).  The emitted surface keeps the helper.
+    assert "PrimitiveFloat" in source
+    assert any(node.class_type == "PrimitiveFloat" for node in retained.nodes.values())
+    assert session.workflow is retained
+    assert any(node.class_type == "PrimitiveFloat" for node in workflow.nodes.values())
 
 
 def test_agent_edit_batch_internal_failure_is_not_provider_error(

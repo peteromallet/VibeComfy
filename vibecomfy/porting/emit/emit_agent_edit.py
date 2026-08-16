@@ -6,8 +6,8 @@ from typing import Any, Mapping, TYPE_CHECKING
 from vibecomfy.porting.emit.emit_prepare import _emit_agent_edit_lines, _prepare_workflow_for_emit
 from vibecomfy.porting.emit.emit_subgraph import (
     _apply_subgraph_names_to_prepared,
-    _emit_subgraph_functions,
     _subgraph_definitions_from_raw,
+    _subgraph_topological_order,
 )
 
 if TYPE_CHECKING:
@@ -36,6 +36,10 @@ def emit_agent_edit_python(
             "Raw LiteGraph UI JSON must be converted before emitter calls."
         )
 
+    # Prepare/subgraph naming stamp node.metadata.  Copy first so emit is
+    # a pure function of the IR (Law 2: interpret(∅, emit(wf)) must not
+    # mutate wf).
+    workflow = workflow.copy()
     prepared = _prepare_workflow_for_emit(
         workflow,
         apply_overrides=None,
@@ -56,18 +60,35 @@ def emit_agent_edit_python(
             prepared["subgraph_definitions"] = subgraph_definitions
             _apply_subgraph_names_to_prepared(prepared)
     lines = _emit_agent_edit_lines(prepared)
-    subgraph_lines = _emit_subgraph_functions(
-        prepared,
-        diagnostics=diagnostics,
-        constant_map={},
-        variable_name_locks=variable_name_locks,
-        strict_variable_name_locks=strict_variable_name_locks,
-    )
-    if subgraph_lines:
-        lines.extend(["", *subgraph_lines])
+    # FunctionDef is outside the editable grammar.  Emit the designed
+    # subgraph_interface(...) form so interpret can reconstruct signatures
+    # without executing subgraph bodies (bodies stay door-owned).
+    interface_lines = _emit_subgraph_interface_calls(prepared)
+    if interface_lines:
+        lines.extend(["", *interface_lines])
     source = "\n".join(lines) + "\n"
     try:
         ast.parse(source)
     except SyntaxError as exc:
         raise RuntimeError(f"Generated agent-edit Python failed syntax check: {exc}") from exc
     return source
+
+
+def _emit_subgraph_interface_calls(prepared: dict[str, Any]) -> list[str]:
+    """Emit designed ``subgraph_interface(...)`` calls (not FunctionDef)."""
+    subgraphs = prepared.get("subgraph_definitions") or {}
+    if not subgraphs:
+        return []
+    lines = ["# subgraph interfaces — signatures only; bodies are door-owned"]
+    for subgraph_id in _subgraph_topological_order(subgraphs):
+        subgraph = subgraphs[subgraph_id]
+        inputs = tuple((port.name, port.type) for port in subgraph.inputs)
+        outputs = tuple((port.name, port.type) for port in subgraph.outputs)
+        lines.append(
+            "subgraph_interface("
+            f"name={subgraph.slug!r}, "
+            f"id={subgraph.id!r}, "
+            f"inputs={inputs!r}, "
+            f"outputs={outputs!r})"
+        )
+    return lines

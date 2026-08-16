@@ -361,6 +361,48 @@ def _validate_planned_statement(
     return [_unsafe(statement, "statement_not_allowed", f"{type(statement).__name__} statements are not allowed.")]
 
 
+_SUBGRAPH_INTERFACE_KWARGS = frozenset({"name", "id", "inputs", "outputs"})
+
+
+def _validate_subgraph_interface_call(
+    node: ast.Call,
+    *,
+    env: Mapping[str, Any],
+) -> list[CompactDiagnostic]:
+    if node.args:
+        return [_unsafe(node, "positional_args_not_allowed", "subgraph_interface() must use keyword arguments.")]
+    issues: list[CompactDiagnostic] = []
+    seen: set[str] = set()
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            issues.append(_unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed."))
+            continue
+        if keyword.arg not in _SUBGRAPH_INTERFACE_KWARGS:
+            issues.append(
+                _unsafe(
+                    keyword.value,
+                    "unknown_subgraph_interface_field",
+                    f"subgraph_interface() does not accept {keyword.arg!r}.",
+                )
+            )
+            continue
+        seen.add(keyword.arg)
+        _, fold_issue = _fold_constant(keyword.value, env=env)
+        if fold_issue is not None:
+            issues.append(fold_issue)
+    missing = {"name", "inputs", "outputs"} - seen
+    if missing:
+        issues.append(
+            _unsafe(
+                node,
+                "missing_subgraph_interface_field",
+                "subgraph_interface() requires name=, inputs=, and outputs=.",
+                detail={"missing": sorted(missing)},
+            )
+        )
+    return issues
+
+
 def _validate_call(
     node: ast.expr,
     *,
@@ -386,6 +428,10 @@ def _validate_call(
         return [_unsafe(node, "call_not_allowed", f"Call to {name!r} is not allowed.")]
     if name == "range":
         return [_unsafe(node, "range_only_in_for", "range(...) is only allowed as a for-loop iterator.")]
+    if name == "subgraph_interface":
+        if not top_level:
+            return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
+        return _validate_subgraph_interface_call(node, env=env)
     if name in CONTROL_CALL_NAMES:
         if node.args or node.keywords:
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]

@@ -84,10 +84,6 @@ __all__ = [
 # Model file suffixes (used by _format_value for path normalization)
 # ---------------------------------------------------------------------------
 
-_MODEL_FILE_SUFFIXES: tuple[str, ...] = (
-    ".safetensors", ".ckpt", ".pt", ".bin", ".pth", ".gguf", ".onnx",
-)
-
 # ---------------------------------------------------------------------------
 # Shadowing output-variable name constants
 # ---------------------------------------------------------------------------
@@ -644,14 +640,6 @@ def _first_output_var(output_vars: dict[int, str] | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _format_value(value: Any, *, elide_strings_over: int | None = None) -> str:
-    # Normalize Windows-style backslash separators to forward slashes in model
-    # file paths (e.g. 'LTXVideo\\v2\\file.safetensors' → 'LTXVideo/v2/file.safetensors').
-    # ComfyUI model loaders accept either separator.
-    if isinstance(value, str) and "\\" in value:
-        if value.endswith(_MODEL_FILE_SUFFIXES) or any(
-            f"\\{ext[1:]}" in value for ext in _MODEL_FILE_SUFFIXES
-        ):
-            value = value.replace("\\", "/")
     if elide_strings_over is not None and isinstance(value, str) and len(value) > elide_strings_over:
         head = repr(value[:240])
         tail = repr(value[-80:])

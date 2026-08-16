@@ -79,7 +79,6 @@ _UID_COMMENT = re.compile(r"\buid:([^\s]+)")
 _PROVISIONAL_SCHEMA_SOURCES = frozenset(
     {"comfy_registry_provisional", "workflow_json_provisional"}
 )
-_POSITIONAL_FIELD = re.compile(r"(?:unused_)?widget_\d+\Z")
 
 
 def _freeze(value: Any) -> Any:
@@ -89,10 +88,6 @@ def _freeze(value: Any) -> Any:
         return tuple(_freeze(item) for item in value)
     if isinstance(value, set):
         return tuple(sorted(_freeze(item) for item in value))
-    # Comfy model loaders accept either path separator; emit canonicalizes
-    # Windows paths so the quotient compares the asset, not the slash style.
-    if isinstance(value, str) and "\\" in value:
-        return value.replace("\\", "/")
     return value
 
 
@@ -222,12 +217,12 @@ def pi_edit(
     """The exact editable quotient from ``.oracle/plan.md``.
 
     Included: deterministic emitted binding; class and normalized mode; named
-    literal fields with their channel/value/schema status; named connections;
-    grammar-visible graph/subgraph interfaces; and the stable uid needed to
-    resolve a binding.  Canvas/wire furniture, raw ids, link bookkeeping,
-    opaque UI, provenance, editor state, and unknown non-editable fields are
-    deliberately absent.  Nodes without an emitted binding (and edges touching
-    them) are furniture, so they are skipped rather than required to exist.
+    literal fields AND positional widget values (widget_N) with their
+    channel/value/schema status; named connections; grammar-visible subgraph
+    interfaces when present; and the stable uid needed to resolve a binding.
+    Canvas/wire furniture, raw ids, link bookkeeping, opaque UI, provenance,
+    editor state, and Note/MarkdownNote furniture are absent.  Nodes without
+    an emitted binding (and edges touching them) are furniture.
     """
     from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_aliases
 
@@ -249,12 +244,10 @@ def pi_edit(
                 [
                     ("input", str(name), _freeze(value), status)
                     for name, value in node.inputs.items()
-                    if _POSITIONAL_FIELD.fullmatch(str(name)) is None
                 ]
                 + [
                     ("widget", str(name), _freeze(value), status)
                     for name, value in node.widgets.items()
-                    if _POSITIONAL_FIELD.fullmatch(str(name)) is None
                 ]
             )
         )
@@ -303,7 +296,7 @@ def _tiny_workflow(*, node_ids: tuple[str, str] = ("1", "2")) -> VibeWorkflow:
         node_ids[0],
         "LawNode",
         inputs={"prompt": "before"},
-        widgets={"seed": 7},
+        widgets={"seed": 7, "widget_0": 11},
         uid="law-a",
     )
     workflow.nodes[node_ids[1]] = VibeNode(
@@ -364,6 +357,7 @@ def test_pi_edit_includes_editable_channels_mode_interfaces_and_stable_identity(
     node_a = next(node for node in projection[0] if node[1] == "law-a")
     assert ("input", "prompt", "before", "unknown") in node_a[4]
     assert ("widget", "seed", 7, "unknown") in node_a[4]
+    assert ("widget", "widget_0", 11, "unknown") in node_a[4]
     assert projection[1]
     # Graph-level VibeInput registrations are ingest heuristics, not grammar
     # forms, so π_edit keeps them out of the quotient.

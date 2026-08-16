@@ -27,14 +27,14 @@ class _RenderMixin:
             # Last-resort ingest for sessions constructed without an IR.
             # Renders never re-derive from working_ui after the IR exists.
             self.workflow = self._workflow_from_ui(self.original_ui)
-        workflow = self.workflow
-        from vibecomfy.porting.helper_resolve import resolve_helpers
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
-        resolve_diagnostics = resolve_helpers(workflow, {})
+        # Never mutate the retained IR.  Agent-edit emit keeps Get/Set/
+        # Reroute/Primitive* as surface nodes, so helper-stripping is not
+        # applied even on the copy.
+        workflow = _cow_workflow_copy(self.workflow)
         emission_diagnostics: list[EmissionDiagnostic] = []
         started = perf_counter()
-        # Emit from the retained IR only.  Subgraph definitions live on
-        # workflow.metadata, never on working_ui.
         source = emit_agent_edit_python(
             workflow,
             diagnostics=emission_diagnostics,
@@ -44,19 +44,6 @@ class _RenderMixin:
         for _uid, name in parsed_names:
             self.unbound_names.discard(name)
         all_diagnostics = [CompactDiagnostic.from_emission(item) for item in emission_diagnostics]
-        all_diagnostics.extend(
-            _diag(
-                f"resolve_{item.code}",
-                item.message,
-                severity=item.severity,
-                detail={
-                    "node_id": item.node_id,
-                    "class_type": item.class_type,
-                    **dict(item.detail),
-                },
-            )
-            for item in resolve_diagnostics.diagnostics
-        )
         if self.render_budget_ms is not None and elapsed_ms > self.render_budget_ms:
             all_diagnostics.append(
                 _diag(

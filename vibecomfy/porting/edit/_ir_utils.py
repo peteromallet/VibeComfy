@@ -148,27 +148,19 @@ def _canonical_input_name_for_class(
     schema_inputs: Mapping[str, Any],
     class_type: str,
     field_name: str,
+    *,
+    schema_provider: Any = None,
 ) -> str:
     canonical = _canonical_schema_input_name(schema_inputs, field_name)
     if canonical != field_name:
         return canonical
-    try:
-        from vibecomfy.porting.object_info.consume import get_class  # noqa: PLC0415
-
-        entry = get_class(class_type)
-    except Exception:
-        entry = None
-    if not isinstance(entry, Mapping):
+    if schema_provider is None:
         return field_name
-    object_info_inputs: dict[str, str] = {}
-    raw_inputs = entry.get("inputs")
-    if isinstance(raw_inputs, Mapping):
-        for group in raw_inputs.values():
-            if not isinstance(group, Mapping):
-                continue
-            for name in group:
-                object_info_inputs[str(name)] = str(name)
-    return _canonical_schema_input_name(object_info_inputs, field_name)
+    schema = schema_for(schema_provider, class_type)
+    extra = getattr(schema, "inputs", None) or {}
+    if not isinstance(extra, Mapping) or extra is schema_inputs:
+        return field_name
+    return _canonical_schema_input_name(extra, field_name)
 
 
 def _input_spec_for_field(schema_inputs: Mapping[str, Any], field_name: str) -> Any:

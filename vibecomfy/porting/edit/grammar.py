@@ -137,6 +137,15 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         ast_types=(ast.Expr, ast.Call, ast.Name),
         in_doc_table=False,
     ),
+    StatementForm(
+        form_id="subgraph_interface",
+        surface="`subgraph_interface(name=..., inputs=..., outputs=...)`",
+        op=None,
+        interpreter="reconstruct subgraph signatures onto metadata['definitions']",
+        ast_types=(ast.Expr, ast.Call, ast.Name, ast.keyword, ast.Constant, ast.Tuple),
+        in_doc_table=False,
+        in_prompt=False,
+    ),
 )
 
 
@@ -340,6 +349,8 @@ def op_kind_for_statement(statement: ast.stmt) -> str | None:
         return "remove_node"
     if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
         call = statement.value
+        if isinstance(call.func, ast.Name) and call.func.id == "subgraph_interface":
+            return "subgraph_interface"
         if isinstance(call.func, ast.Name) and call.func.id in CONTROL_CALL_NAMES:
             return "done"
         return "query"

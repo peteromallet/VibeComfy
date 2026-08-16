@@ -17,11 +17,9 @@ import warnings
 from typing import Any, Mapping
 
 from vibecomfy.errors import ConversionParityError
-from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
-from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES, VALUE_HELPER_CLASS_TYPES
 from vibecomfy.porting.emit.emit_constants import (
     UI_ONLY_CLASS_TYPES,
-    _AGENT_EDIT_STRING_ELIDE_THRESHOLD,
     _ui_widget_aliases,
 )
 from vibecomfy.porting.emit.emit_kwargs import (
@@ -45,7 +43,9 @@ from vibecomfy.porting.emit.emit_ready import (
 # Module-level constant
 # ---------------------------------------------------------------------------
 
-_VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+_VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = (
+    frozenset({"SetNode", "GetNode", "Reroute", "PrimitiveNode"}) | VALUE_HELPER_CLASS_TYPES
+)
 _AGENT_EDIT_MODE_LABELS = {2: "muted", 4: "bypassed"}
 
 
@@ -481,32 +481,18 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             if raw_key in edge_fields or _is_link(value):
                 continue
             alias = input_aliases.get(raw_key, to_python_identifier(raw_key))
-            kwargs.append((alias, _format_value(value, elide_strings_over=_AGENT_EDIT_STRING_ELIDE_THRESHOLD), raw_key))
+            kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
 
         for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
             raw_key = str(raw_name)
             if raw_key in edge_fields:
                 continue
-            resolved_key = raw_key
-            if raw_key.startswith("widget_"):
-                try:
-                    index = int(raw_key.split("_", 1)[1])
-                except ValueError:
-                    index = -1
-                if index >= 0:
-                    names = compact_widget_names_for_node(node, str(node.class_type)).names
-                    if index < len(names) and names[index] is not None:
-                        resolved_key = str(names[index])
-                    else:
-                        # Batch 4 (Law 5): positional widget_N/slot_N aliases
-                        # are never emitted.  An unnameable widget gets the
-                        # typed widget_unknown marker (the surface carries
-                        # name_confidence: none via schema status) so a
-                        # follow-up edit fails loudly instead of silently
-                        # aliasing the wrong positional slot.
-                        resolved_key = "widget_unknown"
-            alias = input_aliases.get(raw_key) or input_aliases.get(resolved_key) or to_python_identifier(resolved_key)
-            kwargs.append((alias, _format_value(value, elide_strings_over=_AGENT_EDIT_STRING_ELIDE_THRESHOLD), resolved_key))
+            # Emit the IR field name as stored.  Positional widget_N keys are
+            # the actual envelope payload, not aliases — rewriting them to a
+            # compact name (or collapsing them to widget_unknown) would hide
+            # inequality from π_edit.
+            alias = input_aliases.get(raw_key) or to_python_identifier(raw_key)
+            kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
 
         comment = _agent_edit_comment(nid, node, output_aliases.get(nid, {}), var_name=var)
         call_name = str(node.class_type)
