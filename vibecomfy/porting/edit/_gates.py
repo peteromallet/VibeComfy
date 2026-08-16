@@ -38,7 +38,8 @@ class _GatesMixin:
         and compares them with ``parity.compile_equivalent``.
 
         If zero ops have landed, it verifies that ``working_ui`` is still
-        identical to ``original_ui``.
+        identical to ``original_ui`` (the emit-side snapshot has not drifted)
+        and that the retained IR is still the ingest IR.
         """
         ops = tuple(self.landed_ops)
 

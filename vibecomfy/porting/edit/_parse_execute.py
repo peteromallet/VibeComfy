@@ -131,27 +131,21 @@ class _ParseExecuteMixin:
             if saw_failed_edit and not landed_ops:
                 self._restore_snapshot(snapshot)
             if landed_ops:
-                # Batch 5 (Law 5): the retained IR is the authority and the
-                # session rebuild is the SAME copy-on-write engine the law
-                # tests exercise — never a second ingest.  Re-running from_ui
-                # here would force EVERY node back to untrusted_source (a
-                # silent provenance downgrade for untouched nodes).  The COW
-                # engine deep-copies the pre-batch IR (untouched nodes keep
-                # their provenance), composes edited/added nodes through the
-                # monotone lattice join (max-taint, never a downgrade), and
-                # returns a NEW workflow — the pre-batch IR stays
-                # byte-identical, which also keeps snapshot/rollback safe
-                # (the snapshot holds the same pre-batch object by reference).
+                # Batch 7: the retained IR is copy-on-write from the landed
+                # ops (the same engine interpret uses).  working_ui remains
+                # the emit-side snapshot only.  History records (wf_i, Δ_i)
+                # so rollback can replay via interpret.
                 if self.workflow is None:
-                    # Lazy first build for sessions without initial_workflow:
-                    # derive from the PRE-batch JSON (the COW engine then
-                    # applies this batch's ops on top).
                     self.workflow = self._workflow_from_ui(pre_batch_ui)
+                pre_ir = self.workflow
                 self.workflow = apply_edits_cow(
-                    self.workflow,
+                    pre_ir,
                     landed_ops,
                     schema_provider=self.schema_provider,
                 )
+                if getattr(self, "history", None) is None:
+                    self.history = []
+                self.history.append((pre_ir, code))
             field_changes, statement_results = self._build_field_changes(
                 landed_ops,
                 statement_results,
@@ -178,6 +172,7 @@ class _ParseExecuteMixin:
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
             "workflow": self.workflow,
+            "history": list(getattr(self, "history", [])),
             "resolved_ops": list(self.resolved_ops),
             "render_count": self.render_count,
             "last_rendered_source": self.last_rendered_source,
@@ -195,6 +190,8 @@ class _ParseExecuteMixin:
         self.unbound_names = set(snapshot["unbound_names"])
         self.value_default_context = snapshot["value_default_context"]
         self.workflow = snapshot["workflow"]
+        if "history" in snapshot:
+            self.history = list(snapshot["history"])
         self.resolved_ops = list(snapshot["resolved_ops"])
         if "render_count" in snapshot:
             self.render_count = snapshot["render_count"]

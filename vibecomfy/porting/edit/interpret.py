@@ -1,0 +1,1078 @@
+"""Pure immutable interpreter for the Python edit surface.
+
+``interpret(pre, batch)`` is the Law 2 engine: same ``(pre, batch)`` yields
+the same post-IR, the pre-IR is never mutated, and a batch is transactional
+(all landed edits apply, or the pre-IR is returned with per-statement
+outcomes). Session history is ``(wf_i, Δ_i)`` pairs of this function.
+"""
+
+from __future__ import annotations
+
+import ast
+import keyword
+import re
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Literal, Mapping, Sequence
+
+from vibecomfy.porting.edit._ir_utils import (
+    _canonical_input_name_for_class,
+    _cow_workflow_copy,
+    _input_spec_for_field,
+    apply_edit_cow,
+    apply_edits_cow,
+)
+from vibecomfy.porting.edit._parse import (
+    _fold_constant,
+    _is_graph_reference_value,
+    _parse_and_validate_batch,
+    _resolve_vibecomfy_constructor,
+)
+from vibecomfy.porting.edit._session_types import (
+    CompactDiagnostic,
+    StatementResult,
+    _ExpandedStatement,
+    _diag,
+)
+from vibecomfy.porting.edit.apply_values import _validate_literal_value
+from vibecomfy.porting.edit.editable_surface import (
+    editable_surface_for,
+    is_positional_alias,
+)
+from vibecomfy.porting.edit.grammar import op_kind_for_assignment
+from vibecomfy.porting.edit.ops import (
+    AddNodeOp,
+    EditOp,
+    LinkSourceRef,
+    LinkTargetRef,
+    NodeFieldTarget,
+    NodeTarget,
+    RemoveLinkOp,
+    RemoveNodeOp,
+    SetModeOp,
+    SetNodeFieldOp,
+    UpsertLinkOp,
+)
+from vibecomfy.porting.edit.projection import MODE_LABELS
+from vibecomfy.identity.codec import to_python_identifier
+from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
+from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
+from vibecomfy.schema import get_schema_provider, schema_for, socket_types_compatible
+from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
+
+
+StatementStatus = Literal["applied", "rejected", "skipped"]
+
+_UID_COMMENT = re.compile(r"#\s*uid:([^\s]+)")
+_TYPED_PORT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)_(\d+)$")
+_SLOT_COMMENT = re.compile(
+    r"(\w+)(?:='([^']*)')?(?:\s+(?:known|provisional|unknown))?"
+)
+_MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
+_PLACEMENT_KWARGS = frozenset({"near", "relation", "group", "pos", "position", "coords", "x", "y"})
+
+
+@dataclass(frozen=True, slots=True)
+class StatementOutcome:
+    """Typed per-statement result of ``interpret``."""
+
+    statement_index: int
+    source: str
+    status: StatementStatus
+    reason: str | None = None
+    op_kind: str | None = None
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    op: EditOp | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class InterpretationResult:
+    """New IR plus the per-statement ledger for one batch.
+
+    ``workflow`` is always a distinct object from the pre-IR.  ``ok`` is true
+    only when every edit statement applied (or was a non-edit skip) and no
+    error diagnostic was produced.  A transactional rollback leaves
+    ``workflow`` equal (by value) to a copy of the pre-IR and marks previously
+    applied edits as rejected.
+    """
+
+    workflow: VibeWorkflow
+    statements: tuple[StatementOutcome, ...]
+    ok: bool
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    landed_ops: tuple[EditOp, ...] = ()
+    preflight_ok: bool = True
+
+
+def interpret(
+    pre_workflow: VibeWorkflow,
+    batch_source: str | Sequence[EditOp],
+    *,
+    schema_provider: Any | None = None,
+    max_batch_bytes: int = 1_000_000,
+    max_statements: int = 10_000,
+    max_expanded_statements: int = 20_000,
+    max_for_iterations: int = 100,
+    cas_old: Mapping[tuple[str, str], Any] | None = None,
+) -> InterpretationResult:
+    """Interpret ``batch_source`` against ``pre_workflow``, returning a NEW IR.
+
+    Pure: the input workflow is never mutated.  ``batch_source`` is either
+    Python surface text or an already-lowered op sequence (Law 3).
+    """
+    if not isinstance(pre_workflow, VibeWorkflow):
+        raise TypeError(
+            f"interpret requires VibeWorkflow, got {type(pre_workflow).__name__}"
+        )
+    provider = schema_provider or get_schema_provider("auto")
+    if not isinstance(batch_source, str):
+        return _interpret_ops(pre_workflow, tuple(batch_source), schema_provider=provider)
+    return _interpret_source(
+        pre_workflow,
+        batch_source,
+        schema_provider=provider,
+        max_batch_bytes=max_batch_bytes,
+        max_statements=max_statements,
+        max_expanded_statements=max_expanded_statements,
+        max_for_iterations=max_for_iterations,
+        cas_old=cas_old,
+    )
+
+
+def _interpret_source(
+    pre_workflow: VibeWorkflow,
+    source: str,
+    *,
+    schema_provider: Any,
+    max_batch_bytes: int,
+    max_statements: int,
+    max_expanded_statements: int,
+    max_for_iterations: int,
+    cas_old: Mapping[tuple[str, str], Any] | None,
+) -> InterpretationResult:
+    parsed = _parse_and_validate_batch(
+        source,
+        max_batch_bytes=max_batch_bytes,
+        max_statements=max_statements,
+        max_expanded_statements=max_expanded_statements,
+        max_for_iterations=max_for_iterations,
+    )
+    if parsed.diagnostics:
+        return InterpretationResult(
+            workflow=_cow_workflow_copy(pre_workflow),
+            statements=_outcomes_from_parse(parsed.statements, parsed.diagnostics),
+            ok=False,
+            diagnostics=parsed.diagnostics,
+            landed_ops=(),
+            preflight_ok=False,
+        )
+    runner = _InterpretRunner(
+        pre_workflow,
+        schema_provider=schema_provider,
+        cas_old=cas_old,
+        source=source,
+    )
+    return runner.run(parsed.expanded)
+
+
+def _interpret_ops(
+    pre_workflow: VibeWorkflow,
+    ops: tuple[EditOp, ...],
+    *,
+    schema_provider: Any,
+) -> InterpretationResult:
+    post = apply_edits_cow(pre_workflow, ops, schema_provider=schema_provider)
+    statements = tuple(
+        StatementOutcome(
+            statement_index=index,
+            source=type(op).__name__,
+            status="applied",
+            op_kind=getattr(op, "op", type(op).__name__),
+            op=op,
+        )
+        for index, op in enumerate(ops)
+    )
+    return InterpretationResult(
+        workflow=post,
+        statements=statements,
+        ok=True,
+        landed_ops=ops,
+    )
+
+
+def _outcomes_from_parse(
+    statements: tuple[StatementResult, ...],
+    diagnostics: tuple[CompactDiagnostic, ...],
+) -> tuple[StatementOutcome, ...]:
+    if statements:
+        return tuple(
+            StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="rejected",
+                reason=item.diagnostics[0].code if item.diagnostics else "preflight_failed",
+                op_kind=item.op_kind,
+                diagnostics=item.diagnostics,
+                detail=dict(item.detail),
+            )
+            for item in statements
+        )
+    return (
+        StatementOutcome(
+            statement_index=0,
+            source="",
+            status="rejected",
+            reason=diagnostics[0].code if diagnostics else "preflight_failed",
+            diagnostics=diagnostics,
+        ),
+    )
+
+
+class _InterpretRunner:
+    """Sequential, copy-on-write statement runner over one pre-IR."""
+
+    def __init__(
+        self,
+        pre_workflow: VibeWorkflow,
+        *,
+        schema_provider: Any,
+        cas_old: Mapping[tuple[str, str], Any] | None,
+        source: str = "",
+    ) -> None:
+        self._pre = pre_workflow
+        self.workflow = _cow_workflow_copy(pre_workflow)
+        self.schema_provider = schema_provider
+        self.cas_old = dict(cas_old or {})
+        self._source = source
+        self._source_lines = source.splitlines()
+        self.unbound: set[str] = set()
+        self.transient: dict[str, str] = {}
+        self._refresh_bindings()
+
+    def run(self, statements: tuple[_ExpandedStatement, ...]) -> InterpretationResult:
+        outcomes: list[StatementOutcome] = []
+        landed: list[EditOp] = []
+        diagnostics: list[CompactDiagnostic] = []
+        saw_landed_edit = False
+        saw_failed_edit = False
+        rollback = False
+        for item in statements:
+            outcome = self._run_one(item)
+            outcomes.append(outcome)
+            diagnostics.extend(outcome.diagnostics)
+            is_edit = outcome.op_kind not in {None, "query", "done", "statement"}
+            if outcome.status == "applied" and is_edit:
+                saw_landed_edit = True
+                if outcome.op is not None:
+                    landed.append(outcome.op)
+                continue
+            if outcome.status == "rejected" and is_edit:
+                if saw_landed_edit or saw_failed_edit:
+                    rollback = True
+                    break
+                saw_failed_edit = True
+        if rollback:
+            rollback_diag = _diag(
+                "batch_transaction_rolled_back",
+                "A later edit statement failed, so all edits from this batch were rolled back.",
+                severity="error",
+            )
+            rolled: list[StatementOutcome] = []
+            for outcome in outcomes:
+                if outcome.status == "applied" and outcome.op_kind not in {None, "query", "done"}:
+                    rolled.append(
+                        StatementOutcome(
+                            statement_index=outcome.statement_index,
+                            source=outcome.source,
+                            status="rejected",
+                            reason="batch_transaction_rolled_back",
+                            op_kind=outcome.op_kind,
+                            diagnostics=outcome.diagnostics + (rollback_diag,),
+                            detail=dict(outcome.detail),
+                        )
+                    )
+                else:
+                    rolled.append(outcome)
+            return InterpretationResult(
+                workflow=_cow_workflow_copy(self._pre),
+                statements=tuple(rolled),
+                ok=False,
+                diagnostics=tuple(diagnostics) + (rollback_diag,),
+                landed_ops=(),
+            )
+        ok = not any(
+            outcome.status == "rejected"
+            and outcome.op_kind not in {None, "query", "done"}
+            for outcome in outcomes
+        ) and not any(diag.severity == "error" for diag in diagnostics)
+        return InterpretationResult(
+            workflow=self.workflow,
+            statements=tuple(outcomes),
+            ok=ok,
+            diagnostics=tuple(diag for diag in diagnostics if diag.severity in {"error", "warning"}),
+            landed_ops=tuple(landed),
+        )
+
+    def _run_one(self, item: _ExpandedStatement) -> StatementOutcome:
+        statement = item.node
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="skipped",
+                reason="non_edit",
+                op_kind="done" if _call_id(statement.value) == "done" else "query",
+            )
+        if isinstance(statement, ast.Delete):
+            return self._delete(item)
+        if isinstance(statement, ast.Assign):
+            target = statement.targets[0]
+            if isinstance(target, ast.Name):
+                return self._add_node(item, target.id, statement.value)
+            if isinstance(target, ast.Attribute):
+                return self._assign_attribute(item, target, statement.value)
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="rejected",
+            reason="unsupported_statement",
+            op_kind=item.op_kind,
+            diagnostics=(
+                _diag(
+                    "unsupported_statement",
+                    "interpret only accepts the designed edit-surface statements.",
+                    severity="error",
+                ),
+            ),
+        )
+
+    def _add_node(self, item: _ExpandedStatement, target_name: str, value: ast.expr) -> StatementOutcome:
+        if target_name.startswith("__"):
+            return self._reject(item, "dunder_name_not_allowed", "node_call")
+        if not isinstance(value, ast.Call):
+            self.unbound.add(target_name)
+            return self._reject(
+                item,
+                "expression_not_call",
+                "node_call",
+                "Only node-construction calls may be assigned to graph names.",
+            )
+        class_type, class_issues = _class_type_from_call(value, item.env)
+        if class_issues:
+            self.unbound.add(target_name)
+            return self._reject_diagnostics(item, "node_call", class_issues)
+        fields: dict[str, Any] = {}
+        linked: dict[str, LinkSourceRef] = {}
+        issues: list[CompactDiagnostic] = []
+        schema = schema_for(self.schema_provider, class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
+        for keyword in value.keywords:
+            if keyword.arg is None:
+                issues.append(
+                    _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
+                )
+                continue
+            name = keyword.arg
+            if name in _PLACEMENT_KWARGS:
+                continue
+            if _is_graph_reference_value(keyword.value):
+                endpoint, endpoint_issues = self._resolve_source(keyword.value)
+                if endpoint_issues:
+                    issues.extend(endpoint_issues)
+                    continue
+                assert endpoint is not None
+                name = _decode_kwarg_name(
+                    name, schema_inputs, class_type, endpoint=endpoint
+                )
+                linked[name] = endpoint
+                continue
+            name = _decode_kwarg_name(name, schema_inputs, class_type)
+            literal, literal_issue = _fold_constant(keyword.value, env=item.env)
+            if literal_issue is not None:
+                issues.append(literal_issue)
+                continue
+            spec = _input_spec_for_field(schema_inputs, name)
+            bound_issues = _validate_literal_value(
+                value=literal,
+                spec=spec,
+                class_type=class_type,
+                input_name=name,
+                context="interpret",
+            )
+            # Instance reconstruction (emit replay) must accept the live value
+            # even when the local catalog enum does not list that asset.
+            hard = [
+                issue
+                for issue in bound_issues
+                if getattr(issue, "severity", "error") == "error"
+                and str(getattr(issue, "code", ""))
+                not in {"value_not_in_enum", "asset_not_installed"}
+            ]
+            if hard:
+                issues.extend(_port_issues(hard))
+                continue
+            fields[name] = literal
+        if issues:
+            self.unbound.add(target_name)
+            return self._reject_diagnostics(item, "node_call", issues)
+        uid = _uid_from_source(item.source) or self._uid_from_lines(item) or None
+        node_id = uid if uid and uid not in {str(n.id) for n in self.workflow.nodes.values()} else None
+        op = AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type=class_type,
+            fields=fields,
+            inputs=linked,
+            uid=uid,
+            node_id=node_id,
+        )
+        try:
+            # Channel: emit reconstruction stores instance literals in the
+            # IR input channel (matching from_ui).  widget_* names still
+            # land in widgets via _split_add_fields.
+            self.workflow = apply_edit_cow(self.workflow, op, schema_provider=None)
+        except Exception as exc:
+            self.unbound.add(target_name)
+            return self._reject(item, "add_node_failed", "node_call", str(exc))
+        minted = uid or self._uid_for_newest(class_type)
+        if minted:
+            self.transient[target_name] = minted
+            added = self._node_by_uid(minted)
+            if added is not None:
+                port_source = self._source_block(item) or item.source
+                _attach_emitted_ports(added, port_source, self.schema_provider)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="node_call",
+            op=op,
+            detail={"target_name": target_name, "minted_uid": minted, "class_type": class_type},
+        )
+
+    def _assign_attribute(
+        self,
+        item: _ExpandedStatement,
+        target: ast.Attribute,
+        rhs: ast.expr,
+    ) -> StatementOutcome:
+        node, node_issues = self._resolve_name(
+            target.value.id if isinstance(target.value, ast.Name) else ""
+        )
+        if node_issues:
+            return self._reject_diagnostics(
+                item,
+                op_kind_for_assignment(rhs, target_attr=target.attr),
+                node_issues,
+            )
+        assert node is not None
+        field_name = self._canonical_field(node, target.attr)
+        if target.attr == "mode":
+            return self._set_mode(item, node, rhs)
+        if isinstance(rhs, ast.Constant) and rhs.value is None:
+            return self._remove_link(item, node, field_name)
+        if _is_graph_reference_value(rhs):
+            return self._upsert_link(item, node, field_name, rhs)
+        return self._set_field(item, node, field_name, rhs)
+
+    def _set_mode(self, item: _ExpandedStatement, node: Any, rhs: ast.expr) -> StatementOutcome:
+        literal, issue = _fold_constant(rhs, env=item.env)
+        if issue is not None:
+            return self._reject_diagnostics(item, "set_mode", (issue,))
+        mode: int | None
+        if isinstance(literal, str):
+            mode = _MODE_LABEL_TO_VALUE.get(literal.strip().lower())
+        elif isinstance(literal, bool) or not isinstance(literal, int):
+            mode = None
+        else:
+            mode = literal if literal in MODE_LABELS else None
+        if mode is None:
+            return self._reject(
+                item,
+                "invalid_mode_value",
+                "set_mode",
+                "Mode assignments must use 0, 2, 4 or their MODE_LABELS-derived labels.",
+            )
+        current = mode_to_litegraph(node.mode)
+        if current == mode:
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="skipped",
+                reason="cas_unchanged",
+                op_kind="set_mode",
+            )
+        op = SetModeOp(op="set_mode", target=NodeTarget("", str(node.uid)), mode=mode)  # type: ignore[arg-type]
+        self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="set_mode",
+            op=op,
+        )
+
+    def _set_field(
+        self,
+        item: _ExpandedStatement,
+        node: Any,
+        field_name: str,
+        rhs: ast.expr,
+    ) -> StatementOutcome:
+        surface = editable_surface_for(
+            node, schema_provider=self.schema_provider, edges=self.workflow.edges
+        )
+        if field_name in surface.socket_names() and field_name not in surface.literal_names():
+            return self._reject(
+                item,
+                "socket_input_not_literal_widget",
+                "set_node_field",
+                f"{node.class_type}.{field_name} is an input socket, not a widget; connect a source node instead.",
+            )
+        if (
+            field_name
+            and field_name not in surface.literal_names()
+            and field_name not in node.inputs
+            and field_name not in node.widgets
+            and not is_positional_alias(field_name)
+        ):
+            # Unknown-schema instance: allow a new named literal the emit
+            # surface produced.  Completely unknown names still reject.
+            if surface.schema_status != "unknown" and surface.literal_names():
+                return self._reject(
+                    item,
+                    "unknown_target_field",
+                    "set_node_field",
+                    f"{node.class_type} has no editable field or input named {field_name!r}.",
+                )
+        literal, issue = _fold_constant(rhs, env=item.env)
+        if issue is not None:
+            return self._reject_diagnostics(item, "set_node_field", (issue,))
+        schema = schema_for(self.schema_provider, node.class_type)
+        spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
+        bound_issues = _validate_literal_value(
+            value=literal,
+            spec=spec,
+            class_type=str(node.class_type),
+            input_name=field_name,
+            context="interpret",
+        )
+        hard = [issue for issue in bound_issues if getattr(issue, "severity", "error") == "error"]
+        if hard:
+            return self._reject_diagnostics(item, "set_node_field", _port_issues(hard))
+        current = _current_field_value(node, field_name)
+        cas_key = (str(node.uid), field_name)
+        expected = self.cas_old.get(cas_key)
+        if expected is None:
+            expected = self.cas_old.get((str(getattr(node, "id", "")), field_name))
+        if expected is not None and expected != current:
+            return self._reject(
+                item,
+                "cas_mismatch",
+                "set_node_field",
+                f"{node.class_type}.{field_name} CAS failed: expected {expected!r}, current {current!r}.",
+            )
+        if current == literal:
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="skipped",
+                reason="cas_unchanged",
+                op_kind="set_node_field",
+            )
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", str(node.uid), field_name),
+            value=literal,
+        )
+        self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="set_node_field",
+            op=op,
+        )
+
+    def _upsert_link(
+        self,
+        item: _ExpandedStatement,
+        node: Any,
+        field_name: str,
+        rhs: ast.expr,
+    ) -> StatementOutcome:
+        surface = editable_surface_for(
+            node, schema_provider=self.schema_provider, edges=self.workflow.edges
+        )
+        if field_name in surface.literal_names() and field_name not in surface.socket_names():
+            return self._reject(
+                item,
+                "literal_field_not_socket",
+                "upsert_link",
+                f"{node.class_type}.{field_name} is a literal field, not a wiring socket.",
+            )
+        endpoint, issues = self._resolve_source(rhs)
+        if issues:
+            return self._reject_diagnostics(item, "upsert_link", issues)
+        assert endpoint is not None
+        source_node = self._node_by_uid(endpoint.uid)
+        if source_node is not None and endpoint.output_slot:
+            source_type = _output_socket_type(source_node, endpoint.output_slot)
+            dest_type = _input_socket_type(node, field_name, self.schema_provider)
+            if (
+                source_type
+                and dest_type
+                and not socket_types_compatible(source_type, dest_type)
+            ):
+                return self._reject(
+                    item,
+                    "socket_type_mismatch",
+                    "upsert_link",
+                    f"Cannot wire {source_type} into {dest_type} on {node.class_type}.{field_name}.",
+                )
+        op = UpsertLinkOp(
+            op="upsert_link",
+            source=endpoint,
+            target=LinkTargetRef("", str(node.uid), field_name),
+        )
+        self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="upsert_link",
+            op=op,
+        )
+
+    def _remove_link(self, item: _ExpandedStatement, node: Any, field_name: str) -> StatementOutcome:
+        op = RemoveLinkOp(
+            op="remove_link",
+            target=LinkTargetRef("", str(node.uid), field_name),
+        )
+        self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="remove_link",
+            op=op,
+        )
+
+    def _delete(self, item: _ExpandedStatement) -> StatementOutcome:
+        target = item.node.targets[0] if isinstance(item.node, ast.Delete) else None
+        if not isinstance(target, ast.Name):
+            return self._reject(item, "scope_escape_not_allowed", "remove_node")
+        node, issues = self._resolve_name(target.id)
+        if issues:
+            return self._reject_diagnostics(item, "remove_node", issues)
+        assert node is not None
+        op = RemoveNodeOp(op="remove_node", target=NodeTarget("", str(node.uid)))
+        self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
+        self.transient.pop(target.id, None)
+        self._refresh_bindings()
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="applied",
+            op_kind="remove_node",
+            op=op,
+        )
+
+    def _resolve_name(self, name: str) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
+        if not name:
+            return None, (
+                _diag("unknown_graph_name", "Unknown graph name.", severity="error", detail={"name": name}),
+            )
+        if name in self.unbound:
+            return None, (
+                _diag(
+                    "unbound_graph_name",
+                    f"Graph name {name!r} is currently unbound because its add-node statement did not land.",
+                    severity="error",
+                    detail={"name": name},
+                ),
+            )
+        uid = self.name_to_uid.get(name) or self.transient.get(name)
+        if uid is None:
+            node = self._node_by_uid(name)
+            if node is not None:
+                return node, ()
+            return None, (
+                _diag(
+                    "unknown_graph_name",
+                    f"Unknown graph name {name!r}. Render the session again if the canvas changed.",
+                    severity="error",
+                    detail={"name": name},
+                ),
+            )
+        node = self._node_by_uid(uid)
+        if node is None:
+            return None, (
+                _diag(
+                    "stale_graph_name",
+                    f"Graph name {name!r} still points at uid {uid!r}, but that uid is no longer present.",
+                    severity="error",
+                    detail={"name": name, "uid": uid},
+                ),
+            )
+        return node, ()
+
+    def _resolve_source(self, value: ast.expr) -> tuple[LinkSourceRef | None, tuple[CompactDiagnostic, ...]]:
+        if isinstance(value, ast.Name):
+            node, issues = self._resolve_name(value.id)
+            if issues:
+                return None, issues
+            assert node is not None
+            ports = _agent_edit_output_ports(node)
+            if len(ports) == 1:
+                slot = next(iter(ports.values()))
+                return LinkSourceRef("", str(node.uid), slot), ()
+            return None, (
+                _diag(
+                    "ambiguous_bare_reference",
+                    f"Bare reference {value.id!r} is ambiguous; use an explicit slot.",
+                    severity="error",
+                    detail={"name": value.id},
+                ),
+            )
+        if not isinstance(value, ast.Attribute) or not isinstance(value.value, ast.Name):
+            return None, (
+                _diag(
+                    "attribute_base_not_name",
+                    "Attribute access must start from a rendered graph name.",
+                    severity="error",
+                ),
+            )
+        node, issues = self._resolve_name(value.value.id)
+        if issues:
+            return None, issues
+        assert node is not None
+        slot = _resolve_output_slot(node, value.attr)
+        if slot is None:
+            return None, (
+                _diag(
+                    "unknown_output_slot",
+                    f"{node.class_type} has no output named {value.attr!r}.",
+                    severity="error",
+                    detail={"name": value.value.id, "uid": node.uid, "slot": value.attr},
+                ),
+            )
+        return LinkSourceRef("", str(node.uid), slot), ()
+
+    def _canonical_field(self, node: Any, raw: str) -> str:
+        schema = schema_for(self.schema_provider, node.class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
+        return _surface_field_name(schema_inputs, str(node.class_type), raw)
+
+    def _node_by_uid(self, uid: str) -> Any | None:
+        for node in self.workflow.nodes.values():
+            if str(getattr(node, "uid", "") or "") == str(uid):
+                return node
+        return None
+
+    def _source_block(self, item: _ExpandedStatement) -> str:
+        node = item.node
+        start = max(int(getattr(node, "lineno", 1) or 1) - 1, 0)
+        end = int(getattr(node, "end_lineno", start + 1) or start + 1)
+        return "\n".join(self._source_lines[start:end])
+
+    def _uid_from_lines(self, item: _ExpandedStatement) -> str | None:
+        return _uid_from_source(self._source_block(item))
+
+    def _uid_for_newest(self, class_type: str) -> str | None:
+        for node in reversed(list(self.workflow.nodes.values())):
+            if str(node.class_type) == class_type and str(getattr(node, "uid", "") or ""):
+                return str(node.uid)
+        return None
+
+    def _refresh_bindings(self) -> None:
+        try:
+            names = _compute_variable_names(self.workflow.nodes, list(self.workflow.edges))
+        except Exception:
+            names = {}
+        self.name_to_uid: dict[str, str] = {}
+        for node_id, name in names.items():
+            node = self.workflow.nodes.get(str(node_id))
+            uid = str(getattr(node, "uid", "") or "")
+            if uid:
+                self.name_to_uid.setdefault(name, uid)
+        for name, uid in self.transient.items():
+            self.name_to_uid.setdefault(name, uid)
+
+    def _reject(
+        self,
+        item: _ExpandedStatement,
+        code: str,
+        op_kind: str,
+        message: str | None = None,
+    ) -> StatementOutcome:
+        diagnostic = _diag(code, message or code, severity="error")
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="rejected",
+            reason=code,
+            op_kind=op_kind,
+            diagnostics=(diagnostic,),
+        )
+
+    def _reject_diagnostics(
+        self,
+        item: _ExpandedStatement,
+        op_kind: str,
+        diagnostics: Sequence[CompactDiagnostic],
+    ) -> StatementOutcome:
+        diags = tuple(diagnostics)
+        return StatementOutcome(
+            statement_index=item.statement_index,
+            source=item.source,
+            status="rejected",
+            reason=diags[0].code if diags else "rejected",
+            op_kind=op_kind,
+            diagnostics=diags,
+        )
+
+
+def _class_type_from_call(
+    call: ast.Call,
+    env: Mapping[str, Any],
+) -> tuple[str, tuple[CompactDiagnostic, ...]]:
+    func = call.func
+    name, dotted = _resolve_vibecomfy_constructor(func)
+    if isinstance(func, ast.Name) and func.id == "node":
+        if not call.args:
+            return "", (
+                _diag(
+                    "missing_node_class_type",
+                    "node(...) requires a class-type string as its first argument.",
+                    severity="error",
+                ),
+            )
+        value, issue = _fold_constant(call.args[0], env=env)
+        if issue is not None:
+            return "", (issue,)
+        if not isinstance(value, str) or not value:
+            return "", (
+                _diag(
+                    "invalid_node_class_type",
+                    "node(...) class type must be a non-empty string.",
+                    severity="error",
+                ),
+            )
+        return value, ()
+    if name is None:
+        return "", (
+            _diag("call_target_not_name", "Node construction calls must target a simple class name.", severity="error"),
+        )
+    if dotted:
+        return name, ()
+    return name, ()
+
+
+def _surface_field_name(
+    schema_inputs: Mapping[str, Any],
+    class_type: str,
+    name: str,
+) -> str:
+    return _decode_kwarg_name(name, schema_inputs, class_type)
+
+
+def _decode_kwarg_name(
+    name: str,
+    schema_inputs: Mapping[str, Any],
+    class_type: str,
+    *,
+    endpoint: LinkSourceRef | None = None,
+) -> str:
+    """Reverse emit's ``encode_slot_names`` using schema + type tokens."""
+    canonical = _canonical_input_name_for_class(schema_inputs, class_type, name)
+    if canonical != name:
+        return canonical
+    candidates = {str(key) for key in schema_inputs}
+    candidates.add(name)
+    dotted = name.replace("_", ".")
+    if dotted != name and dotted in schema_inputs:
+        candidates.add(dotted)
+    if name.startswith("variables_"):
+        candidates.add("variables." + name[len("variables_"):])
+    if name.endswith("_") and keyword.iskeyword(name[:-1]):
+        candidates.add(name[:-1])
+        candidates.add(name[:-1].upper())
+    if class_type == "SetNode" and endpoint is not None:
+        candidates.add(str(endpoint.output_slot).rsplit("_", 1)[0])
+    if class_type == "Reroute":
+        candidates.add("_" + name)
+    reverse: dict[str, str] = {}
+    collisions: dict[str, set[str]] = {}
+    for raw in candidates:
+        encoded = to_python_identifier(raw)
+        existing = reverse.get(encoded)
+        if existing is not None and existing != raw:
+            collisions.setdefault(encoded, {existing}).add(raw)
+        else:
+            reverse[encoded] = raw
+    if name in collisions:
+        options = collisions[name]
+        if class_type == "Reroute":
+            underscored = [item for item in options if item.startswith("_")]
+            if len(underscored) == 1:
+                return underscored[0]
+        if class_type == "SetNode":
+            upper = [item for item in options if item.isupper()]
+            if len(upper) == 1:
+                return upper[0]
+        return sorted(options)[0]
+    if name in reverse:
+        return reverse[name]
+    return name
+
+
+def _uid_from_source(source: str) -> str | None:
+    match = _UID_COMMENT.search(source)
+    return match.group(1) if match else None
+
+
+def _call_id(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
+def _current_field_value(node: Any, field_name: str) -> Any:
+    if field_name in getattr(node, "widgets", {}):
+        return node.widgets[field_name]
+    if field_name in getattr(node, "inputs", {}):
+        return node.inputs[field_name]
+    return None
+
+
+def _slots_from_source(source: str) -> list[tuple[str, str | None]]:
+    marker = source.rfind("slots ")
+    if marker < 0:
+        return []
+    blob = source[marker + 6 :].split("#", 1)[0]
+    found: list[tuple[str, str | None]] = []
+    for match in _SLOT_COMMENT.finditer(blob):
+        port, raw = match.group(1), match.group(2)
+        if port in {"known", "provisional", "unknown"}:
+            continue
+        found.append((port, raw))
+    return found
+
+
+def _attach_emitted_ports(node: Any, source: str, schema_provider: Any) -> None:
+    """Stamp typed emit ports onto a freshly added IR node.
+
+    ``apply_edit_cow`` only copies class/fields; output ports live in
+    instance metadata.  Without them ``src.IMAGE_0`` cannot resolve.
+    """
+    metadata = dict(getattr(node, "metadata", None) or {})
+    ports = _slots_from_source(source)
+    if not ports:
+        schema = schema_for(schema_provider, node.class_type)
+        schema_outputs = list(getattr(schema, "outputs", None) or [])
+        ports = [
+            (
+                f"{str(getattr(item, 'type', None) or getattr(item, 'name', None) or 'unknown').replace(' ', '_').upper()}_{index}",
+                getattr(item, "name", None),
+            )
+            for index, item in enumerate(schema_outputs)
+        ]
+    if not ports:
+        return
+    ui = dict(metadata.get("_ui") or {})
+    ui_outputs = []
+    alias: dict[str, str] = {}
+    for index, (port, raw) in enumerate(ports):
+        type_token = port.rsplit("_", 1)[0] if "_" in port else port
+        ui_outputs.append(
+            {
+                "name": raw or port,
+                "type": type_token,
+                "slot_index": index,
+            }
+        )
+        alias[port] = port
+        if raw:
+            alias[raw] = port
+    ui["outputs"] = ui_outputs
+    metadata["_ui"] = ui
+    metadata["_edit_ports"] = alias
+    metadata["output_names"] = [raw or port for port, raw in ports]
+    metadata["output_types"] = [
+        (port.rsplit("_", 1)[0] if "_" in port else port) for port, _raw in ports
+    ]
+    node.metadata = metadata
+
+
+def _resolve_output_slot(node: Any, attr: str) -> str | None:
+    aliases = (getattr(node, "metadata", None) or {}).get("_edit_ports")
+    if isinstance(aliases, Mapping) and attr in aliases:
+        return aliases[attr]
+    ports = _agent_edit_output_ports(node)
+    if attr in ports.values():
+        return attr
+    metadata = getattr(node, "metadata", None) or {}
+    raw_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+    if isinstance(raw_names, (list, tuple)) and attr in raw_names:
+        index = list(raw_names).index(attr)
+        return ports.get(index, attr)
+    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+    if isinstance(outputs, list):
+        for index, output in enumerate(outputs):
+            if isinstance(output, Mapping) and output.get("name") == attr:
+                return ports.get(index, attr)
+    match = _TYPED_PORT.fullmatch(attr)
+    if match is not None:
+        index = int(match.group(2))
+        if index in ports:
+            return ports[index]
+    return None
+
+
+def _output_socket_type(node: Any, slot: str | int) -> str | None:
+    ports = _agent_edit_output_ports(node)
+    if isinstance(slot, str):
+        for index, name in ports.items():
+            if name == slot:
+                metadata = getattr(node, "metadata", None) or {}
+                types = metadata.get("output_types") if isinstance(metadata, Mapping) else None
+                if isinstance(types, (list, tuple)) and index < len(types):
+                    return str(types[index]) or None
+                token = slot.rsplit("_", 1)[0]
+                return token if token else None
+    return None
+
+
+def _input_socket_type(node: Any, field_name: str, schema_provider: Any) -> str | None:
+    schema = schema_for(schema_provider, node.class_type)
+    spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
+    if spec is not None and getattr(spec, "type", None):
+        return str(spec.type)
+    return None
+
+
+def _port_issues(issues: Iterable[Any]) -> tuple[CompactDiagnostic, ...]:
+    return tuple(
+        CompactDiagnostic(
+            code=str(getattr(issue, "code", "edit_apply_error")),
+            message=str(getattr(issue, "message", "Edit apply failed.")),
+            severity=str(getattr(issue, "severity", "error")),
+            detail=dict(getattr(issue, "detail", {}) or {}),
+        )
+        for issue in issues
+    )
+
+
+__all__ = [
+    "InterpretationResult",
+    "StatementOutcome",
+    "StatementStatus",
+    "interpret",
+]

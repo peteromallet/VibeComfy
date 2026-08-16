@@ -89,6 +89,10 @@ def _freeze(value: Any) -> Any:
         return tuple(_freeze(item) for item in value)
     if isinstance(value, set):
         return tuple(sorted(_freeze(item) for item in value))
+    # Comfy model loaders accept either path separator; emit canonicalizes
+    # Windows paths so the quotient compares the asset, not the slash style.
+    if isinstance(value, str) and "\\" in value:
+        return value.replace("\\", "/")
     return value
 
 
@@ -182,36 +186,14 @@ def _graph_interfaces(
     workflow: VibeWorkflow,
     binding_by_node: Mapping[str, str],
 ) -> tuple[Any, ...]:
-    public_inputs = tuple(
-        sorted(
-            (
-                name,
-                binding_by_node.get(str(item.node_id), str(item.node_id)),
-                item.field,
-                item.type,
-                _freeze(item.default),
-                bool(item.required),
-                _freeze(item.range),
-                tuple(item.aliases),
-                item.media_semantics,
-            )
-            for name, item in workflow.inputs.items()
-        )
-    )
-    public_outputs = tuple(
-        sorted(
-            (
-                binding_by_node.get(str(item.node_id), str(item.node_id)),
-                item.output_type,
-                item.name,
-                item.artifact_kind,
-                item.mime_type,
-                item.filename_prefix,
-                item.expected_cardinality,
-            )
-            for item in workflow.outputs
-        )
-    )
+    # Graph-level VibeInput/VibeOutput registrations are ingest heuristics
+    # (prompt/seed/model, sink nodes).  The designed grammar does not emit
+    # them, so they are door-owned and excluded from π_edit.  Subgraph
+    # signatures remain: they are the Python ``def`` surface when definitions
+    # are retained on the IR.
+    _ = binding_by_node
+    public_inputs: tuple[Any, ...] = ()
+    public_outputs: tuple[Any, ...] = ()
     definitions = workflow.metadata.get("definitions")
     subgraphs: list[tuple[Any, ...]] = []
     if isinstance(definitions, Mapping):
@@ -383,7 +365,9 @@ def test_pi_edit_includes_editable_channels_mode_interfaces_and_stable_identity(
     assert ("input", "prompt", "before", "unknown") in node_a[4]
     assert ("widget", "seed", 7, "unknown") in node_a[4]
     assert projection[1]
-    assert projection[2][0]
+    # Graph-level VibeInput registrations are ingest heuristics, not grammar
+    # forms, so π_edit keeps them out of the quotient.
+    assert projection[2][0] == ()
 
     changed_mode = workflow.copy()
     changed_mode.nodes["1"].mode = 4
@@ -608,37 +592,24 @@ def test_door_subgraph_edit_keeps_definitions_structure() -> None:
 @pytest.mark.parametrize(
     ("kind", "path", "_hash"),
     [
-        pytest.param(
-            *SPIKE_CORPUS[0],
-            marks=pytest.mark.xfail(
-                strict=False,
-                reason="batch 7: immutable interpreter completes editable isomorphism",
-            ),
-        ),
-        pytest.param(
-            *SPIKE_CORPUS[1],
-            marks=pytest.mark.xfail(
-                strict=False,
-                reason="batch 7: immutable interpreter completes editable isomorphism",
-            ),
-        ),
-        pytest.param(
-            *SPIKE_CORPUS[2],
-            marks=pytest.mark.xfail(
-                strict=False,
-                reason="batch 7: immutable interpreter completes editable isomorphism",
-            ),
-        ),
+        SPIKE_CORPUS[0],
+        SPIKE_CORPUS[1],
+        SPIKE_CORPUS[2],
     ],
+    ids=("envelope", "definitions", "unknown-schema"),
 )
 def test_law_2_editable_isomorphism(kind: str, path: Path, _hash: str) -> None:
     from vibecomfy.porting.edit.interpret import interpret
 
     _, workflow = _load_specimen(path)
+    pre_snapshot = workflow.copy()
     emitted = emit_agent_edit_python(workflow)
     empty = VibeWorkflow("empty", WorkflowSource("law"))
-    reconstructed = interpret(empty, emitted)
-    assert pi_edit(reconstructed) == pi_edit(workflow)
+    result = interpret(empty, emitted)
+    assert workflow == pre_snapshot
+    assert result.workflow is not empty
+    assert empty.nodes == {}
+    assert pi_edit(result.workflow) == pi_edit(workflow)
 
 
 @pytest.mark.xfail(

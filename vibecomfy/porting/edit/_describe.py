@@ -37,9 +37,10 @@ class _DescribeMixin:
     def describe(self, name: str) -> NodeDescriptor:
         """Return a structured read-only description of the graph node named *name*.
 
-        This method is side-effect-free: it does not mutate ``working_ui`` and
-        does not record a landed operation.  It resolves *name* through the
-        current ``uid_by_name`` / ``name_by_uid`` locks and the ledger.
+        This method is side-effect-free: it does not mutate the retained IR
+        (or the emit-side JSON snapshot) and does not record a landed
+        operation.  It resolves *name* through the deterministic
+        ``(class_type, uid-order)`` bindings on the retained IR.
 
         Returns a :class:`NodeDescriptor` with fields, inputs, outputs, socket
         types, mode, uid, placement, and virtual/helper status.

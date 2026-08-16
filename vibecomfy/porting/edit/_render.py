@@ -24,17 +24,20 @@ class _RenderMixin:
         # Batch 4 (Law 5): binding names are a pure function of the IR, so
         # no name locks are seeded or validated here.
         if self.workflow is None:
-            self.workflow = self._workflow_from_ui(self.working_ui)
+            # Last-resort ingest for sessions constructed without an IR.
+            # Renders never re-derive from working_ui after the IR exists.
+            self.workflow = self._workflow_from_ui(self.original_ui)
         workflow = self.workflow
         from vibecomfy.porting.helper_resolve import resolve_helpers
 
         resolve_diagnostics = resolve_helpers(workflow, {})
         emission_diagnostics: list[EmissionDiagnostic] = []
         started = perf_counter()
+        # Emit from the retained IR only.  Subgraph definitions live on
+        # workflow.metadata, never on working_ui.
         source = emit_agent_edit_python(
             workflow,
             diagnostics=emission_diagnostics,
-            raw_workflow=self.working_ui,
         )
         elapsed_ms = (perf_counter() - started) * 1000.0
         parsed_names = _extract_uid_name_pairs(source)

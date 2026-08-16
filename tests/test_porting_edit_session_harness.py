@@ -768,3 +768,39 @@ def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
         diagnostic.code == "batch_transaction_rolled_back"
         for diagnostic in result.diagnostics
     )
+
+
+def test_interpret_python_view_isomorphism_on_flat(flat_ui: dict[str, Any]) -> None:
+    """emit(wf) → interpret(∅, source) equals π_edit(wf) on the flat fixture."""
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit.interpret import interpret
+    from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+    from tests.test_ir_laws import pi_edit
+
+    workflow = from_ui(
+        flat_ui, schema_provider=_flat_schema_provider(), use_comfy_converter=False
+    )
+    emitted = emit_agent_edit_python(workflow)
+    result = interpret(
+        VibeWorkflow("empty", WorkflowSource("law")),
+        emitted,
+        schema_provider=_flat_schema_provider(),
+    )
+    assert result.ok or result.landed_ops
+    assert pi_edit(result.workflow, schema_provider=_flat_schema_provider()) == pi_edit(
+        workflow, schema_provider=_flat_schema_provider()
+    )
+
+
+def test_session_history_is_workflow_delta_pairs(flat_ui: dict[str, Any]) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    wf0 = session.workflow
+    session.apply_batch('cliptextencode.text = "history-1"')
+    session.apply_batch('cliptextencode.text = "history-2"')
+    assert len(session.history) == 2
+    assert session.history[0][0] is wf0
+    assert "history-1" in session.history[0][1]
+    assert session.history[1][0] is not wf0
+    assert session.rollback()
+    assert len(session.history) == 1

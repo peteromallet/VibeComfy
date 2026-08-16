@@ -182,7 +182,7 @@ class NodeDescriptor:
     """Structured read-only description of one graph node.
 
     Returned by ``EditSession.describe(name)``.  Does not count as a landed
-    operation and never mutates ``working_ui``.
+    operation and never mutates the retained IR or the emit-side snapshot.
     """
 
     name: str

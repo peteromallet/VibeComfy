@@ -45,8 +45,13 @@ def emit_agent_edit_python(
         strict_variable_name_locks=strict_variable_name_locks,
         diagnostics=diagnostics,
     )
-    if raw_workflow is not None:
-        subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=None)
+    definitions_source = raw_workflow
+    if definitions_source is None:
+        metadata_definitions = getattr(workflow, "metadata", None) or {}
+        if isinstance(metadata_definitions, Mapping) and metadata_definitions.get("definitions"):
+            definitions_source = {"definitions": metadata_definitions.get("definitions")}
+    if definitions_source is not None:
+        subgraph_definitions = _subgraph_definitions_from_raw(definitions_source, source_path=None)
         if subgraph_definitions:
             prepared["subgraph_definitions"] = subgraph_definitions
             _apply_subgraph_names_to_prepared(prepared)

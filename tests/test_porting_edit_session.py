@@ -6012,3 +6012,171 @@ class TestEditableSurface:
             assert not field.name.startswith("output_")
         for port in surface.outputs:
             assert not port.name or not is_positional_alias(port.name)
+
+
+# ---------------------------------------------------------------------------
+# Batch 7 — immutable interpreter (Law 2)
+# ---------------------------------------------------------------------------
+
+
+class TestImmutableInterpreter:
+    """interpret(pre, batch) is pure, copy-on-write, and transactional."""
+
+    def _tiny(self):
+        from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("interp", WorkflowSource("interp"))
+        workflow.nodes["1"] = VibeNode("1", "LawNode", inputs={"prompt": "before"}, uid="law-a")
+        workflow.nodes["2"] = VibeNode("2", "LawNode", inputs={"strength": 0.5}, uid="law-b")
+        workflow.edges.append(VibeEdge("1", "IMAGE", "2", "image"))
+        return workflow
+
+    def test_interpret_is_pure_and_copy_on_write(self) -> None:
+        from copy import deepcopy
+
+        from vibecomfy.porting.edit.interpret import interpret
+
+        pre = self._tiny()
+        snapshot = deepcopy(pre)
+        first = interpret(pre, 'lawnode.prompt = "after"\n')
+        second = interpret(pre, 'lawnode.prompt = "after"\n')
+        assert pre == snapshot
+        assert first.workflow is not pre
+        assert first.ok
+        assert first.workflow.nodes["1"].inputs["prompt"] == "after"
+        assert pi_edit_nodes(first) == pi_edit_nodes(second)
+
+    def test_cas_rejects_stale_expected_value(self) -> None:
+        from vibecomfy.porting.edit.interpret import interpret
+
+        pre = self._tiny()
+        result = interpret(
+            pre,
+            'lawnode.prompt = "after"\n',
+            cas_old={("law-a", "prompt"): "stale"},
+        )
+        assert not result.ok
+        assert result.statements[0].status == "rejected"
+        assert result.statements[0].reason == "cas_mismatch"
+        assert result.workflow.nodes["1"].inputs["prompt"] == "before"
+
+    def test_idempotent_field_write_is_skipped(self) -> None:
+        from vibecomfy.porting.edit.interpret import interpret
+
+        pre = self._tiny()
+        result = interpret(pre, 'lawnode.prompt = "before"\n')
+        assert result.statements[0].status == "skipped"
+        assert result.statements[0].reason == "cas_unchanged"
+
+    def test_socket_literal_mismatch_is_rejected(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.schema import InputSpec, NodeSchema
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        class Provider:
+            def get_schema(self, ct: str) -> NodeSchema | None:
+                if ct == "Clip":
+                    return NodeSchema(
+                        "Clip",
+                        "core",
+                        {
+                            "text": InputSpec("STRING"),
+                            "clip": InputSpec("CLIP", required=True),
+                        },
+                        [],
+                    )
+                return None
+
+        workflow = VibeWorkflow("sock", WorkflowSource("sock"))
+        workflow.nodes["1"] = VibeNode("1", "Clip", inputs={"text": "hi"}, uid="clip-a")
+        surface = editable_surface_for(
+            workflow.nodes["1"], schema_provider=Provider(), edges=workflow.edges
+        )
+        assert "clip" in surface.socket_names()
+        result = interpret(
+            workflow,
+            "clip.text = 1\n" if "clip" not in surface.socket_names() else 'clip.clip = "not-a-wire"\n',
+            schema_provider=Provider(),
+        )
+        assert result.statements
+        assert result.statements[0].status == "rejected"
+        assert result.statements[0].reason in {
+            "socket_input_not_literal_widget",
+            "value_type_mismatch",
+        }
+
+    def test_unknown_schema_accepts_instance_literals(self) -> None:
+        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("unk", WorkflowSource("unk"))
+        workflow.nodes["1"] = VibeNode(
+            "1", "MysteryCustom", inputs={"quirk": 3}, uid="mystery-a"
+        )
+        result = interpret(workflow, "mysterycustom.quirk = 9\n")
+        assert result.ok
+        assert result.workflow.nodes["1"].inputs["quirk"] == 9
+
+    def test_session_multi_turn_history_and_rollback(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+        from vibecomfy.schema import InputSpec, NodeSchema
+
+        raw = {
+            "last_node_id": 1,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "CLIPTextEncode",
+                    "inputs": [],
+                    "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": []}],
+                    "properties": {"vibecomfy_uid": "enc-1"},
+                    "widgets_values": ["hello"],
+                }
+            ],
+            "links": [],
+        }
+
+        class Provider:
+            def get_schema(self, ct: str) -> NodeSchema | None:
+                if ct == "CLIPTextEncode":
+                    return NodeSchema(
+                        "CLIPTextEncode",
+                        "core",
+                        {"text": InputSpec("STRING")},
+                        [],
+                    )
+                return None
+
+        session = EditSession(raw, schema_provider=Provider())
+        wf0 = session.workflow
+        first = session.apply_batch('cliptextencode.text = "turn-1"\n')
+        assert first.ok
+        assert len(session.history) == 1
+        wf1 = session.workflow
+        second = session.apply_batch('cliptextencode.text = "turn-2"\n')
+        assert second.ok
+        assert len(session.history) == 2
+        assert session.workflow is not wf1
+        assert session.workflow.nodes["1"].inputs.get("text") == "turn-2" or (
+            session.workflow.nodes["1"].widgets.get("text") == "turn-2"
+        )
+        assert session.rollback()
+        assert len(session.history) == 1
+        current = session.workflow.nodes["1"]
+        assert current.inputs.get("text") == "turn-1" or current.widgets.get("text") == "turn-1"
+        assert session.rollback()
+        assert session.history == []
+        restored = session.workflow.nodes["1"]
+        assert restored.inputs.get("text") in {"hello", None} or restored.widgets.get("text") in {
+            "hello",
+            None,
+        }
+        assert wf0 is session._wf0
+
+
+def pi_edit_nodes(result) -> tuple:
+    from tests.test_ir_laws import pi_edit
+
+    return pi_edit(result.workflow)[0]

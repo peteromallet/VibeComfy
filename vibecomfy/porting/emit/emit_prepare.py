@@ -46,6 +46,7 @@ from vibecomfy.porting.emit.emit_ready import (
 # ---------------------------------------------------------------------------
 
 _VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+_AGENT_EDIT_MODE_LABELS = {2: "muted", 4: "bypassed"}
 
 
 # ---------------------------------------------------------------------------
@@ -70,21 +71,19 @@ def _prepare_workflow_for_emit(
     if prune_dead_branches and not getattr(workflow, "edges", ()):
         prune_dead_branches = False
 
-    # Defensive assertion: resolver MUST have eliminated all helper nodes before emission.
-    # If any RESOLVABLE_HELPER_CLASS_TYPES node survives, the resolver has a bug.
-    # Exception: when keep_virtual_wires=True, GetNode/SetNode/Reroute are intentionally
-    # kept and emitted as explicit wf.node(...) calls — they pass through the assertion.
-    # VALUE_HELPER_CLASS_TYPES (PrimitiveBoolean, etc.) still raise unconditionally.
-    for nid, node in getattr(workflow, 'nodes', {}).items():
-        if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
-            if keep_virtual_wires and node.class_type in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES:
-                continue
-            raise ConversionParityError(
-                f"Resolver bug: unresolved helper node {nid} "
-                f"(class_type={node.class_type!r}) survived to emission. "
-                f"The resolver must eliminate all RESOLVABLE_HELPER_CLASS_TYPES nodes "
-                f"before _prepare_workflow_for_emit is called."
-            )
+    # Agent-edit (keep_virtual_wires=True) keeps Get/Set/Reroute as surface
+    # nodes and strips leftover value helpers (Primitive*) so emit stays
+    # total. Scratchpad emission still treats surviving value helpers as a
+    # resolver bug.
+    if not keep_virtual_wires:
+        for nid, node in getattr(workflow, "nodes", {}).items():
+            if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
+                raise ConversionParityError(
+                    f"Resolver bug: unresolved helper node {nid} "
+                    f"(class_type={node.class_type!r}) survived to emission. "
+                    f"The resolver must eliminate all RESOLVABLE_HELPER_CLASS_TYPES nodes "
+                    f"before _prepare_workflow_for_emit is called."
+                )
     # UI-only classes (Note/MarkdownNote/PreviewAny/…) are normally decorative and
     # stripped. But some — notably PreviewAny — are wired as live PASSTHROUGHS
     # (their output feeds a real node). In fidelity mode (agent-edit,
@@ -106,7 +105,14 @@ def _prepare_workflow_for_emit(
     workflow_nodes = {
         nid: node
         for nid, node in workflow.nodes.items()
-        if node.class_type not in UI_ONLY_CLASS_TYPES or str(nid) in ui_only_passthroughs
+        if (
+            (node.class_type not in UI_ONLY_CLASS_TYPES or str(nid) in ui_only_passthroughs)
+            and not (
+                keep_virtual_wires
+                and node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
+                and node.class_type not in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES
+            )
+        )
     }
     _sync_declared_exec_output_metadata(workflow_nodes)
     edges_in: dict[str, list[Any]] = {}
@@ -521,13 +527,33 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         rendered_args = [*positional, *[f"{alias}={expr}" for alias, expr, _raw in kwargs]]
         if not rendered_args:
             lines.append(f"{call_head}){comment}")
-            continue
-        single_line = f"{call_head}{', '.join(rendered_args)}){comment}"
-        if len(single_line) <= 118:
-            lines.append(single_line)
-            continue
-        lines.append(call_head)
-        for arg in rendered_args:
-            lines.append(f"    {arg},")
-        lines.append(f"){comment}")
+        else:
+            single_line = f"{call_head}{', '.join(rendered_args)}){comment}"
+            if len(single_line) <= 118:
+                lines.append(single_line)
+            else:
+                lines.append(call_head)
+                for arg in rendered_args:
+                    lines.append(f"    {arg},")
+                lines.append(f"){comment}")
+        mode_line = _agent_edit_mode_assignment(var, node)
+        if mode_line:
+            lines.append(mode_line)
     return lines
+
+
+def _agent_edit_mode_assignment(var_name: str, node: Any) -> str | None:
+    """Emit ``name.mode = "bypassed"`` for a non-default IR mode.
+
+    Mode is part of π_edit and of the designed grammar.  Default ENABLED is
+    omitted so the common case stays a single constructor line.
+    """
+    from vibecomfy.workflow import mode_to_litegraph
+
+    mode = mode_to_litegraph(getattr(node, "mode", 0))
+    if mode in (0, None):
+        return None
+    label = _AGENT_EDIT_MODE_LABELS.get(mode)
+    if label is None:
+        return f"{var_name}.mode = {mode}"
+    return f"{var_name}.mode = {label!r}"

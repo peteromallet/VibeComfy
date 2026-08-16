@@ -411,7 +411,22 @@ def _validate_call(
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
     if node.args:
-        return [_unsafe(node, "positional_args_not_allowed", "Node calls must use keyword arguments.")]
+        # `node("ClassType", **kwargs)` is the emit form for identifiers that
+        # are not valid Python names (subgraph uuids, hyphenated classes).
+        if name == "node" and len(node.args) == 1:
+            class_type, class_issue = _fold_constant(node.args[0], env=env)
+            if class_issue is not None:
+                return [class_issue]
+            if not isinstance(class_type, str) or not class_type:
+                return [
+                    _unsafe(
+                        node.args[0],
+                        "invalid_node_class_type",
+                        "node(...) requires a non-empty class-type string.",
+                    )
+                ]
+        else:
+            return [_unsafe(node, "positional_args_not_allowed", "Node calls must use keyword arguments.")]
     issues: list[CompactDiagnostic] = []
     for keyword in node.keywords:
         if keyword.arg is None:

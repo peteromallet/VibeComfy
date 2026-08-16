@@ -176,6 +176,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
+        # Batch 7 (Law 2): committed history is (wf_i, Δ_i).  wf_0 is the
+        # ingest IR; each successful batch appends the pre-state plus the
+        # source that produced wf_{i+1} = interpret(wf_i, Δ_i).
+        self._wf0: VibeWorkflow | None = self.workflow
+        self.history: list[tuple[VibeWorkflow, str]] = []
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
     # name_by_uid / uid_by_name are READ-ONLY derivations from the IR (the
@@ -209,6 +214,36 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
     @property
     def uid_by_name(self) -> dict[str, str]:
         return self._derived_name_maps()[1]
+
+    def rollback(self, steps: int = 1) -> bool:
+        """Pop the last committed ``(wf_i, Δ_i)`` pair(s) and restore the IR.
+
+        Replay from ``wf_0`` through the remaining deltas so no in-place
+        mutation is required.  Returns True when at least one pair was popped.
+        """
+        if steps <= 0 or not self.history:
+            return False
+        popped = self.history[-steps:]
+        del self.history[-steps:]
+        from vibecomfy.porting.edit.interpret import interpret
+
+        workflow = self._wf0
+        if workflow is None:
+            workflow = self._workflow_from_ui(self.original_ui)
+            self._wf0 = workflow
+        for _pre, delta in self.history:
+            workflow = interpret(
+                workflow,
+                delta,
+                schema_provider=self.schema_provider,
+                max_batch_bytes=self.max_batch_bytes,
+                max_statements=self.max_statements,
+                max_expanded_statements=self.max_expanded_statements,
+                max_for_iterations=self.max_for_iterations,
+            ).workflow
+        self.workflow = workflow
+        _ = popped
+        return True
 
 
 __all__ = [
