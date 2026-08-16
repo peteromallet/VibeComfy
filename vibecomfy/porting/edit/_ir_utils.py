@@ -365,3 +365,452 @@ def _node_id_sort_key(node_id: str) -> tuple[int, int | str]:
         return (0, int(text))
     except ValueError:
         return (1, text)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Law 5 (batch 5): copy-on-write edits + provenance composition (max-taint).
+#
+# The edit session already rebuilds its IR from the apply engine's candidate
+# (COW at the session level).  These helpers make the invariant EXPLICIT at
+# the IR level, and are what ``interpret(pre, batch)`` (batch 7) builds on:
+#
+# * ``apply_edit_cow`` / ``apply_edits_cow`` NEVER mutate the input workflow;
+#   they return a NEW workflow (a deep copy), so the post-state shares no
+#   mutable node dicts with the pre-state.
+# * Every edit composes provenance through the monotone lattice join
+#   (max-taint): an edited node is re-tagged ``join(existing, agent_generated,
+#   *source provenances)`` and can never be silently downgraded — an agent
+#   edit on an untrusted-source node keeps it untrusted.
+# * ``_compose_edit_provenance`` is the session-rebuild twin: after the
+#   ingest door re-tags every node ``untrusted_source``, the retained IR is
+#   re-tagged from the PRE-state provenance so composed tags survive the
+#   rebuild exactly as the COW helpers produce them.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _cow_workflow_copy(workflow: "VibeWorkflow") -> "VibeWorkflow":
+    """Deep copy of a workflow for copy-on-write edits.
+
+    Mirrors ``VibeWorkflow.copy()``: the live ``contextvars.Token`` cannot be
+    deep-copied, so the memo maps it to ``None`` — every clone is unbound.
+    The deep copy guarantees the post-state shares NO mutable dicts (node
+    inputs/widgets/metadata, groups, source provenance) with the pre-state.
+    """
+    from copy import deepcopy as _deepcopy
+
+    memo = {id(getattr(workflow, "_workflow_context_token", None)): None}
+    return _deepcopy(workflow, memo=memo)
+
+
+def _root_node_for_uid(
+    workflow: "VibeWorkflow",
+    scope_path: str,
+    uid: str,
+) -> tuple[str | None, Any | None]:
+    """Resolve a ``(scope_path, uid)`` target to ``(node_id, VibeNode)``.
+
+    The IR is flat: subgraph-internal nodes live in ``metadata.definitions``,
+    not in ``workflow.nodes``, so non-root scopes are not resolvable at IR
+    level (batch 7's ``interpret`` will bridge the subgraph substrate).
+    """
+    if scope_path:
+        raise NotImplementedError(
+            f"subgraph-scope target {scope_path!r} is not supported by the "
+            "IR-level copy-on-write edit helpers yet"
+        )
+    for node_id, node in workflow.nodes.items():
+        if str(getattr(node, "uid", "") or "") == str(uid):
+            return str(node_id), node
+    return None, None
+
+
+def _mint_ir_node_id(workflow: "VibeWorkflow") -> str:
+    """Mint the next numeric node id (max existing numeric id + 1)."""
+    highest = 0
+    for node_id in workflow.nodes:
+        text = str(node_id)
+        if text.isdigit():
+            highest = max(highest, int(text))
+    return str(highest + 1)
+
+
+def _mint_ir_uid(workflow: "VibeWorkflow") -> str:
+    """Mint the next deterministic ``n<k>`` uid (max ``n<k>`` suffix + 1)."""
+    highest = 0
+    for node in workflow.nodes.values():
+        uid = str(getattr(node, "uid", "") or "")
+        if uid.startswith("n") and uid[1:].isdigit():
+            highest = max(highest, int(uid[1:]))
+    return f"n{highest + 1}"
+
+
+def _ir_output_slot_name(node: Any, output_slot: str | int) -> str:
+    """Map an op output slot (name or index) to the IR's named edge port."""
+    if isinstance(output_slot, str):
+        return output_slot
+    metadata = getattr(node, "metadata", None)
+    names = metadata.get("output_names") if isinstance(metadata, dict) else None
+    if (
+        isinstance(names, (list, tuple))
+        and 0 <= int(output_slot) < len(names)
+        and names[int(output_slot)]
+    ):
+        return str(names[int(output_slot)])
+    return str(output_slot)
+
+
+def _split_add_fields(
+    class_type: str,
+    fields: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split an add_node field map into (widgets, inputs).
+
+    Widgets are schema-classified literal widget fields (or positional
+    ``widget_N`` names); everything else lands in the input channel.
+    """
+    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+    from vibecomfy.schema import schema_for
+
+    widget_names: set[str] = set()
+    if schema_provider is not None:
+        schema = schema_for(schema_provider, class_type)
+        schema_inputs = getattr(schema, "inputs", None) or {}
+        widget_names = {
+            str(name)
+            for name, spec in schema_inputs.items()
+            if input_spec_is_literal_widget(spec)
+        }
+    widgets: dict[str, Any] = {}
+    inputs: dict[str, Any] = {}
+    for name, value in fields.items():
+        if name in widget_names or str(name).startswith("widget_"):
+            widgets[name] = value
+        else:
+            inputs[name] = value
+    return widgets, inputs
+
+
+def _tag_agent_edit_provenance(node: Any, *source_nodes: Any) -> None:
+    """Tag ``node`` with ``join(existing, agent_generated, *sources)``.
+
+    Max-taint composition: an untrusted source keeps the node untrusted (an
+    agent edit can never launder taint); a trusted node edited by an agent is
+    re-tainted ``agent_generated``; never downgraded below its prior taint.
+    """
+    from vibecomfy.security import provenance as _prov
+
+    merged = _prov.join(
+        _prov.read(node),
+        _prov.Provenance.AGENT_GENERATED,
+        *(_prov.read(source) for source in source_nodes),
+    )
+    _prov.tag(node, merged)
+
+
+def _tag_fresh_node_provenance(node: Any, *source_nodes: Any) -> None:
+    """Tag a newly added node with ``join(agent_generated, *sources)``.
+
+    The fresh node's own read is fail-closed ``untrusted_source`` and must
+    NOT participate — otherwise every added node would be poisoned untrusted
+    even when all its sources are trusted. Max-taint still propagates: any
+    untrusted source keeps the added node untrusted.
+    """
+    from vibecomfy.security import provenance as _prov
+
+    merged = _prov.join(
+        _prov.Provenance.AGENT_GENERATED,
+        *(_prov.read(source) for source in source_nodes),
+    )
+    _prov.tag(node, merged)
+
+
+def apply_edit_cow(
+    workflow: "VibeWorkflow",
+    op: EditOp,
+    *,
+    schema_provider: Any = None,
+) -> "VibeWorkflow":
+    """Apply one edit op copy-on-write, returning a NEW workflow.
+
+    The input ``workflow`` is never mutated: the result is a deep copy with
+    the changed nodes replaced, so the pre-state IR is byte-identical after
+    the edit and the post-state shares no mutable node dicts with it.
+    Provenance composes via the monotone lattice join (max-taint) — see
+    :func:`_tag_agent_edit_provenance`.
+    """
+    from vibecomfy.workflow import VibeEdge, VibeNode, litegraph_to_mode
+
+    post = _cow_workflow_copy(workflow)
+
+    if isinstance(op, SetNodeFieldOp):
+        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        field = op.target.field_path
+        if field in node.widgets:
+            node.widgets[field] = op.value
+        elif field in node.inputs:
+            node.inputs[field] = op.value
+        else:
+            # Unknown channel: the IR's canonical value channel is inputs.
+            node.inputs[field] = op.value
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, SetModeOp):
+        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"set_mode: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        node.mode = litegraph_to_mode(op.mode)
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, SetTitleOp):
+        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"set_title: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        ui = node.metadata.get("_ui")
+        if isinstance(ui, dict):
+            ui["title"] = op.title
+        else:
+            node.metadata["title"] = op.title
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, RemoveLinkOp):
+        if op.target is None:
+            raise ValueError(
+                "remove_link requires a target at IR level (link ids are LiteGraph-only)"
+            )
+        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"remove_link: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.edges = [
+            edge
+            for edge in post.edges
+            if not (edge.to_node == node_id and edge.to_input == op.target.input_field)
+        ]
+        _tag_agent_edit_provenance(node)
+        return post
+
+    if isinstance(op, UpsertLinkOp):
+        source_id, source_node = _root_node_for_uid(
+            post, op.source.scope_path, op.source.uid
+        )
+        target_id, target_node = _root_node_for_uid(
+            post, op.target.scope_path, op.target.uid
+        )
+        if source_node is None or target_node is None:
+            raise KeyError(
+                f"upsert_link: unresolvable endpoint uid "
+                f"{op.source.uid!r}/{op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.edges = [
+            edge
+            for edge in post.edges
+            if not (edge.to_node == target_id and edge.to_input == op.target.input_field)
+        ]
+        post.edges.append(
+            VibeEdge(
+                from_node=source_id,
+                from_output=_ir_output_slot_name(source_node, op.source.output_slot),
+                to_node=target_id,
+                to_input=op.target.input_field,
+            )
+        )
+        # The target's input now combines the source's provenance: max-taint.
+        _tag_agent_edit_provenance(source_node)
+        _tag_agent_edit_provenance(target_node, source_node)
+        return post
+
+    if isinstance(op, RemoveNodeOp):
+        node_id, _node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node_id is None:
+            raise KeyError(
+                f"remove_node: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        post.nodes.pop(node_id, None)
+        post.edges = [
+            edge
+            for edge in post.edges
+            if edge.from_node != node_id and edge.to_node != node_id
+        ]
+        post.inputs = {
+            name: entry
+            for name, entry in post.inputs.items()
+            if getattr(entry, "node_id", None) != node_id
+        }
+        post.outputs = [
+            output for output in post.outputs if getattr(output, "node_id", None) != node_id
+        ]
+        return post
+
+    if isinstance(op, AddNodeOp):
+        if op.scope_path:
+            raise NotImplementedError(
+                f"subgraph-scope add_node {op.scope_path!r} is not supported by the "
+                "IR-level copy-on-write edit helpers yet"
+            )
+        new_id = str(op.node_id) if op.node_id else _mint_ir_node_id(post)
+        if new_id in post.nodes:
+            raise ValueError(
+                f"add_node: node id {new_id!r} already exists in workflow {workflow.id!r}"
+            )
+        uid = str(op.uid) if op.uid else _mint_ir_uid(post)
+        widgets, inputs = _split_add_fields(
+            op.class_type, op.fields, schema_provider=schema_provider
+        )
+        node = VibeNode(
+            id=new_id,
+            class_type=op.class_type,
+            inputs=inputs,
+            widgets=widgets,
+            uid=uid,
+        )
+        source_nodes: list[Any] = []
+        for input_name, source_ref in op.inputs.items():
+            source_id, source_node = _root_node_for_uid(
+                post, source_ref.scope_path, source_ref.uid
+            )
+            if source_node is None:
+                raise KeyError(
+                    f"add_node: source uid {source_ref.uid!r} for input "
+                    f"{input_name!r} is missing from workflow {workflow.id!r}"
+                )
+            source_nodes.append(source_node)
+            post.edges.append(
+                VibeEdge(
+                    from_node=source_id,
+                    from_output=_ir_output_slot_name(source_node, source_ref.output_slot),
+                    to_node=new_id,
+                    to_input=input_name,
+                )
+            )
+        # New node's provenance = join(agent_generated, *source provenances).
+        _tag_fresh_node_provenance(node, *source_nodes)
+        post.nodes[new_id] = node
+        return post
+
+    if isinstance(op, ReorderOp):
+        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
+        if node is None:
+            raise KeyError(
+                f"reorder: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
+            )
+        if op.axis == "widgets":
+            names = [str(name) for name in op.order]
+            if names and set(names) == set(node.widgets):
+                node.widgets = {name: node.widgets[name] for name in names}
+            _tag_agent_edit_provenance(node)
+        return post
+
+    raise TypeError(f"unsupported edit op {type(op).__name__}")
+
+
+def apply_edits_cow(
+    workflow: "VibeWorkflow",
+    ops: tuple[EditOp, ...] | list[EditOp],
+    *,
+    schema_provider: Any = None,
+) -> "VibeWorkflow":
+    """Apply a sequence of edit ops copy-on-write, sequentially.
+
+    Every intermediate result is a fresh workflow, so no later op can alias a
+    node mutated by an earlier one, and the input ``workflow`` is never
+    touched. An empty sequence still returns a distinct copy.
+    """
+    post = workflow
+    for op in ops:
+        post = apply_edit_cow(post, op, schema_provider=schema_provider)
+    if post is workflow:
+        return _cow_workflow_copy(workflow)
+    return post
+
+
+def _compose_edit_provenance(
+    post: "VibeWorkflow",
+    pre: "VibeWorkflow | None",
+    ops: tuple[EditOp, ...] | list[EditOp],
+) -> None:
+    """Re-tag the session's rebuilt IR with the max-taint edit composition.
+
+    The ingest door unconditionally tags every decoded node
+    ``untrusted_source``, so a rebuild alone would DROP composed provenance.
+    This twin of :func:`_tag_agent_edit_provenance` re-tags each node touched
+    by ``ops`` from the PRE-state provenance: edited nodes become
+    ``join(pre, agent_generated)``, added nodes ``join(agent_generated,
+    *sources)`` — never a downgrade, exactly like the COW helpers.
+    """
+    from vibecomfy.security import provenance as _prov
+
+    pre_uid_to_node: dict[str, Any] = {}
+    if pre is not None:
+        pre_uid_to_node = {
+            str(node.uid): node for node in pre.nodes.values() if str(node.uid)
+        }
+
+    def tag_by_uid(
+        scope_path: str,
+        uid: str,
+        source_refs: tuple[Any, ...],
+        *,
+        added: bool,
+    ) -> None:
+        if scope_path:
+            return  # subgraph-internal nodes are not in the flat IR
+        node = next(
+            (
+                candidate
+                for candidate in post.nodes.values()
+                if str(getattr(candidate, "uid", "") or "") == str(uid)
+            ),
+            None,
+        )
+        if node is None:
+            return
+        # The rebuilt node reads untrusted_source (the ingest door wipes tags),
+        # so the composition base is the PRE-state provenance — never the
+        # rebuilt tag, which would silently downgrade trusted nodes.
+        pre_node = pre_uid_to_node.get(str(uid))
+        if added:
+            base = _prov.Provenance.AGENT_GENERATED
+        elif pre_node is not None:
+            base = _prov.read(pre_node)
+        else:
+            base = _prov.read(node)
+        sources = tuple(
+            source
+            for source_ref in source_refs
+            if (source := pre_uid_to_node.get(str(source_ref.uid))) is not None
+        )
+        merged = _prov.join(
+            base,
+            _prov.Provenance.AGENT_GENERATED,
+            *(_prov.read(source) for source in sources),
+        )
+        _prov.tag(node, merged)
+
+    for op in ops:
+        if isinstance(op, (SetNodeFieldOp, SetModeOp, SetTitleOp)):
+            tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
+        elif isinstance(op, RemoveNodeOp):
+            tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
+        elif isinstance(op, RemoveLinkOp):
+            if op.target is not None:
+                tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
+        elif isinstance(op, UpsertLinkOp):
+            tag_by_uid(op.source.scope_path, op.source.uid, (), added=False)
+            tag_by_uid(op.target.scope_path, op.target.uid, (op.source,), added=False)
+        elif isinstance(op, AddNodeOp):
+            if op.uid:
+                tag_by_uid(op.scope_path, op.uid, tuple(op.inputs.values()), added=True)

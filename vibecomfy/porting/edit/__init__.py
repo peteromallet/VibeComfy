@@ -54,6 +54,8 @@ _EXPORT_MODULES = {
     "ResolveResult": "vibecomfy.porting.edit.apply",
     "apply_delta": "vibecomfy.porting.edit.apply",
     "resolve_delta": "vibecomfy.porting.edit.apply",
+    "apply_edit_cow": "vibecomfy.porting.edit._ir_utils",
+    "apply_edits_cow": "vibecomfy.porting.edit._ir_utils",
     "LintIndex": "vibecomfy.porting.edit.lint",
     "LintIssue": "vibecomfy.porting.edit.lint",
     "LintNormalization": "vibecomfy.porting.edit.lint",

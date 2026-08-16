@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Final, Mapping, get_args
+from typing import Any, Final, Mapping
 
 from vibecomfy.contracts.intent_nodes import (
     EXECUTION_MODE_UNRESTRICTED,
@@ -180,7 +180,9 @@ def execute_runtime_code(
 # trusted-provenance allow rule covers ``agent_authored`` / ``agent_generated`` /
 # ``user_confirmed``; ``untrusted_source`` is the fail-closed default. Any value
 # outside this set is treated as untrusted (SD2).
-_RUNTIME_PROVENANCE_VALUES: Final[frozenset[Provenance]] = frozenset(get_args(Provenance))
+_RUNTIME_PROVENANCE_VALUES: Final[frozenset[str]] = frozenset(
+    member.value for member in Provenance
+)
 
 
 def _resolve_runtime_provenance(vibecomfy_props: Mapping[str, Any]) -> Provenance:
@@ -198,8 +200,8 @@ def _resolve_runtime_provenance(vibecomfy_props: Mapping[str, Any]) -> Provenanc
     """
     raw = vibecomfy_props.get(PROVENANCE_KEY)
     if isinstance(raw, str) and raw in _RUNTIME_PROVENANCE_VALUES:
-        return raw  # type: ignore[return-value]
-    return "untrusted_source"
+        return Provenance(raw)
+    return Provenance.UNTRUSTED_SOURCE
 
 
 def execute_runtime_code_dynamic(

@@ -41,7 +41,7 @@ from vibecomfy.porting.edit._parse import (
     _fold_constant,
     _parse_and_validate_batch,
 )
-from vibecomfy.porting.edit._ir_utils import _uids_for_op
+from vibecomfy.porting.edit._ir_utils import _compose_edit_provenance, _uids_for_op
 
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 
@@ -132,13 +132,21 @@ class _ParseExecuteMixin:
                 # IR carries the new wire data (widgets/id/extra); the exit
                 # emit_ui_json reconstructs the candidate from this IR and
                 # reproduces working_ui, keeping the authority replay exact.
+                # Batch 5 (Law 5): the rebuild is copy-on-write (the pre-batch
+                # IR is never mutated), and provenance composes through the
+                # monotone lattice join — the ingest door re-tags everything
+                # untrusted_source, so _compose_edit_provenance re-tags the
+                # touched nodes from the PRE-state tags (max-taint, never a
+                # silent downgrade).
                 from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
 
+                pre_workflow = self.workflow
                 self.workflow = from_ui(
                     self.working_ui,
                     schema_provider=self.schema_provider,
                     use_comfy_converter=False,
                 )
+                _compose_edit_provenance(self.workflow, pre_workflow, landed_ops)
             field_changes, statement_results = self._build_field_changes(
                 landed_ops,
                 statement_results,

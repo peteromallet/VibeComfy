@@ -8,6 +8,8 @@ and provisional failure ledger so later batches cannot weaken the contracts.
 from __future__ import annotations
 
 import ast
+import copy
+import dataclasses
 import hashlib
 import json
 import re
@@ -22,7 +24,7 @@ from vibecomfy.ingest.normalize import from_envelope, from_ui
 from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider, schema_for
-from vibecomfy.schema.provider import InputSpec, NodeSchema
+from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeWorkflow, WorkflowSource, mode_to_litegraph
 
 
@@ -689,69 +691,71 @@ def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
     assert all(judge[key] == reply[key] for key in judge)
 
 
+# Golden workflow fixture for Law 5: two VHS_LoadVideo nodes (deterministic
+# collision suffix: vhs_loadvideo / vhs_loadvideo_2) wired by a NAMED typed
+# output ("MASK" → MASK_0), with a schema_source Mapping on each node so the
+# slots comment carries the explicit schema status. Shared by the binding
+# golden test and the batch-5 provenance/COW law tests.
+_LAW5_RAW_UI: dict[str, Any] = {
+    "last_node_id": 2,
+    "last_link_id": 1,
+    "nodes": [
+        {
+            "id": 1,
+            "type": "VHS_LoadVideo",
+            "pos": [0, 0],
+            "size": [300, 100],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [
+                {"name": "MASK", "type": "MASK", "links": [1], "slot_index": 0},
+                {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
+            ],
+            "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-a"},
+            "widgets_values": ["a.mp4", 7],
+        },
+        {
+            "id": 2,
+            "type": "VHS_LoadVideo",
+            "pos": [400, 0],
+            "size": [300, 100],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [{"name": "video", "type": "VIDEO", "link": 1}],
+            "outputs": [
+                {"name": "MASK", "type": "MASK", "links": [], "slot_index": 0},
+                {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
+            ],
+            "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-b"},
+            "widgets_values": ["b.mp4"],
+        },
+    ],
+    "links": [[1, 1, 0, 2, 0, "VIDEO"]],
+    "groups": [],
+    "config": {},
+    "extra": {},
+    "version": 0.4,
+}
+
+
+class _Law5Provider:
+    def get_schema(self, ct: str) -> NodeSchema | None:
+        if ct == "VHS_LoadVideo":
+            return NodeSchema(
+                "VHS_LoadVideo",
+                "comfy_registry",
+                {"video": InputSpec("STRING"), "frame_load_cap": InputSpec("INT")},
+                [OutputSpec("MASK", "MASK"), OutputSpec("IMAGE", "IMAGE")],
+            )
+        return None
+
+
 def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
     from vibecomfy.porting.edit.session import EditSession
-    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
     from vibecomfy.workflow import NodeMode, VibeNode, VibeWorkflow, WorkflowSource, _get_node_mode
-
-    # Golden workflow: two VHS_LoadVideo nodes (deterministic collision
-    # suffix: vhs_loadvideo / vhs_loadvideo_2) wired by a NAMED typed output
-    # ("MASK" → MASK_0), with a schema_source Mapping on each node so the
-    # slots comment carries the explicit schema status.
-    _LAW5_RAW_UI = {
-        "last_node_id": 2,
-        "last_link_id": 1,
-        "nodes": [
-            {
-                "id": 1,
-                "type": "VHS_LoadVideo",
-                "pos": [0, 0],
-                "size": [300, 100],
-                "flags": {},
-                "order": 0,
-                "mode": 0,
-                "inputs": [],
-                "outputs": [
-                    {"name": "MASK", "type": "MASK", "links": [1], "slot_index": 0},
-                    {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
-                ],
-                "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-a"},
-                "widgets_values": ["a.mp4", 7],
-            },
-            {
-                "id": 2,
-                "type": "VHS_LoadVideo",
-                "pos": [400, 0],
-                "size": [300, 100],
-                "flags": {},
-                "order": 1,
-                "mode": 0,
-                "inputs": [{"name": "video", "type": "VIDEO", "link": 1}],
-                "outputs": [
-                    {"name": "MASK", "type": "MASK", "links": [], "slot_index": 0},
-                    {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
-                ],
-                "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-b"},
-                "widgets_values": ["b.mp4"],
-            },
-        ],
-        "links": [[1, 1, 0, 2, 0, "VIDEO"]],
-        "groups": [],
-        "config": {},
-        "extra": {},
-        "version": 0.4,
-    }
-
-    class _Law5Provider:
-        def get_schema(self, ct: str) -> NodeSchema | None:
-            if ct == "VHS_LoadVideo":
-                return NodeSchema(
-                    "VHS_LoadVideo",
-                    "comfy_registry",
-                    {"video": InputSpec("STRING"), "frame_load_cap": InputSpec("INT")},
-                    [OutputSpec("MASK", "MASK"), OutputSpec("IMAGE", "IMAGE")],
-                )
-            return None
 
     # Stage/turn golden: TWO independent sessions over the same raw UI
     # (distinct stages/turns, never re-emitting the same object) must render
@@ -800,6 +804,205 @@ def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
     bypassed = _tiny_workflow()
     bypassed.nodes["1"].mode = NodeMode.BYPASSED
     assert _get_node_mode(bypassed.nodes["1"]) == 4
+
+
+# ── Law 5 (batch 5): provenance lattice + copy-on-write edits ───────────────
+
+
+def _collect_mutable_dict_ids(value: Any, acc: set[int]) -> None:
+    """Collect object ids of every mutable dict reachable from ``value``.
+
+    Walks mappings, sequences, and dataclass fields so a COW assertion can
+    prove the pre-state and post-state IRs share no mutable node state.
+    """
+    if isinstance(value, dict):
+        acc.add(id(value))
+        for item in value.values():
+            _collect_mutable_dict_ids(item, acc)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_mutable_dict_ids(item, acc)
+        return
+    if dataclasses.is_dataclass(value):
+        for field_info in dataclasses.fields(value):
+            if field_info.name.startswith("_"):
+                continue
+            _collect_mutable_dict_ids(getattr(value, field_info.name), acc)
+
+
+def test_law_5_edits_are_copy_on_write_and_compose_provenance() -> None:
+    from vibecomfy.porting.edit._ir_utils import apply_edit_cow, apply_edits_cow
+    from vibecomfy.porting.edit.ops import (
+        AddNodeOp,
+        LinkSourceRef,
+        LinkTargetRef,
+        NodeFieldTarget,
+        NodeTarget,
+        SetModeOp,
+        SetNodeFieldOp,
+        UpsertLinkOp,
+    )
+    from vibecomfy.security import provenance as _prov
+    from vibecomfy.workflow import NodeMode
+
+    workflow = _tiny_workflow()
+    _prov.tag(workflow.nodes["1"], "user_confirmed")
+    _prov.tag(workflow.nodes["2"], "agent_authored")
+    pre = copy.deepcopy(workflow)
+
+    edited = apply_edit_cow(
+        workflow,
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "law-a", "prompt"),
+            value="after",
+        ),
+    )
+
+    # 1. Copy-on-write: the pre-IR is fully unchanged (deep equality) and the
+    #    edit returned a NEW IR carrying the change.
+    assert workflow == pre
+    assert edited is not workflow
+    assert edited.nodes["1"].inputs["prompt"] == "after"
+
+    # 2. No shared mutable node dicts between pre and post.
+    pre_dict_ids: set[int] = set()
+    post_dict_ids: set[int] = set()
+    _collect_mutable_dict_ids(pre, pre_dict_ids)
+    _collect_mutable_dict_ids(edited, post_dict_ids)
+    assert pre_dict_ids.isdisjoint(post_dict_ids)
+
+    # 3. Provenance composes via the max-taint join: a user_confirmed node
+    #    edited by an agent becomes agent_generated; the untouched node keeps
+    #    its tag (the deep copy preserves it).
+    assert _prov.read(edited.nodes["1"]) == "agent_generated"
+    assert _prov.read(edited.nodes["2"]) == "agent_authored"
+
+    # 4. Sequential composition stays copy-on-write and monotone: editing the
+    #    same node again composes from the prior composed tag (join is
+    #    idempotent, so it stays agent_generated) and never touches the
+    #    intermediate IR.
+    edited_after = copy.deepcopy(edited)
+    again = apply_edits_cow(
+        edited,
+        (
+            SetModeOp(op="set_mode", target=NodeTarget("", "law-a"), mode=2),
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", "law-a", "prompt"),
+                value="final",
+            ),
+        ),
+    )
+    assert edited == edited_after
+    assert again.nodes["1"].mode is NodeMode.MUTED
+    assert again.nodes["1"].inputs["prompt"] == "final"
+    assert _prov.read(again.nodes["1"]) == "agent_generated"
+    again_ids: set[int] = set()
+    _collect_mutable_dict_ids(again, again_ids)
+    assert post_dict_ids.isdisjoint(again_ids)
+
+    # 5. upsert_link combines the source's provenance into the target
+    #    (max-taint); both endpoints are re-tainted by the agent action.
+    linked = apply_edit_cow(
+        workflow,
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef("", "law-a", "IMAGE"),
+            target=LinkTargetRef("", "law-b", "image"),
+        ),
+    )
+    assert any(
+        edge.from_node == "1" and edge.to_node == "2" and edge.to_input == "image"
+        for edge in linked.edges
+    )
+    assert _prov.read(linked.nodes["2"]) == _prov.join(
+        "agent_authored", "user_confirmed", "agent_generated"
+    )
+    assert _prov.read(linked.nodes["1"]) == "agent_generated"
+
+    # 6. add_node tags the fresh node join(agent_generated, *sources) — a
+    #    trusted source yields agent_generated, never untrusted, and the new
+    #    node is wired to its source.
+    added = apply_edit_cow(
+        workflow,
+        AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type="LawNode",
+            fields={"seed": 7},
+            inputs={"image": LinkSourceRef("", "law-a", "IMAGE")},
+            uid="law-c",
+        ),
+    )
+    new_node = next(node for node in added.nodes.values() if node.uid == "law-c")
+    assert _prov.read(new_node) == "agent_generated"
+    assert any(edge.from_node == "1" and edge.to_node == new_node.id for edge in added.edges)
+    # The pre-IR is still byte-identical after every edit above.
+    assert workflow == pre
+
+
+@pytest.mark.parametrize(
+    "tag_value",
+    ["untrusted_source", "agent_authored", "agent_generated", "user_confirmed"],
+)
+def test_law_5_edits_never_downgrade_provenance(tag_value: str) -> None:
+    from vibecomfy.porting.edit._ir_utils import apply_edit_cow
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.security import provenance as _prov
+
+    workflow = _tiny_workflow()
+    _prov.tag(workflow.nodes["1"], tag_value)
+    edited = apply_edit_cow(
+        workflow,
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "law-a", "prompt"),
+            value="edited",
+        ),
+    )
+    # The edit composes via join (max-taint) and never silently downgrades:
+    # the result dominates the pre-edit tag. In particular, an agent edit on
+    # an untrusted-source node keeps it untrusted (no taint laundering).
+    assert _prov.read(edited.nodes["1"]) == _prov.join(tag_value, "agent_generated")
+    assert _prov.dominates(_prov.read(edited.nodes["1"]), tag_value)
+
+
+def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> None:
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.security import provenance as _prov
+
+    raw = _LAW5_RAW_UI
+    initial = from_ui(
+        copy.deepcopy(raw), schema_provider=_Law5Provider(), use_comfy_converter=False
+    )
+    _prov.tag(initial.nodes["1"], "user_confirmed")
+    _prov.tag(initial.nodes["2"], "user_confirmed")
+    pre = copy.deepcopy(initial)
+
+    session = EditSession(raw, schema_provider=_Law5Provider(), initial_workflow=initial)
+    result = session.apply_batch('vhs_loadvideo_2.video = "edited.mp4"\n')
+    assert result.ok
+    assert not result.diagnostics
+
+    # The retained IR is a NEW IR: the pre-state IR was never mutated and is
+    # byte-identical, and the post-state shares no mutable node dicts with it.
+    assert initial == pre
+    assert session.workflow is not initial
+    assert session.workflow.nodes["2"].inputs["video"] == "edited.mp4"
+    pre_ids: set[int] = set()
+    post_ids: set[int] = set()
+    _collect_mutable_dict_ids(pre, pre_ids)
+    _collect_mutable_dict_ids(session.workflow, post_ids)
+    assert pre_ids.isdisjoint(post_ids)
+
+    # The edited node composes provenance through the max-taint join
+    # (user_confirmed + agent edit → agent_generated); untouched nodes keep
+    # the ingest-door default (untrusted_source).
+    assert _prov.read(session.workflow.nodes["2"]) == "agent_generated"
+    assert _prov.read(session.workflow.nodes["1"]) == "untrusted_source"
 
 
 @pytest.mark.xfail(
