@@ -449,6 +449,10 @@ def build_batch_messages(
             f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n"
         )
     else:
+        # Single prompt grammar: the generated surface doc (grammar.py) is the
+        # only description of the edit surface — no hand-maintained copy.
+        from vibecomfy.porting.edit.grammar import render_prompt_doc
+
         system = (
         mission +
         "Each node is a variable; wiring uses `.OUTPUT` from other variables.\n\n"
@@ -465,9 +469,7 @@ def build_batch_messages(
         "- `python()` — view current workflow Python\n"
         "- `done()` — commit landed edits\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
-        "Known limits:\n"
-        "- `attr = None` disconnects a wire\n"
-        "- No list sockets/reorder/group/cross-subgraph edits\n\n"
+        f"{render_prompt_doc()}\n"
         f"{effective_surface_rule}"
         "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()` — ground every claim in the visible render's node ids, link ids, and widget keys/values; never invent parameters or connections.\n\n"
         "Undo abandoned edits before done().\n\n"

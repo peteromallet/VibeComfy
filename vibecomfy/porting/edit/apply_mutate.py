@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .ledger import EditLedger
-from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, RemoveNodeOp, ReorderOp, SetModeOp, SetNodeFieldOp, SetTitleOp, UpsertLinkOp
+from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, RemoveLinkOp, RemoveNodeOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp
 from vibecomfy.porting.edit.apply_links import _ensure_input_slot, _ensure_output_link_reference, _link_endpoints, _link_ids_targeting_input, _new_link_for_scope, _remove_link_from_scope, _remove_node_from_scope, _rewire_link_origin, _set_input_link_reference
 from vibecomfy.porting.edit.apply_place import _next_node_order, _node_size, _place_add_node
-from vibecomfy.porting.edit.apply_slots import _reorder_names, _widget_name_for_input
+from vibecomfy.porting.edit.apply_slots import _widget_name_for_input
 from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec, ResolvedAddNodeSpec, ResolvedFieldRef, ResolvedLinkEndpoint, ResolvedNodeRef, ResolvedOp, ResolvedRemoveLinkRef, ResolvedRemoveNodePlan, VALUE_DEFAULT_FIELDS_MARKER, _issue
 from vibecomfy.porting.emit.ui import materialize_litegraph_node
 from vibecomfy.porting.endpoint_invariant import assert_source_slot_in_bounds
@@ -26,10 +26,6 @@ def _apply_resolved_op(
         assert isinstance(resolved_op, ResolvedNodeRef)
         _apply_set_mode(resolved_op, op.mode)
         return resolved_op, []
-    if isinstance(op, SetTitleOp):
-        assert isinstance(resolved_op, ResolvedNodeRef)
-        _apply_set_title(resolved_op, op.title)
-        return resolved_op, []
     if isinstance(op, RemoveLinkOp):
         assert isinstance(resolved_op, ResolvedRemoveLinkRef)
         return resolved_op, _apply_remove_link(ledger, resolved_op)
@@ -45,21 +41,10 @@ def _apply_resolved_op(
     if isinstance(op, AddNodeOp):
         assert isinstance(resolved_op, ResolvedAddNodeSpec)
         return _apply_add_node(ledger, resolved_op)
-    assert isinstance(op, ReorderOp)
-    assert isinstance(resolved_op, ResolvedNodeRef)
-    return resolved_op, _apply_reorder(resolved_op, op)
-
-
 def _apply_set_mode(node_ref: ResolvedNodeRef, mode: int) -> None:
     node = node_ref.node
     if isinstance(node, dict):
         node["mode"] = mode
-
-
-def _apply_set_title(node_ref: ResolvedNodeRef, title: str) -> None:
-    node = node_ref.node
-    if isinstance(node, dict):
-        node["title"] = title
 
 
 def _apply_remove_link(
@@ -427,47 +412,6 @@ def _apply_add_node(
         ),
         diagnostics,
     )
-
-
-def _apply_reorder(node_ref: ResolvedNodeRef, op: ReorderOp) -> list[PortIssue]:
-    names = _reorder_names(node_ref.node, node_ref.class_type, op.axis)
-    if names is None or tuple(names) == tuple(op.order):
-        return []
-    if op.axis == "widgets":
-        values = node_ref.node.get("widgets_values")
-        if not isinstance(values, list):
-            return []
-        index_by_name = {name: index for index, name in enumerate(names)}
-        node_ref.node["widgets_values"] = [values[index_by_name[name]] for name in op.order]
-        return [
-            _issue(
-                "reorder_widgets_applied",
-                "Reordered widget values by the requested complete field-name permutation.",
-                severity="info",
-                detail={
-                    "scope_path": op.target.scope_path,
-                    "uid": op.target.uid,
-                    "order": list(op.order),
-                },
-            )
-        ]
-
-    outputs = node_ref.node.get("outputs")
-    if not isinstance(outputs, list):
-        return []
-    index_by_name = {name: index for index, name in enumerate(names)}
-    node_ref.node["outputs"] = [outputs[index_by_name[name]] for name in op.order]
-    for index, output in enumerate(node_ref.node["outputs"]):
-        if isinstance(output, dict):
-            output["slot_index"] = index
-    return [
-        _issue(
-            "reorder_slots_applied",
-            "Reordered output slots by the requested complete slot-name permutation.",
-            severity="info",
-            detail={"scope_path": op.target.scope_path, "uid": op.target.uid, "order": list(op.order)},
-        )
-    ]
 
 
 def _apply_set_node_field(

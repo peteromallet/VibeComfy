@@ -15,7 +15,6 @@
         "oneOf": [
           { "$ref": "./set_node_field.schema.json" },
           { "$ref": "./set_mode.schema.json" },
-          { "$ref": "./set_title.schema.json" },
           { "$ref": "./add_node.schema.json" },
           { "$ref": "./upsert_link.schema.json" },
           { "$ref": "./remove_node.schema.json" },

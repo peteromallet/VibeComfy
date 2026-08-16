@@ -5787,7 +5787,7 @@ Write the same Python the view emits. Statements are AST-parsed, never executed.
 
 Supported:
 - `node.field = literal` → set_node_field
-  `literal_eval` the RHS (const/list/dict, or a const-folded `BinOp`); reject names/calls
+  fold the RHS as a literal (const/list/dict, or a const-folded `BinOp`); reject names/calls
 - `var = Class(field=…, inp=src.SLOT, near=…)` → add_node
   mint uid, bind `var`, reject `vibecomfy.*` intent classes (those use `intent_node_properties()`); emit one `upsert_link` per wired input
 - `dst.field = src.SLOT` (or bare `src` if unambiguous) → upsert_link
@@ -5801,7 +5801,7 @@ Supported:
 - `for n in <list>: n.field = value` → macro
   parse-time expansion to one assignment per element (hard cap ~50); `range(...)` is the constant-iterator form of the same macro
 - `search(...)`, `python()`, and the named agent tool calls
-  side-effect-free catalog / research / describe; no graph op
+  side-effect-free catalog / research; no graph op
 - `done()`
   control: commit the session
 
@@ -5816,7 +5816,7 @@ Forbidden (not in the grammar):
 - `node.title = …` / `set_title(...)`  [set_title_not_allowed] — set_title is not part of the designed grammar
 - arithmetic over graph names (e.g. `a.steps + b.steps`)  [expression_not_constant] — only const-folded literals are allowed; names are not operands
 
-AST allow-list: {Module, Expr, Assign, Delete, For(bounded), Call, Name, Attribute, Constant, List, Tuple, Dict, keyword, BinOp(const)}
+AST allow-list: {Module, Assign, Attribute, Name, Constant, List, Tuple, Dict, BinOp(const), Call, keyword, Delete, For(bounded), Expr}
 Batches are capped (~50 statements / ~64 KiB). Bounded `for` is a parse-time macro (cap ~50).
 """
 

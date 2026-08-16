@@ -531,6 +531,18 @@ def resolve_working_port(
                     schema_index=schema_index,
                     working_count=len(sockets),
                 )
+            if schema_index is not None and 0 <= schema_index < len(sockets):
+                working_name = socket_name_at(sockets, schema_index)
+                working_is_placeholder = working_name in {name, "", None} or (
+                    working_name is not None and _positional_output_alias_index(working_name) is not None
+                )
+                if working_is_placeholder:
+                    return PortResolution(
+                        ok=True,
+                        slot_index=schema_index,
+                        slot_name=name,
+                        socket_type=socket_type_at(sockets, schema_index) or schema_socket_type(schema, "output", name),
+                    )
             return _fail(
                 UNKNOWN_OUTPUT_SLOT,
                 f"{resolved_class} has no output named {name!r}.",

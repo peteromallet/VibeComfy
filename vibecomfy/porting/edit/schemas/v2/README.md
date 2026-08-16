@@ -1,9 +1,8 @@
 Canonical delta V2 lives at `{schema_version: "2.0.0", ops: [...]}` and supports
-exactly seven op types:
+exactly six op types:
 
 - `set_node_field`
 - `set_mode`
-- `set_title`
 - `add_node`
 - `upsert_link`
 - `remove_node`

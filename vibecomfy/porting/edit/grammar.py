@@ -36,6 +36,12 @@ class StatementForm:
     ast_types: tuple[type[ast.AST], ...]
     in_doc_table: bool = True
     in_prompt: bool = True
+    # RHS shape that discriminates this assignment form from the others
+    # ("mode" | "none" | "graph_ref" | "literal").  Drives the generated
+    # statement-shape → op-kind mapping (``op_kind_for_assignment``) so the
+    # parser never hand-maintains a second list.  ``None`` for non-assignment
+    # forms (add_node is classified as ``node_call`` by statement shape).
+    assignment_shape: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,10 +64,11 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         surface="`node.field = literal`",
         op="set_node_field",
         interpreter=(
-            "`literal_eval` the RHS (const/list/dict, or a const-folded `BinOp`); "
-            "reject names/calls"
+            "fold the RHS as a literal (const/list/dict, or a const-folded "
+            "`BinOp`); reject names/calls"
         ),
         ast_types=(ast.Assign, ast.Attribute, ast.Name, ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.BinOp),
+        assignment_shape="literal",
     ),
     StatementForm(
         form_id="add_node",
@@ -79,6 +86,7 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         op="upsert_link",
         interpreter="resolve slot name→index, type-check (`socket_types_compatible`)",
         ast_types=(ast.Assign, ast.Attribute, ast.Name),
+        assignment_shape="graph_ref",
     ),
     StatementForm(
         form_id="remove_link",
@@ -86,6 +94,7 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         op="remove_link",
         interpreter="disconnect the named input",
         ast_types=(ast.Assign, ast.Attribute, ast.Name, ast.Constant),
+        assignment_shape="none",
     ),
     StatementForm(
         form_id="remove_node",
@@ -100,6 +109,7 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         op="set_mode",
         interpreter="assign the semantic mode",
         ast_types=(ast.Assign, ast.Attribute, ast.Name, ast.Constant),
+        assignment_shape="mode",
     ),
     StatementForm(
         form_id="for_macro",
@@ -115,7 +125,7 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
         form_id="query",
         surface="`search(...)`, `python()`, and the named agent tool calls",
         op=None,
-        interpreter="side-effect-free catalog / research / describe; no graph op",
+        interpreter="side-effect-free catalog / research; no graph op",
         ast_types=(ast.Expr, ast.Call, ast.Name, ast.keyword, ast.Constant),
         in_doc_table=False,
     ),
@@ -198,30 +208,24 @@ FORBIDDEN_FORMS: tuple[ForbiddenForm, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Derived admission sets
+# Derived admission sets (generated from STATEMENT_FORMS — no hand list)
 # ---------------------------------------------------------------------------
 
-# Architecture-doc / prompt set: the statement-level types the grammar names.
-# Context nodes (Load/Store/Del) and operator nodes (Add, USub, …) are
-# implementation companions of those types — they appear in every parsed
-# tree and are admitted, but they are not a second vocabulary.
-_DOCUMENTED_AST_TYPES: tuple[type[ast.AST], ...] = (
-    ast.Module,
-    ast.Expr,
-    ast.Assign,
-    ast.Delete,
-    ast.For,
-    ast.Call,
-    ast.Name,
-    ast.Attribute,
-    ast.Constant,
-    ast.List,
-    ast.Tuple,
-    ast.Dict,
-    ast.keyword,
-    ast.BinOp,
-)
+# The documented/prompt set is the union of every form's declared AST types,
+# in declaration order (first occurrence wins), plus the parse root
+# ``ast.Module`` — a structural constant of ``ast.parse``, not a statement form.
+def _documented_ast_types_in_order() -> tuple[type[ast.AST], ...]:
+    seen: list[type[ast.AST]] = []
+    for form in STATEMENT_FORMS:
+        for typ in form.ast_types:
+            if typ not in seen:
+                seen.append(typ)
+    return (ast.Module, *seen)
 
+
+# Context nodes (Load/Store/Del) and operator nodes (Add, USub, …) are
+# implementation companions of the documented types — they appear in every
+# parsed tree and are admitted, but they are not a second vocabulary.
 _LITERAL_COMPANION_AST_TYPES: tuple[type[ast.AST], ...] = (
     ast.UnaryOp,
     ast.Set,
@@ -238,14 +242,12 @@ _LITERAL_COMPANION_AST_TYPES: tuple[type[ast.AST], ...] = (
     ast.Del,
 )
 
-DOCUMENTED_AST_TYPES: frozenset[type[ast.AST]] = frozenset(_DOCUMENTED_AST_TYPES)
+DOCUMENTED_AST_TYPES: frozenset[type[ast.AST]] = frozenset(
+    _documented_ast_types_in_order()
+)
 
 ADMITTED_AST_TYPES: frozenset[type[ast.AST]] = frozenset(
-    {
-        *_DOCUMENTED_AST_TYPES,
-        *_LITERAL_COMPANION_AST_TYPES,
-        *(typ for form in STATEMENT_FORMS for typ in form.ast_types),
-    }
+    {*DOCUMENTED_AST_TYPES, *_LITERAL_COMPANION_AST_TYPES}
 )
 
 FORBIDDEN_AST_CODES: dict[type[ast.AST], str] = {}
@@ -292,12 +294,80 @@ DOC_AST_END = "<!-- grammar-ast-allow-list:end -->"
 
 
 def documented_ast_type_names() -> tuple[str, ...]:
-    """Stable names for the architecture-doc allow-list."""
-    return tuple(typ.__name__ for typ in _DOCUMENTED_AST_TYPES)
+    """Stable names for the architecture-doc allow-list (generated order)."""
+    return tuple(typ.__name__ for typ in _documented_ast_types_in_order())
 
 
 def admitted_ast_type_names() -> tuple[str, ...]:
     return tuple(sorted(typ.__name__ for typ in ADMITTED_AST_TYPES))
+
+
+# ---------------------------------------------------------------------------
+# Statement-shape → op-kind mapping (generated; the parser consumes it)
+# ---------------------------------------------------------------------------
+
+# Assignment forms discriminate on the RHS shape, declared per form above.
+# Order by specificity so `node.mode = …` wins over the literal fallback.
+_ASSIGNMENT_SHAPE_ORDER = {"mode": 0, "none": 1, "graph_ref": 2, "literal": 3}
+
+_ASSIGNMENT_SHAPE_OPS: tuple[tuple[str, str], ...] = tuple(
+    sorted(
+        (
+            (form.assignment_shape, form.op)
+            for form in STATEMENT_FORMS
+            if form.assignment_shape is not None and form.op is not None
+        ),
+        key=lambda item: _ASSIGNMENT_SHAPE_ORDER[item[0]],
+    )
+)
+
+
+def op_kind_for_statement(statement: ast.stmt) -> str | None:
+    """Map a validated statement shape to its surface op kind.
+
+    This is the single statement-shape list for the whole surface: the parser
+    (``_parse.py``) and the resolver (``_resolve.py``) consume it and never
+    hand-maintain a second copy.  Shapes mirror ``STATEMENT_FORMS``.
+    """
+    if isinstance(statement, ast.Assign):
+        target = statement.targets[0]
+        if isinstance(target, ast.Name) and isinstance(statement.value, ast.Call):
+            return "node_call"
+        if isinstance(target, ast.Attribute):
+            return op_kind_for_assignment(statement.value, target_attr=target.attr)
+        return "assign"
+    if isinstance(statement, ast.Delete):
+        return "remove_node"
+    if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+        call = statement.value
+        if isinstance(call.func, ast.Name) and call.func.id in CONTROL_CALL_NAMES:
+            return "done"
+        return "query"
+    return None
+
+
+def op_kind_for_assignment(value: ast.expr, *, target_attr: str) -> str:
+    """Classify an attribute assignment by its target attr and RHS shape.
+
+    Driven by the per-form ``assignment_shape`` declarations — the op names
+    come from ``STATEMENT_FORMS``, never from a hand-written second list.
+    """
+    forbidden = FORBIDDEN_ASSIGN_ATTRS.get(target_attr)
+    if forbidden is not None:
+        return forbidden
+    for shape, op in _ASSIGNMENT_SHAPE_OPS:
+        if shape == "mode":
+            if target_attr == "mode":
+                return op
+        elif shape == "none":
+            if isinstance(value, ast.Constant) and value.value is None:
+                return op
+        elif shape == "graph_ref":
+            if isinstance(value, (ast.Name, ast.Attribute)):
+                return op
+        elif shape == "literal":
+            return op
+    return "set_node_field"
 
 
 def form_by_id(form_id: str) -> StatementForm:
@@ -492,6 +562,8 @@ __all__ = [
     "form_by_id",
     "iter_forbidden_forms",
     "iter_statement_forms",
+    "op_kind_for_assignment",
+    "op_kind_for_statement",
     "prompt_doc_covers_grammar",
     "render_ast_allow_list",
     "render_authoring_doc",

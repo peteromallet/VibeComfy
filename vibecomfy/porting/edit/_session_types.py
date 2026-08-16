@@ -94,7 +94,6 @@ class BatchResult:
                 AddNodeOp,
                 RemoveLinkOp,
                 RemoveNodeOp,
-                ReorderOp,
                 SetModeOp,
                 SetNodeFieldOp,
                 UpsertLinkOp,

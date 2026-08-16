@@ -43,13 +43,13 @@ from vibecomfy.porting.edit._parse import (
     _AGENT_TOOL_CALL_NAMES,
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     _RAW_COORDINATE_HINT_NAMES,
-    _assignment_op_kind,
     _call_name,
     _fold_constant,
     _is_graph_reference_value,
     _resolve_vibecomfy_constructor,
     _unsafe,
 )
+from vibecomfy.porting.edit.grammar import op_kind_for_assignment
 from vibecomfy.executor.tool_specs import (
     PHASE_IMPLEMENT,
     PHASE_RESEARCH,
@@ -526,7 +526,7 @@ class _ResolveMixin:
                     source=source,
                     ok=False,
                     landed=False,
-                    op_kind=_assignment_op_kind(statement.value, target_attr=target.attr),
+                    op_kind=op_kind_for_assignment(statement.value, target_attr=target.attr),
                     diagnostics=tuple(target_issues),
                 )
             assert field_target is not None
@@ -548,7 +548,7 @@ class _ResolveMixin:
                         source=source,
                         ok=False,
                         landed=False,
-                        op_kind=_assignment_op_kind(rhs, target_attr=target.attr),
+                        op_kind=op_kind_for_assignment(rhs, target_attr=target.attr),
                         diagnostics=tuple(endpoint_issues),
                     )
                 assert endpoint is not None

@@ -684,8 +684,8 @@ def apply_edit_cow(
         post.nodes[new_id] = node
         return post
 
-    # NOTE: ReorderOp / SetTitleOp have no branches here — they are not
-    # part of the designed grammar and fall through to TypeError.
+    # NOTE: reorder / set_title are not part of the designed grammar and are
+    # rejected at parse time; they have no branches here.
 
     raise TypeError(f"unsupported edit op {type(op).__name__}")
 

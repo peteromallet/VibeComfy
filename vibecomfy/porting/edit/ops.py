@@ -3,7 +3,10 @@ from __future__ import annotations
 """Edit-op parsing plus canonical delta-envelope normalization.
 
 The canonical persisted/runtime-facing V2 contract is
-``{schema_version: "2.0.0", ops: [...]}`` with exactly seven supported op kinds.
+``{schema_version: "2.0.0", ops: [...]}`` with exactly six supported op kinds
+(``set_node_field``, ``set_mode``, ``add_node``, ``upsert_link``,
+``remove_node``, ``remove_link``).  ``reorder`` and ``set_title`` are not part
+of the designed grammar — they are rejected at parse time.
 
 Legacy handling is explicit:
 
@@ -26,7 +29,6 @@ from vibecomfy.comfy_nodes.agent.provider import (
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _RELATIONS = frozenset({"near", "right_of", "left_of", "below", "between"})
-_REORDER_AXES = frozenset({"widgets", "slots"})
 _SET_MODE_VALUES = frozenset({0, 2, 4})
 _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
@@ -58,7 +60,6 @@ DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "replay_mismatch"
 CANONICAL_DELTA_OP_NAMES = (
     "set_node_field",
     "set_mode",
-    "set_title",
     "add_node",
     "upsert_link",
     "remove_node",
@@ -112,7 +113,6 @@ EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
                         ]
                     },
                     {"type": "object", "required": ["op", "target", "mode"]},
-                    {"type": "object", "required": ["op", "target", "title"]},
                 ],
             },
         },
@@ -208,25 +208,10 @@ class RemoveLinkOp:
 
 
 @dataclass(frozen=True, slots=True)
-class ReorderOp:
-    op: Literal["reorder"]
-    target: NodeTarget
-    axis: Literal["widgets", "slots"]
-    order: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class SetModeOp:
     op: Literal["set_mode"]
     target: NodeTarget
     mode: Literal[0, 2, 4]
-
-
-@dataclass(frozen=True, slots=True)
-class SetTitleOp:
-    op: Literal["set_title"]
-    target: NodeTarget
-    title: str
 
 
 EditOp = (
@@ -235,9 +220,7 @@ EditOp = (
     | RemoveNodeOp
     | UpsertLinkOp
     | RemoveLinkOp
-    | ReorderOp
     | SetModeOp
-    | SetTitleOp
 )
 
 
@@ -444,19 +427,6 @@ def _parse_inputs(value: Any, *, path: str) -> dict[str, LinkSourceRef]:
     return parsed
 
 
-def _parse_reorder_order(value: Any, *, path: str) -> tuple[str, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise EditOpParseError(f"{path} must be a list of field names.")
-    parsed: list[str] = []
-    for index, item in enumerate(value):
-        parsed.append(_require_string(item, path=f"{path}[{index}]"))
-    if not parsed:
-        raise EditOpParseError(f"{path} must not be empty.")
-    if len(set(parsed)) != len(parsed):
-        raise EditOpParseError(f"{path} must not contain duplicate entries.")
-    return tuple(parsed)
-
-
 def _parse_optional_identity(value: Any, *, path: str) -> str | None:
     if value is None:
         return None
@@ -529,18 +499,6 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             target=_parse_link_target(target, path="to") if target is not None else None,
         )
 
-    if op_name == "reorder":
-        axis = _require_string(data.get("axis"), path="axis")
-        if axis not in _REORDER_AXES:
-            allowed = ", ".join(sorted(_REORDER_AXES))
-            raise EditOpParseError(f"axis must be one of: {allowed}.")
-        return ReorderOp(
-            op="reorder",
-            target=_parse_node_target(data.get("target"), path="target"),
-            axis=axis,  # type: ignore[arg-type]
-            order=_parse_reorder_order(data.get("order"), path="order"),
-        )
-
     if op_name == "set_mode":
         mode = data.get("mode")
         if isinstance(mode, bool) or not isinstance(mode, int) or mode not in _SET_MODE_VALUES:
@@ -550,13 +508,6 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             op="set_mode",
             target=_parse_node_target(data.get("target"), path="target"),
             mode=mode,  # type: ignore[arg-type]
-        )
-
-    if op_name == "set_title":
-        return SetTitleOp(
-            op="set_title",
-            target=_parse_node_target(data.get("target"), path="target"),
-            title=_require_string(data.get("title"), path="title"),
         )
 
     raise EditOpParseError(f"Unsupported edit op {op_name!r}.")
@@ -611,11 +562,6 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
 
 def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
     parsed = parse_edit_op(op) if isinstance(op, Mapping) else op
-    if isinstance(parsed, ReorderOp):
-        raise EditOpParseError(
-            "Canonical V2 deltas support exactly six op types; `reorder` is legacy-only.",
-            detail={"op": "reorder"},
-        )
     if isinstance(parsed, SetNodeFieldOp):
         return {
             "op": parsed.op,
@@ -644,12 +590,6 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             "op": parsed.op,
             "target": [parsed.target.scope_path, parsed.target.uid],
             "mode": parsed.mode,
-        }
-    if isinstance(parsed, SetTitleOp):
-        return {
-            "op": parsed.op,
-            "target": [parsed.target.scope_path, parsed.target.uid],
-            "title": parsed.title,
         }
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
@@ -772,10 +712,6 @@ def ensure_root_scoped_delta_envelope(
         elif isinstance(op, RemoveLinkOp) and op.target is not None:
             scoped_paths.append(op.target.scope_path)
         elif isinstance(op, SetModeOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, SetTitleOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, ReorderOp):
             scoped_paths.append(op.target.scope_path)
         bad = sorted({path for path in scoped_paths if path})
         if bad:
@@ -905,24 +841,11 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
         if op.target is not None:
             payload["to"] = [op.target.scope_path, op.target.uid, op.target.input_field]
         return payload
-    if isinstance(op, ReorderOp):
-        return {
-            "op": op.op,
-            "target": [op.target.scope_path, op.target.uid],
-            "axis": op.axis,
-            "order": list(op.order),
-        }
     if isinstance(op, SetModeOp):
         return {
             "op": op.op,
             "target": [op.target.scope_path, op.target.uid],
             "mode": op.mode,
-        }
-    if isinstance(op, SetTitleOp):
-        return {
-            "op": op.op,
-            "target": [op.target.scope_path, op.target.uid],
-            "title": op.title,
         }
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
@@ -1148,10 +1071,8 @@ __all__ = [
     "NodeTarget",
     "RemoveLinkOp",
     "RemoveNodeOp",
-    "ReorderOp",
     "SetModeOp",
     "SetNodeFieldOp",
-    "SetTitleOp",
     "UpsertLinkOp",
     "canonical_op_to_dict",
     "ensure_root_scoped_delta_envelope",

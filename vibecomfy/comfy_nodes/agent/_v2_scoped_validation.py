@@ -571,11 +571,6 @@ def _resolve_candidate_value_for_op(
         if node is None:
             return (_SENTINEL_NODE_ABSENT, None)
         return (_read_field_value_from_node(node, "mode"), None)
-    if op_kind == "reorder":
-        order = op.get("order")
-        if isinstance(order, list):
-            return (tuple(order), None)
-        return (_SENTINEL_NO_VALUE, "Reorder op missing order.")
     if op_kind == "upsert_link":
         source = op.get("from")
         if isinstance(source, list) and len(source) >= 3:
@@ -665,54 +660,6 @@ def _resolve_submit_value_for_set_mode(
     if node is None:
         return (_SENTINEL_NODE_ABSENT, None)
     return (_read_field_value_from_node(node, "mode"), None)
-
-
-def _resolve_submit_value_for_reorder(
-    submit_graph: Mapping[str, Any],
-    op: Mapping[str, Any],
-) -> tuple[Any, str | None]:
-    """Derive expected_old for a ``reorder`` op (current widget/slot order)."""
-    target = op.get("target")
-    uid = _normalize_target_uid(target)
-    if uid is None:
-        return (None, "Invalid target for reorder op")
-    node = _find_node_in_graph(submit_graph, uid)
-    if node is None:
-        return (_SENTINEL_NODE_ABSENT, None)
-    axis = op.get("axis")
-    if axis == "widgets":
-        widgets = node.get("widgets")
-        if isinstance(widgets, list):
-            return (
-                tuple(w.get("name") for w in widgets if isinstance(w, Mapping)),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve widget reorder from serialized graph.")
-    if axis == "inputs":
-        inputs = node.get("inputs")
-        if isinstance(inputs, list):
-            return (
-                tuple(
-                    entry.get("name")
-                    for entry in inputs
-                    if isinstance(entry, Mapping) and entry.get("name") is not None
-                ),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve input reorder from serialized graph.")
-    if axis == "outputs":
-        outputs = node.get("outputs")
-        if isinstance(outputs, list):
-            return (
-                tuple(
-                    entry.get("name")
-                    for entry in outputs
-                    if isinstance(entry, Mapping) and entry.get("name") is not None
-                ),
-                None,
-            )
-        return (_SENTINEL_NO_VALUE, "Could not resolve output reorder from serialized graph.")
-    return (_SENTINEL_NO_VALUE, f"Unsupported reorder axis: {axis!r}")
 
 
 def _resolve_submit_value_for_upsert_link(
@@ -863,8 +810,6 @@ def _resolve_submit_value_for_op(
         return _resolve_submit_value_for_set_node_field(submit_graph, op)
     if op_kind == "set_mode":
         return _resolve_submit_value_for_set_mode(submit_graph, op)
-    if op_kind == "reorder":
-        return _resolve_submit_value_for_reorder(submit_graph, op)
     if op_kind == "upsert_link":
         return _resolve_submit_value_for_upsert_link(submit_graph, op)
     if op_kind == "remove_link":
@@ -1029,9 +974,6 @@ def _scoped_issue_field_path(op: Mapping[str, Any]) -> str | None:
         return None
     if op_kind == "set_mode":
         return "mode"
-    if op_kind == "reorder":
-        axis = op.get("axis")
-        return str(axis) if isinstance(axis, str) and axis else None
     return None
 
 
@@ -1315,7 +1257,6 @@ __all__ = (
     "_resolve_candidate_value_for_op",
     "_resolve_submit_value_for_set_node_field",
     "_resolve_submit_value_for_set_mode",
-    "_resolve_submit_value_for_reorder",
     "_resolve_submit_value_for_upsert_link",
     "_resolve_submit_value_for_remove_link",
     "_resolve_submit_value_for_add_node",

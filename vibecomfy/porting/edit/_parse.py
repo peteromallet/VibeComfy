@@ -20,6 +20,8 @@ from vibecomfy.porting.edit.grammar import (
     FORBIDDEN_CALL_NAMES,
     QUERY_CALL_NAMES,
     diagnose_unadmitted_ast,
+    op_kind_for_assignment,
+    op_kind_for_statement,
 )
 from vibecomfy.executor.tool_specs import (
     AGENT_TOOL_CALL_NAMES as _AGENT_TOOL_CALL_NAMES,
@@ -169,7 +171,7 @@ def _expand_statement(
             source=segment.strip(),
             ok=True,
             landed=False,
-            op_kind=_statement_op_kind(statement),
+            op_kind=op_kind_for_statement(statement),
             detail={
                 "ast_node": statement,
                 "constant_env": dict(env),
@@ -690,35 +692,6 @@ def _apply_binop(op: ast.operator, left: Any, right: Any) -> Any:
                 detail={"left": repr(left), "right": repr(right), "op": "Mod"},
             ) from None
     raise TypeError(type(op).__name__)
-
-
-def _statement_op_kind(statement: ast.stmt) -> str | None:
-    if isinstance(statement, ast.Assign):
-        target = statement.targets[0]
-        if isinstance(target, ast.Name) and isinstance(statement.value, ast.Call):
-            return "node_call"
-        if isinstance(target, ast.Attribute):
-            return _assignment_op_kind(statement.value, target_attr=target.attr)
-        return "assign"
-    if isinstance(statement, ast.Delete):
-        return "remove_node"
-    if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
-        if _call_name(statement.value) == "done":
-            return "done"
-        return "query"
-    return None
-
-
-def _assignment_op_kind(value: ast.expr, *, target_attr: str) -> str:
-    if target_attr in FORBIDDEN_ASSIGN_ATTRS:
-        return FORBIDDEN_ASSIGN_ATTRS[target_attr]
-    if target_attr == "mode":
-        return "set_mode"
-    if isinstance(value, ast.Constant) and value.value is None:
-        return "remove_link"
-    if _is_graph_reference_value(value):
-        return "upsert_link"
-    return "set_node_field"
 
 
 def _call_name(node: ast.Call) -> str | None:

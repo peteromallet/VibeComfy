@@ -155,9 +155,9 @@ exactly that language — there is no second command vocabulary (`connect(...)`,
 - **Disconnect = unbind:** `vaedecode.samples = None`
 - **Bypass / mute = the mode attribute:** `ksampler.mode = "bypassed"`
 - **Remove = `del ksampler`**
-- **Query (no op):** `search(query, accepts=…, returns=…)`, `describe(node)` — the
-  REPL's `dir()`/`print()`: catalog recall and per-node field/slot inspection.
-- **Control (no op):** `done()`, `clarify("…")` — calls the runner detects.
+- **Query (no op):** `search(...)`, `python()`, and the named agent tool calls —
+  side-effect-free catalog / research; no graph op.
+- **Control (no op):** `done()` — commit the session.
 
 Every statement is still **AST-parsed and interpreted, never executed.**
 `vaedecode.samples = up.IMAGE` parses to
@@ -170,7 +170,7 @@ as the *internal* primitive names — the surface the agent touches is just Pyth
 <!-- grammar-doc-table:begin -->
 | Surface (what the agent writes) | Internal op | Interpreter does |
 |---|---|---|
-| `node.field = literal` | `set_node_field` | `literal_eval` the RHS (const/list/dict, or a const-folded `BinOp`); reject names/calls |
+| `node.field = literal` | `set_node_field` | fold the RHS as a literal (const/list/dict, or a const-folded `BinOp`); reject names/calls |
 | `var = Class(field=…, inp=src.SLOT, near=…)` | `add_node` | mint uid, bind `var`, reject `vibecomfy.*` intent classes (those use `intent_node_properties()`); emit one `upsert_link` per wired input |
 | `dst.field = src.SLOT` (or bare `src` if unambiguous) | `upsert_link` | resolve slot name→index, type-check (`socket_types_compatible`) |
 | `dst.field = None` | `remove_link` | disconnect the named input |
@@ -195,7 +195,7 @@ Both are parse-time expansion, not execution. Comprehensions, conditionals,
 arithmetic over names, `import`, and `def` stay forbidden — they cross into runtime
 evaluation. The AST allow-list is
 <!-- grammar-ast-allow-list:begin -->
-{Module, Expr, Assign, Delete, For(bounded), Call, Name, Attribute, Constant, List, Tuple, Dict, keyword, BinOp(const)}
+{Module, Assign, Attribute, Name, Constant, List, Tuple, Dict, BinOp(const), Call, keyword, Delete, For(bounded), Expr}
 <!-- grammar-ast-allow-list:end -->
 ; batches are capped (~50 statements / ~64 KiB) so a confused model can't exhaust the
 ledger.
@@ -228,7 +228,7 @@ code — no JSON envelope, no route field. Control flow is native: the batch sim
 *contains* `done()` or `clarify("before or after the face restoration?")`, which the
 runner recognizes. **Turn 0 sends the full view; every later turn sends only the
 diff** (this is what keeps 100+ node graphs affordable); when the agent needs more
-context it calls `describe(node)` or `search(...)`.
+context it calls `search(...)`.
 
 The feedback is the agent's entire window into reality, so it is precise. A
 two-line batch where line 2 names a wrong slot returns:

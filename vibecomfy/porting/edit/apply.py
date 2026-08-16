@@ -50,7 +50,6 @@ from vibecomfy.porting.edit.apply_mutate import (
     _apply_add_node,
     _apply_remove_link,
     _apply_remove_node,
-    _apply_reorder,
     _apply_resolved_op,
     _apply_set_mode,
     _apply_set_node_field,
@@ -90,7 +89,6 @@ from vibecomfy.porting.edit.apply_resolve import _resolve_op
 from vibecomfy.porting.edit.apply_resolve_add import (
     _resolve_add_node,
     _resolve_add_node_anchor,
-    _resolve_reorder,
 )
 from vibecomfy.porting.edit.apply_resolve_base import (
     _resolve_node,
@@ -105,8 +103,6 @@ from vibecomfy.porting.edit.apply_resolve_base import (
 )
 from vibecomfy.porting.edit.apply_slots import (
     _find_named_slot_index,
-    _linked_widget_names,
-    _reorder_names,
     _widget_index_for_field,
     _widget_index_from_input_stubs,
     _widget_name_for_input,

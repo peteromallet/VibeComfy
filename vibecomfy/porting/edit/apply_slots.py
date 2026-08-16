@@ -76,38 +76,6 @@ def _widget_index_from_input_stubs(inputs: Any, field_name: str) -> int | None:
     return None
 
 
-def _reorder_names(node: Mapping[str, Any], class_type: str, axis: str) -> tuple[str, ...] | None:
-    if axis == "widgets":
-        values = node.get("widgets_values")
-        if not isinstance(values, list):
-            return None
-        names = list(
-            compact_widget_names_for_node(
-                node,
-                class_type,
-                value_count=len(values),
-            ).names
-        )
-        if len(names) != len(values) or any(not name for name in names):
-            return None
-        return tuple(names)
-
-    outputs = node.get("outputs")
-    if not isinstance(outputs, list):
-        return None
-    names: list[str] = []
-    for output in outputs:
-        if not isinstance(output, Mapping):
-            return None
-        name = output.get("name")
-        if not isinstance(name, str) or not name:
-            return None
-        names.append(name)
-    if len(set(names)) != len(names):
-        return None
-    return tuple(names)
-
-
 def _widget_names_from_input_stubs(inputs: Any) -> list[str]:
     if not isinstance(inputs, list):
         return []

@@ -19,7 +19,6 @@ from .ops import (
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
-    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
     UpsertLinkOp,
@@ -67,7 +66,6 @@ from vibecomfy.porting.edit.apply_types import ValueDefaultContext
 from vibecomfy.porting.edit._parse import (
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     _RAW_COORDINATE_HINT_NAMES,
-    _assignment_op_kind,
     _call_name,
     _fold_constant,
     _is_graph_reference_value,

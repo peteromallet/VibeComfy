@@ -9,10 +9,8 @@ from vibecomfy.porting.edit.ops import (
     LinkSourceRef,
     RemoveLinkOp,
     RemoveNodeOp,
-    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.edit.projection import MODE_LABELS
@@ -43,10 +41,6 @@ class _DiffMixin:
             return self._summarize_remove_link(op)
         if isinstance(op, SetModeOp):
             return self._summarize_set_mode(op)
-        if isinstance(op, SetTitleOp):
-            return self._summarize_set_title(op)
-        if isinstance(op, ReorderOp):
-            return self._summarize_reorder(op)
         return ""
 
     def _summarize_set_node_field(self, op: SetNodeFieldOp) -> str:
@@ -146,17 +140,6 @@ class _DiffMixin:
         new_label = MODE_LABELS.get(op.mode, f"mode={op.mode}")
         return f"Changed {name} mode from {old_label} to {new_label}."
 
-    def _summarize_set_title(self, op: SetTitleOp) -> str:
-        name = self._node_display_name(op.target.scope_path, op.target.uid)
-        old_title = self._original_node_title(op.target.scope_path, op.target.uid)
-        if old_title:
-            return f"Renamed {name} from {old_title!r} to {op.title!r}."
-        return f"Titled {name} {op.title!r}."
-
-    def _summarize_reorder(self, op: ReorderOp) -> str:
-        name = self._node_display_name(op.target.scope_path, op.target.uid)
-        return f"Reordered {name} {op.axis}."
-
     def _build_field_changes(
         self,
         landed_ops: tuple[EditOp, ...],
@@ -213,11 +196,6 @@ class _DiffMixin:
             old = self._original_node_mode(op.target.scope_path, op.target.uid)
             new = op.mode
             field_path = "mode"
-            uid = op.target.uid
-        elif isinstance(op, SetTitleOp):
-            old = self._original_node_title(op.target.scope_path, op.target.uid)
-            new = op.title
-            field_path = "title"
             uid = op.target.uid
         elif isinstance(op, UpsertLinkOp):
             old = self._original_link_value(
@@ -304,10 +282,6 @@ def _render_op_diff(op: Any, *, old_value: Any = None) -> str:
         return f"remove_link  link_id={op.link_id}"
     if isinstance(op, SetModeOp):
         return f"set_mode  uid={op.target.uid!r} → mode={op.mode}"
-    if isinstance(op, SetTitleOp):
-        return f"set_title  uid={op.target.uid!r} → title={op.title!r}"
-    if isinstance(op, ReorderOp):
-        return f"reorder  uid={op.target.uid!r} axis={op.axis}"
     return repr(type(op).__name__)
 
 

@@ -9,7 +9,6 @@ from vibecomfy.porting.edit.ops import (
     DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
     EditOpParseError,
     NodeTarget,
-    SetTitleOp,
     canonical_op_to_dict,
     ensure_root_scoped_delta_envelope,
     normalize_delta_agent_response,
@@ -280,61 +279,47 @@ def test_parse_edit_delta_rejects_invalid_modes(mode: object) -> None:
         parse_edit_delta([{"op": "set_mode", "target": ["", "u1"], "mode": mode}])
 
 
-def test_parse_edit_delta_set_title_roundtrips_canonical() -> None:
-    """set_title parses through the node-target path and round-trips canonically."""
-    payload = {"op": "set_title", "target": ["", "mute-node"], "title": "TestNode"}
-    op = parse_edit_delta([payload])[0]
-
-    assert isinstance(op, SetTitleOp)
-    assert op.target == NodeTarget(scope_path="", uid="mute-node")
-    assert op.title == "TestNode"
-    assert canonical_op_to_dict(op) == payload
-    assert op_to_dict(op) == payload
-
-
-def test_set_title_normalizes_through_canonical_envelope() -> None:
-    """A set_title op survives a full canonical envelope round-trip."""
-    payload = {
-        "schema_version": "2.0.0",
-        "ops": [{"op": "set_title", "target": ["", "mute-node"], "title": "TestNode"}],
-    }
-    envelope = normalize_delta_envelope(payload)
-    assert envelope.to_dict() == payload
-
-
-@pytest.mark.parametrize("title", ["", 42, None])
-def test_parse_edit_delta_rejects_invalid_titles(title: object) -> None:
-    with pytest.raises(EditOpParseError, match="title"):
-        parse_edit_delta([{"op": "set_title", "target": ["", "u1"], "title": title}])
-
-
 @pytest.mark.parametrize(
     ("payload", "match"),
     [
         (
             [{"op": "reorder", "target": ["", "u1"], "axis": "fields", "order": ["seed"]}],
-            r"axis must be one of: slots, widgets",
+            r"Unsupported edit op 'reorder'",
         ),
         (
             [{"op": "reorder", "target": ["", "u1"], "axis": "widgets", "order": [0, 1]}],
-            r"order\[0\] must be a string",
+            r"Unsupported edit op 'reorder'",
         ),
         (
             [{"op": "reorder", "target": ["", "u1"], "axis": "slots", "order": []}],
-            r"order must not be empty",
+            r"Unsupported edit op 'reorder'",
         ),
         (
             [{"op": "reorder", "target": ["", "u1"], "axis": "widgets", "order": ["seed", "seed"]}],
-            r"order must not contain duplicate entries",
+            r"Unsupported edit op 'reorder'",
+        ),
+        (
+            [{"op": "set_title", "target": ["", "u1"], "title": "TestNode"}],
+            r"Unsupported edit op 'set_title'",
         ),
     ],
 )
-def test_parse_edit_delta_rejects_unsupported_reorder_forms(
+def test_parse_edit_delta_rejects_legacy_reorder_and_set_title(
     payload: list[dict[str, object]],
     match: str,
 ) -> None:
     with pytest.raises(EditOpParseError, match=match):
         parse_edit_delta(payload)
+
+
+def test_legacy_ops_rejected_through_canonical_envelope() -> None:
+    """set_title/reorder no longer survive the canonical envelope round-trip."""
+    payload = {
+        "schema_version": "2.0.0",
+        "ops": [{"op": "set_title", "target": ["", "mute-node"], "title": "TestNode"}],
+    }
+    with pytest.raises(EditOpParseError, match=r"Unsupported edit op 'set_title'"):
+        normalize_delta_envelope(payload)
 
 
 @pytest.mark.parametrize(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .ledger import EditLedger
-from .ops import AddNodeOp, AnchorRef, ReorderOp
+from .ops import AddNodeOp, AnchorRef
 from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
 from vibecomfy.porting.edit._ir_utils import _canonical_input_name_for_class, _input_spec_for_field
 from vibecomfy.porting.edit.apply_field_aliases import (
@@ -14,7 +14,7 @@ from vibecomfy.porting.edit.apply_field_aliases import (
 )
 from vibecomfy.porting.edit.apply_place import _group_index_by_title
 from vibecomfy.porting.edit.apply_resolve_base import _resolve_node, _resolve_scope, _resolve_source_endpoint
-from vibecomfy.porting.edit.apply_slots import _linked_widget_names, _reorder_names
+
 from vibecomfy.porting.edit.apply_types import (
     ResolvedAddNodeSpec,
     ResolvedLinkEndpoint,
@@ -514,72 +514,7 @@ def _dynamic_add_node_input_spec(
     return InputSpec(type=socket_type, required=True)
 
 
-def _resolve_reorder(
-    ledger: EditLedger,
-    op: ReorderOp,
-) -> tuple[ResolvedOp | None, list[PortIssue]]:
-    if op.axis != "widgets":
-        return None, [
-            _issue(
-                "unsupported_reorder_form",
-                "Phase 1 reorder supports only cosmetic unlinked widget value permutations; structural slot reorder is rejected.",
-                detail={"scope_path": op.target.scope_path, "uid": op.target.uid, "axis": op.axis},
-            )
-        ]
-    node_ref, issues = _resolve_node(ledger, op.target)
-    if issues:
-        return None, issues
-    assert node_ref is not None
-    raw = node_ref.node.get("widgets_values")
-    if not isinstance(raw, list):
-        return None, [
-            _issue(
-                "unsupported_reorder_axis",
-                f"{node_ref.class_type} has no reorderable widget surface.",
-                detail={"scope_path": op.target.scope_path, "uid": op.target.uid, "axis": op.axis},
-            )
-        ]
-    names = _reorder_names(node_ref.node, node_ref.class_type, op.axis)
-    if names is None:
-        return None, [
-            _issue(
-                "unsupported_reorder_axis",
-                f"{node_ref.class_type} has no named reorderable {op.axis} surface.",
-                detail={"scope_path": op.target.scope_path, "uid": op.target.uid, "axis": op.axis},
-            )
-        ]
-    if tuple(op.order) == tuple(names):
-        return node_ref, []
-    if len(op.order) != len(names) or set(op.order) != set(names):
-        return None, [
-            _issue(
-                "unsupported_reorder_form",
-                "reorder must be a complete permutation of the existing named widget or output slots.",
-                detail={
-                    "scope_path": op.target.scope_path,
-                    "uid": op.target.uid,
-                    "axis": op.axis,
-                    "expected": list(names),
-                    "actual": list(op.order),
-                },
-            )
-        ]
-    linked_widgets = _linked_widget_names(node_ref.node.get("inputs"))
-    linked_ordered_widgets = [name for name in op.order if name in linked_widgets]
-    if linked_ordered_widgets:
-        return None, [
-            _issue(
-                "unsupported_reorder_form",
-                "Phase 1 reorder only supports unlinked widget values; linked widget inputs must be edited with link ops first.",
-                detail={
-                    "scope_path": op.target.scope_path,
-                    "uid": op.target.uid,
-                    "axis": op.axis,
-                    "linked_widgets": linked_ordered_widgets,
-                },
-            )
-        ]
-    return node_ref, []
+
 
 
 def _resolve_add_node_anchor(
