@@ -581,6 +581,48 @@ def _emission_order(wf: Any) -> list[str]:
     return sorted(wf.nodes.keys(), key=key)
 
 
+def _flat_layout_workflow(
+    wf: Any,
+    virtual_wire_ids: set[str],
+    flat_edges: list[Any],
+) -> Any:
+    """Return a shallow flat-graph view of *wf* for layout computation.
+
+    Flat mode (``include_virtual_wires=False``) drops virtual-wire nodes
+    (SetNode/GetNode/Reroute) from the emitted node list and resolves their
+    edges into direct links.  The layout engine must therefore compute
+    positions against the same flat projection — otherwise a workflow whose
+    helpers were retained in the IR (``--keep-virtual-wires``) would lay out
+    real nodes at different layers/lanes than an identical flat graph whose
+    helpers were resolved during conversion, breaking flat round-trip
+    byte-equivalence (``test_keep_virtual_wires_round_trip``).
+
+    The view is a shallow ``dataclasses.replace``: node objects, inputs and
+    metadata are shared with the original workflow (never mutated by the
+    engine); only the node dict and edge list are the flat projection.  Node
+    uids are preserved, so ``engine_positions[uid]`` still resolves for every
+    surviving node in the caller's ``order_list``.
+    """
+    import dataclasses  # noqa: PLC0415
+
+    flat_nodes = {
+        node_id: node
+        for node_id, node in wf.nodes.items()
+        if node_id not in virtual_wire_ids
+    }
+    flat_inputs = {
+        name: value
+        for name, value in (getattr(wf, "inputs", None) or {}).items()
+        if str(getattr(value, "node_id", "") or "") in flat_nodes
+    }
+    return dataclasses.replace(
+        wf,
+        nodes=flat_nodes,
+        edges=list(flat_edges),
+        inputs=flat_inputs,
+    )
+
+
 def _build_id_remap(order_list: list[str]) -> dict[str, int]:
     """Map string VibeNode ids → litegraph integer node ids.
 
@@ -2598,8 +2640,19 @@ def emit_ui_json(
     for k, v in computed_anchors.items():
         effective_anchors.setdefault(k, v)
 
+    # Flat mode (include_virtual_wires=False): the layout engine must compute
+    # positions against the FLAT execution graph — virtual-wire nodes removed,
+    # broadcast/Reroute edges already resolved — so emitted geometry is a pure
+    # function of the flat graph.  Without this, a workflow whose helpers were
+    # retained in the IR (--keep-virtual-wires) would lay out real nodes at
+    # different layers/lanes than the same flat graph whose helpers were
+    # resolved during conversion, breaking flat round-trip byte-equivalence.
+    _layout_wf = wf
+    if not include_virtual_wires and virtual_wire_ids:
+        _layout_wf = _flat_layout_workflow(wf, virtual_wire_ids, display_edges)
+
     _engine_result = _compute_layout(
-        wf,
+        _layout_wf,
         schema_provider=schema_provider,
         schema_cache=schema_cache,
         pinned=pinned_for_engine,
