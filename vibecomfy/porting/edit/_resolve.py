@@ -989,36 +989,20 @@ class _ResolveMixin:
             self._tool_surface = surface
         return surface
 
-    def _bind_graph_name(self, name: str, uid: str, scope_path: str = "") -> None:
-        """Record an agent-chosen binding ON the node (IR-derivable, Law 5).
-
-        Batch 4: no session name locks.  The binding is written into the
-        ledger node's ``properties.vibecomfy_binding`` so the retained IR
-        (refreshed from the working UI once per committed batch) carries it
-        and the pure naming function re-emits the same name on later turns
-        and stages.
-        """
-        node = self.ledger.resolve_node(scope_path or "", uid)
-        if node is None:
-            for (candidate_scope, candidate_uid), candidate in self.ledger.node_index.items():
-                if candidate_uid == uid:
-                    node = candidate
-                    break
-        if isinstance(node, dict):
-            properties = node.setdefault("properties", {})
-            if isinstance(properties, dict):
-                properties["vibecomfy_binding"] = name
-        # Keep the working_ui copy in sync so the per-batch IR refresh
-        # (from_ui(working_ui)) carries the binding into the retained IR.
-        ui_node = self.ledger.resolve_node(scope_path or "", uid)
-        if ui_node is not None and ui_node is not node:
-            ui_properties = ui_node.setdefault("properties", {})
-            if isinstance(ui_properties, dict):
-                ui_properties["vibecomfy_binding"] = name
-        self.unbound_names.discard(name)
-
     def _mark_name_unbound(self, name: str) -> None:
         self.unbound_names.add(name)
+
+    def _register_transient_name(self, name: str, uid: str) -> None:
+        """Transient within-batch name registration (Law 5, batch 4).
+
+        Bridges an add-node statement's ``target_name`` to its minted uid
+        for LATER statements in the SAME batch.  Nothing is written to the
+        ledger/working_ui and the pure naming function never consults this
+        index, so no stored binding and no session lock exists.
+        """
+        self._transient_name_index[name] = uid
+        self._transient_uid_index[uid] = name
+        self.unbound_names.discard(name)
 
     def _resolve_add_node_statement(
         self,
@@ -1444,6 +1428,10 @@ class _ResolveMixin:
                 )
             ]
         uid = self.uid_by_name.get(name)
+        if uid is None:
+            # Batch 4 (Law 5): transient within-batch registration for a
+            # node minted by an earlier add-node statement in this batch.
+            uid = self._transient_name_index.get(name)
         if uid is None:
             return None, [
                 _diag(

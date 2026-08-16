@@ -35,8 +35,6 @@ __all__ = [
     # variable-name helpers
     "_UUID_RE",
     "_safe_var",
-    "_connection_role_name",
-    "_empty_text_role",
     "_id_sort_key",
     "_topological_node_order",
     "_compute_variable_names",
@@ -174,35 +172,6 @@ def _safe_var(class_type: str) -> str:
     return name
 
 
-def _connection_role_name(workflow_nodes: dict[str, Any], edges_out: dict[str, list[tuple[str, str]]]) -> dict[str, str]:
-    roles: dict[str, str] = {}
-    for src_node_id, node in workflow_nodes.items():
-        if node.class_type != "CLIPTextEncode":
-            continue
-        for to_node, to_input in edges_out.get(src_node_id, []):
-            target = workflow_nodes.get(to_node)
-            if target is None:
-                continue
-            if target.class_type == "KSampler" and to_input in ("positive", "negative"):
-                roles[src_node_id] = to_input
-                break
-            if target.class_type in ("CFGGuider", "MultimodalGuider") and to_input in ("positive", "negative"):
-                roles[src_node_id] = to_input
-                break
-    return roles
-
-
-def _empty_text_role(workflow_nodes: dict[str, Any]) -> dict[str, str]:
-    roles: dict[str, str] = {}
-    for nid, node in workflow_nodes.items():
-        if node.class_type != "CLIPTextEncode":
-            continue
-        text_value = node.inputs.get("text", node.widgets.get("text", node.widgets.get("widget_0")))
-        if isinstance(text_value, str) and text_value.strip() == "":
-            roles.setdefault(nid, "negative")
-    return roles
-
-
 def _id_sort_key(nid: str) -> tuple[Any, ...]:
     parts = str(nid).split(":")
     if all(part.isdigit() for part in parts):
@@ -235,51 +204,15 @@ def _topological_node_order(nodes: dict[str, Any], edges_in: dict[str, list[Any]
     return out
 
 
-def _recorded_binding_for_node(node: Any) -> str | None:
-    """Agent-chosen binding recorded on the IR node, if any.
-
-    Written by ``EditSession._bind_graph_name`` onto the ledger node's
-    ``properties.vibecomfy_binding`` and carried into the IR via the
-    ``_ui`` metadata the ingest door preserves.  Also accepts a top-level
-    ``metadata[\"binding_name\"]`` for hand-built graphs.
-    """
-    metadata = getattr(node, "metadata", None)
-    if isinstance(metadata, Mapping):
-        raw_ui = metadata.get("_ui")
-        if isinstance(raw_ui, Mapping):
-            properties = raw_ui.get("properties")
-            if isinstance(properties, Mapping):
-                binding = properties.get("vibecomfy_binding")
-                if isinstance(binding, str) and binding:
-                    return binding
-        binding = metadata.get("binding_name")
-        if isinstance(binding, str) and binding:
-            return binding
-    return None
-
-
-def _recorded_binding_from_raw(node: Mapping[str, Any]) -> str | None:
-    """Agent-chosen binding recorded on a raw LiteGraph ledger node."""
-    properties = node.get("properties")
-    if isinstance(properties, Mapping):
-        binding = properties.get("vibecomfy_binding")
-        if isinstance(binding, str) and binding:
-            return binding
-    return None
-
-
 def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) -> dict[str, str]:
-    edges_out: dict[str, list[tuple[str, str]]] = {}
-    for edge in edges:
-        edges_out.setdefault(edge.from_node, []).append((edge.to_node, edge.to_input))
-
-    role_conn = _connection_role_name(workflow_nodes, edges_out)
-    role_empty = _empty_text_role(workflow_nodes)
-
     # Deterministic order: uid first (Law 5 — binding names are a pure
     # function of (class_type, uid-order), stable across node-id remaps,
     # turns and stages), with the node id as a deterministic tie-break for
-    # the rare uid-less node.  No session state participates.
+    # the rare uid-less node.  No session state, no stored binding, and no
+    # connection-role preference participates: the emitted name for a node
+    # is derived ONLY from class_type + uid order (with deterministic
+    # collision suffixes: two VHS_LoadVideo nodes emit vhs_loadvideo and
+    # vhs_loadvideo_2).
     def _uid_order_key(nid: str) -> tuple[Any, ...]:
         node = workflow_nodes[nid]
         uid = str(getattr(node, "uid", "") or "")
@@ -291,11 +224,7 @@ def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) ->
     var_names: dict[str, str] = {}
     for nid in sorted_ids:
         node = workflow_nodes[nid]
-        recorded = _recorded_binding_for_node(node)
-        if recorded is not None:
-            base = recorded
-        else:
-            base = role_conn.get(nid) or role_empty.get(nid) or _safe_var(node.class_type)
+        base = _safe_var(node.class_type)
         used[base] = used.get(base, 0) + 1
         var_names[nid] = base if used[base] == 1 else f"{base}_{used[base]}"
     return var_names

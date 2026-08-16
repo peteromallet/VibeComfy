@@ -116,6 +116,64 @@ class RawWidgetPayload:
     length: int
 
 
+# ---------------------------------------------------------------------------
+# Node mode (Law 5, batch 4): the IR stores the semantic NodeMode enum; the
+# LiteGraph integer (0/2/4) is only an emit-time derivation.  Defined before
+# VibeNode so the dataclass default can reference the enum directly.
+# ---------------------------------------------------------------------------
+
+_MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
+_MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
+
+
+class NodeMode(str, Enum):
+    """Semantic node mode carried by the IR (Law 5, batch 4).
+
+    ``VibeNode.mode`` stores the semantic value; the LiteGraph integer
+    (0/2/4) is only an emit-time derivation via :func:`mode_to_litegraph`.
+    """
+
+    ENABLED = "enabled"
+    MUTED = "muted"
+    BYPASSED = "bypassed"
+
+
+def mode_to_litegraph(mode: Any) -> int:
+    """Derive the LiteGraph mode integer (0/2/4) from the IR semantic value."""
+    if isinstance(mode, NodeMode):
+        if mode is NodeMode.MUTED:
+            return _MODE_MUTED
+        if mode is NodeMode.BYPASSED:
+            return _MODE_BYPASS
+        return 0
+    if isinstance(mode, str):
+        if mode == "muted":
+            return _MODE_MUTED
+        if mode == "bypassed":
+            return _MODE_BYPASS
+        return 0
+    if isinstance(mode, int):
+        # Legacy/hand-built nodes may still carry the raw integer.
+        return mode if mode in (0, _MODE_MUTED, _MODE_BYPASS) else 0
+    return 0
+
+
+def litegraph_to_mode(mode: Any) -> NodeMode:
+    """Convert a LiteGraph mode integer (or already-semantic value) to NodeMode."""
+    if isinstance(mode, NodeMode):
+        return mode
+    if isinstance(mode, str):
+        try:
+            return NodeMode(mode)
+        except ValueError:
+            return NodeMode.ENABLED
+    if mode == _MODE_MUTED:
+        return NodeMode.MUTED
+    if mode == _MODE_BYPASS:
+        return NodeMode.BYPASSED
+    return NodeMode.ENABLED
+
+
 @dataclass(slots=True)
 class VibeNode:
     id: str
@@ -126,7 +184,7 @@ class VibeNode:
     metadata: dict[str, Any] = field(default_factory=dict)
     uid: str = ""
     raw_widgets: RawWidgetPayload | None = None
-    mode: "NodeMode | int | str" = "enabled"
+    mode: "NodeMode" = NodeMode.ENABLED
     pos: list[float] | None = None
     size: list[float] | None = None
 
@@ -1323,70 +1381,20 @@ def _compile_intent_runtime_inputs(node: VibeNode) -> dict[str, Any]:
     return compiled
 
 
-_MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
-_MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
-
-
-class NodeMode(str, Enum):
-    """Semantic node mode carried by the IR (Law 5, batch 4).
-
-    ``VibeNode.mode`` stores the semantic value; the LiteGraph integer
-    (0/2/4) is only an emit-time derivation via :func:`mode_to_litegraph`.
-    """
-
-    ENABLED = "enabled"
-    MUTED = "muted"
-    BYPASSED = "bypassed"
-
-
-def mode_to_litegraph(mode: Any) -> int:
-    """Derive the LiteGraph mode integer (0/2/4) from the IR semantic value."""
-    if isinstance(mode, NodeMode):
-        if mode is NodeMode.MUTED:
-            return _MODE_MUTED
-        if mode is NodeMode.BYPASSED:
-            return _MODE_BYPASS
-        return 0
-    if isinstance(mode, str):
-        if mode == "muted":
-            return _MODE_MUTED
-        if mode == "bypassed":
-            return _MODE_BYPASS
-        return 0
-    if isinstance(mode, int):
-        # Legacy/hand-built nodes may still carry the raw integer.
-        return mode if mode in (0, _MODE_MUTED, _MODE_BYPASS) else 0
-    return 0
-
-
-def litegraph_to_mode(mode: Any) -> NodeMode:
-    """Convert a LiteGraph mode integer (or already-semantic value) to NodeMode."""
-    if isinstance(mode, NodeMode):
-        return mode
-    if isinstance(mode, str):
-        try:
-            return NodeMode(mode)
-        except ValueError:
-            return NodeMode.ENABLED
-    if mode == _MODE_MUTED:
-        return NodeMode.MUTED
-    if mode == _MODE_BYPASS:
-        return NodeMode.BYPASSED
-    return NodeMode.ENABLED
-
-
 def _get_node_mode(node: VibeNode) -> int:
     """Read the litegraph mode (0/2/4); ``node.mode`` is the authority.
 
     ``node.mode`` holds the semantic :class:`NodeMode`; the integer is
-    derived here at emit/compile time.  Legacy fallback: hand-built nodes
-    that predate the field signal mode via ``metadata[\"_ui\"][\"mode\"]``;
-    it is consulted only when the field is unset (ENABLED).  Ingest and
+    derived here at emit/compile time.  Batch 4 (Law 5): ENABLED is a REAL
+    value — ``mode=ENABLED`` + ``_ui.mode=4`` compiles as enabled because
+    the IR field is authoritative and the legacy ``_ui`` fallback is only
+    consulted when the field is genuinely unset (``None``).  Ingest and
     envelope decode always populate the field, so production graphs read
     the field.
     """
-    if getattr(node, "mode", None) not in (None, NodeMode.ENABLED, "enabled", 0):
-        return mode_to_litegraph(node.mode)
+    mode = getattr(node, "mode", None)
+    if mode is not None:
+        return mode_to_litegraph(mode)
     ui = node.metadata.get("_ui")
     if not isinstance(ui, dict):
         return 0

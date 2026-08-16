@@ -20,9 +20,9 @@ class WidgetNameResolution:
 
 
 _WIDGET_KEY_RE = re.compile(r"widget_(\d+)")
-# Law 5 (batch 4): positional widget_N aliases are never emitted; the
-# deterministic slot_N fallback resolves to the same compact index.
-_WIDGET_SLOT_FALLBACK_RE = re.compile(r"slot_(\d+)")
+# Law 5 (batch 4): positional widget_N/slot_N aliases are never emitted and
+# carry no resolver — an unnameable widget is addressed by its named field
+# or fails loudly as widget_unknown, never by a positional shim.
 _MISSING_WIDGET_VALUE = object()
 _CONTROL_AFTER_GENERATE_VALUES = {"fixed", "randomize", "increment", "decrement"}
 _PRIMITIVE_CONTROL_WIDGET_CLASSES = {"PrimitiveBoolean", "PrimitiveFloat", "PrimitiveInt"}
@@ -64,7 +64,7 @@ def widget_index_for_field(
     schema_provider: Any | None = None,
 ) -> int | None:
     count = _compact_value_count(node, None)
-    match = _WIDGET_KEY_RE.fullmatch(field_name) or _WIDGET_SLOT_FALLBACK_RE.fullmatch(field_name)
+    match = _WIDGET_KEY_RE.fullmatch(field_name)
     if match is not None:
         index = int(match.group(1))
         if count is None or 0 <= index < count:

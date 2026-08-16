@@ -19740,14 +19740,11 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
     assert session.touched_node_ids == snapshot["touched_node_ids"]
     # Batch 4: name locks are derived from the IR, not session state — the
     # snapshot records None (nothing to restore) and the live maps must equal
-    # the deterministic derivation (pure function of class_type + uid-order,
-    # plus any binding recorded on the node) from the restored IR/ledger.
+    # the deterministic derivation (pure function of class_type + uid-order)
+    # from the restored IR.  No stored binding is consulted.
     assert snapshot["uid_by_name"] is None
     assert snapshot["name_by_uid"] is None
-    from vibecomfy.porting.emit.emit_kwargs import (
-        _compute_variable_names,
-        _recorded_binding_from_raw,
-    )
+    from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 
     expected_uid_to_name: dict[str, str] = {}
     workflow = snapshot.get("workflow")
@@ -19758,12 +19755,6 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
             uid = str(getattr(node, "uid", "") or "")
             if uid:
                 expected_uid_to_name.setdefault(uid, name)
-    for (_scope_path, uid), node in getattr(session.ledger, "node_index", {}).items():
-        if not isinstance(node, dict):
-            continue
-        binding = _recorded_binding_from_raw(node)
-        if binding:
-            expected_uid_to_name.setdefault(uid, binding)
     assert session.uid_by_name == {
         name: uid for uid, name in expected_uid_to_name.items()
     }

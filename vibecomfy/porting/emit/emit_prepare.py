@@ -179,18 +179,28 @@ _PORT_TYPE_TOKEN_RE = re.compile(r"[^A-Z0-9_]+")
 
 
 def _schema_status_from_node(node: Any) -> str:
-    """Schema status (known/provisional/unknown) derivable from the IR node."""
+    """Schema status (known/provisional/unknown) derivable from the IR node.
+
+    Batch 4 (Law 5): ingest stores ``metadata["schema_source"]`` as a
+    Mapping (``{"provider": ..., "path": ..., ...}`` — see
+    ``ingest.normalize._schema_source_provenance``), so the status must be
+    computed from the Mapping form, never ``str()``-ed (which would turn
+    every provenance dict into a non-matching "known" string).  Mirrors
+    ``ingest.normalize._door_schema_status`` so ingest and emit agree on
+    the same IR.
+    """
     metadata = getattr(node, "metadata", None)
     if not isinstance(metadata, Mapping):
         return "unknown"
-    source = str(metadata.get("schema_source") or "")
+    source = metadata.get("schema_source")
+    if not isinstance(source, Mapping):
+        return "unknown"
+    provider = str(source.get("provider", "") or "")
     ignored = metadata.get("schema_ignored") or metadata.get("ignored_evidence") or ()
     ignored = {str(item) for item in ignored}
-    if source in _PROVISIONAL_SCHEMA_SOURCES or "not_runtime_validated" in ignored:
+    if provider in _PROVISIONAL_SCHEMA_SOURCES or "not_runtime_validated" in ignored:
         return "provisional"
-    if source:
-        return "known"
-    return "unknown"
+    return "known" if provider else "unknown"
 
 
 def _port_type_token(socket_type: Any) -> str | None:
@@ -254,16 +264,45 @@ def _agent_edit_output_ports(node: Any) -> dict[int, str]:
 
     The port name embeds the socket type (``IMAGE_0``, ``LATENT_1``) so the
     edit surface carries the type on every synthetic output reference.
-    Positional ``output_N`` aliases are never emitted (Law 5, batch 4).
+    Positional ``output_N`` aliases are never emitted, and a spec with no
+    type/name evidence gets the typed ``unknown`` port (``unknown_0``) —
+    never ``PORT_n`` (Law 5, batch 4).
     """
     ports: dict[int, str] = {}
     for spec in _node_output_specs(node):
         token = _port_type_token(spec["type"])
         if token is None:
             name_token = _port_type_token(spec["name"])
-            token = name_token if name_token is not None else "PORT"
+            token = name_token if name_token is not None else "unknown"
         ports[spec["index"]] = f"{token}_{spec['index']}"
     return ports
+
+
+def _agent_edit_output_port_for_ref(node: Any, ports: Mapping[int, str], output_ref: Any) -> str:
+    """Resolve a raw output reference to its deterministic named typed port.
+
+    A named ``from_output`` (e.g. ``"MASK"``) is resolved by NAME against the
+    node's output specs — never int()-coerced to slot 0 — so the edge emits
+    ``MASK_0`` (the named typed port), not a positional alias.  Numeric
+    references resolve by slot index.  A missing spec produces the typed
+    ``unknown`` port (``unknown_0`` / ``unknown_N``) with the node's schema
+    status carried by the slots comment — never ``PORT_n`` (Law 5, batch 4).
+    """
+    specs = _node_output_specs(node)
+    by_name = {str(spec["name"]): spec for spec in specs if spec["name"]}
+    ref = str(output_ref)
+    if ref in by_name:
+        index = by_name[ref]["index"]
+        return ports.get(index, f"unknown_{index}")
+    try:
+        slot = int(ref)
+    except (TypeError, ValueError):
+        slot = None
+    if slot is not None and slot in ports:
+        return ports[slot]
+    if slot is not None:
+        return f"unknown_{slot}"
+    return "unknown_0"
 
 
 def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
@@ -423,12 +462,12 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             raw_name = str(edge.to_input)
             alias = input_aliases.get(raw_name, to_python_identifier(raw_name))
             source_var = var_names.get(str(edge.from_node), _safe_var(str(edge.from_node)))
-            try:
-                from_slot = int(edge.from_output)
-            except (TypeError, ValueError):
-                from_slot = 0
-            source_ports = _agent_edit_output_ports(workflow_nodes[str(edge.from_node)])
-            source_alias = source_ports.get(from_slot, f"PORT_{from_slot}")
+            source_node = workflow_nodes[str(edge.from_node)]
+            source_ports = _agent_edit_output_ports(source_node)
+            # Batch 4 (Law 5): a named from_output ("MASK") resolves by NAME
+            # to its deterministic named typed port (MASK_0); a missing spec
+            # yields the typed unknown port — never PORT_n, never slot 0.
+            source_alias = _agent_edit_output_port_for_ref(source_node, source_ports, edge.from_output)
             kwargs.append((alias, f"{source_var}.{source_alias}", raw_name))
 
         for raw_name, value in sorted(node.inputs.items(), key=lambda item: str(item[0])):
@@ -453,9 +492,13 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
                     if index < len(names) and names[index] is not None:
                         resolved_key = str(names[index])
                     else:
-                        # Positional widget_N aliases are never emitted
-                        # (Law 5, batch 4): deterministic slot_N fallback.
-                        resolved_key = f"slot_{index}"
+                        # Batch 4 (Law 5): positional widget_N/slot_N aliases
+                        # are never emitted.  An unnameable widget gets the
+                        # typed widget_unknown marker (the surface carries
+                        # name_confidence: none via schema status) so a
+                        # follow-up edit fails loudly instead of silently
+                        # aliasing the wrong positional slot.
+                        resolved_key = "widget_unknown"
             alias = input_aliases.get(raw_key) or input_aliases.get(resolved_key) or to_python_identifier(resolved_key)
             kwargs.append((alias, _format_value(value, elide_strings_over=_AGENT_EDIT_STRING_ELIDE_THRESHOLD), resolved_key))
 

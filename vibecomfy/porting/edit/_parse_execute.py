@@ -334,8 +334,13 @@ class _ParseExecuteMixin:
                 resolved = applied.resolved_ops[0][1] if applied.resolved_ops else None
                 minted_uid = getattr(resolved, "uid", None)
                 minted_scope_path = getattr(resolved, "scope_path", None)
-                if isinstance(target_name, str) and isinstance(minted_uid, str) and isinstance(minted_scope_path, str):
-                    self._bind_graph_name(target_name, minted_uid, scope_path=minted_scope_path)
+                if isinstance(minted_uid, str) and isinstance(minted_scope_path, str):
+                    # Batch 4 (Law 5): no session name locks and no binding
+                    # write — the emitted name is a pure function of
+                    # (class_type, uid-order).  Only a TRANSIENT within-batch
+                    # registration is recorded so later statements in the
+                    # same batch can reference the minted node.
+                    self._register_transient_name(target_name, minted_uid)
                     detail["minted_uid"] = minted_uid
                     detail["minted_scope_path"] = minted_scope_path
 

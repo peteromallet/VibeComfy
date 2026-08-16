@@ -150,6 +150,15 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             else None
         )
         self.unbound_names: set[str] = set()
+        # Batch 4 (Law 5): TRANSIENT within-batch name index.  When an
+        # add-node statement lands, its target_name is registered here so
+        # LATER statements in the same batch can reference the minted node.
+        # It is never written to the ledger/working_ui, never consulted by
+        # the pure naming function, and carries no binding semantics — a
+        # fresh session (or render) resolves names purely by
+        # (class_type, uid-order) again.
+        self._transient_name_index: dict[str, str] = {}
+        self._transient_uid_index: dict[str, str] = {}
         self.render_count = 0
         self.last_rendered_source: str | None = None
         self.last_rendered_workflow: VibeWorkflow | None = None
@@ -167,16 +176,12 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.resolved_ops: list[Any] = []
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
-    # name_by_uid / uid_by_name are READ-ONLY derivations from the IR +
-    # ledger (the emitted name is a pure function of (class_type,
-    # uid-order); agent-chosen names are recorded on the node itself as
-    # properties.vibecomfy_binding).  No mutation, no drift.
+    # name_by_uid / uid_by_name are READ-ONLY derivations from the IR (the
+    # emitted name is a pure function of (class_type, uid-order)).  No
+    # mutation, no drift, no stored binding consulted.
 
     def _derived_name_maps(self) -> tuple[dict[str, str], dict[str, str]]:
-        from vibecomfy.porting.emit.emit_kwargs import (
-            _compute_variable_names,
-            _recorded_binding_from_raw,
-        )
+        from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 
         uid_to_name: dict[str, str] = {}
         workflow = getattr(self, "workflow", None)
@@ -190,12 +195,6 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 uid = str(getattr(node, "uid", "") or "")
                 if uid:
                     uid_to_name.setdefault(uid, name)
-        for (_scope_path, uid), node in getattr(self.ledger, "node_index", {}).items():
-            if not isinstance(node, dict):
-                continue
-            binding = _recorded_binding_from_raw(node)
-            if binding:
-                uid_to_name.setdefault(uid, binding)
         name_to_uid: dict[str, str] = {}
         for uid, name in uid_to_name.items():
             name_to_uid.setdefault(name, uid)

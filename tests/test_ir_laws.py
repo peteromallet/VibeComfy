@@ -690,14 +690,116 @@ def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
 
 
 def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+    from vibecomfy.workflow import NodeMode, VibeNode, VibeWorkflow, WorkflowSource, _get_node_mode
+
+    # Golden workflow: two VHS_LoadVideo nodes (deterministic collision
+    # suffix: vhs_loadvideo / vhs_loadvideo_2) wired by a NAMED typed output
+    # ("MASK" → MASK_0), with a schema_source Mapping on each node so the
+    # slots comment carries the explicit schema status.
+    _LAW5_RAW_UI = {
+        "last_node_id": 2,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "VHS_LoadVideo",
+                "pos": [0, 0],
+                "size": [300, 100],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [
+                    {"name": "MASK", "type": "MASK", "links": [1], "slot_index": 0},
+                    {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
+                ],
+                "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-a"},
+                "widgets_values": ["a.mp4", 7],
+            },
+            {
+                "id": 2,
+                "type": "VHS_LoadVideo",
+                "pos": [400, 0],
+                "size": [300, 100],
+                "flags": {},
+                "order": 1,
+                "mode": 0,
+                "inputs": [{"name": "video", "type": "VIDEO", "link": 1}],
+                "outputs": [
+                    {"name": "MASK", "type": "MASK", "links": [], "slot_index": 0},
+                    {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 1},
+                ],
+                "properties": {"Node name for S&R": "VHS_LoadVideo", "vibecomfy_uid": "law5-b"},
+                "widgets_values": ["b.mp4"],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "VIDEO"]],
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+
+    class _Law5Provider:
+        def get_schema(self, ct: str) -> NodeSchema | None:
+            if ct == "VHS_LoadVideo":
+                return NodeSchema(
+                    "VHS_LoadVideo",
+                    "comfy_registry",
+                    {"video": InputSpec("STRING"), "frame_load_cap": InputSpec("INT")},
+                    [OutputSpec("MASK", "MASK"), OutputSpec("IMAGE", "IMAGE")],
+                )
+            return None
+
+    # Stage/turn golden: TWO independent sessions over the same raw UI
+    # (distinct stages/turns, never re-emitting the same object) must render
+    # byte-identical Python — no session name locks participate (batch 4).
+    first_session = EditSession(_LAW5_RAW_UI, schema_provider=_Law5Provider())
+    second_session = EditSession(_LAW5_RAW_UI, schema_provider=_Law5Provider())
+    source_a = first_session.render()
+    source_b = second_session.render()
+    assert source_a == source_b
+
+    # Binding names are a pure function of (class_type, uid-order), stable
+    # across node-id remaps.
     first = _tiny_workflow(node_ids=("1", "2"))
     remapped = _tiny_workflow(node_ids=("20", "10"))
     assert _binding_by_uid(first) == _binding_by_uid(remapped)
-    # Same graph → identical Python across two renders (no session locks).
-    assert emit_agent_edit_python(first) == emit_agent_edit_python(first)
-    # No positional aliases anywhere in the emitted surface.
-    assert "output_" not in emit_agent_edit_python(first)
-    assert "widget_" not in emit_agent_edit_python(first)
+
+    # Named typed ports with schema status are emitted; the named
+    # from_output ("MASK") resolves to MASK_0, never to a positional alias.
+    assert "MASK_0" in source_a
+    assert "slots MASK_0='MASK' known" in source_a
+    assert "vhs_loadvideo.MASK_0" in source_a
+    assert "vhs_loadvideo_2" in source_a  # deterministic collision suffix
+
+    # No positional aliases anywhere in the emitted surface: output_N,
+    # widget_N, PORT_n and the slot_N shim are all forbidden (Law 5, batch 4).
+    for forbidden in ("output_", "widget_", "PORT_", "slot_"):
+        assert forbidden not in source_a
+        assert forbidden not in source_b
+
+    # NodeMode is stored/compared in the IR as the enum, not a str, and
+    # ENABLED is a REAL value: mode=ENABLED + _ui.mode=4 compiles as
+    # enabled because the IR field is authoritative (no silent _ui read).
+    workflow = _tiny_workflow()
+    assert workflow.nodes["1"].mode is NodeMode.ENABLED
+    assert not isinstance(workflow.nodes["1"].mode, str) or isinstance(workflow.nodes["1"].mode, NodeMode)
+    conflict = _tiny_workflow()
+    conflict.nodes["1"].mode = NodeMode.ENABLED
+    conflict.nodes["1"].metadata["_ui"] = {"mode": 4}
+    conflict.edges[0].from_output = "0"
+    assert _get_node_mode(conflict.nodes["1"]) == 0
+    compiled = conflict.compile("api")
+    assert "1" in compiled  # enabled nodes are NOT dropped
+    muted = _tiny_workflow()
+    muted.nodes["1"].mode = NodeMode.MUTED
+    assert _get_node_mode(muted.nodes["1"]) == 2
+    bypassed = _tiny_workflow()
+    bypassed.nodes["1"].mode = NodeMode.BYPASSED
+    assert _get_node_mode(bypassed.nodes["1"]) == 4
 
 
 @pytest.mark.xfail(
