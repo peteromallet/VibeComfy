@@ -21,6 +21,8 @@ class _RenderMixin:
         # (seeded at construction by the agent path, refreshed once per
         # committed batch from the apply engine's candidate).  render() never
         # re-derives the IR from working_ui JSON and never re-ingests.
+        # Batch 4 (Law 5): binding names are a pure function of the IR, so
+        # no name locks are seeded or validated here.
         if self.workflow is None:
             self.workflow = self._workflow_from_ui(self.working_ui)
         workflow = self.workflow
@@ -33,12 +35,11 @@ class _RenderMixin:
             workflow,
             diagnostics=emission_diagnostics,
             raw_workflow=self.working_ui,
-            variable_name_locks=self.name_by_uid or None,
-            strict_variable_name_locks=bool(self.name_by_uid),
         )
         elapsed_ms = (perf_counter() - started) * 1000.0
         parsed_names = _extract_uid_name_pairs(source)
-        lock_diagnostics = self._seed_or_validate_name_locks(parsed_names)
+        for _uid, name in parsed_names:
+            self.unbound_names.discard(name)
         all_diagnostics = [CompactDiagnostic.from_emission(item) for item in emission_diagnostics]
         all_diagnostics.extend(
             _diag(
@@ -53,7 +54,6 @@ class _RenderMixin:
             )
             for item in resolve_diagnostics.diagnostics
         )
-        all_diagnostics.extend(lock_diagnostics)
         if self.render_budget_ms is not None and elapsed_ms > self.render_budget_ms:
             all_diagnostics.append(
                 _diag(

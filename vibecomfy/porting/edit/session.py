@@ -149,8 +149,6 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             if value_default_context is not None
             else None
         )
-        self.name_by_uid: dict[str, str] = {}
-        self.uid_by_name: dict[str, str] = {}
         self.unbound_names: set[str] = set()
         self.render_count = 0
         self.last_rendered_source: str | None = None
@@ -167,6 +165,49 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
+
+    # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
+    # name_by_uid / uid_by_name are READ-ONLY derivations from the IR +
+    # ledger (the emitted name is a pure function of (class_type,
+    # uid-order); agent-chosen names are recorded on the node itself as
+    # properties.vibecomfy_binding).  No mutation, no drift.
+
+    def _derived_name_maps(self) -> tuple[dict[str, str], dict[str, str]]:
+        from vibecomfy.porting.emit.emit_kwargs import (
+            _compute_variable_names,
+            _recorded_binding_from_raw,
+        )
+
+        uid_to_name: dict[str, str] = {}
+        workflow = getattr(self, "workflow", None)
+        if workflow is not None and getattr(workflow, "nodes", None):
+            try:
+                names = _compute_variable_names(workflow.nodes, list(workflow.edges))
+            except Exception:
+                names = {}
+            for nid, name in names.items():
+                node = workflow.nodes.get(nid)
+                uid = str(getattr(node, "uid", "") or "")
+                if uid:
+                    uid_to_name.setdefault(uid, name)
+        for (_scope_path, uid), node in getattr(self.ledger, "node_index", {}).items():
+            if not isinstance(node, dict):
+                continue
+            binding = _recorded_binding_from_raw(node)
+            if binding:
+                uid_to_name.setdefault(uid, binding)
+        name_to_uid: dict[str, str] = {}
+        for uid, name in uid_to_name.items():
+            name_to_uid.setdefault(name, uid)
+        return uid_to_name, name_to_uid
+
+    @property
+    def name_by_uid(self) -> dict[str, str]:
+        return self._derived_name_maps()[0]
+
+    @property
+    def uid_by_name(self) -> dict[str, str]:
+        return self._derived_name_maps()[1]
 
 
 __all__ = [

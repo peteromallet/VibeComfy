@@ -235,6 +235,39 @@ def _topological_node_order(nodes: dict[str, Any], edges_in: dict[str, list[Any]
     return out
 
 
+def _recorded_binding_for_node(node: Any) -> str | None:
+    """Agent-chosen binding recorded on the IR node, if any.
+
+    Written by ``EditSession._bind_graph_name`` onto the ledger node's
+    ``properties.vibecomfy_binding`` and carried into the IR via the
+    ``_ui`` metadata the ingest door preserves.  Also accepts a top-level
+    ``metadata[\"binding_name\"]`` for hand-built graphs.
+    """
+    metadata = getattr(node, "metadata", None)
+    if isinstance(metadata, Mapping):
+        raw_ui = metadata.get("_ui")
+        if isinstance(raw_ui, Mapping):
+            properties = raw_ui.get("properties")
+            if isinstance(properties, Mapping):
+                binding = properties.get("vibecomfy_binding")
+                if isinstance(binding, str) and binding:
+                    return binding
+        binding = metadata.get("binding_name")
+        if isinstance(binding, str) and binding:
+            return binding
+    return None
+
+
+def _recorded_binding_from_raw(node: Mapping[str, Any]) -> str | None:
+    """Agent-chosen binding recorded on a raw LiteGraph ledger node."""
+    properties = node.get("properties")
+    if isinstance(properties, Mapping):
+        binding = properties.get("vibecomfy_binding")
+        if isinstance(binding, str) and binding:
+            return binding
+    return None
+
+
 def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) -> dict[str, str]:
     edges_out: dict[str, list[tuple[str, str]]] = {}
     for edge in edges:
@@ -242,13 +275,27 @@ def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) ->
 
     role_conn = _connection_role_name(workflow_nodes, edges_out)
     role_empty = _empty_text_role(workflow_nodes)
-    sorted_ids = sorted(workflow_nodes.keys(), key=_id_sort_key)
+
+    # Deterministic order: uid first (Law 5 — binding names are a pure
+    # function of (class_type, uid-order), stable across node-id remaps,
+    # turns and stages), with the node id as a deterministic tie-break for
+    # the rare uid-less node.  No session state participates.
+    def _uid_order_key(nid: str) -> tuple[Any, ...]:
+        node = workflow_nodes[nid]
+        uid = str(getattr(node, "uid", "") or "")
+        return (uid or str(nid), _id_sort_key(nid))
+
+    sorted_ids = sorted(workflow_nodes.keys(), key=_uid_order_key)
 
     used: dict[str, int] = {}
     var_names: dict[str, str] = {}
     for nid in sorted_ids:
         node = workflow_nodes[nid]
-        base = role_conn.get(nid) or role_empty.get(nid) or _safe_var(node.class_type)
+        recorded = _recorded_binding_for_node(node)
+        if recorded is not None:
+            base = recorded
+        else:
+            base = role_conn.get(nid) or role_empty.get(nid) or _safe_var(node.class_type)
         used[base] = used.get(base, 0) + 1
         var_names[nid] = base if used[base] == 1 else f"{base}_{used[base]}"
     return var_names

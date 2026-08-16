@@ -25,6 +25,7 @@ from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
 from vibecomfy.workflow import (
+    NodeMode,
     RawWidgetPayload,
     VibeEdge,
     VibeInput,
@@ -35,6 +36,8 @@ from vibecomfy.workflow import (
     WorkflowSource,
     _embedded_api_link_details,
     _embedded_api_link_message,
+    litegraph_to_mode,
+    mode_to_litegraph,
 )
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
@@ -119,7 +122,7 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
             str(node_id),
             str(node.class_type),
             str(node.uid),
-            int(node.mode),
+            mode_to_litegraph(node.mode),
             str(node.pack) if node.pack is not None else None,
             tuple(
                 sorted(
@@ -664,18 +667,24 @@ def _vibe_groups(value: Any) -> list[dict[str, Any]]:
     return deepcopy(value)
 
 
-def _node_mode_from_metadata(metadata: dict[str, Any]) -> int:
+def _node_mode_from_metadata(metadata: dict[str, Any]) -> NodeMode:
     """First-class mode value for a node: ``_ui.mode`` then legacy
-    ``metadata["mode"]``, else 0.  Only ints are accepted."""
+    ``metadata[\"mode\"]``, else ENABLED.  Only ints are accepted from the
+    raw substrate; the IR stores the semantic :class:`NodeMode`."""
     ui = metadata.get("_ui")
     if isinstance(ui, dict):
         ui_mode = ui.get("mode", 0)
         if isinstance(ui_mode, int):
-            return ui_mode
+            return litegraph_to_mode(ui_mode)
     meta_mode = metadata.get("mode")
     if isinstance(meta_mode, int):
-        return meta_mode
-    return 0
+        return litegraph_to_mode(meta_mode)
+    if isinstance(meta_mode, str):
+        try:
+            return NodeMode(meta_mode)
+        except ValueError:
+            return NodeMode.ENABLED
+    return NodeMode.ENABLED
 
 
 def _geometry_pair(value: Any) -> list[float] | None:

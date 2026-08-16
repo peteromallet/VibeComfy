@@ -8842,7 +8842,10 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
     assert len(captured_messages) == 2
     second_user = captured_messages[1][1]["content"]
     node_index = second_user.split("Node variable index:\n```\n", 1)[1].split("\n```", 1)[0]
-    assert "upscaled = ImageScaleBy" in node_index
+    # Batch 4: bindings are a pure function of (class_type, uid-order) — the
+    # node index shows the deterministic name for the new node, not the
+    # agent-chosen alias from the batch source.
+    assert "imagescaleby = ImageScaleBy" in node_index
     assert "loadimage = LoadImage" in node_index
     assert "saveimage = SaveImage" in node_index
     assert "passthroughimage = PassThroughImage" not in node_index
@@ -19735,8 +19738,36 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
     assert session.landed_ops == snapshot["landed_ops"]
     assert session.touched_uids == snapshot["touched_uids"]
     assert session.touched_node_ids == snapshot["touched_node_ids"]
-    assert session.uid_by_name == snapshot["uid_by_name"]
-    assert session.name_by_uid == snapshot["name_by_uid"]
+    # Batch 4: name locks are derived from the IR, not session state — the
+    # snapshot records None (nothing to restore) and the live maps must equal
+    # the deterministic derivation (pure function of class_type + uid-order,
+    # plus any binding recorded on the node) from the restored IR/ledger.
+    assert snapshot["uid_by_name"] is None
+    assert snapshot["name_by_uid"] is None
+    from vibecomfy.porting.emit.emit_kwargs import (
+        _compute_variable_names,
+        _recorded_binding_from_raw,
+    )
+
+    expected_uid_to_name: dict[str, str] = {}
+    workflow = snapshot.get("workflow")
+    if workflow is not None and getattr(workflow, "nodes", None):
+        names = _compute_variable_names(workflow.nodes, list(workflow.edges))
+        for nid, name in names.items():
+            node = workflow.nodes.get(nid)
+            uid = str(getattr(node, "uid", "") or "")
+            if uid:
+                expected_uid_to_name.setdefault(uid, name)
+    for (_scope_path, uid), node in getattr(session.ledger, "node_index", {}).items():
+        if not isinstance(node, dict):
+            continue
+        binding = _recorded_binding_from_raw(node)
+        if binding:
+            expected_uid_to_name.setdefault(uid, binding)
+    assert session.uid_by_name == {
+        name: uid for uid, name in expected_uid_to_name.items()
+    }
+    assert session.name_by_uid == expected_uid_to_name
     assert session.unbound_names == snapshot["unbound_names"]
     assert session.value_default_context == snapshot["value_default_context"]
     assert session.render_count == snapshot["render_count"]

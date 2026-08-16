@@ -160,8 +160,8 @@ class _ParseExecuteMixin:
             "landed_ops": list(self.landed_ops),
             "touched_uids": set(self.touched_uids),
             "touched_node_ids": set(self.touched_node_ids),
-            "uid_by_name": dict(self.uid_by_name),
-            "name_by_uid": dict(self.name_by_uid),
+            "uid_by_name": None,
+            "name_by_uid": None,
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
             "workflow": self.workflow,
@@ -178,8 +178,7 @@ class _ParseExecuteMixin:
         self.landed_ops = list(snapshot["landed_ops"])
         self.touched_uids = set(snapshot["touched_uids"])
         self.touched_node_ids = set(snapshot["touched_node_ids"])
-        self.uid_by_name = dict(snapshot["uid_by_name"])
-        self.name_by_uid = dict(snapshot["name_by_uid"])
+        # Batch 4: name locks are derived (no session state to restore).
         self.unbound_names = set(snapshot["unbound_names"])
         self.value_default_context = snapshot["value_default_context"]
         self.workflow = snapshot["workflow"]
@@ -336,7 +335,7 @@ class _ParseExecuteMixin:
                 minted_uid = getattr(resolved, "uid", None)
                 minted_scope_path = getattr(resolved, "scope_path", None)
                 if isinstance(target_name, str) and isinstance(minted_uid, str) and isinstance(minted_scope_path, str):
-                    self._bind_graph_name(target_name, minted_uid)
+                    self._bind_graph_name(target_name, minted_uid, scope_path=minted_scope_path)
                     detail["minted_uid"] = minted_uid
                     detail["minted_scope_path"] = minted_scope_path
 

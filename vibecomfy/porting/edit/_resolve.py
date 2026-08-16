@@ -79,7 +79,10 @@ from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
 from vibecomfy.porting.resolution import _find_named_slot
 
 _EXEC_CLASS_TYPE = "vibecomfy.exec"
-_OUTPUT_ALIAS_RE = re.compile(r"output_(\d+)\Z")
+# Named typed ports (Law 5, batch 4): ``LATENT_0`` / ``IMAGE_1`` — the
+# deterministic synthetic names the emitter produces.  Positional
+# ``output_N`` aliases are never emitted and no longer resolved.
+_TYPED_PORT_RE = re.compile(r"^[A-Z][A-Z0-9_]*_(\d+)\Z")
 
 
 def _normalize_exec_io_entries(value: Any) -> list[tuple[str, str]]:
@@ -986,21 +989,35 @@ class _ResolveMixin:
             self._tool_surface = surface
         return surface
 
-    def _bind_graph_name(self, name: str, uid: str) -> None:
-        prior_uid = self.uid_by_name.get(name)
-        if prior_uid is not None and self.name_by_uid.get(prior_uid) == name:
-            self.name_by_uid.pop(prior_uid, None)
-        prior_name = self.name_by_uid.get(uid)
-        if prior_name is not None and self.uid_by_name.get(prior_name) == uid:
-            self.uid_by_name.pop(prior_name, None)
-        self.uid_by_name[name] = uid
-        self.name_by_uid[uid] = name
+    def _bind_graph_name(self, name: str, uid: str, scope_path: str = "") -> None:
+        """Record an agent-chosen binding ON the node (IR-derivable, Law 5).
+
+        Batch 4: no session name locks.  The binding is written into the
+        ledger node's ``properties.vibecomfy_binding`` so the retained IR
+        (refreshed from the working UI once per committed batch) carries it
+        and the pure naming function re-emits the same name on later turns
+        and stages.
+        """
+        node = self.ledger.resolve_node(scope_path or "", uid)
+        if node is None:
+            for (candidate_scope, candidate_uid), candidate in self.ledger.node_index.items():
+                if candidate_uid == uid:
+                    node = candidate
+                    break
+        if isinstance(node, dict):
+            properties = node.setdefault("properties", {})
+            if isinstance(properties, dict):
+                properties["vibecomfy_binding"] = name
+        # Keep the working_ui copy in sync so the per-batch IR refresh
+        # (from_ui(working_ui)) carries the binding into the retained IR.
+        ui_node = self.ledger.resolve_node(scope_path or "", uid)
+        if ui_node is not None and ui_node is not node:
+            ui_properties = ui_node.setdefault("properties", {})
+            if isinstance(ui_properties, dict):
+                ui_properties["vibecomfy_binding"] = name
         self.unbound_names.discard(name)
 
     def _mark_name_unbound(self, name: str) -> None:
-        prior_uid = self.uid_by_name.pop(name, None)
-        if prior_uid is not None and self.name_by_uid.get(prior_uid) == name:
-            self.name_by_uid.pop(prior_uid, None)
         self.unbound_names.add(name)
 
     def _resolve_add_node_statement(
@@ -1592,31 +1609,13 @@ class _ResolveMixin:
         except (KeyError, ValueError):
             raw_slot = None
         if raw_slot is None:
-            alias_match = _OUTPUT_ALIAS_RE.fullmatch(slot_attr)
-            if alias_match is not None:
-                alias_index = int(alias_match.group(1))
-                if 0 <= alias_index < len(raw_outputs):
-                    if len(raw_outputs) == 1:
-                        item = raw_outputs[alias_index]
-                        raw_slot = item["name"]
-                    else:
-                        return None, [
-                            _diag(
-                                "ambiguous_output_alias",
-                                (
-                                    f"{node_ref.class_type}.{slot_attr} is a positional output alias, but this node has "
-                                    "multiple named outputs; use the exact output slot name instead."
-                                ),
-                                severity="error",
-                                detail={
-                                    "name": node_ref.name,
-                                    "uid": node_ref.uid,
-                                    "slot": slot_attr,
-                                    "slot_index": alias_index,
-                                    "available_slots": [item["name"] for item in raw_outputs if item["name"]],
-                                },
-                            )
-                        ]
+            port_match = _TYPED_PORT_RE.fullmatch(slot_attr)
+            if port_match is not None:
+                port_index = int(port_match.group(1))
+                by_index = {item["index"]: item for item in raw_outputs}
+                item = by_index.get(port_index)
+                if item is not None:
+                    raw_slot = item["name"] or f"output_{port_index}"
         if raw_slot is None:
             return None, [
                 _diag(

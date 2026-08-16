@@ -23,7 +23,7 @@ from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider, schema_for
 from vibecomfy.schema.provider import InputSpec, NodeSchema
-from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeWorkflow, WorkflowSource, mode_to_litegraph
 
 
 REPO_ROOT = Path(__file__).parents[1]
@@ -279,7 +279,7 @@ def pi_edit(
                 binding,
                 str(node.uid),
                 str(node.class_type),
-                int(node.mode),
+                mode_to_litegraph(node.mode),
                 fields,
             )
         )
@@ -689,14 +689,15 @@ def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
     assert all(judge[key] == reply[key] for key in judge)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 4: bindings become a pure function of class type and uid order",
-)
 def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
     first = _tiny_workflow(node_ids=("1", "2"))
     remapped = _tiny_workflow(node_ids=("20", "10"))
     assert _binding_by_uid(first) == _binding_by_uid(remapped)
+    # Same graph → identical Python across two renders (no session locks).
+    assert emit_agent_edit_python(first) == emit_agent_edit_python(first)
+    # No positional aliases anywhere in the emitted surface.
+    assert "output_" not in emit_agent_edit_python(first)
+    assert "widget_" not in emit_agent_edit_python(first)
 
 
 @pytest.mark.xfail(

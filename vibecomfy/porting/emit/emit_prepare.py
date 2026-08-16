@@ -12,6 +12,7 @@ Public-input helpers and ready-template backend live in emit_ready.py (T8).
 from __future__ import annotations
 
 import keyword
+import re
 import warnings
 from typing import Any, Mapping
 
@@ -169,20 +170,104 @@ def _prepare_workflow_for_emit(
 # Agent-edit helpers (only used by _emit_agent_edit_lines)
 # ---------------------------------------------------------------------------
 
-def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
-    from vibecomfy.identity.codec import encode_slot_names, to_python_identifier
+# Schema-status derivation shared with resolution (batch 4, Law 5): the
+# slots comment carries the explicit status for every named typed port.
+_PROVISIONAL_SCHEMA_SOURCES: frozenset[str] = frozenset(
+    {"comfy_registry_provisional", "workflow_json_provisional"}
+)
+_PORT_TYPE_TOKEN_RE = re.compile(r"[^A-Z0-9_]+")
 
-    output_names = _agent_edit_raw_output_names(node)
-    if not output_names:
-        ui_names = _declared_ui_output_names(node)
-        ui_output_count = len(ui_names) if ui_names else None
-        count = _node_local_arity_check(node, ui_output_count) or 0
-        output_names = {slot: f"output_{slot}" for slot in range(count)}
-    encoded = encode_slot_names(output_names.values())
-    return {
-        slot: encoded.get(raw_name, to_python_identifier(raw_name))
-        for slot, raw_name in output_names.items()
-    }
+
+def _schema_status_from_node(node: Any) -> str:
+    """Schema status (known/provisional/unknown) derivable from the IR node."""
+    metadata = getattr(node, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return "unknown"
+    source = str(metadata.get("schema_source") or "")
+    ignored = metadata.get("schema_ignored") or metadata.get("ignored_evidence") or ()
+    ignored = {str(item) for item in ignored}
+    if source in _PROVISIONAL_SCHEMA_SOURCES or "not_runtime_validated" in ignored:
+        return "provisional"
+    if source:
+        return "known"
+    return "unknown"
+
+
+def _port_type_token(socket_type: Any) -> str | None:
+    """Normalize a socket type into the typed-port token (``LATENT``)."""
+    if socket_type is None:
+        return None
+    token = _PORT_TYPE_TOKEN_RE.sub("_", str(socket_type).strip().upper()).strip("_")
+    return token or None
+
+
+def _node_output_specs(node: Any) -> list[dict[str, Any]]:
+    """Per-slot output specs (index/name/type) from the IR node alone.
+
+    Merges the wire ``_ui.outputs`` rows with schema-backed
+    ``metadata[\"output_names\"]`` / ``metadata[\"output_types\"]`` so the
+    typed port names are deterministic and provider-free at emission.
+    """
+    metadata = getattr(node, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    raw_ui = metadata.get("_ui")
+    ui_outputs = raw_ui.get("outputs") if isinstance(raw_ui, Mapping) else None
+    schema_names = metadata.get("output_names")
+    schema_types = metadata.get("output_types")
+    if not isinstance(schema_names, (list, tuple)):
+        schema_names = []
+    if not isinstance(schema_types, (list, tuple)):
+        schema_types = []
+
+    specs: dict[int, dict[str, Any]] = {}
+    if isinstance(ui_outputs, list):
+        for index, output in enumerate(ui_outputs):
+            if not isinstance(output, Mapping):
+                continue
+            slot = output.get("slot_index", index)
+            try:
+                slot_index = int(slot)
+            except (TypeError, ValueError):
+                slot_index = index
+            name = output.get("name")
+            specs[slot_index] = {
+                "index": slot_index,
+                "name": str(name) if isinstance(name, str) and name else "",
+                "type": str(output.get("type") or "").strip() or None,
+            }
+    for index, name in enumerate(schema_names):
+        entry = specs.setdefault(index, {"index": index, "name": "", "type": None})
+        if not entry["name"] and isinstance(name, str) and name:
+            entry["name"] = name
+    for index, type_name in enumerate(schema_types):
+        entry = specs.setdefault(index, {"index": index, "name": "", "type": None})
+        if entry["type"] is None and type_name not in (None, "*", ""):
+            entry["type"] = str(type_name)
+    if not specs:
+        return []
+    return [specs[index] for index in sorted(specs)]
+
+
+def _agent_edit_output_ports(node: Any) -> dict[int, str]:
+    """Deterministic named typed ports for a node: slot -> ``LATENT_0``.
+
+    The port name embeds the socket type (``IMAGE_0``, ``LATENT_1``) so the
+    edit surface carries the type on every synthetic output reference.
+    Positional ``output_N`` aliases are never emitted (Law 5, batch 4).
+    """
+    ports: dict[int, str] = {}
+    for spec in _node_output_specs(node):
+        token = _port_type_token(spec["type"])
+        if token is None:
+            name_token = _port_type_token(spec["name"])
+            token = name_token if name_token is not None else "PORT"
+        ports[spec["index"]] = f"{token}_{spec['index']}"
+    return ports
+
+
+def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
+    return _agent_edit_output_ports(node)
 
 
 def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
@@ -286,11 +371,17 @@ def _agent_edit_comment(
 
 
 def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -> list[str]:
+    """Named typed ports with explicit schema status: ``LATENT_0='LATENT' known``."""
+    status = _schema_status_from_node(node)
     parts: list[str] = []
     for slot, raw_name in sorted(_agent_edit_raw_output_names(node).items()):
-        alias = output_aliases.get(slot)
-        if alias and alias != raw_name:
-            parts.append(f"{alias}={raw_name!r}")
+        port = output_aliases.get(slot)
+        if port is None:
+            continue
+        parts.append(f"{port}={raw_name!r} {status}")
+    if not parts:
+        for slot, port in sorted(output_aliases.items()):
+            parts.append(f"{port} {status}")
     return parts
 
 
@@ -336,9 +427,8 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
                 from_slot = int(edge.from_output)
             except (TypeError, ValueError):
                 from_slot = 0
-            source_alias = output_aliases.get(str(edge.from_node), {}).get(from_slot)
-            if source_alias is None:
-                source_alias = to_python_identifier(f"output_{from_slot}")
+            source_ports = _agent_edit_output_ports(workflow_nodes[str(edge.from_node)])
+            source_alias = source_ports.get(from_slot, f"PORT_{from_slot}")
             kwargs.append((alias, f"{source_var}.{source_alias}", raw_name))
 
         for raw_name, value in sorted(node.inputs.items(), key=lambda item: str(item[0])):
@@ -362,6 +452,10 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
                     names = compact_widget_names_for_node(node, str(node.class_type)).names
                     if index < len(names) and names[index] is not None:
                         resolved_key = str(names[index])
+                    else:
+                        # Positional widget_N aliases are never emitted
+                        # (Law 5, batch 4): deterministic slot_N fallback.
+                        resolved_key = f"slot_{index}"
             alias = input_aliases.get(raw_key) or input_aliases.get(resolved_key) or to_python_identifier(resolved_key)
             kwargs.append((alias, _format_value(value, elide_strings_over=_AGENT_EDIT_STRING_ELIDE_THRESHOLD), resolved_key))
 
