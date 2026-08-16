@@ -3737,10 +3737,6 @@ def test_s02_property_corpus_workflows_emit_every_edge_or_refuse() -> None:
             )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 2: UI emitter restores exact retained definitions and top-level wire bytes",
-)
 def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
     from vibecomfy.ingest.normalize import from_ui
 
@@ -3757,3 +3753,60 @@ def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def test_ir_door_property_untouched_corpus_round_trips_byte_identically() -> None:
+    """Law 1 property: every untouched corpus specimen (UI + envelope) re-emits
+    byte-identically, while a semantic edit keeps the emit deterministic."""
+    import glob
+
+    from vibecomfy.ingest.normalize import from_envelope as _from_envelope
+    from vibecomfy.ingest.normalize import from_ui as _from_ui
+
+    paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
+    paths.append(str(Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"))
+    paths.append(
+        str(
+            Path(__file__).parent
+            / ".."
+            / "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json"
+        )
+    )
+    checked = 0
+    for path in paths:
+        with open(path) as handle:
+            raw = json.load(handle)
+        if not isinstance(raw.get("nodes"), list):
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wf = _from_ui(raw, source_path=path, use_comfy_converter=False)
+            first = emit_ui_json(wf)
+            second = emit_ui_json(wf)
+        assert json.dumps(first, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+            raw, ensure_ascii=False, separators=(",", ":")
+        ), f"{path}: untouched graph did not round-trip byte-identically"
+        # Determinism holds for the untouched graph as well.
+        assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+        # A semantic edit keeps the emit deterministic (Law 1 wire preference).
+        edited = wf.copy()
+        first_node_id = next(iter(edited.nodes))
+        node = edited.nodes[first_node_id]
+        if node.inputs:
+            key = next(iter(node.inputs))
+            node.inputs[key] = "door-edit"
+        elif node.widgets:
+            key = next(iter(node.widgets))
+            node.widgets[key] = "door-edit"
+        else:
+            node.inputs["door_edit_probe"] = 1
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            e1 = emit_ui_json(edited)
+            e2 = emit_ui_json(edited)
+        assert json.dumps(e1, sort_keys=True) == json.dumps(e2, sort_keys=True), (
+            f"{path}: edited graph emit is not deterministic"
+        )
+        checked += 1
+    assert checked > 0

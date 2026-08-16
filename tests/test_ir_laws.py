@@ -489,20 +489,20 @@ def test_pi_edit_subgraph_interfaces_match_only_the_emitted_python_signature() -
 
 
 @pytest.mark.parametrize(
-    "path",
-    (SPIKE_CORPUS[1][1], SPIKE_CORPUS[2][1]),
-    ids=("definitions", "unknown-schema"),
+    ("kind", "path"),
+    [(SPIKE_CORPUS[0][0], SPIKE_CORPUS[0][1]), (SPIKE_CORPUS[1][0], SPIKE_CORPUS[1][1]), (SPIKE_CORPUS[2][0], SPIKE_CORPUS[2][1])],
+    ids=("envelope", "definitions", "unknown-schema"),
 )
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 2: lossless UI door retains and re-emits canonical fixture bytes",
-)
-def test_law_1_door_fidelity(path: Path) -> None:
+def test_law_1_door_fidelity(kind: str, path: Path) -> None:
     raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        emitted = emit_ui_json(workflow)
+    if isinstance(raw.get("nodes"), dict):
+        workflow = from_envelope(raw)
+        emitted = workflow.to_envelope()
+    else:
+        workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            emitted = emit_ui_json(workflow)
     assert canonical_json_bytes(emitted) == canonical_json_bytes(raw)
 
 

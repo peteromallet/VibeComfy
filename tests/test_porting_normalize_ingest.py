@@ -1145,10 +1145,6 @@ def test_normalize_agent_edit_graph_accepts_api_prompt_dict() -> None:
     assert normalized["links"], "API edges must become canonical UI links"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 2: the lossless UI ingest door retains all wire-only top-level payloads",
-)
 def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
     path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
     raw = json.loads(path.read_bytes())
@@ -1175,3 +1171,39 @@ def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
         "definitions",
     ):
         assert retained(raw[key], retained_roots), f"UI door dropped top-level {key!r}"
+
+
+def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
+    """Law 1: exact ``json.dumps`` equality for the three spike corpus files."""
+    import warnings as _warnings
+
+    from vibecomfy.porting.emit.ui import emit_ui_json as _emit
+
+    corpus = [
+        (
+            Path(__file__).parent / "fixtures/b02_corpus_mini/90a1d5ff9044902e.json",
+            "envelope",
+        ),
+        (
+            Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json",
+            "ui",
+        ),
+        (
+            Path(__file__).parent
+            / ".."
+            / "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json",
+            "ui",
+        ),
+    ]
+    for path, kind in corpus:
+        raw = json.loads(path.read_bytes())
+        if kind == "envelope":
+            emitted = from_envelope(raw).to_envelope()
+        else:
+            workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
+                emitted = _emit(workflow)
+        assert json.dumps(emitted, ensure_ascii=False, separators=(",", ":")) == json.dumps(
+            raw, ensure_ascii=False, separators=(",", ":")
+        ), path

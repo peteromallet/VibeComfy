@@ -116,6 +116,167 @@ _M2_PRECISION = 2
 # ``include_main_positions=True`` and no sidecar ``extra`` provides overrides.
 _DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
 
+# Door-owned wire-retention metadata key (mirror of
+# ``vibecomfy.ingest.normalize._UI_DOOR_KEY``).  Only the door boundary reads
+# or writes the blob; this literal avoids importing normalize at module level.
+_UI_DOOR_KEY = "_ui_door"
+
+
+def _door_ui_passthrough_applicable(
+    wf: Any,
+    door: Any,
+    *,
+    include_virtual_wires: bool,
+    include_main_positions: bool,
+    extra: Mapping[str, Any] | None,
+    definitions: Mapping[str, Any] | None,
+    prior_store: Mapping[str, Any] | None,
+    layout: Any,
+    strict: bool,
+) -> bool:
+    """Law 1 passthrough gate: may this UNTOUCHED graph be re-emitted verbatim?
+
+    The door blob is consulted only when the caller asks for the default output
+    shape (no flat/virtual-wire toggle, no main positions, no explicit
+    extra/definitions/prior_store/layout overrides, no strict request) and the
+    graph was ingested through the OFFLINE normalizer (``use_comfy_converter``
+    is recorded at ingest).  Comfy-converter ingest is not guaranteed to
+    normalize back to the same API, so those graphs keep the deterministic
+    reconstruction path.  The final fingerprint comparison proves the graph is
+    untouched since ingest; anything else takes the reconstruction path (where
+    captured wire values are still preferred for unaffected parts).
+    """
+    if not isinstance(door, Mapping):
+        return False
+    if door.get("shape") != "ui":
+        return False
+    if door.get("use_comfy_converter") is not False:
+        return False
+    if not include_virtual_wires or include_main_positions or strict:
+        return False
+    if extra is not None or definitions is not None:
+        return False
+    if prior_store or layout:
+        return False
+    if not isinstance(door.get("top"), Mapping) or not isinstance(door.get("nodes"), Mapping):
+        return False
+    if not isinstance(door.get("node_order"), list):
+        return False
+    from vibecomfy.ingest.normalize import _door_node_fingerprint  # noqa: PLC0415
+
+    return _door_node_fingerprint(wf) == door.get("fingerprint")
+
+
+def _emit_untouched_door_ui(door: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the original litegraph envelope byte-for-byte from the door blob.
+
+    Preserves the raw top-level key order, every raw top-level field (id,
+    version, counters, links with ids/order/type, extra, definitions, state,
+    config, revision, opaque keys), and the raw node payloads in raw order —
+    node geometry, ``order``, ``properties``, ``widgets_values``, input/output
+    link refs included.  The result is a detached deep copy.
+    """
+    from vibecomfy.ingest.normalize import _restore_untouched_door  # noqa: PLC0415
+
+    return _restore_untouched_door(door)
+
+
+def _door_top(door: Any) -> Mapping[str, Any] | None:
+    """Return the door blob's captured top-level fields, or None."""
+    if not isinstance(door, Mapping):
+        return None
+    top = door.get("top")
+    return top if isinstance(top, Mapping) else None
+
+
+def _wire_id(wf: Any, door: Any) -> str:
+    """Envelope id: the captured wire id when present, else the deterministic id."""
+    top = _door_top(door)
+    if isinstance(top, Mapping) and isinstance(top.get("id"), str) and top["id"]:
+        return top["id"]
+    return _envelope_id(wf)
+
+
+def _wire_version(door: Any) -> Any:
+    """Envelope ``version``: the captured wire value when present."""
+    top = _door_top(door)
+    if isinstance(top, Mapping) and isinstance(top.get("version"), (int, float)) and not isinstance(
+        top["version"], bool
+    ):
+        return top["version"]
+    return _LITEGRAPH_VERSION
+
+
+def _wire_counter(door: Any, key: str, computed: int) -> int:
+    """Counter field: captured value when still consistent (>= computed), else recomputed."""
+    top = _door_top(door)
+    captured = top.get(key) if isinstance(top, Mapping) else None
+    if isinstance(captured, int) and not isinstance(captured, bool) and captured >= computed:
+        return captured
+    return computed
+
+
+def _captured_link_id_map(
+    door: Any,
+) -> dict[tuple[str, str, str, str], int]:
+    """Map IR edge keys ``(from_node, from_output, to_node, to_input)`` to the
+    ORIGINAL litegraph link ids captured at ingest.
+
+    Endpoints resolve through the captured raw node payloads: each captured
+    link id is located in the captured to-node's ``inputs`` (name) and the
+    captured from-node's ``outputs`` (``slot_index``).  Links that cannot be
+    resolved (helper endpoints, missing slots) are simply absent from the map —
+    the emitter mints fresh ids for those.  This lets an edited graph keep the
+    original ids for structurally unchanged links (Law 1, wire preference).
+    """
+    if not isinstance(door, Mapping):
+        return {}
+    top = _door_top(door)
+    links = top.get("links") if isinstance(top, Mapping) else None
+    nodes = door.get("nodes") if isinstance(door.get("nodes"), Mapping) else {}
+    if not isinstance(links, list):
+        return {}
+    input_name_by_link: dict[int, tuple[str, str]] = {}
+    output_slot_by_link: dict[int, tuple[str, str]] = {}
+    for nid, payload in nodes.items():
+        if not isinstance(payload, Mapping):
+            continue
+        for entry in payload.get("inputs") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            link_ref = entry.get("link")
+            if isinstance(link_ref, int):
+                input_name_by_link[link_ref] = (str(nid), str(entry.get("name", "")))
+        for entry in payload.get("outputs") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            slot = entry.get("slot_index")
+            if slot is None:
+                continue
+            try:
+                slot_int = int(slot)
+            except (TypeError, ValueError):
+                continue
+            for link_ref in entry.get("links") or []:
+                if isinstance(link_ref, int):
+                    output_slot_by_link[link_ref] = (str(nid), str(slot_int))
+    result: dict[tuple[str, str, str, str], int] = {}
+    for link in links:
+        if not isinstance(link, (list, tuple)) or len(link) < 5:
+            continue
+        lid = link[0]
+        if not isinstance(lid, int):
+            continue
+        from_node, to_node = str(link[1]), str(link[3])
+        in_info = input_name_by_link.get(lid)
+        out_info = output_slot_by_link.get(lid)
+        if in_info is None or out_info is None:
+            continue
+        if in_info[0] != to_node or out_info[0] != from_node:
+            continue
+        result[(from_node, out_info[1], to_node, in_info[1])] = lid
+    return result
+
 
 def _intent_recovery_fields(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
@@ -2243,6 +2404,40 @@ def emit_ui_json(
     """
     _raise_embedded_api_links(wf, surface="UI serialization")
 
+    # ── Law 1 door passthrough (batch 2) ───────────────────────────────────
+    # An UNTOUCHED graph (fingerprint unchanged since offline ingest) is
+    # re-emitted byte-faithfully from the wire data captured at the ingest
+    # boundary: original id/version/counters, link ids/order/type,
+    # extra/definitions/state, groups, node geometry/order/properties, and
+    # opaque keys.  A semantic edit (node/widget/edge change) takes the
+    # deterministic reconstruction path below instead.  The passthrough is
+    # bypassed whenever the caller asks for a different output shape (flat/
+    # virtual-wire toggle, include_main_positions, explicit extra/definitions/
+    # prior_store/layout overrides, strict) or the graph was ingested through
+    # the comfy converter.  ``guard_original_ui`` (guard_full_ui) is still
+    # enforced on the passthrough envelope — the exit fidelity is not weakened.
+    _door = (wf.metadata or {}).get(_UI_DOOR_KEY)
+    if _door_ui_passthrough_applicable(
+        wf,
+        _door,
+        include_virtual_wires=include_virtual_wires,
+        include_main_positions=include_main_positions,
+        extra=extra,
+        definitions=definitions,
+        prior_store=prior_store,
+        layout=layout,
+        strict=strict,
+    ):
+        envelope = _emit_untouched_door_ui(_door)
+        if guard_original_ui is not None:
+            from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
+            from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
+
+            _snap = (wf.metadata or {}).get("_ingest_snapshot", {})
+            _delta = compute_field_delta(_snap, wf) if _snap else {}
+            _guard_emit(guard_original_ui, envelope, _delta, resolved_ops=guard_resolved_ops)
+        return envelope
+
     # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
     # virtual_wires}); reconcile() is called once at top and the result exposed to
     # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still
@@ -2550,13 +2745,28 @@ def emit_ui_json(
         key=lambda e: (e.from_node.zfill(20), e.from_output, e.to_node.zfill(20), e.to_input),
     )
 
-    # Assign deterministic link IDs (1-indexed)
+    # Assign link IDs: prefer the captured wire ids for structurally unchanged
+    # links (Law 1 wire preference); mint fresh ids above the captured maximum
+    # for changed/added links.  Non-door workflows keep the deterministic
+    # 1-indexed numbering (the captured map is empty there).
     EdgeKey = tuple[str, str, str, str]
-    link_id_map: dict[EdgeKey, int] = {
-        (e.from_node, e.from_output, e.to_node, e.to_input): idx
-        for idx, e in enumerate(sorted_edges, start=1)
-    }
-    last_link_id = len(sorted_edges)
+    captured_link_ids = _captured_link_id_map(_door)
+    used_link_ids: set[int] = set()
+    link_id_map: dict[EdgeKey, int] = {}
+    next_link_id = max(captured_link_ids.values(), default=0) + 1
+    for edge in sorted_edges:
+        key = (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+        captured = captured_link_ids.get(key)
+        if captured is not None and captured not in used_link_ids:
+            link_id_map[key] = captured
+            used_link_ids.add(captured)
+            continue
+        while next_link_id in used_link_ids:
+            next_link_id += 1
+        link_id_map[key] = next_link_id
+        used_link_ids.add(next_link_id)
+        next_link_id += 1
+    last_link_id = max(used_link_ids) if used_link_ids else 0
 
     # Edge lookup by node
     edges_from: dict[str, list[Any]] = defaultdict(list)
@@ -2910,7 +3120,16 @@ def emit_ui_json(
     breadcrumb = _breadcrumb(wf, source_template, prior_path)
 
     # --- extra: merge caller-provided extra (e.g. sidecar ds) with vibecomfy breadcrumb ---
-    merged_extra: dict[str, Any] = dict(extra) if extra else {}
+    # For door workflows (edited graphs), start from the captured wire ``extra``
+    # so ds/frontendVersion/VHS_* and opaque keys survive re-emission (Law 1
+    # wire preference); the fresh breadcrumb is still stamped on top.
+    merged_extra: dict[str, Any] = {}
+    if extra:
+        merged_extra.update(dict(extra))
+    else:
+        captured_extra = _door_top(_door).get("extra") if isinstance(_door_top(_door), Mapping) else None
+        if isinstance(captured_extra, Mapping):
+            merged_extra.update(dict(captured_extra))
     merged_extra["vibecomfy"] = dict(breadcrumb)
 
     # When include_main_positions=True, ensure extra.ds (canvas drag/scale state) is
@@ -2933,10 +3152,10 @@ def emit_ui_json(
         _canonicalize_group_geometry(emitted_groups)
 
     envelope: dict[str, Any] = {
-        "id": _envelope_id(wf),
-        "version": _LITEGRAPH_VERSION,
-        "last_node_id": last_node_id,
-        "last_link_id": last_link_id,
+        "id": _wire_id(wf, _door),
+        "version": _wire_version(_door),
+        "last_node_id": _wire_counter(_door, "last_node_id", last_node_id),
+        "last_link_id": _wire_counter(_door, "last_link_id", last_link_id),
         "groups": emitted_groups,
         "nodes": nodes,
         "links": links,
@@ -2944,8 +3163,19 @@ def emit_ui_json(
     }
 
     # Subgraph definitions: caller-provided `definitions` (from sidecar envelope)
-    # takes precedence over re-emitting from IR metadata.
-    effective_defs = definitions if definitions else _emit_definitions(wf)
+    # takes precedence; door-captured definitions (the raw wire blob) come next
+    # so edited graphs preserve them; re-emitting from IR metadata is the
+    # fallback.
+    effective_defs = definitions
+    if effective_defs is None:
+        captured_defs = (
+            _door_top(_door).get("definitions")
+            if isinstance(_door_top(_door), Mapping)
+            else None
+        )
+        effective_defs = (
+            deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
+        )
     if effective_defs is not None:
         for sg in effective_defs.get("subgraphs", []):
             sg_extra = dict(sg.get("extra") or {})
@@ -2953,8 +3183,8 @@ def emit_ui_json(
             sg["extra"] = sg_extra
         envelope["definitions"] = effective_defs
         envelope["state"] = {
-            "lastNodeId": last_node_id,
-            "lastLinkId": last_link_id,
+            "lastNodeId": _wire_counter(_door, "last_node_id", last_node_id),
+            "lastLinkId": _wire_counter(_door, "last_link_id", last_link_id),
             "lastRerouteId": 0,
         }
 
@@ -2962,8 +3192,8 @@ def emit_ui_json(
     # are no definitions (the lean default ties state to definitions presence).
     if include_main_positions and "state" not in envelope:
         envelope["state"] = {
-            "lastNodeId": last_node_id,
-            "lastLinkId": last_link_id,
+            "lastNodeId": _wire_counter(_door, "last_node_id", last_node_id),
+            "lastLinkId": _wire_counter(_door, "last_link_id", last_link_id),
             "lastRerouteId": 0,
         }
 

@@ -389,11 +389,10 @@ def test_fuzz_determinism() -> None:
     print(f"\n[T21] Determinism: same seed reproduces byte-identical output.")
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 2: lossless UI door preserves fuzzed ids, counters, extra, and ordering",
-)
 def test_ir_door_fuzz_preserves_wire_only_top_level_payloads() -> None:
+    """Law 1: an untouched ingested graph round-trips byte-identically, even
+    when the wire-only top-level fields (id/version/counters/extra) were
+    mutated before ingest — the door reproduces the captured bytes exactly."""
     rng = random.Random(20260816)
     for run in range(5):
         workflow = _generate_random_workflow_with_rng(5, rng)

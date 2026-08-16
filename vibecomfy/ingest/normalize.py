@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import warnings
 
@@ -39,6 +39,147 @@ from vibecomfy.workflow import (
 
 EXEC_SOURCE_MAX_BYTES = 48 * 1024
 EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
+
+# Door-owned wire-retention key (Law 1: ``emit_ui(from_ui(J)) == J``).  The
+# ingest boundary stashes the raw top-level fields and raw node payloads under
+# this ``workflow.metadata`` key so the emit boundary can reproduce the
+# original bytes for an UNTOUCHED graph.  The blob is door-owned wire data —
+# per plan.md π_edit, positions/sizes/groups/opaque ``_ui``/wire metadata are
+# excluded from the editable quotient and belong to the door law.  Only the
+# door boundary (``ingest/normalize.py``, ``porting/emit/ui.py``, and the
+# envelope serializer ``VibeWorkflow.to_envelope``) reads or writes it.
+_UI_DOOR_KEY = "_ui_door"
+
+
+def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
+    """Canonical fingerprint of the editable IR surface for the door law.
+
+    Stored in the door blob at ingest and recomputed at emit.  Equal
+    fingerprints prove the graph is UNTOUCHED since ingest, so the emit
+    boundary may pass the captured raw wire bytes through unchanged.  Anything
+    excluded here (pos/size/groups/opaque ``_ui``/order/link ids) is door-owned
+    wire data that byte-fidelity preserves for untouched graphs and that the
+    editable quotient (π_edit) deliberately does not include.
+    """
+    nodes = tuple(
+        (
+            str(node_id),
+            str(node.class_type),
+            str(node.uid),
+            int(node.mode),
+            tuple(
+                sorted(
+                    (str(key), repr(value))
+                    for key, value in {**node.inputs, **node.widgets}.items()
+                )
+            ),
+        )
+        for node_id, node in sorted(
+            workflow.nodes.items(),
+            key=lambda kv: (int(kv[0]) if kv[0].isdigit() else (1 << 30), kv[0]),
+        )
+    )
+    edges = tuple(
+        sorted(
+            (str(e.from_node), str(e.from_output), str(e.to_node), str(e.to_input))
+            for e in workflow.edges
+        )
+    )
+    public_inputs = tuple(
+        sorted(
+            (str(name), str(item.node_id), str(item.field))
+            for name, item in workflow.inputs.items()
+        )
+    )
+    public_outputs = tuple(
+        sorted(
+            (str(item.node_id), str(item.output_type), str(item.name))
+            for item in workflow.outputs
+        )
+    )
+    return (nodes, edges, public_inputs, public_outputs)
+
+
+def _capture_ui_door(
+    raw: dict[str, Any],
+    workflow: "VibeWorkflow",
+    *,
+    use_comfy_converter: bool = False,
+) -> dict[str, Any]:
+    """Capture the raw wire bytes at the ingest boundary (Law 1).
+
+    ``top`` holds every top-level field verbatim (including opaque keys) except
+    the ``nodes`` payload itself; ``nodes`` holds the raw per-node payloads
+    keyed by string id; ``node_order`` preserves the raw node list order;
+    ``top_order`` preserves the raw top-level key order (including where
+    ``nodes`` sits); ``fingerprint`` freezes the editable IR surface so the
+    emit boundary can prove a graph is untouched; ``shape`` records whether the
+    raw was a litegraph UI envelope (``"ui"``) or a serialized Vibe envelope
+    (``"envelope"``); ``use_comfy_converter`` records the ingest converter
+    request so the emit boundary only byte-passes graphs whose IR provably
+    derives from the offline normalizer (the comfy-converter ingest path is
+    not guaranteed to normalize back to the same API, so it keeps the
+    deterministic reconstruction path).
+    """
+    top = {key: deepcopy(value) for key, value in raw.items() if key != "nodes"}
+    nodes_raw = raw.get("nodes")
+    node_payloads: dict[str, Any] = {}
+    node_order: list[str] = []
+    if isinstance(nodes_raw, list):
+        for entry in nodes_raw:
+            if not isinstance(entry, dict) or "id" not in entry:
+                continue
+            nid = str(entry["id"])
+            node_payloads[nid] = deepcopy(entry)
+            node_order.append(nid)
+    elif isinstance(nodes_raw, dict):
+        for key, entry in nodes_raw.items():
+            if isinstance(entry, dict):
+                node_payloads[str(key)] = deepcopy(entry)
+                node_order.append(str(key))
+    return {
+        "top": top,
+        "top_order": list(raw.keys()),
+        "nodes": node_payloads,
+        "node_order": node_order,
+        "fingerprint": _door_node_fingerprint(workflow),
+        "shape": "ui" if isinstance(nodes_raw, list) else "envelope",
+        "use_comfy_converter": use_comfy_converter,
+    }
+
+
+def _restore_untouched_door(door: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild the original ingest bytes from the door blob (Law 1).
+
+    Preserves the raw top-level key order (``top_order``), the raw top-level
+    fields, and the raw node payloads in raw order.  The result is a detached
+    deep copy — mutating it never touches the IR or the blob.
+    """
+    top = door.get("top")
+    nodes_raw = door.get("nodes")
+    order = door.get("node_order") or []
+    if not isinstance(top, Mapping) or not isinstance(nodes_raw, Mapping):
+        raise ValueError("door blob malformed: missing top/nodes")
+    if door.get("shape") == "ui":
+        nodes: Any = [deepcopy(nodes_raw[nid]) for nid in order if nid in nodes_raw]
+    else:
+        # Envelope shape: the rich ``nodes`` mapping is the stored wire shape.
+        nodes = {nid: deepcopy(nodes_raw[nid]) for nid in order if nid in nodes_raw}
+    envelope: dict[str, Any] = {}
+    keys = list(door.get("top_order")) if isinstance(door.get("top_order"), list) else list(top)
+    nodes_placed = False
+    for key in keys:
+        if key == "nodes":
+            envelope["nodes"] = nodes
+            nodes_placed = True
+        elif key in top:
+            envelope[key] = deepcopy(top[key])
+    for key, value in top.items():
+        if key not in envelope and key != "nodes":
+            envelope[key] = deepcopy(value)
+    if not nodes_placed:
+        envelope["nodes"] = nodes
+    return envelope
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
@@ -800,6 +941,10 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 
     workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(raw, workflow)
+    # Law 1: stash the raw envelope bytes at the door so the envelope
+    # serializer (``to_envelope``) reproduces them byte-for-byte for an
+    # untouched envelope (``to_envelope(from_envelope(J)) == J``).
+    workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(raw, workflow)
 
     return workflow
 
@@ -840,6 +985,12 @@ def from_ui(
     # produced by the converter drops them, so carry them across from the raw
     # graph here (fail-closed: a non-list groups is rejected).
     workflow.groups = _vibe_groups(raw.get("groups"))
+    # Law 1: stash the raw wire bytes at the door.  The emit boundary
+    # reproduces them byte-for-byte for an untouched graph
+    # (``emit_ui(from_ui(J)) == J``) and prefers them for edited graphs.
+    workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
+        raw, workflow, use_comfy_converter=use_comfy_converter
+    )
     return workflow
 
 
