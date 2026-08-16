@@ -17,8 +17,17 @@ if TYPE_CHECKING:
 
 class _RenderMixin:
     def render(self) -> str:
-        self.ledger = EditLedger.ingest(self.working_ui)
-        workflow = self._workflow_from_ui(self.working_ui)
+        # Batch 3 (one retained ingest authority): the first render consumes
+        # the retained ingest IR (seeded at construction by the agent path)
+        # instead of re-deriving it from working_ui.  Subsequent renders
+        # re-derive from the apply engine's own candidate (working_ui changed),
+        # which is the edit engine's conversion — never a second ingest.
+        if self._initial_workflow is not None:
+            workflow = self._initial_workflow
+            self._initial_workflow = None
+        else:
+            self.ledger = EditLedger.ingest(self.working_ui)
+            workflow = self._workflow_from_ui(self.working_ui)
         from vibecomfy.porting.helper_resolve import resolve_helpers
 
         resolve_diagnostics = resolve_helpers(workflow, {})

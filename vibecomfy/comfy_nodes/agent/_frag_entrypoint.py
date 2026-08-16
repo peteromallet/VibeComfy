@@ -99,13 +99,24 @@ def handle_agent_edit(
     # collection is a mapping.  Normalize before allocation so request.json,
     # baseline hashes, batch editing/queue validation, and V2 transaction
     # preconditions all consume the same canonical list-nodes UI graph.
-    from .graph_normalization import normalize_agent_edit_graph
+    # Batch 3 (one retained ingest authority): the door's conversion runs ONCE
+    # here, and the ``VibeWorkflow`` it constructs is retained on
+    # ``AgentEditState.workflow`` at allocation.  No downstream stage re-derives
+    # the IR from raw JSON.
+    from ._frag_state import ingest_workflow_from_graph  # T-039 late import: host namespace lookup; resolved at call time
+    from .graph_normalization import normalize_agent_edit_graph  # T-039 late import: host namespace lookup; resolved at call time
 
     try:
         normalized_graph = normalize_agent_edit_graph(
             graph,
             schema_provider=schema_provider,
         )
+        retained_workflow = getattr(normalized_graph, "workflow", None)
+        if retained_workflow is None:
+            retained_workflow = ingest_workflow_from_graph(
+                normalized_graph,
+                schema_provider=schema_provider,
+            )
     except Exception as exc:
         failure = failure_envelope(
             FailureKind.VALIDATION_ERROR,
@@ -202,6 +213,10 @@ def handle_agent_edit(
     state = AgentEditState(
         task=task,
         graph=graph,
+        # Batch 3: the retained ingest IR (built exactly once by the named
+        # door above) is authoritative at allocation; ingest stages reuse it
+        # instead of re-deriving from raw JSON.
+        workflow=retained_workflow,
         request_payload=payload,
         schema_provider=schema_provider,
         baseline_graph_hash=baseline_graph_hash,

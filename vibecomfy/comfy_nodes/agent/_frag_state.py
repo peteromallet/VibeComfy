@@ -255,6 +255,49 @@ def _hydrate_execution_plan_from_protocol_notes(
     hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
 
 
+def ingest_workflow_from_graph(
+    graph: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
+) -> Any:
+    """Build the retained ingest IR through the named door — one conversion.
+
+    Per-shape dispatch matches the Agent Edit door exactly: ``from_ui`` for
+    canonical LiteGraph UI graphs, ``from_envelope`` for serialized Vibe
+    envelopes, ``from_api`` for ComfyUI API prompt dicts.  This is the single
+    IR authority for the agent path (batch 3); downstream stages consume the
+    retained result instead of re-deriving the IR from raw JSON.
+    """
+    from vibecomfy.ingest.normalize import (  # T-038 late import: sibling cycle broken; resolved at call time
+        _is_vibe_envelope,
+        from_api,
+        from_envelope,
+        from_ui,
+    )
+
+    if isinstance(graph.get("nodes"), list):
+        return from_ui(graph, schema_provider=schema_provider)
+    if _is_vibe_envelope(graph):
+        return from_envelope(graph)
+    return from_api(graph, schema_provider=schema_provider)
+
+
+def ensure_ingest_workflow(state: AgentEditState) -> Any:
+    """Return the retained ingest IR, building it exactly once if absent.
+
+    The public entrypoint retains the IR in ``AgentEditState.workflow`` at
+    allocation (batch 3).  Direct stage callers and recovered states fall
+    through here, which performs the single named-door conversion and stores
+    the retained ``VibeWorkflow`` on state.
+    """
+    if state.workflow is None:
+        state.workflow = ingest_workflow_from_graph(
+            state.graph,
+            schema_provider=state.schema_provider,
+        )
+    return state.workflow
+
+
 class _StageBlocked(Exception):
     def __init__(self, result: StageResult, failure: FailureEnvelope | None = None) -> None:
         super().__init__(result.stage)
@@ -538,13 +581,15 @@ __all__ = (
      "collect_graph_facts", "collect_readiness_evidence", "collect_topology_evidence",
      "compute_scoped_diff", "dataclass", "dataclasses", "datetime",
      "derive_apply_eligibility", "derive_gates", "difflib",
-     "ensure_agent_edit_response_contract", "ensure_sentence_message",
-     "evaluate_execution_plan_for_state", "failure_envelope", "field",
-     "format_compact_plan_feedback", "format_compact_plan_status",
-     "hydrate_execution_plan_from_protocol_notes", "initialize_gates",
+     "ensure_agent_edit_response_contract", "ensure_ingest_workflow",
+     "ensure_sentence_message", "evaluate_execution_plan_for_state",
+     "failure_envelope", "field", "format_compact_plan_feedback",
+     "format_compact_plan_status", "hydrate_execution_plan_from_protocol_notes",
+     "ingest_workflow_from_graph", "initialize_gates",
      "is_actionable_adaptation_plan", "json", "load_candidate_transaction",
      "load_candidate_transaction_with_migration", "logging", "lower_stage_result",
-     "normalize_agent_edit_v2_metadata", "normalize_session_id", "os", "payload_hash",
+     "normalize_agent_edit_v2_metadata",
+     "normalize_session_id", "os", "payload_hash",
      "product_failure_envelope_fields", "project_transaction_state",
      "public_outcome_from_turn_outcome", "queue_stage_result", "re", "read_state",
      "record_idempotent_response", "repair_field_changes", "run_agent_turn",

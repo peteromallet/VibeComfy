@@ -128,6 +128,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         max_expanded_statements: int = 500,
         max_for_iterations: int = 100,
         value_default_context: ValueDefaultContext | None = None,
+        initial_workflow: VibeWorkflow | None = None,
     ) -> None:
         self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
@@ -155,6 +156,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_rendered_source: str | None = None
         self.last_rendered_workflow: VibeWorkflow | None = None
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
+        # Batch 3 (one retained ingest authority): the ingest IR was already
+        # constructed once by the named door.  The first render consumes that
+        # retained IR instead of re-deriving it from raw JSON; later renders
+        # re-derive from the apply engine's own candidate (working_ui changed).
+        self._initial_workflow: VibeWorkflow | None = initial_workflow
 
 
 __all__ = [

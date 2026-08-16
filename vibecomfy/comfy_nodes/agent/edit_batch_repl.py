@@ -906,6 +906,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         prepared_ui,
         schema_provider=state.schema_provider,
         value_default_context=value_default_context,
+        # Batch 3 (one retained ingest authority): seed the session with the IR
+        # the named door already built at allocation so the first render does
+        # not re-derive the ingest JSON from working_ui.
+        initial_workflow=state.workflow,
     )
     session.research_only = research_only_route
     state.batch_session = session
@@ -1322,6 +1326,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             state.user_message = clarify_message
             state.python_after = current_render
             state.after_py_path.write_text(current_render, encoding="utf-8")
+            # Batch 3: keep the edited IR on state so the UI payload is derived
+            # from IR state, but the payload itself is the session's exact
+            # working candidate (emit_ui_json's reconstruction cannot carry
+            # schema-less batch nodes byte-faithfully; exit fidelity stays with
+            # the session's apply/done guard_full_ui gates).
+            state.edited_workflow = session.last_rendered_workflow
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             state.report = {
@@ -1418,6 +1428,12 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             _batch_journal_mod.maybe_inject_batch_fault("after_render")
             state.python_after = next_render
             state.after_py_path.write_text(next_render, encoding="utf-8")
+            # Batch 3: keep the edited IR on state so the UI payload is derived
+            # from IR state, but the payload itself is the session's exact
+            # working candidate (emit_ui_json's reconstruction cannot carry
+            # schema-less batch nodes byte-faithfully; exit fidelity stays with
+            # the session's apply/done guard_full_ui gates).
+            state.edited_workflow = session.last_rendered_workflow
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             _batch_journal_mod.maybe_inject_batch_fault("after_candidate_write")
