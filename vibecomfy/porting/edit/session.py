@@ -165,11 +165,13 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
         # Batch 3 (IR authority): the ingest IR was constructed once by the
         # named door and is retained here.  Renders ALWAYS come from this IR;
-        # it is refreshed once per committed batch from the apply engine's own
-        # candidate (the edit engine's conversion — never a second ingest), so
+        # it is refreshed once per committed batch through the copy-on-write
+        # edit engine (apply_edits_cow — never a second ingest), so
         # render() never re-derives the IR from working_ui JSON.  working_ui
         # stays as the JSON store used for emit/ledger, not as the render
-        # authority.
+        # authority.  The rebuild is COW (Law 5): the pre-batch IR is never
+        # mutated, untouched nodes keep their provenance, and edited nodes
+        # compose provenance through the max-taint join.
         self.workflow: VibeWorkflow | None = initial_workflow
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).

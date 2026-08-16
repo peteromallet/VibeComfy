@@ -370,9 +370,10 @@ def _node_id_sort_key(node_id: str) -> tuple[int, int | str]:
 # ───────────────────────────────────────────────────────────────────────────
 # Law 5 (batch 5): copy-on-write edits + provenance composition (max-taint).
 #
-# The edit session already rebuilds its IR from the apply engine's candidate
-# (COW at the session level).  These helpers make the invariant EXPLICIT at
-# the IR level, and are what ``interpret(pre, batch)`` (batch 7) builds on:
+# These helpers are the ONE production edit path: the edit session rebuilds
+# its retained IR through ``apply_edits_cow`` after every committed batch
+# (``_parse_execute.apply_batch``), and ``interpret(pre, batch)`` (batch 7)
+# builds on the same engine:
 #
 # * ``apply_edit_cow`` / ``apply_edits_cow`` NEVER mutate the input workflow;
 #   they return a NEW workflow (a deep copy), so the post-state shares no
@@ -380,11 +381,10 @@ def _node_id_sort_key(node_id: str) -> tuple[int, int | str]:
 # * Every edit composes provenance through the monotone lattice join
 #   (max-taint): an edited node is re-tagged ``join(existing, agent_generated,
 #   *source provenances)`` and can never be silently downgraded — an agent
-#   edit on an untrusted-source node keeps it untrusted.
-# * ``_compose_edit_provenance`` is the session-rebuild twin: after the
-#   ingest door re-tags every node ``untrusted_source``, the retained IR is
-#   re-tagged from the PRE-state provenance so composed tags survive the
-#   rebuild exactly as the COW helpers produce them.
+#   edit on an untrusted-source node keeps it untrusted.  Untouched nodes are
+#   deep-copied with their provenance intact (the ingest door — from_ui /
+#   from_api — is only the external-JSON boundary and is never re-run for a
+#   session rebuild).
 # ───────────────────────────────────────────────────────────────────────────
 
 
@@ -701,18 +701,9 @@ def apply_edit_cow(
         post.nodes[new_id] = node
         return post
 
-    if isinstance(op, ReorderOp):
-        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
-        if node is None:
-            raise KeyError(
-                f"reorder: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
-            )
-        if op.axis == "widgets":
-            names = [str(name) for name in op.order]
-            if names and set(names) == set(node.widgets):
-                node.widgets = {name: node.widgets[name] for name in names}
-            _tag_agent_edit_provenance(node)
-        return post
+    # NOTE: ReorderOp has no branch here by design — batch 6 deletes
+    # reorder/set_title from the edit grammar, so a ReorderOp falls through
+    # to the unsupported-op TypeError below instead of being half-supported.
 
     raise TypeError(f"unsupported edit op {type(op).__name__}")
 
@@ -735,82 +726,3 @@ def apply_edits_cow(
     if post is workflow:
         return _cow_workflow_copy(workflow)
     return post
-
-
-def _compose_edit_provenance(
-    post: "VibeWorkflow",
-    pre: "VibeWorkflow | None",
-    ops: tuple[EditOp, ...] | list[EditOp],
-) -> None:
-    """Re-tag the session's rebuilt IR with the max-taint edit composition.
-
-    The ingest door unconditionally tags every decoded node
-    ``untrusted_source``, so a rebuild alone would DROP composed provenance.
-    This twin of :func:`_tag_agent_edit_provenance` re-tags each node touched
-    by ``ops`` from the PRE-state provenance: edited nodes become
-    ``join(pre, agent_generated)``, added nodes ``join(agent_generated,
-    *sources)`` — never a downgrade, exactly like the COW helpers.
-    """
-    from vibecomfy.security import provenance as _prov
-
-    pre_uid_to_node: dict[str, Any] = {}
-    if pre is not None:
-        pre_uid_to_node = {
-            str(node.uid): node for node in pre.nodes.values() if str(node.uid)
-        }
-
-    def tag_by_uid(
-        scope_path: str,
-        uid: str,
-        source_refs: tuple[Any, ...],
-        *,
-        added: bool,
-    ) -> None:
-        if scope_path:
-            return  # subgraph-internal nodes are not in the flat IR
-        node = next(
-            (
-                candidate
-                for candidate in post.nodes.values()
-                if str(getattr(candidate, "uid", "") or "") == str(uid)
-            ),
-            None,
-        )
-        if node is None:
-            return
-        # The rebuilt node reads untrusted_source (the ingest door wipes tags),
-        # so the composition base is the PRE-state provenance — never the
-        # rebuilt tag, which would silently downgrade trusted nodes.
-        pre_node = pre_uid_to_node.get(str(uid))
-        if added:
-            base = _prov.Provenance.AGENT_GENERATED
-        elif pre_node is not None:
-            base = _prov.read(pre_node)
-        else:
-            base = _prov.read(node)
-        sources = tuple(
-            source
-            for source_ref in source_refs
-            if (source := pre_uid_to_node.get(str(source_ref.uid))) is not None
-        )
-        merged = _prov.join(
-            base,
-            _prov.Provenance.AGENT_GENERATED,
-            *(_prov.read(source) for source in sources),
-        )
-        _prov.tag(node, merged)
-
-    for op in ops:
-        if isinstance(op, (SetNodeFieldOp, SetModeOp, SetTitleOp)):
-            tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
-        elif isinstance(op, RemoveNodeOp):
-            tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
-        elif isinstance(op, RemoveLinkOp):
-            if op.target is not None:
-                tag_by_uid(op.target.scope_path, op.target.uid, (), added=False)
-        elif isinstance(op, UpsertLinkOp):
-            tag_by_uid(op.source.scope_path, op.source.uid, (), added=False)
-            tag_by_uid(op.target.scope_path, op.target.uid, (op.source,), added=False)
-        elif isinstance(op, AddNodeOp):
-            if op.uid:
-                tag_by_uid(op.scope_path, op.uid, tuple(op.inputs.values()), added=True)

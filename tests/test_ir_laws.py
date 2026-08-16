@@ -999,10 +999,29 @@ def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> Non
     assert pre_ids.isdisjoint(post_ids)
 
     # The edited node composes provenance through the max-taint join
-    # (user_confirmed + agent edit → agent_generated); untouched nodes keep
-    # the ingest-door default (untrusted_source).
+    # (user_confirmed + agent edit → agent_generated); untouched nodes KEEP
+    # their prior provenance (the rebuild never re-runs the ingest door, so
+    # there is no untrusted_source reset for untouched nodes).
     assert _prov.read(session.workflow.nodes["2"]) == "agent_generated"
-    assert _prov.read(session.workflow.nodes["1"]) == "untrusted_source"
+    assert _prov.read(session.workflow.nodes["1"]) == "user_confirmed"
+
+    # End-to-end through the batch loop: a SECOND committed batch rebuilds
+    # again via the same COW engine — the untouched node keeps its prior
+    # provenance, the re-edited node stays at the join (idempotent max-taint),
+    # and the intermediate IR is preserved untouched.
+    middle = copy.deepcopy(session.workflow)
+    second = session.apply_batch('vhs_loadvideo_2.video = "final.mp4"\n')
+    assert second.ok
+    assert not second.diagnostics
+    assert session.workflow is not middle
+    assert session.workflow.nodes["2"].inputs["video"] == "final.mp4"
+    assert _prov.read(session.workflow.nodes["1"]) == "user_confirmed"
+    assert _prov.read(session.workflow.nodes["2"]) == "agent_generated"
+    middle_ids: set[int] = set()
+    second_ids: set[int] = set()
+    _collect_mutable_dict_ids(middle, middle_ids)
+    _collect_mutable_dict_ids(session.workflow, second_ids)
+    assert middle_ids.isdisjoint(second_ids)
 
 
 @pytest.mark.xfail(

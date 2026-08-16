@@ -41,7 +41,7 @@ from vibecomfy.porting.edit._parse import (
     _fold_constant,
     _parse_and_validate_batch,
 )
-from vibecomfy.porting.edit._ir_utils import _compose_edit_provenance, _uids_for_op
+from vibecomfy.porting.edit._ir_utils import _uids_for_op, apply_edits_cow
 
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 
@@ -67,6 +67,13 @@ class _ParseExecuteMixin:
             graph_name_exists=self._graph_name_exists,
             estimate_add_node_width=self._estimate_add_node_width,
         )
+        # Capture the PRE-batch JSON store before statements mutate it:
+        # apply_delta REASSIGNS self.working_ui (deepcopy of its candidate),
+        # never mutating the prior object, so this reference stays the
+        # pre-batch state.  A lazy first workflow build (sessions without
+        # `initial_workflow`) must derive from THIS, never from the post-batch
+        # JSON — the COW rebuild applies the batch's own ops on top.
+        pre_batch_ui = self.working_ui
         snapshot = self._snapshot_mutable_state()
         try:
             statement_results, landed_ops, diagnostics = self._execute_statements(
@@ -125,28 +132,27 @@ class _ParseExecuteMixin:
             if saw_failed_edit and not landed_ops:
                 self._restore_snapshot(snapshot)
             if landed_ops:
-                # Batch 3 (IR authority): refresh the retained IR from the
-                # apply engine's own candidate exactly once per committed
-                # batch — the edit engine's conversion, never a second ingest.
-                # The refresh goes through the SAME named door (from_ui) so the
-                # IR carries the new wire data (widgets/id/extra); the exit
-                # emit_ui_json reconstructs the candidate from this IR and
-                # reproduces working_ui, keeping the authority replay exact.
-                # Batch 5 (Law 5): the rebuild is copy-on-write (the pre-batch
-                # IR is never mutated), and provenance composes through the
-                # monotone lattice join — the ingest door re-tags everything
-                # untrusted_source, so _compose_edit_provenance re-tags the
-                # touched nodes from the PRE-state tags (max-taint, never a
-                # silent downgrade).
-                from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
-
-                pre_workflow = self.workflow
-                self.workflow = from_ui(
-                    self.working_ui,
+                # Batch 5 (Law 5): the retained IR is the authority and the
+                # session rebuild is the SAME copy-on-write engine the law
+                # tests exercise — never a second ingest.  Re-running from_ui
+                # here would force EVERY node back to untrusted_source (a
+                # silent provenance downgrade for untouched nodes).  The COW
+                # engine deep-copies the pre-batch IR (untouched nodes keep
+                # their provenance), composes edited/added nodes through the
+                # monotone lattice join (max-taint, never a downgrade), and
+                # returns a NEW workflow — the pre-batch IR stays
+                # byte-identical, which also keeps snapshot/rollback safe
+                # (the snapshot holds the same pre-batch object by reference).
+                if self.workflow is None:
+                    # Lazy first build for sessions without initial_workflow:
+                    # derive from the PRE-batch JSON (the COW engine then
+                    # applies this batch's ops on top).
+                    self.workflow = self._workflow_from_ui(pre_batch_ui)
+                self.workflow = apply_edits_cow(
+                    self.workflow,
+                    landed_ops,
                     schema_provider=self.schema_provider,
-                    use_comfy_converter=False,
                 )
-                _compose_edit_provenance(self.workflow, pre_workflow, landed_ops)
             field_changes, statement_results = self._build_field_changes(
                 landed_ops,
                 statement_results,
