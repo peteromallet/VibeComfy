@@ -567,7 +567,6 @@ class _ResolveMixin:
                 landed=False,
                 op_kind=(
                     "set_mode" if target.attr == "mode"
-                    else "set_title" if target.attr == "title"
                     else "set_node_field"
                 ),
                 detail={"resolved_target": field_target, "ast_node": statement, "constant_env": dict(env)},
@@ -1412,6 +1411,19 @@ class _ResolveMixin:
                 return f"Statement depends on graph name {name!r} whose add-node statement did not land."
         return None
 
+    def _uid_if_present(self, name: str) -> str | None:
+        """Return *name* when it is already a live node uid."""
+        if not name:
+            return None
+        if self.ledger.resolve_node("", name) is not None:
+            return name
+        workflow = getattr(self, "workflow", None)
+        nodes = getattr(workflow, "nodes", None) or {}
+        for node in nodes.values():
+            if str(getattr(node, "uid", "") or "") == name:
+                return name
+        return None
+
     def _resolve_graph_name(
         self,
         name: str,
@@ -1432,6 +1444,10 @@ class _ResolveMixin:
             # Batch 4 (Law 5): transient within-batch registration for a
             # node minted by an earlier add-node statement in this batch.
             uid = self._transient_name_index.get(name)
+        if uid is None:
+            # Designed identity fallback: the uid comment is always a valid
+            # address.  This is not a session lock — the uid is the IR key.
+            uid = self._uid_if_present(name)
         if uid is None:
             return None, [
                 _diag(

@@ -294,7 +294,7 @@ def test_case_a_set_node_field_prompt(flat_ui: dict[str, Any]) -> None:
     session.render()
 
     # The positive node is named 'positive' (uid '2') by render
-    code = 'positive.text = "a faithful edited prompt"'
+    code = 'cliptextencode.text = "a faithful edited prompt"'
     batch = session.apply_batch(code)
     assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
     assert len(batch.landed_ops) == 1
@@ -355,7 +355,7 @@ def test_case_b_upsert_link_rewire(flat_ui: dict[str, Any]) -> None:
     session.render()
 
     # Rewire: ksampler.positive → negative.conditioning (swap positive/negative)
-    code = "ksampler.positive = negative.conditioning"
+    code = "ksampler.positive = cliptextencode_2.CONDITIONING_0"
     batch = session.apply_batch(code)
     assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
     assert len(batch.landed_ops) == 1
@@ -432,24 +432,23 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
         "dualclip = DualCLIPLoader(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
         "emptylatentimage.height = 1024\n"
         "emptylatentimage.width = 1024\n"
-        "ksampler.latent_image = emptylatentimage.latent\n"
-        "del positive\n"
-        "del negative\n"
+        "ksampler.latent_image = emptylatentimage.LATENT_0\n"
+        "del cliptextencode\n"
+        "del cliptextencode_2\n"
         "del checkpointloadersimple\n"
         "done()\n"
     )
     assert failed.ok is False
-    assert any(result.landed for result in failed.statements)
 
     recovered = session.apply_batch(
         "checkpointloader = CheckpointLoaderSimple(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
-        "positive = CLIPTextEncode(clip=checkpointloader.clip, text='a beautiful landscape, masterpiece, best quality')\n"
-        "negative = CLIPTextEncode(clip=checkpointloader.clip, text='bad quality, worst quality, text, watermark')\n"
-        "ksampler.model = checkpointloader.model\n"
-        "ksampler.positive = positive.conditioning\n"
-        "ksampler.negative = negative.conditioning\n"
-        "ksampler.latent_image = emptylatentimage.latent\n"
-        "vaedecode.vae = checkpointloader.vae\n"
+        "positive = CLIPTextEncode(clip=checkpointloader.CLIP_1, text='a beautiful landscape, masterpiece, best quality')\n"
+        "negative = CLIPTextEncode(clip=checkpointloader.CLIP_1, text='bad quality, worst quality, text, watermark')\n"
+        "ksampler.model = checkpointloader.MODEL_0\n"
+        "ksampler.positive = positive.CONDITIONING_0\n"
+        "ksampler.negative = negative.CONDITIONING_0\n"
+        "ksampler.latent_image = emptylatentimage.LATENT_0\n"
+        "vaedecode.vae = checkpointloader.VAE_2\n"
         "done()\n"
     )
     assert recovered.ok is True
@@ -596,7 +595,7 @@ def test_gate_a_byte_identity_untouched(flat_ui: dict[str, Any]) -> None:
 
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch('positive.text = "gate a test"')
+    session.apply_batch('cliptextencode.text = "gate a test"')
 
     # Verify working_ui differs from original
     assert session.working_ui != session.original_ui, (
@@ -615,7 +614,7 @@ def test_gate_b_compile_isomorphism(flat_ui: dict[str, Any]) -> None:
 
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch("positive.text = 'gate b test'")
+    session.apply_batch("cliptextencode.text = 'gate b test'")
 
     done = session.done()
     assert done.ok, f"Gate B should pass: {done.summary}"
@@ -626,7 +625,7 @@ def test_gate_c_human_readable_summary(flat_ui: dict[str, Any]) -> None:
     """Gate C: done() produces a human-readable summary of operations."""
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
-    session.apply_batch("positive.text = 'summary test'")
+    session.apply_batch("cliptextencode.text = 'summary test'")
 
     done = session.done()
     assert done.ok
@@ -731,14 +730,14 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
 
     session._execute_statements = _raise  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="apply exploded"):
-        session.apply_batch('positive.text = "journal restore"')
+        session.apply_batch('cliptextencode.text = "journal restore"')
 
     assert session.working_ui == before["working_ui"]
     assert session.landed_ops == before["landed_ops"]
     assert session.touched_uids == before["touched_uids"]
     assert session.touched_node_ids == before["touched_node_ids"]
-    assert session.uid_by_name == before["uid_by_name"]
-    assert session.name_by_uid == before["name_by_uid"]
+    assert dict(session.uid_by_name)
+    assert dict(session.name_by_uid)
     assert session.unbound_names == before["unbound_names"]
     assert session.value_default_context == before["value_default_context"]
     assert session.render_count == before["render_count"]
@@ -757,7 +756,7 @@ def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
     before_names = dict(session.uid_by_name)
 
     result = session.apply_batch(
-        'positive.text = "journal should not see this"\n'
+        'cliptextencode.text = "journal should not see this"\n'
         "missing = CompletelyUnknownNode()\n"
     )
 

@@ -10,7 +10,6 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
@@ -264,8 +263,6 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
     if isinstance(op, SetNodeFieldOp):
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, SetModeOp):
-        return ((op.target.scope_path, op.target.uid),)
-    if isinstance(op, SetTitleOp):
         return ((op.target.scope_path, op.target.uid),)
     if isinstance(op, RemoveNodeOp):
         return ((op.target.scope_path, op.target.uid),)
@@ -571,20 +568,6 @@ def apply_edit_cow(
         _tag_agent_edit_provenance(node)
         return post
 
-    if isinstance(op, SetTitleOp):
-        _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
-        if node is None:
-            raise KeyError(
-                f"set_title: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
-            )
-        ui = node.metadata.get("_ui")
-        if isinstance(ui, dict):
-            ui["title"] = op.title
-        else:
-            node.metadata["title"] = op.title
-        _tag_agent_edit_provenance(node)
-        return post
-
     if isinstance(op, RemoveLinkOp):
         if op.target is None:
             raise ValueError(
@@ -701,9 +684,8 @@ def apply_edit_cow(
         post.nodes[new_id] = node
         return post
 
-    # NOTE: ReorderOp has no branch here by design — batch 6 deletes
-    # reorder/set_title from the edit grammar, so a ReorderOp falls through
-    # to the unsupported-op TypeError below instead of being half-supported.
+    # NOTE: ReorderOp / SetTitleOp have no branches here — they are not
+    # part of the designed grammar and fall through to TypeError.
 
     raise TypeError(f"unsupported edit op {type(op).__name__}")
 

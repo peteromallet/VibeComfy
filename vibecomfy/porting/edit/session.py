@@ -173,6 +173,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # mutated, untouched nodes keep their provenance, and edited nodes
         # compose provenance through the max-taint join.
         self.workflow: VibeWorkflow | None = initial_workflow
+        if self.workflow is None:
+            self.workflow = self._workflow_from_ui(self.original_ui)
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []

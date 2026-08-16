@@ -1038,3 +1038,77 @@ def test_law_5_boundary_has_no_provisional_exceptions() -> None:
     assert authority_exception_paths() == frozenset()
     assert structural_exception_paths() == frozenset()
     assert pass_through_structural_paths() == frozenset()
+
+
+def test_law_4_grammar_generates_allow_list_prompt_and_doc_table() -> None:
+    from vibecomfy.porting.edit.grammar import (
+        ADMITTED_AST_TYPES,
+        DOCUMENTED_AST_TYPES,
+        FORBIDDEN_ASSIGN_ATTRS,
+        FORBIDDEN_CALL_NAMES,
+        authoring_doc_agrees,
+        authoring_doc_path,
+        prompt_doc_covers_grammar,
+        render_ast_allow_list,
+        render_doc_table,
+        render_prompt_doc,
+    )
+
+    assert ast.Assign in ADMITTED_AST_TYPES
+    assert ast.Import not in ADMITTED_AST_TYPES
+    assert ast.FunctionDef not in ADMITTED_AST_TYPES
+    assert ast.If not in ADMITTED_AST_TYPES
+    assert ast.ListComp not in ADMITTED_AST_TYPES
+    assert ast.Assign in DOCUMENTED_AST_TYPES
+    assert "reorder" in FORBIDDEN_CALL_NAMES
+    assert "set_title" in FORBIDDEN_CALL_NAMES
+    assert FORBIDDEN_ASSIGN_ATTRS["title"] == "set_title_not_allowed"
+    assert prompt_doc_covers_grammar() == []
+    doc = render_prompt_doc()
+    table = render_doc_table()
+    allow = render_ast_allow_list()
+    assert allow in doc
+    assert "set_node_field" in table
+    assert "set_title" not in table
+    assert "reorder" not in table
+    assert authoring_doc_agrees(authoring_doc_path().read_text(encoding="utf-8"))
+
+
+def test_law_4_editable_surface_is_instance_hydrated() -> None:
+    from vibecomfy.porting.edit.editable_surface import editable_surface_for
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    class Provider:
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            if class_type != "TripoRefineNode":
+                return None
+            return NodeSchema(
+                class_type="TripoRefineNode",
+                pack=None,
+                inputs={
+                    "prompt": InputSpec(type="IMAGE"),
+                    "steps": InputSpec(type="INT"),
+                },
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+                source_provider="object_info",
+            )
+
+    node = VibeNode(
+        "1",
+        "TripoRefineNode",
+        widgets={"steps": 8, "widget_0": 1},
+        metadata={
+            "schema_source": {"provider": "object_info"},
+            "_ui": {
+                "inputs": [{"name": "prompt", "type": "IMAGE", "link": 4}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+            },
+        },
+    )
+    surface = editable_surface_for(node, schema_provider=Provider())
+    assert surface.schema_status == "known"
+    assert "prompt" not in surface.literal_names()
+    assert "steps" in surface.literal_names()
+    assert "prompt" in surface.socket_names()
+    assert all(field.name_confidence != "none" or not field.name for field in surface.literals)
+    assert all(not field.name.startswith("widget_") for field in surface.literals)

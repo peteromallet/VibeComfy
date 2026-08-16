@@ -18,7 +18,6 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
-    SetTitleOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
@@ -473,20 +472,6 @@ class _ParseExecuteMixin:
                 return None, mode_issues
             assert mode_value is not None
             return SetModeOp(op="set_mode", target=node_target, mode=mode_value), ()
-
-        if op_kind == "set_title":
-            if rhs is None:
-                return None, (
-                    _diag("missing_title_value", "Title assignment was missing its right-hand side.", severity="error"),
-                )
-            title_value, title_issue = _fold_constant(rhs, env=constant_env)
-            if title_issue is not None:
-                return None, (title_issue,)
-            if not isinstance(title_value, str) or not title_value.strip():
-                return None, (
-                    _diag("invalid_title_value", "Title assignment requires a non-empty string.", severity="error"),
-                )
-            return SetTitleOp(op="set_title", target=node_target, title=title_value), ()
 
         if rhs is None:
             return None, (

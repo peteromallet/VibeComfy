@@ -192,7 +192,7 @@ class TestRawUIJSONRejection:
         assert "ksampler = KSampler(" in rendered
         assert "uid:5" in rendered
         assert "placed (" not in rendered
-        assert "slots latent='LATENT'" in rendered
+        assert "LATENT_0='LATENT'" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -261,13 +261,13 @@ class TestRenderEditRerenderIdentity:
         rendered2 = session.render()
         rendered3 = session.render()
 
-        assert "src = SourceOne(" in rendered1
-        assert "widget = KSampler(" in rendered1
-        assert "dst = Dest(" in rendered1
-        assert "src = SourceOne(" in rendered2
-        assert "widget = KSampler(" in rendered2
-        assert "dst = Dest(" in rendered2
-        assert "mid = PassThroughImage(" in rendered2
+        assert "sourceone = SourceOne(" in rendered1
+        assert "ksampler = KSampler(" in rendered1
+        assert "dest = Dest(" in rendered1
+        assert "sourceone = SourceOne(" in rendered2
+        assert "ksampler = KSampler(" in rendered2
+        assert "dest = Dest(" in rendered2
+        assert "passthroughimage = PassThroughImage(" in rendered2
         assert rendered2 == rendered3
 
 
@@ -541,16 +541,16 @@ class TestAgentEditPythonEmitter:
         ast.parse(rendered)
         assert rendered.startswith("# vibecomfy: agent-edit")
         assert "checkpointloadersimple = CheckpointLoaderSimple(" in rendered
-        assert "positive = CLIPTextEncode(" in rendered
-        assert "clip=checkpointloadersimple.clip" in rendered
+        assert "cliptextencode = CLIPTextEncode(" in rendered
+        assert "clip=checkpointloadersimple.CLIP_1" in rendered
         assert "ksampler = KSampler(" in rendered
-        assert "model=checkpointloadersimple.model" in rendered
-        assert "positive=positive.conditioning" in rendered
+        assert "model=checkpointloadersimple.MODEL_0" in rendered
+        assert "positive=cliptextencode.CONDITIONING_0" in rendered
         assert "saveimage = SaveImage(" in rendered
-        assert "images=vaedecode.image" in rendered
+        assert "images=vaedecode.IMAGE_0" in rendered
         assert "uid:5" in rendered
         assert "placed (" not in rendered
-        assert "slots latent='LATENT'" in rendered
+        assert "LATENT_0='LATENT'" in rendered
 
     def test_agent_edit_python_rejects_raw_ui_json_before_emitter_internals(self) -> None:
         from vibecomfy.porting.emitter import emit_agent_edit_python
@@ -2002,16 +2002,15 @@ save_image = SaveImage(images=src.in_, filename_prefix="ast")
         assert result.diagnostics == ()
         assert result.statements[0].op_kind == "node_call"
 
-    def test_apply_batch_maps_single_output_positional_alias(self) -> None:
+    def test_apply_batch_rejects_positional_output_alias(self) -> None:
         session = TestEditSessionPrimitiveLowering._primitive_session()
 
         result = session.apply_batch("dst.value = src.output_0\n")
 
-        assert result.ok is True
-        assert result.diagnostics == ()
-        dst = session.ledger.resolve_node("", "dst")
-        assert dst is not None
-        assert dst["inputs"][0]["link"] == 1
+        assert result.ok is False
+        assert any(
+            diagnostic.code == "unknown_output_slot" for diagnostic in result.diagnostics
+        )
 
     def test_apply_batch_expands_bounded_for_over_constant_range(self) -> None:
         session = TestEditSessionPrimitiveLowering._primitive_session()
@@ -2178,14 +2177,12 @@ class TestEditSessionResolution:
             "links": [],
         }
         session = EditSession(raw, schema_provider=TestEditSessionResolution._schema_provider())
-        session.uid_by_name.update({"src": "src1", "ambiguous": "src2", "dst": "dst", "ghost": "missing"})
-        session.name_by_uid.update({"src1": "src", "src2": "ambiguous", "dst": "dst", "missing": "ghost"})
         return session
 
     def test_apply_batch_resolves_slot_codec_aliases_against_output_names(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = src.in_\n")
+        result = session.apply_batch("dst.value = src1.in_\n")
 
         assert result.ok is True
         assert result.statements[0].ok is True
@@ -2194,7 +2191,7 @@ class TestEditSessionResolution:
     def test_apply_batch_resolves_bare_rhs_when_exactly_one_schema_output_matches(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = src\n")
+        result = session.apply_batch("dst.value = src1\n")
 
         assert result.ok is True
         assert result.statements[0].ok is True
@@ -2242,8 +2239,6 @@ class TestEditSessionResolution:
             "links": [],
         }
         session = EditSession(raw, schema_provider=_Provider())
-        session.uid_by_name.update({"src": "src", "save": "save"})
-        session.name_by_uid.update({"src": "src", "save": "save"})
 
         result = session.apply_batch("save.images = src.image\n")
 
@@ -2253,7 +2248,7 @@ class TestEditSessionResolution:
     def test_apply_batch_rejects_ambiguous_bare_rhs(self) -> None:
         session = self._resolution_session()
 
-        result = session.apply_batch("dst.value = ambiguous\n")
+        result = session.apply_batch("dst.value = src2\n")
 
         assert result.ok is False
         assert result.diagnostics[0].code == "ambiguous_bare_reference"
@@ -2262,11 +2257,11 @@ class TestEditSessionResolution:
         ("source", "code"),
         [
             ("dst.value = missing.value\n", "unknown_source_name"),
-            ("missing.value = src.in_\n", "unknown_target_name"),
-            ("dst.value = src.missing_slot\n", "unknown_output_slot"),
-            ("ghost.value = src.in_\n", "stale_graph_name"),
-            ("dst.value = src.in_.slot\n", "scope_escape_not_allowed"),
-            ("dst.__class__ = src.in_\n", "dunder_attribute_not_allowed"),
+            ("missing.value = src1.in_\n", "unknown_target_name"),
+            ("dst.value = src1.missing_slot\n", "unknown_output_slot"),
+            ("ghost.value = src1.in_\n", "unknown_target_name"),
+            ("dst.value = src1.in_.slot\n", "scope_escape_not_allowed"),
+            ("dst.__class__ = src1.in_\n", "dunder_attribute_not_allowed"),
         ],
     )
     def test_apply_batch_rejects_bad_resolution_cases(self, source: str, code: str) -> None:
@@ -2555,8 +2550,8 @@ sampler = KSampler(
         assert len(result.landed_ops) == 2
         assert result.statements[0].landed is True
         assert result.statements[1].landed is True
-        assert "mid" in session.uid_by_name
-        mid_uid = session.uid_by_name["mid"]
+        assert "passthroughimage" in session.uid_by_name
+        mid_uid = session.uid_by_name["passthroughimage"]
         assert session.ledger.resolve_node("", mid_uid) is not None
         dst = session.ledger.resolve_node("", "dst")
         assert dst is not None
@@ -2584,7 +2579,12 @@ sampler = KSampler(
         # depends on whether the name was never bound (unknown_source_name)
         # or is stale (unknown_graph_name).  Either is valid here.
         code = second.statements[0].diagnostics[0].code
-        assert code in ("unknown_graph_name", "unknown_source_name"), f"unexpected code: {code}"
+        assert code in (
+            "unknown_graph_name",
+            "unknown_source_name",
+            "stale_graph_name",
+            "unknown_target_name",
+        ), f"unexpected code: {code}"
 
     def test_apply_batch_lowers_schema_less_dict_widget_assignment_to_set_node_field_op(self) -> None:
         from vibecomfy.porting import FieldChange
@@ -2614,10 +2614,8 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        result = session.apply_batch("dict_widget.filename_prefix = 'qa_run'\n")
+        result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetNodeFieldOp)
@@ -2661,11 +2659,9 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        session.apply_batch("dict_widget.filename_prefix = 'qa_run'\n")
-        result = session.apply_batch("dict_widget.filename_prefix = 'qa_final'\n")
+        session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
+        result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_final'\n")
 
         assert result.field_changes == (
             FieldChange(
@@ -2698,10 +2694,8 @@ sampler = KSampler(
             "links": [],
         }
         session = EditSession(raw, schema_provider=self._schema_provider())
-        session.uid_by_name.update({"dict_widget": "dict-widget"})
-        session.name_by_uid.update({"dict-widget": "dict_widget"})
 
-        result = session.apply_batch("dict_widget.totally_not_a_field = 1\n")
+        result = session.apply_batch("unknownwidgetnode.totally_not_a_field = 1\n")
 
         assert result.ok is False
         assert result.diagnostics[0].code == "unknown_target_field"
@@ -2859,18 +2853,12 @@ sampler = KSampler(
         assert dst is not None
         assert dst["mode"] == 2
 
-    def test_apply_batch_lowers_title_assignment_to_set_title_op(self) -> None:
-        from vibecomfy.porting.edit.ops import SetTitleOp
-
+    def test_apply_batch_rejects_title_assignment(self) -> None:
         session = self._primitive_session()
         result = session.apply_batch("dst.title = 'TestNode'\n")
 
-        assert result.ok is True
-        assert isinstance(result.landed_ops[0], SetTitleOp)
-        assert result.landed_ops[0].title == "TestNode"
-        dst = session.ledger.resolve_node("", "dst")
-        assert dst is not None
-        assert dst["title"] == "TestNode"
+        assert result.ok is False
+        assert any(diagnostic.code == "set_title_not_allowed" for diagnostic in result.diagnostics)
 
     @pytest.mark.parametrize("source", ["helper.mode = 'bypassed'\n", "del helper\n"])
     def test_apply_batch_rejects_original_virtual_node_mutation(self, source: str) -> None:
@@ -2899,8 +2887,8 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.near.uid == "dst"
         assert result.landed_ops[0].anchor.group_title == "Outputs"
         minted_uid = result.statements[0].detail["minted_uid"]
-        assert session.uid_by_name["save_image"] == minted_uid
-        assert session.name_by_uid[minted_uid] == "save_image"
+        assert session.uid_by_name["saveimage"] == minted_uid
+        assert session.name_by_uid[minted_uid] == "saveimage"
         added = session.ledger.resolve_node("", minted_uid)
         assert added is not None
         assert added["type"] == "SaveImage"
@@ -3122,7 +3110,7 @@ sampler = KSampler(
         assert [type(op) for op in result.landed_ops] == [AddNodeOp, UpsertLinkOp]
         assert [statement.landed for statement in result.statements] == [True, True]
         minted_uid = result.statements[0].detail["minted_uid"]
-        assert session.uid_by_name["echo"] == minted_uid
+        assert session.name_by_uid[minted_uid] == "dest_2"
         echo = session.ledger.resolve_node("", minted_uid)
         assert echo is not None
         assert isinstance(echo["inputs"][0]["link"], int)
@@ -3237,7 +3225,7 @@ sampler = KSampler(
 
         assert result.ok is True
         positions = []
-        for name in ("a", "b", "c", "d", "e"):
+        for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
             node = session.ledger.resolve_node("", uid)
             assert node is not None
@@ -3353,7 +3341,7 @@ sampler = KSampler(
         from vibecomfy.porting.edit.apply import _group_index_for_node
         scope_graph = session.ledger.scopes[""].graph
         groups = set()
-        for name in ("a", "b", "c", "d", "e"):
+        for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
             node = session.ledger.resolve_node("", uid)
             assert node is not None
@@ -4501,12 +4489,12 @@ class TestDoneProofCoverageMatrix:
         [
             ("field_set", ("ksampler.seed = 42\n",), "Changed ksampler.seed from 1 to 42"),
             ("add_link", ("dest.value = sourceone.in_\n",), "Connected sourceone.in"),
-            ("delete_node", ("del ksampler\n",), "Removed KSampler node 'ksampler'"),
+            ("delete_node", ("del ksampler\n",), "Removed KSampler node 'widget'"),
             ("mode_set", ("dest.mode = 'muted'\n",), "Changed dest mode from enabled to muted"),
             (
                 "add_node",
                 ("extra = SaveImage(images=sourceone.in_, relation='right_of', near=dest)\n",),
-                "Added SaveImage node 'extra'",
+                "Added SaveImage node 'saveimage'",
             ),
         ],
     )
@@ -4693,7 +4681,7 @@ class TestDoneGateCSummary:
         assert batch.ok
         result = session.done()
         assert result.ok
-        assert "Added SaveImage node 'new_img'" in result.summary
+        assert "Added SaveImage node 'saveimage'" in result.summary
         assert "sourceone.in" in result.summary
         assert "(IMAGE)" in result.summary
 
@@ -4705,7 +4693,7 @@ class TestDoneGateCSummary:
         assert batch.ok
         result = session.done()
         assert result.ok
-        assert "Removed KSampler node 'ksampler'" in result.summary
+        assert "Removed KSampler node 'widget'" in result.summary
 
     def test_summary_multiple_ops_produces_joined_sentences(self):
         """Multiple ops produce space-joined sentences."""
@@ -5787,3 +5775,240 @@ class TestLegacyDeltaBoundary:
         assert "uid" in str(exc_info.value).lower(), (
             f"Expected uid-related error, got: {exc_info.value}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6 — single generated grammar + EditableSurface
+# ---------------------------------------------------------------------------
+
+_GOLDEN_PROMPT_DOC = """\
+Edit surface grammar (generated; do not invent verbs).
+Write the same Python the view emits. Statements are AST-parsed, never executed.
+
+Supported:
+- `node.field = literal` → set_node_field
+  `literal_eval` the RHS (const/list/dict, or a const-folded `BinOp`); reject names/calls
+- `var = Class(field=…, inp=src.SLOT, near=…)` → add_node
+  mint uid, bind `var`, reject `vibecomfy.*` intent classes (those use `intent_node_properties()`); emit one `upsert_link` per wired input
+- `dst.field = src.SLOT` (or bare `src` if unambiguous) → upsert_link
+  resolve slot name→index, type-check (`socket_types_compatible`)
+- `dst.field = None` → remove_link
+  disconnect the named input
+- `del node` → remove_node
+  refuse substrate virtuals (§6)
+- `node.mode = "bypassed"|"enabled"|"muted"` → set_mode
+  assign the semantic mode
+- `for n in <list>: n.field = value` → macro
+  parse-time expansion to one assignment per element (hard cap ~50); `range(...)` is the constant-iterator form of the same macro
+- `search(...)`, `python()`, and the named agent tool calls
+  side-effect-free catalog / research / describe; no graph op
+- `done()`
+  control: commit the session
+
+Forbidden (not in the grammar):
+- `import` / `from … import`  [import_not_allowed] — imports cross into runtime evaluation
+- `def` / `class` / `async def`  [statement_not_allowed] — user-defined functions and classes cross into runtime evaluation
+- `if` / `if` expressions  [conditional_not_allowed] — conditionals cross into runtime evaluation
+- list/set/dict/generator comprehensions  [comprehension_not_allowed] — comprehensions cross into runtime evaluation
+- `lambda`  [lambda_not_allowed] — lambdas cross into runtime evaluation
+- f-string interpolation  [f_string_not_allowed] — f-strings interpolate at runtime
+- `reorder(...)`  [call_not_allowed] — reorder is not part of the designed grammar
+- `node.title = …` / `set_title(...)`  [set_title_not_allowed] — set_title is not part of the designed grammar
+- arithmetic over graph names (e.g. `a.steps + b.steps`)  [expression_not_constant] — only const-folded literals are allowed; names are not operands
+
+AST allow-list: {Module, Expr, Assign, Delete, For(bounded), Call, Name, Attribute, Constant, List, Tuple, Dict, keyword, BinOp(const)}
+Batches are capped (~50 statements / ~64 KiB). Bounded `for` is a parse-time macro (cap ~50).
+"""
+
+
+def _parse_surface(code: str):
+    from vibecomfy.porting.edit._parse import _parse_and_validate_batch
+
+    return _parse_and_validate_batch(
+        code,
+        max_batch_bytes=65536,
+        max_statements=50,
+        max_expanded_statements=50,
+        max_for_iterations=50,
+    )
+
+
+class TestGeneratedGrammar:
+    def test_every_supported_form_parses(self) -> None:
+        cases = {
+            "ksampler.steps = 30\n": ("set_node_field",),
+            "dst.image = src.IMAGE\n": ("upsert_link",),
+            "dst.image = src\n": ("upsert_link",),
+            "dst.image = None\n": ("remove_link",),
+            "up = ImageUpscaleWithModel(image=src.IMAGE, model_name='x')\n": ("node_call",),
+            "del ksampler\n": ("remove_node",),
+            "ksampler.mode = 'bypassed'\n": ("set_mode",),
+            "for n in [a, b]:\n    n.seed = 1\n": ("set_node_field", "set_node_field"),
+            "done()\n": ("done",),
+        }
+        for source, kinds in cases.items():
+            parsed = _parse_surface(source)
+            assert parsed.diagnostics == (), (source, parsed.diagnostics)
+            assert tuple(item.op_kind for item in parsed.statements) == kinds
+
+    @pytest.mark.parametrize(
+        ("source", "code"),
+        [
+            ("import os\n", "import_not_allowed"),
+            ("def foo():\n    pass\n", "statement_not_allowed"),
+            ("x = [item for item in values]\n", "comprehension_not_allowed"),
+            ("if True:\n    ksampler.steps = 1\n", "conditional_not_allowed"),
+            ("ksampler.steps = other + 1\n", "expression_not_constant"),
+            ("reorder(ksampler)\n", "call_not_allowed"),
+            ("ksampler.title = 'x'\n", "set_title_not_allowed"),
+            ("set_title(ksampler, 'x')\n", "set_title_not_allowed"),
+        ],
+    )
+    def test_forbidden_forms_rejected_by_generated_allow_list(self, source: str, code: str) -> None:
+        parsed = _parse_surface(source)
+        assert parsed.diagnostics
+        assert any(item.code == code for item in parsed.diagnostics)
+
+    def test_generated_prompt_doc_matches_golden(self) -> None:
+        from vibecomfy.porting.edit.grammar import (
+            prompt_doc_covers_grammar,
+            render_prompt_doc,
+        )
+
+        doc = render_prompt_doc()
+        assert doc == _GOLDEN_PROMPT_DOC
+        assert prompt_doc_covers_grammar(doc) == []
+        assert "reorder" in doc and "not part of the designed grammar" in doc
+        assert "set_title" in doc
+
+    def test_authoring_doc_table_and_ast_list_are_generated(self) -> None:
+        from vibecomfy.porting.edit.grammar import (
+            authoring_doc_agrees,
+            authoring_doc_path,
+            render_ast_allow_list,
+            render_doc_table,
+        )
+
+        text = authoring_doc_path().read_text(encoding="utf-8")
+        assert authoring_doc_agrees(text)
+        assert render_doc_table() in text
+        assert render_ast_allow_list() in text
+        assert "set_title" not in render_doc_table()
+        assert "reorder" not in render_doc_table()
+
+
+class TestEditableSurface:
+    @staticmethod
+    def _provider():
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        class Provider:
+            def get_schema(self, class_type: str):
+                if class_type == "KnownNode":
+                    return NodeSchema(
+                        class_type="KnownNode",
+                        pack=None,
+                        inputs={
+                            "steps": InputSpec(type="INT"),
+                            "image": InputSpec(type="IMAGE"),
+                        },
+                        outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+                        source_provider="object_info",
+                    )
+                if class_type == "ProvisionalNode":
+                    return NodeSchema(
+                        class_type="ProvisionalNode",
+                        pack=None,
+                        inputs={"seed": InputSpec(type="INT")},
+                        outputs=[],
+                        source_provider="workflow_json_provisional",
+                    )
+                return None
+
+        return Provider()
+
+    def test_instance_hydration_known_provisional_unknown(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.workflow import VibeNode
+
+        provider = self._provider()
+        known = editable_surface_for(
+            VibeNode(
+                "1",
+                "KnownNode",
+                widgets={"steps": 20},
+                inputs={"image": ["2", 0]},
+                metadata={
+                    "schema_source": {"provider": "object_info"},
+                    "_ui": {
+                        "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                        "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+                    },
+                },
+            ),
+            schema_provider=provider,
+        )
+        assert known.schema_status == "known"
+        assert [field.name for field in known.literals] == ["steps"]
+        assert known.literals[0].name_confidence == "schema"
+        assert [slot.name for slot in known.inputs] == ["image"]
+        assert all(slot.writable == "wiring" for slot in known.inputs)
+        assert [port.name for port in known.outputs] == ["IMAGE"]
+
+        provisional = editable_surface_for(
+            VibeNode(
+                "2",
+                "ProvisionalNode",
+                widgets={"seed": 7},
+                metadata={"schema_source": {"provider": "workflow_json_provisional"}},
+            ),
+            schema_provider=provider,
+        )
+        assert provisional.schema_status == "provisional"
+        assert provisional.literals[0].role == "seed"
+
+        unknown = editable_surface_for(VibeNode("3", "MissingClass", widgets={"mystery": 1}))
+        assert unknown.schema_status == "unknown"
+        assert unknown.literals[0].name == "mystery"
+        assert unknown.literals[0].name_confidence == "instance"
+
+    def test_sockets_never_appear_in_literal_list(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+        from vibecomfy.workflow import VibeNode
+
+        surface = editable_surface_for(
+            VibeNode(
+                "1",
+                "KnownNode",
+                widgets={"steps": 20, "prompt": "nope"},
+                inputs={"prompt": ["2", 0]},
+                metadata={
+                    "schema_source": {"provider": "object_info"},
+                    "_ui": {
+                        "inputs": [{"name": "prompt", "type": "IMAGE", "link": 3}],
+                    },
+                },
+            ),
+            schema_provider=self._provider(),
+        )
+        assert "prompt" not in surface.literal_names()
+        assert "prompt" in surface.socket_names()
+
+    def test_unknown_names_have_name_confidence_none_not_positional_alias(self) -> None:
+        from vibecomfy.porting.edit.editable_surface import (
+            editable_surface_for,
+            is_positional_alias,
+        )
+        from vibecomfy.workflow import VibeNode
+
+        surface = editable_surface_for(
+            VibeNode("1", "Mystery", widgets={"widget_0": 9, "output_1": 2})
+        )
+        assert surface.literals
+        for field in surface.literals:
+            assert field.name_confidence == "none"
+            assert not field.name or not is_positional_alias(field.name)
+            assert not field.name.startswith("widget_")
+            assert not field.name.startswith("output_")
+        for port in surface.outputs:
+            assert not port.name or not is_positional_alias(port.name)

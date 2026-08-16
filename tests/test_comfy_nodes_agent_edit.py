@@ -3347,9 +3347,9 @@ def test_batch_repl_search_graph_present_miss_reports_adjacent_authorable_nodes(
     assert "No node signature found for exact class type(s): 'MissingMaskBridge'." in query_output
     assert "Graph context: the missing class is already present in the current graph" in query_output
     assert "Adjacent schema-backed candidates near MissingMaskBridge:" in query_output
-    assert "upstream via MASK: LoadMask#1 (LoadMask)" in query_output
+    assert "upstream via MASK: loadmask (LoadMask)" in query_output
     assert "def LoadMask" in query_output
-    assert "downstream via mask: GrowMaskWithBlur#3 (GrowMaskWithBlur)" in query_output
+    assert "downstream via mask: growmaskwithblur (GrowMaskWithBlur)" in query_output
     assert "def GrowMaskWithBlur" in query_output
     assert "GrowMaskWithBlur" in report
 
