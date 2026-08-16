@@ -185,7 +185,7 @@ def test_agent_edit_normalizes_compiled_dict_nodes_before_strict_projection() ->
         "vibecomfy_format_version": "1.0",
     }
 
-    normalized = normalize_agent_edit_graph(compiled_graph)
+    normalized = normalize_agent_edit_graph(compiled_graph).graph
 
     assert_root_graph_v1(normalized)
     assert isinstance(normalized["nodes"], list)
@@ -200,7 +200,7 @@ def test_agent_edit_normalizes_compiled_dict_nodes_before_strict_projection() ->
 def test_agent_edit_graph_normalization_leaves_list_nodes_unchanged() -> None:
     graph = {"nodes": [], "links": [], "metadata": {"format": "ui"}}
 
-    assert normalize_agent_edit_graph(graph) is graph
+    assert normalize_agent_edit_graph(graph).graph is graph
 
     empty_compiled = {
         "id": "empty",
@@ -215,7 +215,7 @@ def test_agent_edit_graph_normalization_leaves_list_nodes_unchanged() -> None:
         "compiled_api": {},
         "vibecomfy_format_version": "1.0",
     }
-    assert normalize_agent_edit_graph(empty_compiled)["nodes"] == []
+    assert normalize_agent_edit_graph(empty_compiled).graph["nodes"] == []
 
     malformed_mixed = dict(empty_compiled)
     malformed_mixed["nodes"] = {"1": "not-a-node"}
@@ -230,9 +230,15 @@ def test_agent_edit_normalizes_graph_before_turn_allocation(
     canonical = {"nodes": [], "links": []}
     captured: dict[str, object] = {}
 
-    def fake_normalize(graph: dict, *, schema_provider: object) -> dict:
+    def fake_normalize(graph: dict, *, schema_provider: object) -> graph_normalization.NormalizedAgentEditGraph:
         assert graph is submitted
-        return canonical
+        # Batch 3: the door returns the typed result carrying both the
+        # canonical dict and the retained IR; the entrypoint stores the IR on
+        # state at allocation and never recovers it via getattr/dict tricks.
+        return graph_normalization.NormalizedAgentEditGraph(
+            graph=canonical,
+            workflow=object(),
+        )
 
     def fake_allocate_turn(**kwargs: object) -> SimpleNamespace:
         request_payload = kwargs["request_payload"]

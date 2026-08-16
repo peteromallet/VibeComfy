@@ -77,9 +77,30 @@ def _stale_rebaseline_recovery_issue(
     }
 
 
+def _ensure_ingest_workflow(state: AgentEditState) -> Any:
+    """Return the retained ingest IR, building it exactly once if absent.
+
+    The public entrypoint retains the IR in ``AgentEditState.workflow`` at
+    allocation (batch 3), so the normal path never re-ingests.  Direct stage
+    callers and recovered states fall through here, which performs the SINGLE
+    named-door conversion (``normalize_agent_edit_graph`` — the only shape
+    dispatcher) and stores both the canonical graph and the retained
+    ``VibeWorkflow`` on state.
+    """
+    if state.workflow is None:
+        from .graph_normalization import normalize_agent_edit_graph  # T-038 late import: sibling cycle broken; resolved at call time
+
+        normalized = normalize_agent_edit_graph(
+            state.graph,
+            schema_provider=state.schema_provider,
+        )
+        state.graph = normalized.graph
+        state.workflow = normalized.workflow
+    return state.workflow
+
+
 def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
     from vibecomfy.porting.layout_store import store_from_ui_json
-    from ._frag_state import ensure_ingest_workflow
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
@@ -87,7 +108,7 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
     # Batch 3: the ingest IR was retained at allocation (AgentEditState.workflow);
     # direct stage callers / recovered states build it exactly once here via the
     # named door.  No stage re-derives the IR from raw JSON.
-    ensure_ingest_workflow(state)
+    _ensure_ingest_workflow(state)
     state.prior_store = store_from_ui_json(state.graph)
     # Phase 1 (concrete-tree migration, docs/agent-edit/concrete-tree.md): give the
     # user's original graph stable identity so the delta-scope guard (guard_emit)
@@ -140,29 +161,14 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
 
 def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult:
     from vibecomfy.porting.edit.ledger import EditLedger
-    from ._frag_state import ingest_workflow_from_graph
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
-    # Batch 3 (one retained ingest authority): the door conversion already ran
-    # at allocation and its ``VibeWorkflow`` is retained in state.workflow.
-    # Direct stage callers / recovered states build it exactly once here — no
-    # second door round-trip, no per-render rebuild from working_ui.
-    if state.workflow is None:
-        from .graph_normalization import normalize_agent_edit_graph  # T-038 late import: resolved at call time
-
-        normalized = normalize_agent_edit_graph(
-            state.graph,
-            schema_provider=state.schema_provider,
-        )
-        retained = getattr(normalized, "workflow", None)
-        if retained is None:
-            retained = ingest_workflow_from_graph(
-                normalized,
-                schema_provider=state.schema_provider,
-            )
-        state.graph = normalized
-        state.workflow = retained
+    # Batch 3 (ONE ingest path): the door (graph_normalization) dispatched the
+    # shape exactly once at allocation and its ``VibeWorkflow`` is retained in
+    # state.workflow.  This stage consumes the retained IR — never re-ingests
+    # from raw JSON and never re-runs the shape switch.
+    _ensure_ingest_workflow(state)
     ledger = EditLedger.ingest(state.graph)
     state.guard_original_ui = ledger.stamped_copy()
     original_ui_ref = write_json_artifact(state.original_ui_path, state.guard_original_ui)

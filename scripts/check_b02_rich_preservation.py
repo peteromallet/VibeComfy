@@ -307,7 +307,7 @@ def check_envelope(raw: dict[str, Any]) -> dict[str, Any]:
 
     # ── canonicalize + re-ingest + re-emit ──────────────────────────────────
     try:
-        canonical = normalize_agent_edit_graph(raw)
+        canonical = normalize_agent_edit_graph(raw).graph
         api2 = normalize_to_api(canonical, use_comfy_converter=False)
         ir2 = from_api(api2)
         ir2.groups = deepcopy(canonical.get("groups") or [])

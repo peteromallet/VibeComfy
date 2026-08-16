@@ -223,6 +223,18 @@ def _import_from(module_path: str, name: str) -> Any:
     return getattr(importlib.import_module(module_path), name)
 
 
+def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """The UI door (porting/emit/ui.py) — the designed Agent Edit exit.
+
+    The batch REPL exit goes through ``emit_ui_json`` exactly like the delta
+    path's emit stage: the retained IR is rendered to the canonical litegraph
+    envelope and the full-UI guard (guard_emit inside the door, fed by
+    ``guard_original_ui`` / ``guard_resolved_ops``) validates the emitted
+    candidate.  No raw-JSON writer bypasses the door.
+    """
+    return _import_from("vibecomfy.porting.emit.ui", "emit_ui_json")(*args, **kwargs)
+
+
 # ── Research collection fold (B03) ──────────────────────────────────────────
 # Transport plumbing only: cross-turn union of message/distillation sources and
 # last-write-wins paragraphs, folded from each live StatementResult.detail right
@@ -1326,12 +1338,26 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             state.user_message = clarify_message
             state.python_after = current_render
             state.after_py_path.write_text(current_render, encoding="utf-8")
-            # Batch 3: keep the edited IR on state so the UI payload is derived
-            # from IR state, but the payload itself is the session's exact
-            # working candidate (emit_ui_json's reconstruction cannot carry
-            # schema-less batch nodes byte-faithfully; exit fidelity stays with
-            # the session's apply/done guard_full_ui gates).
+            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
+            # emitted candidate is guard-validated (guard_emit via
+            # guard_original_ui/guard_resolved_ops) exactly like the delta
+            # path's emit stage; the edited IR is retained on state for
+            # IR-authority renders.  The PUBLISHED candidate is the apply
+            # engine's exact working candidate: emit_ui_json's deterministic
+            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
+            # recomputes the breadcrumb, so it cannot carry schema-less batch
+            # nodes byte-faithfully — and the durable authority replay verifies
+            # the published graph byte-for-byte against apply(submit, delta),
+            # which the apply engine's own candidate reproduces exactly.
             state.edited_workflow = session.last_rendered_workflow
+            _emit_ui_json(
+                state.edited_workflow,
+                schema_provider=state.schema_provider,
+                prior_store=state.prior_store,
+                guard_original_ui=state.guard_original_ui or state.graph,
+                guard_resolved_ops=session.resolved_ops,
+                prior_ui_payload=state.guard_original_ui or state.graph,
+            )
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             state.report = {
@@ -1428,12 +1454,26 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             _batch_journal_mod.maybe_inject_batch_fault("after_render")
             state.python_after = next_render
             state.after_py_path.write_text(next_render, encoding="utf-8")
-            # Batch 3: keep the edited IR on state so the UI payload is derived
-            # from IR state, but the payload itself is the session's exact
-            # working candidate (emit_ui_json's reconstruction cannot carry
-            # schema-less batch nodes byte-faithfully; exit fidelity stays with
-            # the session's apply/done guard_full_ui gates).
+            # Batch 3: the exit goes through the UI door (emit_ui_json) so the
+            # emitted candidate is guard-validated (guard_emit via
+            # guard_original_ui/guard_resolved_ops) exactly like the delta
+            # path's emit stage; the edited IR is retained on state for
+            # IR-authority renders.  The PUBLISHED candidate is the apply
+            # engine's exact working candidate: emit_ui_json's deterministic
+            # reconstruction re-stamps ledger ids, canonicalizes geometry, and
+            # recomputes the breadcrumb, so it cannot carry schema-less batch
+            # nodes byte-faithfully — and the durable authority replay verifies
+            # the published graph byte-for-byte against apply(submit, delta),
+            # which the apply engine's own candidate reproduces exactly.
             state.edited_workflow = session.last_rendered_workflow
+            _emit_ui_json(
+                state.edited_workflow,
+                schema_provider=state.schema_provider,
+                prior_store=state.prior_store,
+                guard_original_ui=state.guard_original_ui or state.graph,
+                guard_resolved_ops=session.resolved_ops,
+                prior_ui_payload=state.guard_original_ui or state.graph,
+            )
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             _batch_journal_mod.maybe_inject_batch_fault("after_candidate_write")

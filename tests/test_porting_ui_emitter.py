@@ -3365,7 +3365,7 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
 
     raw = _corpus("tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json")
-    ui = normalize_agent_edit_graph(raw)
+    ui = normalize_agent_edit_graph(raw).graph
     node16 = next(n for n in ui["nodes"] if str(n.get("id")) == "16")
     uid = node16["properties"]["vibecomfy_uid"]
     delta = {
@@ -3422,7 +3422,7 @@ def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     ui = normalize_agent_edit_graph(
         cand,
         schema_provider=get_authoring_schema_provider(),
-    )
+    ).graph
     emitted = next(n for n in ui["nodes"] if str(n.get("id")) == "249")
     assert emitted["widgets_values"] == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
 

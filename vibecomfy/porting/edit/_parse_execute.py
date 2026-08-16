@@ -124,6 +124,21 @@ class _ParseExecuteMixin:
                 )
             if saw_failed_edit and not landed_ops:
                 self._restore_snapshot(snapshot)
+            if landed_ops:
+                # Batch 3 (IR authority): refresh the retained IR from the
+                # apply engine's own candidate exactly once per committed
+                # batch — the edit engine's conversion, never a second ingest.
+                # The refresh goes through the SAME named door (from_ui) so the
+                # IR carries the new wire data (widgets/id/extra); the exit
+                # emit_ui_json reconstructs the candidate from this IR and
+                # reproduces working_ui, keeping the authority replay exact.
+                from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
+
+                self.workflow = from_ui(
+                    self.working_ui,
+                    schema_provider=self.schema_provider,
+                    use_comfy_converter=False,
+                )
             field_changes, statement_results = self._build_field_changes(
                 landed_ops,
                 statement_results,
@@ -149,6 +164,8 @@ class _ParseExecuteMixin:
             "name_by_uid": dict(self.name_by_uid),
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
+            "workflow": self.workflow,
+            "resolved_ops": list(self.resolved_ops),
             "render_count": self.render_count,
             "last_rendered_source": self.last_rendered_source,
             "last_rendered_workflow": self.last_rendered_workflow,
@@ -165,6 +182,8 @@ class _ParseExecuteMixin:
         self.name_by_uid = dict(snapshot["name_by_uid"])
         self.unbound_names = set(snapshot["unbound_names"])
         self.value_default_context = snapshot["value_default_context"]
+        self.workflow = snapshot["workflow"]
+        self.resolved_ops = list(snapshot["resolved_ops"])
         if "render_count" in snapshot:
             self.render_count = snapshot["render_count"]
             self.last_rendered_source = snapshot["last_rendered_source"]
@@ -267,6 +286,10 @@ class _ParseExecuteMixin:
 
             self.working_ui = deepcopy(applied.candidate)
             self.ledger = EditLedger.ingest(self.working_ui)
+            # Accumulate resolved-op attribution for the emit-boundary guard
+            # (guard_emit), mirroring the delta path's emit_guard_resolved_ops.
+            if applied.resolved_ops:
+                self.resolved_ops.extend(applied.resolved_ops)
 
             # Propagate assigned uid/node_id back into AddNodeOp for canonical
             # persistence downstream.

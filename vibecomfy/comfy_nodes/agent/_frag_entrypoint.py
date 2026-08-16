@@ -103,20 +103,14 @@ def handle_agent_edit(
     # here, and the ``VibeWorkflow`` it constructs is retained on
     # ``AgentEditState.workflow`` at allocation.  No downstream stage re-derives
     # the IR from raw JSON.
-    from ._frag_state import ingest_workflow_from_graph  # T-039 late import: host namespace lookup; resolved at call time
     from .graph_normalization import normalize_agent_edit_graph  # T-039 late import: host namespace lookup; resolved at call time
 
     try:
-        normalized_graph = normalize_agent_edit_graph(
+        normalized = normalize_agent_edit_graph(
             graph,
             schema_provider=schema_provider,
         )
-        retained_workflow = getattr(normalized_graph, "workflow", None)
-        if retained_workflow is None:
-            retained_workflow = ingest_workflow_from_graph(
-                normalized_graph,
-                schema_provider=schema_provider,
-            )
+        retained_workflow = normalized.workflow
     except Exception as exc:
         failure = failure_envelope(
             FailureKind.VALIDATION_ERROR,
@@ -129,10 +123,10 @@ def handle_agent_edit(
             _product_failure_response(failure),
             stage="ingest",
         )
-    if normalized_graph is not graph:
+    if normalized.graph is not graph:
         payload = dict(payload)
-        payload["graph"] = normalized_graph
-        graph = normalized_graph
+        payload["graph"] = normalized.graph
+        graph = normalized.graph
     root = session_root or _SESSION_ROOT
     session_id = _safe_session_id(payload.get("session_id"))
     allocation = allocate_turn(
