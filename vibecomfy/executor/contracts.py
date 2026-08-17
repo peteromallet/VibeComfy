@@ -2239,6 +2239,80 @@ class ExecutorResult:
         )
 
 
+def _delta_op_claim_keys(delta_ops: Any) -> set[tuple[str, str]]:
+    """Return the ``(uid, field_path)`` claims made by canonical Δ ops.
+
+    Only the accepted batch's landed ops may be claimed: ``set_node_field``
+    claims its target field, ``add_node`` claims every field it set, and
+    ``remove_node`` claims the whole node (``"*"``).  Unrecognised op shapes
+    make no claims.
+    """
+    claims: set[tuple[str, str]] = set()
+    if not isinstance(delta_ops, (list, tuple)):
+        return claims
+    for op in delta_ops:
+        if not isinstance(op, Mapping):
+            continue
+        kind = op.get("op")
+        if kind == "set_node_field":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 3:
+                claims.add((str(target[1]), str(target[2])))
+        elif kind == "add_node":
+            uid = op.get("uid")
+            fields = op.get("fields")
+            if uid is not None and isinstance(fields, Mapping):
+                for field_path in fields:
+                    claims.add((str(uid), str(field_path)))
+        elif kind == "remove_node":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None:
+                claims.add((str(target[1]), "*"))
+    return claims
+
+
+def validate_reply_change_claims(response: Any) -> list[str]:
+    """Return violations when the response's change claims exceed the accepted Δ.
+
+    The reply-must-match-diff law: every change claim in the response
+    (``change_details.operations``) must reference a statement that landed —
+    i.e. its ``(uid, field_path)`` must appear among the accepted Δ ops
+    (``delta_ops_envelope.ops``, with the derived ``delta_ops`` view as a
+    fallback).  A claim about a non-landed statement is invalid and is
+    reported as a violation; an empty list means all claims are within Δ.
+    """
+    if not isinstance(response, Mapping):
+        return ["response must be a mapping"]
+    envelope = response.get("delta_ops_envelope")
+    delta_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+    if not isinstance(delta_ops, (list, tuple)):
+        delta_ops = response.get("delta_ops")
+    claim_keys = _delta_op_claim_keys(delta_ops)
+    violations: list[str] = []
+    change_details = response.get("change_details")
+    operations = (
+        change_details.get("operations")
+        if isinstance(change_details, Mapping)
+        else None
+    )
+    if not isinstance(operations, list):
+        return violations
+    for operation in operations:
+        if not isinstance(operation, Mapping):
+            continue
+        uid = operation.get("uid")
+        field_path = operation.get("field_path")
+        if uid is None or field_path is None:
+            continue
+        key = (str(uid), str(field_path))
+        if key not in claim_keys:
+            violations.append(
+                f"change claim ({uid}, {field_path}) is not in the accepted Δ; "
+                "a claim about a non-landed statement is invalid"
+            )
+    return violations
+
+
 __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
@@ -2267,5 +2341,6 @@ __all__ = [
     "is_actionable_adaptation_plan",
     "normalize_model_endpoint",
     "redact_model_preview",
+    "validate_reply_change_claims",
     "warning_detail_from_exception",
 ]

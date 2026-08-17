@@ -15,7 +15,7 @@ import json
 from typing import Any, Mapping
 
 
-from ._frag_state import LOGGER
+from ._frag_state import LOGGER, _accepted_batch_statements
 
 from .contracts import _clarification_payload
 
@@ -1226,6 +1226,12 @@ def _build_batch_repl_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
+    # ── Accepted Δ references ─────────────────────────────────────────────
+    # The response's change claims (reply, report, change_details, outcome)
+    # are grounded in the accepted Δ: the batch statements that landed.
+    # ``accepted_batch`` carries those statements so consumers can verify
+    # claims ⊆ Δ (the reply-must-match-diff law).
+    response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))
     # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
     # Use the envelope validated by _validate_delta_evidence_for_apply rather
     # than rebuilding it here.  For applyable turns with a candidate, the

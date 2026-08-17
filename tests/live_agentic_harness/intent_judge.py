@@ -28,8 +28,11 @@ def _load_prompt() -> str:
     # Fallback rubric if the canonical prompt is missing.
     return (
         "You are a precise evaluator for ComfyUI workflow edits. Given a natural-language\n"
-        "intent and a structural diff between a pre-edit and post-edit workflow IR, you\n"
+        "intent, the accepted Δ (the batch statements and delta ops that actually landed),\n"
+        "and a structural diff between a pre-edit and post-edit workflow IR, you\n"
         "must determine whether the edit correctly implements the intent.\n\n"
+        "The accepted Δ is the canonical change: grade the Δ directly and verify it is\n"
+        "what actually changed between pre_ir and post_ir. Claims outside the Δ are invalid.\n\n"
         "Evaluate the edit against exactly four binary criteria:\n"
         "- correct_node_targeted\n"
         "- correct_parameter_changed\n"
@@ -457,6 +460,161 @@ def _static_widget_dataflow_context(
     }
 
 
+def _load_accepted_batch(
+    response: Mapping[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Return the accepted Δ from a run response: ``(accepted_batch, delta_envelope)``.
+
+    ``accepted_batch`` is the list of batch statements that succeeded
+    (``ok`` and ``landed`` both true) — the accepted batch that the reply
+    claims.  ``delta_envelope`` is the canonical cumulative Δ envelope
+    (``delta_ops_envelope``), with the derived ``delta_ops`` view as a
+    fallback.  Both are sourced from the durable response only; prose is
+    never used.
+    """
+    if not isinstance(response, Mapping):
+        return [], None
+    accepted: list[dict[str, Any]] = []
+    for turn in response.get("batch_turns") or []:
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or []:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is True and statement.get("landed") is True:
+                accepted.append(
+                    {
+                        "statement_index": statement.get("statement_index"),
+                        "source": statement.get("source"),
+                        "op_kind": statement.get("op_kind"),
+                        "touched_uids": list(statement.get("touched_uids") or ()),
+                    }
+                )
+    envelope = response.get("delta_ops_envelope")
+    if isinstance(envelope, Mapping):
+        return accepted, dict(envelope)
+    delta_ops = response.get("delta_ops")
+    if isinstance(delta_ops, list):
+        return accepted, {"ops": list(delta_ops)}
+    return accepted, None
+
+
+def _ui_node_value_fields(node: Mapping[str, Any]) -> dict[str, Any]:
+    """Best-effort field/value view of a UI node (inputs, widgets, widgets_values)."""
+    values: dict[str, Any] = {}
+    inputs = node.get("inputs")
+    if isinstance(inputs, Mapping):
+        values.update({str(k): v for k, v in inputs.items()})
+    widgets = node.get("widgets")
+    widgets_values = node.get("widgets_values")
+    if isinstance(widgets, list) and isinstance(widgets_values, list):
+        for index, widget in enumerate(widgets):
+            if (
+                isinstance(widget, Mapping)
+                and isinstance(widget.get("name"), str)
+                and index < len(widgets_values)
+            ):
+                values[str(widget["name"])] = widgets_values[index]
+    return values
+
+
+def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    nodes = ir.get("nodes")
+    result: dict[str, Mapping[str, Any]] = {}
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            uid = node.get("properties", {}).get("vibecomfy_uid") if isinstance(node.get("properties"), Mapping) else None
+            if uid is None:
+                uid = node.get("id")
+            if uid is not None:
+                result[str(uid)] = node
+        return result
+    for key, node in ir.items():
+        if isinstance(node, Mapping) and node.get("class_type") is not None:
+            result[str(node.get("uid") or key)] = node
+    return result
+
+
+def _verify_delta_replay(
+    pre_ir: Mapping[str, Any],
+    post_ir: Mapping[str, Any],
+    delta_ops: Any,
+) -> dict[str, Any]:
+    """Deterministically verify the canonical Δ against pre/post IR.
+
+    The Δ is replayable when every op's claim is satisfied by the IR pair:
+    ``set_node_field`` claims its target field holds the op value in
+    ``post_ir``, ``add_node`` claims the uid exists only after, and
+    ``remove_node`` claims the uid exists only before.  Returns
+    ``{"verified": bool | None, "checked": int, "mismatches": [...]}`` where
+    ``verified`` is None when no op was checkable (the LLM judges).
+    """
+    if not isinstance(delta_ops, (list, tuple)) or not delta_ops:
+        return {"verified": None, "checked": 0, "mismatches": []}
+    pre_nodes = _nodes_by_uid(pre_ir)
+    post_nodes = _nodes_by_uid(post_ir)
+    mismatches: list[str] = []
+    checked = 0
+    for op in delta_ops:
+        if not isinstance(op, Mapping):
+            continue
+        kind = op.get("op")
+        if kind == "set_node_field":
+            target = op.get("target")
+            if not (isinstance(target, (list, tuple)) and len(target) >= 3):
+                continue
+            uid, field_path = str(target[1]), str(target[2])
+            post_node = post_nodes.get(uid)
+            if post_node is None:
+                mismatches.append(
+                    f"set_node_field claims {uid}.{field_path} but {uid} is absent from post IR"
+                )
+                checked += 1
+                continue
+            values = _ui_node_value_fields(post_node)
+            if field_path in values and values[field_path] == op.get("value"):
+                checked += 1
+            else:
+                mismatches.append(
+                    f"set_node_field claims {uid}.{field_path} = {op.get('value')!r} "
+                    f"but post IR has {values.get(field_path, '<absent>')!r}"
+                )
+                checked += 1
+        elif kind == "add_node":
+            uid = op.get("uid")
+            if uid is None:
+                continue
+            uid = str(uid)
+            if uid in post_nodes and uid not in pre_nodes:
+                checked += 1
+            else:
+                mismatches.append(
+                    f"add_node claims {uid} was added but pre/post IR do not show it"
+                )
+                checked += 1
+        elif kind == "remove_node":
+            target = op.get("target")
+            if not (isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None):
+                continue
+            uid = str(target[1])
+            if uid in pre_nodes and uid not in post_nodes:
+                checked += 1
+            else:
+                mismatches.append(
+                    f"remove_node claims {uid} was removed but pre/post IR do not show it"
+                )
+                checked += 1
+    if checked == 0:
+        return {"verified": None, "checked": 0, "mismatches": []}
+    return {
+        "verified": not mismatches,
+        "checked": checked,
+        "mismatches": mismatches[:8],
+    }
+
+
 def judge_edit_intent(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
@@ -480,6 +638,7 @@ def judge_edit_intent(
     response_path = output_dir / "response.json"
     original_ui_path: Path | None = None
     candidate_ui_path: Path | None = None
+    response: Mapping[str, Any] | None = None
     if response_path.is_file():
         try:
             response = json.loads(response_path.read_text(encoding="utf-8"))
@@ -511,6 +670,24 @@ def judge_edit_intent(
     except (OSError, json.JSONDecodeError) as exc:
         return {"pass_": None, "error": f"failed to load UI artifacts: {exc}"}
 
+    accepted_batch, delta_envelope = _load_accepted_batch(response)
+    delta_ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
+    delta_replay = _verify_delta_replay(pre_ir, post_ir, delta_ops)
+    # The Δ is what actually changed: when the deterministic replay of the
+    # canonical Δ contradicts the pre/post IR, no edit satisfies the intent —
+    # fail closed without a model call (the reply-must-match-diff law).
+    if delta_replay.get("verified") is False:
+        return {
+            "pass_": False,
+            "criteria": {
+                "correct_node_targeted": False,
+                "correct_parameter_changed": False,
+                "value_semantically_matches_intent": False,
+                "no_orphaned_wiring": False,
+            },
+            "rationale": "delta replay mismatch: " + "; ".join(delta_replay.get("mismatches") or []),
+            "metadata": {"delta_replay": delta_replay},
+        }
     system_prompt = _load_prompt()
     implementation_payload = _load_implementation_payload(output_dir)
     schema_context = _schema_context_from_payload(implementation_payload) or {}
@@ -528,6 +705,18 @@ def judge_edit_intent(
             "If a static widget containing stale or fabricated text is removed while "
             "the relevant linked dynamic input path remains connected, do not treat "
             "that removal as deleting the dynamic dataflow."
+        )
+    # The judge grades the canonical Δ (the accepted batch) directly: the Δ is
+    # what actually changed, so claims outside it are invalid.
+    if accepted_batch or isinstance(delta_envelope, Mapping):
+        system_prompt = (
+            system_prompt.rstrip()
+            + "\n\n## Accepted Δ (the canonical change)\n"
+            "The accepted_batch statements and the delta envelope below are the ONLY "
+            "changes that actually landed (the canonical Δ). Grade the edit against "
+            "them directly: the Δ is what actually changed between pre_ir and post_ir. "
+            "Do not infer additional edits from the IR pair that the Δ does not claim, "
+            "and do not excuse a claimed edit that the Δ does not contain."
         )
     # Optional non-prescriptive "desired outcome" rubric from the scenario. When
     # present, it grounds the judge on what a GOOD result achieves (the outcome +
@@ -548,7 +737,12 @@ def judge_edit_intent(
             f"What 'smart/complete' means here: {desired.get('quality', '')}\n"
             f"Alternative approaches acceptable: {desired.get('alternatives_ok', True)}"
         )
-    payload = {"nl_intent": query, "pre_ir": pre_ir, "post_ir": post_ir}
+    payload: dict[str, Any] = {"nl_intent": query, "pre_ir": pre_ir, "post_ir": post_ir}
+    if accepted_batch:
+        payload["accepted_batch"] = accepted_batch
+    if isinstance(delta_envelope, Mapping):
+        payload["delta"] = delta_envelope
+    payload["delta_replay"] = delta_replay
     if desired:
         payload["desired_outcome"] = desired
     if schema_context:

@@ -18,7 +18,12 @@ from vibecomfy.comfy_nodes.agent.provider import MalformedModelJSON, MissingRequ
 from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
 from vibecomfy.porting.edit.types import FieldChange
 from ._frag_chat import _json_safe
-from ._frag_state import AgentEditState, _total_landed_edit_count
+from ._frag_state import (
+    AgentEditState,
+    _accepted_batch_delta_ops,
+    _accepted_batch_field_changes,
+    _total_landed_edit_count,
+)
 
 def _field_change_is_noop(
     change: FieldChange,
@@ -329,13 +334,51 @@ def _first_link_source_label(
     return _resolve_endpoint_label({"uid": source_uid, "output_slot": source_slot}, labels, graph)
 
 
+def _delta_structural_uids(state: AgentEditState) -> tuple[set[str], set[str]]:
+    """Return ``(added_uids, removed_uids)`` from the accepted Δ ops.
+
+    add_node / remove_node ops are the Δ's structural claims; the summary
+    phrases are derived from them so prose can never claim a structural
+    change the accepted batch did not land.
+    """
+    added: set[str] = set()
+    removed: set[str] = set()
+    for op in _accepted_batch_delta_ops(state):
+        kind = op.get("op")
+        if kind == "add_node":
+            uid = op.get("uid")
+            if uid is not None:
+                added.add(str(uid))
+        elif kind == "remove_node":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None:
+                removed.add(str(target[1]))
+    return added, removed
+
+
 def _structural_change_phrases(state: AgentEditState, labels: Mapping[str, str]) -> list[str]:
-    before_by_uid = _ui_node_by_uid(state.graph)
-    after_by_uid = _ui_node_by_uid(state.ui_payload)
-    if not after_by_uid:
+    added_uids, removed_uids = _delta_structural_uids(state)
+    if not added_uids and not removed_uids:
+        # No Δ structural ops: fall back to the graph boundary diff so
+        # synthetic/pre-batch states (no batch evidence) still render.  In
+        # the live loop the Δ ops are always present and are the source of
+        # truth.
+        before_by_uid = _ui_node_by_uid(state.graph)
+        after_by_uid = _ui_node_by_uid(state.ui_payload)
+        if not after_by_uid:
+            return []
+        added_uids = set(after_by_uid) - set(before_by_uid)
+        removed_uids = set(before_by_uid) - set(after_by_uid)
+    else:
+        after_by_uid = _ui_node_by_uid(state.ui_payload)
+        before_by_uid = _ui_node_by_uid(state.graph)
+        # Keep only uids we can resolve; unknown uids never become prose.
+        added_uids = {uid for uid in added_uids if uid in after_by_uid}
+        removed_uids = {uid for uid in removed_uids if uid in before_by_uid}
+    if not after_by_uid and not before_by_uid:
         return []
-    added = [after_by_uid[uid] for uid in sorted(set(after_by_uid) - set(before_by_uid))]
-    removed = [before_by_uid[uid] for uid in sorted(set(before_by_uid) - set(after_by_uid))]
+    added = [after_by_uid[uid] for uid in sorted(added_uids)]
+    removed = [before_by_uid[uid] for uid in sorted(removed_uids)]
     phrases: list[str] = []
     if added:
         parts: list[str] = []
@@ -408,7 +451,7 @@ def _sentence_case(text: str) -> str:
 
 
 def _humanized_edit_message(state: AgentEditState) -> str:
-    changes = _net_field_changes(tuple(state.batch_field_changes or ()))
+    changes = _net_field_changes(_accepted_batch_field_changes(state))
     labels = _node_label_by_uid(state.graph, state.ui_payload)
     structural_phrases = _structural_change_phrases(state, labels)
     if structural_phrases:
@@ -594,7 +637,7 @@ def _change_details_payload(state: AgentEditState, context: TurnContext) -> dict
     gate_snapshot = context.gate_snapshot()
     gate_a = gate_snapshot.get("edit_scope_ok") or gate_snapshot.get("python_load_ok")
     gate_b = gate_snapshot.get("isomorphic_ok") or gate_snapshot.get("ui_fidelity_ok")
-    operations = _operation_detail_payload(_net_field_changes(tuple(state.batch_field_changes or ())))
+    operations = _operation_detail_payload(_net_field_changes(_accepted_batch_field_changes(state)))
     payload = {
         "landed_operation_count": _total_landed_edit_count(state),
         "done_summary": state.batch_done_summary or "",
@@ -1255,7 +1298,7 @@ __all__ = (
      "_append_post_edit_reorganisation_advice", "_article_for",
      "_batch_candidate_graph_changed", "_batch_warning_sentence",
      "_change_details_payload", "_change_subject", "_compact_change_details_payload",
-     "_display_value", "_fallback_narrative_message", "_field_change_is_noop",
+     "_delta_structural_uids", "_display_value", "_fallback_narrative_message", "_field_change_is_noop",
      "_first_link_source_label", "_human_change_phrase", "_humanized_edit_message",
      "_humanized_noop_message", "_is_link_endpoint", "_join_human_list",
      "_landed_edit_lead", "_link_endpoint_parts", "_looks_internal_uid",

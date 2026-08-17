@@ -19,11 +19,17 @@ assert "vibecomfy.comfy_nodes.agent.routes" not in sys.modules
 assert "vibecomfy.executor.core" not in sys.modules
 """
 
+    env = dict(__import__("os").environ)
+    # Headless mode keeps the comfy_nodes package from registering ComfyUI
+    # server routes at import time; the assertion targets what
+    # executor_response itself pulls in.
+    env["VIBECOMFY_HEADLESS"] = "1"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -215,3 +221,90 @@ def test_non_durable_respond_result_never_synthesizes_authority_fields() -> None
     assert not leaked, (
         f"Non-durable respond result leaked authority fields: {sorted(leaked)}"
     )
+
+
+# ── Batch 10: response carries Δ references; claims ⊆ accepted Δ ────────────
+
+
+def test_serialize_executor_result_preserves_delta_references() -> None:
+    """The response carries the canonical Δ references: the envelope and the
+    derived ops view survive serialization unchanged."""
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "sampler", "steps"],
+                "value": 30,
+            }
+        ],
+    }
+    payload: dict = {
+        "ok": True,
+        "route": "edit",
+        "reply": "Changed sampler.steps from 20 to 30.",
+        "delta_ops_envelope": envelope,
+        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+            }
+        ],
+    }
+
+    serialized = serialize_executor_result(payload)
+
+    assert serialized["delta_ops_envelope"] == envelope
+    assert serialized["delta_ops"] == envelope["ops"]
+    assert serialized["accepted_batch"][0]["statement_index"] == 1
+
+
+def test_reply_change_claims_must_reference_accepted_delta() -> None:
+    """The reply-must-match-diff law: a claim about a non-landed statement is
+    invalid; claims within the accepted Δ pass."""
+    from vibecomfy.executor.contracts import validate_reply_change_claims
+
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "sampler", "steps"],
+                "value": 30,
+            }
+        ],
+    }
+    valid_response: dict = {
+        "delta_ops_envelope": envelope,
+        "delta_ops": list(envelope["ops"]),
+        "change_details": {
+            "operations": [
+                {
+                    "uid": "sampler",
+                    "field_path": "steps",
+                    "summary": "Changed sampler.steps from 20 to 30.",
+                }
+            ]
+        },
+    }
+    assert validate_reply_change_claims(valid_response) == []
+
+    invalid_response: dict = {
+        "delta_ops_envelope": envelope,
+        "delta_ops": list(envelope["ops"]),
+        "change_details": {
+            "operations": [
+                {
+                    "uid": "sampler",
+                    "field_path": "seed",
+                    "summary": "Changed sampler.seed from 42 to 99.",
+                }
+            ]
+        },
+    }
+    violations = validate_reply_change_claims(invalid_response)
+    assert len(violations) == 1
+    assert "not in the accepted Δ" in violations[0]

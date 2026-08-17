@@ -502,7 +502,7 @@ def test_intent_judge_recomputes_schema_context_for_sidecar_less_envelope(
                             "id": "17",
                             "class_type": "Preview3D",
                             "uid": "uid-17",
-                            "inputs": {"images": ["10", 0]},
+                            "inputs": {},
                             "widgets": {},
                             "metadata": {"_ui": {"mode": 0}},
                         },
@@ -709,3 +709,158 @@ def test_grounded_refusal_judge_includes_ui_inventory(
     payload = seen["payload"]
     assert payload["node_inventory"] == [{"id": 1, "type": "CheckpointLoaderSimple"}]
     assert payload["original_ui"]["nodes"][0]["type"] == "CheckpointLoaderSimple"
+
+
+# ── Batch 10: the edit judge grades the canonical Δ (replayable) ────────────
+
+
+def _judge_delta_response_json(original: Path, candidate: Path, *, ops: list[dict]) -> dict:
+    return {
+        "artifacts": {
+            "original_ui": str(original),
+            "candidate_ui": str(candidate),
+        },
+        "delta_ops_envelope": {"schema_version": "2.0.0", "ops": ops},
+        "delta_ops": ops,
+        "batch_turns": [
+            {
+                "statements": [
+                    {
+                        "statement_index": 1,
+                        "source": 'set_field(uid="sampler", field="steps", value=30)',
+                        "ok": True,
+                        "landed": True,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                    {
+                        "statement_index": 2,
+                        "source": 'set_field(uid="sampler", field="seed", value=99)',
+                        "ok": False,
+                        "landed": False,
+                        "op_kind": "edit",
+                        "touched_uids": ["sampler"],
+                    },
+                ]
+            }
+        ],
+    }
+
+
+def test_intent_judge_grades_delta_with_replay_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """The judge receives the accepted batch + pre/post IR and grades the
+    canonical Δ directly; the replay evidence is present."""
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    original.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "sampler",
+                        "type": "KSampler",
+                        "properties": {"vibecomfy_uid": "sampler"},
+                        "widgets": [{"name": "steps"}, {"name": "seed"}],
+                        "widgets_values": [20, 42],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    candidate.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "sampler",
+                        "type": "KSampler",
+                        "properties": {"vibecomfy_uid": "sampler"},
+                        "widgets": [{"name": "steps"}, {"name": "seed"}],
+                        "widgets_values": [30, 42],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            _judge_delta_response_json(
+                original,
+                candidate,
+                ops=[{"op": "set_node_field", "target": ["", "sampler", "steps"], "value": 30}],
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        seen["payload"] = json.loads(messages[1]["content"])
+        seen["messages"] = messages
+        return {"content": json.dumps(_edit_verdict_content())}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
+
+    assert verdict["pass_"] is True
+    payload = seen["payload"]
+    assert payload["delta"]["ops"][0]["target"][2] == "steps"
+    assert payload["delta_replay"]["verified"] is True
+    assert payload["delta_replay"]["checked"] == 1
+    # Only accepted statements are the Δ references.
+    assert [item["statement_index"] for item in payload["accepted_batch"]] == [1]
+    assert payload["pre_ir"]["nodes"][0]["widgets_values"][0] == 20
+    assert payload["post_ir"]["nodes"][0]["widgets_values"][0] == 30
+    assert "Accepted Δ" in messages[0]["content"]
+
+
+def test_intent_judge_fails_closed_on_delta_replay_mismatch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """When the canonical Δ is not what actually changed (replay mismatch),
+    the judge fails closed without a model call."""
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    original.write_text(
+        json.dumps({"nodes": [{"id": "sampler", "type": "KSampler", "properties": {"vibecomfy_uid": "sampler"}}]}),
+        encoding="utf-8",
+    )
+    candidate.write_text(
+        json.dumps({"nodes": [{"id": "sampler", "type": "KSampler", "properties": {"vibecomfy_uid": "sampler"}}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            _judge_delta_response_json(
+                original,
+                candidate,
+                ops=[{"op": "set_node_field", "target": ["", "sampler", "steps"], "value": 30}],
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_if_called(*args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        raise AssertionError("delta replay mismatch must not call the model")
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fail_if_called,
+    )
+
+    verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
+
+    assert verdict["pass_"] is False
+    assert "delta replay mismatch" in verdict["rationale"]
+    assert verdict["metadata"]["delta_replay"]["verified"] is False

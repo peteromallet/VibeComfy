@@ -394,6 +394,90 @@ def _total_landed_edit_count(state: AgentEditState) -> int:
     return total
 
 
+def _accepted_batch_statements(state: AgentEditState) -> tuple[dict[str, Any], ...]:
+    """Return the accepted Δ: the batch statements that succeeded, in turn order.
+
+    A statement is accepted iff it landed (``ok`` and ``landed`` both true).
+    Rejected statements are excluded so every consumer (reply, report,
+    humanize, judge) is grounded in the same single source of truth and can
+    never claim an edit that did not land.  The returned dicts are the
+    canonical Δ references (statement index, source, op kind, touched uids).
+    """
+    accepted: list[dict[str, Any]] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or []:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is not True or statement.get("landed") is not True:
+                continue
+            accepted.append({
+                "statement_index": statement.get("statement_index"),
+                "source": statement.get("source"),
+                "op_kind": statement.get("op_kind"),
+                "touched_uids": list(statement.get("touched_uids") or ()),
+                "status": statement.get("status"),
+                "reason": statement.get("reason"),
+            })
+    return tuple(accepted)
+
+
+def _accepted_batch_field_changes(state: AgentEditState) -> tuple[FieldChange, ...]:
+    """Return the field-change projection of the accepted Δ.
+
+    The per-turn ``field_changes`` payloads are the Δ's field-change view:
+    the loop records only real, lint-surviving changes of landed statements,
+    so a rejected statement can never contribute a change.  Falls back to
+    ``state.batch_field_changes`` (the loop-maintained accumulation of
+    exactly those payloads) only when no turn carries a field-change payload
+    (synthetic/pre-batch states with no batch evidence).
+    """
+    changes: list[FieldChange] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        payload = turn.get("field_changes")
+        if not isinstance(payload, list):
+            continue
+        for item in payload:
+            if not isinstance(item, Mapping):
+                continue
+            changes.append(
+                FieldChange(
+                    uid=item.get("uid"),
+                    field_path=item.get("field_path"),
+                    old=item.get("old"),
+                    new=item.get("new"),
+                )
+            )
+    if changes or state.batch_turns:
+        return tuple(changes)
+    return tuple(state.batch_field_changes or ())
+
+
+def _accepted_batch_delta_ops(state: AgentEditState) -> tuple[dict[str, Any], ...]:
+    """Return the cumulative Δ ops of the accepted batch, in turn order.
+
+    Every op here is a landed op of the accepted batch — the canonical Δ.
+    Consumers (structural humanization, response claims, replay checks)
+    derive from this list instead of recomputing a parallel diff.
+    """
+    ops: list[dict[str, Any]] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, Mapping):
+            continue
+        envelope = turn.get("delta_ops_envelope")
+        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+        if not isinstance(turn_ops, list):
+            flat = turn.get("delta_ops")
+            turn_ops = flat if isinstance(flat, list) else ()
+        for op in turn_ops:
+            if isinstance(op, Mapping):
+                ops.append(dict(op))
+    return tuple(ops)
+
+
 def _read_only_discovery_turn_count(state: AgentEditState) -> int:
     count = 0
     for turn in state.batch_turns:
@@ -556,4 +640,6 @@ __all__ = (
      "update_state_match_gate", "uuid", "v2_mutation_plan_hash",
      "validation_errors_payload", "write_allocation_failure_audit", "write_audit",
      "write_json_artifact",
+     "_accepted_batch_delta_ops", "_accepted_batch_field_changes",
+     "_accepted_batch_statements",
 )
