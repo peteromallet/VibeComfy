@@ -9,6 +9,16 @@ post from pre via interpret(pre, Δ). Grade the Δ directly. Claims outside the 
 are invalid: do not infer additional edits from the IR pair that the Δ does not
 claim, and do not excuse a claimed edit that the Δ does not contain.
 
+Structured facts in the payload are authoritative — do not invent a second
+vocabulary:
+- `mode_labels` maps ComfyUI node mode integers: 0=enabled, 2=muted, 4=bypassed.
+  mode=4 is bypassed, never "Never" or any other folklore label.
+- `named_fields` is `{uid: {field_name: value}}` from the executor schema
+  surface. Grade field identity against those names, not guessed widget indices
+  or renamed parameters. If a Δ field name is already in `named_fields` and the
+  intent names that same field, field identity is settled; judge remaining
+  criteria only.
+
 A valid edit may either modify parameters on existing node(s) or add/replace
 node(s) when the intent calls for a new capability (for example: adding a
 sampler-specific custom node, switching to a different generator model,

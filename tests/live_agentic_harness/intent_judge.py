@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
 from vibecomfy.comfy_nodes.agent.provider import run_model_turn
+from vibecomfy.porting.edit.constants import MODE_LABELS
 
 _PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "text_judge.prompt.md"
 _REFUSAL_PROMPT_PATH = Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "refusal_judge.prompt.md"
@@ -388,6 +390,195 @@ def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = Non
         return {}
 
 
+def _mode_labels_payload() -> dict[str, str]:
+    """Structured MODE_LABELS fact for judge payloads (JSON-safe keys)."""
+    return {str(mode): label for mode, label in MODE_LABELS.items()}
+
+
+def _delta_field_targets(delta_ops: Any) -> list[tuple[str, str]]:
+    """Return ``(uid, field_path)`` pairs from set-field ops in the canonical Δ."""
+    pairs: list[tuple[str, str]] = []
+    if not isinstance(delta_ops, (list, tuple)):
+        return pairs
+    for op in delta_ops:
+        if not isinstance(op, Mapping):
+            continue
+        target = op.get("target")
+        kind = op.get("op")
+        if (
+            kind in {"set_node_field", "set_field"}
+            and isinstance(target, (list, tuple))
+            and len(target) >= 3
+            and target[1] is not None
+            and target[2]
+        ):
+            pairs.append((str(target[1]), str(target[2])))
+            continue
+        uid = op.get("uid")
+        field = op.get("field_path") or op.get("field")
+        if uid is not None and field:
+            pairs.append((str(uid), str(field)))
+    return pairs
+
+
+def _delta_uids(delta_ops: Any) -> list[str]:
+    """Unique node uids referenced by the canonical Δ."""
+    seen: list[str] = []
+    for uid, _field in _delta_field_targets(delta_ops):
+        if uid not in seen:
+            seen.append(uid)
+    if not isinstance(delta_ops, (list, tuple)):
+        return seen
+    for op in delta_ops:
+        if not isinstance(op, Mapping):
+            continue
+        for key in ("target", "from", "to", "source"):
+            loc = op.get(key)
+            if isinstance(loc, (list, tuple)) and len(loc) >= 2 and loc[1] is not None:
+                uid = str(loc[1])
+                if uid not in seen:
+                    seen.append(uid)
+        uid = op.get("uid")
+        if uid is not None and str(uid) not in seen:
+            seen.append(str(uid))
+    return seen
+
+
+def _named_fields_for_nodes(
+    ir: Mapping[str, Any],
+    uids: list[str],
+    *,
+    schema_provider: Any,
+) -> dict[str, dict[str, Any]]:
+    """``{uid: {field_name: value}}`` from the executor surface for *uids*."""
+    nodes = _nodes_by_uid(ir)
+    named: dict[str, dict[str, Any]] = {}
+    for uid in uids:
+        node = nodes.get(uid)
+        if node is None:
+            continue
+        fields = _ui_node_value_fields(node, schema_provider=schema_provider)
+        if fields:
+            named[uid] = fields
+    return named
+
+
+def _named_fields_for_delta(
+    pre_ir: Mapping[str, Any],
+    post_ir: Mapping[str, Any],
+    delta_ops: Any,
+    *,
+    schema_provider: Any,
+) -> dict[str, dict[str, Any]]:
+    """``{uid: {field_name: value}}`` from the post surface for every Δ uid."""
+    uids = _delta_uids(delta_ops)
+    named = _named_fields_for_nodes(post_ir, uids, schema_provider=schema_provider)
+    missing = [uid for uid in uids if uid not in named]
+    if missing:
+        named.update(
+            _named_fields_for_nodes(pre_ir, missing, schema_provider=schema_provider)
+        )
+    return named
+
+
+def _outcome_field_targets(response: Mapping[str, Any] | None) -> list[tuple[str, str]]:
+    """``(uid, field_path)`` pairs from the executor ``outcome.changes`` record."""
+    pairs: list[tuple[str, str]] = []
+    if not isinstance(response, Mapping):
+        return pairs
+    outcome = response.get("outcome")
+    if not isinstance(outcome, Mapping):
+        return pairs
+    changes = outcome.get("changes")
+    if not isinstance(changes, list):
+        return pairs
+    for change in changes:
+        if not isinstance(change, Mapping):
+            continue
+        uid = change.get("uid")
+        field = change.get("field_path")
+        if uid is not None and field:
+            pairs.append((str(uid), str(field)))
+    return pairs
+
+
+def _intent_names_field(intent: str, field: str) -> bool:
+    """True when *field* appears as a literal token in *intent*."""
+    if not intent or not field:
+        return False
+    return re.search(rf"(?<![\w]){re.escape(field)}(?![\w])", intent) is not None
+
+
+def _pregrade_parameter_identity(
+    intent: str,
+    delta_ops: Any,
+    named_fields: Mapping[str, Mapping[str, Any]],
+    *,
+    pre_named_fields: Mapping[str, Mapping[str, Any]] | None = None,
+    extra_fields: list[tuple[str, str]] | None = None,
+) -> dict[str, Any] | None:
+    """Pre-grade C2 when intent ∩ Δ ∩ schema share a literal field name.
+
+    Fires only on a literal token match of a Δ/product field against both
+    the intent and the executor surface. Does not infer aliases. A
+    from_ui-shifted op name (e.g. ``video_frames``) does not block a match
+    when the surface on a Δ-touched uid shows the named field actually
+    changed.
+    """
+    matched: list[str] = []
+    candidates = list(_delta_field_targets(delta_ops))
+    if extra_fields:
+        candidates.extend(extra_fields)
+    for uid, field in candidates:
+        schema_fields = named_fields.get(uid) or {}
+        if field not in schema_fields:
+            continue
+        if not _intent_names_field(intent, field):
+            continue
+        if field not in matched:
+            matched.append(field)
+    if pre_named_fields:
+        for uid, post_fields in named_fields.items():
+            old_fields = pre_named_fields.get(uid) or {}
+            for field, new in post_fields.items():
+                if field not in old_fields or old_fields[field] == new:
+                    continue
+                if not _intent_names_field(intent, field):
+                    continue
+                if field not in matched:
+                    matched.append(field)
+    if not matched:
+        return None
+    return {
+        "correct_parameter_changed": True,
+        "matched_fields": matched,
+        "reason": "literal intent∩Δ∩schema field identity",
+    }
+
+
+def _apply_parameter_identity_pregrade(
+    verdict: dict[str, Any],
+    pregrade: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Force C2 true when the deterministic identity pre-grade fired.
+
+    The LLM rationale cannot override the pre-grade. Remaining criteria
+    still decide ``pass_``.
+    """
+    if not pregrade or pregrade.get("correct_parameter_changed") is not True:
+        return verdict
+    criteria = dict(verdict.get("criteria") or {})
+    criteria["correct_parameter_changed"] = True
+    verdict["criteria"] = criteria
+    verdict["pass_"] = all(
+        criteria.get(key) is True for key in _EDIT_CRITERION_KEYS
+    )
+    metadata = dict(verdict.get("metadata") or {})
+    metadata["pregrade"] = dict(pregrade)
+    verdict["metadata"] = metadata
+    return verdict
+
+
 def _to_workflow_ir(ir: Mapping[str, Any], *, schema_provider: Any = None) -> Any:
     """Convert a durable graph view (UI or rich envelope) to a VibeWorkflow IR."""
     from vibecomfy.ingest.normalize import from_envelope, from_ui
@@ -694,6 +885,32 @@ def judge_edit_intent(
             "rationale": "delta replay mismatch: " + "; ".join(delta_replay.get("mismatches") or []),
             "metadata": {"delta_replay": delta_replay},
         }
+    outcome_fields = _outcome_field_targets(response)
+    named_fields = _named_fields_for_delta(
+        pre_ir,
+        post_ir,
+        delta_ops,
+        schema_provider=schema_provider,
+    )
+    extra_uids = [uid for uid, _field in outcome_fields if uid not in named_fields]
+    if extra_uids:
+        named_fields.update(
+            _named_fields_for_nodes(
+                post_ir, extra_uids, schema_provider=schema_provider
+            )
+        )
+    pre_named_fields = _named_fields_for_nodes(
+        pre_ir,
+        list(named_fields),
+        schema_provider=schema_provider,
+    )
+    pregrade = _pregrade_parameter_identity(
+        query,
+        delta_ops,
+        named_fields,
+        pre_named_fields=pre_named_fields,
+        extra_fields=outcome_fields,
+    )
     system_prompt = _load_prompt()
     implementation_payload = _load_implementation_payload(output_dir)
     schema_context = _schema_context_from_payload(implementation_payload) or {}
@@ -708,6 +925,16 @@ def judge_edit_intent(
             "If a static widget containing stale or fabricated text is removed while "
             "the relevant linked dynamic input path remains connected, do not treat "
             "that removal as deleting the dynamic dataflow."
+        )
+    if pregrade:
+        system_prompt = (
+            system_prompt.rstrip()
+            + "\n\n## Deterministic field-identity pre-grade\n"
+            "correct_parameter_changed is already true: the canonical Δ field "
+            "name is a literal match against the intent and the executor schema "
+            f"({', '.join(pregrade.get('matched_fields') or ())}). Do not fail "
+            "that criterion on a field rename. Judge only remaining criteria "
+            "(value meaning, wiring, node targeting)."
         )
     # The judge grades the canonical Δ (the accepted batch) directly: the Δ is
     # what actually changed, so claims outside it are invalid.
@@ -759,6 +986,11 @@ def judge_edit_intent(
         payload["desired_outcome"] = desired
     if schema_context:
         payload["schema_context"] = schema_context
+    payload["mode_labels"] = _mode_labels_payload()
+    if named_fields:
+        payload["named_fields"] = named_fields
+    if pregrade:
+        payload["pregrade"] = pregrade
     user_content = json.dumps(payload, indent=2)
 
     try:
@@ -793,7 +1025,7 @@ def judge_edit_intent(
         "model": model,
         "elapsed_ms": response.get("_profiling", {}).get("elapsed_ms"),
     }
-    return verdict
+    return _apply_parameter_identity_pregrade(verdict, pregrade)
 
 
 def judge_grounded_refusal(
@@ -969,6 +1201,7 @@ def judge_semantic_answer(
     }
     if schema_context:
         payload["schema_context"] = schema_context
+    payload["mode_labels"] = _mode_labels_payload()
     user_content = json.dumps(payload, indent=2)
 
     try:

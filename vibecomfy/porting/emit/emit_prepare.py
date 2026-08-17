@@ -38,6 +38,7 @@ from vibecomfy.porting.emit.emit_ready import (
     _node_local_arity_check,
     _node_local_output_names,
 )
+from vibecomfy.porting.edit.constants import MODE_LABELS as _AGENT_EDIT_MODE_LABELS
 
 # ---------------------------------------------------------------------------
 # Module-level constant
@@ -46,7 +47,6 @@ from vibecomfy.porting.emit.emit_ready import (
 _VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = (
     frozenset({"SetNode", "GetNode", "Reroute", "PrimitiveNode"}) | VALUE_HELPER_CLASS_TYPES
 )
-_AGENT_EDIT_MODE_LABELS = {2: "muted", 4: "bypassed"}
 
 
 # ---------------------------------------------------------------------------

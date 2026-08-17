@@ -1,16 +1,26 @@
-"""Focused gates for RC4 / RC7 / RC8-A / RC9 improvement fixes."""
+"""Focused gates for RC4 / RC7 / RC8-A / RC9 / RC11 improvement fixes."""
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
 from vibecomfy.executor.core import _classify_stage_message
 from vibecomfy.executor.graph_inspection import inspect_workflow
 from vibecomfy.executor.stage_contracts import NeedsInput
+from vibecomfy.porting.edit.constants import MODE_LABELS
+from vibecomfy.porting.emit.emit_prepare import _AGENT_EDIT_MODE_LABELS
+from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import RawWidgetPayload, VibeNode, VibeWorkflow, WorkflowSource
 from tests.live_agentic_harness.assessor import assess_live_output_dir
-from tests.live_agentic_harness.intent_judge import judge_edit_intent
+from tests.live_agentic_harness.intent_judge import (
+    _apply_parameter_identity_pregrade,
+    _named_fields_for_delta,
+    _pregrade_parameter_identity,
+    judge_edit_intent,
+    judge_semantic_answer,
+)
 
 
 def test_classify_stage_message_is_not_workflow_validation() -> None:
@@ -157,3 +167,299 @@ def test_hivemind_500_is_warning_on_semantic_product(tmp_path: Path, monkeypatch
         issue["severity"] == "error" and issue["check"] == "upstream_failure"
         for issue in assessment["issues"]
     )
+
+
+# ── RC11: judge consumes executor schema + MODE_LABELS ─────────────────────
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _fc240f_ui_pair() -> tuple[dict, dict, list[dict]]:
+    """SVD node 12 with compact widgets_values[3] (motion_bucket_id) 127→200."""
+    corpus = json.loads(
+        (ROOT / "external_workflows/corpus/fc240f1c4331a5e5.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    ui_node = copy.deepcopy(corpus["nodes"]["12"]["metadata"]["_ui"])
+    ui_node.setdefault("properties", {})["vibecomfy_uid"] = "12"
+    original = {
+        "last_node_id": 12,
+        "last_link_id": 0,
+        "nodes": [ui_node],
+        "links": [],
+    }
+    post_node = copy.deepcopy(ui_node)
+    values = list(post_node["widgets_values"])
+    assert values[3] == 127
+    values[3] = 200
+    post_node["widgets_values"] = values
+    post = {
+        "last_node_id": 12,
+        "last_link_id": 0,
+        "nodes": [post_node],
+        "links": [],
+    }
+    op = {
+        "op": "set_node_field",
+        "target": ["", "12", "motion_bucket_id"],
+        "value": 200,
+    }
+    return original, post, [op]
+
+
+def _edit_llm_field_rename() -> dict:
+    return {
+        "pass_": False,
+        "criteria": {
+            "correct_node_targeted": True,
+            "correct_parameter_changed": False,
+            "value_semantically_matches_intent": True,
+            "no_orphaned_wiring": True,
+        },
+        "rationale": "The Δ sets node 12's video_frames to 200.",
+    }
+
+
+def test_emit_mode_labels_reexport_cannot_drift() -> None:
+    assert _AGENT_EDIT_MODE_LABELS is MODE_LABELS
+    assert MODE_LABELS == {0: "enabled", 2: "muted", 4: "bypassed"}
+
+
+def test_pregrade_requires_literal_intent_delta_schema_intersection() -> None:
+    named = {"12": {"motion_bucket_id": 200, "video_frames": 14}}
+    delta = [{"op": "set_node_field", "target": ["", "12", "motion_bucket_id"], "value": 200}]
+    hit = _pregrade_parameter_identity(
+        "increase the motion_bucket_id to add more visible motion",
+        delta,
+        named,
+    )
+    assert hit is not None
+    assert hit["correct_parameter_changed"] is True
+    assert hit["matched_fields"] == ["motion_bucket_id"]
+
+    assert (
+        _pregrade_parameter_identity("add more visible motion", delta, named) is None
+    )
+    assert (
+        _pregrade_parameter_identity(
+            "increase the motion_bucket_id",
+            delta,
+            {"12": {"video_frames": 14}},
+        )
+        is None
+    )
+    surface_hit = _pregrade_parameter_identity(
+        "increase the motion_bucket_id to add more visible motion",
+        [{"op": "set_node_field", "target": ["", "12", "video_frames"], "value": 200}],
+        named,
+        pre_named_fields={"12": {"motion_bucket_id": 127, "video_frames": 14}},
+    )
+    assert surface_hit is not None
+    assert "motion_bucket_id" in surface_hit["matched_fields"]
+
+
+def test_pregrade_cannot_be_overridden_by_llm_field_rename() -> None:
+    verdict = _apply_parameter_identity_pregrade(
+        {
+            "pass_": False,
+            "criteria": {
+                "correct_node_targeted": True,
+                "correct_parameter_changed": False,
+                "value_semantically_matches_intent": True,
+                "no_orphaned_wiring": True,
+            },
+            "rationale": "The Δ sets video_frames.",
+            "metadata": {},
+        },
+        {"correct_parameter_changed": True, "matched_fields": ["motion_bucket_id"]},
+    )
+    assert verdict["criteria"]["correct_parameter_changed"] is True
+    assert verdict["pass_"] is True
+
+
+def test_fc240f_shaped_delta_passes_without_llm_field_rename(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    original, post, ops = _fc240f_ui_pair()
+    (tmp_path / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(post), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "accepted_batch": [],
+                "outcome": {
+                    "kind": "applied",
+                    "changes": [
+                        {
+                            "uid": "12",
+                            "field_path": "motion_bucket_id",
+                            "old": 127,
+                            "new": 200,
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {"content": json.dumps(_edit_llm_field_rename())}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_edit_intent(
+        tmp_path,
+        {
+            "query": (
+                "The generated video looks almost like a still image. "
+                "Can you increase the motion_bucket_id to add more visible motion?"
+            )
+        },
+    )
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["mode_labels"]["4"] == "bypassed"
+    assert payload["mode_labels"]["0"] == "enabled"
+    assert payload["named_fields"]["12"]["motion_bucket_id"] == 200
+    assert "video_frames" in payload["named_fields"]["12"]
+    assert payload["pregrade"]["correct_parameter_changed"] is True
+    assert verdict["criteria"]["correct_parameter_changed"] is True
+    assert verdict["pass_"] is True
+    assert verdict["metadata"]["pregrade"]["matched_fields"] == ["motion_bucket_id"]
+
+
+def test_d1caec_shaped_mode_4_is_bypassed_in_semantic_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    graph = {
+        "last_node_id": 228,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 228,
+                "type": "LoadImage",
+                "mode": 4,
+                "properties": {"vibecomfy_uid": "228"},
+                "widgets_values": ["input.png", "image"],
+            }
+        ],
+        "links": [],
+    }
+    (tmp_path / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "reply": "LoadImage uid 228 is mode=4 (bypassed), so that image is skipped.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "grounded": True,
+                        "relevant": True,
+                        "correct": True,
+                    },
+                    "rationale": "mode=4 is bypassed per mode_labels",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {
+            "query": "Why is only the first batch image coherent?",
+            "answer_rubric": {
+                "expected_criteria": ["Ground claims in the workflow."],
+                "fail_conditions": ["hallucinated settings"],
+                "pass_condition": "grounded, relevant, correct",
+            },
+        },
+    )
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["mode_labels"] == {"0": "enabled", "2": "muted", "4": "bypassed"}
+    assert payload["mode_labels"]["4"] == "bypassed"
+    assert verdict["pass_"] is True
+
+
+def test_semantic_judge_does_not_soften_ungrounded_causal_claim(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    graph = {"nodes": [{"id": 1, "type": "LTXVConditioning"}], "links": []}
+    (tmp_path / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps({"ok": True, "reply": "Gray color is caused by blur_radius."}),
+        encoding="utf-8",
+    )
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "grounded": False,
+                        "relevant": True,
+                        "correct": False,
+                    },
+                    "rationale": "causal claim lacks schema support",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_semantic_answer(
+        tmp_path,
+        {
+            "query": "Why is the output gray?",
+            "answer_rubric": {
+                "expected_criteria": ["causal claims need schema support"],
+                "fail_conditions": [],
+                "pass_condition": "grounded",
+            },
+        },
+    )
+    assert verdict["criteria"]["grounded"] is False
+    assert verdict["pass_"] is False
+    assert "pregrade" not in (verdict.get("metadata") or {})
+
+
+def test_named_fields_map_uses_executor_surface() -> None:
+    original, post, ops = _fc240f_ui_pair()
+    named = _named_fields_for_delta(
+        original,
+        post,
+        ops,
+        schema_provider=get_schema_provider("auto"),
+    )
+    assert named["12"]["motion_bucket_id"] == 200
+    assert named["12"]["video_frames"] == 14
