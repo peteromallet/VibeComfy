@@ -907,10 +907,13 @@ def assess_live_output_dir(
         # cross-checks (graph_changed, outcome_kind, gates, landed counts,
         # effective edits) above remain fully authoritative.
 
-        # Critical upstream failures (Hivemind 500, etc.). When a successful
-        # candidate exists, a recovered research-side upstream error should stay
-        # visible but not invalidate an otherwise valid edit.
-        upstream_severity = "warning" if _has_successful_candidate(response) else "error"
+        # Critical upstream failures (Hivemind 500, etc.). Infra is not a
+        # product fail: semantic_product rows and successful candidates keep
+        # these as warnings (RC9 / B6 S7).
+        if _scenario_kind(scenario) == "semantic_product" or _has_successful_candidate(response):
+            upstream_severity = "warning"
+        else:
+            upstream_severity = "error"
         for msg in _collect_pattern_matches(response, _UPSTREAM_FAILURE_PATTERNS):
             issues.append(
                 {
