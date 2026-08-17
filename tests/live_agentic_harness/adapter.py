@@ -7,6 +7,7 @@ Astrid) may instead invoke the CLI as a subprocess.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -132,12 +133,53 @@ def _load_workflow(path: str | None) -> dict[str, Any] | None:
     return data
 
 
+def _two_step_session_id(scenario_id: str) -> str:
+    """Deterministic, stable per-window session id for a two-step scenario.
+
+    The two-step execute phase requires a ``session_id`` (the server never
+    mints ids), and one window's classify → execute chain must reuse a SINGLE
+    session id so the session can continue across the window's model calls.
+    Deriving the id from the scenario id alone makes it stable across runner
+    attempts (infra retries reuse the same session) and across separate runs
+    of the same scenario, while the ``two-step-`` prefix keeps it disjoint
+    from caller-supplied session ids.  The output is a single safe path
+    component (``[a-z0-9-]`` only).
+    """
+    digest = hashlib.sha256(f"two-step:{scenario_id}".encode("utf-8")).hexdigest()
+    return f"two-step-{digest[:24]}"
+
+
+def _resolve_pipeline_mode(
+    pipeline_mode: str | None,
+    scenario: Mapping[str, Any],
+) -> str | None:
+    """Resolve the effective pipeline mode: explicit arg → descriptor → None.
+
+    The explicit ``pipeline_mode`` argument (from the runner's
+    ``--pipeline-mode`` flag) is the ONLY authority; otherwise the scenario
+    descriptor's ``pipeline_mode`` key (or its ``_tags.pipeline_mode``) is
+    used; otherwise ``None`` (the product default — ``full`` — applies).
+    Invalid values raise :class:`PipelineModeRequestError`.
+    """
+    from vibecomfy.executor.contracts import coerce_pipeline_mode  # noqa: PLC0415
+
+    value = pipeline_mode
+    if value is None:
+        value = scenario.get("pipeline_mode")
+    if value is None:
+        tags = scenario.get("_tags")
+        if isinstance(tags, Mapping):
+            value = tags.get("pipeline_mode")
+    return coerce_pipeline_mode(value)
+
+
 def run_headless_scenario(
     scenario: Mapping[str, Any],
     *,
     output_base: Path | str | None = None,
     tag: str = "agentic-run",
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run a single agentic scenario through the headless service.
 
@@ -146,7 +188,7 @@ def run_headless_scenario(
     scenario:
         Must contain at least ``query``.  Optional keys: ``graph``,
         ``workflow_path``, ``profile``, ``session_id``, ``dry_run``,
-        ``apply``, ``network``, ``timeout``.
+        ``apply``, ``network``, ``timeout``, ``pipeline_mode``.
     output_base:
         Base directory for evidence.  Defaults to ``out/agentic``.
     tag:
@@ -155,11 +197,19 @@ def run_headless_scenario(
         Explicit transport selector: ``"openrouter"`` or ``"native"``.
         ``None`` resolves to the deterministic harness default and never to an
         ambient credential.
+    pipeline_mode:
+        Explicit pipeline-mode selector: ``"full"`` or ``"two_step"``.
+        ``None`` falls back to the scenario descriptor's ``pipeline_mode``
+        (or ``_tags.pipeline_mode``), then to the product default.  A
+        two-step scenario without an explicit ``session_id`` gets a stable
+        per-window session id derived from its scenario id.
 
     Returns
     -------
     dict
-        A summary suitable for ``summary.json``.
+        A summary suitable for ``summary.json``.  The effective
+        ``pipeline_mode`` is always recorded; the ``session_id`` is recorded
+        when a two-step run used one (minted or supplied).
     """
     _ensure_headless_env()
     _load_credential_env_file()
@@ -184,11 +234,16 @@ def run_headless_scenario(
     if graph is None:
         graph = _load_workflow(scenario.get("workflow_path"))
 
+    mode = _resolve_pipeline_mode(pipeline_mode, scenario)
+    session_id = scenario.get("session_id")
+    if mode == "two_step" and not session_id:
+        session_id = _two_step_session_id(scenario_id)
+
     request = HeadlessAgentRequest(
         query=query,
         graph=graph,
         workflow_id=scenario.get("workflow_id") or (graph.get("workflow_id") if isinstance(graph, dict) else None),
-        session_id=scenario.get("session_id"),
+        session_id=session_id,
         profile=scenario.get("profile"),
         output_dir=output_dir,
         dry_run=bool(scenario.get("dry_run", False)),
@@ -198,6 +253,7 @@ def run_headless_scenario(
         additive=bool(scenario.get("additive", False)),
         interaction_mode=scenario.get("interaction_mode"),
         max_batches=scenario.get("max_batches"),
+        pipeline_mode=mode,
     )
 
     result = run_headless(request, entrypoint="live_agentic_harness")
@@ -212,7 +268,10 @@ def run_headless_scenario(
         "deepseek_est_cost_usd": result.response.get("deepseek_est_cost_usd"),
         "deepseek_cost_basis": result.response.get("deepseek_cost_basis"),
         "model_attempts": result.response.get("model_attempts", []),
+        "pipeline_mode": mode,
     }
+    if session_id is not None:
+        summary["session_id"] = session_id
     # Persist the typed parse reason from the executor's model_response artifact
     # so the runner's infra reclassification is evidence-based (parse_reason ==
     # "empty" AND completion_tokens == 0), never phrase-matching alone.

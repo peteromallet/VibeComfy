@@ -58,26 +58,41 @@ _SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _pinned_child_env(transport: str | None) -> dict[str, str]:
-    """Return the child environment with transport-selecting keys pinned.
+# Environment keys that select the executor pipeline mode.  An ambient copy
+# must never leak into a child run when an explicit ``--pipeline-mode`` is
+# given: the explicit selector is the ONLY authority.  With no explicit
+# selector the key is passed through so an operator's deliberate
+# ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` pin still applies (mirrors the
+# transport ``None`` pass-through for direct callers).
+_PIPELINE_MODE_ENV_VAR = "VIBECOMFY_EXECUTOR_PIPELINE_MODE"
+
+
+def _pinned_child_env(
+    transport: str | None,
+    pipeline_mode: str | None = None,
+) -> dict[str, str]:
+    """Return the child environment with transport/pipeline-selecting keys pinned.
 
     With an explicit ``--transport`` the child must not inherit ANY ambient
     transport-selecting variable (base URL, model force-overs, endpoint pins):
     the explicit selector is the only authority and the adapter re-establishes
-    the pinned values from it.  Credential keys (OPENROUTER_API_KEY /
-    DEEPSEEK_API_KEY) are preserved — they supply keys, they do not select
-    transport.  ``run_tag``/``run_single`` resolve the no-flag default to the
-    canonical OpenRouter route BEFORE calling this, so a plain run never
-    inherits an ambient ``VIBECOMFY_TRANSPORT``; the ``None`` pass-through is
-    only reachable by direct callers, where an operator's deliberate
-    ``VIBECOMFY_TRANSPORT`` pin still applies.
+    the pinned values from it.  With an explicit ``--pipeline-mode`` the
+    ambient ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` is likewise pinned away.
+    Credential keys (OPENROUTER_API_KEY / DEEPSEEK_API_KEY) are preserved —
+    they supply keys, they do not select transport.  ``run_tag``/``run_single``
+    resolve the no-flag default to the canonical OpenRouter route BEFORE
+    calling this, so a plain run never inherits an ambient
+    ``VIBECOMFY_TRANSPORT``; the ``None`` pass-through is only reachable by
+    direct callers, where an operator's deliberate ``VIBECOMFY_TRANSPORT`` /
+    ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` pins still apply.
     """
-    if transport is None:
+    if transport is None and pipeline_mode is None:
         return dict(os.environ)
     return {
         key: value
         for key, value in os.environ.items()
-        if key not in _TRANSPORT_SELECTING_ENV_KEYS
+        if not (transport is not None and key in _TRANSPORT_SELECTING_ENV_KEYS)
+        and not (pipeline_mode is not None and key == _PIPELINE_MODE_ENV_VAR)
     }
 
 def _scenario_paths(
@@ -506,6 +521,7 @@ def _build_run_summary(
     total_scenarios: int,
     complete: bool,
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     passed = sum(1 for summary in summaries if summary["guard"].get("live_agentic_success") is True)
     failed = len(summaries) - passed
@@ -540,6 +556,7 @@ def _build_run_summary(
     return {
         "tag": tag,
         "transport": transport,
+        "pipeline_mode": pipeline_mode,
         "scenario_count": len(summaries),
         "total_scenarios": total_scenarios,
         "completed": len(summaries),
@@ -570,6 +587,7 @@ def _persist_run_summary(
     total_scenarios: int,
     complete: bool,
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     summaries = [r for r in results if r]
     summary = _build_run_summary(
@@ -578,6 +596,7 @@ def _persist_run_summary(
         total_scenarios=total_scenarios,
         complete=complete,
         transport=transport,
+        pipeline_mode=pipeline_mode,
     )
     run_dir = _run_dir_for(output_base, tag)
     if complete:
@@ -650,12 +669,15 @@ def run_single(
     output_base: Any,
     out_file: Path | None,
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run ONE scenario in-process; write its summary JSON to *out_file* if given.
 
     This is the entry point invoked by the per-scenario subprocess in parallel mode.
     ``transport=None`` resolves to the canonical OpenRouter product route
     (``_HARNESS_DEFAULT_TRANSPORT``), never to an ambient credential.
+    ``pipeline_mode=None`` falls back to the scenario descriptor (then the
+    product default) inside the adapter.
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     from .adapter import run_headless_scenario
@@ -665,9 +687,14 @@ def run_single(
     scenario = _load_scenario(path)
     scenario.setdefault("id", path.stem)
     summary = run_headless_scenario(
-        scenario, output_base=output_base, tag=tag, transport=transport
+        scenario,
+        output_base=output_base,
+        tag=tag,
+        transport=transport,
+        pipeline_mode=pipeline_mode,
     )
     summary.setdefault("transport", transport)
+    summary.setdefault("pipeline_mode", pipeline_mode)
     summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
@@ -690,6 +717,7 @@ def run_tag(
     infra_retries: int = DEFAULT_INFRA_RETRIES,
     manifest_path: Path | None = None,
     transport: str | None = None,
+    pipeline_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run every scenario under *scenarios_dir* CONCURRENTLY — each in its own
     subprocess (process-isolated + kill-on-timeout), bounded by *max_workers*.
@@ -700,6 +728,14 @@ def run_tag(
     survives subprocess isolation into every profile phase.  ``None`` resolves
     to the canonical OpenRouter product route (``_HARNESS_DEFAULT_TRANSPORT``)
     — the no-flag default is pinned to OpenRouter, never an ambient/native pin.
+
+    *pipeline_mode* (``"full"`` / ``"two_step"`` / ``None``) is forwarded the
+    same way: an explicit selector reaches every child command line and pins
+    the ambient ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` away.  ``None`` (the
+    no-flag default) leaves the decision to each scenario descriptor (then the
+    product default) so per-scenario ``pipeline_mode`` keys keep working; the
+    adapter mints a stable per-window ``session_id`` for every two-step
+    scenario that does not supply one.
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     if scenarios_dir is None:
@@ -714,6 +750,7 @@ def run_tag(
             results[idx] = summary
             results[idx].setdefault("scenario_id", paths[idx].stem)
             results[idx].setdefault("transport", transport)
+            results[idx].setdefault("pipeline_mode", pipeline_mode)
             _persist_scenario_summary(results[idx], output_base, tag)
             with lock:
                 completed = sum(1 for r in results if r)
@@ -724,6 +761,7 @@ def run_tag(
                     total_scenarios=len(paths),
                     complete=False,
                     transport=transport,
+                    pipeline_mode=pipeline_mode,
                 )
                 if progress_every > 0 and (
                     completed == len(paths) or completed % progress_every == 0
@@ -759,7 +797,9 @@ def run_tag(
                         cmd += ["--output-base", str(output_base)]
                     if transport is not None:
                         cmd += ["--transport", transport]
-                    child_env = _pinned_child_env(transport)
+                    if pipeline_mode is not None:
+                        cmd += ["--pipeline-mode", pipeline_mode]
+                    child_env = _pinned_child_env(transport, pipeline_mode)
                     started = time.monotonic()
 
                     def persist_outer_timeout_marker() -> None:
@@ -925,6 +965,7 @@ def run_tag(
         total_scenarios=len(paths),
         complete=True,
         transport=transport,
+        pipeline_mode=pipeline_mode,
     )
 
 
@@ -996,6 +1037,22 @@ def _build_parser() -> argparse.ArgumentParser:
             "environment is pinned and this flag is forwarded to every "
             "subprocess. Default: the canonical product route (openrouter), "
             "pinned — never an ambient credential."
+        ),
+    )
+    parser.add_argument(
+        "--pipeline-mode",
+        choices=("full", "two_step"),
+        default=None,
+        help=(
+            "Explicit pipeline-mode selector for every scenario. 'two_step' "
+            "dispatches to the bounded classify → execute orchestration after "
+            "classification; 'full' keeps research → implement → reply. When "
+            "set, an ambient VIBECOMFY_EXECUTOR_PIPELINE_MODE can never "
+            "displace it; the child environment is pinned and this flag is "
+            "forwarded to every subprocess. Default: each scenario "
+            "descriptor's pipeline_mode if present, else the product default "
+            "(full). Two-step scenarios without a session_id get a stable "
+            "per-window session id minted by the adapter."
         ),
     )
     parser.add_argument(
@@ -1095,7 +1152,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.single:
         out_file = Path(args.single_out) if args.single_out else None
         ob = Path(args.output_base) if args.output_base else None
-        summary = run_single(args.single, args.tag, ob, out_file, transport=args.transport)
+        summary = run_single(
+            args.single,
+            args.tag,
+            ob,
+            out_file,
+            transport=args.transport,
+            pipeline_mode=args.pipeline_mode,
+        )
         # Compact one-line stdout for liveness; the real payload is in --single-out.
         print(json.dumps({"scenario_id": summary.get("scenario_id"),
                           "ok": summary["guard"]["live_agentic_success"]}))
@@ -1112,6 +1176,7 @@ def main(argv: list[str] | None = None) -> int:
         infra_retries=args.infra_retries,
         manifest_path=Path(args.manifest) if args.manifest else None,
         transport=args.transport,
+        pipeline_mode=args.pipeline_mode,
     )
     if args.prepare_failure_analysis or args.analyze_failures or args.recommend_fixes:
         run_summary_path = _run_dir_for(output_base, summary["tag"]) / "run_summary.json"

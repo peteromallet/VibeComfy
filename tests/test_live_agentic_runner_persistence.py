@@ -807,8 +807,9 @@ def test_run_single_forwards_transport_selector_to_adapter(
     )
     calls: dict = {}
 
-    def fake_headless(scenario, *, output_base, tag, transport=None):  # noqa: ANN001, ANN202, ARG001
+    def fake_headless(scenario, *, output_base, tag, transport=None, pipeline_mode=None):  # noqa: ANN001, ANN202, ARG001
         calls["transport"] = transport
+        calls["pipeline_mode"] = pipeline_mode
         return {
             "scenario_id": "single",
             "status": "success",
@@ -835,4 +836,5 @@ def test_run_single_forwards_transport_selector_to_adapter(
     )
 
     assert calls["transport"] == "openrouter"
+    assert calls["pipeline_mode"] is None  # no flag -> descriptor/product default
     assert summary["transport"] == "openrouter"
