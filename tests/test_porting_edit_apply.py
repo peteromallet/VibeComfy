@@ -314,3 +314,126 @@ def test_interpret_emit_fails_closed_when_exit_guard_rejects(monkeypatch) -> Non
     )
     assert "emit-exit guard rejected" in done.summary
     assert session.original_ui == before
+
+
+def test_apply_gate_rejects_new_self_loop_as_not_eligible() -> None:
+    """B4 S4 shape: a newly created u→u edge must not be apply-eligible."""
+    from vibecomfy.porting.edit.apply_gate import apply_eligible_for, verify_apply
+    from vibecomfy.porting.edit.session import EditSession
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "upsert_link", "from": ["", "5", "LATENT"], "to": ["", "5", "latent_image"]}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    assert interpreted.landed_ops
+    gate = verify_apply(
+        pre,
+        interpreted.workflow,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert apply_eligible_for(gate) is False
+    assert gate.reason == "new_self_loop"
+    assert any(item.code == "apply_gate_new_self_loop" for item in gate.diagnostics)
+
+    session = EditSession(original, schema_provider=provider)
+    batch = session.apply_batch("ksampler.latent_image = ksampler.LATENT\n")
+    assert batch.ok is False
+    assert batch.apply_eligible is False
+    assert batch.landed_ops == ()
+    assert any(item.code == "apply_gate_new_self_loop" for item in batch.diagnostics)
+    retained = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    assert editable_uids(session.workflow) == editable_uids(retained)
+    assert not any(
+        str(edge.from_node) == str(edge.to_node) for edge in session.workflow.edges
+    )
+
+
+def test_apply_gate_allows_legal_widget_edit() -> None:
+    from vibecomfy.porting.edit.apply_gate import apply_eligible_for, verify_apply
+    from vibecomfy.porting.edit.session import EditSession
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.ok is True
+    gate = verify_apply(
+        pre,
+        interpreted.workflow,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is True
+    assert gate.apply_eligible is True
+    assert apply_eligible_for(gate) is True
+
+    session = EditSession(original, schema_provider=provider)
+    batch = session.apply_batch("ksampler.steps = 42\n")
+    assert batch.ok is True
+    assert batch.apply_eligible is True
+    assert batch.landed_ops
+    node = _node_by_uid(session.workflow, "5")
+    assert node is not None
+    value = (node.widgets or {}).get("steps")
+    if value is None:
+        value = (node.inputs or {}).get("steps")
+    assert value == 42
+
+
+def test_apply_gate_empty_replay_is_not_eligible() -> None:
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    interpreted = interpret(pre, delta, schema_provider=provider)
+    assert interpreted.landed_ops
+    gate = verify_apply(
+        pre,
+        pre,
+        delta=delta,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=provider,
+    )
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason == "empty_replay"
+
+
+def test_interpret_pre_delta_reconstructs_post() -> None:
+    from vibecomfy.porting.edit.apply_gate import editable_signature
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    pre = from_ui(dict(original), schema_provider=provider, use_comfy_converter=False)
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    first = interpret(pre, delta, schema_provider=provider)
+    assert first.ok is True
+    replayed = interpret(pre, first.landed_ops, schema_provider=provider)
+    assert replayed.ok is True
+    assert editable_signature(replayed.workflow) == editable_signature(first.workflow)
+
+
+def editable_uids(workflow) -> set[str]:
+    return {
+        str(node.uid)
+        for node in workflow.nodes.values()
+        if getattr(node, "uid", None)
+    }

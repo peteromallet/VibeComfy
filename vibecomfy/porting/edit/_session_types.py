@@ -58,6 +58,7 @@ class BatchResult:
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[Any, ...] = ()
     field_changes: tuple[FieldChange, ...] = ()
+    apply_eligible: bool = False
 
     def render_diff(self) -> str:
         """Produce a compact diff view of the batch results.

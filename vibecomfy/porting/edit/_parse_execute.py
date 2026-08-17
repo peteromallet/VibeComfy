@@ -67,6 +67,43 @@ class _ParseExecuteMixin:
             statement_results = self._overlay_query_results(
                 parsed.expanded, statement_results
             )
+            if interpreted.ok and interpreted.landed_ops:
+                from vibecomfy.porting.edit.apply_gate import verify_apply
+
+                gate = verify_apply(
+                    pre_ir,
+                    interpreted.workflow,
+                    delta=code,
+                    landed_ops=interpreted.landed_ops,
+                    schema_provider=self.schema_provider,
+                )
+                if not gate.apply_eligible:
+                    rejected = tuple(
+                        StatementResult(
+                            statement_index=item.statement_index,
+                            source=item.source,
+                            ok=False,
+                            landed=False,
+                            op_kind=item.op_kind,
+                            diagnostics=item.diagnostics + gate.diagnostics,
+                            detail=dict(item.detail),
+                            touched_uids=item.touched_uids,
+                            dependency_cause=item.dependency_cause,
+                            teaching_hint=item.teaching_hint,
+                            status="rejected",
+                            reason=gate.reason or "apply_gate_rejected",
+                        )
+                        if item.landed
+                        else item
+                        for item in statement_results
+                    )
+                    return BatchResult(
+                        ok=False,
+                        statements=rejected,
+                        diagnostics=interpreted.diagnostics + gate.diagnostics,
+                        landed_ops=(),
+                        apply_eligible=False,
+                    )
             if interpreted.landed_ops:
                 self.workflow = interpreted.workflow
                 if getattr(self, "history", None) is None:
@@ -106,12 +143,16 @@ class _ParseExecuteMixin:
                 if diagnostic.severity in {"error", "warning"}
             )
             diagnostics = interpreted.diagnostics + query_diagnostics
+            batch_ok = interpreted.ok and all(
+                statement.ok for statement in statement_results
+            )
             return BatchResult(
-                ok=interpreted.ok and all(statement.ok for statement in statement_results),
+                ok=batch_ok,
                 statements=statement_results,
                 diagnostics=diagnostics,
                 landed_ops=interpreted.landed_ops,
                 field_changes=field_changes,
+                apply_eligible=batch_ok and bool(interpreted.landed_ops),
             )
         except Exception:
             self._restore_snapshot(snapshot)
