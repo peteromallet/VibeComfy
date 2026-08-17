@@ -762,10 +762,6 @@ def test_law_3_spike_corpus_diff_is_an_inverse_over_the_quotient(
             )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 11: composable renderer provides computed topology lens facts",
-)
 def test_law_4_topology_is_computed_from_ir_edges() -> None:
     from vibecomfy.porting.render import render
 
@@ -778,10 +774,6 @@ def test_law_4_topology_is_computed_from_ir_edges() -> None:
     assert rendered["topology_source"] == "computed"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 12: judge lens is enforced as a strict subset of reply lens",
-)
 def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
     from vibecomfy.porting.render import render
 
@@ -790,6 +782,262 @@ def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
     judge = render(workflow, lenses=("diff", "topology"), delta=())
     assert set(judge) < set(reply)
     assert all(judge[key] == reply[key] for key in judge)
+
+
+# ── Law 4 (batch 11): composable renderer lens goldens ───────────────────────
+
+_SAMPLE_DELTA = (
+    (
+        "set_node_field",
+        {
+            "target": {"scope_path": "", "uid": "law-a", "field_path": "prompt"},
+            "value": "after",
+        },
+    ),
+    (
+        "upsert_link",
+        {
+            "source": {"scope_path": "", "uid": "law-a", "output_slot": "IMAGE"},
+            "target": {"scope_path": "", "uid": "law-b", "input_field": "image"},
+        },
+    ),
+)
+
+
+def _sample_delta_ops() -> tuple[Any, ...]:
+    """A tiny deterministic accepted batch over the Law-4 tiny workflow."""
+    from vibecomfy.porting.edit.ops import (
+        LinkSourceRef,
+        LinkTargetRef,
+        NodeFieldTarget,
+        SetNodeFieldOp,
+        UpsertLinkOp,
+    )
+
+    return (
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="law-a", field_path="prompt"),
+            value="after",
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef(scope_path="", uid="law-a", output_slot="IMAGE"),
+            target=LinkTargetRef(scope_path="", uid="law-b", input_field="image"),
+        ),
+    )
+
+
+def test_law_4_render_lenses_are_deterministic_goldens() -> None:
+    """Each lens is a pure function: same wf → same rendered value.
+
+    Also checks composability: a lens rendered inside a lens set is identical
+    to the same lens rendered alone (the judge lens sees exactly the reply
+    lens subset, never more).
+    """
+    from vibecomfy.porting.render import render
+
+    workflow = _tiny_workflow()
+    delta = _sample_delta_ops()
+    for lens in ("census", "surface", "topology", "diff"):
+        assert render(workflow, lens, delta=delta) == render(workflow, lens, delta=delta), lens
+    combined = render(
+        workflow,
+        lenses=("census", "surface", "diff", "topology"),
+        delta=delta,
+    )
+    for lens in ("census", "surface", "diff"):
+        assert combined[lens] == render(workflow, lens, delta=delta), lens
+    assert tuple(combined["topology"]) == tuple(render(workflow, "topology"))
+
+
+def test_law_4_census_lens_content() -> None:
+    """census: node count + class list + reference map (what classify sees)."""
+    from vibecomfy.porting.render import render
+
+    rendered = render(_tiny_workflow(), "census")
+    assert "2 node(s), 1 edge(s)" in rendered
+    assert "class list: LawNode (2)" in rendered
+    assert "reference map:" in rendered
+    assert "law-a: LawNode (binding: lawnode)" in rendered
+    assert "law-b: LawNode (binding: lawnode_2)" in rendered
+
+
+def test_law_4_surface_lens_content() -> None:
+    """surface: the Python-surface view with named fields and uid identity."""
+    from vibecomfy.porting.render import render
+
+    rendered = render(_tiny_workflow(), "surface")
+    assert "lawnode = LawNode(prompt='before', seed=7, widget_0=11)" in rendered
+    assert "uid:law-a" in rendered
+    assert "image=lawnode.unknown_0" in rendered
+
+
+def test_law_4_diff_lens_content() -> None:
+    """diff(Δ): the accepted-batch-derived change summary, nothing more."""
+    from vibecomfy.porting.render import render
+
+    workflow = _tiny_workflow()
+    rendered = render(workflow, "diff", delta=_sample_delta_ops())
+    assert "## Diff" in rendered
+    assert "2 change(s):" in rendered
+    assert "set_node_field law-a.prompt = 'after'" in rendered
+    assert "upsert_link law-a.IMAGE -> law-b.image" in rendered
+    # Empty batch renders deterministically as no changes.
+    assert render(workflow, "diff", delta=()) == "## Diff\nNo changes."
+
+
+def _chain_workflow(count: int) -> VibeWorkflow:
+    """A linear chain of *count* nodes, ``count - 1`` edges, uid chain-N."""
+    workflow = VibeWorkflow("chain", WorkflowSource("chain"))
+    for index in range(count):
+        workflow.nodes[str(index)] = VibeNode(str(index), "ChainNode", uid=f"chain-{index}")
+        if index:
+            workflow.edges.append(VibeEdge(str(index - 1), "OUT", str(index), "in"))
+    return workflow
+
+
+def test_law_4_topology_lens_has_no_truncation_cap() -> None:
+    """Topology is COMPLETE: 24 edges render as 24 facts + 24 text lines."""
+    from vibecomfy.porting.render import render, render_text
+
+    workflow = _chain_workflow(25)
+    facts = tuple(render(workflow, "topology"))
+    assert len(facts) == 24
+    for index in range(24):
+        assert (f"chain-{index}", "OUT", f"chain-{index + 1}", "in") in facts
+    text = render_text(workflow, lenses=("topology",))
+    for index in range(24):
+        assert (
+            f"chain-{index} -> chain-{index + 1} "
+            f"(chain-{index}.OUT -> chain-{index + 1}.in)"
+        ) in text
+    assert "edges:\n  <none>" not in text
+    assert "orphans: <none>" in text
+
+
+def _controlnet_chain_raw_ui() -> dict[str, Any]:
+    """3c978e-style ControlNet chain wired by links 11, 13, 16, 17, 19, 20.
+
+    Mirrors the 3c978e6c11a8a768 workflow's ControlNet section: a
+    ControlNetLoaderAdvanced feeding a chain of ControlNetApply nodes.  The
+    raw link ids are the 3c978e ids; the IR edges do not retain raw link ids,
+    so the lens must include EVERY edge of the chain with named endpoints —
+    no truncation loss.
+    """
+
+    def node(
+        nid: int,
+        class_type: str,
+        *,
+        inputs: list[dict[str, Any]] | None = None,
+        outputs: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        built: dict[str, Any] = {
+            "id": nid,
+            "type": class_type,
+            "class_type": class_type,
+            "widgets_values": [],
+        }
+        if inputs:
+            built["inputs"] = inputs
+        if outputs:
+            built["outputs"] = outputs
+        return built
+
+    return {
+        "nodes": [
+            node(
+                1,
+                "ControlNetLoaderAdvanced",
+                outputs=[{"name": "CONTROL_NET", "type": "CONTROL_NET", "links": [11], "slot_index": 0}],
+            ),
+            node(
+                2,
+                "LoadImage",
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13], "slot_index": 0}],
+            ),
+            node(
+                3,
+                "ControlNetApply",
+                inputs=[
+                    {"name": "conditioning", "type": "CONDITIONING", "link": None},
+                    {"name": "control_net", "type": "CONTROL_NET", "link": 11, "slot_index": 1},
+                    {"name": "image", "type": "IMAGE", "link": 13, "slot_index": 2},
+                    {"name": "strength", "type": "FLOAT", "link": None},
+                ],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [16], "slot_index": 0}],
+            ),
+            node(
+                4,
+                "ControlNetApply",
+                inputs=[
+                    {"name": "conditioning", "type": "CONDITIONING", "link": None},
+                    {"name": "control_net", "type": "CONTROL_NET", "link": None},
+                    {"name": "image", "type": "IMAGE", "link": 16, "slot_index": 2},
+                    {"name": "strength", "type": "FLOAT", "link": None},
+                ],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [17], "slot_index": 0}],
+            ),
+            node(
+                5,
+                "ControlNetApply",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 17, "slot_index": 2}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [19], "slot_index": 0}],
+            ),
+            node(
+                6,
+                "ControlNetApply",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 19, "slot_index": 2}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [20], "slot_index": 0}],
+            ),
+            node(
+                7,
+                "ControlNetApply",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 20, "slot_index": 2}],
+            ),
+        ],
+        "links": [
+            [11, 1, 0, 3, 1, "CONTROL_NET"],
+            [13, 2, 0, 3, 2, "IMAGE"],
+            [16, 3, 0, 4, 2, "IMAGE"],
+            [17, 4, 0, 5, 2, "IMAGE"],
+            [19, 5, 0, 6, 2, "IMAGE"],
+            [20, 6, 0, 7, 2, "IMAGE"],
+        ],
+    }
+
+
+def test_law_4_3c978e_controlnet_chain_topology_complete() -> None:
+    """3c978e: the topology lens includes the complete ControlNet chain.
+
+    All six chain links (11, 13, 16, 17, 19, 20) must survive the ingest door
+    into IR edges and every one must appear in the topology lens with named
+    endpoints — computed from IR edges, never inferred from truncated prose.
+    """
+    from vibecomfy.porting.render import render, render_text
+
+    raw = _controlnet_chain_raw_ui()
+    rendered = render(raw, lenses=("topology",))
+    facts = tuple(rendered["topology"])
+    assert rendered["topology_source"] == "computed"
+    assert len(facts) == 6
+    expected = (
+        ("1", "0", "3", "control_net"),
+        ("2", "0", "3", "image"),
+        ("3", "0", "4", "image"),
+        ("4", "0", "5", "image"),
+        ("5", "0", "6", "image"),
+        ("6", "0", "7", "image"),
+    )
+    assert facts == expected
+    text = render_text(raw, lenses=("topology",))
+    assert "1 -> 3 (1.0 -> 3.control_net)" in text
+    assert "6 -> 7 (6.0 -> 7.image)" in text
+    assert "edges:\n  <none>" not in text
+    for index in range(6):
+        assert text.count("->") >= 6  # every chain edge rendered
+
 
 
 # Golden workflow fixture for Law 5: two VHS_LoadVideo nodes (deterministic

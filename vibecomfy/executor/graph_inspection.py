@@ -977,13 +977,22 @@ def _format_widget_value(value: Any) -> str:
 
 
 # ── text summary builder ─────────────────────────────────────────────────────
+#
+# Batch 11 (Law 4): this truncated text summary is NO LONGER the model-facing
+# graph view.  Stages consume the composable renderer
+# (``vibecomfy.porting.render.render_text(wf, ("surface", "topology"))``)
+# which is COMPLETE — no 5-widget / 6-input / 20-edge caps.  The function
+# below remains only for back-compat tests; it is not what any stage consumes.
 
 
 def _build_text_summary(evidence: GraphEvidence) -> str:
     """Build a human-readable text summary from structured evidence.
 
-    This mirrors the original ``_graph_inspection`` output format so existing
-    consumers (reply prompt builder) continue to receive compatible text.
+    Back-compat only (batch 11, Law 4): mirrors the original
+    ``_graph_inspection`` output format for existing tests.  Stages no longer
+    consume this truncated view — they consume
+    ``vibecomfy.porting.render.render_text(wf, ("surface", "topology"))``,
+    which is complete and cap-free.
     """
     if evidence.node_count == 0:
         return "Empty graph (0 nodes)."
@@ -1112,9 +1121,11 @@ def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
 def graph_inspection_text(graph: dict[str, Any] | None) -> str | None:
     """Return a human-readable graph description for reply prompts.
 
-    Returns ``None`` when no graph is attached; otherwise returns a string
-    suitable for inclusion in a reply prompt (node-by-node description with
-    widget values and slot wiring).
+    Back-compat only (batch 11, Law 4).  Returns ``None`` when no graph is
+    attached; otherwise returns a string (node-by-node description with
+    widget values and slot wiring).  Stages no longer consume this truncated
+    view — they consume ``vibecomfy.porting.render.render_text`` with the
+    ``surface`` + ``topology`` lenses, which is complete and cap-free.
     """
     if not graph:
         return None

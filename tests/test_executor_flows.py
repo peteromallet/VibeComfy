@@ -3288,8 +3288,26 @@ class TestInspectOnlyFlow:
 
         input_graph = {
             "nodes": [
-                {"id": 1, "type": "KSampler", "widgets_values": [42, 7.5, "euler"]},
-                {"id": 2, "type": "VAEDecode", "widgets_values": [None]},
+                {
+                    "id": 1,
+                    "type": "KSampler",
+                    "class_type": "KSampler",
+                    "widgets_values": [42, 7.5, "euler"],
+                    # Well-formed LiteGraph declares output slots; the door
+                    # preserves the link only when the target input is named.
+                    "outputs": [
+                        {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+                    ],
+                },
+                {
+                    "id": 2,
+                    "type": "VAEDecode",
+                    "class_type": "VAEDecode",
+                    "widgets_values": [None],
+                    "inputs": [
+                        {"name": "samples", "type": "LATENT", "link": 1, "slot_index": 0},
+                    ],
+                },
             ],
             "links": [[1, 1, 0, 2, 0, "LATENT"]],
         }

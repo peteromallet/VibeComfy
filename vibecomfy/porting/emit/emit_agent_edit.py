@@ -1,3 +1,15 @@
+"""Agent-edit Python emission — the ``surface`` lens (Law 4, batch 11).
+
+This module produces the Python assignment view used by EditSession and is
+the implementation of the renderer's ``surface`` lens
+(``vibecomfy.porting.render``).  The renderer is the single entry point for
+model-facing graph text: stages request ``render_text(wf, ("surface",
+"topology"))`` and never consume ad-hoc per-stage projections.  The Python
+view here is the lensed surface over the IR — node inventory with named
+fields/sockets and explicit schema status — emitted from the retained
+``VibeWorkflow`` only.
+"""
+
 from __future__ import annotations
 
 import ast
@@ -24,9 +36,12 @@ def emit_agent_edit_python(
 ) -> str:
     """Render a workflow as the Python assignment view used by EditSession.
 
-    This is intentionally parallel to ``emit_scratchpad_python``.  It reuses the
-    same lower-level workflow preparation and locked variable-name plumbing, but
-    emits a compact edit surface rather than runnable scratchpad code.
+    This is the implementation of the renderer's ``surface`` lens
+    (``vibecomfy.porting.render``): the model-facing graph text flows through
+    the composable renderer, never through ad-hoc projections.  The function
+    is intentionally parallel to ``emit_scratchpad_python``.  It reuses the
+    same lower-level workflow preparation and locked variable-name plumbing,
+    but emits a compact edit surface rather than runnable scratchpad code.
     """
     from vibecomfy.workflow import VibeWorkflow
 

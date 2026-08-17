@@ -70,7 +70,6 @@ from .contracts import (
     coerce_model_attempts,
     warning_detail_from_exception,
 )
-from .graph_inspection import _graph_inspection
 from .profiles import (
     AgentSpecShape,
     load_profile,
@@ -307,6 +306,22 @@ def _graph_summary(graph: dict[str, Any] | None) -> str | None:
     type_list = ", ".join(types[:5]) if types else "unknown"
     suffix = f", and {n - 5} more" if n > 5 else ""
     return f"{n} node(s): {type_list}{suffix}"
+
+
+def _render_graph_text(graph: dict[str, Any] | None) -> str | None:
+    """Render the model-facing graph text via the composable renderer.
+
+    Batch 11 (Law 4): stages consume ``render_text(wf, ("surface",
+    "topology"))`` — the complete Python-surface view plus the COMPLETE
+    computed topology (no 5-widget / 6-input / 20-edge caps).  The graph is
+    converted through the ingest door inside the renderer; ``None`` when no
+    graph is attached.
+    """
+    if not graph:
+        return None
+    from vibecomfy.porting.render import render_text
+
+    return render_text(graph, lenses=("surface", "topology"))
 
 
 def _iter_graph_nodes(graph: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
@@ -1097,7 +1112,10 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
-    graph_inspection = _graph_inspection(request.graph)
+    # Batch 11 (Law 4): the model-facing graph text is the composable
+    # renderer's surface+topology view (COMPLETE — no 5-widget/6-input/
+    # 20-edge caps).  The truncated text summary is no longer the authority.
+    graph_inspection = _render_graph_text(request.graph)
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         payload["graph_inspection"] = graph_inspection
     research_package = getattr(research_result, "package", None)
@@ -2047,7 +2065,7 @@ def run_executor(
                 effective_graph=effective_graph,
                 research_result=research_result,
                 implementation_result=implementation_result,
-                graph_inspection=_graph_inspection(effective_graph)
+                graph_inspection=_render_graph_text(effective_graph)
                 if route_behavior.reply_uses_graph_inspection
                 else None,
             )
