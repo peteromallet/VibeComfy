@@ -2955,6 +2955,98 @@ def test_queue_stage_tolerates_preexisting_schema_less_nodes_after_recovery_enri
     assert enriched_result.issues == ()
 
 
+def test_queue_stage_allows_schema_less_slot_index_churn_when_destinations_remain() -> None:
+    """RC5 / B2 S4: inserting downstream of preexisting schema-less TTS is safe."""
+    original = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [1]}],
+            },
+            {
+                "id": 12,
+                "type": "SaveAudio",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 11, 0, 12, 0, "AUDIO"]],
+    }
+    candidate = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 1, "links": [7]}],
+            },
+            {
+                "id": 20,
+                "type": "AudioEqualizer3Band",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 7}],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [8]}],
+            },
+            {
+                "id": 12,
+                "type": "SaveAudio",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 8}],
+                "outputs": [],
+            },
+        ],
+        "links": [
+            [7, 11, 0, 20, 0, "AUDIO"],
+            [8, 20, 0, 12, 0, "AUDIO"],
+        ],
+    }
+    emit_recovery = [
+        {
+            "node_id": "11",
+            "class_type": "VibeVoiceTTS",
+            "schema_less": True,
+            "diagnostic": "schema-less: emitting best-effort slots",
+        }
+    ]
+    provider = _Provider({"AudioEqualizer3Band": _schema("AudioEqualizer3Band"), "SaveAudio": _schema("SaveAudio")})
+    result = queue_stage_result(
+        recovery_report=_queue_recovery_report_for_candidate(
+            ui_payload=candidate,
+            schema_provider=provider,
+            original_ui_payload=original,
+            existing_recovery_report=emit_recovery,
+        ),
+        change_report={},
+    )
+    assert result.ok is True
+
+    new_schema_less = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [1]}],
+            },
+            {
+                "id": 99,
+                "type": "BrandNewSchemaLess",
+                "inputs": [{"name": "audio", "type": "AUDIO", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 11, 0, 99, 0, "AUDIO"]],
+    }
+    blocked = queue_stage_result(
+        recovery_report=_queue_recovery_report_for_candidate(
+            ui_payload=new_schema_less,
+            schema_provider=provider,
+            original_ui_payload=original,
+            existing_recovery_report=emit_recovery,
+        ),
+        change_report={},
+    )
+    assert blocked.ok is False
+    assert any(issue["code"] == "schema_less_queue_blocker" for issue in blocked.issues)
+
+
 def test_queue_recovery_allows_schema_less_transitive_reroute_with_schema_less_intermediate() -> None:
     original = {
         "nodes": [

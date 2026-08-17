@@ -423,10 +423,22 @@ def _recovery_report_from_ui_payload(
             return (False, "schema_less_inputs_changed")
         original_slots = _node_output_slots(original_node)
         candidate_slots = _node_output_slots(candidate_node)
-        if set(original_slots) != set(candidate_slots):
+        # RC5: compare output *names* only. Link-id / slot_index churn after
+        # inserting a downstream node is not a schema-less slot rename.
+        if {key[0] for key in original_slots} != {key[0] for key in candidate_slots}:
             return (False, "schema_less_output_slots_changed")
+        def _links_for_slot_name(
+            slots: Mapping[tuple[Any, Any, Any], set[Any]],
+            slot_name: Any,
+        ) -> set[Any]:
+            combined: set[Any] = set()
+            for key, links in slots.items():
+                if key[0] == slot_name:
+                    combined.update(links)
+            return combined
+
         for key, original_links in original_slots.items():
-            candidate_links = candidate_slots.get(key, set())
+            candidate_links = _links_for_slot_name(candidate_slots, key[0])
             original_destinations = _output_destinations(
                 original_links,
                 original_links_by_id,
