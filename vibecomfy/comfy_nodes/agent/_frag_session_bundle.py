@@ -301,9 +301,7 @@ def _warn_ignored_public_protocol_envs_once(env_names: tuple[str, ...]) -> None:
     _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS.update(unseen)
     LOGGER.warning(
         "agent-edit ignoring legacy public protocol env vars (%s); product protocol is always "
-        "'batch_repl'. For dev-only legacy protocols set "
-        "VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS=1 and "
-        "VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL=delta|full.",
+        "'batch_repl'.",
         ", ".join(unseen),
     )
 
@@ -315,25 +313,18 @@ def _agent_edit_contract() -> str:
             "VIBECOMFY_AGENT_EDIT_LEGACY",
             "VIBECOMFY_AGENT_EDIT_V2",
             "VIBECOMFY_AGENT_EDIT_BATCH_REPL",
+            "VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS",
+            "VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL",
         )
         if os.getenv(name) is not None
     )
     if ignored_public_envs:
         _warn_ignored_public_protocol_envs_once(ignored_public_envs)
-    if os.getenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS") == "1":
-        dev_protocol = os.getenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL")
-        if dev_protocol in {"delta", "full"}:
-            _warn_legacy_contract_once(dev_protocol)
-            return dev_protocol
     return "batch_repl"
 
 
-def _agent_edit_v2_enabled() -> bool:
-    return _agent_edit_contract() == "delta"
-
-
 def _agent_edit_batch_repl_enabled() -> bool:
-    return _agent_edit_contract() == "batch_repl"
+    return True
 
 
 def _edit_lint_enabled() -> bool:
@@ -359,7 +350,7 @@ def _edit_lint_enabled() -> bool:
 
 
 __all__ = (
-     "_agent_edit_batch_repl_enabled", "_agent_edit_contract", "_agent_edit_v2_enabled",
+     "_agent_edit_batch_repl_enabled", "_agent_edit_contract",
      "_compact_diag_to_dict", "_edit_lint_enabled", "_port_issue_to_dict",
      "_warn_ignored_public_protocol_envs_once", "_warn_legacy_contract_once",
      "read_session_bundle", "read_session_json",

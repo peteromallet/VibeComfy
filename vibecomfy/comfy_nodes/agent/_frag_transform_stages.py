@@ -177,12 +177,10 @@ def _ensure_canonical_delta_ops(
 
 def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageResult:
     from vibecomfy.comfy_nodes.agent.edit import (FailureKind, StageResult, _canonical_delta_ops_envelope_payload, _duration_ms, _edit_lint_enabled, _ensure_canonical_delta_ops, _json_safe, _port_issue_to_dict, write_json_artifact)  # T-039 late import: host namespace lookup; resolved at call time
-    from vibecomfy.porting.edit.apply import apply_delta
-    from vibecomfy.porting.edit.apply import (
-        AppliedAddNodeSpec,
-        ResolvedFieldRef,
-        ResolvedRemoveNodePlan,
-    )
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.emit.ui import guard_exit_ui
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.porting.edit.ops import EditOpParseError
 
     def _build_delta_audit(result: Any) -> dict[str, Any]:
@@ -375,14 +373,21 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
             "passed": lint_result.passed_count,
         }
 
-    result = apply_delta(
-        original_ui,
-        state.delta_ops,
+    pre = from_ui(dict(original_ui), schema_provider=state.schema_provider)
+    interpreted = interpret(
+        pre,
+        tuple(state.delta_ops),
         schema_provider=state.schema_provider,
     )
-    state.emit_guard_resolved_ops = result.resolved_ops
-    issues = tuple(_port_issue_to_dict(issue) for issue in result.diagnostics)
-    if not result.ok or result.candidate is None:
+    issues = tuple(
+        {
+            "code": getattr(diag, "code", "interpret"),
+            "message": getattr(diag, "message", str(diag)),
+            "severity": getattr(diag, "severity", "error"),
+        }
+        for diag in interpreted.diagnostics
+    )
+    if not interpreted.ok:
         return StageResult(
             stage="apply_delta",
             ok=False,
@@ -391,64 +396,47 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
             issues=issues,
             value={
                 "failure_kind": FailureKind.VALIDATION_ERROR.value,
-                "mutation_started": result.mutation_started,
+                "mutation_started": False,
                 "op_count": len(state.delta_ops),
             },
         )
+    candidate = emit_ui_json(
+        interpreted.workflow,
+        schema_provider=state.schema_provider,
+        include_virtual_wires=True,
+        prior_ui_payload=original_ui,
+    )
+    exit_guard = guard_exit_ui(original_ui, candidate, interpreted.landed_ops)
+    state.emit_guard_resolved_ops = tuple(
+        (op, None) for op in interpreted.landed_ops
+    )
 
-    state.ui_payload = result.candidate
+    state.ui_payload = candidate
     candidate_ui_ref = write_json_artifact(state.candidate_ui_path, state.ui_payload)
-
-    # Populate add_node ops with assigned uid/node_id from the resolved ops.
-    from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp
-    from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec as _AppliedAddNodeSpec
-
-    _updated_ops: list[Any] = []
-    _uid_node_id_by_index: dict[int, tuple[str, str]] = {}
-    for _idx, (_op, _resolved) in enumerate(result.resolved_ops):
-        if isinstance(_op, _AddNodeOp) and isinstance(_resolved, _AppliedAddNodeSpec):
-            _uid_node_id_by_index[_idx] = (_resolved.uid, str(_resolved.node_id))
-    _add_node_idx = 0
-    for _op in state.delta_ops:
-        if isinstance(_op, _AddNodeOp):
-            _uid, _nid = _uid_node_id_by_index.get(_add_node_idx, (None, None))
-            if _uid is not None and _nid is not None:
-                _op = _AddNodeOp(
-                    op=_op.op,
-                    scope_path=_op.scope_path,
-                    class_type=_op.class_type,
-                    fields=dict(_op.fields),
-                    inputs=dict(_op.inputs),
-                    anchor=_op.anchor,
-                    uid=_uid,
-                    node_id=_nid,
-                )
-            _add_node_idx += 1
-        _updated_ops.append(_op)
-    state.delta_ops = tuple(_updated_ops)
+    state.delta_ops = tuple(interpreted.landed_ops or state.delta_ops)
 
     delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
     ops = list(delta_envelope["ops"])
-    state.delta_diagnostics = [_port_issue_to_dict(issue) for issue in result.diagnostics]
+    state.delta_diagnostics = list(issues)
     state.guard_result = {
-        "ok": bool(result.guard_result.ok) if result.guard_result is not None else True,
-        "diagnostics": [
-            _port_issue_to_dict(issue)
-            for issue in (result.guard_result.diagnostics if result.guard_result is not None else ())
-        ],
+        "ok": exit_guard.ok,
+        "diagnostics": [_port_issue_to_dict(issue) for issue in exit_guard.diagnostics],
         "normalize": {
-            "fallback_used": bool(getattr(result.guard_result, "normalize_fallback_used", False)),
-            "allow_list_used": bool(getattr(result.guard_result, "normalize_allow_list_used", False)),
+            "fallback_used": False,
+            "allow_list_used": False,
         },
     }
-    state.delta_audit = _build_delta_audit(result)
+    state.delta_audit = {
+        "automatic_link_removals": [],
+        "re_stitches": [],
+    }
     state.report = {
         "change": {
-            "mode": "agent_edit_v2_delta",
+            "mode": "batch_repl",
             "op_count": len(ops),
             "delta_ops_envelope": delta_envelope,
             "ops": ops,
-            "mutation_started": result.mutation_started,
+            "mutation_started": True,
         },
         "recovery": [],
         "felt": {},
@@ -464,7 +452,7 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
         value={
             "mode": "agent_edit_v2_delta",
             "op_count": len(ops),
-            "mutation_started": result.mutation_started,
+            "mutation_started": True,
         },
         gate_updates={
             "python_load_ok": True,
@@ -1072,20 +1060,11 @@ def _stage_audit(
     response: dict[str, Any] | None = None,
     failure: FailureEnvelope | None = None,
 ) -> ArtifactRef:
-    from vibecomfy.comfy_nodes.agent.edit import (_agent_edit_batch_repl_enabled, _agent_edit_v2_enabled, _build_lowering_audit_entries, _canonical_delta_ops_envelope_payload, _json_safe, normalize_agent_edit_v2_metadata, write_audit)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (_agent_edit_batch_repl_enabled, _build_lowering_audit_entries, _canonical_delta_ops_envelope_payload, _json_safe, normalize_agent_edit_v2_metadata, write_audit)  # T-039 late import: host namespace lookup; resolved at call time
     metadata: dict[str, Any] = {
         "provider": state.provider_metadata or {},
         "lowering": _build_lowering_audit_entries(state.lowering_evidence),
     }
-    if _agent_edit_v2_enabled():
-        metadata["agent_edit_v2"] = normalize_agent_edit_v2_metadata(
-            {
-                "enabled": True,
-                "op_count": len(state.delta_ops),
-                "delta_ops_envelope": _canonical_delta_ops_envelope_payload(state.delta_ops),
-                "delta_audit": state.delta_audit or {},
-            }
-        )
     if _agent_edit_batch_repl_enabled():
         metadata["batch_repl"] = {
             "enabled": True,

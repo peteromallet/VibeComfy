@@ -6,7 +6,7 @@ deterministic canonical-uid and LiteGraph-id lookups with no side effects.
 
 Design
 ------
-- ``LintIndex`` is built from ``original_ui`` via ``EditLedger.ingest()``.
+- ``LintIndex`` is built from ``original_ui`` via ``UiGraphIndex.ingest()``.
 - Canonical uids (stamped by the ledger) and raw LiteGraph integer ids are
   indexed separately so later lint rules can resolve either reference form.
 - Node metadata (class_type, input/output names, slot indices) is extracted
@@ -52,7 +52,6 @@ from types import SimpleNamespace
 import re
 from typing import Any, Mapping, Sequence
 
-from .ledger import EditLedger
 from .ops import (
     AddNodeOp,
     EditOp,
@@ -161,11 +160,11 @@ class LintResult:
 # ── LintIndex ───────────────────────────────────────────────────────────────
 
 def _build_node_meta(
-    ledger: EditLedger,
+    node_index: Mapping[tuple[str, str], Mapping[str, Any]],
 ) -> dict[tuple[str, str], _NodeMeta]:
-    """Extract node metadata from every scoped node in *ledger*."""
+    """Extract node metadata from every scoped node."""
     meta: dict[tuple[str, str], _NodeMeta] = {}
-    for (scope_path, uid), node in ledger.node_index.items():
+    for (scope_path, uid), node in node_index.items():
         lg_id: int | None = node.get("id")
         if not isinstance(lg_id, int):
             # defensive: every LiteGraph node MUST have an integer id
@@ -207,7 +206,7 @@ def _build_node_meta(
 
 
 def _build_link_sets(
-    ledger: EditLedger,
+    link_index: Mapping[tuple[str, int], Any],
 ) -> tuple[
     dict[str, frozenset[int]],
     dict[tuple[str, int], Any],
@@ -215,7 +214,7 @@ def _build_link_sets(
     """Collect existing link ids per scope and a link-by-id lookup."""
     link_ids: dict[str, set[int]] = {}
     link_by_id: dict[tuple[str, int], Any] = {}
-    for (scope_path, link_id), link in ledger.link_index.items():
+    for (scope_path, link_id), link in link_index.items():
         link_ids.setdefault(scope_path, set()).add(link_id)
         link_by_id[(scope_path, link_id)] = link
     frozen: dict[str, frozenset[int]] = {
@@ -228,7 +227,7 @@ def _build_link_sets(
 class LintIndex:
     """Read-only index over an ``original_ui`` LiteGraph dict.
 
-    Built deterministically from ``original_ui`` via ``EditLedger.ingest()``.
+    Built deterministically from ``original_ui`` via ``UiGraphIndex.ingest()``.
     Exposes canonical-uid and LiteGraph-id lookups, node metadata, and
     existing link indexing for downstream lint rules.
 
@@ -251,7 +250,9 @@ class LintIndex:
         meta.output_names
     """
 
-    ledger: EditLedger = field(repr=False)
+    graph: Mapping[str, Any] = field(repr=False)
+    _scopes: dict[str, Mapping[str, Any]] = field(repr=False)
+    _node_index: dict[tuple[str, str], Mapping[str, Any]] = field(repr=False)
     # LiteGraph integer id → canonical uid (per scope)
     _lg_id_to_uid: dict[tuple[str, int], str] = field(repr=False)
     # canonical uid → LiteGraph integer id (per scope)
@@ -270,12 +271,19 @@ class LintIndex:
         *original_ui* is a LiteGraph serialisation dict (nodes, links,
         definitions, etc.) as stored in the workflow JSON.
         """
-        ledger = EditLedger.ingest(original_ui)
-        lg_id_to_uid, uid_to_lg_id = build_lg_id_maps(ledger.node_index)
-        node_meta = _build_node_meta(ledger)
-        link_ids, link_by_id = _build_link_sets(ledger)
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
+        indexed = UiGraphIndex.ingest(original_ui)
+        scopes = {path: scope.graph for path, scope in indexed.scopes.items()}
+        node_index = indexed.node_index
+        link_index = indexed.link_index
+        lg_id_to_uid, uid_to_lg_id = build_lg_id_maps(node_index)
+        node_meta = _build_node_meta(node_index)
+        link_ids, link_by_id = _build_link_sets(link_index)
         return cls(
-            ledger=ledger,
+            graph=dict(original_ui),
+            _scopes=scopes,
+            _node_index=node_index,
             _lg_id_to_uid=lg_id_to_uid,
             _uid_to_lg_id=uid_to_lg_id,
             _node_meta=node_meta,
@@ -288,10 +296,10 @@ class LintIndex:
     @property
     def scope_paths(self) -> tuple[str, ...]:
         """All scope paths in insertion order (root ``""`` first)."""
-        return tuple(self.ledger.scopes.keys())
+        return tuple(self._scopes.keys())
 
     def has_scope(self, scope_path: str) -> bool:
-        return scope_path in self.ledger.scopes
+        return scope_path in self._scopes
 
     # -- node resolution ------------------------------------------------------
 
@@ -299,7 +307,8 @@ class LintIndex:
         self, scope_path: str, uid: str
     ) -> dict[str, Any] | None:
         """Return the LiteGraph node dict for *uid* in *scope_path*."""
-        return self.ledger.resolve_node(scope_path, uid)
+        node = self._node_index.get((scope_path, uid))
+        return dict(node) if isinstance(node, Mapping) else None
 
     def node_by_lg_id(
         self, scope_path: str, lg_id: int
@@ -308,7 +317,7 @@ class LintIndex:
         uid = self._lg_id_to_uid.get((scope_path, lg_id))
         if uid is None:
             return None
-        return self.ledger.resolve_node(scope_path, uid)
+        return self.node_by_uid(scope_path, uid)
 
     # -- uid ↔ lg_id translation ----------------------------------------------
 
@@ -1208,15 +1217,23 @@ def lint_delta(
         # apply engine.  Failure to materialise the virtual graph is left for
         # the ordinary per-op checks/apply gate to report; it must never make
         # lint more permissive than the authoritative apply path.
-        from .apply_core import apply_delta
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
-        virtual = apply_delta(
-            index.ledger.graph,
-            tuple(passed_adds),
-            schema_provider=schema_provider,
-        )
-        if virtual.ok and virtual.candidate is not None:
-            dependency_index = LintIndex.build(virtual.candidate)
+        try:
+            pre = from_ui(dict(index.graph), schema_provider=schema_provider)
+            interpreted = interpret(pre, tuple(passed_adds), schema_provider=schema_provider)
+            if interpreted.ok:
+                candidate = emit_ui_json(
+                    interpreted.workflow,
+                    schema_provider=schema_provider,
+                    include_virtual_wires=True,
+                    prior_ui_payload=index.graph,
+                )
+                dependency_index = LintIndex.build(candidate)
+        except Exception:
+            dependency_index = index
 
     for i, op in enumerate(delta):
         linter = _LINTERS.get(op.op)  # type: ignore[union-attr]

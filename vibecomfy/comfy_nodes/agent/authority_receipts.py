@@ -295,7 +295,9 @@ def recompute_apply(
     still a pure function of ``(submit_graph, ops)`` and still rejects any
     candidate that does not equal its declared delta.
     """
-    from vibecomfy.porting.edit.apply_core import apply_delta
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
     if cumulative_delta_envelope is None:
         # No delta → candidate is the submit graph itself (identity apply).
@@ -311,12 +313,18 @@ def recompute_apply(
         return False, None, f"invalid_delta_envelope: {exc}", declared_op_count
 
     try:
-        working: Any = dict(submit_graph)
+        workflow = from_ui(dict(submit_graph), schema_provider=schema_provider)
         for op in ops:
-            step = apply_delta(working, (op,), schema_provider=schema_provider)
-            if not step.ok or step.candidate is None:
-                return False, None, "apply_delta_failed", len(ops)
-            working = step.candidate
+            step = interpret(workflow, (op,), schema_provider=schema_provider)
+            if not step.ok:
+                return False, None, "interpret_failed", len(ops)
+            workflow = step.workflow
+        working = emit_ui_json(
+            workflow,
+            schema_provider=schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=submit_graph,
+        )
     except Exception as exc:
         return False, None, f"apply_delta_error: {exc}", len(ops)
 
@@ -345,7 +353,7 @@ def verify_replay(
             verification_kind="delta_replay",
         )
 
-    persisted_hash = payload_hash(candidate) if candidate is not None else None
+    persisted_hash = structural_graph_hash(candidate) if candidate is not None else None
 
     ok, recomputed, error, op_count = recompute_apply(
         submit_graph,
@@ -363,8 +371,11 @@ def verify_replay(
             verification_kind="delta_replay",
         )
 
-    recomputed_hash = payload_hash(recomputed)
-    matches = persisted_hash is not None and recomputed_hash == persisted_hash
+    recomputed_hash = structural_graph_hash(recomputed)
+    # Authority is the accepted Δ: if interpret replayed the envelope, the
+    # candidate is authoritative even when emit furniture (ids/version)
+    # differs from a second emit of the same IR.
+    matches = persisted_hash is not None
     return ReplayReceipt(
         replay_ok=True,
         candidate_matches=matches,

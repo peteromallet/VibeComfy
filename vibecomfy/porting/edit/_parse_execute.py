@@ -4,7 +4,6 @@ import ast
 from copy import deepcopy
 from typing import Any
 
-from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.porting.edit.ops import EditOp
 from vibecomfy.porting.edit._session_types import (
     BatchResult,
@@ -96,7 +95,9 @@ class _ParseExecuteMixin:
                     statement_results = self._merge_project_diagnostics(
                         statement_results, project_diags
                     )
-                self.ledger = EditLedger.ingest(self.working_ui)
+                from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
+                self.ledger = UiGraphIndex.ingest(self.working_ui)
                 for op in interpreted.landed_ops:
                     touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
                     self.touched_uids.update(touched_uids)
@@ -305,8 +306,10 @@ class _ParseExecuteMixin:
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
         self.working_ui = deepcopy(snapshot["working_ui"])
-        self.ledger = EditLedger.ingest(self.working_ui)
+        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops = list(snapshot["landed_ops"])
         self.touched_uids = set(snapshot["touched_uids"])
         self.touched_node_ids = set(snapshot["touched_node_ids"])
@@ -329,13 +332,17 @@ class _ParseExecuteMixin:
     ) -> tuple[set[str], set[str]]:
         touched_uids: set[str] = set()
         touched_node_ids: set[str] = set()
+        workflow = getattr(self, "workflow", None)
+        uid_to_id = {}
+        if workflow is not None:
+            for node in workflow.nodes.values():
+                uid = str(getattr(node, "uid", "") or "")
+                if uid:
+                    uid_to_id[uid] = str(getattr(node, "id", "") or "")
         for op in ops:
-            for scope_path, uid in _uids_for_op(op):
-                touched_uids.add(self.ledger.qualified_uid(scope_path, uid))
-                node = self.ledger.resolve_node(scope_path, uid)
-                if node is None:
-                    continue
-                node_id = node.get("id")
-                if node_id is not None:
-                    touched_node_ids.add(str(node_id))
+            for _scope_path, uid in _uids_for_op(op):
+                touched_uids.add(uid)
+                node_id = uid_to_id.get(uid)
+                if node_id:
+                    touched_node_ids.add(node_id)
         return touched_uids, touched_node_ids

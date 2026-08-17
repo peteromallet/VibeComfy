@@ -75,7 +75,7 @@ from vibecomfy.porting.edit._ir_utils import (
     _widget_value_for_field,
 )
 from vibecomfy.porting.edit.apply_field_aliases import field_diagnostics_for_node
-from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
+from vibecomfy.porting.edit.widget_slots import _canonical_ui_only_widget_field
 from vibecomfy.porting.resolution import _find_named_slot
 
 _EXEC_CLASS_TYPE = "vibecomfy.exec"
@@ -470,16 +470,15 @@ class _ResolveMixin:
     """Symbolic-name resolution methods — the named M4 seam."""
 
     def _uid_for_scope(self, scope_path: str, class_type: str) -> str:
-        """Best-effort uid lookup for a newly added node by looking at the ledger."""
-        # Look for nodes matching class_type that were recently added.
-        # The simplest approach: check the most recently added node in the ledger.
-        nodes = self.ledger.graph.get("nodes") or []
+        """Best-effort uid lookup for a newly added node from the retained IR."""
+        workflow = getattr(self, "workflow", None)
+        nodes = list((getattr(workflow, "nodes", None) or {}).values())
         for node in reversed(nodes):
-            ct = str(node.get("type") or node.get("class_type") or "")
-            if ct == class_type:
-                uid = node.get("properties", {}).get("vibecomfy_uid", "")
-                if uid and uid in self.name_by_uid:
-                    return uid
+            if str(getattr(node, "class_type", "") or "") != class_type:
+                continue
+            uid = str(getattr(node, "uid", "") or "")
+            if uid and uid in self.name_by_uid:
+                return uid
         return ""
 
     def _resolve_statement(
@@ -1360,49 +1359,43 @@ class _ResolveMixin:
         target = self._resolve_graph_name_soft(target_name)
         if target is None:
             return None
-        inputs = target.node.get("inputs")
-        if not isinstance(inputs, list):
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return None
-        input_slot = _find_named_slot(inputs, target_field)
-        if input_slot is None:
-            return None
-        link_id = input_slot.get("link")
-        if not isinstance(link_id, int):
-            return None
-        raw_link = self.ledger.resolve_link(target.scope_path, link_id)
-        if raw_link is None:
-            return None
-        origin_id, origin_slot = _link_origin(raw_link)
-        if origin_id is None:
-            return None
-        origin_node = self._node_by_id(target.scope_path, origin_id)
-        if origin_node is None:
-            return None
-        origin_uid = str(origin_node.get("properties", {}).get("vibecomfy_uid") or origin_node.get("id"))
-        slot_name = _output_slot_name(origin_node, origin_slot, self.schema_provider)
-        output_slot: str | int = slot_name if slot_name is not None else origin_slot
-        return LinkSourceRef(target.scope_path, origin_uid, output_slot)
+        target_id = str(getattr(target.node, "id", "") or "")
+        for edge in getattr(workflow, "edges", ()) or ():
+            if str(getattr(edge, "to_node", "") or "") != target_id:
+                continue
+            if str(getattr(edge, "to_input", "") or "") != target_field:
+                continue
+            source = workflow.nodes.get(str(getattr(edge, "from_node", "") or ""))
+            if source is None:
+                return None
+            return LinkSourceRef(
+                target.scope_path,
+                str(getattr(source, "uid", "") or ""),
+                getattr(edge, "from_output", ""),
+            )
+        return None
 
     def _target_has_any_link(self, target_name: str) -> bool:
         target = self._resolve_graph_name_soft(target_name)
         if target is None:
             return False
-        inputs = target.node.get("inputs")
-        if not isinstance(inputs, list):
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return False
-        return any(isinstance(slot, Mapping) and isinstance(slot.get("link"), int) for slot in inputs)
+        target_id = str(getattr(target.node, "id", "") or "")
+        return any(
+            str(getattr(edge, "to_node", "") or "") == target_id
+            for edge in getattr(workflow, "edges", ()) or ()
+        )
 
-    def _node_by_id(self, scope_path: str, node_id: int) -> Mapping[str, Any] | None:
-        scope = self.ledger.scopes.get(scope_path)
-        if scope is None:
+    def _node_by_id(self, scope_path: str, node_id: int) -> Any | None:
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
             return None
-        nodes = scope.graph.get("nodes")
-        if not isinstance(nodes, list):
-            return None
-        for node in nodes:
-            if isinstance(node, Mapping) and node.get("id") == node_id:
-                return node
-        return None
+        return (getattr(workflow, "nodes", None) or {}).get(str(node_id))
 
     @staticmethod
     def _dependency_cause(statement: StatementResult) -> str | None:
@@ -1416,8 +1409,6 @@ class _ResolveMixin:
         """Return *name* when it is already a live node uid."""
         if not name:
             return None
-        if self.ledger.resolve_node("", name) is not None:
-            return name
         workflow = getattr(self, "workflow", None)
         nodes = getattr(workflow, "nodes", None) or {}
         for node in nodes.values():
@@ -1458,8 +1449,13 @@ class _ResolveMixin:
                     detail={"name": name},
                 )
             ]
-        matches = [(scope_path, node) for (scope_path, node_uid), node in self.ledger.node_index.items() if node_uid == uid]
-        if not matches:
+        workflow = getattr(self, "workflow", None)
+        ir_node = None
+        for node in (getattr(workflow, "nodes", None) or {}).values():
+            if str(getattr(node, "uid", "") or "") == uid:
+                ir_node = node
+                break
+        if ir_node is None:
             return None, [
                 _diag(
                     "stale_graph_name",
@@ -1468,18 +1464,8 @@ class _ResolveMixin:
                     detail={"name": name, "uid": uid},
                 )
             ]
-        if len(matches) > 1:
-            return None, [
-                _diag(
-                    "scope_escape_not_allowed",
-                    f"Graph name {name!r} resolves to multiple scopes; explicit scope paths are not allowed in M1.",
-                    severity="error",
-                    detail={"name": name, "uid": uid, "scope_paths": [scope for scope, _ in matches]},
-                )
-            ]
-        scope_path, node = matches[0]
-        class_type = str(node.get("type") or node.get("class_type") or "")
-        return _ResolvedGraphName(name=name, uid=uid, scope_path=scope_path, node=node, class_type=class_type), []
+        class_type = str(getattr(ir_node, "class_type", "") or "")
+        return _ResolvedGraphName(name=name, uid=uid, scope_path="", node=ir_node, class_type=class_type), []
 
     def _resolve_target_field(
         self,

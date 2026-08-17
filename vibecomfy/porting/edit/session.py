@@ -7,8 +7,6 @@ from types import MappingProxyType
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .apply import apply_delta
-from .ledger import EditLedger
 from .ops import (
     AddNodeOp,
     AnchorRef,
@@ -25,7 +23,7 @@ from .ops import (
 )
 from .types import FieldChange
 from vibecomfy.porting.emitter import EmissionDiagnostic, emit_agent_edit_python
-from .projection import HELPER_NODE_TYPES, MODE_LABELS
+from .constants import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.layout.placement import (
     BatchPlacementFacts,
     InferredAnchorHint,
@@ -61,7 +59,7 @@ from vibecomfy.porting.edit._session_types import (
     _diag,
     _extract_uid_name_pairs,
 )
-from vibecomfy.porting.edit.apply_types import ValueDefaultContext
+from vibecomfy.porting.edit.value_defaults import ValueDefaultContext
 
 from vibecomfy.porting.edit._parse import (
     _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
@@ -91,7 +89,7 @@ from vibecomfy.porting.edit._ir_utils import (
     _widget_value_for_field,
     _workflow_uid_to_node_id,
 )
-from vibecomfy.porting.resolution import _find_named_slot
+
 
 from vibecomfy.porting.edit._diff import (
     _DiffMixin,
@@ -128,10 +126,12 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         value_default_context: ValueDefaultContext | None = None,
         initial_workflow: VibeWorkflow | None = None,
     ) -> None:
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
         self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
-        self.original_ledger = EditLedger.ingest(self.original_ui)
-        self.ledger = EditLedger.ingest(self.working_ui)
+        self.original_ledger = UiGraphIndex.ingest(self.original_ui)
+        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
@@ -256,10 +256,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             )
             workflow = result.workflow
             remaining_ops.extend(result.landed_ops)
-            working_ui = self._project_ops_onto_ui(working_ui, result.landed_ops)
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
         self.workflow = workflow
-        self.working_ui = working_ui
-        self.ledger = EditLedger.ingest(self.working_ui)
+        self.working_ui = self._emit_working_snapshot(workflow)
+        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops = remaining_ops
         self.resolved_ops = remaining_resolved
         self.touched_uids = set()
@@ -337,12 +338,25 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 snapshot[(uid, str(name))] = value
         return snapshot
 
+    def _emit_working_snapshot(self, workflow: VibeWorkflow | None = None) -> dict[str, Any]:
+        """Emit the current IR to UI JSON. This is the only working-graph projector."""
+        from vibecomfy.porting.emit.ui import emit_ui_json
+
+        target = workflow if workflow is not None else getattr(self, "workflow", None)
+        if target is None:
+            return deepcopy(self.original_ui)
+        return emit_ui_json(
+            target,
+            schema_provider=self.schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=self.original_ui,
+        )
+
     def _project_ops_onto_ui(
         self,
         working_ui: dict[str, Any],
         ops: tuple[Any, ...] | list[Any],
     ) -> dict[str, Any]:
-        """UI projector for interpret's landed ops (apply layer, batch 15 target)."""
         projected, _diags = self._project_ops_onto_ui_with_diagnostics(working_ui, ops)
         return projected
 
@@ -351,75 +365,12 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         working_ui: dict[str, Any],
         ops: tuple[Any, ...] | list[Any],
     ) -> tuple[dict[str, Any], tuple[Any, ...]]:
+        del working_ui
         if not ops:
-            return working_ui, ()
-        projected = working_ui
-        diagnostics: list[Any] = []
-        for op in ops:
-            applied = apply_delta(
-                projected,
-                (self._projection_op(op),),
-                schema_provider=self.schema_provider,
-                value_default_context=self.value_default_context,
-            )
-            if applied.ok and applied.candidate is not None:
-                projected = deepcopy(applied.candidate)
-                if applied.resolved_ops:
-                    self.resolved_ops.extend(applied.resolved_ops)
-                diagnostics.extend(
-                    self._compact_port_issue(issue) for issue in applied.diagnostics
-                )
-                continue
-            diagnostics.extend(
-                self._compact_port_issue(issue) for issue in applied.diagnostics
-            )
-            if applied.guard_result is not None and applied.guard_result.diagnostics:
-                diagnostics.extend(
-                    self._compact_port_issue(issue)
-                    for issue in applied.guard_result.diagnostics
-                )
-        return projected, tuple(diagnostics)
+            return deepcopy(self.original_ui), ()
+        return self._emit_working_snapshot(), ()
 
     def _projection_op(self, op: Any) -> Any:
-        """Rewrite IR slot aliases to UI slot names for the emit projector."""
-        from vibecomfy.porting.edit._interpret import _ui_output_slot
-        from vibecomfy.porting.edit.ops import AddNodeOp, LinkSourceRef, UpsertLinkOp
-
-        workflow = getattr(self, "workflow", None)
-
-        def rewrite_source(source: Any) -> Any:
-            if not isinstance(source, LinkSourceRef) or workflow is None:
-                return source
-            node = None
-            for item in workflow.nodes.values():
-                if str(getattr(item, "uid", "") or "") == str(source.uid):
-                    node = item
-                    break
-            if node is None:
-                return source
-            raw = _ui_output_slot(node, str(source.output_slot))
-            if raw == source.output_slot:
-                return source
-            return LinkSourceRef(source.scope_path, source.uid, raw)
-
-        if isinstance(op, AddNodeOp) and op.inputs:
-            return AddNodeOp(
-                op=op.op,
-                scope_path=op.scope_path,
-                class_type=op.class_type,
-                fields=dict(op.fields),
-                inputs={name: rewrite_source(src) for name, src in op.inputs.items()},
-                anchor=op.anchor,
-                uid=op.uid,
-                node_id=op.node_id,
-                widget_field_names=op.widget_field_names,
-            )
-        if isinstance(op, UpsertLinkOp):
-            return UpsertLinkOp(
-                op=op.op,
-                source=rewrite_source(op.source),
-                target=op.target,
-            )
         return op
 
 

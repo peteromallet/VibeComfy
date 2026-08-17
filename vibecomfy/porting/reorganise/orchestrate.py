@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 
 from vibecomfy.identity.uid import SCOPE_CHAIN_JOIN
 from vibecomfy.identity.uid import parse_uid
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.porting.layout_store import migrate_store
 
 from .assess import assess_layout_facts
@@ -1189,7 +1189,7 @@ def apply_layout_candidate_patch_to_ui(
     topology_hash_before = topology_hash_for_layout_facts(facts_before)
     structural_hash_before = structural_hash_for_layout_facts(facts_before)
 
-    ledger = EditLedger.ingest(loaded.ui_json)
+    ledger = UiGraphIndex.ingest(loaded.ui_json)
     graph = ledger.graph
     applied_entry_keys, skipped_entry_keys = _apply_candidate_entries(ledger, patch)
     applied_group_scopes = _apply_candidate_groups(ledger, patch)
@@ -1499,7 +1499,7 @@ def _candidate_patch_mapping(
 
 
 def _apply_candidate_entries(
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
     patch: Mapping[str, Any],
 ) -> tuple[list[str], list[str]]:
     raw_entries = patch.get("entries")
@@ -1545,7 +1545,7 @@ def _apply_node_properties(node: dict[str, Any], value: Any) -> None:
 
 
 def _apply_candidate_groups(
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
     patch: Mapping[str, Any],
 ) -> list[str]:
     raw_groups = patch.get("groups")
@@ -1580,7 +1580,7 @@ def _candidate_group_scope(group: Mapping[str, Any]) -> str:
 def _group_for_ui_scope(
     group: Mapping[str, Any],
     scope_path: str,
-    ledger: EditLedger,
+    ledger: UiGraphIndex,
 ) -> dict[str, Any]:
     ui_group = _freeze_jsonish(group)
     if not isinstance(ui_group, dict):

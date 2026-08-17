@@ -1,15 +1,26 @@
+"""Literal-value validation for the IR interpreter."""
+
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal, Mapping
 
-from vibecomfy.porting.edit.apply_types import _issue
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.resolution import _normalize_type
 from vibecomfy.schema import InputSpec
 
 
-def _validate_literal_value(
+def _issue(
+    code: str,
+    message: str,
+    *,
+    severity: Literal["error", "warning", "info"] = "error",
+    detail: Mapping[str, Any] | None = None,
+) -> PortIssue:
+    return PortIssue(code=code, message=message, severity=severity, detail=dict(detail or {}))
+
+
+def validate_literal_value(
     *,
     value: Any,
     spec: InputSpec | None,
@@ -145,11 +156,6 @@ _CONSTRAINED_FIELD_SUFFIXES = frozenset({"format", "method", "mode", "option", "
 def _is_asset_enum(*, value: Any, spec: InputSpec, input_name: str, choices: list[Any]) -> bool:
     if not isinstance(value, str):
         return False
-
-    # ComfyUI exposes installed asset files as enums. Treat an enum as an asset
-    # selector when its field/type names identify an asset, its installed choices
-    # look path-shaped, or (conservatively for unknown schemas) the proposed string
-    # itself is unmistakably a file/path reference.
     field_identifier = _normalized_identifier(input_name)
     field_name_signals_asset = any(word in field_identifier for word in _ASSET_FIELD_WORDS) and not any(
         field_identifier.endswith(suffix) for suffix in _CONSTRAINED_FIELD_SUFFIXES

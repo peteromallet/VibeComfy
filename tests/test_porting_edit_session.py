@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.ingest.normalize import from_api, normalize_to_api
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex as EditLedger
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -772,7 +772,7 @@ class TestIntegrationBoundaries:
 
     def test_edit_projection_constants_exist(self) -> None:
         """MODE_LABELS and HELPER_NODE_TYPES are in edit_projection.py."""
-        from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
+        from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
 
         assert isinstance(MODE_LABELS, dict)
         assert MODE_LABELS[0] == "enabled"
@@ -2458,7 +2458,7 @@ class TestEditSessionPrimitiveLowering:
 
     def test_original_link_endpoint_uses_litegraph_origin_slot(self) -> None:
         from vibecomfy.porting.edit._describe import _DescribeMixin
-        from vibecomfy.porting.edit.ledger import EditLedger
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex as EditLedger
 
         ledger = EditLedger.ingest(
             {

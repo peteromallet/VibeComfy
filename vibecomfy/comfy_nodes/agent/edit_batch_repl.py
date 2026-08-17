@@ -815,7 +815,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 ) -> deps.StageResult:
     deps = build_edit_batch_repl_deps(globals_dict)
     edit_session_module = importlib.import_module("vibecomfy.porting.edit.session")
-    ValueDefaultContext = _import_from("vibecomfy.porting.edit.apply_types", "ValueDefaultContext")
+    ValueDefaultContext = _import_from("vibecomfy.porting.edit.value_defaults", "ValueDefaultContext")
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph

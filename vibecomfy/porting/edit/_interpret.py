@@ -34,7 +34,7 @@ from vibecomfy.porting.edit._session_types import (
     _ExpandedStatement,
     _diag,
 )
-from vibecomfy.porting.edit.apply_values import _validate_literal_value
+from vibecomfy.porting.edit.validate import validate_literal_value as _validate_literal_value
 from vibecomfy.porting.edit.editable_surface import (
     editable_surface_for,
     is_positional_alias,
@@ -55,7 +55,7 @@ from vibecomfy.porting.edit.ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.identity.codec import _BUILTIN_NAMES, to_python_identifier, to_raw_name
 from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
@@ -1052,7 +1052,7 @@ class _InterpretRunner:
         return LinkSourceRef("", str(node.uid), slot), ()
 
     def _canonical_field(self, node: Any, raw: str) -> str:
-        from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
+        from vibecomfy.porting.edit.widget_slots import _canonical_ui_only_widget_field
 
         mapping: dict[str, Any] = {"type": node.class_type, "class_type": node.class_type}
         metadata = getattr(node, "metadata", None)

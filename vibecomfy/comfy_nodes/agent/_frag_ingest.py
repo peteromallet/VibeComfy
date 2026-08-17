@@ -83,19 +83,19 @@ def _ensure_ingest_workflow(state: AgentEditState) -> Any:
     The public entrypoint retains the IR in ``AgentEditState.workflow`` at
     allocation (batch 3), so the normal path never re-ingests.  Direct stage
     callers and recovered states fall through here, which performs the SINGLE
-    named-door conversion (``normalize_agent_edit_graph`` — the only shape
+    named-door conversion (``ingest_workflow_and_ui`` — the only shape
     dispatcher) and stores both the canonical graph and the retained
     ``VibeWorkflow`` on state.
     """
     if state.workflow is None:
-        from .graph_normalization import normalize_agent_edit_graph  # T-038 late import: sibling cycle broken; resolved at call time
+        from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
-        normalized = normalize_agent_edit_graph(
+        workflow, graph = ingest_workflow_and_ui(
             state.graph,
             schema_provider=state.schema_provider,
         )
-        state.graph = normalized.graph
-        state.workflow = normalized.workflow
+        state.graph = graph
+        state.workflow = workflow
     return state.workflow
 
 
@@ -160,17 +160,15 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
 
 
 def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit.ledger import EditLedger
+    from copy import deepcopy
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
-    # Batch 3 (ONE ingest path): the door (graph_normalization) dispatched the
-    # shape exactly once at allocation and its ``VibeWorkflow`` is retained in
-    # state.workflow.  This stage consumes the retained IR — never re-ingests
-    # from raw JSON and never re-runs the shape switch.
+    # The door dispatched the shape exactly once at allocation and its
+    # VibeWorkflow is retained in state.workflow. This stage consumes the
+    # retained IR — never re-ingests from raw JSON.
     _ensure_ingest_workflow(state)
-    ledger = EditLedger.ingest(state.graph)
-    state.guard_original_ui = ledger.stamped_copy()
+    state.guard_original_ui = deepcopy(state.graph)
     original_ui_ref = write_json_artifact(state.original_ui_path, state.guard_original_ui)
     # Auto-rebaseline on submit: the live canvas the user submitted is always
     # authoritative for an edit, so submit does NOT enforce a pinned baseline
@@ -201,11 +199,9 @@ def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult
         blocking=False,
         duration_ms=_duration_ms(start),
         artifacts=(request_ref, original_ui_ref),
-        issues=tuple(issue.to_dict() for issue in ledger.diagnostics),
         value={
-            "mode": "agent_edit_v2_delta",
-            "node_count": len(ledger.node_index),
-            "scope_count": len(ledger.scopes),
+            "mode": "batch_repl",
+            "node_count": len((getattr(state.workflow, "nodes", None) or {})),
         },
     )
 
@@ -241,25 +237,13 @@ def _stage_convert(state: AgentEditState, _context: TurnContext) -> StageResult:
 
 
 def _stage_project_v2(state: AgentEditState, _context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit.projection import ProjectionOptions, render_edit_projection
+    from vibecomfy.porting.render import LENS_SURFACE, render
 
     start = time.monotonic()
-    # The 8000-token default forces sparse mode on every real ComfyUI graph (140-200+
-    # nodes), collapsing all nodes to summaries and starving the model of the field
-    # names / slot types it needs to target edits and wire links correctly. Modern
-    # models have 64K+ context, so render real graphs in FULL detail. Env-overridable.
-    try:
-        _proj_budget = int(os.getenv("VIBECOMFY_EDIT_PROJECTION_MAX_TOKENS", "256000"))
-    except (TypeError, ValueError):
-        _proj_budget = 256000
-    projection = render_edit_projection(
-        state.guard_original_ui or state.graph,
-        task=state.task,
-        schema_provider=state.schema_provider,
-        options=ProjectionOptions(max_tokens=_proj_budget),
-    )
-    state.projection_text = projection.text
-    state.projection_path.write_text(projection.text, encoding="utf-8")
+    _ensure_ingest_workflow(state)
+    projection_text = str(render(state.workflow, LENS_SURFACE) or "")
+    state.projection_text = projection_text
+    state.projection_path.write_text(projection_text, encoding="utf-8")
     return StageResult(
         stage="project",
         ok=True,
@@ -267,10 +251,7 @@ def _stage_project_v2(state: AgentEditState, _context: TurnContext) -> StageResu
         duration_ms=_duration_ms(start),
         artifacts=(_artifact(state.projection_path),),
         value={
-            "token_estimate": projection.token_estimate,
-            "node_count": projection.node_count,
-            "detailed_node_count": projection.detailed_node_count,
-            "truncated": projection.truncated,
+            "node_count": len(getattr(state.workflow, "nodes", {}) or {}),
         },
     )
 

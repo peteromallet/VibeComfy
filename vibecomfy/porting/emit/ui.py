@@ -3428,4 +3428,423 @@ __all__ = [
     "offline_emitter_normalizer_self_consistency_check",
     "structural_validate",
     "default_output_path",
+    "ExitGuardResult",
+    "guard_exit_ui",
 ]
+
+
+# ── Emit-exit fidelity guard (batch 15) ──
+"""Independent emit-exit fidelity guard.
+
+Validates that ``emit(workflow)`` differs from the original ingest UI only
+where the accepted Δ (landed ops) attributes a change.  This is the
+IR/emit successor of the raw-JSON ``guard_full_ui`` invariant: untouched
+nodes, links, and scope fields stay byte-identical.
+"""
+
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal, Mapping, Sequence
+
+from vibecomfy.porting.edit.ops import (
+    AddNodeOp,
+    EditOp,
+    RemoveLinkOp,
+    RemoveNodeOp,
+    SetModeOp,
+    SetNodeFieldOp,
+    UpsertLinkOp,
+)
+from vibecomfy.porting.report import PortIssue
+
+
+def _issue(
+    code: str,
+    message: str,
+    *,
+    severity: Literal["error", "warning", "info"] = "error",
+    detail: Mapping[str, Any] | None = None,
+) -> PortIssue:
+    return PortIssue(code=code, message=message, severity=severity, detail=dict(detail or {}))
+
+
+@dataclass(frozen=True, slots=True)
+class ExitGuardResult:
+    ok: bool
+    diagnostics: tuple[PortIssue, ...] = ()
+    normalize_fallback_used: bool = False
+    normalize_allow_list_used: bool = False
+
+
+def _node_uid(node: Mapping[str, Any]) -> str | None:
+    properties = node.get("properties")
+    if not isinstance(properties, Mapping):
+        return None
+    uid = properties.get("vibecomfy_uid")
+    return uid if isinstance(uid, str) and uid else None
+
+
+def _link_id(link: Any) -> int | None:
+    if isinstance(link, Mapping) and isinstance(link.get("id"), int):
+        return link["id"]
+    if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
+        if link and isinstance(link[0], int):
+            return link[0]
+    return None
+
+
+def _iter_scopes(graph: Mapping[str, Any], scope_path: str = "") -> list[tuple[str, Mapping[str, Any]]]:
+    scopes: list[tuple[str, Mapping[str, Any]]] = [(scope_path, graph)]
+    definitions = graph.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return scopes
+    subgraphs = definitions.get("subgraphs")
+    if not isinstance(subgraphs, list):
+        return scopes
+    for index, definition in enumerate(subgraphs):
+        if isinstance(definition, Mapping):
+            child = f"{scope_path}/sg{index}" if scope_path else f"sg{index}"
+            scopes.extend(_iter_scopes(definition, child))
+    return scopes
+
+
+def _index_nodes(graph: Mapping[str, Any]) -> dict[tuple[str, str], Mapping[str, Any]]:
+    index: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for scope_path, scope in _iter_scopes(graph):
+        nodes = scope.get("nodes")
+        if not isinstance(nodes, list):
+            continue
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            uid = _node_uid(node)
+            if uid is not None:
+                index[(scope_path, uid)] = node
+    return index
+
+
+def _index_links(graph: Mapping[str, Any]) -> dict[tuple[str, int], Any]:
+    index: dict[tuple[str, int], Any] = {}
+    for scope_path, scope in _iter_scopes(graph):
+        links = scope.get("links")
+        if not isinstance(links, list):
+            continue
+        for link in links:
+            link_id = _link_id(link)
+            if link_id is not None:
+                index[(scope_path, link_id)] = link
+    return index
+
+
+def _scope_node_uids(scope_graph: Mapping[str, Any]) -> list[str]:
+    nodes = scope_graph.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+    result: list[str] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        uid = _node_uid(node)
+        if uid is not None:
+            result.append(uid)
+    return result
+
+
+def _value_diff_paths(original: Any, candidate: Any, prefix: str = "") -> list[str]:
+    if original == candidate:
+        return []
+    if isinstance(original, Mapping) and isinstance(candidate, Mapping):
+        paths: list[str] = []
+        for key in sorted(set(original) | set(candidate)):
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            paths.extend(_value_diff_paths(original.get(key), candidate.get(key), child_prefix))
+        return paths
+    if isinstance(original, list) and isinstance(candidate, list):
+        paths: list[str] = []
+        max_len = max(len(original), len(candidate))
+        for index in range(max_len):
+            child_prefix = f"{prefix}[{index}]"
+            left = original[index] if index < len(original) else None
+            right = candidate[index] if index < len(candidate) else None
+            paths.extend(_value_diff_paths(left, right, child_prefix))
+        return paths
+    return [prefix or "<root>"]
+
+
+def _path_is_at_or_below(path: str, allowed: str) -> bool:
+    return path == allowed or path.startswith(f"{allowed}.") or path.startswith(f"{allowed}[")
+
+
+def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
+    if not allowed_paths:
+        return False
+    return all(any(_path_is_at_or_below(diff, allowed) for allowed in allowed_paths) for diff in diffs)
+
+
+def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
+    if isinstance(candidate, int) and original is None:
+        return True
+    if isinstance(original, int) and isinstance(candidate, int) and candidate >= original:
+        return True
+    return False
+
+
+def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
+    node_paths: dict[tuple[str, str], set[str]] = {}
+    scope_field_paths: dict[str, set[str]] = {}
+    removed_nodes: set[tuple[str, str]] = set()
+    new_nodes: set[tuple[str, str]] = set()
+    touched_scopes: set[str] = set()
+    link_ops: set[str] = set()
+
+    def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
+        node_paths.setdefault((scope_path, uid), set()).update(paths)
+        touched_scopes.add(scope_path)
+
+    for op in ops:
+        if isinstance(op, SetNodeFieldOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs", "properties")
+            continue
+        if isinstance(op, SetModeOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "mode")
+            continue
+        if isinstance(op, UpsertLinkOp):
+            allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
+            allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, RemoveLinkOp):
+            allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, RemoveNodeOp):
+            removed_nodes.add((op.target.scope_path, op.target.uid))
+            link_ops.add(op.target.scope_path)
+            continue
+        if isinstance(op, AddNodeOp):
+            uid = op.uid or ""
+            if uid:
+                new_nodes.add((op.scope_path, uid))
+                allow_node_paths(op.scope_path, uid, "widgets_values", "inputs", "outputs", "pos", "size", "properties", "mode", "type", "id", "order", "flags")
+            if op.inputs:
+                for source in op.inputs.values():
+                    allow_node_paths(source.scope_path, source.uid, "outputs")
+            scope_field_paths.setdefault(op.scope_path, set()).update({"groups", "last_node_id", "last_link_id"})
+            link_ops.add(op.scope_path)
+    return {
+        "node_paths": node_paths,
+        "scope_field_paths": scope_field_paths,
+        "removed_nodes": removed_nodes,
+        "new_nodes": new_nodes,
+        "touched_scopes": touched_scopes,
+        "link_ops": link_ops,
+    }
+
+
+def _guard_counter(scope_path: str, field: str, original: Any, candidate: Any) -> list[PortIssue]:
+    if original == candidate:
+        return []
+    if _counter_advanced_or_materialized(original, candidate):
+        return []
+    return [
+        _issue(
+            "full_ui_counter_changed_unattributed",
+            "Candidate changed a LiteGraph id counter except for monotonic advancement.",
+            detail={"scope_path": scope_path, "field": field, "original": original, "candidate": candidate},
+        )
+    ]
+
+
+def _guard_subgraph_state(scope_path: str, original: Any, candidate: Any) -> list[PortIssue]:
+    if original == candidate:
+        return []
+    original_state = original if isinstance(original, Mapping) else {}
+    candidate_state = candidate if isinstance(candidate, Mapping) else {}
+    diagnostics: list[PortIssue] = []
+    keys = set(original_state) | set(candidate_state)
+    for key in sorted(keys):
+        if key in {"lastNodeId", "lastLinkId"}:
+            diagnostics.extend(_guard_counter(scope_path, f"state.{key}", original_state.get(key), candidate_state.get(key)))
+            continue
+        if original_state.get(key) != candidate_state.get(key):
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_field_changed_unattributed",
+                    "Candidate changed a subgraph state field without an attributed operation.",
+                    detail={"scope_path": scope_path, "field": f"state.{key}"},
+                )
+            )
+    return diagnostics
+
+
+def guard_exit_ui(
+    original_ui: Mapping[str, Any],
+    candidate_ui: Mapping[str, Any],
+    ops: Sequence[EditOp] = (),
+) -> ExitGuardResult:
+    """Refuse emit candidates that change UI outside the accepted Δ."""
+    attribution = _attribution(ops)
+    diagnostics: list[PortIssue] = []
+    original_scopes = dict(_iter_scopes(original_ui))
+    candidate_scopes = dict(_iter_scopes(candidate_ui))
+
+    for scope_path, original_scope in original_scopes.items():
+        candidate_scope = candidate_scopes.get(scope_path)
+        if candidate_scope is None:
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_removed",
+                    "Candidate removed a UI scope without an attributed operation.",
+                    detail={"scope_path": scope_path},
+                )
+            )
+            continue
+        ignored = {"nodes", "links", "definitions"}
+        keys = (set(original_scope) | set(candidate_scope)) - ignored
+        allowed_scope_paths = attribution["scope_field_paths"].get(scope_path, set())
+        for key in sorted(keys):
+            if key == "last_node_id":
+                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key == "last_link_id":
+                diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key == "state":
+                diagnostics.extend(_guard_subgraph_state(scope_path, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key == "groups":
+                diffs = _value_diff_paths(original_scope.get(key), candidate_scope.get(key), "groups")
+                if not diffs or _all_diffs_op_allowed(diffs, allowed_scope_paths):
+                    continue
+            if original_scope.get(key) != candidate_scope.get(key):
+                diagnostics.append(
+                    _issue(
+                        "full_ui_scope_field_changed_unattributed",
+                        "Candidate changed a scope-level UI field without an attributed operation.",
+                        detail={"scope_path": scope_path, "field": key},
+                    )
+                )
+
+        original_order = [
+            uid for uid in _scope_node_uids(original_scope)
+            if (scope_path, uid) not in attribution["removed_nodes"]
+        ]
+        candidate_order = [
+            uid for uid in _scope_node_uids(candidate_scope)
+            if (scope_path, uid) not in attribution["new_nodes"]
+        ]
+        if original_order != candidate_order:
+            diagnostics.append(
+                _issue(
+                    "full_ui_node_order_changed_unattributed",
+                    "Candidate changed the relative order of existing nodes without an attributed operation.",
+                    detail={"scope_path": scope_path, "original": original_order, "candidate": candidate_order},
+                )
+            )
+
+        original_links = {
+            _link_id(link): link
+            for link in (original_scope.get("links") or [])
+            if _link_id(link) is not None
+        }
+        candidate_links = {
+            _link_id(link): link
+            for link in (candidate_scope.get("links") or [])
+            if _link_id(link) is not None
+        }
+        scope_has_link_ops = scope_path in attribution["link_ops"]
+        for link_id, original_link in original_links.items():
+            if link_id not in candidate_links:
+                if scope_has_link_ops:
+                    continue
+                diagnostics.append(
+                    _issue(
+                        "full_ui_link_removed_unattributed",
+                        "Candidate removed a link without an attributed operation.",
+                        detail={"scope_path": scope_path, "link_id": link_id},
+                    )
+                )
+                continue
+            if candidate_links[link_id] == original_link:
+                continue
+            if scope_has_link_ops:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_changed_unattributed",
+                    "Candidate changed a link without an attributed operation.",
+                    detail={"scope_path": scope_path, "link_id": link_id},
+                )
+            )
+        for link_id in candidate_links:
+            if link_id in original_links:
+                continue
+            if scope_has_link_ops:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_link_added_unattributed",
+                    "Candidate added a link without an attributed operation.",
+                    detail={"scope_path": scope_path, "link_id": link_id},
+                )
+            )
+
+    for scope_path in candidate_scopes:
+        if scope_path not in original_scopes:
+            diagnostics.append(
+                _issue(
+                    "full_ui_scope_added",
+                    "Candidate added a UI scope without an attributed operation.",
+                    detail={"scope_path": scope_path},
+                )
+            )
+
+    original_nodes = _index_nodes(original_ui)
+    candidate_nodes = _index_nodes(candidate_ui)
+    for key, original_node in original_nodes.items():
+        scope_path, uid = key
+        candidate_node = candidate_nodes.get(key)
+        if candidate_node is None:
+            if key in attribution["removed_nodes"]:
+                continue
+            diagnostics.append(
+                _issue(
+                    "full_ui_node_removed_unattributed",
+                    "Candidate removed an out-of-delta node.",
+                    detail={"scope_path": scope_path, "uid": uid},
+                )
+            )
+            continue
+        if candidate_node == original_node:
+            continue
+        diffs = _value_diff_paths(original_node, candidate_node)
+        allowed_paths = attribution["node_paths"].get(key, set())
+        if diffs and _all_diffs_op_allowed(diffs, allowed_paths):
+            continue
+        diagnostics.append(
+            _issue(
+                "full_ui_node_changed_unattributed",
+                "Candidate changed an out-of-delta node.",
+                detail={"scope_path": scope_path, "uid": uid, "field_paths": diffs[:20]},
+            )
+        )
+
+    for key in candidate_nodes:
+        if key in original_nodes:
+            continue
+        if key in attribution["new_nodes"]:
+            continue
+        diagnostics.append(
+            _issue(
+                "full_ui_node_added_unattributed",
+                "Candidate added a node without an attributed add_node operation.",
+                detail={"scope_path": key[0], "uid": key[1]},
+            )
+        )
+
+    return ExitGuardResult(
+        ok=not any(issue.severity == "error" for issue in diagnostics),
+        diagnostics=tuple(diagnostics),
+    )
+
+
+

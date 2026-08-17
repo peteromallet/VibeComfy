@@ -17,7 +17,7 @@ from vibecomfy.porting.edit.ops import (
     SubgraphInterfaceOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit.projection import MODE_LABELS
+from vibecomfy.porting.edit.constants import MODE_LABELS
 from vibecomfy.porting.edit._session_types import (
     CompactDiagnostic,
     StatementResult,
@@ -588,10 +588,11 @@ class _DiffMixin:
         socket_type = self._output_socket_type(op.source.scope_path, op.source.uid, op.source.output_slot)
         type_hint = f" ({socket_type})" if socket_type else ""
 
-        # Check original ledger for a pre-existing link to determine new vs rewire
-        prev_link = self._find_link_to_target_in_ledger(
-            self.original_ledger, op.target.scope_path, op.target.uid, op.target.input_field
+        prev_link = self._find_link_to_target_in_workflow(
+            getattr(self, "_wf0", None), op.target.uid, op.target.input_field
         )
+        if prev_link is _UNRESOLVED_OLD_VALUE:
+            prev_link = None
         if prev_link is not None:
             # Rewire case: original ledger had a link
             pass

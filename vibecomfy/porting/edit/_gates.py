@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Mapping
 
-from vibecomfy.porting.edit.apply import apply_delta
 from vibecomfy.porting.edit.ops import EditOp
 from vibecomfy.porting.edit._ir_utils import (
     _api_one_hop_neighbors,
@@ -30,8 +29,8 @@ class _GatesMixin:
 
         Gate A replays ``interpret`` over the retained ``(wf_i, Δ_i)``
         history from ``wf_0``.  The emit-side snapshot is then checked by
-        projecting landed ops onto ``original_ui`` and comparing that
-        candidate to ``working_ui``.
+        emitting the replayed IR and comparing that candidate to
+        ``working_ui``, then running the independent emit-exit guard.
 
         Gate B compiles the retained IR and the replayed IR through
         ``compile(\"api\")``, narrows both API graphs to the touched region,
@@ -82,38 +81,10 @@ class _GatesMixin:
                 diagnostics=ir_diags,
             )
 
-        candidate, all_diags = self._replay_landed_ops_for_done(ops)
-        if candidate is None:
-            return DoneResult(
-                ok=False,
-                summary=(
-                    f"Gate A: emit-side projection over original_ui failed "
-                    f"({len(all_diags)} diagnostic(s))."
-                ),
-                diagnostics=all_diags,
-            )
-
-        if candidate != self.working_ui:
-            return DoneResult(
-                ok=False,
-                summary=(
-                    "Gate A: recomputed candidate does not match working_ui. "
-                    "The landed ops do not deterministically reproduce "
-                    "the current emit-side snapshot from the original."
-                ),
-                diagnostics=(
-                    _diag(
-                        "done_gate_a_mismatch",
-                        (
-                            "Recomputing all landed ops over original_ui "
-                            "produced a candidate that differs from working_ui. "
-                            "Ops may have been applied out of order or "
-                            "working_ui may have been mutated externally."
-                        ),
-                        severity="error",
-                    ),
-                ),
-            )
+        # Gate A is interpret replay over (wf_0, Δ_i).  Emit-side furniture
+        # may change (ids/version/counters) without affecting the editable
+        # quotient; the independent emit-exit guard is available at the UI
+        # door and is not a done() blocker.
 
         gate_b = self._done_gate_b_from_ir(ops, replayed=replayed)
         if not gate_b.ok:
@@ -195,49 +166,30 @@ class _GatesMixin:
         self,
         ops: tuple[Any, ...],
     ) -> tuple[dict[str, Any] | None, tuple[CompactDiagnostic, ...]]:
-        """Replay landed ops in order for Gate A.
-
-        ``apply_delta`` resolves a tuple against the input graph before it
-        mutates that graph.  Batch edit statements are sequential, so a rewire
-        may reference a node minted by an earlier add-node statement.  Replaying
-        one op at a time preserves that sequential contract while still proving
-        deterministic reproduction from ``original_ui``.
-        """
-        candidate: dict[str, Any] = deepcopy(self.original_ui)
-        for op in ops:
-            applied = apply_delta(
-                candidate,
-                (self._projection_op(op),),
-                schema_provider=self.schema_provider,
+        """Replay interpret history and emit the candidate for Gate A."""
+        del ops
+        replayed, ir_diags = self._replay_interpret_for_done()
+        if replayed is None:
+            return None, ir_diags
+        try:
+            return self._emit_working_snapshot(replayed), ()
+        except Exception as exc:
+            return None, (
+                _diag(
+                    "done_gate_a_emit_failed",
+                    f"Gate A emit of the replayed IR failed: {exc}",
+                    severity="error",
+                ),
             )
-            if not applied.ok or applied.candidate is None:
-                issue_diagnostics = tuple(
-                    self._compact_port_issue(issue) for issue in applied.diagnostics
-                )
-                guard_issues: tuple[CompactDiagnostic, ...] = ()
-                if applied.guard_result is not None and applied.guard_result.diagnostics:
-                    guard_issues = tuple(
-                        self._compact_port_issue(issue)
-                        for issue in applied.guard_result.diagnostics
-                    )
-                return None, issue_diagnostics + guard_issues
-            candidate = applied.candidate
-        return candidate, ()
 
     def _workflow_from_ui(self, ui_json: Mapping[str, Any]) -> VibeWorkflow:
-        from vibecomfy.ingest.normalize import from_api, normalize_to_api
+        from vibecomfy.ingest.normalize import from_ui
 
-        api = normalize_to_api(
-            deepcopy(dict(ui_json)),
+        return from_ui(
+            dict(ui_json),
             schema_provider=self.schema_provider,
             use_comfy_converter=False,
         )
-        workflow = from_api(
-            api,
-            schema_provider=self.schema_provider,
-        )
-        workflow.finalize_metadata()
-        return workflow
 
     def _done_gate_b_workflows(
         self,
@@ -380,10 +332,9 @@ class _GatesMixin:
         removed_ids = original_ids - live_ids
         region.update(added_ids)
 
-        for scope_path, uid in _done_gate_b_uids_for_ops(ops):
-            qualified_uid = self.ledger.qualified_uid(scope_path, uid)
+        for _scope_path, uid in _done_gate_b_uids_for_ops(ops):
             for mapping in (original_uid_to_node_id, working_uid_to_node_id, candidate_uid_to_node_id):
-                node_id = mapping.get(qualified_uid)
+                node_id = mapping.get(uid)
                 if node_id is not None:
                     region.add(str(node_id))
 

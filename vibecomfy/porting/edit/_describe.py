@@ -14,13 +14,8 @@ from vibecomfy.porting.edit._ir_utils import (
     _output_specs,
 )
 from vibecomfy.porting.edit._diff import _UNRESOLVED_OLD_VALUE
-from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.edit.ops import LinkSourceRef
-from vibecomfy.porting.edit.ledger import EditLedger
-from vibecomfy.porting.widgets.compact_resolver import (
-    missing_widget_value_sentinel,
-    widget_value_for_field,
-)
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:
@@ -59,10 +54,9 @@ class _DescribeMixin:
         class_type = str(getattr(ir_node, "class_type", "") or node_ref.class_type)
         is_helper = class_type in HELPER_NODE_TYPES
         original_helper = False
-        original_node = self.original_ledger.resolve_node(node_ref.scope_path, node_ref.uid)
-        if original_node is not None:
-            oc = str(original_node.get("type") or original_node.get("class_type") or "")
-            original_helper = oc in HELPER_NODE_TYPES
+        original_ir = self._original_ir_node(node_ref.uid)
+        if original_ir is not None:
+            original_helper = str(getattr(original_ir, "class_type", "") or "") in HELPER_NODE_TYPES
 
         node_mode = mode_to_litegraph(getattr(ir_node, "mode", 0))
         mode_label = MODE_LABELS.get(node_mode, f"mode={node_mode}")
@@ -587,14 +581,17 @@ class _DescribeMixin:
                 result[index] = list(range(len(names)))
         return result
 
-    def _ir_node_by_uid(self, uid: str) -> Any | None:
-        workflow = getattr(self, "workflow", None)
-        if workflow is None:
+    def _ir_node_by_uid(self, uid: str, workflow: Any | None = None) -> Any | None:
+        target = workflow if workflow is not None else getattr(self, "workflow", None)
+        if target is None:
             return None
-        for node in workflow.nodes.values():
+        for node in target.nodes.values():
             if str(getattr(node, "uid", "") or "") == str(uid):
                 return node
         return None
+
+    def _original_ir_node(self, uid: str) -> Any | None:
+        return self._ir_node_by_uid(uid, getattr(self, "_wf0", None))
 
     @staticmethod
     def _pair_float(value: Any) -> tuple[float, float] | None:
@@ -709,65 +706,63 @@ class _DescribeMixin:
         return self.name_by_uid.get(uid, uid)
 
     def _node_class_type(self, scope_path: str, uid: str) -> str | None:
-        """Look up the class_type of a node by uid from the working ledger."""
-        node = self.ledger.resolve_node(scope_path or "", uid)
+        node = self._ir_node_by_uid(uid)
         if node is not None:
-            return str(node.get("type") or node.get("class_type") or "")
+            return str(getattr(node, "class_type", "") or "")
         return None
 
     def _original_node_class_type(self, scope_path: str, uid: str) -> str | None:
-        """Look up the class_type of a node from the original ledger."""
-        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        node = self._original_ir_node(uid)
         if node is not None:
-            return str(node.get("type") or node.get("class_type") or "")
+            return str(getattr(node, "class_type", "") or "")
         return None
 
     def _original_node_field_value(
         self, scope_path: str, uid: str, field: str
     ) -> Any:
-        """Look up a widget value from the original ledger by field name."""
-        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        node = self._original_ir_node(uid)
         if node is None:
             return _UNRESOLVED_OLD_VALUE
-        return self._resolve_widget_value(node, field)
+        widgets = getattr(node, "widgets", None) or {}
+        inputs = getattr(node, "inputs", None) or {}
+        if field in widgets:
+            return widgets[field]
+        if field in inputs:
+            return inputs[field]
+        return _UNRESOLVED_OLD_VALUE
 
     def _node_field_value(
         self, scope_path: str, uid: str, field: str
     ) -> Any:
-        """Look up a widget value by field name from the working ledger."""
-        node = self.ledger.resolve_node(scope_path or "", uid)
+        node = self._ir_node_by_uid(uid)
         if node is None:
             return None
-        return self._resolve_widget_value(node, field)
-
-    def _resolve_widget_value(self, node: Mapping[str, Any], field: str) -> Any:
-        """Resolve a widget value through the compact per-node resolver."""
-        value = widget_value_for_field(node, field, schema_provider=self.schema_provider)
-        if value is missing_widget_value_sentinel():
-            return None
-        return value
+        widgets = getattr(node, "widgets", None) or {}
+        inputs = getattr(node, "inputs", None) or {}
+        if field in widgets:
+            return widgets[field]
+        return inputs.get(field)
 
     def _original_node_mode(self, scope_path: str, uid: str) -> Any:
-        """Look up the original mode of a node from the original ledger."""
-        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        node = self._original_ir_node(uid)
         if node is not None:
-            return node.get("mode", 0)
+            from vibecomfy.workflow import mode_to_litegraph
+
+            return mode_to_litegraph(getattr(node, "mode", 0))
         return _UNRESOLVED_OLD_VALUE
 
     def _original_node_title(self, scope_path: str, uid: str) -> Any:
-        """Look up the original title of a node from the original ledger."""
-        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        node = self._original_ir_node(uid)
         if node is not None:
-            return node.get("title")
+            return self._ir_node_title(node)
         return _UNRESOLVED_OLD_VALUE
 
     def _original_link_value(self, scope_path: str, uid: str, input_field: str) -> Any:
-        node = self.original_ledger.resolve_node(scope_path or "", uid)
-        if node is None:
-            return _UNRESOLVED_OLD_VALUE
-        resolved = self._find_link_to_target_in_ledger(
-            self.original_ledger, scope_path, uid, input_field
+        resolved = self._find_link_to_target_in_workflow(
+            getattr(self, "_wf0", None), uid, input_field
         )
+        if resolved is _UNRESOLVED_OLD_VALUE:
+            return _UNRESOLVED_OLD_VALUE
         if resolved is None:
             return None
         src_uid, output_slot = resolved
@@ -794,76 +789,60 @@ class _DescribeMixin:
         }
 
     def _node_mode(self, scope_path: str, uid: str) -> int:
-        """Look up the current mode of a node from the working ledger."""
-        node = self.ledger.resolve_node(scope_path or "", uid)
+        node = self._ir_node_by_uid(uid)
         if node is not None:
-            return node.get("mode", 0)
+            from vibecomfy.workflow import mode_to_litegraph
+
+            return mode_to_litegraph(getattr(node, "mode", 0))
         return 0
 
     def _output_socket_type(
         self, scope_path: str, uid: str, output_slot: str | int
     ) -> str | None:
-        """Look up the socket type of an output slot."""
-        node = self.ledger.resolve_node(scope_path or "", uid)
+        node = self._ir_node_by_uid(uid)
         if node is None:
             return None
-        class_type = str(node.get("type") or node.get("class_type") or "")
+        class_type = str(getattr(node, "class_type", "") or "")
         schema = schema_for(self.schema_provider, class_type)
         schema_outputs = getattr(schema, "outputs", []) or []
-        if isinstance(slot_str := output_slot, int):
-            if 0 <= slot_str < len(schema_outputs):
-                return getattr(schema_outputs[slot_str], "type", None)
+        if isinstance(output_slot, int):
+            if 0 <= output_slot < len(schema_outputs):
+                return getattr(schema_outputs[output_slot], "type", None)
         else:
             for out in schema_outputs:
-                if getattr(out, "name", None) == slot_str:
+                if getattr(out, "name", None) == output_slot:
                     return getattr(out, "type", None)
         return None
 
-    @staticmethod
-    def _find_link_to_target_in_ledger(
-        ledger: EditLedger, scope_path: str, uid: str, input_field: str
-    ) -> tuple[str, str | int] | None:
-        """Find the source (uid, output_slot) connected to a target input in a ledger.
-
-        Returns None if no link exists.
-        """
-        node = ledger.resolve_node(scope_path or "", uid)
-        if node is None:
-            return None
-        inputs = node.get("inputs") or []
-        for slot in inputs:
-            if not isinstance(slot, Mapping):
+    def _find_link_to_target_in_workflow(
+        self, workflow: Any, uid: str, input_field: str
+    ) -> tuple[str, str | int] | None | Any:
+        if workflow is None:
+            return _UNRESOLVED_OLD_VALUE
+        target = self._ir_node_by_uid(uid, workflow)
+        if target is None:
+            return _UNRESOLVED_OLD_VALUE
+        target_id = str(getattr(target, "id", "") or "")
+        for edge in getattr(workflow, "edges", ()) or ():
+            if str(getattr(edge, "to_node", "") or "") != target_id:
                 continue
-            if slot.get("name") == input_field:
-                link = slot.get("link")
-                if isinstance(link, (int, float)) and int(link) != 0:
-                    link_id = int(link)
-                    # Find the link in the graph
-                    links = ledger.graph.get("links") or []
-                    for l in links:
-                        if not isinstance(l, list) or len(l) < 6:
-                            continue
-                        if l[0] == link_id:
-                            src_uid = str(l[1])
-                            # LiteGraph link tuples are
-                            # [id, origin_id, origin_slot, target_id, target_slot, type].
-                            # l[3] is the target node id, not the source slot.
-                            src_slot = l[2]
-                            return (src_uid, src_slot)
-                break
+            if str(getattr(edge, "to_input", "") or "") != input_field:
+                continue
+            source = workflow.nodes.get(str(getattr(edge, "from_node", "") or ""))
+            if source is None:
+                return None
+            return (str(getattr(source, "uid", "") or ""), getattr(edge, "from_output", ""))
         return None
 
     def _find_link_to_target(
         self, scope_path: str, uid: str, input_field: str
     ) -> tuple[str, str | int] | None:
-        """Find the source (uid, output_slot) currently connected to a target input
-        using the working ledger.
-
-        Returns None if no link exists.
-        """
-        return self._find_link_to_target_in_ledger(
-            self.ledger, scope_path, uid, input_field
+        resolved = self._find_link_to_target_in_workflow(
+            getattr(self, "workflow", None), uid, input_field
         )
+        if resolved is _UNRESOLVED_OLD_VALUE:
+            return None
+        return resolved
 
     def _adjacent_same_type_inputs(
         self, scope_path: str, exclude_field: str

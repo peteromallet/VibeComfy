@@ -191,7 +191,7 @@ __all__ = frozenset(
         "_agent_edit_batch_repl_enabled",
         "_agent_edit_contract",
         "_agent_edit_turn_event_payload",
-        "_agent_edit_v2_enabled",
+        # "_agent_edit_v2_enabled" removed — product protocol is batch_repl only
         "_append_post_edit_reorganisation_advice",
         "_article_for",
         "_artifact",
@@ -397,8 +397,7 @@ __all__ = frozenset(
         "_route_change_focus_label",
         "_run_batch_repl_product_path",
         "_run_batch_repl_queue_validate_if_needed",
-        "_run_delta_dev_path",
-        "_run_full_dev_path",
+        # "_run_delta_dev_path" / "_run_full_dev_path" removed — interpreter path only
         "_run_stage",
         "_runtime_execution_requested",
         "_safe_session_id",

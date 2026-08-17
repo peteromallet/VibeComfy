@@ -3,7 +3,6 @@ from __future__ import annotations
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Mapping
 
-from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.porting.emitter import EmissionDiagnostic, emit_agent_edit_python
 from vibecomfy.porting.edit._session_types import (
     CompactDiagnostic,

@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 import re
 from typing import Any, Generic, Mapping, Protocol, TypeVar
 
-from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.porting.edit.ops import (
     LinkSourceRef,
     LinkTargetRef,
@@ -165,42 +164,6 @@ class LintIndexBackend:
 
     def node_meta_for(self, scope_path: str, uid: str) -> _NodeMeta | None:
         return self._index.node_meta_for(scope_path, uid)
-
-
-# ── EditLedgerBackend ─────────────────────────────────────────────────────────
-
-class EditLedgerBackend:
-    """NodeBackend backed by an EditLedger with a LG-id reverse index.
-
-    The reverse index is built once in __init__ via the shared
-    build_lg_id_maps(ledger.node_index) helper so both this class and
-    LintIndex.build use the identical algorithm.
-    """
-
-    def __init__(self, ledger: EditLedger) -> None:
-        self._ledger = ledger
-        self._lg_id_to_uid, self._uid_to_lg_id = build_lg_id_maps(ledger.node_index)
-        self._meta_cache: dict[tuple[str, str], _NodeMeta] = {}
-
-    def node_for(self, scope_path: str, uid: str) -> dict[str, Any] | None:
-        return self._ledger.resolve_node(scope_path, uid)
-
-    def node_exists(self, scope_path: str, uid: str) -> bool:
-        return (scope_path, uid) in self._ledger.node_index
-
-    def uid_for_lg_id(self, scope_path: str, lg_id: int) -> str | None:
-        return self._lg_id_to_uid.get((scope_path, lg_id))
-
-    def node_meta_for(self, scope_path: str, uid: str) -> _NodeMeta | None:
-        key = (scope_path, uid)
-        if key in self._meta_cache:
-            return self._meta_cache[key]
-        node = self.node_for(scope_path, uid)
-        if node is None:
-            return None
-        meta = _extract_node_meta(node, scope_path, uid)
-        self._meta_cache[key] = meta
-        return meta
 
 
 # ── ResolutionIssue and ResolveResult ────────────────────────────────────────
@@ -755,3 +718,5 @@ def to_port_issues(result: ResolveResult[Any]) -> list[PortIssue]:
             detail=detail,
         ))
     return issues
+
+

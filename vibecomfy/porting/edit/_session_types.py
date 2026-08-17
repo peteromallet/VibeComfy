@@ -127,7 +127,7 @@ class _ResolvedGraphName:
     name: str
     uid: str
     scope_path: str
-    node: Mapping[str, Any]
+    node: Any
     class_type: str
 
 

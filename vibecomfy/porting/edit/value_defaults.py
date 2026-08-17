@@ -1,17 +1,16 @@
+"""Constructor value-default context for the IR interpreter and batch REPL."""
+
 from __future__ import annotations
 
+import ast
+import re
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
-import ast
-import re
 
-from .ledger import EditLedger, ScopeState
-from .ops import AddNodeOp, EditOp, LinkSourceRef, LinkTargetRef, NodeFieldTarget, NodeTarget
-from vibecomfy.porting.report import PortIssue
-from vibecomfy.porting.resolution import ResolutionContext, to_port_issues
 from vibecomfy.schema import InputSpec
+
 
 VALUE_DEFAULT_FIELDS_MARKER = "__vibecomfy_value_default_fields__"
 
@@ -43,6 +42,21 @@ def _request_match_is_negated(text: str, start: int) -> bool:
         r"\bdo\s+not\b",
         clause_prefix,
     ) is not None
+
+
+def _iter_ui_graphs(raw_ui_json: Mapping[str, Any], scope_path: str = "") -> list[tuple[str, Mapping[str, Any]]]:
+    graphs: list[tuple[str, Mapping[str, Any]]] = [(scope_path, raw_ui_json)]
+    definitions = raw_ui_json.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return graphs
+    subgraphs = definitions.get("subgraphs")
+    if not isinstance(subgraphs, list):
+        return graphs
+    for index, definition in enumerate(subgraphs):
+        if isinstance(definition, Mapping):
+            child = f"{scope_path}/sg{index}" if scope_path else f"sg{index}"
+            graphs.extend(_iter_ui_graphs(definition, child))
+    return graphs
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,11 +304,6 @@ class ValueDefaultContext:
         canonical_field: str,
         spec: InputSpec | None,
     ) -> ValueUserOverride | None:
-        """Conservatively extract an exact field/value from the user request.
-
-        This intentionally recognizes literals only. Phrases such as "more
-        steps" or "a better sampler" cannot mint authority.
-        """
         text = self.user_request
         if not text.strip():
             return None
@@ -400,197 +409,41 @@ class ValueDefaultContext:
         )
 
     def with_graph_protections(self, raw_ui_json: Mapping[str, Any]) -> "ValueDefaultContext":
-        """Rehydrate persisted binding protection for a later edit session."""
+        """Rehydrate persisted binding protection from the ingest UI snapshot."""
+        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
+
         context = self
-        ledger = EditLedger.ingest(raw_ui_json)
-        for scope_path, scope in ledger.scopes.items():
-            nodes = scope.graph.get("nodes")
-            if not isinstance(nodes, list):
+        index = UiGraphIndex.ingest(raw_ui_json)
+        for (scope_path, uid), node in index.node_index.items():
+            if not isinstance(node, Mapping):
                 continue
-            for node in nodes:
-                if not isinstance(node, Mapping):
-                    continue
-                properties = node.get("properties")
-                protected_fields = (
-                    properties.get("vibecomfy_value_default_fields")
-                    if isinstance(properties, Mapping)
-                    else None
+            properties = node.get("properties")
+            protected_fields = (
+                properties.get("vibecomfy_value_default_fields")
+                if isinstance(properties, Mapping)
+                else None
+            )
+            if not isinstance(protected_fields, list):
+                continue
+            class_type = node.get("type") or node.get("class_type")
+            fields = tuple(
+                str(field)
+                for field in protected_fields
+                if isinstance(field, str) and field
+            )
+            matching_selected = tuple(
+                instance_id
+                for selected_class, instance_id in context.selected_instances
+                if selected_class == class_type
+            )
+            if isinstance(uid, str) and isinstance(class_type, str) and fields:
+                context = context.protect_node(
+                    scope_path=scope_path,
+                    uid=uid,
+                    class_type=class_type,
+                    fields=fields,
+                    source_instance_ids=(
+                        matching_selected if len(matching_selected) == 1 else ()
+                    ),
                 )
-                if not isinstance(protected_fields, list):
-                    continue
-                uid = properties.get("vibecomfy_uid")
-                class_type = node.get("type") or node.get("class_type")
-                fields = tuple(
-                    str(field)
-                    for field in protected_fields
-                    if isinstance(field, str) and field
-                )
-                matching_selected = tuple(
-                    instance_id
-                    for selected_class, instance_id in context.selected_instances
-                    if selected_class == class_type
-                )
-                if isinstance(uid, str) and isinstance(class_type, str) and fields:
-                    context = context.protect_node(
-                        scope_path=scope_path,
-                        uid=uid,
-                        class_type=class_type,
-                        fields=fields,
-                        source_instance_ids=(
-                            matching_selected if len(matching_selected) == 1 else ()
-                        ),
-                    )
         return context
-
-
-def _issue(
-    code: str,
-    message: str,
-    *,
-    severity: str = "error",
-    detail: Mapping[str, Any] | None = None,
-) -> PortIssue:
-    return PortIssue(code=code, message=message, severity=severity, detail=dict(detail or {}))
-
-
-_ctx = ResolutionContext()
-
-
-_RESOLUTION_CODE_REMAP: dict[str, str] = {"unknown_target": "unknown_node_target"}
-
-
-def _endpoint_port_issues(result: Any) -> list[PortIssue]:
-    """Convert ResolveResult issues for endpoint resolvers, remapping uid error codes."""
-    issues = to_port_issues(result)
-    return [
-        _issue(
-            _RESOLUTION_CODE_REMAP.get(i.code, i.code),
-            i.message,
-            severity=i.severity,
-            detail=i.detail,
-        )
-        for i in issues
-    ]
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedFieldRef:
-    target: NodeFieldTarget
-    node: Mapping[str, Any]
-    class_type: str
-    node_id: int | str | None
-    input_name: str | None
-    input_slot_index: int | None
-    widget_index: int | None
-    widget_key: str | None
-    schema_input: InputSpec | None
-    automatic_link_removal: int | None = None
-    value_default_receipt: ValueDefaultReceipt | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedNodeRef:
-    target: NodeTarget
-    node: Mapping[str, Any]
-    class_type: str
-    node_id: int | str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedLinkEndpoint:
-    ref: LinkSourceRef | LinkTargetRef
-    node: Mapping[str, Any]
-    class_type: str
-    node_id: int | str | None
-    slot_index: int | None
-    slot_name: str
-    socket_type: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedRemoveLinkRef:
-    scope_path: str
-    link_id: int
-    link: Any
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedLinkRewire:
-    scope_path: str
-    link_id: int
-    old_origin_id: int
-    new_origin_id: int
-    new_origin_slot: int
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedRemoveNodePlan:
-    node_ref: ResolvedNodeRef
-    link_ids_to_remove: tuple[int, ...]
-    link_rewires: tuple[ResolvedLinkRewire, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedAddNodeSpec:
-    op: AddNodeOp
-    scope: ScopeState
-    schema: Any
-    schema_inputs: Mapping[str, InputSpec]
-    resolved_inputs: Mapping[str, ResolvedLinkEndpoint]
-    resolved_input_specs: Mapping[str, InputSpec]
-    value_default_receipts: tuple[ValueDefaultReceipt, ...] = ()
-    value_default_fields: tuple[str, ...] = ()
-    anchor_near: ResolvedNodeRef | None = None
-    anchor_between: tuple[ResolvedNodeRef, ResolvedNodeRef] | None = None
-    anchor_group_index: int | None = None
-    anchor_group_title: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AppliedAddNodeSpec:
-    op: AddNodeOp
-    scope_path: str
-    uid: str
-    node_id: int
-    link_ids: tuple[int, ...]
-    source_uids: tuple[str, ...]
-    group_index: int | None = None
-    value_default_receipts: tuple[ValueDefaultReceipt, ...] = ()
-    value_default_fields: tuple[str, ...] = ()
-
-
-ResolvedOp = (
-    ResolvedFieldRef
-    | ResolvedNodeRef
-    | tuple[ResolvedLinkEndpoint, ResolvedLinkEndpoint]
-    | ResolvedRemoveLinkRef
-    | ResolvedRemoveNodePlan
-    | ResolvedAddNodeSpec
-    | AppliedAddNodeSpec
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ResolveResult:
-    ok: bool
-    ledger: EditLedger
-    diagnostics: tuple[PortIssue, ...]
-    resolved_ops: tuple[tuple[EditOp, ResolvedOp], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ApplyResult:
-    ok: bool
-    candidate: dict[str, Any] | None
-    diagnostics: tuple[PortIssue, ...]
-    resolved_ops: tuple[tuple[EditOp, ResolvedOp], ...] = ()
-    mutation_started: bool = False
-    guard_result: GuardResult | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class GuardResult:
-    ok: bool
-    diagnostics: tuple[PortIssue, ...]
-    normalize_fallback_used: bool = False
-    normalize_allow_list_used: bool = False

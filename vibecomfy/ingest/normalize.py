@@ -1542,3 +1542,31 @@ def _schema_source_provenance(schema_provider: SchemaProvider | None, class_type
         "hash": getattr(schema, "source_hash", None),
         "confidence": getattr(schema, "confidence", 1.0),
     }
+
+
+def ingest_workflow_and_ui(
+    graph: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> tuple[VibeWorkflow, dict[str, Any]]:
+    """Named door: convert any supported graph shape once and retain the IR.
+
+    List-nodes UI graphs keep object identity. Envelope/API graphs are
+    converted and re-emitted as canonical UI JSON.
+    """
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    entries = graph.get("nodes")
+    if isinstance(entries, list):
+        return from_ui(graph, schema_provider=schema_provider), graph
+    if isinstance(entries, dict) and any(not isinstance(entry, dict) for entry in entries.values()):
+        raise ValueError("nodes must contain only node objects")
+    if isinstance(entries, dict):
+        workflow = from_envelope(graph)
+    else:
+        workflow = from_api(graph, schema_provider=schema_provider)
+    return workflow, emit_ui_json(
+        workflow,
+        schema_provider=schema_provider,
+        guard_original_ui=graph,
+    )
