@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
 
+from vibecomfy.ingest.door_access import door_get_widgets_values
 UNKNOWN_OUTPUT_SLOT = "unknown_output_slot"
 UNKNOWN_TARGET_INPUT = "unknown_target_input"
 SOURCE_SLOT_OUT_OF_BOUNDS = "source_slot_out_of_bounds"
@@ -107,7 +108,7 @@ def lookup_field_value(
     if isinstance(fields, Mapping) and name in fields:
         return fields[name]
     if isinstance(node, Mapping):
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, Mapping) and name in widgets:
             return widgets[name]
         inputs = node.get("inputs")
@@ -233,7 +234,7 @@ def _declared_in_n_count(
     if isinstance(fields, Mapping):
         io = fields.get("io")
     if io is None and isinstance(node, Mapping):
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, Mapping):
             io = widgets.get("io")
         properties = node.get("properties")
@@ -387,7 +388,7 @@ def _merged_fields(
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     if isinstance(node, Mapping):
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, Mapping):
             merged.update(widgets)
         inputs = node.get("inputs")

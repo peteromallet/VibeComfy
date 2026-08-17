@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Mapping
 
@@ -247,7 +248,7 @@ def _iter_graph_nodes(nodes: Any):
         yield from ir_nodes.values()
         return
     if isinstance(nodes, Mapping):
-        raw = nodes.get("nodes")
+        raw = door_get_nodes(nodes)
         if isinstance(raw, (list, tuple, Mapping)):
             nodes = raw
         elif isinstance(nodes, Mapping) and all(

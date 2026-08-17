@@ -9,6 +9,7 @@ from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.porting.workbench import load_port_source
 
 
+from vibecomfy.ingest.door_access import door_nodes
 def _cmd_port_widgets(args: argparse.Namespace) -> int:
     from vibecomfy.commands import port as _port
 
@@ -52,12 +53,12 @@ def _render_widgets(payload: dict[str, Any]) -> str:
     if not unresolved:
         return "\n".join(lines)
     for group in suggestions:
-        lines.append(f"- {group['class_type']}: {len(group['nodes'])} node(s), source={group['schema_source']}")
+        lines.append(f"- {group['class_type']}: {len(door_nodes(group))} node(s), source={group['schema_source']}")
         if group.get("python"):
             lines.append(f"  schema: {group['python']}")
         else:
             lines.append("  schema: unavailable from local object_info/node_index")
-        for node in group["nodes"][:5]:
+        for node in door_nodes(group)[:5]:
             inputs = ", ".join(node["unresolved_inputs"])
             lines.append(f"  node {node['node_id']}: {inputs}")
     return "\n".join(lines)

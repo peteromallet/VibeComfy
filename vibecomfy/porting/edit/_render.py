@@ -23,9 +23,7 @@ class _RenderMixin:
         # Batch 4 (Law 5): binding names are a pure function of the IR, so
         # no name locks are seeded or validated here.
         if self.workflow is None:
-            # Last-resort ingest for sessions constructed without an IR.
-            # Renders never re-derive from working_ui after the IR exists.
-            self.workflow = self._workflow_from_ui(self.original_ui)
+            raise RuntimeError("EditSession.render requires a retained IR")
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
         # Never mutate the retained IR.  Agent-edit emit keeps Get/Set/

@@ -6,6 +6,7 @@ changed the right place but the edit does not actually achieve the nl_intent.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
 import copy
 import json
 from dataclasses import dataclass
@@ -79,12 +80,12 @@ def _apply_op(wf: Any, op: dict) -> None:
     new_val = op["new"]
     old_val = op.get("old")
 
-    if isinstance(wf, dict) and isinstance(wf.get("nodes"), list):
+    if isinstance(wf, dict) and isinstance(door_get_nodes(wf), list):
         # UI-format: search top-level nodes and subgraph definitions
         node = _find_ui_node(wf, node_id)
         if node is None:
             raise KeyError(f"Node {node_id!r} not found in UI workflow")
-        wv = node.get("widgets_values")
+        wv = door_get_widgets_values(node)
         if wv is not None and len(wv) > 0:
             # Find widget slot by exact old value first
             if old_val is not None and old_val in wv:
@@ -136,13 +137,13 @@ def _find_ui_node(wf: dict, node_id: str) -> dict | None:
         pass
 
     # Search top-level nodes
-    for n in wf.get("nodes", []):
+    for n in door_get_nodes(wf, []):
         if str(n.get("id")) == node_id or n.get("id") == int_id:
             return n
 
     # Search inside subgraph definitions (ComfyUI UI format with definitions.subgraphs)
     for sg in wf.get("definitions", {}).get("subgraphs", []):
-        for n in sg.get("nodes", []):
+        for n in door_get_nodes(sg, []):
             if str(n.get("id")) == node_id or n.get("id") == int_id:
                 return n
 

@@ -1,0 +1,41 @@
+{
+  "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
+  "query": "Lower the shape refinement strength to 0.4 so the final mesh stays closer to the input coarse mesh.",
+  "workflow_path": "external_workflows/corpus/8800a945cff8d090.json",
+  "network": true,
+  "timeout": 360,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true,
+    "allow_safe_refusal_outcome_kinds": [
+      "clarify",
+      "requires_custom_nodes"
+    ]
+  },
+  "desired": {
+    "outcome": "The refined mesh resembles the input coarse mesh more closely, with less aggressive reshaping.",
+    "quality": "All existing nodes remain intact, the GLB export still works, and the preview shows the updated mesh.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "edit",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d",
+      "shape-generation",
+      "mesh-refinement",
+      "glb-export",
+      "image-to-3d"
+    ],
+    "source_workflow_id": "8800a945cff8d090",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Targets a key parameter in the workflow's core technique, forcing the agent to locate the correct node and tweak it appropriately."
+  }
+}

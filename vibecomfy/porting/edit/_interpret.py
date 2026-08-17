@@ -56,7 +56,11 @@ from vibecomfy.porting.edit.ops import (
     SubgraphInterfaceOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.edit.constants import (
+    HELPER_NODE_TYPES,
+    MODE_LABELS,
+    WIDGET_CHANNEL_SIDE_KEY as _WIDGET_CHANNEL_SIDE_KEY,
+)
 from vibecomfy.identity.codec import _BUILTIN_NAMES, to_python_identifier, to_raw_name
 from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
@@ -81,7 +85,6 @@ _SLOT_COMMENT = re.compile(
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 _PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
 _RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
-_WIDGET_FIELD_NAMES_KWARG = "literal_channel_names"
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,6 +498,29 @@ class _InterpretRunner:
                     break
         for keyword in value.keywords:
             if keyword.arg is None:
+                literal, literal_issue = _fold_constant(keyword.value, env=item.env)
+                if literal_issue is not None:
+                    issues.append(literal_issue)
+                    continue
+                if (
+                    isinstance(literal, dict)
+                    and set(literal) == {_WIDGET_CHANNEL_SIDE_KEY}
+                ):
+                    names = literal[_WIDGET_CHANNEL_SIDE_KEY]
+                    if isinstance(names, (list, tuple)) and all(
+                        isinstance(name, str) for name in names
+                    ):
+                        widget_field_names = tuple(str(name) for name in names)
+                    else:
+                        issues.append(
+                            _diag(
+                                "invalid_widget_channel_side",
+                                f"{_WIDGET_CHANNEL_SIDE_KEY!r} must be a sequence of field names.",
+                                severity="error",
+                                detail={"target_name": target_name},
+                            )
+                        )
+                    continue
                 issues.append(
                     _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
                 )
@@ -543,23 +569,6 @@ class _InterpretRunner:
                 near_ref = NodeTarget(endpoint.scope_path, endpoint.uid)
                 continue
             if name in _PLACEMENT_KWARGS:
-                continue
-            if name == _WIDGET_FIELD_NAMES_KWARG:
-                literal, literal_issue = _fold_constant(keyword.value, env=item.env)
-                if literal_issue is not None:
-                    issues.append(literal_issue)
-                    continue
-                if isinstance(literal, (list, tuple)):
-                    widget_field_names = tuple(str(item) for item in literal)
-                else:
-                    issues.append(
-                        _diag(
-                            "invalid_literal_channel_names",
-                            "literal_channel_names= must be a sequence of field names.",
-                            severity="error",
-                            detail={"target_name": target_name},
-                        )
-                    )
                 continue
             if class_type == _EXEC_CLASS_TYPE:
                 name = _exec_semantic_slot_name(

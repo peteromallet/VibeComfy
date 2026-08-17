@@ -16,6 +16,7 @@ from vibecomfy.comfy_nodes.agent.gates import apply_stage_gate_updates, update_s
 from vibecomfy.comfy_nodes.agent.provider import build_delta_messages, build_messages
 from ._frag_state import AgentEditState, DeepSeekClient, _artifact, _duration_ms
 
+from vibecomfy.ingest.door_access import door_get_nodes
 def _record(context: TurnContext, result: StageResult) -> StageResult:
     context.stage_results[result.stage] = result
     apply_stage_gate_updates(context, result)
@@ -36,7 +37,7 @@ def _stamp_identity_on_original(graph: dict[str, Any], workflow: Any) -> int:
     """
     by_id = {str(nid): node for nid, node in getattr(workflow, "nodes", {}).items()}
     stamped = 0
-    for ui_node in graph.get("nodes") or []:
+    for ui_node in door_get_nodes(graph) or []:
         if not isinstance(ui_node, dict):
             continue
         ir = by_id.get(str(ui_node.get("id")))
@@ -391,8 +392,7 @@ def _stage_agent_delta(
     model_response_ref = write_json_artifact(
         state.model_response_path,
         {
-            "delta": list(delta_payload["ops"]),
-            "delta_ops_envelope": delta_payload,
+            "accepted_batch": [{"op": op} for op in delta_payload["ops"]],
             "message": agent_result.message,
             "route": agent_result.route,
             "model": agent_result.model,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes
 import copy
 import hashlib
 import json
@@ -1571,7 +1572,7 @@ def _apply_candidate_groups(
 
 
 def _candidate_group_scope(group: Mapping[str, Any]) -> str:
-    nodes = group.get("nodes")
+    nodes = door_get_nodes(group)
     node_keys = nodes if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)) else ()
     scopes = {parse_uid(str(node_key))[0] for node_key in node_keys}
     return scopes.pop() if len(scopes) == 1 else ""
@@ -1585,7 +1586,7 @@ def _group_for_ui_scope(
     ui_group = _freeze_jsonish(group)
     if not isinstance(ui_group, dict):
         ui_group = {}
-    nodes = group.get("nodes")
+    nodes = door_get_nodes(group)
     node_keys = nodes if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)) else ()
     ui_nodes: list[Any] = []
     for node_key in node_keys:
@@ -1702,7 +1703,7 @@ def _iter_subgraph_definitions(definitions: Any) -> tuple[Mapping[str, Any], ...
         subgraphs = definitions.get("subgraphs")
         if isinstance(subgraphs, Sequence) and not isinstance(subgraphs, (str, bytes)):
             return tuple(item for item in subgraphs if isinstance(item, Mapping))
-        if isinstance(definitions.get("nodes"), Sequence):
+        if isinstance(door_get_nodes(definitions), Sequence):
             return (definitions,)
         return tuple(item for item in definitions.values() if isinstance(item, Mapping))
     if isinstance(definitions, Sequence) and not isinstance(definitions, (str, bytes)):

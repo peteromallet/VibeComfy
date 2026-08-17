@@ -1,0 +1,40 @@
+{
+  "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
+  "query": "Restructure the video inpainting pipeline so that SAM2 segmentation is applied to each frame before Florence2 runs object detection, then use those segmentation masks to constrain the inpainting pass. Reverse the current order where detection happens first.",
+  "workflow_path": "external_workflows/corpus/b11a56667cbc389b.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The segmentation mask is generated before object detection, and the inpainting step receives both the mask and the detection boxes to restrict fill to only foreground objects.",
+    "quality": "All existing nodes remain connected and functional; the SAM2 output is correctly wired into the VACE inpainting node as an additional mask input. The final composite still produces a coherent video output.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "inpainting",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-inpainting",
+      "video-compositing",
+      "wanvideo",
+      "sam2",
+      "florence2",
+      "object-detection",
+      "image-segmentation",
+      "video-generation"
+    ],
+    "source_workflow_id": "b11a56667cbc389b",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This forces a genuine structural data-flow reversal, requiring the agent to understand node dependencies and rewire the SAM2-to-inpainting path without breaking the rest of the compositing chain."
+  }
+}

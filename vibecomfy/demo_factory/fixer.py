@@ -18,6 +18,7 @@ from typing import Any
 from tests.live_agentic_harness.adapter import run_headless_scenario
 
 
+from vibecomfy.ingest.door_access import door_get_nodes
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
@@ -89,12 +90,12 @@ _GRAPH_KEYS = ("candidate", "candidate_ui", "graph", "applied_graph", "ui", "wor
 
 
 def _extract_graph(data: Any) -> dict[str, Any] | None:
-    if isinstance(data, dict) and isinstance(data.get("nodes"), list):
+    if isinstance(data, dict) and isinstance(door_get_nodes(data), list):
         return data
     if isinstance(data, dict):
         for key in _GRAPH_KEYS:
             inner = data.get(key)
-            if isinstance(inner, dict) and isinstance(inner.get("nodes"), list):
+            if isinstance(inner, dict) and isinstance(door_get_nodes(inner), list):
                 return inner
     return None
 

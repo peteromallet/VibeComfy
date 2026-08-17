@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes
 import hashlib
 import json
 import logging
@@ -1000,7 +1001,7 @@ def iter_turn_records(
 
         candidate_graph = response.get("graph")
         candidate_nodes = (
-            len(candidate_graph.get("nodes", []))
+            len(door_get_nodes(candidate_graph, []))
             if isinstance(candidate_graph, dict)
             else None
         )
@@ -1840,10 +1841,13 @@ def _load_authoritative_candidate_transaction(
         return None, "malformed_candidate_transaction"
     if hashes.get("authority_receipt_hash") != receipt_digest:
         return None, "authority_receipt_hash_mismatch"
-    envelope = plan.get("delta_ops_envelope")
-    if not isinstance(envelope, Mapping):
+    accepted = plan.get("accepted_batch")
+    if not isinstance(accepted, list):
         return None, "missing_persisted_delta_plan"
-    if authority.cumulative_delta_envelope != dict(envelope):
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
+    if authority.cumulative_delta_envelope != plan_envelope:
         return None, "authority_delta_mismatch"
     if plan.get("delta_hash") != authority.cumulative_delta_hash:
         return None, "authority_delta_hash_mismatch"
@@ -1855,12 +1859,8 @@ def _load_authoritative_candidate_transaction(
     )
     if not isinstance(response, Mapping):
         return None, "missing_turn_response"
-    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
-
-    response_envelope = response.get("delta_ops_envelope")
-    if not isinstance(response_envelope, Mapping):
-        response_envelope = derived_accepted_delta_envelope(response)
-    if response_envelope != envelope:
+    response_envelope = derived_accepted_delta_envelope(response)
+    if response_envelope != plan_envelope:
         return None, "response_delta_mismatch"
     response_transaction = response.get("candidate_transaction")
     if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
@@ -2232,7 +2232,6 @@ def prepare_turn_transaction(
             "baseline_advanced": False,
             "generation_cas_enforced": generation_cas_enforced,
             "candidate_transaction": projected_transaction,
-            "delta_ops_envelope": projected_transaction["plan"]["delta_ops_envelope"],
             "receipt": event,
         }
 
@@ -3332,7 +3331,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         # above (explicit protocol / envelope / plan-hash) are preserved.
         _LOGGER.warning(
             "Candidate authority without explicit v2_delta evidence recorded "
-            "as v1 audit artifact; delta_ops_envelope absent on this response."
+            "as v1 audit artifact; accepted_batch absent on this response."
         )
         return "v1"
     if has_accepted_batch:
@@ -3949,7 +3948,6 @@ def record_idempotent_response(
     request_payload: Mapping[str, Any] | None = None
     requested_v2 = (
         response.get("agent_edit_protocol") == "v2_delta"
-        or isinstance(response.get("delta_ops_envelope"), Mapping)
         or isinstance(response.get("accepted_batch"), list)
     )
     if scope == "edit" and turn_id is not None:
@@ -3969,18 +3967,15 @@ def record_idempotent_response(
                         raise ValueError("V2 candidate issuance requires the persisted submit graph.")
                     from .authority_receipts import build_and_persist_authority_receipt
 
-                    schema_version = ""
-                    delta_envelope = response.get("delta_ops_envelope")
-                    if not isinstance(delta_envelope, Mapping):
-                        from vibecomfy.comfy_nodes.agent._frag_state import (
-                            derived_accepted_delta_envelope,
-                        )
+                    from vibecomfy.comfy_nodes.agent._frag_state import (
+                        derived_accepted_delta_envelope,
+                    )
 
-                        delta_envelope = derived_accepted_delta_envelope(response)
-                    if isinstance(delta_envelope, Mapping):
-                        raw_schema_version = delta_envelope.get("schema_version")
-                        if isinstance(raw_schema_version, str):
-                            schema_version = raw_schema_version
+                    schema_version = ""
+                    delta_envelope = derived_accepted_delta_envelope(response)
+                    raw_schema_version = delta_envelope.get("schema_version")
+                    if isinstance(raw_schema_version, str):
+                        schema_version = raw_schema_version
                     authority_receipt, stamped_response = build_and_persist_authority_receipt(
                         turn_dir=turn_dir,
                         session_id=session_id,
@@ -4073,6 +4068,9 @@ def record_idempotent_response(
             layout_operation_envelope = build_layout_operation_envelope(
                 submit_graph, candidate_graph
             )
+        accepted_batch = stamped_response.get("accepted_batch")
+        if not isinstance(accepted_batch, list):
+            accepted_batch = []
         transaction = build_candidate_transaction(
             workflow_id=workflow_id,
             session_id=session_id,
@@ -4080,7 +4078,7 @@ def record_idempotent_response(
             plan_hash=candidate_plan_hash,
             submit_graph=submit_graph,
             candidate_graph=candidate_graph,
-            delta_ops_envelope=authority_receipt.cumulative_delta_envelope,
+            accepted_batch=accepted_batch,
             delta_hash=authority_receipt.cumulative_delta_hash,
             submit_graph_hash=authority_receipt.submit_graph_hash,
             submit_structural_graph_hash=(

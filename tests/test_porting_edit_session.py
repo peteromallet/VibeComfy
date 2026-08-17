@@ -589,6 +589,12 @@ class TestAgentEditPythonEmitter:
                 variable_name_locks={"5": "sampler_locked", "7": "save_locked"},
                 strict_variable_name_locks=True,
             )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_scratchpad_python(
+                wf,
+                variable_name_locks={"5": "sampler_locked"},
+                prune_dead_branches=False,
+            )
         rendered = emit_agent_edit_python(wf)
         after_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
         assert "sampler_locked" not in rendered
@@ -972,7 +978,7 @@ class TestIntegrationBoundaries:
 
 
 class TestEmitterVariableNameLocks:
-    """Session-locked aliases bridge stable uids to local emitter node ids."""
+    """Product emitters reject lock kwargs. Bindings are (class_type, uid-order)."""
 
     def _tiny_uid_workflow(self) -> VibeWorkflow:
         wf = VibeWorkflow("locks", WorkflowSource("locks"))
@@ -985,125 +991,42 @@ class TestEmitterVariableNameLocks:
         }
         return wf
 
-    def test_locked_aliases_bridge_vibenode_uid_and_ui_property_uid(self) -> None:
+    def test_scratchpad_rejects_variable_name_locks(self) -> None:
         from vibecomfy.porting.emitter import emit_scratchpad_python
 
         wf = self._tiny_uid_workflow()
-        diagnostics = []
-
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={
-                "uid-loader": "locked_loader",
-                "ui-sampler": "locked_sampler",
-            },
-            prune_dead_branches=False,
-        )
-
-        assert "locked_loader = _node(wf, 'CheckpointLoaderSimple'" in source
-        assert "locked_sampler = _node(wf, 'KSampler'" in source
-        assert not [diag for diag in diagnostics if diag.code.startswith("locked_variable_")]
-
-    def test_invalid_locked_alias_reports_diagnostic_and_does_not_emit_bad_python(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-            emit_scratchpad_python,
-        )
-
-        wf = self._tiny_uid_workflow()
-        diagnostics = []
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={"uid-loader": "not valid"},
-            prune_dead_branches=False,
-        )
-
-        assert "not valid = _node" not in source
-        assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID for diag in diagnostics)
-
-    def test_colliding_locked_aliases_report_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-            emit_scratchpad_python,
-        )
-
-        wf = self._tiny_uid_workflow()
-        diagnostics = []
-        source = emit_scratchpad_python(
-            wf,
-            diagnostics=diagnostics,
-            variable_name_locks={
-                "uid-loader": "same_name",
-                "uid-sampler": "same_name",
-            },
-            prune_dead_branches=False,
-        )
-
-        assert "same_name = _node" not in source
-        assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION for diag in diagnostics)
-
-    def test_strict_missing_locked_uid_reports_later_render_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
-            READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-            emit_scratchpad_python,
-        )
-
-        diagnostics = []
-        emit_scratchpad_python(
-            self._tiny_uid_workflow(),
-            diagnostics=diagnostics,
-            variable_name_locks={"missing-uid": "old_name"},
-            strict_variable_name_locks=True,
-            prune_dead_branches=False,
-        )
-
-        missing = [diag for diag in diagnostics if diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING]
-        assert len(missing) == 1
-        assert missing[0].severity == "error"
-        assert missing[0].detail["uid"] == "missing-uid"
-
-    def test_subgraph_internal_locked_names_use_scope_qualified_uid(self) -> None:
-        from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
-        from vibecomfy.identity.uid import make_uid
-
-        raw_subgraph = {
-            "id": "sg-alpha",
-            "name": "Scoped",
-            "nodes": [
-                {
-                    "id": 1,
-                    "type": "TotallyCustomNode",
-                    "properties": {"vibecomfy_uid": "inner-loader"},
-                    "widgets_values": [],
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_scratchpad_python(
+                wf,
+                variable_name_locks={
+                    "uid-loader": "locked_loader",
+                    "ui-sampler": "locked_sampler",
                 },
-            ],
-            "links": [
-                {
-                    "id": 1,
-                    "origin_id": 1,
-                    "origin_slot": 0,
-                    "target_id": -20,
-                    "target_slot": 0,
-                }
-            ],
-            "inputs": [],
-            "outputs": [{"name": "MODEL", "type": "MODEL"}],
-        }
-        subgraph = _build_subgraph_def(raw_subgraph, slug="scoped", source_path=None)
-        diagnostics = []
-        source = "\n".join(
-            _emit_subgraph_functions(
-                {"subgraph_definitions": {"sg-alpha": subgraph}},
-                diagnostics=diagnostics,
-                constant_map={},
-                variable_name_locks={make_uid("sg-alpha", "inner-loader"): "locked_inner_loader"},
+                prune_dead_branches=False,
             )
-        )
+        source = emit_scratchpad_python(wf, prune_dead_branches=False)
+        assert "locked_loader" not in source
+        assert "locked_sampler" not in source
 
-        assert "locked_inner_loader = raw_call('TotallyCustomNode'" in source
-        assert not [diag for diag in diagnostics if diag.code.startswith("locked_variable_")]
+    def test_ready_and_subgraph_reject_variable_name_locks(self) -> None:
+        from vibecomfy.porting.emitter import emit_ready_template_python, _emit_subgraph_functions
+
+        wf = self._tiny_uid_workflow()
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_ready_template_python(
+                wf,
+                ready_metadata={},
+                ready_requirements={},
+                template_id="locks",
+                variable_name_locks={"uid-loader": "renamed"},
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            _emit_subgraph_functions(
+                {"subgraph_definitions": {}},
+                diagnostics=[],
+                constant_map={},
+                variable_name_locks={"uid-loader": "renamed"},
+            )
 
 
 # =====================================================================

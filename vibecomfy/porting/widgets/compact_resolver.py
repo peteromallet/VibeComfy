@@ -10,6 +10,7 @@ from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 from vibecomfy._compile._widgets import WIDGET_SCHEMA, WIDGET_SEMANTIC_NAMES
 
 
+from vibecomfy.ingest.door_access import door_get_widgets_values
 @dataclass(frozen=True, slots=True)
 class WidgetNameResolution:
     names: tuple[str | None, ...]
@@ -291,7 +292,7 @@ def _metadata(node: Mapping[str, Any] | Any) -> Mapping[str, Any]:
 
 def _compact_values(node: Mapping[str, Any] | Any) -> Any:
     if isinstance(node, Mapping):
-        values = node.get("widgets_values")
+        values = door_get_widgets_values(node)
         if isinstance(values, (list, Mapping)):
             return values
         widgets = node.get("widgets")
@@ -323,7 +324,7 @@ def _compact_values(node: Mapping[str, Any] | Any) -> Any:
     if isinstance(metadata, Mapping):
         ui = metadata.get("_ui")
         if isinstance(ui, Mapping):
-            values = ui.get("widgets_values")
+            values = door_get_widgets_values(ui)
             if isinstance(values, list):
                 return values
     return None

@@ -81,6 +81,7 @@ from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
 
+from vibecomfy.ingest.door_access import door_get_nodes
 class MissingEditBatchReplDepsError(KeyError):
     """Façade globals lacked one or more names the batch REPL requires.
 
@@ -488,7 +489,7 @@ def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
             ordered.append(class_type)
 
     def visit(scope: Mapping[str, Any]) -> None:
-        nodes = scope.get("nodes")
+        nodes = door_get_nodes(scope)
         if isinstance(nodes, list):
             for node in nodes:
                 add_node(node)
@@ -542,7 +543,7 @@ def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]
                 )
     candidate_graph = plan.get("candidate_graph")
     if isinstance(candidate_graph, Mapping):
-        nodes = candidate_graph.get("nodes")
+        nodes = door_get_nodes(candidate_graph)
         records = (
             nodes
             if isinstance(nodes, list)
@@ -566,7 +567,7 @@ def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ..
     """
     if not isinstance(manifest, Mapping):
         return ()
-    nodes_raw = manifest.get("nodes")
+    nodes_raw = door_get_nodes(manifest)
     if not isinstance(nodes_raw, (list, tuple)):
         return ()
     ordered: list[str] = []
@@ -1598,7 +1599,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_diag_dicts = tuple(
                     _lint_issue_to_dict(issue) for issue in lint_issues
                 )
-                persisted_landed_ops = lint_result.surviving
 
             raw_landed = len(batch_result.landed_ops)
             effective_landed = raw_landed - lint_dropped_count
@@ -1611,18 +1611,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             # this turn — a search followed by a successful edit is not a dead-end
             # and must not trigger the cycle guard on repeat.
             current_search_signatures = deps._extract_search_signatures(batch_result)
-            if batch_result.landed_ops:
-                DELTA_SCHEMA_VERSION, ensure_root_scoped_delta_envelope, op_to_dict = _import_from("vibecomfy.porting.edit.ops", "DELTA_SCHEMA_VERSION"), _import_from("vibecomfy.porting.edit.ops", "ensure_root_scoped_delta_envelope"), _import_from("vibecomfy.porting.edit.ops", "op_to_dict")
-
-                delta_envelope_payload = ensure_root_scoped_delta_envelope(
-                    {
-                        "schema_version": DELTA_SCHEMA_VERSION,
-                        "ops": [op_to_dict(op) for op in persisted_landed_ops],
-                    },
-                    strict=True,
-                ).to_dict()
-            else:
-                delta_envelope_payload = None
             turn_is_read_only = effective_landed == 0 and all(
                 str(item.op_kind or "") in {"query", "done", "clarify"}
                 for item in batch_result.statements
@@ -1713,9 +1701,6 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             }
             if execution_plan_status:
                 turn_record["execution_plan_status"] = execution_plan_status
-            if delta_envelope_payload is not None:
-                turn_record["delta_ops_envelope"] = delta_envelope_payload
-                turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
             turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
             if clarify_message is not None:
                 turn_record["clarification_required"] = True

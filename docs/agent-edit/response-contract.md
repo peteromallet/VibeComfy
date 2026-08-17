@@ -219,11 +219,13 @@ success response includes two additional payload fields:
       }
     ]
   },
-  "delta_ops": [
+  "accepted_batch": [
     {
-      "op": "set_node_field",
-      "target": ["nodes", "abc123", "widgets_values", 0],
-      "value": "a dog running"
+      "op": {
+        "op": "set_node_field",
+        "target": ["nodes", "abc123", "widgets_values", 0],
+        "value": "a dog running"
+      }
     }
   ]
 }
@@ -237,12 +239,11 @@ success response includes two additional payload fields:
   accept request), `desired_new` (the mutation target), `status` (one of `ok`,
   `conflict`, `noop`, `already_applied`, `already_absent`, `unscopable`), and
   optional `error`.
-- `delta_ops` — echoed from the submit response. Always a plain array of dicts
-  with at minimum `op` and `target`. This is the **authoritative mutation-intent
-  source** for V2. The browser uses this (or `panel.state.deltaOps` from the
-  submit response) to drive local canvas mutation.
+- `accepted_batch` — the sole durable Δ. Apply/preview derive typed ops from
+  `accepted_batch[*].op` at the call site. Envelope/flat `delta_ops` are not
+  persisted or echoed.
 - Repeated (idempotent) accept returns stable `scoped_accept_verification` and
-  `delta_ops` payloads.
+  the same `accepted_batch`.
 
 #### 4.4.2 V2 scoped accept failure: scoped conflict fields
 
@@ -331,7 +332,7 @@ The V2 accept path computes whole-graph structural CAS on the live graph as a
 
 This diagnostic confirms that whole-graph CAS would have rejected the accept
 under V1 rules, but the scoped validation allowed it because the **touched
-region** (the specific nodes, fields, and links referenced by `delta_ops`) was
+region** (the specific nodes, fields, and links referenced by `accepted_batch`) was
 unchanged.
 
 #### 4.4.4 Source-of-truth split for V2
@@ -340,7 +341,7 @@ unchanged.
 |---|---|
 | `submit_graph` (persisted, loaded from `request.json`) | Source of truth for `expected_old` — the value at submit time. |
 | `live_graph` (sent in accept request body) | Source of truth for `actual_before` — the value at accept time. |
-| `delta_ops` (persisted in `response.json`, echoed in accept success) | Authoritative mutation intent. The browser's primary mutation source is `panel.state.deltaOps` (populated from the submit response); the accept echo is a stable copy. |
+| `accepted_batch` (persisted in `response.json`) | Sole durable mutation intent. Browser and accept derive transient ops from `accepted_batch[*].op`. |
 | `scoped_accept_verification` | Evidence of backend validation, not mutation intent. The browser uses it for pre-apply local precondition recheck. |
 | Whole-graph structural CAS | Diagnostic only for V2. Does not gate V2 accept. |
 | `client_live_canvas_token` | Browser-local race diagnostic only. Never backend CAS authority. |

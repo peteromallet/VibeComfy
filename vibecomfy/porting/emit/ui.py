@@ -3466,6 +3466,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.report import PortIssue
@@ -3625,6 +3626,16 @@ def _counter_advanced_or_materialized(original: Any, candidate: Any) -> bool:
     return False
 
 
+def _scope_definition_id(scope: Any) -> str | None:
+    if not isinstance(scope, Mapping):
+        return None
+    scope_id = scope.get("id")
+    if scope_id is None:
+        return None
+    text = str(scope_id)
+    return text or None
+
+
 def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     node_paths: dict[tuple[str, str], set[str]] = {}
     scope_field_paths: dict[str, set[str]] = {}
@@ -3632,6 +3643,9 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     new_nodes: set[tuple[str, str]] = set()
     touched_scopes: set[str] = set()
     link_ops: set[str] = set()
+    new_scope_ids: set[str] = set()
+    removed_scope_ids: set[str] = set()
+    interface_ops = False
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -3667,6 +3681,20 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
                     allow_node_paths(source.scope_path, source.uid, "outputs")
             scope_field_paths.setdefault(op.scope_path, set()).update({"groups", "last_node_id", "last_link_id"})
             link_ops.add(op.scope_path)
+            continue
+        if isinstance(op, SubgraphInterfaceOp):
+            # Definitions-level signature change.  Emit rewrites the
+            # definitions blob and may materialize root/subgraph furniture
+            # (revision, state.lastRerouteId) plus a new sgN scope.
+            interface_ops = True
+            touched_scopes.add("")
+            scope_field_paths.setdefault("", set()).update({"revision", "state", "definitions"})
+            if op.id:
+                if op.action == "add":
+                    new_scope_ids.add(str(op.id))
+                elif op.action == "remove":
+                    removed_scope_ids.add(str(op.id))
+            continue
     return {
         "node_paths": node_paths,
         "scope_field_paths": scope_field_paths,
@@ -3674,6 +3702,9 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "new_nodes": new_nodes,
         "touched_scopes": touched_scopes,
         "link_ops": link_ops,
+        "new_scope_ids": new_scope_ids,
+        "removed_scope_ids": removed_scope_ids,
+        "interface_ops": interface_ops,
     }
 
 
@@ -3758,9 +3789,13 @@ def pin_untouched_ui(
             continue
         if scope_path not in attribution["link_ops"] and "links" in original_scope:
             scope["links"] = deepcopy(original_scope.get("links") or [])
-        allowed_scope = attribution["scope_field_paths"].get(scope_path, set())
+        allowed_scope = set(attribution["scope_field_paths"].get(scope_path, set()))
+        if attribution["interface_ops"]:
+            allowed_scope.update({"revision", "state", "definitions"})
         for key in list(scope):
             if key in {"nodes", "links", "definitions", "last_node_id", "last_link_id"}:
+                continue
+            if key in allowed_scope:
                 continue
             if key == "groups" and "groups" in allowed_scope:
                 continue
@@ -3785,6 +3820,9 @@ def guard_exit_ui(
     for scope_path, original_scope in original_scopes.items():
         candidate_scope = candidate_scopes.get(scope_path)
         if candidate_scope is None:
+            removed_id = _scope_definition_id(original_scope)
+            if removed_id and removed_id in attribution["removed_scope_ids"]:
+                continue
             diagnostics.append(
                 _issue(
                     "full_ui_scope_removed",
@@ -3795,7 +3833,9 @@ def guard_exit_ui(
             continue
         ignored = {"nodes", "links", "definitions"}
         keys = (set(original_scope) | set(candidate_scope)) - ignored
-        allowed_scope_paths = attribution["scope_field_paths"].get(scope_path, set())
+        allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
+        if attribution["interface_ops"]:
+            allowed_scope_paths.update({"revision", "state", "definitions"})
         for key in sorted(keys):
             if key == "last_node_id":
                 diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
@@ -3804,6 +3844,8 @@ def guard_exit_ui(
                 diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
                 continue
             if key == "state":
+                if "state" in allowed_scope_paths:
+                    continue
                 diagnostics.extend(_guard_subgraph_state(scope_path, original_scope.get(key), candidate_scope.get(key)))
                 continue
             if key in _EMIT_SCOPE_FURNITURE or (
@@ -3814,6 +3856,8 @@ def guard_exit_ui(
                 diffs = _value_diff_paths(original_scope.get(key), candidate_scope.get(key), "groups")
                 if not diffs or _all_diffs_op_allowed(diffs, allowed_scope_paths):
                     continue
+            if key in allowed_scope_paths:
+                continue
             if original_scope.get(key) != candidate_scope.get(key):
                 diagnostics.append(
                     _issue(
@@ -3889,6 +3933,13 @@ def guard_exit_ui(
 
     for scope_path in candidate_scopes:
         if scope_path not in original_scopes:
+            added_id = _scope_definition_id(candidate_scopes[scope_path])
+            if added_id and added_id in attribution["new_scope_ids"]:
+                continue
+            if attribution["interface_ops"] and attribution["new_scope_ids"] and (
+                scope_path == "" or scope_path.split("/")[-1].startswith("sg")
+            ):
+                continue
             diagnostics.append(
                 _issue(
                     "full_ui_scope_added",

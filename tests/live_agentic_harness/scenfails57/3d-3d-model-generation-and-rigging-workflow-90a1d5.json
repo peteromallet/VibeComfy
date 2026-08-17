@@ -1,0 +1,39 @@
+{
+  "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
+  "query": "Increase the geometric detail level in the refinement step to capture more surface features like wrinkles and folds, without increasing the polygon count.",
+  "workflow_path": "external_workflows/corpus/90a1d5ff9044902e.json",
+  "network": true,
+  "timeout": 360,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The model has more surface detail (e.g., wrinkles, folds) while still being polygon-efficient and not bloated.",
+    "quality": "The refine node is properly configured with the detail parameter increased, all other nodes remain connected and functional, no dangling nodes, and the original pipeline stages (texturing, rigging, retargeting) still work correctly.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "edit",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d-modeling",
+      "text-to-3d",
+      "rigging",
+      "retargeting",
+      "texturing",
+      "preview",
+      "workflow"
+    ],
+    "source_workflow_id": "90a1d5ff9044902e",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query targets the core refinement stage with a specific, actionable goal that forces the agent to locate the TripoRefineNode, understand its geometry parameters, and apply a sensible change\u2014balancing specificity with the need for reaso"
+  }
+}

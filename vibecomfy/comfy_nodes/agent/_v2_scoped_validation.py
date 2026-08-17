@@ -32,6 +32,7 @@ from typing import Any, Iterator, Literal
 
 from .contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 # T-045 module-level host import: ``TurnState`` is referenced only in annotations
 # (PEP 563 strings -- never evaluated at runtime), imported here so those
 # annotations stay resolvable for type checkers; ``session`` is fully defined
@@ -229,33 +230,35 @@ def _load_turn_delta_ops_diagnostic(
             "detail": {},
         }
 
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        ops = envelope.get("ops")
-        if isinstance(ops, list):
-            # Validate each op through the backend normaliser so that
-            # malformed entries (unknown op kind, missing required fields,
-            # etc.) are classified as malformed rather than canonical.
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+    accepted = response.get("accepted_batch")
+    if isinstance(accepted, list):
+        ops = list(_ops_from_accepted_batch(response))
+        if ops:
             try:
                 parse_edit_delta(ops)
             except ValueError:
                 return {
                     "shape": "canonical",
-                    "code": "canonical_envelope_malformed_ops",
+                    "code": "canonical_accepted_batch_malformed_ops",
                     "detail": {
-                        "schema_version": envelope.get("schema_version"),
-                        "reason": "ops list present but entries failed parse_edit_delta validation",
+                        "reason": "accepted_batch ops failed parse_edit_delta validation",
+                        "op_count": len(ops),
                     },
                 }
-            return {
-                "shape": "canonical",
-                "code": "canonical_delta_ops",
-                "detail": {"schema_version": envelope.get("schema_version")},
-            }
         return {
             "shape": "canonical",
-            "code": "canonical_envelope_malformed_ops",
-            "detail": {"ops_type": type(ops).__name__},
+            "code": "canonical_accepted_batch",
+            "detail": {"op_count": len(ops)},
+        }
+
+    envelope = response.get("delta_ops_envelope")
+    if isinstance(envelope, Mapping):
+        return {
+            "shape": "legacy_envelope",
+            "code": "legacy_delta_ops_envelope",
+            "detail": {"schema_version": envelope.get("schema_version")},
         }
 
     delta_ops = response.get("delta_ops")
@@ -301,7 +304,7 @@ def _build_graph_index(graph: Mapping[str, Any]) -> _GraphIndex:
     nodes_by_uid: dict[str, Mapping[str, Any]] = {}
     nodes_by_id: dict[int | str, Mapping[str, Any]] = {}
     nodes_by_str_id: dict[str, Mapping[str, Any]] = {}
-    for node in graph.get("nodes") if isinstance(graph.get("nodes"), list) else []:
+    for node in door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []:
         if not isinstance(node, Mapping):
             continue
         node_id = node.get("id")
@@ -314,7 +317,7 @@ def _build_graph_index(graph: Mapping[str, Any]) -> _GraphIndex:
             if isinstance(uid, str) and uid:
                 nodes_by_uid[uid] = node
     links_by_id: dict[int | str, Any] = {}
-    for link in graph.get("links") if isinstance(graph.get("links"), list) else []:
+    for link in door_get_links(graph) if isinstance(door_get_links(graph), list) else []:
         if isinstance(link, list) and link:
             link_id = link[0]
         elif isinstance(link, Mapping):
@@ -415,7 +418,7 @@ def _descend_field_value(root: Any, segments: list[str]) -> Any:
 
 def _read_widget_value(node: Mapping[str, Any], widget_name: str) -> Any:
     widgets = node.get("widgets")
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     if isinstance(widgets, list) and isinstance(widgets_values, list):
         for index, widget in enumerate(widgets):
             if (
@@ -452,7 +455,7 @@ def _read_field_value_from_node(
         root = _read_named_socket(node.get("widgets"), tail[0]) if tail else node.get("widgets")
         return _descend_field_value(root, tail[1:]) if tail else root
     if head == "widgets_values":
-        return _descend_field_value(node.get("widgets_values"), tail)
+        return _descend_field_value(door_get_widgets_values(node), tail)
     if head == "inputs":
         root = _read_named_socket(node.get("inputs"), tail[0]) if tail else node.get("inputs")
         return _descend_field_value(root, tail[1:]) if tail else root
@@ -1035,8 +1038,8 @@ def _build_v2_accept_evidence(
     Returns a dict with keys:
       * ``submit_graph`` -- the submit-time graph loaded from ``request.json``
       * ``candidate_graph`` -- the candidate graph loaded from ``response.json``
-      * ``delta_ops`` -- authoritative mutation-intent list from the canonical
-        envelope (preferred) or legacy flat bridge
+      * ``delta_ops`` -- authoritative mutation-intent list derived from
+        ``accepted_batch[*].op`` (legacy envelope/flat are archived-turn only)
       * ``delta_shape_diagnostic`` -- classification of the delta payload shape
       * ``submit_graph_hash`` -- hash of the loaded submit graph
       * ``candidate_graph_hash`` -- from the turn record
@@ -1086,15 +1089,17 @@ def _build_v2_accept_evidence(
     if delta_ops is not None:
         evidence["delta_ops"] = delta_ops
         # Optional: surface legacy flat bridge use as an info diagnostic.
-        if shape_diag.get("code") == "legacy_delta_ops_flat":
+        if shape_diag.get("code") in {
+            "legacy_delta_ops_flat",
+            "legacy_delta_ops_envelope",
+        }:
             evidence["diagnostics"].append(
                 {
                     "code": "legacy_delta_shape",
                     "severity": "info",
                     "message": (
-                        "Delta loaded from legacy flat delta_ops list; "
-                        "canonical consumers should migrate to "
-                        "delta_ops_envelope."
+                        "Delta loaded from a legacy envelope/flat payload; "
+                        "canonical consumers should persist accepted_batch."
                     ),
                     "detail": shape_diag.get("detail", {}),
                 }
@@ -1105,22 +1110,25 @@ def _build_v2_accept_evidence(
         diag_message: str
         if diag_code == "legacy_delta_shape":
             diag_message = (
-                "Persisted delta uses a legacy wrapped shape that is not a "
-                "canonical V2 envelope; re-persist the turn with a canonical "
-                "delta_ops_envelope."
+                "Persisted delta uses a legacy wrapped shape; re-persist the "
+                "turn with accepted_batch as the sole durable Δ."
             )
             evidence["delta_ops"] = ()
-        elif diag_code == "canonical_envelope_malformed_ops":
+        elif diag_code == "canonical_accepted_batch_malformed_ops":
             diag_code = "malformed_delta"
             diag_message = (
-                "Canonical delta_ops_envelope is present but its `ops` field "
-                "is malformed."
+                "accepted_batch is present but its statement ops are malformed."
+            )
+        elif diag_code == "legacy_delta_ops_envelope":
+            diag_message = (
+                "Persisted delta uses a legacy envelope; re-persist the turn "
+                "with accepted_batch."
             )
         elif diag_code == "missing_turn_response":
             diag_message = "Could not load the persisted turn response."
         else:
             diag_message = (
-                "Could not load delta_ops from persisted turn response."
+                "Could not load accepted_batch ops from persisted turn response."
             )
         evidence["diagnostics"].append(
             {

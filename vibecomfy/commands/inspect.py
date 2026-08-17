@@ -15,6 +15,7 @@ from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import ValidationReport
 
 
+from vibecomfy.ingest.door_access import door_nodes
 def _status_from_report(report: ValidationReport) -> str:
     # Inspect intentionally exposes validation only as runnable/unsupported status.
     return "runnable" if report.ok else "unsupported"
@@ -74,7 +75,7 @@ def _render_inspect(payload: dict) -> str:
         [
             f"id: {payload['id']}",
             f"shape: {payload['shape']}",
-            f"nodes: {payload['nodes']}",
+            f"nodes: {door_nodes(payload)}",
             f"edges: {payload['edges']}",
             f"inputs: {', '.join(payload['inputs']) or '-'}",
             f"outputs: {', '.join(output['output_type'] for output in payload['outputs']) or '-'}",

@@ -1,10 +1,10 @@
 """Phase-8 boundary KPI: the CI checker is the single source of truth.
 
 Post-deletion (batch 15) the raw-UI mutation engine is gone.  This module
-asserts the named doors, that a planted structural read outside the
-allow-list is a CI violation, that generic ``json`` calls are not
-violations, that the product tree has zero CI violations, and that the
-leftover structural readers equal ``STRUCTURAL_READ_ALLOWLIST`` exactly.
+asserts the named doors, that a planted structural read is a CI
+violation, that generic ``json`` calls are not violations, that the
+product tree has zero CI violations, and that leftover structural
+readers are zero — there is no product-reader allow-list.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from __future__ import annotations
 from scripts.check_ir_boundary import (
     GRAPH_JSON_DOORS,
     PASS_THROUGH_ADAPTERS,
-    STRUCTURAL_READ_ALLOWLIST,
     ci_violations,
     classify_violation,
     forbidden_symbol_paths,
@@ -26,6 +25,7 @@ from scripts.check_ir_boundary import (
 def test_boundary_contract_has_exact_named_doors_and_pass_through_adapters() -> None:
     assert GRAPH_JSON_DOORS == {
         "vibecomfy/ingest/normalize.py",
+        "vibecomfy/ingest/door_access.py",
         "vibecomfy/porting/emit/ui.py",
     }
     assert PASS_THROUGH_ADAPTERS == {
@@ -38,7 +38,7 @@ def test_boundary_contract_has_exact_named_doors_and_pass_through_adapters() -> 
     assert "working_ui" not in PASS_THROUGH_ADAPTERS
 
 
-def test_planted_structural_read_outside_the_allow_list_is_flagged() -> None:
+def test_planted_structural_read_is_flagged() -> None:
     hits = scan_source(
         "x = {}\nnodes = x.get('nodes')\n",
         filename="vibecomfy/planted_outside_allowlist.py",
@@ -60,7 +60,7 @@ def test_planted_structural_read_outside_the_allow_list_is_flagged() -> None:
     assert classify_violation(planted_wv) == "structural_read"
 
 
-def test_allow_list_doors_are_not_ci_violations() -> None:
+def test_doors_are_not_ci_violations() -> None:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
@@ -85,11 +85,11 @@ def test_checker_self_test_passes() -> None:
     assert main(["--self-test"]) == 0
 
 
-def test_boundary_kpi_is_zero_outside_the_exact_allow_list() -> None:
+def test_boundary_kpi_is_zero_ci_violations() -> None:
     assert forbidden_symbol_paths() == frozenset()
     assert pass_through_structural_paths() == frozenset()
     assert ci_violations() == ()
 
 
-def test_structural_readers_match_the_named_allow_list_exactly() -> None:
-    assert structural_read_paths() == STRUCTURAL_READ_ALLOWLIST
+def test_structural_readers_are_zero() -> None:
+    assert structural_read_paths() == frozenset()

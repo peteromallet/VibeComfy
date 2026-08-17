@@ -15,6 +15,7 @@ from typing import Any
 
 from vibecomfy.porting.object_info import get_class
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
 # The creative bar: seed the proposer with these examples of subtle bugs
 _BUG_EXAMPLES = """
 ## Creative, realistic, single-cause defects (the bar we aim for):
@@ -75,7 +76,7 @@ def _sanitize_graph_for_llm(graph: dict[str, Any]) -> dict[str, Any]:
     structural information: node IDs, types, widgets_values, inputs/outputs, and links.
     """
     nodes = []
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         node_copy = {
             "id": node.get("id"),
             "type": node.get("type"),
@@ -84,7 +85,7 @@ def _sanitize_graph_for_llm(graph: dict[str, Any]) -> dict[str, Any]:
             "outputs": node.get("outputs", []),
         }
         # Include widgets_values but sanitize large values
-        wv = node.get("widgets_values")
+        wv = door_get_widgets_values(node)
         if wv is not None:
             sanitized_wv = []
             for v in wv:
@@ -96,7 +97,7 @@ def _sanitize_graph_for_llm(graph: dict[str, Any]) -> dict[str, Any]:
         nodes.append(node_copy)
 
     links = []
-    for link in graph.get("links", []):
+    for link in door_get_links(graph, []):
         if isinstance(link, list) and len(link) >= 6:
             # Sanitize large link IDs
             links.append([link[0], link[1], link[2], link[3], link[4], link[5]])
@@ -342,7 +343,7 @@ def propose_bugs(golden: dict[str, Any], n: int = 10) -> list[BugProposal]:
 
 def _find_link_source(graph: dict[str, Any], to_node: Any, to_slot: Any) -> tuple[Any, Any]:
     """Return (from_node, from_slot) of the link feeding `to_node:to_slot`."""
-    for link in graph.get("links", []):
+    for link in door_get_links(graph, []):
         if not isinstance(link, list) or len(link) < 6:
             continue
         if str(link[3]) == str(to_node) and str(link[4]) == str(to_slot):
@@ -353,7 +354,7 @@ def _find_link_source(graph: dict[str, Any], to_node: Any, to_slot: Any) -> tupl
 def _find_node(graph: dict[str, Any], node_id: Any) -> dict[str, Any] | None:
     """Find a node by ID in the graph."""
     nid_str = str(node_id)
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         if str(node.get("id")) == nid_str:
             return node
     return None
@@ -375,7 +376,7 @@ def _find_link_by_id(
     link_id: Any,
 ) -> list[Any] | None:
     """Return one LiteGraph link row by id."""
-    for link in graph.get("links", []) or []:
+    for link in door_get_links(graph, []) or []:
         if isinstance(link, list) and len(link) >= 6 and link[0] == link_id:
             return link
     return None
@@ -384,17 +385,17 @@ def _find_link_by_id(
 def _rebuild_output_link_references(graph: dict[str, Any]) -> None:
     """Make node output link-id lists agree with the graph's link rows."""
     by_source: dict[tuple[str, int], list[Any]] = {}
-    for link in graph.get("links", []) or []:
+    for link in door_get_links(graph, []) or []:
         if not isinstance(link, list) or len(link) < 6:
             continue
         by_source.setdefault((str(link[1]), int(link[2])), []).append(link[0])
 
-    for node in graph.get("nodes", []) or []:
+    for node in door_get_nodes(graph, []) or []:
         for fallback_slot, output in enumerate(node.get("outputs", []) or []):
             slot = output.get("slot_index")
             if not isinstance(slot, int):
                 slot = fallback_slot
-            if isinstance(output.get("links"), list):
+            if isinstance(door_get_links(output), list):
                 output["links"] = list(
                     by_source.get((str(node.get("id")), slot), [])
                 )
@@ -414,7 +415,7 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
 
     if proposal.edit_type == "set_widget":
         # Apply widget value change
-        widgets_values = target.get("widgets_values", [])
+        widgets_values = door_get_widgets_values(target, [])
         if not isinstance(widgets_values, list):
             return None
 
@@ -459,7 +460,7 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
 
         # Find the old link in links array
         old_link_entry = None
-        for link in broken.get("links", []):
+        for link in door_get_links(broken, []):
             if not isinstance(link, list) or len(link) < 6:
                 continue
             if link[0] == old_link_id:
@@ -472,11 +473,11 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
 
         # Remove old link from array
         if old_link_entry is not None:
-            broken["links"] = [l for l in broken["links"] if l != old_link_entry]
+            broken["links"] = [l for l in door_links(broken) if l != old_link_entry]
 
         # Create new link
-        new_id = max((l[0] for l in broken["links"] if isinstance(l, list)), default=0) + 1
-        broken["links"].append([
+        new_id = max((l[0] for l in door_links(broken) if isinstance(l, list)), default=0) + 1
+        door_links(broken).append([
             new_id,
             new_source_id,
             new_source_slot,
@@ -493,14 +494,14 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
             old_source = _find_node(broken, old_from_node)
             if old_source is not None:
                 for out in old_source.get("outputs", []):
-                    if isinstance(out.get("links"), list):
-                        out["links"] = [x for x in out["links"] if x != old_link_id]
+                    if isinstance(door_get_links(out), list):
+                        out["links"] = [x for x in door_links(out) if x != old_link_id]
 
         # Add new link to source output
         for out in new_source.get("outputs", []):
             if out.get("slot_index") == new_source_slot:
-                if isinstance(out.get("links"), list):
-                    out["links"].append(new_id)
+                if isinstance(door_get_links(out), list):
+                    door_links(out).append(new_id)
                 else:
                     out["links"] = [new_id]
 
@@ -520,7 +521,7 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
         if link_id is None or _find_link_by_id(broken, link_id) is None:
             return None
         broken["links"] = [
-            link for link in broken.get("links", [])
+            link for link in door_get_links(broken, [])
             if not (
                 isinstance(link, list)
                 and len(link) >= 6
@@ -563,7 +564,7 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
             feature_type = "generic"
 
         # Build node and link indexes
-        nodes_index = {str(n.get("id")): n for n in broken.get("nodes", [])}
+        nodes_index = {str(n.get("id")): n for n in door_get_nodes(broken, [])}
         target_id = str(proposal.target_node_id)
 
         # Find feature nodes based on type
@@ -583,7 +584,7 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
             incoming_links = []
             outgoing_links = []
 
-            for link in broken.get("links", []):
+            for link in door_get_links(broken, []):
                 if not isinstance(link, list) or len(link) < 6:
                     continue
                 link_id, from_node, from_slot, to_node, to_slot, link_type = link[:6]
@@ -620,8 +621,8 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
                     in_link_id, in_from_node, in_from_slot, in_to_slot, _ = incoming_links[0]
 
                     # Create new link
-                    new_id = max((l[0] for l in broken["links"] if isinstance(l, list)), default=0) + 1
-                    broken["links"].append([
+                    new_id = max((l[0] for l in door_links(broken) if isinstance(l, list)), default=0) + 1
+                    door_links(broken).append([
                         new_id,
                         in_from_node,
                         in_from_slot,
@@ -637,18 +638,18 @@ def apply_bug(golden: dict[str, Any], proposal: BugProposal) -> dict[str, Any] |
                     source_node = nodes_index.get(str(in_from_node))
                     if source_node is not None:
                         for out in source_node.get("outputs", []):
-                            if isinstance(out.get("links"), list):
-                                out["links"].append(new_id)
+                            if isinstance(door_get_links(out), list):
+                                door_links(out).append(new_id)
 
                 # Remove old link from links array
-                broken["links"] = [l for l in broken["links"] if not (isinstance(l, list) and l and l[0] == out_link_id)]
+                broken["links"] = [l for l in door_links(broken) if not (isinstance(l, list) and l and l[0] == out_link_id)]
 
             # Remove incoming links
             for in_link_id, _, _, _, _ in incoming_links:
-                broken["links"] = [l for l in broken["links"] if not (isinstance(l, list) and l and l[0] == in_link_id)]
+                broken["links"] = [l for l in door_links(broken) if not (isinstance(l, list) and l and l[0] == in_link_id)]
 
             # Remove the node itself
-            broken["nodes"] = [n for n in broken["nodes"] if str(n.get("id")) != node_id]
+            broken["nodes"] = [n for n in door_nodes(broken) if str(n.get("id")) != node_id]
 
         # Sweep orphaned references to removed nodes from surviving nodes.
         # The headless apply-validator rejects graphs that still reference a
@@ -692,7 +693,7 @@ def _strip_orphan_references(graph: dict[str, Any], removed_ids: set[str]) -> No
     # Drop links touching removed nodes (defensive; rerouting should already
     # have handled the feature's own links, but cross-references can linger).
     graph["links"] = [
-        l for l in graph.get("links", [])
+        l for l in door_get_links(graph, [])
         if not (
             isinstance(l, list) and len(l) >= 4
             and (str(l[1]) in removed_ids or str(l[3]) in removed_ids)
@@ -701,11 +702,11 @@ def _strip_orphan_references(graph: dict[str, Any], removed_ids: set[str]) -> No
 
     # Rebuild each node's output link-id lists from the surviving links array.
     live_link_ids = {
-        l[0] for l in graph.get("links", []) if isinstance(l, list) and l
+        l[0] for l in door_get_links(graph, []) if isinstance(l, list) and l
     }
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         for out in node.get("outputs", []) or []:
-            links = out.get("links")
+            links = door_get_links(out)
             if isinstance(links, list):
                 pruned = [lid for lid in links if lid in live_link_ids]
                 out["links"] = pruned
@@ -715,7 +716,7 @@ def _strip_orphan_references(graph: dict[str, Any], removed_ids: set[str]) -> No
             if lk is not None and lk not in live_link_ids:
                 inp["link"] = None
 
-        wv = node.get("widgets_values")
+        wv = door_get_widgets_values(node)
         if isinstance(wv, list):
             node["widgets_values"] = [
                 None if _refs_removed(v) else v for v in wv
@@ -800,7 +801,7 @@ def find_feature_node_ids(graph: dict[str, Any], feature_type: str) -> list[str]
     matches so the caller can SKIP the case instead of removing the wrong node.
     """
     out = []
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         if _node_matches_feature(node.get("type") or "", feature_type):
             out.append(str(node.get("id")))
     return out
@@ -822,7 +823,7 @@ def _find_feature_nodes(graph: dict[str, Any], target_id: str, feature_type: str
     yields a VALID broken graph (downstream stays connected) with one clear gap
     to re-add — the additive shape that reliably passes the oracle.
     """
-    nodes_index = {str(n.get("id")): n for n in graph.get("nodes", [])}
+    nodes_index = {str(n.get("id")): n for n in door_get_nodes(graph, [])}
     if target_id not in nodes_index:
         return []
     return [target_id]
@@ -830,7 +831,7 @@ def _find_feature_nodes(graph: dict[str, Any], target_id: str, feature_type: str
 
 def _output_reachable(graph: dict[str, Any]) -> bool:
     """Check if the graph has a reachable output (Save* node)."""
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         node_type = (node.get("type") or "").lower()
         if "save" in node_type:
             # Check if it has any input linked

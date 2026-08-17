@@ -9,6 +9,7 @@ via explicit re-exports so that existing callers are unaffected.
 
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_nodes
 import hashlib
 import json
 import keyword as _keyword
@@ -24,7 +25,6 @@ from vibecomfy.porting.emit.emit_constants import (
     _ui_widget_aliases,
 )
 from vibecomfy.porting.emit.emit_kwargs import (
-    _apply_locked_variable_names,
     _assignment_target,
     _compute_output_variable_names,
     _compute_variable_names,
@@ -277,7 +277,7 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
 
     # IR-held subgraph definition payload (stored on the workflow at ingest).
     # Serialize-only for Python emission — not a second mutation authority.
-    api = normalize_to_api({"nodes": list(raw.get("nodes") or ()), "links": list(raw.get("links") or ())}, use_comfy_converter=False)
+    api = normalize_to_api({"nodes": list(door_get_nodes(raw) or ()), "links": list(door_get_links(raw) or ())}, use_comfy_converter=False)
     nodes: dict[str, Any] = {}
     edges_in: dict[str, list[Any]] = {}
     input_refs: dict[tuple[str, str], str] = {}
@@ -352,7 +352,7 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
     inputs = tuple(input_ports)
 
     return_refs: list[tuple[str, int]] = []
-    links = [link for link in raw.get("links") or () if isinstance(link, Mapping)]
+    links = [link for link in door_get_links(raw) or () if isinstance(link, Mapping)]
     for index, _output in enumerate(outputs):
         target = next((link for link in links if str(link.get("target_id")) == "-20" and int(link.get("target_slot", -1)) == index), None)
         if target is not None:
@@ -395,8 +395,8 @@ def subgraph_source_hash(
         "runtime_graph": runtime_graph or {},
         "inputs": raw.get("inputs") or [],
         "outputs": raw.get("outputs") or [],
-        "nodes": raw.get("nodes") or [],
-        "links": raw.get("links") or [],
+        "nodes": door_get_nodes(raw) or [],
+        "links": door_get_links(raw) or [],
         "emitted_input_names": input_names or [],
         "return_refs": return_refs or [],
     }
@@ -405,8 +405,8 @@ def subgraph_source_hash(
 
 
 def _subgraph_default_args(raw: Mapping[str, Any], inputs: tuple[_SubgraphPort, ...]) -> dict[str, Any]:
-    nodes = {str(node.get("id")): node for node in raw.get("nodes") or () if isinstance(node, Mapping)}
-    links = {int(link.get("id")): link for link in raw.get("links") or () if isinstance(link, Mapping) and link.get("id") is not None}
+    nodes = {str(node.get("id")): node for node in door_get_nodes(raw) or () if isinstance(node, Mapping)}
+    links = {int(link.get("id")): link for link in door_get_links(raw) or () if isinstance(link, Mapping) and link.get("id") is not None}
     defaults: dict[str, Any] = {}
     for index, input_item in enumerate(raw.get("inputs") or ()):
         if not isinstance(input_item, Mapping) or index >= len(inputs):
@@ -444,7 +444,7 @@ def _apply_subgraph_names_to_prepared(prepared: dict[str, Any]) -> None:
     used = {str(var) for var in prepared.get("var_names", {}).values()}
     var_names: dict[str, str] = prepared["var_names"]
     output_var_names: dict[str, dict[int, str]] = prepared.setdefault("output_var_names", {})
-    for node_id, node in prepared["nodes"].items():
+    for node_id, node in door_nodes(prepared).items():
         subgraph = subgraphs.get(str(node.class_type))
         if subgraph is None:
             continue
@@ -500,8 +500,6 @@ def _emit_subgraph_functions(
     diagnostics: list[EmissionDiagnostic] | None,
     constant_map: dict[tuple[str, str], str] | None,
     required_ids_by_subgraph: dict[str, set[str]] | None = None,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
 ) -> list[str]:
     # Deferred import to avoid circular dependency (emitter ↔ emit_subgraph).
     from vibecomfy.porting.emitter import _emit_build_function  # noqa: PLC0415
@@ -518,14 +516,6 @@ def _emit_subgraph_functions(
             "var_names": _compute_variable_names(subgraph.nodes, [edge for edges in subgraph.edges_in.values() for edge in edges]),
             "subgraph_definitions": subgraphs,
         }
-        _apply_locked_variable_names(
-            subgraph.nodes,
-            inner_prepared["var_names"],
-            variable_name_locks=variable_name_locks,
-            strict=strict_variable_name_locks,
-            diagnostics=diagnostics,
-            scope_path=subgraph.id,
-        )
         inner_prepared["output_var_names"] = _compute_output_variable_names(
             subgraph.nodes,
             inner_prepared["var_names"],
@@ -922,7 +912,7 @@ def _positional_ui_widget_names(ui_node: Mapping[str, Any], value_count: int) ->
             widget_index += 1
     return names
 def _ui_widget_values_by_name(ui_node: Mapping[str, Any]) -> dict[str, Any]:
-    raw_values = ui_node.get("widgets_values")
+    raw_values = door_get_widgets_values(ui_node)
     if isinstance(raw_values, Mapping):
         return {str(key): value for key, value in raw_values.items()}
     if not isinstance(raw_values, list):

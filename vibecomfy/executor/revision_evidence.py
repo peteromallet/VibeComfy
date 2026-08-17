@@ -23,6 +23,7 @@ from vibecomfy.schema.validate import socket_types_compatible
 from .contracts import GraphFacts, ReadinessReport, ScopedDiff, TopologyFindings
 from .graph_inspection import EdgeEvidence, normalise_links
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_pop_links
 LOGGER = logging.getLogger(__name__)
 
 # ── public helpers ───────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ def collect_topology_evidence(
             summary="No graph attached.",
         )
 
-    nodes_raw = graph.get("nodes")
+    nodes_raw = door_get_nodes(graph)
     if not isinstance(nodes_raw, list) or not nodes_raw:
         return TopologyFindings(
             missing_graph=True,
@@ -107,7 +108,7 @@ def collect_topology_evidence(
     }
 
     # ── dangling / missing links ────────────────────────────────────────
-    links_raw = graph.get("links")
+    links_raw = door_get_links(graph)
     edges: tuple[EdgeEvidence, ...] = ()
     if isinstance(links_raw, list):
         try:
@@ -361,7 +362,7 @@ def collect_readiness_evidence(
             summary="No graph to assess readiness for." if object_info_available else "",
         )
 
-    nodes_raw = graph.get("nodes")
+    nodes_raw = door_get_nodes(graph)
     if not isinstance(nodes_raw, list):
         return ReadinessReport(
             object_info_available=object_info_available,
@@ -657,7 +658,7 @@ def _missing_models_from_schema_choices(
         inputs = getattr(schema, "inputs", None)
         if not isinstance(inputs, dict):
             continue
-        widget_values = node.get("widgets_values")
+        widget_values = door_get_widgets_values(node)
         widget_index = 0
         for input_name, spec in inputs.items():
             choices = getattr(spec, "choices", None)
@@ -815,10 +816,10 @@ def compute_scoped_diff(
 
     # ── 3. Node-level diff ──────────────────────────────────────────────
     orig_nodes_raw = (
-        original_graph.get("nodes") if isinstance(original_graph, dict) else None
+        door_get_nodes(original_graph) if isinstance(original_graph, dict) else None
     )
     cand_nodes_raw = (
-        candidate_graph.get("nodes") if isinstance(candidate_graph, dict) else None
+        door_get_nodes(candidate_graph) if isinstance(candidate_graph, dict) else None
     )
 
     orig_nodes: list[dict] = (
@@ -864,10 +865,10 @@ def compute_scoped_diff(
 
     # ── 4. Link-level diff ──────────────────────────────────────────────
     orig_links_raw = (
-        original_graph.get("links") if isinstance(original_graph, dict) else None
+        door_get_links(original_graph) if isinstance(original_graph, dict) else None
     )
     cand_links_raw = (
-        candidate_graph.get("links") if isinstance(candidate_graph, dict) else None
+        door_get_links(candidate_graph) if isinstance(candidate_graph, dict) else None
     )
 
     orig_links: list[dict] = (
@@ -1079,7 +1080,7 @@ def _node_material_content_hash(node: dict) -> str:
         for output in outputs:
             if isinstance(output, dict):
                 stripped = dict(output)
-                stripped.pop("links", None)
+                door_pop_links(stripped, None)
                 stripped_outputs.append(stripped)
             else:
                 stripped_outputs.append(output)
@@ -1270,7 +1271,7 @@ def collect_graph_facts(
     has_dangling_outputs = False
 
     if graph is not None and isinstance(graph, dict):
-        nodes_raw = graph.get("nodes")
+        nodes_raw = door_get_nodes(graph)
         if isinstance(nodes_raw, list):
             # Build node id→class_type and node id→outputs maps.
             node_class: dict[int | str, str] = {}
@@ -1288,7 +1289,7 @@ def collect_graph_facts(
                     node_outputs[nid] = raw_outputs
 
             # ── determine terminal / output nodes ──
-            links_raw = graph.get("links")
+            links_raw = door_get_links(graph)
             source_node_ids: set[int | str] = set()
             if isinstance(links_raw, list):
                 for link in links_raw:

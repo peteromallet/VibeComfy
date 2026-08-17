@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
+from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
     "lower_ok",
@@ -202,8 +203,6 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "monotonic_generation",
     "lease_nonce",
     "accepted_batch",
-    "delta_ops_envelope",
-    "delta_ops",
     "apply_eligibility",
     "eligibility",
     "canvas_apply_allowed",
@@ -2494,7 +2493,7 @@ def _ui_node_uid_aliases(node: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _iter_ui_graph_nodes(graph: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if not isinstance(nodes, list):
         return ()
     return tuple(node for node in nodes if isinstance(node, Mapping))
@@ -2515,7 +2514,7 @@ def _ui_widget_value_for_field(node: Mapping[str, Any], field_path: str) -> Any:
     # ``session.py`` for ``DiagnosticRecord``) that must not pull in ComfyUI/torch.
     from vibecomfy.porting.widgets.aliases import widget_names_for_class
 
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     explicit_index = _widget_index_from_field_path(field_path)
     if explicit_index is not None:
         if isinstance(widgets_values, list) and 0 <= explicit_index < len(widgets_values):

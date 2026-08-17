@@ -26,7 +26,11 @@ ingest doors and projects from IR via `inspect_workflow`.
 
 ## What remains
 
-`STRUCTURAL_READ_ALLOWLIST` in `scripts/check_ir_boundary.py` is the
+`STRUCTURAL_READ_ALLOWLIST` in `scripts/check_ir_boundary.py` is now empty.
+Product readers go through door helpers in `ingest/normalize.py`.
+The historical note below described the pre-zero inventory.
+
+Former reference:
 exact leftover set. Each file has a one-line justification there.
 
 Those files still **read** LiteGraph or envelope keys. They are **not**

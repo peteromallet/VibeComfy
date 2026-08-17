@@ -2545,14 +2545,17 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     assert len(request_turns) == 2
     assert len(response_turns) == 2
     assert response_turns[0]["batch_result"]["landed_op_count"] == 1
-    envelope0 = response_turns[0]["batch_result"]["delta_ops_envelope"]
-    if isinstance(envelope0, str):
-        envelope0 = json.loads(envelope0)
-    assert (
-        response_turns[0]["batch_result"]["delta_ops"]
-        == envelope0["ops"]
-    )
-    assert set(envelope0) == {"schema_version", "ops"}
+    batch0 = response_turns[0]["batch_result"]
+    assert "delta_ops" not in batch0
+    assert "delta_ops_envelope" not in batch0
+    landed_ops = [
+        item["op"]
+        for item in batch0.get("statements") or []
+        if item.get("ok") is True
+        and item.get("landed") is True
+        and isinstance(item.get("op"), dict)
+    ]
+    assert len(landed_ops) == 1
     assert response_turns[1]["batch_result"]["batch_ok"] is False
 
 
@@ -6261,11 +6264,25 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
             "new": "after",
         }
     ]
-    assert (
-        result["batch_turns"][0]["delta_ops"]
-        == result["batch_turns"][0]["delta_ops_envelope"]["ops"]
-    )
-    assert set(result["batch_turns"][0]["delta_ops_envelope"]) == {"schema_version", "ops"}
+    turn0 = result["batch_turns"][0]
+    assert "delta_ops" not in turn0
+    assert "delta_ops_envelope" not in turn0
+    assert "delta_ops" not in result
+    assert "delta_ops_envelope" not in result
+    landed_ops = [
+        item["op"]
+        for item in turn0.get("statements") or []
+        if item.get("ok") is True
+        and item.get("landed") is True
+        and isinstance(item.get("op"), dict)
+    ]
+    accepted_ops = [
+        item["op"]
+        for item in result.get("accepted_batch") or []
+        if isinstance(item.get("op"), dict)
+    ]
+    assert accepted_ops == landed_ops
+    assert accepted_ops
     assert result["batch_turns"][0]["diff"]
     assert result["batch_turns"][0]["report"]
     assert result["batch_turns"][1]["turn_number"] == 1
@@ -9310,7 +9327,9 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
     struct_before = structural_graph_hash(graph)
     struct_after = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=envelope,
+        delta_ops_envelope=derived_accepted_delta_envelope(
+            {"accepted_batch": [{"op": op} for op in envelope["ops"]]}
+        ),
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
@@ -9527,7 +9546,9 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
     struct_before = structural_graph_hash(graph)
     struct_after = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=envelope,
+        delta_ops_envelope=derived_accepted_delta_envelope(
+            {"accepted_batch": [{"op": op} for op in envelope["ops"]]}
+        ),
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
@@ -10082,7 +10103,9 @@ def test_route_reject_idempotency_replays_same_request_body(
     struct_before = structural_graph_hash(graph)
     struct_after = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=envelope,
+        delta_ops_envelope=derived_accepted_delta_envelope(
+            {"accepted_batch": [{"op": op} for op in envelope["ops"]]}
+        ),
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
@@ -10187,7 +10210,9 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
     struct_before = structural_graph_hash(graph)
     struct_after = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=envelope,
+        delta_ops_envelope=derived_accepted_delta_envelope(
+            {"accepted_batch": [{"op": op} for op in envelope["ops"]]}
+        ),
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
@@ -13047,7 +13072,8 @@ def test_read_session_chat_returns_latest_open_candidate_state(tmp_path: Path) -
     assert latest["apply_eligibility"]["reason"] == "legacy_prepared_nonresumable"
     assert latest["queue_allowed"] is False
     assert latest["agent_edit_protocol"] is None
-    assert latest["delta_ops"] is None
+    assert "delta_ops" not in latest
+    assert "delta_ops_envelope" not in latest
 
 
 def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
@@ -13118,7 +13144,8 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
     assert latest["structural_hash_before"] == "before-hash"
     assert latest["structural_hash_after"] == "after-hash"
     assert latest["accepted_batch"] == [{"op": op} for op in envelope["ops"]]
-    assert latest["delta_ops"] == envelope["ops"]
+    assert "delta_ops" not in latest
+    assert "delta_ops_envelope" not in latest
 
     public = public_chat_rehydrate_payload(
         {"ok": True, "exists": True, "latest_candidate": latest}
@@ -13126,7 +13153,8 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
     assert public["agent_edit_protocol"] == "v2_delta"
     assert public["plan_hash"] == "plan-hash"
     assert public["accepted_batch"] == [{"op": op} for op in envelope["ops"]]
-    assert public["delta_ops"] == envelope["ops"]
+    assert "delta_ops" not in public
+    assert "delta_ops_envelope" not in public
 
 
 def test_prepared_latest_candidate_rehydrates_persisted_pre_apply_baseline(

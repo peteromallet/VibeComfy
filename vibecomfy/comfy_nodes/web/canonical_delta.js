@@ -538,54 +538,16 @@ export function normalizeDeltaOpsFromSubmitPayload(payload) {
     return ops;
   }
 
-  if (shape.shape === "canonical") {
-    try {
-      // Canonical envelopes: lenient validation (backend already validated).
-      const envelope = normalizeDeltaEnvelope(payload.delta_ops_envelope, {
-        strict: false,
-      });
-      return envelope.ops;
-    } catch (err) {
-      if (err instanceof DeltaDiagnosticError) {
-        throw err;
-      }
-      throw new DeltaDiagnosticError(
-        `Failed to normalize canonical delta envelope: ${err.message}`,
-        DELTA_DIAGNOSTIC_MALFORMED,
-        { cause: err.message },
-      );
-    }
-  }
-
-  if (shape.shape === "legacy_flat") {
-    try {
-      // Legacy flat arrays use the lenient bridge.
-      const envelope = normalizeDeltaEnvelope(payload.delta_ops, {
-        allowLegacyList: true,
-      });
-      return envelope.ops;
-    } catch (err) {
-      if (err instanceof DeltaDiagnosticError) {
-        throw err;
-      }
-      throw new DeltaDiagnosticError(
-        `Failed to normalize legacy flat delta ops: ${err.message}`,
-        DELTA_DIAGNOSTIC_MALFORMED,
-        { cause: err.message },
-      );
-    }
-  }
-
-  if (shape.shape === "legacy_wrapped") {
+  if (shape.shape === "canonical" || shape.shape === "legacy_flat" || shape.shape === "legacy_wrapped") {
     throw new DeltaDiagnosticError(
-      "Legacy wrapped delta shapes are not supported. Migrate to `{schema_version, ops}`.",
-      DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+      "Envelope and flat delta shapes are not durable Δ. Apply derives ops from accepted_batch.",
+      shape.code || "legacy_delta_shape",
       shape.detail,
     );
   }
 
   throw new DeltaDiagnosticError(
-    "No delta ops found in submit response.",
+    "No accepted_batch found in submit response.",
     shape.code || "missing_delta_ops",
     shape.detail,
   );

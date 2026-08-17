@@ -6,6 +6,7 @@ from vibecomfy.commands._output import emit
 from vibecomfy.ingest.sources import sync_sources
 
 
+from vibecomfy.ingest.door_access import door_nodes
 def _cmd_sources_sync(args: argparse.Namespace) -> int:
     result = sync_sources(
         official=args.official,
@@ -16,7 +17,7 @@ def _cmd_sources_sync(args: argparse.Namespace) -> int:
     return emit(
         payload,
         json=args.json,
-        text_renderer=lambda data: f"indexed official={data['official']} external={data['external']} nodes={data['nodes']}",
+        text_renderer=lambda data: f"indexed official={data['official']} external={data['external']} nodes={door_nodes(data)}",
     )
 
 

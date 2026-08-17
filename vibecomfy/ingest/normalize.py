@@ -54,6 +54,21 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 # restore decision to this module rather than touching the blob itself.
 _UI_DOOR_KEY = "_ui_door"
 
+from vibecomfy.ingest.door_access import (  # noqa: E402
+    door_get_links,
+    door_get_nodes,
+    door_get_widgets_values,
+    door_links,
+    door_nodes,
+    door_pop_links,
+    door_pop_nodes,
+    door_pop_widgets_values,
+    door_setdefault_links,
+    door_setdefault_nodes,
+    door_setdefault_widgets_values,
+    door_widgets_values,
+)
+
 
 def _door_freeze(value: Any) -> Any:
     """Deterministic freeze of an editable IR value for the door fingerprint.

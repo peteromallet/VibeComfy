@@ -1,0 +1,65 @@
+{
+  "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
+  "query": "I'm trying to understand how this AnimateDiff video-to-video workflow keeps motion coherent across frames. Walk me through the pipeline end-to-end, focusing on where the ControlNets, LoRAs, and KSampler interact to preserve temporal consistency.",
+  "workflow_path": "external_workflows/corpus/3c978e6c11a8a768.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "explain",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "controlnet",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "animatediff",
+      "video-to-video",
+      "controlnet",
+      "lora",
+      "vae",
+      "ksampler",
+      "video-generation"
+    ],
+    "source_workflow_id": "3c978e6c11a8a768",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Targets the interplay between three named techniques (AnimateDiff, ControlNet, LoRA) and demands a coherent pipeline explanation instead of isolated node descriptions."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/3c978e6c11a8a768.json",
+    "required_node_evidence": [
+      "VHS_LoadVideo",
+      "VAEEncode",
+      "ControlNetLoaderAdvanced",
+      "ControlNetApply",
+      "LoraLoader",
+      "ADE_AnimateDiffLoaderWithContext",
+      "KSampler",
+      "VHS_VideoCombine"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Walk the connected video-to-latent, ControlNet/LoRA/AnimateDiff model-conditioning, KSampler, decode, and combine path and explain which mechanisms preserve spatial versus temporal consistency.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

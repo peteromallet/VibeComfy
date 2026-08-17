@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
@@ -214,7 +215,7 @@ def _graph_view(graph: Mapping[str, Any]) -> _GraphView:
 
 
 def _iter_nodes(graph: Mapping[str, Any]) -> list[tuple[NodeId, Mapping[str, Any]]]:
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if isinstance(nodes, list):
         return [
             (index, node)
@@ -239,7 +240,7 @@ def _iter_nodes(graph: Mapping[str, Any]) -> list[tuple[NodeId, Mapping[str, Any
 def _iter_edges(graph: Mapping[str, Any]) -> list[_Edge]:
     edges: list[_Edge] = []
 
-    links = graph.get("links")
+    links = door_get_links(graph)
     if isinstance(links, list):
         for index, link in enumerate(links):
             edge = _edge_from_link(link, index)
@@ -386,7 +387,7 @@ def _raw_value_for_field(
 
 
 def _compact_widget_values(node: Mapping[str, Any]) -> Any:
-    values = node.get("widgets_values")
+    values = door_get_widgets_values(node)
     if isinstance(values, (list, Mapping)):
         return values
     widgets = node.get("widgets")

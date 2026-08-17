@@ -38,6 +38,7 @@ from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
 
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_setdefault_links
 def _export_ready_ui(ready_id: str) -> dict | None:
     """Emit a schema'd golden UI graph for a ready template via offline port export.
 
@@ -602,22 +603,22 @@ def _add_bypass_link(
     target_slot: int,
     link_type: str,
 ) -> None:
-    nodes = {str(node.get("id")): node for node in graph.get("nodes", [])}
+    nodes = {str(node.get("id")): node for node in door_get_nodes(graph, [])}
     source = nodes.get(source_id)
     target = nodes.get(target_id)
     if source is None or target is None:
         raise ValueError(f"bypass endpoint missing: {source_id} -> {target_id}")
 
     link_id = max(
-        (int(link[0]) for link in graph.get("links", []) if isinstance(link, list) and link),
+        (int(link[0]) for link in door_get_links(graph, []) if isinstance(link, list) and link),
         default=0,
     ) + 1
-    graph.setdefault("links", []).append(
+    door_setdefault_links(graph, []).append(
         [link_id, source.get("id"), source_slot, target.get("id"), target_slot, link_type]
     )
     outputs = source.get("outputs") or []
     if 0 <= source_slot < len(outputs) and isinstance(outputs[source_slot], dict):
-        outputs[source_slot].setdefault("links", []).append(link_id)
+        door_setdefault_links(outputs[source_slot], []).append(link_id)
     inputs = target.get("inputs") or []
     if 0 <= target_slot < len(inputs) and isinstance(inputs[target_slot], dict):
         inputs[target_slot]["link"] = link_id
@@ -628,12 +629,12 @@ def _primary_multinode_locus(
     spec: MultinodeWorkflow,
 ) -> dict[str, Any]:
     removed_ids = set(spec.slice_node_ids)
-    nodes = {str(node.get("id")): node for node in golden.get("nodes", [])}
+    nodes = {str(node.get("id")): node for node in door_get_nodes(golden, [])}
     primary = nodes.get(spec.primary_node_id)
     if primary is None:
         raise ValueError(f"{spec.case_id} primary node {spec.primary_node_id} is absent")
     edges: list[dict[str, str]] = []
-    for link in golden.get("links", []):
+    for link in door_get_links(golden, []):
         if not isinstance(link, list) or len(link) < 6:
             continue
         _, from_node, from_slot, to_node, to_slot, _ = link[:6]
@@ -653,7 +654,7 @@ def _primary_multinode_locus(
             })
     if not edges:
         raise ValueError(f"{spec.case_id} primary role has no surviving boundary")
-    widgets = primary.get("widgets_values")
+    widgets = door_get_widgets_values(primary)
     return {
         "type": "additive_witness",
         "node_type": primary.get("type"),
@@ -676,18 +677,18 @@ def _remove_subgraph_fault(
     if len(removed_ids) < 5 or len(removed_ids) != len(slice_node_ids):
         raise ValueError("multinode slices require at least five unique node IDs")
 
-    nodes = {str(node.get("id")): node for node in golden.get("nodes", [])}
+    nodes = {str(node.get("id")): node for node in door_get_nodes(golden, [])}
     missing = sorted(removed_ids - nodes.keys())
     if missing:
         raise ValueError(f"{spec.case_id} slice node(s) absent: {', '.join(missing)}")
 
     broken = copy.deepcopy(golden)
     broken["nodes"] = [
-        node for node in broken.get("nodes", [])
+        node for node in door_get_nodes(broken, [])
         if str(node.get("id")) not in removed_ids
     ]
     broken["links"] = [
-        link for link in broken.get("links", [])
+        link for link in door_get_links(broken, [])
         if not (
             isinstance(link, list)
             and len(link) >= 4
@@ -698,9 +699,9 @@ def _remove_subgraph_fault(
     for bypass in spec.bypasses:
         _add_bypass_link(broken, *bypass)
 
-    live_ids = {str(node.get("id")) for node in broken.get("nodes", [])}
+    live_ids = {str(node.get("id")) for node in door_get_nodes(broken, [])}
     dangling = [
-        link for link in broken.get("links", [])
+        link for link in door_get_links(broken, [])
         if isinstance(link, list)
         and len(link) >= 4
         and (str(link[1]) not in live_ids or str(link[3]) not in live_ids)
@@ -763,7 +764,7 @@ def _remove_feature_fault(
 
     # Record the removed node type so the inquiry can name it exactly.
     target_type = None
-    for n in golden.get("nodes", []):
+    for n in door_get_nodes(golden, []):
         if str(n.get("id")) == str(target_id):
             target_type = n.get("type")
             break
@@ -880,10 +881,10 @@ def _author_additive_inquiry(
     """
     # Find the upstream/downstream neighbors of the gap so the request says
     # where to reconnect.
-    golden_ids = {str(n.get("id")) for n in golden.get("nodes", [])}
-    broken_ids = {str(n.get("id")) for n in broken.get("nodes", [])}
+    golden_ids = {str(n.get("id")) for n in door_get_nodes(golden, [])}
+    broken_ids = {str(n.get("id")) for n in door_get_nodes(broken, [])}
     removed = [
-        n for n in golden.get("nodes", [])
+        n for n in door_get_nodes(golden, [])
         if str(n.get("id")) in (golden_ids - broken_ids)
     ]
     rtype = removed_node_type or (removed[0].get("type") if removed else None)
@@ -964,10 +965,10 @@ def run_additive_case(workflow_id: str, feature_type: str, idx: int, output_base
         # may pick a different target (e.g. ``ids[-1]`` for refinement_pass) than
         # ``ids[0]``; the inquiry must name the exact type the oracle's answer key
         # is built around, or the fixer re-adds a plausible-but-wrong class.
-        golden_ids = {str(n.get("id")) for n in golden.get("nodes", [])}
-        broken_ids = {str(n.get("id")) for n in injection.broken.get("nodes", [])}
+        golden_ids = {str(n.get("id")) for n in door_get_nodes(golden, [])}
+        broken_ids = {str(n.get("id")) for n in door_get_nodes(injection.broken, [])}
         removed = [
-            n for n in golden.get("nodes", [])
+            n for n in door_get_nodes(golden, [])
             if str(n.get("id")) in (golden_ids - broken_ids)
         ]
         removed_type = removed[0].get("type") if removed else None
@@ -1084,7 +1085,7 @@ def _golden_for_multinode(spec: MultinodeWorkflow) -> dict[str, Any]:
     else:
         raise MultinodeFixtureError(f"unsupported source kind: {spec.kind!r}")
 
-    nodes = {str(node.get("id")): node for node in golden.get("nodes", [])}
+    nodes = {str(node.get("id")): node for node in door_get_nodes(golden, [])}
     missing_ids = sorted(set(spec.slice_node_ids) - nodes.keys())
     if missing_ids:
         raise MultinodeFixtureError(

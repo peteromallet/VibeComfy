@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-from copy import deepcopy
 from typing import Any
 
 from vibecomfy.porting.edit.ops import EditOp
@@ -23,11 +22,10 @@ class _ParseExecuteMixin:
     def apply_batch(self, code: str) -> BatchResult:
         """Apply one Python batch through ``interpret(pre, batch)``.
 
-        Mutation authority is the immutable interpreter.  ``working_ui`` is
-        only an emit-side cache of the accepted Δ (via
-        ``_emit_working_snapshot``), never a second mutation store.  Query
-        statements (search / python / tools) are overlaid after interpret so
-        the agent still sees typed catalog results.
+        Mutation authority is the immutable interpreter.  The retained IR
+        is the only session graph.  Query statements (search / python /
+        tools) are overlaid after interpret so the agent still sees typed
+        catalog results.
         """
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
         from vibecomfy.porting.edit._interpret import interpret
@@ -48,7 +46,7 @@ class _ParseExecuteMixin:
         snapshot = self._snapshot_mutable_state()
         try:
             if self.workflow is None:
-                self.workflow = self._workflow_from_ui(self.original_ui)
+                raise RuntimeError("EditSession.apply_batch requires a retained IR")
             pre_ir = _cow_workflow_copy(self.workflow)
             cas_old = self._cas_snapshot(pre_ir)
             interpreted = interpret(
@@ -70,10 +68,6 @@ class _ParseExecuteMixin:
                 parsed.expanded, statement_results
             )
             if interpreted.landed_ops:
-                pending_ops = tuple(self.landed_ops) + tuple(interpreted.landed_ops)
-                candidate_ui = self._emit_working_snapshot(
-                    interpreted.workflow, ops=pending_ops
-                )
                 self.workflow = interpreted.workflow
                 if getattr(self, "history", None) is None:
                     self.history = []
@@ -84,10 +78,7 @@ class _ParseExecuteMixin:
                     (pre_ir, code, tuple(interpreted.landed_ops))
                 )
                 self.landed_ops.extend(interpreted.landed_ops)
-                # Emit-side snapshot only: working_ui is a pure function of
-                # the retained IR.  interpret is the mutation authority.
                 self.resolved_ops = []
-                self.working_ui = candidate_ui
                 for op in interpreted.landed_ops:
                     touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
                     self.touched_uids.update(touched_uids)
@@ -315,14 +306,6 @@ class _ParseExecuteMixin:
             self.last_rendered_source = snapshot["last_rendered_source"]
             self.last_rendered_workflow = snapshot["last_rendered_workflow"]
             self.last_render_diagnostics = snapshot["last_render_diagnostics"]
-        # working_ui is an emit-side cache of the restored IR, not rollback
-        # authority.  With no accepted Δ the cache is the ingest snapshot.
-        if self.workflow is None or not self.landed_ops:
-            self.working_ui = deepcopy(self.original_ui)
-        else:
-            self.working_ui = self._emit_working_snapshot(
-                self.workflow, ops=self.landed_ops
-            )
 
     def _collect_touched_nodes(
         self,

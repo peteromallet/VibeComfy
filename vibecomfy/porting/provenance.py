@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from vibecomfy.ingest.door_access import door_get_nodes
 _HELPER_UI_CLASS_TYPES: frozenset[str] = frozenset(
     {
         "Note",
@@ -139,13 +140,13 @@ def extract_provenance(workflow: Mapping[str, Any] | str | Path) -> ProvenanceRe
     }
     report = ProvenanceReport()
     report.records.extend(
-        _records_from_nodes(raw.get("nodes"), scope="top_level", subgraph_ids=subgraph_ids)
+        _records_from_nodes(door_get_nodes(raw), scope="top_level", subgraph_ids=subgraph_ids)
     )
     for index, subgraph in enumerate(_subgraphs(raw)):
         subgraph_id = str(subgraph.get("id")) if subgraph.get("id") is not None else None
         report.records.extend(
             _records_from_nodes(
-                subgraph.get("nodes"),
+                door_get_nodes(subgraph),
                 scope="subgraph",
                 subgraph_ids=subgraph_ids,
                 subgraph_id=subgraph_id,

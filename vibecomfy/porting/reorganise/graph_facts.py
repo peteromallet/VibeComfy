@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 import copy
 import json
 import re
@@ -644,7 +645,7 @@ def _helper_channel(node: Mapping[str, Any]) -> str | None:
             value = properties.get(key)
             if isinstance(value, str) and value:
                 return value
-    widgets = node.get("widgets_values")
+    widgets = door_get_widgets_values(node)
     if isinstance(widgets, Sequence) and not isinstance(widgets, (str, bytes)) and widgets:
         value = widgets[0]
         if isinstance(value, str) and value:
@@ -668,7 +669,7 @@ def _output_links(node: Mapping[str, Any]) -> tuple[Any, ...]:
     if isinstance(outputs, Sequence) and not isinstance(outputs, (str, bytes)):
         for item in outputs:
             if isinstance(item, Mapping):
-                raw_links = item.get("links")
+                raw_links = door_get_links(item)
                 if isinstance(raw_links, Sequence) and not isinstance(raw_links, (str, bytes)):
                     links.extend(raw_links)
     return tuple(links)
@@ -693,7 +694,7 @@ def _sidecar_from_stamped_graph(stamped_graph: Mapping[str, Any]) -> dict[str, A
         return store_from_ui_json(stamped_graph)
     except KeyError:
         filtered = copy.deepcopy(dict(stamped_graph))
-        nodes = filtered.get("nodes")
+        nodes = door_get_nodes(filtered)
         if isinstance(nodes, list):
             filtered = {
                 **filtered,
@@ -716,7 +717,7 @@ def _scope_furniture(ledger: UiGraphIndex) -> list[ScopeFurnitureFact]:
         for index, group in enumerate(groups):
             if not isinstance(group, Mapping):
                 continue
-            nodes = group.get("nodes")
+            nodes = door_get_nodes(group)
             nodes_tuple = tuple(nodes) if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)) else ()
             group_facts.append(
                 GroupFact(
@@ -900,7 +901,7 @@ def _topology_adapter(
         if fact.litegraph_id is None:
             continue
         node_id = str(fact.litegraph_id)
-        node = scope.graph.get("nodes")
+        node = door_get_nodes(scope.graph)
         raw_node = _node_by_id(node, fact.litegraph_id)
         if raw_node is None:
             continue
@@ -969,7 +970,7 @@ def _workflow_inputs(node: Mapping[str, Any]) -> dict[str, Any]:
 
 def _workflow_widgets(node: Mapping[str, Any]) -> dict[str, Any]:
     widgets: dict[str, Any] = {}
-    values = node.get("widgets_values")
+    values = door_get_widgets_values(node)
     if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
         for index, value in enumerate(values):
             widgets[f"widget_{index}"] = value
@@ -982,7 +983,7 @@ def _workflow_widgets(node: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _raw_edges(graph: Mapping[str, Any]) -> list[_RawEdge]:
-    links = graph.get("links")
+    links = door_get_links(graph)
     if not isinstance(links, Sequence) or isinstance(links, (str, bytes)):
         return []
     edges: list[_RawEdge] = []
@@ -1526,7 +1527,7 @@ def _component_count(topology: ScopeTopologyFacts | None, attr: str) -> int:
 
 
 def _edge_count(graph: Mapping[str, Any]) -> int:
-    links = graph.get("links")
+    links = door_get_links(graph)
     if isinstance(links, Sequence) and not isinstance(links, (str, bytes)):
         return sum(1 for link in links if isinstance(link, (Mapping, Sequence)) and not isinstance(link, (str, bytes)))
     return 0
@@ -1534,7 +1535,7 @@ def _edge_count(graph: Mapping[str, Any]) -> int:
 
 def _terminal_refs(scope: ScopeState, node_facts: Sequence[CanonicalRefFact]) -> list[CanonicalNodeRef]:
     outgoing_ids: set[Any] = set()
-    links = scope.graph.get("links")
+    links = door_get_links(scope.graph)
     if isinstance(links, Sequence) and not isinstance(links, (str, bytes)):
         for link in links:
             origin_id: Any = None
@@ -1702,9 +1703,9 @@ class UiGraphIndex:
             path_tokens: tuple[str, ...],
             kind: Literal["root", "subgraph"],
         ) -> None:
-            nodes = scope_graph.get("nodes")
+            nodes = door_get_nodes(scope_graph)
             node_list = nodes if isinstance(nodes, list) else []
-            links = scope_graph.get("links")
+            links = door_get_links(scope_graph)
             link_list = links if isinstance(links, list) else []
 
             local_uid_counts: dict[str, int] = {}

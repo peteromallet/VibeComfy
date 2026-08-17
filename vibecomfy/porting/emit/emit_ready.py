@@ -30,6 +30,7 @@ Part of the M2 structural decomposition of vibecomfy/porting/emitter.py.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_nodes
 import ast
 import json
 import warnings
@@ -589,8 +590,6 @@ def emit_ready_template_python(
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[Any] | None = None,
     raw_workflow: dict[str, Any] | None = None,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
     object_info_identities: dict[str, Any] | None = None,
 ) -> str:
     from vibecomfy.porting.emitter import _use_object_info_identities, _drain_lookup_warning_diagnostics  # noqa: PLC0415
@@ -604,8 +603,6 @@ def emit_ready_template_python(
             apply_overrides=apply_overrides,
             diagnostics=diagnostics,
             raw_workflow=raw_workflow,
-            variable_name_locks=variable_name_locks,
-            strict_variable_name_locks=strict_variable_name_locks,
         )
         _drain_lookup_warning_diagnostics(diagnostics)
     return result_text
@@ -621,8 +618,6 @@ def _emit_ready_template_python_inner(
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[Any] | None = None,
     raw_workflow: dict[str, Any] | None = None,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
 ) -> str:
     from vibecomfy.porting.emit.emit_prepare import _prepare_workflow_for_emit  # noqa: PLC0415
     metadata = dict(ready_metadata)
@@ -669,15 +664,13 @@ def _emit_ready_template_python_inner(
         workflow,
         apply_overrides=apply_overrides,
         template_id=template_id,
-        variable_name_locks=variable_name_locks,
-        strict_variable_name_locks=strict_variable_name_locks,
         diagnostics=diagnostics,
     )
     prepared["subgraph_definitions"] = subgraph_definitions
     _apply_subgraph_names_to_prepared(prepared)
     has_ltx_tail = _has_ltx_lowvram_tail(template_id)
 
-    workflow_nodes = prepared["nodes"]
+    workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
     ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
     var_names = prepared["var_names"]
@@ -769,8 +762,6 @@ def _emit_ready_template_python_inner(
         diagnostics=diagnostics,
         constant_map=constant_map,
         required_ids_by_subgraph=required_ids_by_subgraph,
-        variable_name_locks=variable_name_locks,
-        strict_variable_name_locks=strict_variable_name_locks,
     )
     if subgraph_lines:
         out_lines.extend(subgraph_lines)
@@ -960,7 +951,7 @@ def _emit_build_function(
         READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
         READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
     )
-    workflow_nodes = prepared["nodes"]
+    workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
     ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
     var_names = prepared["var_names"]

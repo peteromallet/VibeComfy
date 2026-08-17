@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+from vibecomfy.ingest.door_access import door_get_nodes
 _LOGGER = logging.getLogger(__name__)
 
 from vibecomfy.security.gate import CapabilityFenceError
@@ -205,7 +206,7 @@ def _load_demo_json_file(run_dir: Path, filename: str | None) -> Any:
 
 
 def _is_litegraph_ui_graph(graph: Any) -> bool:
-    return isinstance(graph, dict) and isinstance(graph.get("nodes"), list)
+    return isinstance(graph, dict) and isinstance(door_get_nodes(graph), list)
 
 
 def _is_comfy_api_graph(graph: Any) -> bool:
@@ -315,13 +316,13 @@ def _inherit_demo_layout(
         return candidate_graph
     original_nodes = {
         node.get("id"): node
-        for node in original_graph.get("nodes", [])
+        for node in door_get_nodes(original_graph, [])
         if isinstance(node, Mapping) and node.get("id") is not None
     }
     if not original_nodes:
         return candidate_graph
     out = copy.deepcopy(candidate_graph)
-    for node in out.get("nodes", []):
+    for node in door_get_nodes(out, []):
         if not isinstance(node, dict):
             continue
         original = original_nodes.get(node.get("id"))

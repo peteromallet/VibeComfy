@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from vibecomfy.porting.emit.ui import WidgetShapeEvidence
 
+from vibecomfy.ingest.door_access import door_get_widgets_values
 _LOW_CONFIDENCE_THRESHOLD = 0.3
 _WIDGET_FIELD_PREFIX = "widget_"
 _WIDGET_FIELDS = frozenset({"widgets", "widgets_values", "raw_widgets", "_raw_widgets"})
@@ -389,7 +390,7 @@ def _has_full_raw_ui_payload(raw_ui_node: Mapping[str, Any] | None) -> bool:
         raw_ui_node
         and "id" in raw_ui_node
         and raw_ui_node.get("type") is not None
-        and raw_ui_node.get("widgets_values") is not None
+        and door_get_widgets_values(raw_ui_node) is not None
     )
 
 

@@ -15,6 +15,7 @@ from vibecomfy.comfy_nodes.agent.provider import AgentTurnResult, BatchTurnResul
 
 from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
+from vibecomfy.ingest.door_access import door_get_nodes
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
     python = response.get("python")
     message = response.get("message")
@@ -73,7 +74,7 @@ def _iter_ui_nodes(ui_payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
     def visit(value: Any) -> None:
         if isinstance(value, Mapping):
-            nodes = value.get("nodes")
+            nodes = door_get_nodes(value)
             if isinstance(nodes, list):
                 for node in nodes:
                     if isinstance(node, Mapping):
@@ -371,7 +372,7 @@ def _resolver_candidate_is_authoring_capability(candidate: Mapping[str, Any]) ->
     if isinstance(schema_payload, Mapping):
         raw_schema = schema_payload.get("schema")
         if isinstance(raw_schema, Mapping):
-            nodes = raw_schema.get("nodes") or raw_schema.get("object_info") or raw_schema
+            nodes = door_get_nodes(raw_schema) or raw_schema.get("object_info") or raw_schema
             if isinstance(nodes, Mapping) and nodes:
                 return True
     evidence = candidate.get("evidence")

@@ -13,6 +13,7 @@ from vibecomfy.porting.widgets.settings_contract import node_settings_for
 from vibecomfy.schema import socket_types_compatible
 
 
+from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
 _WIDGET_KEY_RE = re.compile(r"widget_(\d+)$")
 
 
@@ -228,7 +229,7 @@ def compatible_source_hints(
     target_node: Mapping[str, Any] | None = None,
     limit: int = 5,
 ) -> tuple[str, ...]:
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if not isinstance(nodes, list):
         return ()
     target_id = target_node.get("id") if isinstance(target_node, Mapping) else None
@@ -385,7 +386,7 @@ def _node_input_names(node: Mapping[str, Any]) -> list[str]:
 
 
 def _node_widget_keys(node: Mapping[str, Any]) -> list[str]:
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     if isinstance(widgets_values, list):
         return [f"widget_{index}" for index in range(len(widgets_values))]
     if isinstance(widgets_values, Mapping):

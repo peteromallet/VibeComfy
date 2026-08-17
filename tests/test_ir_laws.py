@@ -672,6 +672,50 @@ def test_law_2_unknown_schema_named_widget_channel() -> None:
     assert pi_edit(result.workflow) == pi_edit(workflow)
 
 
+def test_law_2_reserved_side_channel_does_not_collide() -> None:
+    """Law 2 stays total when a valid field reuses any former side-channel name."""
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
+
+    def _round_trip(workflow: VibeWorkflow) -> VibeNode:
+        pre_snapshot = workflow.copy()
+        emitted = emit_agent_edit_python(workflow)
+        assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}:" in emitted or "literal_channel_names=" in emitted
+        empty = VibeWorkflow("empty", WorkflowSource("law"))
+        result = interpret(empty, emitted)
+        assert workflow == pre_snapshot
+        assert result.ok, result.diagnostics
+        assert pi_edit(result.workflow) == pi_edit(workflow)
+        return next(iter(result.workflow.nodes.values()))
+
+    widget_wf = VibeWorkflow("reserved-widget", WorkflowSource("law"))
+    widget_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello"},
+        widgets={"literal_channel_names": "real-value", "seed": 7},
+        uid="stable-w",
+    )
+    widget_node = _round_trip(widget_wf)
+    assert widget_node.widgets.get("literal_channel_names") == "real-value"
+    assert widget_node.widgets.get("seed") == 7
+    assert widget_node.inputs.get("prompt") == "hello"
+    assert "literal_channel_names" not in widget_node.inputs
+
+    input_wf = VibeWorkflow("reserved-input", WorkflowSource("law"))
+    input_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"literal_channel_names": "from-input"},
+        widgets={"seed": 7},
+        uid="stable-i",
+    )
+    input_node = _round_trip(input_wf)
+    assert input_node.inputs.get("literal_channel_names") == "from-input"
+    assert input_node.widgets.get("seed") == 7
+    assert "literal_channel_names" not in input_node.widgets
+
+
 def test_subgraph_interface_source_commits_typed_op() -> None:
     """subgraph_interface(...) is a canonical typed op that lands in Δ."""
     from vibecomfy.porting.edit._interpret import interpret
@@ -714,6 +758,8 @@ def test_session_subgraph_interface_commits_history() -> None:
         if isinstance(entry, dict)
     ]
     assert "sg-session" in ids
+    done = session.done()
+    assert done.ok, done.summary
 
 
 def test_diff_covers_interface_only_graphs() -> None:
@@ -1057,7 +1103,9 @@ def test_law_4_surface_lens_content() -> None:
     assert "prompt='before'" in rendered
     assert "seed=7" in rendered
     assert "widget_0=11" in rendered
-    assert "literal_channel_names=('seed', 'widget_0')" in rendered
+    from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
+
+    assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}: ('seed', 'widget_0')}}" in rendered
     assert "uid:law-a" in rendered
     assert "image=lawnode.unknown_0" in rendered
 

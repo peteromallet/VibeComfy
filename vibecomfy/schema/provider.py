@@ -1115,7 +1115,9 @@ def _provisional_schemas_from_candidates(
         if isinstance(schema_payload, dict):
             raw_schema = schema_payload.get("schema")
             if isinstance(raw_schema, dict):
-                schema_nodes = raw_schema.get("nodes") or raw_schema.get("object_info") or raw_schema
+                from vibecomfy.ingest.door_access import door_get_nodes
+
+                schema_nodes = door_get_nodes(raw_schema) or raw_schema.get("object_info") or raw_schema
         if isinstance(schema_nodes, dict):
             for class_type, info in schema_nodes.items():
                 if not isinstance(class_type, str) or not isinstance(info, dict):

@@ -11,6 +11,7 @@ Public-input helpers and ready-template backend live in emit_ready.py (T8).
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_nodes
 import keyword
 import re
 import warnings
@@ -27,7 +28,6 @@ from vibecomfy.porting.emit.emit_kwargs import (
     _safe_var,
     _topological_node_order,
     _compute_variable_names,
-    _apply_locked_variable_names,
     _compute_output_variable_names,
     _edges_in_with_subgraph_external_refs,
     _format_value,
@@ -60,10 +60,7 @@ def _prepare_workflow_for_emit(
     template_id: str | None = None,
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
     diagnostics: list[Any] | None = None,
-    scope_path: str = "",
 ) -> dict[str, Any]:
     # Preserve fully disconnected canvases. Dead-branch pruning is useful when
     # trimming a real graph, but on a no-edge workflow it collapses the emission
@@ -150,14 +147,6 @@ def _prepare_workflow_for_emit(
     var_names = _compute_variable_names(
         workflow_nodes,
         [edge for edges in edges_in.values() for edge in edges] + extracted_edges_for_naming,
-    )
-    _apply_locked_variable_names(
-        workflow_nodes,
-        var_names,
-        variable_name_locks=variable_name_locks,
-        strict=strict_variable_name_locks,
-        diagnostics=diagnostics,
-        scope_path=scope_path,
     )
     output_var_names = _compute_output_variable_names(
         workflow_nodes,
@@ -437,7 +426,7 @@ def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -
 def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
     from vibecomfy.identity.codec import encode_slot_names, to_python_identifier
 
-    workflow_nodes = prepared["nodes"]
+    workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
     ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
     var_names = prepared["var_names"]
@@ -496,15 +485,16 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
             widget_channel_names.append(raw_key)
         # Named widget-channel fields (not just widget_N) must survive
-        # emit→interpret for unknown-schema IRs.  The reserved constructor
-        # kwarg is the side channel AddNodeOp.widget_field_names already
-        # carries on the typed-op path.
+        # emit→interpret for unknown-schema IRs.  The side channel is a
+        # non-identifier **unpack key so no valid node field can collide.
         if any(not name.startswith("widget_") for name in widget_channel_names):
+            from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
+
             kwargs.append(
                 (
-                    "literal_channel_names",
+                    None,
                     _format_value(tuple(widget_channel_names), elide_strings_over=None),
-                    "literal_channel_names",
+                    WIDGET_CHANNEL_SIDE_KEY,
                 )
             )
 
@@ -524,7 +514,17 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         else:
             call_head = f"{var} = node("
             positional = [_format_value(call_name)]  # call_name is a short class id; elision intentionally not applied
-        rendered_args = [*positional, *[f"{alias}={expr}" for alias, expr, _raw in kwargs]]
+        rendered_args = [
+            *positional,
+            *[
+                (
+                    f"**{{{raw!r}: {expr}}}"
+                    if alias is None
+                    else f"{alias}={expr}"
+                )
+                for alias, expr, raw in kwargs
+            ],
+        ]
         if not rendered_args:
             lines.append(f"{call_head}){comment}")
         else:

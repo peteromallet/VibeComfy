@@ -19,13 +19,13 @@ result  = session.apply_batch(code) # interpret code, lower to typed ops
 final   = session.done()            # run proof gates A/B/C
 ```
 
-- `render()` must be called at least once before `apply_batch`. The first
-  `render()` seeds the write-once `name_by_uid` ↔ `uid_by_name` lock tables.
-- Later `render()` calls **enforce** those locks strictly; a re-render that
-  changes a locked name or uid produces an error diagnostic.
-- `apply_batch` may be called zero or more times after the first render.
-- `done()` must be called exactly once at the end; it replays all landed ops
-  through the deterministic apply path and runs the proof gates.
+- `render()` emits the retained IR through the agent-edit door. Bindings are
+  a pure function of `(class_type, uid-order)`; there is no lock table.
+- `apply_batch` may be called zero or more times. Mutation authority is
+  `interpret(pre, batch)` over the retained IR.
+- `done()` replays interpret history from `wf_0` and runs the proof gates
+  against emit-door snapshots of the IR. The session does not store or
+  mutate a parallel UI graph.
 
 ---
 
@@ -47,7 +47,7 @@ EditSession(
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `raw_ui_json` | (required) | The user's verbatim ComfyUI graph — the **substrate**. Stored as `original_ui`. |
+| `raw_ui_json` | (required) | Door input only. Ingested once into the retained IR; not a mutation store. |
 | `schema_provider` | `get_schema_provider("auto")` | Schema source for node lookups and compatibility checks. |
 | `caps` | `()` | Capability flags (reserved for M2+). |
 | `render_budget_ms` | `None` | Emit a warning diagnostic if `render()` exceeds this budget. |
@@ -56,9 +56,11 @@ EditSession(
 | `max_expanded_statements` | 500 | Statement cap after `for`-loop expansion. |
 | `max_for_iterations` | 100 | Maximum iterations for any single `for i in range(N)` loop. |
 
-The constructor deep-copies `raw_ui_json` into both `original_ui` (never mutated
-after construction) and `working_ui` (mutated by landed edit ops). It ingests
-both into `EditLedger` instances (`original_ledger` and `ledger`).
+The constructor ingests `raw_ui_json` once through `from_ui` and retains that
+IR (`self.workflow` / `self._wf0`). A frozen ingest snapshot is kept only as
+emit `prior_ui` furniture. There is no `working_ui` mutation store, no
+`EditLedger`, and no `apply_delta` path. Any UI the session exposes is
+derived through `emit_ui_json` + `pin_untouched_ui`.
 
 ---
 
@@ -70,13 +72,11 @@ source_string = session.render()
 
 **Internal pipeline:**
 
-1. Re-ingest `working_ui` into `self.ledger`.
-2. Convert `working_ui` → `normalize_to_api(…, use_comfy_converter=False)` → `from_api(…)`.
-3. Call `emit_agent_edit_python(workflow)` — bindings are a pure function of
-   `(class_type, uid-order)`. The agent-edit surface does not accept
-   `variable_name_locks`.
-4. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
-5. If `render_budget_ms` is set and elapsed time exceeds it, emit a
+1. Copy the retained IR (`self.workflow`). Render never re-ingests UI JSON.
+2. Call `emit_agent_edit_python(workflow)` — bindings are a pure function of
+   `(class_type, uid-order)`. No product emitter accepts lock kwargs.
+3. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
+4. If `render_budget_ms` is set and elapsed time exceeds it, emit a
    `render_budget_exceeded` warning diagnostic.
 
 **Identity invariants:**
@@ -140,11 +140,11 @@ result = session.apply_batch(code)
 
 Statements are executed **sequentially** in source order. Each statement:
 
-1. **Resolves** against the current `uid_by_name` / `name_by_uid` lock tables.
+1. **Resolves** names from the retained IR (`(class_type, uid-order)`).
 2. **Lowers** to a typed edit op (`SetNodeFieldOp`, `UpsertLinkOp`, …).
-3. **Applies** through the existing `apply_delta(working_ui, (op,), …)` path
-   (unchanged from the existing edit infrastructure).
-4. **Records** the op in `self.landed_ops` and updates `self.ledger`.
+3. **Applies** through `interpret(pre_ir, batch)` — the immutable interpreter
+   is the only mutation authority.
+4. **Records** `(wf_i, accepted_batch, landed_ops)` on session history.
 
 **Partial success:** if one statement fails, later *independent* statements still
 land. Only statements that directly name an unbound variable (from a
@@ -253,7 +253,7 @@ var = ClassType(
   placement inference step (§9).
 - Raw coordinate kwargs (`pos`, `position`, `coords`, `x`, `y`) are rejected.
 - `vibecomfy.*` intent-class construction is rejected.
-- If the add fails (e.g., `apply_delta` rejects it), the name is marked
+- If the add fails (e.g., `interpret` rejects it), the name is marked
   **unbound** and dependent later statements fail with `unbound_graph_name`.
 
 ### 5.7 Read-only queries (never land ops)
@@ -262,7 +262,7 @@ var = ClassType(
 describe('node_name')
 ```
 
-- Side-effect-free. Does not mutate `working_ui` or record a landed op.
+- Side-effect-free. Does not mutate the retained IR or record a landed op.
 - Returns a `NodeDescriptor` via `session.describe(name)` (Python API only).
 
 ### 5.8 Bounded `for` loops
@@ -428,7 +428,7 @@ Original substrate virtual nodes (`GetNode`, `SetNode`, `Reroute`) are
 - Cannot be deleted (`del node` rejected).
 - Attempted mutation/deletion produces `original_virtual_node_immutable`.
 
-The check compares nodes against `original_ledger`, so it is
+The check compares nodes against the ingest IR (`wf_0`), so it is
 **independent of any mutations applied during the session**.
 
 Session-created virtual nodes (added via `AddNodeOp` in the same session) remain
@@ -443,16 +443,18 @@ when all three pass.
 
 ### 12.1 Gate A — Byte-faithfulness replay
 
-1. Replay every landed op over `original_ui` through `apply_delta(…, ops)`.
-2. If `apply_delta` fails (or `guard_full_ui` fails), `done()` fails with
-   per-issue diagnostics.
-3. Assert `recomputed_candidate == working_ui` (deep equality).
-4. If zero ops were landed, assert `working_ui == original_ui`.
+1. Replay interpret over `(wf_0, Δ_i)` from session history.
+2. Emit the replayed IR and the current retained IR through the emit door.
+3. Assert those two emit snapshots are equal.
+4. Run `guard_exit_ui(emit(wf_0), emit(replayed), landed_ops)`. Interface
+   ops attribute definition-scope furniture the same way node/link ops
+   attribute node fields.
+5. If zero ops were landed, assert `emit(current) == emit(wf_0)`.
 
 ### 12.2 Gate B — Touched-region compile isomorphism
 
-1. Compile `original_ui`, `working_ui`, and `candidate_ui` through
-   `normalize_to_api` → `VibeWorkflow` → `compile("api")`.
+1. Compile `wf_0`, the current retained IR, and the replayed IR through
+   `compile("api")`.
 2. Derive the **touched region** (set of API node ids):
    - All nodes explicitly touched by landed ops (via uid → node_id mappings).
    - Added nodes (in working/candidate but not original).
@@ -514,7 +516,7 @@ codes (`unbound_graph_name`, `unknown_graph_name`, `stale_graph_name`,
 ### 14.1 `describe(name)` → `NodeDescriptor`
 
 Returns a structured, side-effect-free description of a graph node. Does **not**
-count as a landed operation and never mutates `working_ui`.
+count as a landed operation and never mutates the retained IR.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -538,7 +540,7 @@ class NodeDescriptor:
 ### 14.2 `search(…)` → `list[NodeSignatureRow] | str`
 
 Queries available node signatures from the session's schema provider.
-Side-effect-free; never mutates `working_ui`.
+Side-effect-free; never mutates the retained IR.
 
 ```python
 session.search(
@@ -564,7 +566,7 @@ This is the foundational safety rule of the edit surface:
 
 - All batch code is parsed with `ast.parse`.
 - All values are obtained via the safe constant folder (`_fold_constant`).
-- Statements are mapped to typed edit ops and applied through `apply_delta`.
+- Statements are mapped to typed edit ops and applied through `interpret`.
 - **At no point is `exec`, `eval`, `compile`, `__import__`, or any similar
   mechanism invoked on user/authored code.**
 - The code is a **declarative description** of edits, not executable Python.

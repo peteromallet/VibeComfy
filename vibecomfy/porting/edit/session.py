@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes
 import ast
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -127,12 +128,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         initial_workflow: VibeWorkflow | None = None,
     ) -> None:
         # raw_ui_json is door input only: the named ingest builds the retained
-        # IR once.  original_ui is that ingest snapshot (from_ui / pin /
-        # guard).  It is not mutation authority.  working_ui starts as the
-        # same ingest snapshot and is later only an emit-side cache of the
-        # retained IR via _emit_working_snapshot — never a mutation store.
-        self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
-        self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
+        # IR once.  The frozen ingest snapshot is emit prior_ui furniture,
+        # not a parallel mutation store and never a re-ingest fallback.
+        self._ingest_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
@@ -144,7 +142,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.max_expanded_statements = max_expanded_statements
         self.max_for_iterations = max_for_iterations
         self.value_default_context = (
-            value_default_context.with_graph_protections(self.original_ui)
+            value_default_context.with_graph_protections(self._ingest_ui)
             if value_default_context is not None
             else None
         )
@@ -163,12 +161,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_rendered_workflow: VibeWorkflow | None = None
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
         # The ingest IR is constructed once by the named door and retained
-        # here.  Renders ALWAYS come from this IR.  working_ui is only the
-        # emit-side cache of this IR — never render authority and never a
-        # parallel mutation store.
+        # here.  Renders ALWAYS come from this IR.  Any UI the session
+        # exposes is derived through the emit door.
         self.workflow: VibeWorkflow | None = initial_workflow
         if self.workflow is None:
-            self.workflow = self._workflow_from_ui(self.original_ui)
+            self.workflow = self._workflow_from_ui(self._ingest_ui)
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
@@ -217,12 +214,24 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
     def uid_by_name(self) -> dict[str, str]:
         return self._derived_name_maps()[1]
 
+    @property
+    def original_ui(self) -> dict[str, Any]:
+        """Frozen ingest snapshot used only as emit prior_ui furniture."""
+        return self._ingest_ui
+
+    @property
+    def working_ui(self) -> dict[str, Any]:
+        """Emit-door projection of the retained IR. Not stored session state."""
+        if self.workflow is None:
+            raise RuntimeError("EditSession has no retained IR to emit")
+        return self._emit_working_snapshot(self.workflow)
+
     def rollback(self, steps: int = 1) -> bool:
-        """Pop the last committed ``(wf_i, Δ_i)`` pair(s) and restore IR + UI.
+        """Pop the last committed ``(wf_i, Δ_i)`` pair(s) and restore the IR.
 
         Replay from ``wf_0`` through the remaining deltas via ``interpret`` so
-        no in-place mutation is required.  ``working_ui`` is rebuilt by
-        emitting the replayed IR (emit-side cache only).
+        no in-place mutation is required.  UI is not stored; callers that
+        need a snapshot emit the replayed IR through the emit door.
         """
         if steps <= 0 or not self.history:
             return False
@@ -232,8 +241,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
         workflow = self._wf0
         if workflow is None:
-            workflow = self._workflow_from_ui(self.original_ui)
-            self._wf0 = _cow_workflow_copy(workflow)
+            raise RuntimeError("EditSession.rollback requires retained ingest IR")
         workflow = _cow_workflow_copy(workflow)
         remaining_ops: list[Any] = []
         remaining_resolved: list[Any] = []
@@ -252,7 +260,6 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             remaining_ops.extend(result.landed_ops)
         self.workflow = workflow
         self.landed_ops = remaining_ops
-        self.working_ui = self._emit_working_snapshot(workflow, ops=remaining_ops)
         self.resolved_ops = remaining_resolved
         self.touched_uids = set()
         self.touched_node_ids = set()
@@ -281,8 +288,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
         workflow = self._wf0
         if workflow is None:
-            workflow = self._workflow_from_ui(self.original_ui)
-            self._wf0 = _cow_workflow_copy(workflow)
+            raise RuntimeError("EditSession.verify_delta_history requires retained ingest IR")
         workflow = _cow_workflow_copy(workflow)
         for index, (_pre, source, recorded_ops) in enumerate(self.history):
             result = interpret(
@@ -340,24 +346,25 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
         target = workflow if workflow is not None else getattr(self, "workflow", None)
         if target is None:
-            return deepcopy(self.original_ui)
+            raise RuntimeError("EditSession cannot emit UI without a retained IR")
         emitted = emit_ui_json(
             target,
             schema_provider=self.schema_provider,
             include_virtual_wires=True,
-            prior_ui_payload=self.original_ui,
+            prior_ui_payload=self._ingest_ui,
         )
         pin_ops = tuple(self.landed_ops if ops is None else ops)
-        return pin_untouched_ui(self.original_ui, emitted, pin_ops)
+        return pin_untouched_ui(self._ingest_ui, emitted, pin_ops)
 
     def node_ui(self, uid: str, scope_path: str = "") -> dict[str, Any] | None:
         """Return the emit-side node dict for *uid*, or None.
 
         Inspection helper only — the retained IR is the mutation authority.
-        The graph is the emit-door snapshot of that IR.  ``working_ui`` is
-        not a Law-5 graph surface.
+        The graph is the emit-door snapshot of that IR.
         """
-        graph = self._emit_working_snapshot() if self.workflow is not None else self.original_ui
+        if self.workflow is None:
+            raise RuntimeError("EditSession.node_ui requires a retained IR")
+        graph = self._emit_working_snapshot()
         if scope_path:
             for part in scope_path.split("/"):
                 if not part.startswith("sg"):
@@ -376,7 +383,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 if not isinstance(child, Mapping):
                     return None
                 graph = child
-        nodes = graph.get("nodes")
+        nodes = door_get_nodes(graph)
         if not isinstance(nodes, list):
             return None
         for node in nodes:

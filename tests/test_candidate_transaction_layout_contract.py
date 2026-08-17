@@ -22,7 +22,6 @@ def _layout_operation_envelope():
 
 
 def _transaction(*, layout_verification=None, state="candidate_ready"):
-    envelope = {"schema_version": "2.0.0", "ops": []}
     submit_graph = {
         "nodes": [
             {
@@ -46,8 +45,8 @@ def _transaction(*, layout_verification=None, state="candidate_ready"):
         plan_hash="plan",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
-        delta_ops_envelope=envelope,
-        delta_hash=content_hash(envelope),
+        accepted_batch=[],
+        delta_hash=content_hash({"schema_version": "2.0.0", "ops": []}),
         submit_graph_hash="submit",
         submit_structural_graph_hash="submit-structural",
         candidate_graph_hash="candidate",
@@ -110,7 +109,7 @@ def test_new_candidate_authority_requires_explicit_workflow_uuid_and_receipt_dig
             plan_hash=transaction["plan_hash"],
             submit_graph=transaction["candidate_authority"]["precondition"]["canonical"],
             candidate_graph=transaction["candidate_authority"]["postcondition"]["canonical"],
-            delta_ops_envelope=transaction["plan"]["delta_ops_envelope"],
+            accepted_batch=transaction["plan"]["accepted_batch"],
             delta_hash=transaction["plan"]["delta_hash"],
             submit_graph_hash="submit",
             submit_structural_graph_hash="before",
@@ -131,7 +130,7 @@ def test_new_candidate_authority_requires_explicit_workflow_uuid_and_receipt_dig
             plan_hash="plan",
             submit_graph={"nodes": [], "links": [], "groups": []},
             candidate_graph={"nodes": [], "links": [], "groups": []},
-            delta_ops_envelope={"schema_version": "2.0.0", "ops": []},
+            accepted_batch=[],
             delta_hash=content_hash({"schema_version": "2.0.0", "ops": []}),
             submit_graph_hash="submit",
             submit_structural_graph_hash="before",

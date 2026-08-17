@@ -47,6 +47,7 @@ Rules enforced:
 
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_widgets_values
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 import re
@@ -712,7 +713,7 @@ def _node_field_value(
             )
         except (ValueError, IndexError):
             return _MISSING
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, list) and 0 <= idx < len(widgets):
             return widgets[idx]
         return _MISSING
@@ -765,7 +766,7 @@ def _lint_set_node_field(
         # final decision.  Nodes with no widget surface at all still
         # hard-reject genuinely unknown fields.
         node = index.node_by_uid(target.scope_path, target.uid)
-        widgets_values = node.get("widgets_values") if isinstance(node, dict) else None
+        widgets_values = door_get_widgets_values(node) if isinstance(node, dict) else None
         has_widget_surface = (
             isinstance(widgets_values, (list, dict))
             and len(widgets_values) > 0

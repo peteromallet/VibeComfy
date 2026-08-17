@@ -11,6 +11,7 @@ from enum import Enum
 import re
 from typing import Any, Literal
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_links
 # Sentinel: returned by :func:`_find_additive_witness` when no witness node
 # satisfies the additive contract.  Distinct from a valid (string) node id.
 _ADDITIVE_WITNESS_MISS: str | None = None
@@ -183,7 +184,7 @@ def _widget_equivalence(
 def _node_index(graph: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
     """Build a unique node index, or reject duplicate/invalid node ids."""
     result: dict[str, dict[str, Any]] = {}
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         if not isinstance(node, dict):
             return None
         node_id = str(node.get("id", ""))
@@ -294,7 +295,7 @@ def _validate_additive_structure(
     actual: set[tuple[str, str, str, str]] = set()
     incident_count = 0
     seen_link_ids: set[str] = set()
-    for link in graph.get("links", []):
+    for link in door_get_links(graph, []):
         if not isinstance(link, list) or len(link) < 6:
             return False, "graph contains a malformed link"
         link_id, from_node, from_slot, to_node, to_slot, link_type = link[:6]
@@ -331,8 +332,8 @@ def _validate_additive_structure(
         if input_socket is not None and "link" in input_socket:
             if str(input_socket.get("link")) != link_id_s:
                 return False, "input socket does not reference its witness link"
-        if output_socket is not None and isinstance(output_socket.get("links"), list):
-            if link_id_s not in {str(item) for item in output_socket["links"]}:
+        if output_socket is not None and isinstance(door_get_links(output_socket), list):
+            if link_id_s not in {str(item) for item in door_links(output_socket)}:
                 return False, "output socket does not reference its witness link"
 
     for input_socket in witness.get("inputs", []):
@@ -377,13 +378,13 @@ def grade_additive_witness(
             AdditiveWitnessVerdict.REJECTED, None, None, "missing intended node type"
         )
 
-    expected_widgets = locus.get("widgets_values")
+    expected_widgets = door_get_widgets_values(locus)
     if not isinstance(expected_widgets, list):
         expected_widgets = []
 
     best_alternative: AdditiveWitnessGrade | None = None
     rejection_reason = f"no {node_type!r} node satisfied the hard additive contract"
-    for node in graph.get("nodes", []):
+    for node in door_get_nodes(graph, []):
         if not isinstance(node, dict) or node.get("type") != node_type:
             continue
         witness_id = str(node.get("id", ""))
@@ -400,7 +401,7 @@ def grade_additive_witness(
             rejection_reason = structure_reason
             continue
 
-        actual_widgets = node.get("widgets_values")
+        actual_widgets = door_get_widgets_values(node)
         if not isinstance(actual_widgets, list):
             actual_widgets = []
         equivalence = _widget_equivalence(actual_widgets, expected_widgets)
@@ -483,7 +484,7 @@ def evaluate_predicate(
         return True
 
     # Build indexes (str-normalize node ids to match str predicate node_ids)
-    nodes = {str(node.get("id", "")): node for node in graph.get("nodes", [])}
+    nodes = {str(node.get("id", "")): node for node in door_get_nodes(graph, [])}
     links = _build_link_set(graph)
 
     # Check each locus item
@@ -581,7 +582,7 @@ def evaluate_predicate(
                 return False
 
             # Count nodes of the specified type
-            count = sum(1 for node in graph.get("nodes", []) if node.get("type") == node_type)
+            count = sum(1 for node in door_get_nodes(graph, []) if node.get("type") == node_type)
 
             if count < min_count:
                 return False
@@ -596,7 +597,7 @@ def evaluate_predicate(
                 return False
 
             node = nodes[node_id]
-            widgets_values = node.get("widgets_values", [])
+            widgets_values = door_get_widgets_values(node, [])
 
             if not isinstance(widgets_values, list):
                 return False
@@ -630,7 +631,7 @@ def evaluate_predicate(
 
 def _build_link_set(graph: dict[str, Any]) -> set[tuple[str, str, str, str]]:
     """Build a set of link tuples (from_node, from_slot, to_node, to_slot)."""
-    links = graph.get("links", [])
+    links = door_get_links(graph, [])
     link_set = set()
     for link in links:
         if not isinstance(link, list) or len(link) < 6:
@@ -655,7 +656,7 @@ def _ids_of_type(
     if node_type:
         return [
             str(n.get("id", ""))
-            for n in graph.get("nodes", [])
+            for n in door_get_nodes(graph, [])
             if n.get("type") == node_type
         ]
     return [str(node_id)] if node_id is not None else []

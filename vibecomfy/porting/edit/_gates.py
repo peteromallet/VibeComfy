@@ -41,20 +41,46 @@ class _GatesMixin:
         ops = tuple(self.landed_ops)
 
         if not ops:
-            if self.working_ui != self.original_ui:
+            if self.workflow is None or self._wf0 is None:
+                return DoneResult(
+                    ok=False,
+                    summary="Gate A failed: retained IR is missing.",
+                    diagnostics=(
+                        _diag(
+                            "done_gate_a_missing_ir",
+                            "Zero-ops done() requires the retained ingest IR.",
+                            severity="error",
+                        ),
+                    ),
+                )
+            try:
+                original_ui = self._emit_working_snapshot(self._wf0, ops=())
+                current_ui = self._emit_working_snapshot(self.workflow, ops=())
+            except Exception as exc:
+                return DoneResult(
+                    ok=False,
+                    summary=f"Gate A failed: emit of the retained IR failed: {exc}",
+                    diagnostics=(
+                        _diag(
+                            "done_gate_a_emit_failed",
+                            f"Gate A emit of the retained IR failed: {exc}",
+                            severity="error",
+                        ),
+                    ),
+                )
+            if current_ui != original_ui:
                 return DoneResult(
                     ok=False,
                     summary=(
-                        "Gate A failed: working_ui differs from original_ui "
+                        "Gate A failed: emit(current IR) differs from emit(wf_0) "
                         "even though zero ops were landed."
                     ),
                     diagnostics=(
                         _diag(
                             "done_gate_a_mismatch",
                             (
-                                "Zero ops landed but working_ui != original_ui. "
-                                "This means something mutated working_ui outside "
-                                "the edit-op path."
+                                "Zero ops landed but emit(current) != emit(wf_0). "
+                                "The retained IR drifted outside the edit-op path."
                             ),
                             severity="error",
                         ),
@@ -98,21 +124,35 @@ class _GatesMixin:
                 ),
             )
 
-        if candidate_ui != self.working_ui:
+        try:
+            current_ui = self._emit_working_snapshot(self.workflow, ops=ops)
+        except Exception as exc:
+            return DoneResult(
+                ok=False,
+                summary=f"Gate A failed: emit of the current IR failed: {exc}",
+                diagnostics=(
+                    _diag(
+                        "done_gate_a_emit_failed",
+                        f"Gate A emit of the current IR failed: {exc}",
+                        severity="error",
+                    ),
+                ),
+            )
+        if candidate_ui != current_ui:
             return DoneResult(
                 ok=False,
                 summary=(
-                    "Gate A failed: replayed emit candidate does not match working_ui."
+                    "Gate A failed: replayed emit candidate does not match "
+                    "emit(current IR)."
                 ),
                 diagnostics=(
                     _diag(
                         "done_gate_a_mismatch",
                         (
                             "Replaying interpret over (wf_0, Δ_i) and emitting "
-                            "the candidate does not match working_ui. "
-                            "This means working_ui was mutated outside the "
-                            "edit-op path or emit is not a pure function of "
-                            "the retained IR."
+                            "the candidate does not match emit(current IR). "
+                            "The retained IR drifted outside the edit-op path "
+                            "or emit is not a pure function of the IR."
                         ),
                         severity="error",
                     ),
@@ -121,7 +161,21 @@ class _GatesMixin:
 
         from vibecomfy.porting.emit.ui import guard_exit_ui
 
-        exit_guard = guard_exit_ui(self.original_ui, candidate_ui, ops)
+        try:
+            baseline_ui = self._emit_working_snapshot(self._wf0, ops=())
+        except Exception as exc:
+            return DoneResult(
+                ok=False,
+                summary=f"Gate A failed: emit of wf_0 failed: {exc}",
+                diagnostics=(
+                    _diag(
+                        "done_gate_a_emit_failed",
+                        f"Gate A emit of wf_0 failed: {exc}",
+                        severity="error",
+                    ),
+                ),
+            )
+        exit_guard = guard_exit_ui(baseline_ui, candidate_ui, ops)
         if not exit_guard.ok:
             guard_diags = tuple(
                 _diag(

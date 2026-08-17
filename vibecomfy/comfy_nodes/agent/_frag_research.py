@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from vibecomfy.executor.contracts import RevisionEvidence
 from ._frag_state import AgentEditState, LOGGER
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 def _is_graph_explain_intent(task: str) -> bool:
     from ._frag_ingest import _GRAPH_EXPLAIN_TRIGGER_TERMS, _task_mentions_any  # T-038 late import: sibling cycle broken; resolved at call time
     return _task_mentions_any(task, _GRAPH_EXPLAIN_TRIGGER_TERMS)
@@ -34,7 +35,7 @@ def _build_graph_report(graph: dict[str, Any] | None) -> str:
     """
     if not graph:
         return "No graph attached."
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if not isinstance(nodes, list) or not nodes:
         return "Empty graph (0 nodes)."
 
@@ -45,7 +46,7 @@ def _build_graph_report(graph: dict[str, Any] | None) -> str:
         ct = node.get("class_type") or node.get("type") or "Unknown"
         node_id = node.get("id", i)
         parts: list[str] = [f"[{node_id}] {ct}"]
-        widgets = node.get("widgets_values")
+        widgets = door_get_widgets_values(node)
         if isinstance(widgets, list) and widgets:
             widget_parts = []
             for j, w in enumerate(widgets[:5]):
@@ -67,7 +68,7 @@ def _build_graph_report(graph: dict[str, Any] | None) -> str:
                 parts.append("inputs=(" + "; ".join(slot_info[:6]) + ")")
         lines.append(" ".join(parts))
 
-    links = graph.get("links")
+    links = door_get_links(graph)
     if isinstance(links, list) and links:
         edge_lines: list[str] = []
         for link in links[:40]:
@@ -223,7 +224,7 @@ def _graph_class_types_missing_from_schema(
 ) -> tuple[str, ...]:
     if not isinstance(graph, Mapping):
         return ()
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if not isinstance(nodes, list):
         return ()
     missing: list[str] = []
@@ -244,7 +245,7 @@ def _graph_class_types_missing_from_schema(
 def _graph_class_types(graph: Mapping[str, Any] | None) -> tuple[str, ...]:
     if not isinstance(graph, Mapping):
         return ()
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     values: list[Any]
     if isinstance(nodes, list):
         values = list(nodes)
@@ -369,7 +370,7 @@ def _resolver_candidate_supports_class(
     if isinstance(schema_payload, Mapping):
         raw_schema = schema_payload.get("schema")
         if isinstance(raw_schema, Mapping):
-            nodes = raw_schema.get("nodes") or raw_schema.get("object_info") or raw_schema
+            nodes = door_get_nodes(raw_schema) or raw_schema.get("object_info") or raw_schema
             return isinstance(nodes, Mapping) and class_type in nodes
     return False
 

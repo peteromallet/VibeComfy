@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
+from vibecomfy.ingest.door_access import door_get_nodes
 def write_layout_png(ui_json: Mapping[str, Any], path: Path) -> None:
     """Write an abstract PNG of a ComfyUI workflow layout.
 
@@ -19,7 +20,7 @@ def write_layout_png(ui_json: Mapping[str, Any], path: Path) -> None:
             "write_layout_png requires Pillow. Install the `png` or `intent` extra."
         ) from exc
 
-    nodes = [node for node in ui_json.get("nodes", []) if isinstance(node, Mapping)]
+    nodes = [node for node in door_get_nodes(ui_json, []) if isinstance(node, Mapping)]
     groups = [group for group in ui_json.get("groups", []) if isinstance(group, Mapping)]
     rects = [_node_rect(node) for node in nodes]
     rects.extend(_group_rect(group) for group in groups if _group_rect(group) is not None)

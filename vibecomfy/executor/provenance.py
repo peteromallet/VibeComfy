@@ -18,6 +18,7 @@ from typing import Any
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.registry.ready import _resolve_ready_path
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 _SOURCE_WORKFLOW_PATH_RE = re.compile(r"'source_workflow_path'\s*:\s*'([^']+)'")
 
 
@@ -60,11 +61,11 @@ def collect_type_instances(
     if source_workflow is None:
         return []
 
-    nodes = source_workflow.get("nodes", {})
+    nodes = door_get_nodes(source_workflow, {})
     if not isinstance(nodes, dict):
         return []
 
-    links = source_workflow.get("links")
+    links = door_get_links(source_workflow)
     if not isinstance(links, list):
         links = []
 
@@ -138,7 +139,7 @@ def _normalize_workflow(raw: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of *raw* with ``nodes`` as a ``dict`` keyed by node id
     (string), and ``links`` left as a list.  The standard ComfyUI API shape
     is preserved; only the container structure changes."""
-    nodes_raw = raw.get("nodes")
+    nodes_raw = door_get_nodes(raw)
     nodes_dict: dict[str, Any] = {}
     if isinstance(nodes_raw, list):
         for node in nodes_raw:
@@ -155,7 +156,7 @@ def _named_widget_values(
 ) -> list[dict[str, Any]]:
     """Return ``[{"name": str, "value": Any}, ...]`` for the widget values
     on *node*, using the compact widget name resolver when available."""
-    widgets_values = node.get("widgets_values")
+    widgets_values = door_get_widgets_values(node)
     if not isinstance(widgets_values, list):
         return []
 
@@ -181,7 +182,7 @@ def _resolve_widget_names(
         resolution = compact_widget_names_for_node(
             node,
             class_type,
-            value_count=len(node.get("widgets_values") or []),
+            value_count=len(door_get_widgets_values(node) or []),
         )
         return resolution.names
     except Exception:

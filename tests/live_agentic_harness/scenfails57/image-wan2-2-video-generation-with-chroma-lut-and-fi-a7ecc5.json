@@ -1,0 +1,40 @@
+{
+  "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+  "query": "Convert this video generation pipeline from text-to-video to image-to-video: take a single input image as the first frame, encode it through the Wan2.2 pipeline, and drive the rest of the motion from a text prompt, while keeping the Chroma LUT grading and film grain post-processing chain fully intact.",
+  "workflow_path": "external_workflows/corpus/a7ecc54027245cb7.json",
+  "network": true,
+  "timeout": 260,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The workflow now accepts an image input, uses it as the conditioning for frame 1, and generates subsequent frames from a text prompt, with the original LUT and film grain effects applied to the final output.",
+    "quality": "Image-to-video data flow is correctly wired: image loaded, encoded, fed into the appropriate latent stream, no broken connections or missing nodes; the original dual CLIP/UNET/VAE pipelines are preserved; the color grading and film grain stages remain unchanged and functional.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "video-generation",
+      "wan2.2",
+      "chroma",
+      "lut",
+      "film-grain",
+      "t5-encoder",
+      "animation",
+      "image-to-video"
+    ],
+    "source_workflow_id": "a7ecc54027245cb7",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Requires genuinely restructuring the pipeline's conditioning source and latent path while preserving a complex post-processing chain, testing the agent's ability to reason about video generation pipelines holistically."
+  }
+}

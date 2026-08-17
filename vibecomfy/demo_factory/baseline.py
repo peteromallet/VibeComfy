@@ -21,6 +21,7 @@ from vibecomfy.metadata import OUTPUT_NODE_NAMES
 from vibecomfy.templates import _OUTPUT_KIND_HEURISTIC, _is_terminal_output_class
 
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 @dataclass(frozen=True, slots=True)
 class BaselineResult:
     """Result of baseline validation."""
@@ -226,7 +227,7 @@ def _raw_topology(
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Validate topology directly from UI records, before normalization."""
     blockers: list[dict[str, Any]] = []
-    raw_nodes = graph.get("nodes")
+    raw_nodes = door_get_nodes(graph)
     if not isinstance(raw_nodes, list) or not raw_nodes:
         blockers.append(
             _diagnostic_record(
@@ -267,7 +268,7 @@ def _raw_topology(
                 )
             )
 
-    raw_links = graph.get("links", [])
+    raw_links = door_get_links(graph, [])
     if not isinstance(raw_links, list):
         blockers.append(
             _diagnostic_record(
@@ -484,7 +485,7 @@ def _graph_class_types(graph: dict[str, Any] | None) -> set[str]:
         return set()
     return {
         str(node.get("type"))
-        for node in graph.get("nodes", [])
+        for node in door_get_nodes(graph, [])
         if isinstance(node, dict) and str(node.get("type") or "").strip()
     }
 
@@ -583,7 +584,7 @@ def _manufactured_widget_edge(
     if target is None:
         return False
     return _widget_contains_link_shape(
-        target.get("widgets_values"), source_id, source_slot
+        door_get_widgets_values(target), source_id, source_slot
     )
 
 
@@ -667,7 +668,7 @@ def _raw_widget_contains_declared_choice(
         else:
             yield value
 
-    widget_values = list(scalars(raw_node.get("widgets_values")))
+    widget_values = list(scalars(door_get_widgets_values(raw_node)))
     return any(
         type(widget_value) is type(choice) and widget_value == choice
         for widget_value in widget_values
@@ -875,8 +876,8 @@ def run_baseline(golden: dict[str, Any]) -> BaselineResult:
         output_reachable=bool(structural["output_reachable"]),
         compile_error=_blocker_summary(hard_blockers),
         output_node_id=structural["output_node_id"],
-        node_count=len(golden.get("nodes", [])),
-        link_count=len(golden.get("links", [])),
+        node_count=len(door_get_nodes(golden, [])),
+        link_count=len(door_get_links(golden, [])),
         structural_safe=bool(structural["structural_safe"]),
         runtime_ready_on_current_server=bool(
             structural["runtime_ready_on_current_server"]

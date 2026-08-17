@@ -23,6 +23,7 @@ Important contract boundaries:
 
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_nodes
 import json
 import re
 from typing import Any, Mapping, Sequence
@@ -473,7 +474,7 @@ def _parse_sections(value: Any, *, diagnostics: list[ReorganiseDiagnostic]) -> t
                 )
             )
             kind = None
-        nodes = _parse_ref_array(data.get("nodes"), path=(*path, "nodes"), diagnostics=diagnostics) if "nodes" in data else ()
+        nodes = _parse_ref_array(door_get_nodes(data), path=(*path, "nodes"), diagnostics=diagnostics) if "nodes" in data else ()
         role_hint = _parse_role_hint(data, path=path, diagnostics=diagnostics)
         title = _optional_string(data, "title", path=path, diagnostics=diagnostics)
         parent_id = _optional_string(data, "parent_id", path=path, diagnostics=diagnostics)

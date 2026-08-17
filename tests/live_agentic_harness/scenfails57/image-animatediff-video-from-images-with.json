@@ -1,0 +1,12 @@
+{
+  "id": "image-animatediff-video-from-images-with",
+  "query": "The animation barely follows my input images.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/001cd1f527f7f288.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

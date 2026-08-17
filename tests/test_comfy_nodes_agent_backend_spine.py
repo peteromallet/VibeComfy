@@ -327,8 +327,7 @@ def _record_candidate_response(
         },
         "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": [],
+        "accepted_batch": [],
     }
     record_idempotent_response(
         session_root=root,
@@ -10523,8 +10522,7 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         },
         "eligibility": {"applyable": True},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
     }
 
     record_idempotent_response(
@@ -12015,8 +12013,7 @@ def _setup_v2_session_with_candidate(
         },
         "eligibility": {"applyable": True},
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
     }
     record_idempotent_response(
         session_root=root,

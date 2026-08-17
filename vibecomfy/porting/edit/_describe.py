@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_widgets_values, door_widgets_values
 import re
 
 from typing import TYPE_CHECKING, Any, Mapping
@@ -633,8 +634,8 @@ class _DescribeMixin:
         metadata = getattr(node, "metadata", None)
         if isinstance(metadata, Mapping):
             ui = metadata.get("_ui")
-            if isinstance(ui, Mapping) and isinstance(ui.get("widgets_values"), list):
-                return tuple(ui["widgets_values"])
+            if isinstance(ui, Mapping) and isinstance(door_get_widgets_values(ui), list):
+                return tuple(door_widgets_values(ui))
         return ()
 
     @staticmethod

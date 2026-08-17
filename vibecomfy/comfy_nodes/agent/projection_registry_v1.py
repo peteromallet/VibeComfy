@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 # Shared canonical-hash identity lives in the zero-dependency leaf
 # ``_canonical_contract_primitives``.  These symbols are relocated *verbatim*
 # (no logic change) and re-exported here with identical identity so every
@@ -131,7 +132,7 @@ def _graph_link_identities(graph: Mapping[str, Any], nodes: list[Any]) -> list[d
         if isinstance(node, Mapping) and node.get("id") is not None
     }
     result: list[dict[str, Any]] = []
-    for link in graph.get("links", []) if isinstance(graph.get("links"), list) else []:
+    for link in door_get_links(graph, []) if isinstance(door_get_links(graph), list) else []:
         if isinstance(link, Mapping) and isinstance(link.get("from"), Mapping) and isinstance(link.get("to"), Mapping):
             result.append(_link_identity(link))
             continue
@@ -162,7 +163,7 @@ def assert_forward_projection_v1(name: Any) -> Mapping[str, Any]:
     return spec
 
 def _widgets(node: Mapping[str, Any]) -> Any:
-    raw = node.get("widgets_values", {})
+    raw = door_get_widgets_values(node, {})
     if isinstance(raw, list):
         values = [
             value for index, value in enumerate(raw)
@@ -181,7 +182,7 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
     # Historical v1 candidate projection.  Not product graph authority and
     # not a Law-5 door; V2 authority is candidate_transaction_v2.
     assert_forward_projection_v1(projection); graph = assert_root_graph_v1(graph)
-    nodes = graph.get("nodes", [])
+    nodes = door_get_nodes(graph, [])
     if not isinstance(nodes, list): raise ContractError("nodes must be a list", "malformed_graph")
     if projection == "structural_v1":
         result_nodes = []
@@ -190,7 +191,7 @@ def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
             result = {"uid": node_identity_v1(node), "type": node.get("type") if isinstance(node.get("type"), str) else None, "mode": node.get("mode", 0) if node.get("mode") is not None else 0, "fields": node.get("fields") if node.get("fields") is not None else {}, "widgets_values": _widgets(node)}
             if node.get("extensions") is not None: result["extensions"] = node["extensions"]
             result_nodes.append(result)
-        links = graph.get("links", [])
+        links = door_get_links(graph, [])
         if not isinstance(links, list): raise ContractError("links must be a list", "malformed_graph")
         return {"projection": projection, "nodes": _sort(result_nodes), "links": _sort(_graph_link_identities(graph, nodes))}
     groups = graph.get("groups", [])
@@ -272,7 +273,7 @@ def _legacy_normalize_structural_widget_value(value: Any) -> Any:
 
 
 def _legacy_normalize_node_widget_values(node: Mapping[str, Any]) -> Any:
-    values = node.get("widgets_values", [])
+    values = door_get_widgets_values(node, [])
     if node.get("type") == "LoadImage" and isinstance(values, list):
         return [
             _legacy_normalize_structural_widget_value(entry)
@@ -301,7 +302,7 @@ def _legacy_normalize_node_widget_values(node: Mapping[str, Any]) -> Any:
 def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
     if not isinstance(graph, Mapping):
         return {"nodes": [], "links": []}
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    raw_nodes = door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []
     input_names: dict[Any, list[Any]] = {}
     output_names: dict[Any, list[Any]] = {}
     for node in raw_nodes:
@@ -334,7 +335,7 @@ def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
             "outputs": sorted(
                 str(item.get("name"))
                 for item in (node.get("outputs") if isinstance(node.get("outputs"), list) else [])
-                if isinstance(item, Mapping) and item.get("links") and item.get("name") is not None
+                if isinstance(item, Mapping) and door_get_links(item) and item.get("name") is not None
             ),
             "widgets_values": _legacy_normalize_node_widget_values(node),
         })
@@ -346,7 +347,7 @@ def build_structural_graph_projection(graph: Any) -> dict[str, Any]:
         return slot
 
     links: list[dict[str, Any]] = []
-    for link in (graph.get("links") if isinstance(graph.get("links"), list) else []):
+    for link in (door_get_links(graph) if isinstance(door_get_links(graph), list) else []):
         if isinstance(link, list) and len(link) >= 6:
             origin_id, origin_slot, target_id, target_slot, link_type = link[1:6]
         elif isinstance(link, Mapping):
@@ -415,7 +416,7 @@ def build_layout_graph_projection(graph: Any) -> dict[str, Any]:
     issues = browser_layout_scope_issues_v1(graph)
     if issues:
         raise ValueError(f"unsupported_nested_layout_scope:{issues!r}")
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    raw_nodes = door_get_nodes(graph) if isinstance(door_get_nodes(graph), list) else []
     nodes = [
         {
             "id": node.get("id"),

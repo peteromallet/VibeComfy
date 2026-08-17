@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from vibecomfy.ingest.door_access import door_get_nodes
 logger = logging.getLogger(__name__)
 
 
@@ -378,7 +379,7 @@ class Watchdog:
             if isinstance(prompt_id, str) and self._state.prompt_id is None:
                 self._state.prompt_id = prompt_id
         elif msg_type == "execution_cached":
-            nodes = data.get("nodes") or []
+            nodes = door_get_nodes(data) or []
             if isinstance(nodes, Iterable):
                 for node in nodes:
                     if node is None:

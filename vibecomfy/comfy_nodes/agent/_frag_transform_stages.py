@@ -17,6 +17,7 @@ import time
 from typing import Any, Mapping
 
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes
 def load_agent_generated_scratchpad(path: Any) -> Any:
     """T-039 required_post_split surface: top-level edit-module attr.
 
@@ -241,7 +242,7 @@ def _recovery_report_from_ui_payload(
     recovery: list[dict[str, Any]] = []
     if ui_payload is None or schema_provider is None:
         return recovery
-    nodes = ui_payload.get("nodes")
+    nodes = door_get_nodes(ui_payload)
     if not isinstance(nodes, list):
         return recovery
     get_schema = getattr(schema_provider, "get_schema", None)
@@ -264,7 +265,7 @@ def _recovery_report_from_ui_payload(
         def _output_signature(item: Any) -> tuple[Any, ...] | None:
             if not isinstance(item, Mapping):
                 return None
-            links = item.get("links")
+            links = door_get_links(item)
             if isinstance(links, list):
                 links_sig: Any = tuple(links)
             else:
@@ -315,12 +316,12 @@ def _recovery_report_from_ui_payload(
             if not isinstance(item, Mapping):
                 continue
             key = (item.get("name"), item.get("type"), item.get("slot_index"))
-            links = item.get("links")
+            links = door_get_links(item)
             slots[key] = set(links if isinstance(links, list) else [])
         return slots
 
     def _ui_links_by_id(ui_payload: Mapping[str, Any] | None) -> dict[Any, Any]:
-        links = ui_payload.get("links") if isinstance(ui_payload, Mapping) else None
+        links = door_get_links(ui_payload) if isinstance(ui_payload, Mapping) else None
         if not isinstance(links, list):
             return {}
         result: dict[Any, Any] = {}
@@ -360,7 +361,7 @@ def _recovery_report_from_ui_payload(
         for output in outputs:
             if not isinstance(output, Mapping):
                 continue
-            links = output.get("links")
+            links = door_get_links(output)
             if isinstance(links, list):
                 link_ids.update(links)
         return link_ids
@@ -529,7 +530,7 @@ def _recovery_report_from_ui_payload(
     candidate_links_by_id = _ui_links_by_id(ui_payload)
     candidate_node_ids: set[str] = set()
     original_nodes = (
-        original_ui_payload.get("nodes")
+        door_get_nodes(original_ui_payload)
         if isinstance(original_ui_payload, Mapping)
         else None
     )

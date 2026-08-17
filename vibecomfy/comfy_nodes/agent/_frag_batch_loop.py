@@ -16,6 +16,7 @@ import time
 from typing import Any, Mapping
 
 
+from vibecomfy.ingest.door_access import door_get_nodes
 _BATCH_PROTOCOL_RETRY_PROMPT = """Your previous response could not be applied because it did not include a valid batch block.
 
 Reply in exactly this format:
@@ -173,7 +174,7 @@ def _manifest_compact_payload(manifest: Mapping[str, Any]) -> dict[str, Any] | N
     if not isinstance(manifest, Mapping):
         return None
 
-    nodes_raw = manifest.get("nodes")
+    nodes_raw = door_get_nodes(manifest)
     edges_raw = manifest.get("internal_edges")
     anchors_raw = manifest.get("boundary_anchors")
     if not isinstance(nodes_raw, (list, tuple)) or not nodes_raw:
@@ -570,7 +571,7 @@ def _dependency_graph_class_types(graph: Any) -> tuple[str, ...]:
             ordered.append(class_type)
 
     def visit(scope: Mapping[str, Any]) -> None:
-        nodes = scope.get("nodes")
+        nodes = door_get_nodes(scope)
         if isinstance(nodes, list):
             for node in nodes:
                 add_node(node)
@@ -625,7 +626,7 @@ def _actionable_plan_ui_only_classes(plan: Mapping[str, Any]) -> tuple[str, ...]
                 )
     candidate_graph = plan.get("candidate_graph")
     if isinstance(candidate_graph, Mapping):
-        nodes = candidate_graph.get("nodes")
+        nodes = door_get_nodes(candidate_graph)
         records = (
             nodes
             if isinstance(nodes, list)
@@ -650,7 +651,7 @@ def _manifest_required_new_classes(manifest: Mapping[str, Any]) -> tuple[str, ..
     """
     if not isinstance(manifest, Mapping):
         return ()
-    nodes_raw = manifest.get("nodes")
+    nodes_raw = door_get_nodes(manifest)
     if not isinstance(nodes_raw, (list, tuple)):
         return ()
     ordered: list[str] = []

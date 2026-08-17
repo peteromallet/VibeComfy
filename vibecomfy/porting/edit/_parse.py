@@ -13,6 +13,7 @@ from vibecomfy.porting.edit._session_types import (
     _ParsedBatch,
     _diag,
 )
+from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
 from vibecomfy.porting.edit.grammar import (
     ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     CONTROL_CALL_NAMES,
@@ -34,6 +35,37 @@ _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
 _QUERY_CALL_NAMES = QUERY_CALL_NAMES
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
+
+
+def _widget_channel_side_names(
+    keyword: ast.keyword,
+    *,
+    env: Mapping[str, Any],
+) -> tuple[tuple[str, ...], CompactDiagnostic | None] | None:
+    """Return widget-channel names if *keyword* is the collision-free side channel.
+
+    The side channel is ``**{WIDGET_CHANNEL_SIDE_KEY: (...)}`` — a
+    non-identifier key, so it cannot collide with a node field.  Returns
+    ``None`` when this is not that unpack.
+    """
+    if keyword.arg is not None:
+        return None
+    literal, issue = _fold_constant(keyword.value, env=env)
+    if issue is not None:
+        return None
+    if not isinstance(literal, dict) or set(literal) != {WIDGET_CHANNEL_SIDE_KEY}:
+        return None
+    names = literal[WIDGET_CHANNEL_SIDE_KEY]
+    if isinstance(names, (list, tuple)) and all(isinstance(name, str) for name in names):
+        return tuple(str(name) for name in names), None
+    return (
+        (),
+        _unsafe(
+            keyword.value,
+            "invalid_widget_channel_side",
+            f"{WIDGET_CHANNEL_SIDE_KEY!r} must be a sequence of field names.",
+        ),
+    )
 
 
 def _resolve_vibecomfy_constructor(func: ast.expr) -> tuple[str | None, bool]:
@@ -476,6 +508,12 @@ def _validate_call(
     issues: list[CompactDiagnostic] = []
     for keyword in node.keywords:
         if keyword.arg is None:
+            side = _widget_channel_side_names(keyword, env=env)
+            if side is not None:
+                _names, side_issue = side
+                if side_issue is not None:
+                    issues.append(side_issue)
+                continue
             issues.append(_unsafe(keyword.value, "kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed."))
             continue
         if keyword.arg.startswith("__"):

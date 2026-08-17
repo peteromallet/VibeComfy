@@ -7,6 +7,7 @@ the hard floor.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
 import json
 import os
 import re
@@ -130,7 +131,7 @@ def _feature_evidence(
     """Build candidate-only evidence; never copy expected widget values."""
     nodes = {
         str(node.get("id")): node
-        for node in candidate.get("nodes", [])
+        for node in door_get_nodes(candidate, [])
         if isinstance(node, dict)
     }
     witness_id = str(grade.node_id)
@@ -155,7 +156,7 @@ def _feature_evidence(
             witness_field, peer_field = "outputs", "inputs"
 
         actual_link_type = None
-        for link in candidate.get("links", []):
+        for link in door_get_links(candidate, []):
             if (
                 isinstance(link, list)
                 and len(link) >= 6
@@ -182,7 +183,7 @@ def _feature_evidence(
             }
         )
 
-    widgets = witness.get("widgets_values")
+    widgets = door_get_widgets_values(witness)
     return {
         "intended_feature_type": locus.get("node_type"),
         "candidate_witness": {
@@ -206,8 +207,8 @@ def _build_evidence(
 ) -> dict[str, Any]:
     return {
         "candidate_graph": {
-            "node_count": len(candidate.get("nodes", [])),
-            "link_count": len(candidate.get("links", [])),
+            "node_count": len(door_get_nodes(candidate, [])),
+            "link_count": len(door_get_links(candidate, [])),
         },
         "runnability": {
             "ui_to_api_conversion": "passed" if execution_safe else "failed",

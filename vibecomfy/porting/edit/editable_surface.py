@@ -8,6 +8,7 @@ and are never given a positional alias (``widget_0`` / ``output_0``).
 
 from __future__ import annotations
 
+from vibecomfy.ingest.door_access import door_get_widgets_values
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping, Sequence
@@ -355,7 +356,7 @@ def _widget_items(node: Any) -> list[tuple[str, Any, bool]]:
                 items.append(("", value, False))
 
     payload = _instance_payload(node)
-    widget_rows = payload.get("widgets_values")
+    widget_rows = door_get_widgets_values(payload)
     if isinstance(widget_rows, list) and not items:
         resolution = compact_widget_names_for_node(node)
         for index, value in enumerate(widget_rows):

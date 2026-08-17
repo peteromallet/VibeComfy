@@ -14,14 +14,14 @@ recovery rerun:
 is False on exactly those 57 unique ids.  All 57 ids are recoverable from
 that artifact.
 
-A post-migration live rerun was launched on the sol-review-fix tree
-(command in ``docs/plans/ir-everywhere-57-rerun.md``) against
+v1 (``ir-everywhere-57``) and v2 (``ir-everywhere-57-v2``) are INVALID
+and must not be used for reconciliation: v1 imported the recovery-run
+package via cwd-on-sys.path; v2 measured a dirty moving tree.
 
-    /Users/peteromalley/Documents/reigh-workspace/vibecomfy-recovery-run/out/agentic/ir-everywhere-57/
-
-That run is the checkpoint-16 reconciliation source.  Until it
+The only valid post-migration artifact is ``ir-everywhere-57-v3``,
+launched from the sprint cwd after this commit.  Until that run
 ``complete: true``, ids that are not named floors stay
-``pending_live_rerun``.  No id is ``resolved`` unless that run records
+``pending_live_rerun``.  No id is ``resolved`` unless v3 records
 ``raw_first_attempt_success`` for it.
 
 A prior planning reconstruction (``.oracle/findings/failure-partition.txt``)
@@ -37,8 +37,8 @@ Status rules
 - ``capability_floor`` is used only with named evidence (Class D hard floor
   or the variance family doc).  ``cc0df7`` and ``90a1d5`` live only here.
 - ``infra_out_of_scope`` is the recovery-rerun ``infra_blocked`` trio.
-- everything else is ``pending_live_rerun`` — a mechanism may exist as a
-  law test, but the live 57 still failed.
+- everything else is ``pending_live_rerun`` until v3 finishes on this
+  commit.  A mechanism may exist as a law test; that is not a live pass.
 """
 
 from __future__ import annotations

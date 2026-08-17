@@ -12,6 +12,7 @@ import copy
 from typing import Literal, Any
 
 
+from vibecomfy.ingest.door_access import door_get_nodes
 def probe_refusal_spine(
     orig: Any,
     edited: Any,
@@ -45,7 +46,7 @@ def probe_refusal_spine(
 
 def _to_api(wf: Any) -> dict:
     """Convert *wf* to API format (no-op if already in API format)."""
-    if isinstance(wf, dict) and isinstance(wf.get("nodes"), list):
+    if isinstance(wf, dict) and isinstance(door_get_nodes(wf), list):
         try:
             from comfy.component_model.workflow_convert import convert_ui_to_api  # lazy
         except ImportError:
