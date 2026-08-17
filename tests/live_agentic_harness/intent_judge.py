@@ -353,6 +353,17 @@ def _load_accepted_batch(
     ops = [item["op"] for item in accepted if isinstance(item.get("op"), Mapping)]
     if ops:
         return accepted, {"ops": list(ops)}
+    narrative = response.get("narrative_context")
+    if isinstance(narrative, Mapping):
+        seeded = narrative.get("operations") or narrative.get("landed_operations")
+        if isinstance(seeded, list):
+            seeded_ops = [
+                dict(item)
+                for item in seeded
+                if isinstance(item, Mapping) and item.get("op")
+            ]
+            if seeded_ops:
+                return accepted, {"ops": seeded_ops, "seed": "narrative_context"}
     return accepted, None
 
 
@@ -606,12 +617,68 @@ def judge_edit_intent(
     delta_ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
     from vibecomfy.schema import get_schema_provider  # late import: judge stays light
 
+    schema_provider = get_schema_provider("auto")
+    try:
+        pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
+        post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
+    except Exception as exc:
+        return {"pass_": None, "error": f"failed to canonicalize UI through ingest: {exc}"}
+
+    queue_gate_failed = False
+    if isinstance(response, Mapping):
+        gates = response.get("gates")
+        queue_gate_failed = isinstance(gates, Mapping) and gates.get("queue_validate_ok") is False
+
+    if not delta_ops:
+        # Same-door Δ: never re-diff raw original.ui vs final.ui shapes (RC4).
+        from vibecomfy.porting.edit._diff import diff
+        from vibecomfy.porting.edit.ops import op_to_dict
+
+        derived = diff(pre_wf, post_wf, schema_provider=schema_provider)
+        if derived:
+            delta_ops = [op_to_dict(op) for op in derived]
+            delta_envelope = {
+                "ops": list(delta_ops),
+                "seed": "canonical_diff",
+            }
+
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.ops import parse_edit_delta
+
+    try:
+        landed = parse_edit_delta(list(delta_ops or []))
+    except Exception:
+        landed = ()
+    apply_gate = verify_apply(
+        pre_wf,
+        post_wf,
+        landed_ops=landed,
+        schema_provider=schema_provider,
+    )
+    if apply_gate.reason == "new_self_loop":
+        return {
+            "pass_": False,
+            "criteria": {
+                "correct_node_targeted": False,
+                "correct_parameter_changed": False,
+                "value_semantically_matches_intent": False,
+                "no_orphaned_wiring": False,
+            },
+            "rationale": "canonical product has a new self-loop; apply-gate refused.",
+            "metadata": {"apply_gate": apply_gate.reason},
+        }
+
     delta_replay = _verify_delta_replay(
         pre_ir,
         post_ir,
         delta_ops,
-        schema_provider=get_schema_provider("auto"),
+        schema_provider=schema_provider,
     )
+    if queue_gate_failed:
+        delta_replay = {
+            **delta_replay,
+            "queue_gate_issue": "queue_validate_ok=false; grading canonical product",
+        }
     # The Δ is what actually changed: when the deterministic replay of the
     # canonical Δ contradicts the pre/post IR, no edit satisfies the intent —
     # fail closed without a model call (the reply-must-match-diff law).
