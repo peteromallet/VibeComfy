@@ -21,6 +21,17 @@ _SEMANTIC_PROMPT_PATH = (
     Path(__file__).parents[2] / "vibecomfy" / "intent" / "prompts" / "semantic_answer_judge.prompt.md"
 )
 
+# ── Law 4 (batch 12): stage/judge lens symmetry ──────────────────────────────
+#
+# The judge grades against the SAME facts the reply stage saw — the composable
+# renderer's output, not a separate raw-graph dump.  The reply's lens set is
+# the ceiling (surface + diff + topology); the judge requests a STRICT SUBSET
+# of it and the render boundary ENFORCES the subset via ``ceiling=`` (any lens
+# outside the reply set raises :class:`LensSubsetViolation`).
+
+_REPLY_LENS_SET: tuple[str, ...] = ("surface", "diff", "topology")
+_JUDGE_LENS_SUBSET: tuple[str, ...] = ("diff", "topology")
+
 
 def _load_prompt() -> str:
     if _PROMPT_PATH.is_file():
@@ -672,6 +683,47 @@ def _verify_delta_replay_legacy_removed() -> None:  # pragma: no cover
     """
 
 
+def _render_judge_lens_payload(
+    pre_ir: Mapping[str, Any],
+    post_ir: Mapping[str, Any],
+    delta_ops: Any,
+) -> dict[str, Any]:
+    """Render pre/post through the composable renderer under the judge lens.
+
+    Law 4 (batch 12): the judge grades against the SAME facts the reply
+    stage saw — the renderer's lens output, not a separate raw-graph dump.
+    The judge's lens set is a strict subset of the reply's
+    (``surface`` + ``diff`` + ``topology``) and the render boundary ENFORCES
+    the subset via ``ceiling=``: a judge lens outside the reply set raises
+    :class:`LensSubsetViolation` (the reply's lens set is the ceiling).
+    ``delta_ops`` (the accepted Δ) feeds the ``diff`` lens so the judge's
+    view of what changed is identical to the reply's.  A graph that cannot
+    be lifted through the ingest door renders ``None`` (the raw pre/post IR
+    remain in the payload); a subset violation always propagates.
+    """
+    from vibecomfy.porting.render import LensSubsetViolation, render_text
+
+    def _render(ir: Mapping[str, Any]) -> str | None:
+        try:
+            return render_text(
+                dict(ir),
+                lenses=_JUDGE_LENS_SUBSET,
+                delta=delta_ops,
+                ceiling=_REPLY_LENS_SET,
+            )
+        except LensSubsetViolation:
+            raise
+        except Exception:
+            return None
+
+    return {
+        "reply_lens_set": list(_REPLY_LENS_SET),
+        "judge_lens_subset": list(_JUDGE_LENS_SUBSET),
+        "pre": _render(pre_ir),
+        "post": _render(post_ir),
+    }
+
+
 def judge_edit_intent(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
@@ -808,6 +860,13 @@ def judge_edit_intent(
     if isinstance(delta_envelope, Mapping):
         payload["delta"] = delta_envelope
     payload["delta_replay"] = delta_replay
+    # Batch 12 (Law 4): the judge's graph window is the renderer's lens
+    # output — a strict subset of the reply's lens set, enforced at the
+    # render boundary (ceiling=).  The judge grades against the same facts
+    # the reply model saw (symmetry), not a separate raw-graph dump.
+    payload["renderer_lenses"] = _render_judge_lens_payload(
+        pre_ir, post_ir, delta_ops
+    )
     if desired:
         payload["desired_outcome"] = desired
     if schema_context:

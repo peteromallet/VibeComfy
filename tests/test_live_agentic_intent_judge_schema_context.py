@@ -873,3 +873,137 @@ def test_intent_judge_fails_closed_on_delta_replay_mismatch(
     assert verdict["pass_"] is False
     assert "delta replay mismatch" in verdict["rationale"]
     assert verdict["metadata"]["delta_replay"]["verified"] is False
+
+
+# ── Batch 12 (Law 4): judge lens parity + 3c978e live symmetry ──────────────
+
+_BATCH12_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_intent_judge_payload_lens_subset_is_within_reply_lens_set(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """Law 4 (batch 12): the judge's payload carries the renderer's lens
+    output — a STRICT SUBSET of the reply's lens set (surface+diff+topology)
+    — and the rendered pre/post text shows the same topology facts (link ids)
+    the reply stage's window carries."""
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    pre_post = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CLIPTextEncode",
+                "class_type": "CLIPTextEncode",
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+                ],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "inputs": [
+                    {"name": "model", "type": "MODEL", "link": 1, "slot_index": 0}
+                ],
+                "widgets_values": [42, "fixed", 20, 7, "euler", "normal", 1],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "MODEL"]],
+    }
+    original.write_text(json.dumps(pre_post), encoding="utf-8")
+    candidate.write_text(json.dumps(pre_post), encoding="utf-8")
+    # No accepted Δ: replay verification is None (nothing claimed), so the
+    # model call runs and the lens payload is observable.
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {"content": json.dumps(_edit_verdict_content())}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
+
+    assert verdict["pass_"] is True
+    payload = seen["payload"]
+    renderer_lenses = payload["renderer_lenses"]
+    reply_set = set(renderer_lenses["reply_lens_set"])
+    judge_subset = set(renderer_lenses["judge_lens_subset"])
+    # The judge's lens set is a strict subset of the reply's lens set.
+    assert judge_subset <= reply_set
+    assert judge_subset < reply_set
+    # The renderer's lens output (not a raw-graph dump) carries the same
+    # topology facts the reply window carries: the wired edge with named
+    # endpoints, and the diff lens (canonical Δ only).
+    for side in ("pre", "post"):
+        rendered = renderer_lenses[side]
+        assert rendered is not None
+        assert "## Topology" in rendered
+        assert "1 -> 2 (1.0 -> 2.model)" in rendered
+        assert "## Diff" in rendered
+        assert "## Surface" not in rendered  # surface is reply-only (not a judge lens)
+
+
+def test_intent_judge_3c978e_sees_same_controlnet_facts_as_reply(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """3c978e live: the judge's renderer payload sees the SAME complete
+    ControlNet chain (all 6 links with named endpoints) the reply stage's
+    graph window carries — symmetry (Law 4)."""
+    fixture = _BATCH12_REPO_ROOT / "tests" / "fixtures" / "3c978e6c11a8a768.json"
+    assert fixture.is_file(), f"3c978e fixture missing: {fixture}"
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    original = tmp_path / "original.ui.json"
+    candidate = tmp_path / "candidate.ui.json"
+    original.write_text(json.dumps(raw), encoding="utf-8")
+    candidate.write_text(json.dumps(raw), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "artifacts": {
+                    "original_ui": str(original),
+                    "candidate_ui": str(candidate),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {"content": json.dumps(_edit_verdict_content())}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+
+    verdict = judge_edit_intent(tmp_path, {"query": "explain the controlnet chain"})
+
+    assert verdict["pass_"] is True
+    payload = seen["payload"]
+    chain = (
+        ("15", "16", "conditioning"),
+        ("18", "16", "image"),
+        ("25", "26", "image"),
+        ("26", "3", "positive"),
+        ("33", "16", "control_net"),
+        ("34", "26", "control_net"),
+    )
+    for side in ("pre", "post"):
+        rendered = payload["renderer_lenses"][side]
+        assert rendered is not None
+        for origin, target, target_input in chain:
+            assert (
+                f"{origin} -> {target} ({origin}.0 -> {target}.{target_input})"
+            ) in rendered, (
+                f"ControlNet chain link {origin}->{target} missing from judge "
+                f"{side} lens payload"
+            )

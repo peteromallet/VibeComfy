@@ -142,14 +142,31 @@ def _coerce_workflow(wf: VibeWorkflow | Mapping[str, Any]) -> VibeWorkflow:
 
 
 def _normalise_delta(delta: Any) -> tuple[Any, ...]:
-    """Return the accepted batch as a tuple of edit ops (never None)."""
+    """Return the accepted batch as a tuple of edit ops (never None).
+
+    Typed edit ops pass through untouched.  Canonical dict-form ops (the
+    ``{"op": ...}`` mappings a durable envelope carries) are parsed through
+    the edit-op grammar so the diff lens renders them with named endpoints
+    (``set_node_field uid.field = value``, ``upsert_link a.X -> b.y``, ...).
+    A batch that fails to parse falls back to the raw items — the renderer
+    never raises on a malformed batch; it renders an unknown-op line.
+    """
     if delta is None:
         return ()
     if isinstance(delta, tuple):
-        return delta
-    if isinstance(delta, Sequence) and not isinstance(delta, (str, bytes)):
-        return tuple(delta)
-    return (delta,)
+        items = delta
+    elif isinstance(delta, Sequence) and not isinstance(delta, (str, bytes)):
+        items = tuple(delta)
+    else:
+        items = (delta,)
+    if items and all(isinstance(item, Mapping) for item in items):
+        from vibecomfy.porting.edit.ops import parse_edit_delta
+
+        try:
+            return parse_edit_delta(list(items))
+        except Exception:
+            return items
+    return items
 
 
 # ── public API ────────────────────────────────────────────────────────────────

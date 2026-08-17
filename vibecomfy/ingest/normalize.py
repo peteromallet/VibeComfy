@@ -418,7 +418,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
     for node_id, node in nodes.items():
         inputs: dict[str, Any] = {}
         input_provenance: dict[str, str] = {}
-        class_type = str(node.get("type", "Unknown"))
+        class_type = str(node.get("type") or node.get("class_type") or "Unknown")
         ui_widget_names: list[str] = []
         for input_item in node.get("inputs", []) or []:
             if not isinstance(input_item, dict):

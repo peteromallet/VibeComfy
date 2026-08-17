@@ -4598,3 +4598,186 @@ class TestImplementPhaseHeartbeat:
         ]
         assert all(payload["executor_id"] for payload in working_payloads)
         assert all(payload["session_id"] == request.session_id for payload in working_payloads)
+
+
+# ── Batch 12 (Law 4): stage lens wiring + reply-prompt goldens ──────────────
+
+_BATCH12_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _batch12_classify_edit(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    has_graph: bool = False,
+    graph_summary: str | None = None,
+    **kwargs: Any,
+) -> ClassifyDecision:
+    """Classify fake that records the graph context it received."""
+    _batch12_state["classify_graph_summary"] = graph_summary
+    return ClassifyDecision.edit(
+        research=False,
+        effort="low",
+        plan_summary="batch 12 lens wiring edit",
+    )
+
+
+def _batch12_reply_capture(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    plan: ClassifyDecision | None = None,
+    graph_summary: str | None = None,
+    **kwargs: Any,
+) -> str:
+    """Reply fake that records the graph context it received."""
+    _batch12_state["reply_graph_summary"] = graph_summary
+    return "Batch 12 reply."
+
+
+_batch12_state: dict[str, Any] = {}
+
+
+@mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_batch12_classify_edit)
+@mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_batch12_reply_capture)
+def test_batch12_classify_gets_census_only_and_reply_gets_surface_diff_topology(
+    mock_reply: mock.MagicMock,
+    mock_classify: mock.MagicMock,
+    profile_dir: Path,
+) -> None:
+    """Law 4 (batch 12): classify sees ONLY the census lens; the reply sees
+    surface + diff(Δ) + topology (complete, with link ids) — never the
+    truncated ``_build_text_summary`` view."""
+    _batch12_state.clear()
+    input_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CLIPTextEncode",
+                "class_type": "CLIPTextEncode",
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+                ],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "inputs": [{"name": "model", "type": "MODEL", "link": 1, "slot_index": 0}],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "MODEL"]],
+    }
+
+    def passthrough_edit(payload: dict, **kwargs: Any) -> dict:
+        # Preserve the full envelope (nodes + links) so the reply's topology
+        # lens sees the wired edge with its named endpoints.
+        return {"graph": payload.get("graph") or {}, "message": "no-op"}
+
+    with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=passthrough_edit):
+        result = run_executor(
+            ExecutorRequest(
+                query="describe and edit my graph",
+                graph=input_graph,
+                profile="default",
+            )
+        )
+    assert result.ok is True
+
+    # ── classify: census ONLY (node/class census + reference map) ─────────
+    census = _batch12_state.get("classify_graph_summary")
+    assert census is not None
+    assert "## Census" in census
+    assert "class list:" in census
+    assert "reference map:" in census
+    assert "## Topology" not in census
+    assert "## Diff" not in census
+    assert "edges:" not in census
+
+    # ── reply: surface + diff(Δ) + topology (complete, link ids) ──────────
+    reply_ctx = _batch12_state.get("reply_graph_summary")
+    assert reply_ctx is not None
+    assert "# vibecomfy: agent-edit" in reply_ctx  # surface (Python view)
+    assert "## Diff" in reply_ctx  # diff(Δ)
+    assert "## Topology" in reply_ctx  # full computed topology
+    assert "1 -> 2 (1.0 -> 2.model)" in reply_ctx
+    # Named fields from the surface view, not the truncated summary.
+    assert "KSampler" in reply_ctx
+    assert "CLIPTextEncode" in reply_ctx
+    # The truncated text-summary view is NOT the authority (no `values=(` /
+    # `inputs=(` truncated slot dumps, no `Edges:` cap header).
+    assert "Edges:" not in reply_ctx
+
+
+def test_batch12_reply_graph_context_is_renderer_output_not_text_summary() -> None:
+    """Reply-prompt golden: the reply's graph context is the composable
+    renderer's output (complete topology, link ids, named fields) — the
+    renderer output is embedded verbatim, not re-summarized."""
+    from vibecomfy.executor.core import _render_graph_text
+    from vibecomfy.porting.render import render_text
+
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "CLIPTextEncode", "class_type": "CLIPTextEncode"},
+            {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+        ],
+        "links": [[1, 1, 0, 2, 0, "MODEL"]],
+    }
+    rendered = _render_graph_text(raw, delta=())
+    assert rendered is not None
+    # The reply prompt embeds the renderer output verbatim behind the
+    # cite-link preamble (link ids live in the topology lens).
+    from vibecomfy.executor.prompts import build_reply_messages
+
+    msgs = build_reply_messages("explain", graph_summary=rendered)
+    user = msgs[1]["content"]
+    assert "cite link ids and widget" in user
+    assert rendered in user
+    # Renderer output is the complete view — never the truncated
+    # `_build_text_summary` format (no `node(s):\n[1] ...` compact header).
+    assert "node(s):\n[" not in user
+
+
+def test_batch12_3c978e_live_reply_gets_complete_controlnet_topology(
+    profile_dir: Path,
+) -> None:
+    """3c978e live: the reply's graph context carries the COMPLETE ControlNet
+    chain (all 6 links with named endpoints) — the real specimen that lost
+    links to the old ``[:20]`` truncation."""
+    fixture = _BATCH12_REPO_ROOT / "tests" / "fixtures" / "3c978e6c11a8a768.json"
+    assert fixture.is_file(), f"3c978e fixture missing: {fixture}"
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    _batch12_state.clear()
+
+    def passthrough_edit(payload: dict, **kwargs: Any) -> dict:
+        # Preserve the full envelope (nodes + edges) so the reply's topology
+        # lens sees the complete ControlNet chain.
+        return {"graph": payload.get("graph") or {}, "message": "no-op"}
+
+    with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_batch12_classify_edit):
+        with mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_batch12_reply_capture):
+            with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=passthrough_edit):
+                result = run_executor(
+                    ExecutorRequest(
+                        query="explain and edit this video workflow",
+                        graph=raw,
+                        profile="default",
+                    )
+                )
+    assert result.ok is True
+    reply_ctx = _batch12_state.get("reply_graph_summary")
+    assert reply_ctx is not None
+    chain = (
+        ("15", "16", "conditioning"),
+        ("18", "16", "image"),
+        ("25", "26", "image"),
+        ("26", "3", "positive"),
+        ("33", "16", "control_net"),
+        ("34", "26", "control_net"),
+    )
+    for origin, target, target_input in chain:
+        assert (
+            f"{origin} -> {target} ({origin}.0 -> {target}.{target_input})"
+        ) in reply_ctx, f"ControlNet chain link {origin}->{target} missing from reply topology"

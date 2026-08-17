@@ -284,44 +284,111 @@ def _should_implement(plan: ClassifyDecision) -> bool:
     return _route_behavior(plan).needs_implement
 
 
-# ── graph summary helpers ────────────────────────────────────────────────────
+# ── stage lens sets (Law 4, batch 12) ────────────────────────────────────────
+#
+# Every stage consumes the composable renderer
+# (``vibecomfy.porting.render``) with exactly the lens set it is allowed to
+# see:
+#   * classify → census (compact node/class census + reference map)
+#   * reply (inspect / respond with a graph) → surface + diff(Δ) + topology
+#     (the complete Python view, what changed, full computed topology)
+#   * judge → a STRICT SUBSET of the reply's lens set, enforced at the
+#     render boundary via ``ceiling=`` (the reply's set is the ceiling).
+# The reply lens set is the model's graph window — nothing is truncated.
+
+_REPLY_LENSES: tuple[str, ...] = ("surface", "diff", "topology")
+_CLASSIFY_LENSES: tuple[str, ...] = ("census",)
 
 
-def _graph_summary(graph: dict[str, Any] | None) -> str | None:
-    """Build a compact (≤ 200 char) graph summary for the classify prompt."""
-    if not graph:
-        return None
-    if isinstance(graph.get("nodes"), list) and not graph["nodes"]:
-        return "Empty graph (0 nodes)."
-    nodes = list(_iter_graph_nodes(graph))
-    if not nodes:
-        return None
-    n = len(nodes)
-    # Collect a few class_type hints.
-    types: list[str] = []
-    for _node_id, node in nodes[:8]:
-        ct = node.get("class_type") or node.get("type")
-        if isinstance(ct, str) and ct.strip():
-            types.append(ct.strip())
-    type_list = ", ".join(types[:5]) if types else "unknown"
-    suffix = f", and {n - 5} more" if n > 5 else ""
-    return f"{n} node(s): {type_list}{suffix}"
-
-
-def _render_graph_text(graph: dict[str, Any] | None) -> str | None:
+def _render_graph_text(
+    graph: dict[str, Any] | None,
+    *,
+    delta: Any = (),
+    lenses: tuple[str, ...] = _REPLY_LENSES,
+) -> str | None:
     """Render the model-facing graph text via the composable renderer.
 
-    Batch 11 (Law 4): stages consume ``render_text(wf, ("surface",
-    "topology"))`` — the complete Python-surface view plus the COMPLETE
-    computed topology (no 5-widget / 6-input / 20-edge caps).  The graph is
-    converted through the ingest door inside the renderer; ``None`` when no
-    graph is attached.
+    Batch 12 (Law 4): the reply/inspect stage consumes ``render_text(wf,
+    ("surface", "diff", "topology"))`` — the complete Python-surface view,
+    the accepted Δ (what changed — canonical batch only), and the COMPLETE
+    computed topology (no 5-widget / 6-input / 20-edge caps).  A stage
+    requests exactly the lens set it is allowed to see (the implement
+    stage, which has no accepted Δ yet, requests surface+topology).  The
+    graph is converted through the ingest door inside the renderer;
+    ``None`` when no graph is attached.
     """
     if not graph:
         return None
     from vibecomfy.porting.render import render_text
 
-    return render_text(graph, lenses=("surface", "topology"))
+    return render_text(graph, lenses=lenses, delta=delta)
+
+
+def _render_census_text(graph: dict[str, Any] | None) -> str | None:
+    """Render classify's lens: the compact node/class census (+ reference map).
+
+    Batch 12 (Law 4): classify sees ONLY the census — node count, class
+    list, and the reference map.  No widgets, no edges, no topology.
+    """
+    if not graph:
+        return None
+    from vibecomfy.porting.render import render_text
+
+    return render_text(graph, lenses=_CLASSIFY_LENSES)
+
+
+def _accepted_delta_ops(
+    implementation_result: ImplementationResult | None,
+) -> tuple[dict[str, Any], ...]:
+    """Return the accepted Δ ops from the implement phase's durable response.
+
+    The canonical Δ is what the reply must describe: the landed ops from
+    the durable envelope (``batch_turns[].delta_ops_envelope.ops`` /
+    ``batch_turns[].delta_ops``, the top-level ``delta_ops_envelope`` /
+    ``delta_ops``, or ``accepted_batch[].op``).  Pure structured extraction —
+    prose is never used.
+    """
+    if implementation_result is None:
+        return ()
+    durable = implementation_result.durable_response
+    if not isinstance(durable, Mapping):
+        return ()
+    ops: list[dict[str, Any]] = []
+    batch_turns = durable.get("batch_turns")
+    if isinstance(batch_turns, list):
+        for turn in batch_turns:
+            if not isinstance(turn, Mapping):
+                continue
+            envelope = turn.get("delta_ops_envelope")
+            turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+            if not isinstance(turn_ops, list):
+                flat = turn.get("delta_ops")
+                turn_ops = flat if isinstance(flat, list) else ()
+            for op in turn_ops:
+                if isinstance(op, Mapping) and isinstance(op.get("op"), str):
+                    ops.append(dict(op))
+    if not ops:
+        envelope = durable.get("delta_ops_envelope")
+        if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
+            ops = [
+                dict(op) for op in envelope["ops"]
+                if isinstance(op, Mapping) and isinstance(op.get("op"), str)
+            ]
+    if not ops:
+        flat = durable.get("delta_ops")
+        if isinstance(flat, list):
+            ops = [
+                dict(op) for op in flat
+                if isinstance(op, Mapping) and isinstance(op.get("op"), str)
+            ]
+    if not ops:
+        accepted = durable.get("accepted_batch")
+        if isinstance(accepted, list):
+            ops = [
+                dict(item["op"]) for item in accepted
+                if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+            ]
+    return tuple(ops)
 
 
 def _iter_graph_nodes(graph: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
@@ -699,7 +766,9 @@ def _run_classify(
         # Build enriched messages when session context carries actual data
         # for reference resolution (M3).  Otherwise, let run_classify_turn
         # build them from the default parameters.
-        graph_summary = _graph_summary(request.graph)
+        # Batch 12 (Law 4): classify sees ONLY the census lens — the compact
+        # node/class census + reference map.  No widgets, no edges.
+        graph_summary = _render_census_text(request.graph)
         classify_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
@@ -1112,10 +1181,15 @@ def _run_implement(
         "additive": bool(additive),
         "max_batches": request.max_batches,
     }
-    # Batch 11 (Law 4): the model-facing graph text is the composable
-    # renderer's surface+topology view (COMPLETE — no 5-widget/6-input/
-    # 20-edge caps).  The truncated text summary is no longer the authority.
-    graph_inspection = _render_graph_text(request.graph)
+    # Batch 11/12 (Law 4): the implement stage's model-facing graph text is
+    # the composable renderer's surface+topology view (COMPLETE — no
+    # 5-widget/6-input/20-edge caps).  The implement stage has no accepted Δ
+    # yet (the batch is its output), so it requests exactly that lens set;
+    # the truncated text summary is no longer the authority.
+    graph_inspection = _render_graph_text(
+        request.graph,
+        lenses=("surface", "topology"),
+    )
     if isinstance(graph_inspection, str) and graph_inspection.strip():
         payload["graph_inspection"] = graph_inspection
     research_package = getattr(research_result, "package", None)
@@ -1389,10 +1463,15 @@ def _run_reply(
     implementation_message: str | None = (
         implementation_result.message if implementation_result else None
     )
-    graph_summary = _graph_summary(effective_graph)
+    # Batch 12 (Law 4): the reply's graph window is the renderer's
+    # surface + diff(Δ) + topology — the complete Python view, what changed
+    # (the accepted batch), and the full computed topology with link ids.
+    # The compact summary / truncated inspection views are retired.
+    delta_ops = _accepted_delta_ops(implementation_result)
+    graph_summary = _render_graph_text(effective_graph, delta=delta_ops)
 
-    # For inspect-only, replace the compact graph summary with the detailed
-    # inspection evidence so the reply model can describe the workflow
+    # For inspect-only, the reply receives the same renderer output (with an
+    # empty Δ — nothing changed) so the model can describe the workflow
     # step-by-step without suggesting edits.
     effective_graph_context: str | None = graph_summary
     if graph_inspection:

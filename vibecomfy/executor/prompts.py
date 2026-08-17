@@ -319,8 +319,9 @@ def build_classify_messages(
 
     When *has_graph* is True, the executor tells the model a graph is attached
     so it can decide whether research / implementation is warranted.
-    *graph_summary* is an optional compact summary (≤ 200 chars) of the
-    attached graph for context.
+    *graph_summary* is the renderer's ``census`` lens (batch 12, Law 4) — the
+    compact node/class census with the reference map; classify never sees
+    widgets, edges, or topology.
 
     *session_context* provides access to recent conversation history and prior
     clarification artifacts so the classifier can resolve follow-up references
@@ -334,7 +335,7 @@ def build_classify_messages(
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
-        parts.append(f"\nGraph summary: {graph_summary}")
+        parts.append(f"\nGraph census (the attached workflow's node/class census):\n{graph_summary}")
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):
@@ -580,6 +581,12 @@ def build_reply_messages(
     *graph_inspection* provide the context the model needs to write an informed
     reply.
 
+    *graph_summary* is the composable renderer's ``surface`` + ``diff`` +
+    ``topology`` output (batch 12, Law 4) — the complete Python-surface view,
+    the accepted Δ (what changed), and the FULL computed topology with link
+    ids.  The cite-link preamble attaches to that renderer output: the model
+    cites link ids and named fields exactly as the renderer lists them.
+
     When *graph_inspection* is provided (inspect-only route), it supplies
     detailed node-by-node structure that the model should describe without
     suggesting edits.
@@ -607,7 +614,12 @@ def build_reply_messages(
             f"{graph_inspection}"
         )
     elif graph_summary:
-        parts.append(f"\nAttached workflow graph: {graph_summary}")
+        parts.append(
+            "\nAttached workflow graph (the authoritative source of node ids, "
+            "widget values, and link ids — cite link ids and widget "
+            "keys/values from it exactly as listed):\n"
+            f"{graph_summary}"
+        )
     if effective_route:
         parts.append(f"\nActive route: {effective_route}"
                      + (f", task: {effective_task}" if effective_task else ""))
