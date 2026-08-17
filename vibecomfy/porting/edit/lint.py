@@ -887,6 +887,7 @@ def _lint_add_node(
                     anchor=op.anchor,
                     uid=op.uid,
                     node_id=op.node_id,
+                    widget_field_names=op.widget_field_names,
                 )
 
         if op.inputs:

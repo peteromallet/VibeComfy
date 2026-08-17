@@ -64,6 +64,7 @@ CANONICAL_DELTA_OP_NAMES = (
     "upsert_link",
     "remove_node",
     "remove_link",
+    "subgraph_interface",
 )
 
 
@@ -185,6 +186,11 @@ class AddNodeOp:
     anchor: AnchorRef | None = None
     uid: str | None = field(default=None, repr=False)
     node_id: str | None = field(default=None, repr=False)
+    # Explicit widget-channel classification for ``fields`` (batch 9 fix).
+    # Set by ``diff`` for every add_node it emits so unknown-schema widget
+    # fields survive the diff→interpret round-trip; the Python-surface path
+    # leaves it empty and falls back to schema classification.
+    widget_field_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +220,25 @@ class SetModeOp:
     mode: Literal[0, 2, 4]
 
 
+@dataclass(frozen=True, slots=True)
+class SubgraphInterfaceOp:
+    """Definition-level subgraph signature statement (Law 3, batch 9 fix).
+
+    ``diff`` emits these when pre/post ``metadata["definitions"]`` subgraph
+    signatures differ; ``apply_edit_cow`` mirrors what ``interpret``'s
+    ``subgraph_interface(...)`` source statement applies (append/remove/upsert
+    into ``metadata["definitions"]["subgraphs"]``).  ``id`` is the stable
+    identity key; ``name``/``inputs``/``outputs`` are the emitted signature.
+    """
+
+    op: Literal["subgraph_interface"]
+    action: Literal["add", "remove", "change"]
+    name: str
+    inputs: tuple[tuple[str, Any], ...] = ()
+    outputs: tuple[tuple[str, Any], ...] = ()
+    id: str | None = None
+
+
 EditOp = (
     SetNodeFieldOp
     | AddNodeOp
@@ -221,6 +246,7 @@ EditOp = (
     | UpsertLinkOp
     | RemoveLinkOp
     | SetModeOp
+    | SubgraphInterfaceOp
 )
 
 
@@ -433,6 +459,21 @@ def _parse_optional_identity(value: Any, *, path: str) -> str | None:
     return _require_string(value, path=path)
 
 
+def _require_port_list(value: Any, *, path: str) -> tuple[tuple[str, Any], ...]:
+    """Parse a subgraph_interface ports payload into (name, type) pairs."""
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise EditOpParseError(f"{path} must be a list of [name, type] pairs.")
+    ports: list[tuple[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Sequence) or isinstance(item, (str, bytes)) or not item:
+            raise EditOpParseError(f"{path}[{index}] must be a [name, type] pair.")
+        name = _require_string(item[0], path=f"{path}[{index}][0]")
+        ports.append((name, item[1] if len(item) > 1 else None))
+    return tuple(ports)
+
+
 def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
     normalized = dict(data)
     if "source" in normalized and "from" not in normalized:
@@ -457,6 +498,19 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
 
     if op_name == "add_node":
         _reject_forbidden_keys(data, path="add_node", keys=_FORBIDDEN_RAW_NODE_KEYS)
+        widget_field_names = data.get("widget_field_names")
+        if widget_field_names is None:
+            parsed_widget_field_names: tuple[str, ...] = ()
+        else:
+            if not isinstance(widget_field_names, Sequence) or isinstance(widget_field_names, (str, bytes)):
+                raise EditOpParseError(
+                    "add_node.widget_field_names must be a list of field names.",
+                    detail={"path": "add_node.widget_field_names"},
+                )
+            parsed_widget_field_names = tuple(
+                _require_string(item, path=f"add_node.widget_field_names[{index}]")
+                for index, item in enumerate(widget_field_names)
+            )
         return AddNodeOp(
             op="add_node",
             scope_path=_require_string(data.get("scope_path"), path="scope_path", allow_empty=True),
@@ -466,6 +520,23 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             anchor=_parse_anchor(data["anchor"], path="anchor") if "anchor" in data else None,
             uid=_parse_optional_identity(data.get("uid"), path="uid"),
             node_id=_parse_optional_identity(data.get("node_id"), path="node_id"),
+            widget_field_names=parsed_widget_field_names,
+        )
+
+    if op_name == "subgraph_interface":
+        action = data.get("action")
+        if action not in ("add", "remove", "change"):
+            raise EditOpParseError(
+                "subgraph_interface.action must be one of: add, remove, change.",
+                detail={"path": "subgraph_interface.action"},
+            )
+        return SubgraphInterfaceOp(
+            op="subgraph_interface",
+            action=action,  # type: ignore[arg-type]
+            name=_require_string(data.get("name"), path="subgraph_interface.name"),
+            inputs=_require_port_list(data.get("inputs"), path="subgraph_interface.inputs"),
+            outputs=_require_port_list(data.get("outputs"), path="subgraph_interface.outputs"),
+            id=_parse_optional_identity(data.get("id"), path="subgraph_interface.id"),
         )
 
     if op_name == "remove_node":
@@ -545,6 +616,8 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
             for key, ref in op.inputs.items()
         },
     }
+    if op.widget_field_names:
+        payload["widget_field_names"] = list(op.widget_field_names)
     if op.anchor is not None:
         anchor: dict[str, Any] = {"relation": op.anchor.relation}
         if op.anchor.group_title is not None:
@@ -591,6 +664,19 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             "target": [parsed.target.scope_path, parsed.target.uid],
             "mode": parsed.mode,
         }
+    if isinstance(parsed, SubgraphInterfaceOp):
+        payload: dict[str, Any] = {
+            "op": parsed.op,
+            "action": parsed.action,
+            "name": parsed.name,
+        }
+        if parsed.inputs:
+            payload["inputs"] = [list(port) for port in parsed.inputs]
+        if parsed.outputs:
+            payload["outputs"] = [list(port) for port in parsed.outputs]
+        if parsed.id is not None:
+            payload["id"] = parsed.id
+        return payload
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
 
@@ -1073,6 +1159,7 @@ __all__ = [
     "RemoveNodeOp",
     "SetModeOp",
     "SetNodeFieldOp",
+    "SubgraphInterfaceOp",
     "UpsertLinkOp",
     "canonical_op_to_dict",
     "ensure_root_scoped_delta_envelope",

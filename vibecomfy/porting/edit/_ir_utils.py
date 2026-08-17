@@ -10,6 +10,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
@@ -549,24 +550,34 @@ def _split_add_fields(
     fields: Mapping[str, Any],
     *,
     schema_provider: Any = None,
+    widget_field_names: Sequence[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split an add_node field map into (widgets, inputs).
 
     Widgets are schema-classified literal widget fields (or positional
-    ``widget_N`` names); everything else lands in the input channel.
+    ``widget_N`` names).  ``widget_field_names`` (set by ``diff`` from the
+    post node's instance widgets channel) takes precedence so unknown-schema
+    widget fields survive the diff→interpret round-trip: the batch carries
+    the channel classification the instance hydration (batch 6) yields, and
+    this restores exactly those names to the widget channel.
     """
     from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
     from vibecomfy.schema import schema_for
 
-    widget_names: set[str] = set()
+    explicit_widget_names = (
+        frozenset(str(name) for name in widget_field_names)
+        if widget_field_names
+        else frozenset()
+    )
+    widget_names: set[str] = set(explicit_widget_names)
     if schema_provider is not None:
         schema = schema_for(schema_provider, class_type)
         schema_inputs = getattr(schema, "inputs", None) or {}
-        widget_names = {
+        widget_names.update(
             str(name)
             for name, spec in schema_inputs.items()
             if input_spec_is_literal_widget(spec)
-        }
+        )
     widgets: dict[str, Any] = {}
     inputs: dict[str, Any] = {}
     for name, value in fields.items():
@@ -726,6 +737,66 @@ def apply_edit_cow(
         ]
         return post
 
+    if isinstance(op, SubgraphInterfaceOp):
+        definitions = post.metadata.get("definitions")
+        if not isinstance(definitions, dict):
+            definitions = {}
+            post.metadata["definitions"] = definitions
+        subgraphs = definitions.get("subgraphs")
+        if not isinstance(subgraphs, list):
+            subgraphs = []
+            definitions["subgraphs"] = subgraphs
+        subgraph_id = str(op.id) if op.id else op.name
+
+        def _entry_key(entry: Any) -> str:
+            if isinstance(entry, Mapping):
+                return str(entry.get("id") or entry.get("name") or "")
+            return str(entry)
+
+        if op.action == "remove":
+            definitions["subgraphs"] = [
+                entry for entry in subgraphs if _entry_key(entry) != subgraph_id
+            ]
+            return post
+        entry = {
+            "id": subgraph_id,
+            "name": op.name,
+            "inputs": [
+                {
+                    "name": str(port[0]),
+                    "type": port[1] if len(port) > 1 else None,
+                    "label": str(port[0]),
+                }
+                for port in op.inputs
+                if isinstance(port, (list, tuple)) and port
+            ],
+            "outputs": [
+                {
+                    "name": str(port[0]),
+                    "type": port[1] if len(port) > 1 else None,
+                }
+                for port in op.outputs
+                if isinstance(port, (list, tuple)) and port
+            ],
+            "nodes": [],
+            "links": [],
+        }
+        if op.action == "change":
+            replaced = False
+            updated: list[Any] = []
+            for existing in subgraphs:
+                if _entry_key(existing) == subgraph_id:
+                    updated.append(entry)
+                    replaced = True
+                else:
+                    updated.append(existing)
+            if not replaced:
+                updated.append(entry)
+            definitions["subgraphs"] = updated
+        else:  # add
+            definitions["subgraphs"] = [*subgraphs, entry]
+        return post
+
     if isinstance(op, AddNodeOp):
         if op.scope_path:
             raise NotImplementedError(
@@ -739,7 +810,10 @@ def apply_edit_cow(
             )
         uid = str(op.uid) if op.uid else _mint_ir_uid(post)
         widgets, inputs = _split_add_fields(
-            op.class_type, op.fields, schema_provider=schema_provider
+            op.class_type,
+            op.fields,
+            schema_provider=schema_provider,
+            widget_field_names=op.widget_field_names,
         )
         node = VibeNode(
             id=new_id,

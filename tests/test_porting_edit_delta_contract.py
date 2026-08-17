@@ -546,7 +546,10 @@ def test_diff_is_minimal_deterministic_and_zero_for_identity() -> None:
     post.nodes["2"].inputs["strength"] = 0.75
     delta = diff(pre, post)
     assert delta == diff(pre, post)
-    assert diff(post, pre) == diff(pre, post)[::-1] or True  # deterministic pair
+    # Undo round-trip over the quotient: diff(post, pre) replays back to pre.
+    undo = interpret(post, diff(post, pre))
+    assert undo.ok
+    assert _pi_edit(undo.workflow) == _pi_edit(pre)
     assert diff(post, post) == ()
     assert diff(pre, pre) == ()
     for index in range(len(delta)):
@@ -606,3 +609,110 @@ def test_diff_cumulative_replay_and_undo_roundtrip() -> None:
     assert _pi_edit(back1.workflow) == _pi_edit(wf1)
     back0 = interpret(back1.workflow, diff(back1.workflow, wf0))
     assert _pi_edit(back0.workflow) == _pi_edit(wf0)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 fix — Law 3 hard cases (oracle issues 1-3).
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _law3_roundtrip(pre, post, label: str) -> None:
+    """Law 3 on a concrete (pre, post) pair: deterministic, replayable,
+    minimal, and zero for identity."""
+    from vibecomfy.porting.edit import diff, interpret
+
+    delta = diff(pre, post)
+    assert delta == diff(pre, post), label
+    result = interpret(pre, delta)
+    assert result.ok, label
+    assert _pi_edit(result.workflow) == _pi_edit(post), label
+    assert diff(post, post) == (), label
+    undo = interpret(post, diff(post, pre))
+    assert undo.ok, label
+    assert _pi_edit(undo.workflow) == _pi_edit(pre), label
+    for index in range(len(delta)):
+        reduced = delta[:index] + delta[index + 1 :]
+        assert _pi_edit(interpret(pre, reduced).workflow) != _pi_edit(post), (
+            f"{label}: op {index} is not individually necessary"
+        )
+
+
+def test_diff_preserves_unknown_schema_widgets_through_rebuild() -> None:
+    """Law 3 on a widget-set rebuild of an unknown-schema node: the named
+    widget fields must survive the diff→interpret round-trip in the WIDGET
+    channel (oracle issue 1)."""
+    from vibecomfy.porting.edit import diff
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    pre = VibeWorkflow("delta-hard", WorkflowSource("delta-contract"))
+    pre.nodes["1"] = VibeNode(
+        "1",
+        "TotallyUnknownClassABC",
+        inputs={"model": "x"},
+        widgets={"my_widget": 5, "widget_0": 9},
+        uid="law-a",
+    )
+    post = pre.copy()
+    post.nodes["1"].class_type = "TotallyUnknownClassXYZ"  # forces rebuild
+    _law3_roundtrip(pre, post, "unknown-schema widget rebuild")
+    # The widget channel is preserved by the batch itself (not schema luck).
+    add = [op for op in diff(pre, post) if op.op == "add_node"][0]
+    assert "my_widget" in add.widget_field_names
+
+
+def test_diff_add_node_mixed_schema_and_unknown_widgets() -> None:
+    """Law 3 for a fresh add-node carrying known-schema widgets, a positional
+    widget, and an unknown-schema named widget (oracle issue 1/3)."""
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    pre = VibeWorkflow("delta-hard", WorkflowSource("delta-contract"))
+    pre.nodes["1"] = VibeNode("1", "PreviewImage", inputs={}, widgets={}, uid="law-a")
+    post = pre.copy()
+    post.nodes["2"] = VibeNode(
+        "2",
+        "TotallyUnknownMixin",
+        inputs={"schema_input": "z"},
+        widgets={"known_widget": 3, "widget_0": 11, "mystery_widget": "v"},
+        uid="law-b",
+    )
+    _law3_roundtrip(pre, post, "mixed schema/unknown add-node")
+
+
+def test_diff_reconstructs_subgraph_interface_deltas() -> None:
+    """Law 3 on subgraph signatures: add/change/remove of
+    ``metadata["definitions"]`` subgraphs must be carried by the batch
+    (oracle issue 2) on the subgraphed_wan specimen."""
+    from vibecomfy.porting.edit import diff, interpret
+    from tests.test_ir_laws import SPIKE_CORPUS, _load_specimen
+
+    _, pre = _load_specimen(SPIKE_CORPUS[1][1])
+    assert (pre.metadata.get("definitions") or {}).get("subgraphs")
+
+    def mutate(mutation: str):
+        post = pre.copy()
+        subs = post.metadata.setdefault("definitions", {}).setdefault("subgraphs", [])
+        if mutation == "change":
+            subs[0]["inputs"] = [{"name": "edited_in", "type": "IMAGE", "label": "edited_in"}]
+            subs[0]["outputs"] = [{"name": "edited_out", "type": "IMAGE"}]
+        elif mutation == "remove":
+            subs.pop(0)
+        elif mutation == "add":
+            subs.append(
+                {
+                    "id": "sg-extra",
+                    "name": "Extra Subgraph",
+                    "inputs": [{"name": "in_a", "type": "LATENT", "label": "in_a"}],
+                    "outputs": [{"name": "out_a", "type": "LATENT"}],
+                    "nodes": [],
+                    "links": [],
+                }
+            )
+        return post
+
+    for mutation in ("change", "remove", "add"):
+        post = mutate(mutation)
+        _law3_roundtrip(pre, post, f"subgraph {mutation}")
+        delta = diff(pre, post)
+        assert any(op.op == "subgraph_interface" for op in delta), mutation
+        # The ops are a valid batch source: interpret applies them.
+        assert interpret(pre, delta).ok, mutation

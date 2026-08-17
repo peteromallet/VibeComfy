@@ -14,6 +14,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.edit.projection import MODE_LABELS
@@ -251,11 +252,13 @@ def _add_node_op_for(uid: str, post: VibeWorkflow, uids: set[str]) -> AddNodeOp:
         for key in _incoming_connections(post, uid, uids)
     }
     fields: dict[str, Any] = {}
-    for name, value in (dict(getattr(post_node, "widgets", {}) or {})).items():
-        fields[str(name)] = value
+    # Inputs first, then widgets: a name in BOTH channels keeps its WIDGET
+    # value (the literal channel), which ``widget_field_names`` restores.
     for name, value in (dict(getattr(post_node, "inputs", {}) or {})).items():
         if str(name) in wired_names:
             continue
+        fields[str(name)] = value
+    for name, value in (dict(getattr(post_node, "widgets", {}) or {})).items():
         fields[str(name)] = value
     inputs: dict[str, LinkSourceRef] = {}
     for src_uid, port, _dst_uid, input_name in sorted(
@@ -270,7 +273,85 @@ def _add_node_op_for(uid: str, post: VibeWorkflow, uids: set[str]) -> AddNodeOp:
         inputs=inputs,
         uid=uid,
         node_id=_node_id_by_uid(post, uid),
+        # Batch 9 fix: carry the instance widgets channel explicitly so
+        # ``_split_add_fields`` restores unknown-schema widget fields on the
+        # interpret side (schema classification alone would drop them).
+        widget_field_names=tuple(
+            sorted(str(name) for name in (getattr(post_node, "widgets", {}) or {}))
+        ),
     )
+
+
+def _subgraph_interfaces(workflow: VibeWorkflow) -> dict[str, tuple[str, tuple, tuple]]:
+    """id → (name, inputs, outputs) for retained ``definitions`` subgraphs.
+
+    Mirrors π_edit's ``_graph_interfaces`` projection exactly (same raw
+    definitions source and same ``_subgraph_definitions_from_raw`` parser) so
+    ``diff`` and the quotient agree on which signatures are grammar-visible.
+    """
+    from vibecomfy.porting.emit.emit_subgraph import _subgraph_definitions_from_raw
+
+    metadata = getattr(workflow, "metadata", None) or {}
+    definitions = metadata.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return {}
+    subgraphs = _subgraph_definitions_from_raw(
+        {"definitions": dict(definitions)}, source_path=None
+    )
+    return {
+        str(subgraph.id): (
+            str(subgraph.raw_name),
+            tuple((port.name, port.type) for port in subgraph.inputs),
+            tuple((port.name, port.type) for port in subgraph.outputs),
+        )
+        for subgraph in subgraphs.values()
+    }
+
+
+def _subgraph_interface_ops(
+    pre: VibeWorkflow, post: VibeWorkflow
+) -> list[SubgraphInterfaceOp]:
+    """Add/remove/change statements for grammar-visible subgraph signatures."""
+    pre_subgraphs = _subgraph_interfaces(pre)
+    post_subgraphs = _subgraph_interfaces(post)
+    ops: list[SubgraphInterfaceOp] = []
+    for sub_id in sorted(post_subgraphs):
+        if sub_id not in pre_subgraphs:
+            name, inputs, outputs = post_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="add",
+                    name=name,
+                    inputs=inputs,
+                    outputs=outputs,
+                    id=sub_id,
+                )
+            )
+        elif pre_subgraphs[sub_id] != post_subgraphs[sub_id]:
+            name, inputs, outputs = post_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="change",
+                    name=name,
+                    inputs=inputs,
+                    outputs=outputs,
+                    id=sub_id,
+                )
+            )
+    for sub_id in sorted(pre_subgraphs):
+        if sub_id not in post_subgraphs:
+            name, _inputs, _outputs = pre_subgraphs[sub_id]
+            ops.append(
+                SubgraphInterfaceOp(
+                    op="subgraph_interface",
+                    action="remove",
+                    name=name,
+                    id=sub_id,
+                )
+            )
+    return ops
 
 
 def _order_add_uids(add_uids: set[str], post: VibeWorkflow, uids: set[str]) -> list[str]:
@@ -332,6 +413,12 @@ def diff(
 
     rebuild_uids: set[str] = set()
     ops: list[EditOp] = []
+
+    # 0. Subgraph-interface statements: π_edit includes grammar-visible
+    #    subgraph signatures (``metadata["definitions"]``), so a definitions
+    #    delta is part of the canonical Δ (Law 3).  Emitted first; they are
+    #    independent of the node/link ops below.
+    ops.extend(_subgraph_interface_ops(pre, post))
 
     # 1. Node removals (incl. rebuild removals for common nodes whose π_edit
     #    cannot be expressed with set_node_field/set_mode alone).
@@ -687,6 +774,13 @@ def _render_op_diff(op: Any, *, old_value: Any = None) -> str:
         return f"remove_link  link_id={op.link_id}"
     if isinstance(op, SetModeOp):
         return f"set_mode  uid={op.target.uid!r} → mode={op.mode}"
+    if isinstance(op, SubgraphInterfaceOp):
+        detail = f"action={op.action} name={op.name!r}"
+        if op.inputs:
+            detail += f" inputs={len(op.inputs)}"
+        if op.outputs:
+            detail += f" outputs={len(op.outputs)}"
+        return f"subgraph_interface  {detail}"
     return repr(type(op).__name__)
 
 

@@ -123,6 +123,7 @@ def _resolve_add_node(
             anchor=op.anchor,
             uid=op.uid,
             node_id=op.node_id,
+            widget_field_names=op.widget_field_names,
         )
     issues = list(alias_issues)
     value_default_receipts: tuple[ValueDefaultReceipt, ...] = ()
@@ -473,6 +474,7 @@ def _bind_value_defaults(
             anchor=op.anchor,
             uid=op.uid,
             node_id=op.node_id,
+            widget_field_names=op.widget_field_names,
         ),
         tuple(receipts),
         issues,
