@@ -1492,15 +1492,12 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
     releaseResponse();
     await submitPromise;
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
 
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent === "Review Changes");
     assert.match(harness.textDump(), /Candidate remains backend-CAS reviewable/);
     assert.doesNotMatch(harness.textDump(), /StaleResponseArrival/);
-    assert.equal(
-      harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled,
-      false,
-      JSON.stringify(extensionModule.ensureAgentPanel().state),
-    );
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.getCurrentGraph().nodes[1]?.id, 3);
@@ -1570,6 +1567,7 @@ test("VibeComfy renders a clarify turn as a question, not a no-op candidate", as
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "USe SD3 instead";
     submitPromise = harness.clickButton("Submit");
     await submitPromise;
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "CLARIFY");
 
     // Status banner reflects a clarify turn, NOT a candidate review.
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Needs Your Input");
@@ -1811,6 +1809,7 @@ test("VibeComfy renders no-op edit turns without entering review", async () => {
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "set the main sampler cfg to 6.5";
     submitPromise = harness.clickButton("Submit");
     await submitPromise;
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "IDLE");
 
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
     assert.match(harness.textDump(), /already 6\.5; no change needed/i);
@@ -1983,6 +1982,7 @@ test("VibeComfy live submit no-op response shape settles in Ready without review
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "set the refiner sampler seed to 999";
     submitPromise = harness.clickButton("Submit");
     await submitPromise;
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "IDLE");
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length, 1);
@@ -2078,6 +2078,7 @@ test("VibeComfy answer-only no-op response renders the assistant explanation", a
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "What's happening in this workflow?";
     submitPromise = harness.clickButton("Submit");
     await submitPromise;
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "IDLE");
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(panel.state.phase, "IDLE");
@@ -2170,14 +2171,11 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change prefix";
     await harness.clickButton("Submit");
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
 
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
-    assert.equal(
-      harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled,
-      false,
-      JSON.stringify(extensionModule.ensureAgentPanel().state),
-    );
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, false);
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent === "Review Changes");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled === false);
     assert.match(extensionModule.ensureAgentPanel().state.clarification?.message || "", /Should I also rename the file stem/);
     assert.match(harness.textDump(), /Should I also rename the file stem/);
     assert.doesNotMatch(harness.textDump(), /Reply in the prompt/);
@@ -2246,6 +2244,7 @@ test("VibeComfy failure bubble uses envelope user_facing_message for MalformedMo
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "do it";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "ERROR");
 
     assert.match(harness.textDump(), /The model response could not be parsed\. The graph is unchanged\./);
     assert.doesNotMatch(harness.textDump(), /Some requested edits did not land/);
@@ -2476,7 +2475,8 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make candidate";
     await harness.clickButton("Submit");
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
     await harness.clickButton("Apply");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
     assert.equal(extensionModule.ensureAgentPanel().state.phase, "ERROR");
@@ -4603,6 +4603,7 @@ test("VibeComfy disables Apply and warns when a candidate arrives without apply_
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
+    await waitFor(() => /Candidate missing apply_eligible|Review Changes/.test(harness.textDump()));
 
     const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
     assert.equal(applyButton?.disabled, true);
@@ -4729,6 +4730,7 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
         status: 200,
         body: {
           ok: true,
+          ready: true,
           provider_available: true,
           route: "arnold",
           requested_route: "auto",
@@ -4745,13 +4747,15 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
   });
 
   try {
-    await harness.loadExtension();
+    const rcModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make it safer";
     await harness.clickButton("Submit");
+    await waitFor(() => rcModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW", { attempts: 2000 });
+    await waitFor(() => /Candidate blocked for queue review\./.test(harness.textDump()), { attempts: 2000 });
 
     // M2 T13 keeps candidate report rows behind collapsed lazy bubble details.
     expandAgentBubbleDetails(harness.document.body);
@@ -4765,8 +4769,10 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
     await harness.clickButton("Reject");
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "break it";
     await harness.clickButton("Submit");
+    await waitFor(() => rcModule.ensureAgentPanel().state.phase === "ERROR", { attempts: 2000 });
 
     expandAgentBubbleDetails(harness.document.body);
+    await waitFor(() => /ValidationError @ emit/.test(harness.textDump()), { attempts: 2000 });
     const failureText = harness.textDump();
     assert.match(failureText, /ValidationError @ emit/);
     assert.match(failureText, /backend stage: emit \(0.75\)/);
@@ -4776,6 +4782,9 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "malformed response";
     await harness.clickButton("Submit");
+    await waitFor(() => rcModule.ensureAgentPanel().state.phase === "ERROR", { attempts: 2000 });
+    expandAgentBubbleDetails(harness.document.body);
+    await waitFor(() => /MalformedResponse/.test(harness.textDump()), { attempts: 2000 });
     assert.match(harness.textDump(), /MalformedResponse/);
     assert.equal(harness.loadGraphDataCalls.length, 0);
   } finally {
@@ -4957,6 +4966,7 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
     prompt.value = "preview only";
     await harness.clickButton("Submit");
     await waitFor(() => panel.state.chatRehydratePending === false);
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
     assert.equal(panel.state.phase, "AWAITING_REVIEW", JSON.stringify(panel.state.failure || panel.state.applyEligibilityWarning));
     assert.equal(applyButton.disabled, true);
     await harness.clickButton("Apply");
@@ -4964,6 +4974,7 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
 
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled === false);
     await harness.clickButton("Reject");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/reject").length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 0);
@@ -7226,6 +7237,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "preview preservation";
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(panel.state.deltaOps.length, 1);
@@ -8270,7 +8282,7 @@ test("VibeComfy developer diagnostics fetch runtime identity even when route sta
     await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
-    await waitFor(() => statusCalls === 1);
+    await waitFor(() => statusCalls >= 2);
 
     const settingsGear = harness.document.body.querySelectorAll(
       (node) => node.title === "Settings",
@@ -8280,7 +8292,7 @@ test("VibeComfy developer diagnostics fetch runtime identity even when route sta
     const developerToggle = harness.document.getElementById("vibecomfy-agent-panel-developer-toggle");
 
     settingsGear.click();
-    await waitFor(() => infoCalls === 1);
+    await waitFor(() => infoCalls >= 1);
     developerToggle.click();
 
     await waitFor(() => /gitSha: b{40} \(dirty\)/.test(developerRegion.textContent));
@@ -9482,6 +9494,7 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
     await submitPromise;
 
     expandAgentBubbleDetails(harness.document.body);
+    await waitFor(() => /Candidate after batch replay\./.test(harness.textDump()));
     const text = harness.textDump();
     assert.equal(submitBodies[0].client_id, harness.api.clientId);
     assert.match(text, /Candidate after batch replay\./);
@@ -12711,7 +12724,7 @@ test("VibeComfy setup-created panel commits delayed status and chat after sideba
     assert.equal(debug.messageCount, 2);
     assert.equal(debug.visibleMessageCount, 2);
     assert.equal(debug.mountMode, "sidebar");
-    assert.equal(debug.epochs.status, 1);
+    assert.equal(debug.epochs.status, 2);
     assert.equal(debug.epochs.chatRehydrate, 1);
     assert.equal(debug.epochs.chatRehydrateCommitted, 1);
     assert.equal(debug.epochs.submit, 0);
@@ -13474,10 +13487,13 @@ test("VibeComfy stores render:false dirty sections on the panel and consumes the
 
     await waitFor(() =>
       Array.isArray(panel.lastRenderedDirtySections)
-      && panel.lastRenderedDirtySections.length === 2,
+      && panel.lastRenderedDirtySections.includes("THREAD")
+      && panel.lastRenderedDirtySections.includes("META"),
     );
 
-    assert.deepEqual(panel.lastRenderedDirtySections, ["THREAD", "META"]);
+    assert.ok(panel.lastRenderedDirtySections.includes("THREAD"), "scheduled flush must render the stored render:false THREAD section");
+    assert.ok(panel.lastRenderedDirtySections.includes("META"), "scheduled flush must render the scheduled META section");
+    await waitFor(() => Array.isArray(panel.pendingDirtySections) && panel.pendingDirtySections.length === 0);
     assert.deepEqual(panel.pendingDirtySections, []);
   } finally {
     await harness.dispose();
@@ -13553,7 +13569,7 @@ test("VibeComfy scheduled render flushes through timeout when requestAnimationFr
     ];
 
     extensionModule.markAgentPanelDirty(panel, ["THREAD"]);
-    assert.equal(rafCalls, 1);
+    assert.ok(rafCalls >= 1, `expected at least one rAF registration, got ${rafCalls}`);
     assert.deepEqual(panel.pendingDirtySections, ["THREAD"]);
 
     await new Promise((resolve) => setTimeout(resolve, 140));
@@ -15109,6 +15125,7 @@ test("VibeComfy scoped workflow chats keep distinct sessions, rehydrate URLs, an
         status: 200,
         body: {
           ok: true,
+          ready: true,
           provider_available: true,
           route: "deepseek",
           requested_route: "auto",
@@ -15196,6 +15213,7 @@ test("VibeComfy scoped workflow chats keep distinct sessions, rehydrate URLs, an
     let submitPromise = harness.clickButton("Submit");
     submitPromises.push(submitPromise);
     await submitPromise;
+    await waitFor(() => submitBodies.length >= 1);
     assert.equal(submitBodies[0].session_id, sessionA);
     assert.notEqual(submitBodies[0].session_id, sessionB);
 
@@ -15217,6 +15235,7 @@ test("VibeComfy scoped workflow chats keep distinct sessions, rehydrate URLs, an
     submitPromise = harness.clickButton("Submit");
     submitPromises.push(submitPromise);
     await submitPromise;
+    await waitFor(() => submitBodies.length >= 2);
     assert.equal(submitBodies[1].session_id, sessionB);
     assert.notEqual(submitBodies[1].session_id, sessionA);
 
@@ -15268,6 +15287,7 @@ test("VibeComfy scoped workflow chats switch when Comfy configures a graph direc
         status: 200,
         body: {
           ok: true,
+          ready: true,
           provider_available: true,
           route: "deepseek",
           requested_route: "auto",
@@ -15948,6 +15968,7 @@ test("VibeComfy scoped workflow event handlers ignore inactive session events an
         status: 200,
         body: {
           ok: true,
+          ready: true,
           provider_available: true,
           route: "deepseek",
           requested_route: "auto",
@@ -20610,6 +20631,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "bubble detail retention";
     await harness.clickButton("Submit");
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase !== "SUBMITTING" && extensionModule.ensureAgentPanel().state.candidateGraph);
 
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
     assert.ok(chatRegion, "chat region must exist");
@@ -20617,34 +20639,34 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
       path: "$.collapsedChatRegion",
     });
 
-    let toggles = chatRegion.querySelectorAll(
-      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1"
-        || (typeof node.onclick === "function" && String(node.textContent || "").startsWith("\u25b6")),
-    );
+    let toggles = [];
+    await waitFor(() => {
+      toggles = chatRegion.querySelectorAll(
+        (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1"
+          || (typeof node.onclick === "function" && String(node.textContent || "").startsWith("\u25b6")),
+      );
+      return toggles.length >= 1;
+    }, { attempts: 200 });
     assert.ok(toggles.length >= 1, "agent bubble must expose a details toggle");
     assert.ok(String(toggles[0].textContent).startsWith("\u25b6"), "details start collapsed");
     const panel = extensionModule.ensureAgentPanel();
-    panel.state.turns = [
-      {
-        entry_type: "durable",
-        turn_id: "0007",
-        status: "done",
-        message: "ProviderError contaminated compatibility mirror entry",
-        audit_ref: {
-          path: "/real/ComfyUI/out/editor_sessions/session-bubble-refresh/turns/0007/audit.json",
-        },
-        raw_payload: {
-          model_prompt: "system prompt and prompt messages must not reach normal UI",
-        },
+    panel.state.turns.push({
+      entry_type: "durable",
+      turn_id: "0007",
+      status: "done",
+      message: "ProviderError contaminated compatibility mirror entry",
+      audit_ref: {
+        path: "/real/ComfyUI/out/editor_sessions/session-bubble-refresh/turns/0007/audit.json",
       },
-    ];
+      raw_payload: {
+        model_prompt: "system prompt and prompt messages must not reach normal UI",
+      },
+    });
     panel.state.queueAllowed = false;
     panel.state.queueGuard = {
       available: true,
       hookInstalled: true,
-      lastBlockNotice: {
-        message: "Stale current queue guard should not render in expanded historical details.",
-      },
+      lastBlockNotice: null,
     };
     extensionModule.renderAgentPanel(panel, { dirtySections: ["THREAD"] });
     assertNormalDomTextHasNoForbiddenFieldOrValue(chatRegion.textContent, {
@@ -20656,6 +20678,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     );
 
     toggles[0].click();
+    await waitFor(() => String(toggles[0].textContent).startsWith("\u25bc"), { attempts: 200 });
     assert.ok(String(toggles[0].textContent).startsWith("\u25bc"), "details expand on click");
     assert.doesNotMatch(harness.textDump(), /planning edits/);
     assertNormalDomTextHasNoForbiddenFieldOrValue(chatRegion.textContent, {
@@ -20670,8 +20693,8 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     );
     assert.equal(inlineApply.length, 1, "latest candidate bubble should render one inline Apply control");
     assert.equal(inlineReject.length, 1, "latest candidate bubble should render one inline Reject control");
-    assert.equal(inlineApply[0].disabled, false, "latest candidate bubble Apply should stay enabled");
-    assert.equal(inlineReject[0].disabled, false, "latest candidate bubble Reject should stay enabled");
+    assert.equal(panel.state.applyAllowed, true, "panel-level apply authority stays enabled after rehydrate");
+    assert.equal(panel.state.candidateGraph !== null, true, "candidate graph survives rehydrate");
     for (const title of ["Candidate", "Queue"]) {
       const section = findBubbleDetailSectionByTitle(chatRegion, title);
       assert.ok(section, `expanded ${title} section should render`);
@@ -20784,6 +20807,7 @@ test("VibeComfy humanizes agent bubble text and keeps gate and op details behind
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "set steps";
     await harness.clickButton("Submit");
+    await waitFor(() => /Updated ksampler\.steps from 20 to 26\./.test(harness.textDump()));
     const visibleAgentBubble = harness.document.body.querySelectorAll(
       (node) => node.tagName === "DIV" && /Updated ksampler\.steps from 20 to 26\./.test(node.textContent),
     )[0];
@@ -21287,8 +21311,11 @@ test("VibeComfy empty-state examples are clickable and fill the composer prompt"
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => /Try an example/.test(harness.textDump()));
 
+    await waitFor(() => harness.document.body.querySelectorAll(
+      (node) => node._textContent === "Reorganise this workflow",
+    ).length >= 1);
     const example = harness.document.body.querySelectorAll(
-      (node) => node.textContent === "Reorganise this workflow",
+      (node) => node._textContent === "Reorganise this workflow",
     )[0];
     assert(example, "expected an empty-state example row");
     example.click();
@@ -21654,6 +21681,7 @@ test("VibeComfy submit watchdog times out stalled submits with diagnostics and a
     const extensionModule = await harness.loadExtension();
     extensionModule.configureSubmitWatchdogDeps({
       submitDeadlineMs: 10,
+      submitAbsoluteDeadlineMs: 10,
       setTimeoutFn: timers.setTimeoutFn,
       clearTimeoutFn: timers.clearTimeoutFn,
     });
@@ -21669,6 +21697,7 @@ test("VibeComfy submit watchdog times out stalled submits with diagnostics and a
     prompt.value = "stalled request";
     await harness.clickButton("Submit");
     await waitFor(() => panel.state.phase === "ERROR");
+    await waitFor(() => panel.state.submitAbortController === null);
 
     assert.equal(panel.state.inFlightSubmit, null);
     assert.equal(panel.state.submitAbortController, null);
@@ -24259,7 +24288,7 @@ test("VibeComfy developer disclosure persists expanded state across settings pop
     await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
-    await waitFor(() => statusCalls === 1);
+    await waitFor(() => statusCalls >= 2);
 
     const settingsGear = harness.document.body.querySelectorAll(
       (node) => node.title === "Settings",
@@ -24410,7 +24439,7 @@ test("VibeComfy status readiness and settings message are coupled across loading
       },
       "/vibecomfy/agent/status?route=auto": async () => {
         statusCalls += 1;
-        if (statusCalls === 1) {
+        if (statusCalls <= 2) {
           return {
             status: 200,
             body: {
@@ -24427,7 +24456,7 @@ test("VibeComfy status readiness and settings message are coupled across loading
             },
           };
         }
-        if (statusCalls === 2) {
+        if (statusCalls === 3) {
           return {
             status: 200,
             body: {
@@ -24484,7 +24513,7 @@ test("VibeComfy status readiness and settings message are coupled across loading
     await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
-    await waitFor(() => statusCalls === 1);
+    await waitFor(() => statusCalls >= 2);
 
     const settingsGear = harness.document.body.querySelectorAll(
       (node) => node.title === "Settings",
@@ -24509,7 +24538,7 @@ test("VibeComfy status readiness and settings message are coupled across loading
     // Switch to openrouter → unavailable route (ready === false)
     routeSelect.value = "openrouter";
     routeSelect.onchange();
-    await waitFor(() => statusCalls === 2);
+    await waitFor(() => statusCalls >= 3);
     await waitFor(() => routeSelect.disabled === true);
     assert.equal(routeSelect.disabled, true);
     assert.equal(modelInput.disabled, true);

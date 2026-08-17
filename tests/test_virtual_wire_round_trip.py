@@ -96,12 +96,7 @@ def _add_node(
     size=None,
     inputs=None,
 ) -> VibeNode:
-    ui: dict = {}
-    if pos is not None:
-        ui["pos"] = pos
-    if size is not None:
-        ui["size"] = size
-    n = VibeNode(node_id, class_type, inputs=dict(inputs or {}), metadata={"_ui": ui} if ui else {})
+    n = VibeNode(node_id, class_type, inputs=dict(inputs or {}), pos=pos, size=size)
     n.uid = node_id
     wf.nodes[node_id] = n
     return n
@@ -121,11 +116,7 @@ def _add_vw_node(
     if channel:
         vw_inputs["widget_0"] = channel
     ui: dict = {"type": class_type}
-    if pos is not None:
-        ui["pos"] = pos
-    if size is not None:
-        ui["size"] = size
-    n = VibeNode(node_id, class_type, inputs=vw_inputs, metadata={"_ui": ui})
+    n = VibeNode(node_id, class_type, inputs=vw_inputs, metadata={"_ui": ui}, pos=pos, size=size)
     n.uid = node_id
     wf.nodes[node_id] = n
     return n

@@ -2421,8 +2421,14 @@ def test_validate_stage_flags_invalid_model_picker_values_when_schema_choices_ex
 
     diagnostics = validate_stage_diagnostics(workflow, schema_provider=provider)
 
-    assert diagnostics.failure_kind is FailureKind.VALIDATION_ERROR
-    assert any(issue["code"] == "value_not_in_enum" for issue in diagnostics.issues)
+    # Environment-asset pickers warn (asset may be installed later); they do
+    # not block validation. Semantic enum violations elsewhere stay errors.
+    assert diagnostics.failure_kind is None
+    assert diagnostics.ok is True
+    assert any(
+        issue["code"] == "value_not_in_enum" and issue.get("severity") == "warning"
+        for issue in diagnostics.issues
+    )
 
 
 def test_validate_stage_leaves_helper_info_non_blocking() -> None:
@@ -4598,7 +4604,7 @@ def test_build_batch_messages_turn_zero_includes_compact_execution_plan_status()
             "failed_condition_ids": ["active_video_path"],
             "feedback": "Video sink is not connected to the active sampler path.",
         },
-        research_summary="Large contextual research packet stays in its own block.",
+        evidence_ledger="Large contextual research packet stays in its own block.",
     )
     user = messages[1]["content"]
 
@@ -4609,8 +4615,8 @@ def test_build_batch_messages_turn_zero_includes_compact_execution_plan_status()
     assert '"blocking": true' in user
     assert '"active_video_path"' in user
     assert "Video sink is not connected" in user
-    assert "Research evidence/context (external + local corpus):" in user
-    assert user.index("Execution plan status") < user.index("Research evidence/context")
+    assert "Tool evidence ledger (compact; entries + evidence IDs only;" in user
+    assert user.index("Execution plan status") < user.index("Tool evidence ledger (compact;")
 
 
 def test_build_batch_messages_later_turn_includes_latest_execution_plan_status() -> None:
@@ -4642,7 +4648,6 @@ def test_build_batch_messages_omits_execution_plan_status_when_absent() -> None:
         task="Direct seed edit",
         turn_number=0,
         python_source="sampler = KSampler(seed=0)",
-        research_summary="",
     )
     later_messages = agent_provider.build_batch_messages(
         task="Direct seed edit",
@@ -5008,7 +5013,16 @@ def test_run_agent_turn_batch_empty_content_is_malformed(monkeypatch) -> None:
         @staticmethod
         def run_agent_turn_batch(**kwargs):
             calls.append(kwargs)
-            return {"content": ""}
+            return {
+                "content": "",
+                "model_attempts": [
+                    {
+                        "outcome": "failure",
+                        "failure_type": "empty_response",
+                        "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    }
+                ],
+            }
 
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: EmptyBatchRuntime)
     with pytest.raises(agent_provider.MalformedModelJSON, match="batch_repl response was empty"):
@@ -5071,7 +5085,16 @@ def test_run_agent_turn_batch_retries_empty_content_once_then_succeeds(monkeypat
     calls: list[dict[str, object]] = []
     responses = iter(
         [
-            {"content": ""},
+            {
+                "content": "",
+                "model_attempts": [
+                    {
+                        "outcome": "failure",
+                        "failure_type": "empty_response",
+                        "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    }
+                ],
+            },
             {"content": "Done.\n\n```batch\nsaveimage.filename_prefix = \"after\"\ndone()\n```"},
         ]
     )

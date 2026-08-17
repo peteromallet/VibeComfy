@@ -145,6 +145,12 @@ test("disabled picker returns null and emits no UI or network traffic", async ()
 test("enabled picker fetches the scenario list and renders the toolbar", async () => {
   const harness = await createBrowserHarness({
     responses: {
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
     },
   });
@@ -174,6 +180,12 @@ test("enabled picker fetches the scenario list and renders the toolbar", async (
 test("server-disabled picker leaves no visible UI even when browser preference allows it", async () => {
   const harness = await createBrowserHarness({
     responses: {
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": { status: 404, body: { ok: false, error: "Not found" } },
     },
   });
@@ -202,6 +214,12 @@ test("server-disabled picker leaves no visible UI even when browser preference a
 test("Load & Play stages demo replay from before-send to review", async () => {
   const harness = await createBrowserHarness({
     responses: {
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
     },
@@ -524,6 +542,12 @@ test("Load & Play shows reorganise candidate layout during review", async () => 
   };
   const harness = await createBrowserHarness({
     responses: {
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse({
         original_graph: originalGraph,
@@ -570,6 +594,12 @@ test("Load & Play shows reorganise candidate layout during review", async () => 
 test("non-applyable eligibility disables apply/canvasApply while keeping details collapsed", async () => {
   const harness = await createBrowserHarness({
     responses: {
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_b": makeScenarioResponse({
         id: "demo_b",
@@ -624,6 +654,12 @@ test("demo Apply and Reject do not POST to the backend accept/reject routes", as
     responses: {
       "/vibecomfy/ping": { status: 200, body: "pong" },
       "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
       "/vibecomfy/agent-edit/accept": { status: 500, body: { ok: false, error: "should not be reached" } },
@@ -724,6 +760,12 @@ test("demo candidate never impersonates production — no submit hash, no accept
     responses: {
       "/vibecomfy/ping": { status: 200, body: "pong" },
       "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
       "/vibecomfy/agent-edit/accept": { status: 500, body: { ok: false, error: "should not be reached" } },
@@ -790,6 +832,12 @@ test("demo Apply is blocked when the candidate scope mismatches the active chat 
     responses: {
       "/vibecomfy/ping": { status: 200, body: "pong" },
       "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
       "/vibecomfy/agent-edit/accept": { status: 500, body: { ok: false, error: "should not be reached" } },
@@ -853,6 +901,12 @@ test("clearActiveDemo tears down a staged demo and restores production identity"
     responses: {
       "/vibecomfy/ping": { status: 200, body: "pong" },
       "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse(),
     },
@@ -919,6 +973,12 @@ test("Family B: demo scenario clones drop undefined and function members from ag
     responses: {
       "/vibecomfy/ping": { status: 200, body: "pong" },
       "/vibecomfy/agent/status?route=auto": makeStatusResponse(),
+      "/vibecomfy/info": {
+        status: 200,
+        body: {
+          runtime_modes: { demo_picker: true },
+        },
+      },
       "/vibecomfy/demo/scenarios": makeScenarioList(),
       "/vibecomfy/demo/scenario?id=demo_a": makeScenarioResponse({
         outcome: { kind: "candidate", changes: [], callback: () => {}, ephemeral: undefined },

@@ -32,19 +32,11 @@ def _virtual_node(
     pos=None,
     size=None,
 ) -> VibeNode:
-    properties = {}
-    if channel:
-        properties["broadcast_name"] = channel
-    ui: dict = {"type": class_type, "properties": properties}
-    if pos is not None:
-        ui["pos"] = pos
-    if size is not None:
-        ui["size"] = size
-    # broadcast_name() reads from node.inputs, not _ui metadata.
+    # broadcast_name() reads from node.inputs["name"], not _ui metadata.
     inputs: dict = {}
     if channel:
         inputs["name"] = channel
-    n = VibeNode(node_id, class_type, inputs=inputs, metadata={"_ui": ui})
+    n = VibeNode(node_id, class_type, inputs=inputs, pos=pos, size=size)
     n.uid = node_id
     return n
 
@@ -56,15 +48,7 @@ def _regular_node(
     pos=None,
     size=None,
 ) -> VibeNode:
-    ui: dict = {}
-    if pos is not None:
-        ui["pos"] = pos
-    if size is not None:
-        ui["size"] = size
-    metadata: dict = {}
-    if ui:
-        metadata["_ui"] = ui
-    n = VibeNode(node_id, class_type, metadata=metadata)
+    n = VibeNode(node_id, class_type, pos=pos, size=size)
     n.uid = node_id
     return n
 

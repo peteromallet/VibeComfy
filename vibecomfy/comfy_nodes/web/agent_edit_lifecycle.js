@@ -1547,6 +1547,8 @@ function _handleSubmitNetworkFailure(panel, payload) {
   panel.state.failure = failure;
   panel.state.submitStartedAtMs = null;
   panel.state.submitDeadlineMs = null;
+  panel.state.submitAbortController = null;
+  panel.state.inFlightSubmit = null;
   panel.state.turnId = _stringOrCurrent(failure?.turn_id, panel.state.turnId);
   panel.state.sessionId = _stringOrCurrent(failure?.session_id, panel.state.sessionId);
   _handleSyncBaseline(panel, failure || {});
@@ -1876,6 +1878,13 @@ function _handleArrivalSerializeFailure(panel, payload) {
 function _handleCandidateResponse(panel, payload) {
   const result = payload?.result || {};
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
+  // The submit is terminal at candidate arrival: clear the in-flight submit
+  // bookkeeping (the finalizer's identity check would otherwise skip it once
+  // the response path has already moved the panel forward).
+  panel.state.submitAbortController = null;
+  panel.state.inFlightSubmit = null;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
   const projectedCandidate = _readApplyCandidateForTransition(payload);
   const candidateTransaction = _readCandidateTransactionForTransition(payload);
   const legacyMigration = _readLegacyMigrationForTransition(payload);

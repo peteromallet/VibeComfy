@@ -34,11 +34,14 @@ def _single_node_fixture(
         if spec.default is not None
     }
     merged_fields.update(fields)
-    metadata = {"_ui": {"pos": pos, "size": [320, 180]}}
+    metadata = {}
     control = merged_fields.pop("control_after_generate", None)
     if isinstance(control, str):
         metadata["control_after_generate"] = control
-    wf.nodes["1"] = VibeNode("1", class_type, inputs=merged_fields, metadata=metadata, uid=uid)
+    wf.nodes["1"] = VibeNode(
+        "1", class_type, inputs=merged_fields, metadata=metadata, uid=uid,
+        pos=pos, size=[320, 180],
+    )
     return emit_ui_json(wf, schema_provider=_Provider({class_type: schema}))["nodes"][0]
 
 

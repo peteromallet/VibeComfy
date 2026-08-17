@@ -308,9 +308,9 @@ def build() -> VibeWorkflow:
 
     calculate_frames_result = calculate_frames(
         audio=audioenhancementnode.out(0),
-        variables_b=['1586', 0],
-        variables_a=['1897', 1],
-        on_false=['1897', 1],
+        variables_b=24.0,
+        variables_a=241,
+        on_false=241,
     )
 
     previewaudio = PreviewAudio(_id='1943', audio=audioenhancementnode.out(0))

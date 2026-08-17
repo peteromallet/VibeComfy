@@ -49,7 +49,14 @@ def _markdown_files(paths: list[Path]) -> list[Path]:
         text=True,
         stdout=subprocess.PIPE,
     )
-    return [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+    # `.oracle/` is a per-run artifact tree (findings/checkins/measurements/briefs),
+    # not documentation: its links point at historical run clones and files that
+    # intentionally rot between runs, so doc-link hygiene does not apply.
+    return [
+        REPO_ROOT / line
+        for line in result.stdout.splitlines()
+        if line and not line.startswith(".oracle/")
+    ]
 
 
 def _is_tracked(path: Path) -> bool:

@@ -199,7 +199,7 @@ Rebaseline persistence and audit:
 - Response artifact: `session/_rebaseline/<rebaseline_id>/response.json`
 - Route-level audit artifact: `session/_rebaseline/<rebaseline_id>/audit/audit.json`
 
-Recovery metadata for stale ingest is created in `_stale_rebaseline_recovery_issue()` in [edit_ingest.py](../../vibecomfy/comfy_nodes/agent/edit_ingest.py) and promoted to the top-level failure response in `_failure_response()` in [edit_response_contract.py](../../vibecomfy/comfy_nodes/agent/edit_response_contract.py). Implemented wire shape:
+Recovery metadata for stale ingest is created in `_stale_rebaseline_recovery_issue()` in [edit_ingest.py](../../vibecomfy/comfy_nodes/agent/_frag_ingest.py) and promoted to the top-level failure response in `_failure_response()` in [edit_response_contract.py](../../vibecomfy/comfy_nodes/agent/_frag_response_contract.py). Implemented wire shape:
 
 ```json
 {
@@ -261,7 +261,7 @@ Browser authority rule:
 
 Plan-backed turns keep the public payload boundary compatible: the executor
 continues to pass the plan under
-`execution_protocol_notes.execution_plan.plan`. At turn setup, [edit_entrypoint.py](../../vibecomfy/comfy_nodes/agent/edit_entrypoint.py)
+`execution_protocol_notes.execution_plan.plan`. At turn setup, [edit_entrypoint.py](../../vibecomfy/comfy_nodes/agent/_frag_entrypoint.py)
 hydrates that nested value into `AgentEditState.execution_plan`, persists
 `turns/<turn_id>/execution_plan.json`, and later persists
 `turns/<turn_id>/plan_evaluation.json` through [execution_plan_runtime.py](../../vibecomfy/comfy_nodes/agent/execution_plan_runtime.py).
@@ -293,7 +293,7 @@ allows `done()` to finish the batch.
 Candidate payloads, task satisfaction, debug gates, and apply eligibility all
 use the same `plan_validate_ok` result:
 
-- [edit_response_contract.py](../../vibecomfy/comfy_nodes/agent/edit_response_contract.py)
+- [edit_response_contract.py](../../vibecomfy/comfy_nodes/agent/_frag_response_contract.py)
   suppresses `candidate`, candidate aliases, `canvas_apply_allowed`, and
   applyability when a plan-backed evaluation fails or is missing.
 - Successful plan evaluation keeps normal candidate payloads and records

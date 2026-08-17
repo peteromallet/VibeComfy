@@ -201,10 +201,10 @@ def generate_video_c4106aee(
     ltxvpreprocess = LTXVPreprocess(img_compression=18, image=resizeimagesbylongeredge)
 
     prompt_enhancer_result = prompt_enhancer(
-        clip=['-10', 19],
+        clip=clip_2,
         image=resizeimagemasknode,
-        enable=['-10', 20],
-        prompt=['-10', 1],
+        enable=un3912,
+        prompt=prompt,
     )
 
     emptyltxvlatentvideo = EmptyLTXVLatentVideo(
@@ -440,10 +440,10 @@ def generate_video(
     )
 
     prompt_enhancer_97b9884d_result = prompt_enhancer_97b9884d(
-        clip=['-10', 17],
+        clip=clip_2,
         image=resizeimagemasknode,
-        enable=['-10', 18],
-        prompt=['-10', 1],
+        enable=un3912,
+        prompt=prompt,
     )
 
     trimaudioduration_2 = TrimAudioDuration(
@@ -651,10 +651,10 @@ def generate_video_a3fb563d(
     )
 
     prompt_enhancer_cc5ea718_result = prompt_enhancer_cc5ea718(
-        clip=['-10', 17],
+        clip=clip_2,
         image=resizeimagemasknode,
-        enable=['-10', 18],
-        prompt=['-10', 1],
+        enable=un3912,
+        prompt=prompt,
     )
 
     trimaudioduration_2 = TrimAudioDuration(
@@ -862,10 +862,10 @@ def generate_video_4acc9924(
     )
 
     prompt_enhancer_50a3ed96_result = prompt_enhancer_50a3ed96(
-        clip=['-10', 17],
+        clip=clip_2,
         image=resizeimagemasknode,
-        enable=['-10', 18],
-        prompt=['-10', 1],
+        enable=un3912,
+        prompt=prompt,
     )
 
     trimaudioduration_2 = TrimAudioDuration(
@@ -1033,11 +1033,11 @@ def build() -> VibeWorkflow:
     )
 
     total_duration_result = total_duration(
-        variables_a=['2012', 0],
-        variables_b=['1997', 0],
-        variables_c=['5071', 0],
-        variables_d=['5146', 0],
-        variables_e=['5221', 0],
+        variables_a=11.0,
+        variables_b=10.0,
+        variables_c=18.0,
+        variables_d=15.0,
+        variables_e=10.0,
     )
 
     stringconcatenate = StringConcatenate(
@@ -1321,19 +1321,19 @@ def build() -> VibeWorkflow:
         negative=negative,
         sampler=ksamplerselect,
         sigmas=manualsigmas,
-        values_b=['1586', 0],
-        variables_b=['1586', 0],
+        values_b=25.0,
+        variables_b=25.0,
         width=width_2,
         height=height_2,
         audio=comfyswitchnode,
         vae_2=vaeloader,
         clip_2=dualcliploader,
-        un3912=['2116', 0],
+        un3912=False,
         audio_2=trimaudioduration,
         vae_3=vaeloader,
-        num_images_strength_1=['1722', 0],
+        num_images_strength_1=0.7,
         vae_4=vaeloader,
-        num_images_strength_1_2=['1722', 0],
+        num_images_strength_1_2=0.7,
         model_2=ltx2_nag,
         negative_2=negative,
         sampler_2=ksamplerselect_2,
@@ -1366,19 +1366,19 @@ def build() -> VibeWorkflow:
         audio_vae=vaeloaderkj,
         model=ltx2_nag,
         negative=negative,
-        values_b=['1586', 0],
-        variables_b=['1586', 0],
+        values_b=25.0,
+        variables_b=25.0,
         width=width_2,
         height=height_2,
         audio=comfyswitchnode,
         vae_2=vaeloader,
         clip_2=dualcliploader,
-        un3912=['2116', 0],
+        un3912=False,
         audio_2=trimaudioduration,
         vae_3=vaeloader,
-        num_images_strength_1=['1722', 0],
+        num_images_strength_1=0.7,
         vae_4=vaeloader,
-        num_images_strength_1_2=['1722', 0],
+        num_images_strength_1_2=0.7,
         model_2=ltx2_nag,
         negative_2=negative,
         sampler=ksamplerselect_2,
@@ -1413,19 +1413,19 @@ def build() -> VibeWorkflow:
         audio_vae=vaeloaderkj,
         model=ltx2_nag,
         negative=negative,
-        values_b=['1586', 0],
-        variables_b=['1586', 0],
+        values_b=25.0,
+        variables_b=25.0,
         width=width_2,
         height=height_2,
         audio=comfyswitchnode,
         vae_2=vaeloader,
         clip_2=dualcliploader,
-        un3912=['2116', 0],
+        un3912=False,
         audio_2=trimaudioduration,
         vae_3=vaeloader,
-        num_images_strength_1=['1722', 0],
+        num_images_strength_1=0.7,
         vae_4=vaeloader,
-        num_images_strength_1_2=['1722', 0],
+        num_images_strength_1_2=0.7,
         model_2=ltx2_nag,
         negative_2=negative,
         sampler=ksamplerselect_2,
@@ -1460,19 +1460,19 @@ def build() -> VibeWorkflow:
         audio_vae=vaeloaderkj,
         model=ltx2_nag,
         negative=negative,
-        values_b=['1586', 0],
-        variables_b=['1586', 0],
+        values_b=25.0,
+        variables_b=25.0,
         width=width_2,
         height=height_2,
         audio=comfyswitchnode,
         vae_2=vaeloader,
         clip_2=dualcliploader,
-        un3912=['2116', 0],
+        un3912=False,
         audio_2=trimaudioduration,
         vae_3=vaeloader,
-        num_images_strength_1=['1722', 0],
+        num_images_strength_1=0.7,
         vae_4=vaeloader,
-        num_images_strength_1_2=['1722', 0],
+        num_images_strength_1_2=0.7,
         model_2=ltx2_nag,
         negative_2=negative,
         sampler=ksamplerselect_2,

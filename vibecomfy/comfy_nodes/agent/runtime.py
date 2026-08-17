@@ -117,6 +117,12 @@ _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openr
 # blow the whole 240s worker budget under concurrency (rate-limit stalls).
 _OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "16384"))
 
+_JSON_RETRY_NUDGE = (
+    "Your previous reply was not valid JSON. Reply with ONLY one strict JSON "
+    "object matching the requested schema. Do not include markdown fences, "
+    "comments, reasoning text, or trailing prose."
+)
+
 # Environment keys that select transport/endpoint/model routing.  These may be
 # pinned explicitly by an operator or the live-agentic harness, but they must
 # never be hydrated from the ambient ~/.hermes/.env credential file: a stored
@@ -1428,17 +1434,42 @@ def run_model_turn(
             )
 
         agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
-        result = _run_worker(
-            agent_kwargs,
-            system_msg,
-            user_msg,
-            response_contract=response_contract,
-            agent_id=agent_id,
-            model=_runtime_model_for_route(route, model),
-            requested_model=model,
-            effort=effort,
-            profiling_context=effective_profile,
-        )
+        attempts = 3 if response_contract == "json" else 1
+        result: dict[str, Any] | None = None
+        last_error: Mapping[str, Any] | None = None
+        for attempt in range(attempts):
+            attempt_system_msg = system_msg
+            if attempt > 0:
+                attempt_system_msg = (
+                    f"{system_msg}\n\n{_JSON_RETRY_NUDGE}"
+                    if system_msg
+                    else _JSON_RETRY_NUDGE
+                )
+            result = _run_worker(
+                agent_kwargs,
+                attempt_system_msg,
+                user_msg,
+                response_contract=response_contract,
+                agent_id=agent_id,
+                model=_runtime_model_for_route(route, model),
+                requested_model=model,
+                effort=effort,
+                profiling_context={
+                    **effective_profile,
+                    **({"json_retry_count": attempt} if attempt else {}),
+                },
+            )
+            if "error" not in result:
+                break
+            last_error = result
+            if not (
+                response_contract == "json"
+                and attempt < attempts - 1
+                and result.get("error_type") in {"JSONDecodeError", "ValueError"}
+            ):
+                _raise_worker_error(result)
+        if result is None:
+            result = dict(last_error or {"error": "agent worker failed"})
         if "error" in result:
             _raise_worker_error(result)
 

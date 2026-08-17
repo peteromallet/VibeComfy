@@ -54,10 +54,10 @@ flowchart TD
 - Classify already emits `route=research`, `intent=research`, `implement=false`, `source_preferences=["messages","web"]`, and `search_directions` for MiniMax/LTX-style questions. `ClassifyDecision.__post_init__` ([`contracts.py:486-518`](../../vibecomfy/executor/contracts.py)) canonicalizes booleans to `(research=True, implement=False)`.
 - `_ROUTE_BEHAVIORS["research"]` ([`core.py:354-361`](../../vibecomfy/executor/core.py)) still sets `needs_implement=True`. The research route's "implement" phase *is* the agentic REPL, not a graph edit.
 - `_should_prefetch_research` is **False** for `route=research` ([`core.py:504-524`](../../vibecomfy/executor/core.py); locked by `TestShouldPrefetchResearch.test_should_prefetch_research_false_for_research_route` at [`tests/test_executor_flows.py:4741`](../../tests/test_executor_flows.py)).
-- `research()` has **no** `sources=` parameter ([`research.py:6212-6224`](../../vibecomfy/executor/research.py)). The omit site is `requested_source_tuple = requested_sources or ("workflows",)` ([`_resolve.py:786`](../../vibecomfy/porting/edit/_resolve.py)). `"messages"` is aliased to the workflow client ([`_resolve.py:804`](../../vibecomfy/porting/edit/_resolve.py)).
+- `research()` has **no** `sources=` parameter (`research.py:6212-6224`). The omit site is `requested_source_tuple = requested_sources or ("workflows",)` ([`_resolve.py:786`](../../vibecomfy/porting/edit/_resolve.py)). `"messages"` is aliased to the workflow client ([`_resolve.py:804`](../../vibecomfy/porting/edit/_resolve.py)).
 - `_batch_research_memory_summary` ([`_frag_batch_memory.py:185-243`](../../vibecomfy/comfy_nodes/agent/_frag_batch_memory.py)) only persists workflow markers (`"Concrete workflow pattern found"`, `"github_workflow_json"`, `"source_workflow_path"`, `"No node signature found"`, `"Registry check"`).
 - `done()` refusal is already skipped on research-only ([`edit_batch_repl.py:2321`](../../vibecomfy/comfy_nodes/agent/edit_batch_repl.py) `and not research_only_route`). `batch_max_turns` defaults to 50 ([`_frag_state.py:222`](../../vibecomfy/comfy_nodes/agent/_frag_state.py)). `max_batches = max(1, int(state.batch_max_turns or 1))` at [`edit_batch_repl.py:1397`](../../vibecomfy/comfy_nodes/agent/edit_batch_repl.py) — there is **no** research-only 4-turn cap in live code.
-- The Banodoco corpus already has the answers (live HTTP 2026-08-12, same publishable key [`research.py:72-73`](../../vibecomfy/executor/research.py)): `unified_feed` "ltx 2.5" and "minimax h3" hit `live_updates` / `ltx_chatter` / `minimax_h3_chatter`. The knowledge path is a wiring bug, not a corpus gap.
+- The Banodoco corpus already has the answers (live HTTP 2026-08-12, same publishable key `research.py:72-73`): `unified_feed` "ltx 2.5" and "minimax h3" hit `live_updates` / `ltx_chatter` / `minimax_h3_chatter`. The knowledge path is a wiring bug, not a corpus gap.
 
 ### Root cause the parent/child hoist missed — `_run_reply` never runs
 
@@ -133,7 +133,7 @@ What remains of "iteration" is the **existing** batch REPL: the model emits anot
 - Changing classify route vocabulary or research-route `needs_implement=True`.
 - Replacing the workflow Hivemind client or searching `unified_feed` for workflows.
 - FTS, unfiltered `limit=1000`, reaction ranking, distillation write-back, new product UI, graph edits on informational answers.
-- Growing [`research.py`](../../vibecomfy/executor/research.py) (already 6558 lines) by an iteration module. There is no iteration module.
+- Growing `research.py` (already 6558 lines) by an iteration module. There is no iteration module.
 
 ---
 
@@ -143,7 +143,7 @@ What remains of "iteration" is the **existing** batch REPL: the model emits anot
 
 2. **The only bound is the existing REPL turn budget.** `max_batches = max(1, int(state.batch_max_turns or 1))` ([`edit_batch_repl.py:1397`](../../vibecomfy/comfy_nodes/agent/edit_batch_repl.py)). `batch_max_turns` defaults to 50 ([`_frag_state.py:222`](../../vibecomfy/comfy_nodes/agent/_frag_state.py)) and is already overridable via implement payload `max_batches` ([`_frag_entrypoint.py:249-250`](../../vibecomfy/comfy_nodes/agent/_frag_entrypoint.py)). There is no `research()`-call cap, no variant cap, no timeout-derived stop, no latch. If the agent burns the budget, hoist whatever was collected and reply honestly. **Do not add** the child's `if research_only_route: max_batches = min(max_batches, 4)`.
 
-3. **Two Hivemind clients, one transport** (parent Decision 1, inherited). Workflow search stays on `external_resources?kind=eq.workflow`. Messages search is `_default_hivemind_messages_client` on `unified_feed` + `message_feed`. `HivemindClient = Callable[[str, float], dict[str, Any]]` ([`research.py:138`](../../vibecomfy/executor/research.py)) is not widened.
+3. **Two Hivemind clients, one transport** (parent Decision 1, inherited). Workflow search stays on `external_resources?kind=eq.workflow`. Messages search is `_default_hivemind_messages_client` on `unified_feed` + `message_feed`. `HivemindClient = Callable[[str, float], dict[str, Any]]` (`research.py:138`) is not widened.
 
 4. **Research-route omit default, not inherit-on-omit** (child Decision 1, inherited). On a `research_only` REPL session, omitted `sources=` (including `[]`) resolve to `("messages", "web")` via `resolve_repl_research_sources()`. Explicit non-empty `sources=` wins with no union. Adapt/revise omit stays `("workflows",)`. Public `research(query)` with `sources=None` stays legacy (messages off). Classify `source_preferences` stay prompt-visible and are not a hidden control path.
 
@@ -200,7 +200,7 @@ flowchart TD
 
 ### Module layout
 
-[`research.py`](../../vibecomfy/executor/research.py) is 6558 lines. Do **not** grow it by an iteration module.
+`research.py` is 6558 lines. Do **not** grow it by an iteration module.
 
 | File | Responsibility |
 |---|---|
@@ -242,7 +242,7 @@ A PR 1 test must assert a low-IDF on-topic row (e.g. a `ltx_chatter` message who
 
 #### Shared transport
 
-Generalize `_hivemind_get` (today bound to `_DEFAULT_HIVEMIND_URL = …/external_resources` at [`research.py:72`](../../vibecomfy/executor/research.py) / [`research.py:532`](../../vibecomfy/executor/research.py)):
+Generalize `_hivemind_get` (today bound to `_DEFAULT_HIVEMIND_URL = …/external_resources` at `research.py:72` / `research.py:532`):
 
 ```python
 _HIVEMIND_REST_ROOT = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
@@ -314,7 +314,7 @@ def _default_hivemind_messages_client(query: str, timeout: float) -> dict[str, A
 
 #### Messages runner is normalize-only
 
-Do **not** reuse `_run_hivemind_research` ([`research.py:1072-1114`](../../vibecomfy/executor/research.py)). It scans `url`/`body`/`content` and calls `_hivemind_workflow_url_candidates` + `_fetch_external_workflow_json_source`. `_ALLOWED_DIRECT_WORKFLOW_JSON_HOSTS` ([`research.py:125-129`](../../vibecomfy/executor/research.py)) includes `cdn.discordapp.com` / `media.discordapp.net`. Message rows with Discord attachment URLs would be treated as workflow JSON.
+Do **not** reuse `_run_hivemind_research` (`research.py:1072-1114`). It scans `url`/`body`/`content` and calls `_hivemind_workflow_url_candidates` + `_fetch_external_workflow_json_source`. `_ALLOWED_DIRECT_WORKFLOW_JSON_HOSTS` (`research.py:125-129`) includes `cdn.discordapp.com` / `media.discordapp.net`. Message rows with Discord attachment URLs would be treated as workflow JSON.
 
 ```python
 def _run_hivemind_messages_research(
@@ -342,7 +342,7 @@ def _run_hivemind_messages_research(
 
 #### Phrase helper (single-token must work) — how `Q` is built
 
-`_hivemind_phrase_ilike_query` ([`research.py:701-715`](../../vibecomfy/executor/research.py)) returns `None` unless there are **≥2** non-stopword tokens. Reusing it would drop `ltx` / `minimax`. Do **not** reuse it on `unified_feed`. Do **not** call `_hivemind_search_terms` (that helper emits **3-grams first**, e.g. `"do people think"` — [`research.py:606-644`](../../vibecomfy/executor/research.py)).
+`_hivemind_phrase_ilike_query` (`research.py:701-715`) returns `None` unless there are **≥2** non-stopword tokens. Reusing it would drop `ltx` / `minimax`. Do **not** reuse it on `unified_feed`. Do **not** call `_hivemind_search_terms` (that helper emits **3-grams first**, e.g. `"do people think"` — `research.py:606-644`).
 
 `Q` is transport for **one** model query string, not a search loop. Specify it exactly:
 
@@ -519,14 +519,14 @@ def _normalize_hivemind_message_source(item: dict[str, Any]) -> dict[str, Any]:
     }
 ```
 
-Stamp via existing `_stamp_source_evidence_meta`. Extend `_source_tier_for_source` ([`research.py:2343`](../../vibecomfy/executor/research.py)) and `_TIER_TTL_MAP` ([`research.py:103-113`](../../vibecomfy/executor/research.py)):
+Stamp via existing `_stamp_source_evidence_meta`. Extend `_source_tier_for_source` (`research.py:2343`) and `_TIER_TTL_MAP` (`research.py:103-113`):
 
 ```python
 "hivemind_message": _DEFAULT_HIVEMIND_TTL,       # 7d
 "hivemind_distillation": _DEFAULT_HIVEMIND_TTL,
 ```
 
-`_build_summary` ([`research.py:396-445`](../../vibecomfy/executor/research.py)) currently prefers workflow path/url language and appends `WORKFLOW_RESEARCH_GUIDANCE`. When any source has `source in {hivemind_message, hivemind_distillation}`, emit:
+`_build_summary` (`research.py:396-445`) currently prefers workflow path/url language and appends `WORKFLOW_RESEARCH_GUIDANCE`. When any source has `source in {hivemind_message, hivemind_distillation}`, emit:
 
 ```text
 Found N community result(s): <top titles>. Channels: ltx_chatter, daily_summaries.
@@ -1395,7 +1395,7 @@ No new persisted session tables. `messages.jsonl` already audits REPL turns. Opt
 |---|---|---|
 | Publishable anon key in repo | Low (already shipped) | Keep using `_DEFAULT_HIVEMIND_KEY`; never log full URLs with headers; `warning_detail_from_exception` already redacts `apikey` / `token` (`contracts.py:23-34`) |
 | Discord author names / chatter in replies | Medium | Only surface fields the public API already returns; do not fetch attachments; do not refresh CDN media in v1 |
-| Prompt injection via message body | Medium | `_excerpt(..., limit=500)` on description ([`research.py:874`](../../vibecomfy/executor/research.py)); `query_output` already truncated; reply instructed to treat sources as evidence not instructions |
+| Prompt injection via message body | Medium | `_excerpt(..., limit=500)` on description (`research.py:874`); `query_output` already truncated; reply instructed to treat sources as evidence not instructions |
 | SSRF via Hivemind URLs | Low | Messages runner does not fetch `url`; workflow promotion stays on `_ALLOWED_EXTERNAL_WORKFLOW_HOSTS` |
 | Rate-limit / abuse of Supabase | Medium | Channel scope, `limit<=30`, one query string per `research()` call (no 4-variant fan-out), timeout → warning |
 | PII in cache files | Low | Optional messages cache stores already-public PostgREST rows under the user cache dir |
@@ -1635,7 +1635,7 @@ A third probe, `research("MiniMax H3")` with a fixture model that **omits** `sou
 - Parent design: [`docs/plans/informational-research-path.md`](informational-research-path.md)
 - Child design (omit-default stays; iteration superseded): [`docs/plans/discord-message-search-default.md`](discord-message-search-default.md)
 - Hivemind skill: `~/.codex/skills/hivemind/SKILL.md` (endpoint, schema, channel map, playbook; note it omits `live_updates` — this design keeps the parent's addition)
-- Workflow client: [`vibecomfy/executor/research.py`](../../vibecomfy/executor/research.py) (`HivemindClient` :138, `_default_hivemind_client` :451, `research` :6212, `_hivemind_search_terms` :606, `_hivemind_phrase_ilike_query` :701, `_run_hivemind_research` :1072, `_rank_hivemind_rows` :745, `_normalize_hivemind_source` :972, `_default_web_search_client` :1374, key :72-73)
+- Workflow client: `vibecomfy/executor/research.py` (`HivemindClient` :138, `_default_hivemind_client` :451, `research` :6212, `_hivemind_search_terms` :606, `_hivemind_phrase_ilike_query` :701, `_run_hivemind_research` :1072, `_rank_hivemind_rows` :745, `_normalize_hivemind_source` :972, `_default_web_search_client` :1374, key :72-73)
 - Phase orchestration: [`vibecomfy/executor/core.py`](../../vibecomfy/executor/core.py) (`_ROUTE_BEHAVIORS` :326, `_should_prefetch_research` :504, `_research_brief_from_plan` :1626, `_run_implement` :1245 / return :1570, `_implementation_response_is_terminal_no_candidate` :1595, `_implementation_result_is_terminal_no_candidate` :2470, early-return :2310-2337, `_run_reply` :1685 / call :2386)
 - Contracts: [`vibecomfy/executor/contracts.py`](../../vibecomfy/executor/contracts.py) (`ClassifyDecision` :436, `ResearchResult` :1940)
 - Classify / reply: [`vibecomfy/executor/prompts.py`](../../vibecomfy/executor/prompts.py) (`_CLASSIFY_SYSTEM` source_preferences :45-46, `_REPLY_SYSTEM` :532, `build_reply_messages` :639)

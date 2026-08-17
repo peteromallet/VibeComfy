@@ -65,6 +65,7 @@ ROOT_ALLOWLIST := \
 	.github \
 	.gitignore \
 	.megaplan \
+	.oracle \
 	.importlinter \
 	.pre-commit-config.yaml \
 	.vscode \

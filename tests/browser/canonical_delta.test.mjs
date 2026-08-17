@@ -66,7 +66,7 @@ test("DELTA_SCHEMA_VERSION equals '2.0.0'", () => {
   assert.equal(DELTA_SCHEMA_VERSION, "2.0.0");
 });
 
-test("CANONICAL_DELTA_OP_NAMES contains exactly 6 supported ops", () => {
+test("CANONICAL_DELTA_OP_NAMES contains exactly 7 supported ops", () => {
   assert.ok(Array.isArray(CANONICAL_DELTA_OP_NAMES));
   assert.ok(Object.isFrozen(CANONICAL_DELTA_OP_NAMES));
   assert.deepEqual([...CANONICAL_DELTA_OP_NAMES].sort(), [
@@ -75,6 +75,7 @@ test("CANONICAL_DELTA_OP_NAMES contains exactly 6 supported ops", () => {
     "remove_node",
     "set_mode",
     "set_node_field",
+    "set_title",
     "upsert_link",
   ]);
 });

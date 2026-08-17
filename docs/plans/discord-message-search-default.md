@@ -64,11 +64,11 @@ Verified against live source on 2026-08-13. Parent document has the full root-ca
 | Decision | Where it lives | This doc |
 |---|---|---|
 | Two Hivemind clients, one transport | `_default_hivemind_client` stays on `external_resources?kind=eq.workflow`; new `_default_hivemind_messages_client` on `unified_feed` + `message_feed` | inherit |
-| `HivemindClient = Callable[[str, float], dict]` | [`research.py:137-138`](../../vibecomfy/executor/research.py) | inherit — do not widen |
+| `HivemindClient = Callable[[str, float], dict]` | `research.py:137-138` | inherit — do not widen |
 | No prefetch on `route=research` | [`core.py:504-524`](../../vibecomfy/executor/core.py); locked by `TestShouldPrefetchResearch.test_should_prefetch_research_false_for_research_route` (~4741) | inherit |
-| Messages runner is normalize-only | do not reuse `_run_hivemind_research` ([`research.py:1072-1114`](../../vibecomfy/executor/research.py)) — it would treat Discord attachment URLs as workflow JSON | inherit |
+| Messages runner is normalize-only | do not reuse `_run_hivemind_research` (`research.py:1072-1114`) — it would treat Discord attachment URLs as workflow JSON | inherit |
 | Distillations-first, `kind=eq.message` Step B, channel-scoped `message_feed` fallback including `live_updates` | parent §1 | inherit |
-| Single-token ilike via `_hivemind_single_or_phrase_ilike`, never `_hivemind_phrase_ilike_query` (that helper returns `None` unless ≥2 tokens — [`research.py:701-715`](../../vibecomfy/executor/research.py)) | parent §1 | inherit |
+| Single-token ilike via `_hivemind_single_or_phrase_ilike`, never `_hivemind_phrase_ilike_query` (that helper returns `None` unless ≥2 tokens — `research.py:701-715`) | parent §1 | inherit |
 | No FTS, no unfiltered `limit=1000`, no reaction ranking | hivemind skill + parent | inherit |
 | Edit live `_frag_*` modules, not generated `edit_*.py` SOURCE wrappers | parent module layout | inherit |
 | Hoist `research_findings` after `_run_implement` via `_research_result_from_findings` | parent §4 | inherit — this doc only specifies what the findings packet must contain after iteration |
@@ -81,7 +81,7 @@ The parent framed messages as **opt-in via `sources=`**, with omitted REPL sourc
 - `_CLASSIFY_SYSTEM` marks `source_preferences` optional ([`prompts.py:45-46`](../../vibecomfy/executor/prompts.py)).
 - `_research_brief_from_plan` copies prefs into `payload["research_brief"]` only when present ([`core.py:1646-1649`](../../vibecomfy/executor/core.py)).
 - `_format_research_brief_for_prompt` JSON-dumps them into turn 0 ([`_frag_state.py:479-505`](../../vibecomfy/comfy_nodes/agent/_frag_state.py)).
-- `research()` has **no** `sources=` parameter ([`research.py:6212-6224`](../../vibecomfy/executor/research.py)).
+- `research()` has **no** `sources=` parameter (`research.py:6212-6224`).
 - The omit site is a hard default: `requested_source_tuple = requested_sources or ("workflows",)` ([`_resolve.py:786`](../../vibecomfy/porting/edit/_resolve.py)).
 
 Live MiniMax/LTX probes *did* pass `sources=["messages","web"]` and still got workflows — that is the client-alias bug the parent already designs. The omit default is a second silent failure: any `research("MiniMax H3")` with no keyword searches workflows only. The user ask is that Discord search must not require the model to remember `sources=`.
@@ -127,7 +127,7 @@ Same publishable key `research.py:72-73` already ships. Direct HTTP on 2026-08-1
 7. **Outer REPL is a bounded retry over a union, not a last-write-wins overwrite.** Max 2 network-hitting `research()` calls per research-only session. Distinguish `tried_ok` (exclude on the next call) vs `tried_error` (timeout/HTTP — still retryable). Union message sources by `kind:hivemind_id`, keep highest score. Exhaustion replies from the union.
 8. **One evidence-card carrier: additive `ResearchResult.evidence_card: dict | None` plus `community_summary`.** No private `_evidence_card`, no rebuild-from-sources-only path. `_research_result_from_latch` constructs a `ResearchResult` from the session union. The fold loop writes `state.collected_*` including `collected_evidence_card`.
 9. **Cleaner seam than the parent:** the parent's Decision 2 ("messages are opt-in via `sources=`") remains true for the public `research()` API. It is the wrong default at the REPL omit-site for `route=research`. This design flips that one line and deletes inherit-on-omit as a second knob.
-10. **Extract `research_sources.py` + `research_iteration.py`.** Do not grow [`research.py`](../../vibecomfy/executor/research.py) (~6.5k lines). Messages client extraction stays as the parent specified (`hivemind_clients.py`). `_query_tokens` and both stopword frozensets move there too; `research_iteration` imports them from `hivemind_clients`, never from `research`.
+10. **Extract `research_sources.py` + `research_iteration.py`.** Do not grow `research.py` (~6.5k lines). Messages client extraction stays as the parent specified (`hivemind_clients.py`). `_query_tokens` and both stopword frozensets move there too; `research_iteration` imports them from `hivemind_clients`, never from `research`.
 
 ---
 
@@ -1503,7 +1503,7 @@ A third probe, `research("MiniMax H3")` with a fixture model that **omits** `sou
 
 - Parent design: [`docs/plans/informational-research-path.md`](informational-research-path.md)
 - Hivemind skill: `~/.codex/skills/hivemind/SKILL.md` (endpoint, schema, channel map, playbook; note it omits `live_updates` — this design keeps the parent's addition)
-- Workflow client: [`vibecomfy/executor/research.py`](../../vibecomfy/executor/research.py) (`_default_hivemind_client`, `research`, `_hivemind_phrase_ilike_query`, `_run_hivemind_research`, `_rank_hivemind_rows`)
+- Workflow client: `vibecomfy/executor/research.py` (`_default_hivemind_client`, `research`, `_hivemind_phrase_ilike_query`, `_run_hivemind_research`, `_rank_hivemind_rows`)
 - Phase orchestration: [`vibecomfy/executor/core.py`](../../vibecomfy/executor/core.py) (`_ROUTE_BEHAVIORS`, `_should_prefetch_research`, `_research_brief_from_plan`, `_run_reply`, `_run_implement`)
 - Contracts: [`vibecomfy/executor/contracts.py`](../../vibecomfy/executor/contracts.py) (`ClassifyDecision`, `ResearchResult`)
 - Classify / reply: [`vibecomfy/executor/prompts.py`](../../vibecomfy/executor/prompts.py)
