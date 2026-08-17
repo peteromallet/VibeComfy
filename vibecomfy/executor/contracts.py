@@ -2334,6 +2334,95 @@ def _claim_operations(payload: Any) -> list[Any]:
     return []
 
 
+# ── Hivemind record views (batch 13: IR-shaped research records) ─────────────
+#
+# Typed classification of fetched Hivemind rows served to the research agent.
+# A workflow record (a workflow JSON from the corpus) is normalized through
+# the named ingest doors (from_ui / from_api / from_envelope per detected
+# shape) and served as the IR surface lens; a non-workflow record (a message,
+# a text post, a non-workflow JSON) is served as typed non-workflow evidence
+# with its actual content; a workflow-shaped record that fails the named-door
+# normalization is served as a typed malformed-record result with the error.
+# The raw source row never rides in the view — it is retained only in the
+# evidence artifact body (the raw body), never in model-facing content.
+
+RECORD_TYPE_WORKFLOW = "workflow"
+RECORD_TYPE_NON_WORKFLOW = "non_workflow"
+RECORD_TYPE_MALFORMED = "malformed_record"
+_RECORD_TYPES = frozenset(
+    {RECORD_TYPE_WORKFLOW, RECORD_TYPE_NON_WORKFLOW, RECORD_TYPE_MALFORMED}
+)
+
+
+@dataclass(frozen=True)
+class HivemindRecordView:
+    """The typed, model-facing view of one fetched Hivemind record.
+
+    Exactly one content field is populated per ``record_type``:
+
+    * ``workflow`` — ``surface_lens`` carries ``render(wf, "surface")`` (the
+      Python view) of the record normalized through the named ingest door;
+      ``shape`` records the detected door shape (``ui`` / ``api`` / ``vibe``).
+    * ``non_workflow`` — ``content`` carries the record's actual text/body.
+    * ``malformed_record`` — ``error`` carries the normalization failure.
+
+    The view is an immutable source pattern for the research agent: it is
+    read and cited (by ``evidence_id``), never merged into the user's graph.
+    """
+
+    record_type: str
+    evidence_id: str
+    source_type: str = "hivemind"
+    surface_lens: str | None = None
+    content: str | None = None
+    error: str | None = None
+    shape: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.record_type not in _RECORD_TYPES:
+            raise ValueError(
+                "`record_type` must be one of: "
+                + ", ".join(sorted(_RECORD_TYPES))
+                + f"; got {self.record_type!r}."
+            )
+        if not isinstance(self.evidence_id, str) or not self.evidence_id.strip():
+            raise ValueError("`evidence_id` must be a non-empty string.")
+        object.__setattr__(self, "evidence_id", self.evidence_id.strip())
+        if not isinstance(self.source_type, str) or not self.source_type.strip():
+            raise ValueError("`source_type` must be a non-empty string.")
+        object.__setattr__(self, "source_type", self.source_type.strip())
+        for name in ("surface_lens", "content", "error", "shape"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"`{name}` must be a string or null.")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "record_type": self.record_type,
+            "evidence_id": self.evidence_id,
+            "source_type": self.source_type,
+        }
+        for name in ("surface_lens", "content", "error", "shape"):
+            value = getattr(self, name)
+            if value is not None:
+                payload[name] = value
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "HivemindRecordView":
+        if not isinstance(payload, Mapping):
+            raise ValueError("HivemindRecordView must be an object.")
+        return cls(
+            record_type=payload.get("record_type", ""),
+            evidence_id=payload.get("evidence_id", ""),
+            source_type=payload.get("source_type", "hivemind"),
+            surface_lens=payload.get("surface_lens"),
+            content=payload.get("content"),
+            error=payload.get("error"),
+            shape=payload.get("shape"),
+        )
+
+
 __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
@@ -2341,8 +2430,12 @@ __all__ = [
     "ExecutorRequest",
     "ExecutorResult",
     "GraphFacts",
+    "HivemindRecordView",
     "ImplementationResult",
     "ReadinessReport",
+    "RECORD_TYPE_MALFORMED",
+    "RECORD_TYPE_NON_WORKFLOW",
+    "RECORD_TYPE_WORKFLOW",
     "Report",
     "RevisionEvidence",
     "ScopedDiff",

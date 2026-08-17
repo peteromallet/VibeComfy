@@ -46,7 +46,16 @@ from .evidence_pack import (
     EvidenceLedgerEntry,
     EvidencePack,
 )
-from .hivemind_tools import HIVE_MIND_GET_TOOL, HIVE_MIND_SEARCH_TOOL
+from .contracts import (
+    RECORD_TYPE_MALFORMED,
+    RECORD_TYPE_NON_WORKFLOW,
+    RECORD_TYPE_WORKFLOW,
+)
+from .hivemind_tools import (
+    HIVE_MIND_GET_TOOL,
+    HIVE_MIND_SEARCH_TOOL,
+    serve_hivemind_record,
+)
 from .tool_contracts import ToolResult, ToolStatus
 from .tool_specs import (
     PHASE_RESEARCH,
@@ -114,6 +123,28 @@ def _bounded(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def _served_record_preview(view: Any, body: Mapping[str, Any]) -> str:
+    """Model-facing preview of a fetched Hivemind record (batch 13).
+
+    The served record view is the ONLY model-facing content of a fetched
+    record: the surface lens for workflow records, the typed content for
+    non-workflow records, or the typed error for malformed records.  The raw
+    source row stays in the evidence artifact body (the raw body) and never
+    enters the digest — the fallback below (the row's own text fields) is
+    reachable only when a record was recorded without a served view.
+    """
+    if isinstance(view, Mapping):
+        record_type = str(view.get("record_type") or "")
+        if record_type == RECORD_TYPE_WORKFLOW:
+            return str(view.get("surface_lens") or "")
+        if record_type == RECORD_TYPE_NON_WORKFLOW:
+            content = str(view.get("content") or "")
+            return f"[non_workflow] {content}" if content else "[non_workflow]"
+        if record_type == RECORD_TYPE_MALFORMED:
+            return f"[malformed_record] {str(view.get('error') or '')}"
+    return str(body.get("body") or body.get("description") or body.get("content") or "")
 
 
 # ── C1 step 1-2: form the explicit research question ─────────────────────────
@@ -501,11 +532,16 @@ def build_evidence_digest(
             kind = str(artifact.kind or "")
             preview = ""
             if kind == "hivemind_record":
-                # A fetched record is synthesis-grade evidence: preview its
-                # content (bounded) so the agent can reason from the fetched
-                # body — not a title (P1-b).
+                # Batch 13: a fetched record is served through its typed
+                # record view — the surface lens for workflow records (the
+                # Python view), typed non-workflow content, or a typed
+                # malformed error.  The raw source row never enters the
+                # digest; it is retained only in the evidence artifact body.
                 preview = _bounded(
-                    str(body.get("body") or body.get("description") or body.get("content") or ""),
+                    _served_record_preview(
+                        body.get("_served_view") if isinstance(body, Mapping) else None,
+                        body,
+                    ),
                     _MAX_RECORD_PREVIEW_CHARS,
                 )
             elif kind != "hivemind_search_hit":
@@ -1118,14 +1154,36 @@ def run_agent_research_stage(
                 # evidence id; the stage re-keys it to the namespaced
                 # ``hivemind_get:...`` id so search-hit ids never collide and
                 # the digest ids / citations always agree with the artifacts.
+                # Batch 13: the artifact body also carries the typed served
+                # view (surface lens / non-workflow / malformed) under a
+                # private key — the raw source row stays in the artifact (the
+                # raw body); the digest serves only the view.
+                served_view: Mapping[str, Any] | None = None
+                if result.status is ToolStatus.OK and isinstance(result.result, Mapping):
+                    candidate = result.result.get("record_view")
+                    if isinstance(candidate, Mapping):
+                        served_view = candidate
                 get_artifacts: list[EvidenceArtifact] = []
                 if get_evidence_id is not None:
                     for artifact in artifacts_map.values():
+                        body = artifact.body
+                        if isinstance(body, Mapping) and "_served_view" not in body:
+                            view = served_view
+                            if view is None:
+                                # Robustness for injected fakes that return a
+                                # raw row without a record_view: serve from the
+                                # row itself (same typed classification).
+                                view = serve_hivemind_record(
+                                    dict(body), evidence_id=get_evidence_id
+                                ).to_dict()
+                            enriched = dict(body)
+                            enriched["_served_view"] = view
+                            body = enriched
                         get_artifacts.append(
                             EvidenceArtifact(
                                 evidence_id=get_evidence_id,
                                 kind=artifact.kind,
-                                body=artifact.body,
+                                body=body,
                                 source=artifact.source,
                             )
                         )

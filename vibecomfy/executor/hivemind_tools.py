@@ -38,6 +38,12 @@ from .hivemind_clients import (
     _hivemind_search_transport,
     _parse_evidence_id,
 )
+from .contracts import (
+    HivemindRecordView,
+    RECORD_TYPE_MALFORMED,
+    RECORD_TYPE_NON_WORKFLOW,
+    RECORD_TYPE_WORKFLOW,
+)
 from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 
 HIVE_MIND_SEARCH_TOOL = "hivemind_search"
@@ -261,6 +267,169 @@ def _failure_result(
     )
 
 
+# ── IR-shaped record serving (batch 13) ──────────────────────────────────────
+#
+# A fetched Hivemind record is served to the research agent as a typed view:
+# a workflow record (a workflow JSON from the corpus) is normalized through
+# the named ingest doors (from_ui / from_api / from_envelope per detected
+# shape — the batch-2 doors) and served as the surface lens
+# (``render(wf, "surface")``, the Python view); a non-workflow record (a
+# message, a text post, a non-workflow JSON) is typed non-workflow evidence
+# with its actual content; a workflow-shaped record that fails the named-door
+# normalization is typed malformed with the error.  The raw source row is
+# retained only in the evidence artifact body (the raw body), never in the
+# model-facing view.
+
+# Where a corpus row carries its workflow JSON: external_resources rows keep
+# the parsed workflow under ``payload.workflow_json`` (with ``payload.workflow``
+# as a legacy alias); some rows mirror it under ``metadata``.
+_WORKFLOW_JSON_CONTAINERS = (
+    ("payload", "workflow_json"),
+    ("payload", "workflow"),
+    ("metadata", "workflow_json"),
+    ("metadata", "workflow"),
+)
+
+
+def _row_source_type(row: Mapping[str, Any]) -> str:
+    """Source type of a Hivemind row (workflow / distillation / discord)."""
+    kind = str(row.get("kind") or "")
+    if kind == "workflow":
+        return "workflow"
+    if kind == "distillation":
+        return "distillation"
+    return "discord"
+
+
+def _thaw_jsonish(value: Any) -> Any:
+    """Deep-convert frozen JSON (MappingProxyType / tuple) to plain shapes.
+
+    :class:`ToolResult` freezes result JSON (dicts become MappingProxyType,
+    lists become tuples); the named ingest doors expect plain dict/list
+    shapes, so the workflow JSON is thawed before shape detection.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_jsonish(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_jsonish(item) for item in value]
+    return value
+
+
+def _extract_workflow_json(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The workflow JSON carried by a corpus row, or None when absent.
+
+    Only a JSON object counts — a workflow row whose ``workflow_json`` is a
+    string, list, or null has no normalizable workflow and is served as a
+    typed malformed record, never normalized with a fake shape.  The result
+    is thawed to plain dict/list shapes for the ingest doors.
+    """
+    for container_key, json_key in _WORKFLOW_JSON_CONTAINERS:
+        container = row.get(container_key)
+        if not isinstance(container, Mapping):
+            continue
+        candidate = container.get(json_key)
+        if isinstance(candidate, Mapping):
+            return _thaw_jsonish(candidate)
+    return None
+
+
+def _record_text(row: Mapping[str, Any]) -> str:
+    """The actual text content of a non-workflow record (body/text)."""
+    for key in ("body", "content", "description", "text"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def serve_hivemind_record(
+    row: Mapping[str, Any],
+    *,
+    evidence_id: str,
+) -> HivemindRecordView:
+    """Classify and serve one fetched Hivemind row to the research agent.
+
+    Returns a typed :class:`HivemindRecordView`:
+
+    * ``workflow`` — the workflow JSON was normalized through the named door
+      matching its shape (``from_envelope`` / ``from_ui`` / ``from_api``) and
+      ``surface_lens`` carries ``render(wf, "surface")``, the Python view.
+    * ``non_workflow`` — the record is not a workflow (a message, a text post,
+      a non-workflow JSON): ``content`` carries its actual text/body.  It is
+      never pretended to be a workflow and never normalized with a fake shape.
+    * ``malformed_record`` — the record is workflow-shaped (``kind`` workflow
+      or a workflow JSON is present) but the named-door normalization failed
+      (or no workflow JSON exists): ``error`` carries the failure.  It is
+      never silently skipped and never served as a fake-normalized blob.
+
+    The raw source row is never part of the returned view — it is retained
+    only in the evidence artifact body (the raw body).
+    """
+    source_type = _row_source_type(row)
+    workflow_json = _extract_workflow_json(row)
+    if workflow_json is None:
+        if source_type == "workflow":
+            return HivemindRecordView(
+                record_type=RECORD_TYPE_MALFORMED,
+                evidence_id=evidence_id,
+                source_type=source_type,
+                error=(
+                    "workflow record carries no workflow JSON in "
+                    "payload/metadata; nothing to normalize"
+                ),
+            )
+        return HivemindRecordView(
+            record_type=RECORD_TYPE_NON_WORKFLOW,
+            evidence_id=evidence_id,
+            source_type=source_type,
+            content=_record_text(row),
+        )
+
+    # Imported lazily: the ingest doors and the composable renderer are heavy
+    # and only needed when a record is actually served.  This also keeps the
+    # research tool module importable without pulling the ingest/porting
+    # graphs into the executor's hot import path.
+    from vibecomfy.ingest.normalize import (  # noqa: PLC0415
+        detect_workflow_shape,
+        from_api,
+        from_envelope,
+        from_ui,
+    )
+    from vibecomfy.porting.render import render  # noqa: PLC0415
+
+    try:
+        shape = detect_workflow_shape(workflow_json)
+        if shape == "vibe":
+            workflow = from_envelope(workflow_json)
+        elif shape == "ui":
+            # Offline normalizer only: the served lens must stay deterministic
+            # without a live ComfyUI install (mirrors render._coerce_workflow).
+            workflow = from_ui(workflow_json, use_comfy_converter=False)
+        elif shape == "api":
+            workflow = from_api(workflow_json)
+        else:
+            return HivemindRecordView(
+                record_type=RECORD_TYPE_MALFORMED,
+                evidence_id=evidence_id,
+                source_type=source_type,
+                error=f"unsupported workflow shape {shape!r}; expected ui/api/vibe",
+            )
+    except Exception as exc:  # noqa: BLE001 - typed, never raised
+        return HivemindRecordView(
+            record_type=RECORD_TYPE_MALFORMED,
+            evidence_id=evidence_id,
+            source_type=source_type,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+    return HivemindRecordView(
+        record_type=RECORD_TYPE_WORKFLOW,
+        evidence_id=evidence_id,
+        source_type=source_type,
+        surface_lens=render(workflow, "surface"),
+        shape=shape,
+    )
+
+
 # ── Tools ───────────────────────────────────────────────────────────────────
 
 
@@ -472,6 +641,12 @@ def hivemind_get(
         if kind == "workflow"
         else ("distillation" if kind == "distillation" else "discord")
     )
+    # Batch 13: the fetched record is served to the research agent as a typed
+    # view — the surface lens for workflow records (normalized through the
+    # named doors), typed non-workflow evidence, or a typed malformed record.
+    # The raw row remains available under ``row`` for the evidence artifact;
+    # the view is the model-facing content.
+    record_view = serve_hivemind_record(row, evidence_id=evidence_id)
     return ToolResult(
         tool_name=HIVE_MIND_GET_TOOL,
         status=ToolStatus.OK,
@@ -480,6 +655,7 @@ def hivemind_get(
             "source_type": source_type,
             "table": table,
             "row": row,
+            "record_view": record_view.to_dict(),
         },
         evidence_ids=(evidence_id,),
     )
@@ -490,4 +666,5 @@ __all__ = [
     "HIVE_MIND_SEARCH_TOOL",
     "hivemind_get",
     "hivemind_search",
+    "serve_hivemind_record",
 ]
