@@ -192,6 +192,38 @@ function resolveScopeSessionId(scopeId) {
   return null;
 }
 
+// ── First-message identity (two-step) ─────────────────────────────────────
+// The two-step pipeline requires the BROWSER to own session identity: the
+// server never mints a session id for two-step.  This get-or-create helper
+// binds a fresh UUIDv4 to the scope before the first POST and returns the
+// same bound id for every subsequent POST in the same tab/scope.
+
+function newUuidV4() {
+  const cryptoObj = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
+  }
+  // RFC4122 v4 fallback (crypto.randomUUID may be absent in some runtimes).
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function getOrCreateScopedSessionId(scopeId) {
+  if (typeof scopeId !== "string" || !scopeId) {
+    return null;
+  }
+  const existing = resolveScopeSessionId(scopeId);
+  if (existing) {
+    return existing;
+  }
+  const created = newUuidV4();
+  setScopedSessionId(scopeId, created);
+  return created;
+}
+
 export {
   _tabNonce,
   getScopedSessionId,
@@ -199,4 +231,6 @@ export {
   forgetScopedSessionId,
   migrateFingerprintScopedSessionId,
   resolveScopeSessionId,
+  newUuidV4,
+  getOrCreateScopedSessionId,
 };

@@ -16,8 +16,11 @@ from typing import Generator
 import pytest
 
 from vibecomfy.executor.profiles import (
+    ALLOWED_STAGES,
     DECLARED_STAGES,
+    REQUIRED_STAGES,
     AgentSpecShape,
+    MissingProfileStageError,
     load_all_profiles,
     load_profile,
     set_profile_override_dir,
@@ -50,6 +53,11 @@ agent = "codex"
 model = "gpt-5.4"
 effort = "high"
 
+[execute]
+agent = "codex"
+model = "gpt-5.4"
+effort = "high"
+
 [reply]
 agent = "hermes"
 model = "openrouter:deepseek/deepseek-v4-pro"
@@ -78,8 +86,19 @@ def _stage_names(profile: dict[str, AgentSpecShape]) -> set[str]:
 # ── canonical stages ─────────────────────────────────────────────────────────
 
 
-def test_declared_stages_are_exactly_the_four_phases() -> None:
-    """The module-level constant must contain exactly our four phases."""
+def test_required_stages_are_exactly_the_four_full_mode_phases() -> None:
+    """The module-level required set contains exactly the four full-mode phases."""
+    assert REQUIRED_STAGES == {"classify", "research", "implement", "reply"}
+
+
+def test_allowed_stages_add_only_execute() -> None:
+    """``execute`` is the ONLY allowed extra stage (the two-step phase)."""
+    assert ALLOWED_STAGES == REQUIRED_STAGES | {"execute"}
+
+
+def test_declared_stages_alias_stays_the_four_full_mode_phases() -> None:
+    """Backwards-compatible alias keeps the historical four-phase meaning."""
+    assert DECLARED_STAGES == REQUIRED_STAGES
     assert DECLARED_STAGES == {"classify", "research", "implement", "reply"}
 
 
@@ -111,7 +130,7 @@ class TestLoadProfile:
 
     def test_load_default_profile(self, profile_dir: Path) -> None:
         profile = load_profile("default")
-        assert _stage_names(profile) == DECLARED_STAGES
+        assert _stage_names(profile) == ALLOWED_STAGES
 
         classify = profile["classify"]
         assert classify.agent == "hermes"
@@ -128,6 +147,11 @@ class TestLoadProfile:
         assert implement.model == "gpt-5.4"
         assert implement.effort == "high"
 
+        execute = profile["execute"]
+        assert execute.agent == "codex"
+        assert execute.model == "gpt-5.4"
+        assert execute.effort == "high"
+
         reply = profile["reply"]
         assert reply.agent == "hermes"
         assert reply.model == "openrouter:deepseek/deepseek-v4-pro"
@@ -138,18 +162,23 @@ class TestLoadProfile:
         assert profile["classify"].agent == "hermes"
         assert profile["implement"].agent == "codex"
         assert profile["implement"].model == "gpt-5.5"
+        # execute follows the implement family in the fixture profiles.
+        assert profile["execute"].agent == "codex"
+        assert profile["execute"].model == "gpt-5.5"
 
     def test_load_anthropic_profile(self, profile_dir: Path) -> None:
         profile = load_profile("anthropic")
         assert profile["classify"].agent == "hermes"
         assert profile["implement"].agent == "claude"
         assert profile["implement"].model == "claude-sonnet-4-5"
+        assert profile["execute"].agent == "claude"
 
     def test_load_opensource_profile(self, profile_dir: Path) -> None:
         profile = load_profile("opensource")
         assert profile["classify"].agent == "hermes"
         assert profile["implement"].agent == "shannon"
         assert profile["implement"].model == "openrouter/hermes-3-70b"
+        assert profile["execute"].agent == "shannon"
 
 
 def test_packaged_openai_profile_uses_luna_adjudicator_and_sol_workers() -> None:
@@ -164,6 +193,22 @@ def test_packaged_openai_profile_uses_luna_adjudicator_and_sol_workers() -> None
         assert profile[stage] == AgentSpecShape(
             agent="codex", model="gpt-5.6-sol", effort="medium"
         )
+    # execute (two-step) follows the implement family in the shipped profile.
+    assert profile["execute"] == AgentSpecShape(
+        agent="codex", model="gpt-5.6-sol", effort="medium"
+    )
+
+
+def test_packaged_profiles_declare_explicit_execute_stage() -> None:
+    """Every shipped profile declares its own ``execute`` spec (B05)."""
+    set_profile_override_dir(None)
+    for name in ("default", "openai", "openrouter", "anthropic", "opensource"):
+        profile = load_profile(name)
+        assert "execute" in profile, f"shipped profile {name!r} lacks an execute stage"
+        execute = profile["execute"]
+        implement = profile["implement"]
+        assert execute.agent == implement.agent, f"{name}: execute agent != implement agent"
+        assert execute.model == implement.model, f"{name}: execute model != implement model"
 
 
 def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None:
@@ -181,10 +226,12 @@ def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None
         effort="low",
     )
 
-    def test_all_profiles_have_exactly_four_stages(self, profile_dir: Path) -> None:
+    def test_all_profiles_have_required_plus_optional_stages(self, profile_dir: Path) -> None:
         for name in ("default", "openai", "anthropic", "opensource"):
             profile = load_profile(name)
-            assert _stage_names(profile) == DECLARED_STAGES, f"{name} has {_stage_names(profile)}"
+            assert _stage_names(profile) == ALLOWED_STAGES, (
+                f"{name} has {_stage_names(profile)}; expected {ALLOWED_STAGES}"
+            )
 
     def test_all_profiles_have_valid_effort_values(self, profile_dir: Path) -> None:
         for name in ("default", "openai", "anthropic", "opensource"):
@@ -208,8 +255,9 @@ class TestLoadAllProfiles:
     def test_every_profile_maps_all_stages(self, profile_dir: Path) -> None:
         all_profiles = load_all_profiles()
         for name, profile in all_profiles.items():
-            assert _stage_names(profile) == DECLARED_STAGES, (
-                f"{name} missing stages: {DECLARED_STAGES - _stage_names(profile)}"
+            assert REQUIRED_STAGES <= _stage_names(profile) <= ALLOWED_STAGES, (
+                f"{name} stages: {_stage_names(profile)}; "
+                f"required {REQUIRED_STAGES} ⊆ stages ⊆ {ALLOWED_STAGES}"
             )
 
 
@@ -219,7 +267,7 @@ class TestLoadAllProfiles:
 class TestValidationErrors:
     """Tests for profile validation error paths."""
 
-    def test_missing_stage_raises(self, profile_dir: Path) -> None:
+    def test_missing_stage_raises_typed_error(self, profile_dir: Path) -> None:
         _write_toml(
             profile_dir,
             "bad_missing",
@@ -236,7 +284,7 @@ class TestValidationErrors:
             # reply missing
             """,
         )
-        with pytest.raises(ValueError, match="missing required stages"):
+        with pytest.raises(MissingProfileStageError, match="missing required stages"):
             load_profile("bad_missing")
 
     def test_extra_stage_raises(self, profile_dir: Path) -> None:
@@ -313,6 +361,43 @@ class TestValidationErrors:
     def test_missing_profile_file_raises(self, profile_dir: Path) -> None:
         with pytest.raises(FileNotFoundError, match="nonexistent"):
             load_profile("nonexistent")
+
+    def test_execute_stage_is_optional_and_never_synthesized(self, profile_dir: Path) -> None:
+        """A profile without ``execute`` loads fine and never gets one
+        synthesized from ``implement`` (two-step resolves it explicitly)."""
+        _write_toml(
+            profile_dir,
+            "no_execute",
+            _BASE_PROFILE.replace(
+                '[execute]\nagent = "codex"\nmodel = "gpt-5.4"\neffort = "high"\n\n', ""
+            ),
+        )
+        profile = load_profile("no_execute")
+        assert "execute" not in profile
+        assert _stage_names(profile) == REQUIRED_STAGES
+        # Implement remains the four-phase implement spec — no alias leak.
+        assert profile["implement"].agent == "codex"
+
+    def test_execute_only_extra_stage_is_allowed(self, profile_dir: Path) -> None:
+        """``execute`` is the one permitted extra stage."""
+        profile = load_profile("default")
+        assert "execute" in profile
+        assert _stage_names(profile) - REQUIRED_STAGES == {"execute"}
+
+    def test_extra_stage_not_in_allowed_raises(self, profile_dir: Path) -> None:
+        """A second extra stage beyond ``execute`` is still rejected."""
+        _write_toml(
+            profile_dir,
+            "bad_two_extras",
+            _BASE_PROFILE
+            + """
+            [extra_stage]
+            agent = "hermes"
+            model = "d"
+            """,
+        )
+        with pytest.raises(ValueError, match="unknown stages"):
+            load_profile("bad_two_extras")
 
     def test_empty_effort_defaults_to_low(self, profile_dir: Path) -> None:
         _write_toml(

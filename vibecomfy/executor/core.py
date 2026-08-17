@@ -78,6 +78,7 @@ from .contracts import (
 )
 from .profiles import (
     AgentSpecShape,
+    MissingProfileStageError,
     load_profile,
 )
 from .two_step import _run_two_step
@@ -647,9 +648,15 @@ def _resolve_spec(
 ) -> AgentSpecShape:
     """Resolve an :class:`AgentSpecShape` for *stage* from *profile_name*.
 
-    When *profile_name* is ``None`` the default profile (``"default"``) is
+    When *profile_name* is ``None`` the default profile (``\"default\"``) is
     used.  Failures produce a :class:`FailureEnvelope`-compatible exception
     that the caller converts via :func:`classify_failure`.
+
+    :class:`MissingProfileStageError` (a missing required stage, or a
+    missing optional two-step ``execute`` stage) propagates UNWRAPPED so the
+    caller can distinguish a typed missing-stage failure from a generic
+    profile parse error.  ``execute`` is only ever resolved on the two-step
+    path and is never synthesized from ``implement``.
     """
     name = profile_name or "default"
     try:
@@ -658,6 +665,8 @@ def _resolve_spec(
         raise FileNotFoundError(
             f"Executor profile '{name}' not found."
         ) from None
+    except MissingProfileStageError:
+        raise
     except Exception as exc:
         raise ValueError(
             f"Failed to load executor profile '{name}': {exc}"
@@ -665,7 +674,7 @@ def _resolve_spec(
 
     spec = profile.get(stage)
     if spec is None:
-        raise ValueError(
+        raise MissingProfileStageError(
             f"Profile '{name}' is missing the '{stage}' stage."
         )
     return spec
@@ -1787,6 +1796,7 @@ def run_executor(
             plan=plan,
             research=research,
             implementation=implementation,
+            pipeline_mode=pipeline_mode,
             deepseek_usage=usage,
             deepseek_est_cost_usd=est_cost_usd,
             deepseek_cost_basis=cost_basis,
@@ -1821,6 +1831,36 @@ def run_executor(
     session_context: dict[str, Any] | None = None
     if request.session_id:
         session_context = _build_session_context(request)
+
+    # ── Two-step pre-flight (B03): session identity BEFORE classification ──
+    # A two-step message without a session id is a typed invalid-request error,
+    # and an expired/closed id is a typed session_expired — neither may ever be
+    # silently minted into a fresh session, and both fire before any model work.
+    if pipeline_mode == "two_step":
+        from vibecomfy.executor.two_step_session import (  # noqa: PLC0415
+            ERROR_INVALID_REQUEST,
+            ERROR_SESSION_EXPIRED,
+            TwoStepSessionError,
+            TwoStepSessionStore,
+            normalize_session_id,
+        )
+
+        if not request.session_id:
+            return _finish(ExecutorResult.failure(
+                kind=ERROR_INVALID_REQUEST,
+                stage="request",
+                message="two-step execute requires a session_id (the server never mints ids).",
+            ))
+        try:
+            state = TwoStepSessionStore().load(normalize_session_id(request.session_id))
+            if state is not None and state.closed:
+                return _finish(ExecutorResult.failure(
+                    kind=ERROR_SESSION_EXPIRED,
+                    stage="request",
+                    message=f"session {request.session_id!r} is closed/expired.",
+                ))
+        except TwoStepSessionError as exc:
+            return _finish(ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc)))
 
     # ── Phase 1: classify (always via model) ─────────────────────────────
     try:

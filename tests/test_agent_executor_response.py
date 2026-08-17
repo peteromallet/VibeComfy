@@ -319,3 +319,61 @@ def test_reply_change_claims_must_reference_accepted_delta() -> None:
     violations = validate_reply_change_claims(invalid_response)
     assert len(violations) == 1
     assert "not in the accepted Δ" in violations[0]
+
+
+# ── B05: response fixtures carry the resolved pipeline_mode ─────────────────
+
+
+def test_success_response_fixture_serializes_with_pipeline_mode() -> None:
+    """The committed success-response fixture (updated intentionally for the
+    B05 additive schema change) carries the resolved ``pipeline_mode`` in the
+    executor report envelope."""
+    fixture_path = (
+        __import__("pathlib").Path(__file__).parent
+        / "fixtures"
+        / "payload_contracts"
+        / "agent_executor_success_response.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    assert fixture["report"]["executor"]["pipeline_mode"] == "full"
+    serialized = serialize_executor_result(fixture)
+    # The serializer preserves the executor report envelope verbatim.
+    assert serialized["report"]["executor"]["pipeline_mode"] == "full"
+    assert serialized["report"]["executor"]["plan"]["reply"] is True
+
+
+def test_two_step_report_execute_section_survives_serialization() -> None:
+    """A two-step payload with the optional execute report keeps it through
+    serialize_executor_result (the top-level envelope is unchanged)."""
+    payload: dict = {
+        "ok": True,
+        "route": "adapt",
+        "reply": "edited",
+        "report": {
+            "executor": {
+                "plan": {"reply": True, "research": True, "implement": True},
+                "pipeline_mode": "two_step",
+                "execute": {
+                    "session_id": "sess-1",
+                    "route": "adapt",
+                    "budget_usage": {"tool_calls": 2, "output_tokens": 40},
+                    "tool_call_ids": ["tool-1"],
+                    "evidence_ids": [],
+                    "accepted_delta_ids": ["delta-1"],
+                    "claim_validation": {"status": "ok", "violations": []},
+                    "replacement_used": False,
+                },
+            }
+        },
+    }
+
+    serialized = serialize_executor_result(payload)
+
+    inner = serialized["report"]["executor"]
+    assert inner["pipeline_mode"] == "two_step"
+    assert inner["execute"]["session_id"] == "sess-1"
+    assert inner["execute"]["accepted_delta_ids"] == ["delta-1"]
+    # Top-level envelope unchanged: route/reply are still the public fields.
+    assert serialized["route"] == "adapt"
+    assert serialized["reply"] == "edited"

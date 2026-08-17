@@ -7,4 +7,5 @@
 classify   = "hermes:openrouter:deepseek/deepseek-v4-flash"
 research   = "hermes:openrouter:moonshotai/kimi-k2.7-code"
 implement  = "hermes:openrouter:moonshotai/kimi-k2.7-code"
+execute    = "hermes:openrouter:moonshotai/kimi-k2.7-code"
 reply      = "hermes:openrouter:deepseek/deepseek-v4-pro"

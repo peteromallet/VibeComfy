@@ -68,6 +68,11 @@ agent = "codex"
 model = "gpt-5.4"
 effort = "high"
 
+[execute]
+agent = "codex"
+model = "gpt-5.4"
+effort = "high"
+
 [reply]
 agent = "hermes"
 model = "deepseek-v4-pro"
@@ -5308,3 +5313,222 @@ def test_batch12_3c978e_live_reply_gets_complete_controlnet_topology(
         assert (
             f"{origin} -> {target} ({origin}.0 -> {target}.{target_input})"
         ) in reply_ctx, f"ControlNet chain link {origin}->{target} missing from reply topology"
+
+
+# ── B05: two-step execute phase events ───────────────────────────────────────
+
+
+class TestTwoStepExecutePhaseEvents:
+    """Two-step mode emits execute start/working/done/error events (B05).
+
+    Terminal statuses are the canonical ``done`` / ``error`` — never
+    ``completed`` / ``failed``.  Full-mode phases (research/implement/reply)
+    never appear in two-step mode.
+    """
+
+    @staticmethod
+    def _capture_phase_events(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+
+        def fake_ws_send(
+            event: str, payload: dict[str, Any], *, client_id: str | None = None
+        ) -> None:
+            events.append(payload)
+
+        monkeypatch.setattr("vibecomfy.executor.core._ws_send", fake_ws_send)
+        return events
+
+    def test_two_step_emits_execute_start_and_done(
+        self, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
+    ) -> None:
+        """A successful two-step run emits execute start → done."""
+        from vibecomfy.executor import two_step as two_step_module
+
+        decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
+        monkeypatch.setattr(
+            "vibecomfy.executor.core._run_classify",
+            lambda *args, **kwargs: decision,
+        )
+        # Model-free events test: the B03 execute boundary gets a canned outcome.
+        monkeypatch.setattr(
+            "vibecomfy.executor.agent_backend.run_execute_turn",
+            lambda *args, **kwargs: {"ok": True, "reply": "edited"},
+        )
+        events = self._capture_phase_events(monkeypatch)
+
+        result = run_executor(
+            ExecutorRequest(
+                query="add a node",
+                session_id="sess-exec",
+                pipeline_mode="two_step",
+            ),
+            client_id="client-1",
+        )
+
+        assert result.ok is True
+        phase_events = [(event["phase"], event["status"]) for event in events]
+        assert ("execute", "start") in phase_events
+        assert ("execute", "done") in phase_events
+        assert all(
+            event["status"] not in ("completed", "failed") for event in events
+        )
+        assert all(
+            event["phase"] not in ("research", "implement", "reply")
+            for event in events
+        )
+
+    def test_two_step_emits_execute_error_event_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
+    ) -> None:
+        """A failing two-step outcome emits execute start → error (canonical)."""
+        from vibecomfy.executor import two_step as two_step_module
+        from vibecomfy.executor.contracts import ExecutorResult
+
+        decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
+        monkeypatch.setattr(
+            "vibecomfy.executor.core._run_classify",
+            lambda *args, **kwargs: decision,
+        )
+        monkeypatch.setattr(
+            two_step_module,
+            "_two_step_outcome",
+            lambda **kwargs: ExecutorResult.failure(
+                kind="model_error",
+                stage="execute",
+                message="execute session failed",
+            ),
+        )
+        events = self._capture_phase_events(monkeypatch)
+
+        result = run_executor(
+            ExecutorRequest(
+                query="add a node",
+                session_id="sess-exec",
+                pipeline_mode="two_step",
+            ),
+            client_id="client-1",
+        )
+
+        assert result.ok is False
+        phase_events = [(event["phase"], event["status"]) for event in events]
+        assert ("execute", "start") in phase_events
+        assert ("execute", "error") in phase_events
+        assert ("execute", "done") not in phase_events
+
+    def test_two_step_emits_execute_working_heartbeat(
+        self, monkeypatch: pytest.MonkeyPatch, profile_dir: Path
+    ) -> None:
+        """A long-running execute outcome emits status='working' heartbeats."""
+        import time
+
+        from vibecomfy.executor import two_step as two_step_module
+        from vibecomfy.executor.contracts import ExecutorResult, Report
+
+        decision = ClassifyDecision.edit(route="adapt", plan_summary="summary")
+        monkeypatch.setattr(
+            "vibecomfy.executor.core._run_classify",
+            lambda *args, **kwargs: decision,
+        )
+
+        def slow_outcome(**kwargs: Any) -> ExecutorResult:
+            time.sleep(0.15)
+            return ExecutorResult.success(
+                report=Report(
+                    plan=kwargs["plan"], pipeline_mode=kwargs["pipeline_mode"]
+                ),
+                reply="done",
+            )
+
+        monkeypatch.setattr(two_step_module, "_two_step_outcome", slow_outcome)
+        monkeypatch.setattr(
+            two_step_module, "_EXECUTE_HEARTBEAT_INTERVAL_SECONDS", 0.03
+        )
+        events = self._capture_phase_events(monkeypatch)
+
+        result = run_executor(
+            ExecutorRequest(
+                query="add a node",
+                session_id="sess-exec",
+                pipeline_mode="two_step",
+            ),
+            client_id="client-1",
+        )
+
+        assert result.ok is True
+        working = [
+            event
+            for event in events
+            if event["phase"] == "execute" and event["status"] == "working"
+        ]
+        assert working, "execute phase must emit status='working' heartbeat events"
+        assert any(
+            event["phase"] == "execute" and event["status"] == "done"
+            for event in events
+        )
+
+
+# ── B05: full-mode websocket payload bytes are frozen (fixture-level) ────────
+
+
+def test_full_mode_phase_event_payloads_byte_identical_to_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full-mode phase event payloads must stay byte-identical to the
+    pre-change JSON snapshot (B05 regression gate).
+
+    The fixture ``full_mode_phase_events_snapshot.json`` was captured from the
+    pre-change ``_emit_executor_phase_event`` output with a pinned clock; the
+    current builder must reproduce those exact bytes for every full-mode
+    phase.
+    """
+    from datetime import datetime, timezone
+
+    snapshot_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "payload_contracts"
+        / "full_mode_phase_events_snapshot.json"
+    )
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    class _FakeDatetime:
+        @classmethod
+        def now(cls, tz=None):  # noqa: ANN001, ANN201 - pinned clock for the snapshot
+            return datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
+
+    request = ExecutorRequest.from_payload(snapshot["request"])
+    captured: dict[str, dict[str, Any]] = {}
+
+    def fake_ws_send(
+        event: str, payload: dict[str, Any], *, client_id: str | None = None
+    ) -> None:
+        captured[payload["phase"]] = dict(payload)
+
+    monkeypatch.setattr("vibecomfy.executor.core._ws_send", fake_ws_send)
+    monkeypatch.setattr("vibecomfy.executor.core.datetime", _FakeDatetime)
+
+    for phase in ("classify", "research", "implement", "reply"):
+        executor_core._emit_executor_phase_event(
+            request,
+            executor_id=snapshot["executor_id"],
+            phase=phase,
+            status="start",
+            plan=None,
+            client_id="client-1",
+        )
+
+    def _canonical_bytes(payload: dict[str, Any]) -> bytes:
+        return json.dumps(
+            payload, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+
+    assert set(captured) == set(snapshot["phases"]), (
+        f"captured phases {sorted(captured)} != snapshot {sorted(snapshot['phases'])}"
+    )
+    for phase, pre_change in snapshot["phases"].items():
+        assert _canonical_bytes(captured[phase]) == _canonical_bytes(pre_change), (
+            f"full-mode {phase!r} phase event payload drifted from the "
+            "pre-change snapshot"
+        )

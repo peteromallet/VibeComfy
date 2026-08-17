@@ -1,48 +1,85 @@
-# MEGADO BATCH B07-lite — Explicit transport experiment (Flash executor)
+# B07 — 50-scenario lane + paired comparison harness (XHARD Pro + Flash)
 
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). Python: `.venv/bin/python`. You have file/web/terminal tools. Skip formatters/linters/full suites; run focused tests only.
+Worktree: /private/tmp/vc-twostep (branch two-step-megado). Python: `PYENV_VERSION=3.11.11`, venv at /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv, `PYTHONPATH=$PWD` if needed.
 
-## Context
-The harness currently selects transport via ambient credentials — the adapter hydrates a local `.env` and rewrites the base URL (`tests/live_agentic_harness/adapter.py:20`), and runtime imports `~/.hermes/.env` (`vibecomfy/comfy_nodes/agent/runtime.py:196`). B01 already provides unified attempt provenance (requested/resolved model, adapter, provider, transport, endpoint, finish reason, tokens, attempt — redacted). The persistent-empty failures cluster on OpenRouter; June's baseline was native DeepSeek. This batch makes transport explicit and runs a small matched probe.
+You are implementing batch B07. The comparator + all-100-classification bootstrap are
+`[XHARD]` → DeepSeek Pro; runner CLI/manifest/doc tasks are Flash. B01–B06 must be present
+first (`git log --oneline -10`).
 
-## Tasks (from .oracle/tasklist.md B07-lite)
+## Tasks
 
-1. **Add the smallest explicit harness selector `--transport {openrouter,native}`**.
-2. **Eliminate ambient-credential transport selection** — default product/harness behavior must NOT silently switch because a credential happens to exist.
-3. **Consume B01's actual successful/failed provenance** — do not create a second metadata format.
-4. **If historical call artifacts are restored**, determine their actual transports rather than trusting readiness labels. (They are NOT restored — record that.)
-5. **Run an approximately ten-scenario matched native/OpenRouter experiment** on the same commit, scenario set, profile, and configuration.
-6. **Keep OpenRouter canonical** unless a material repeatable advantage receives later oracle approval.
+1. (Flash) Extend the headless/live path:
+   - `vibecomfy/agent/contracts.py` — pipeline_mode already threaded from B01; ensure the
+     live path can pass it.
+   - `tests/live_agentic_harness/adapter.py` (~135) + `runner.py` — add
+     `--pipeline-mode {full,two_step}`; every two-step scenario gets a stable per-window
+     `session_id`.
 
-## Sense-check precommit (adversary predictions — cover these FIRST)
+2. `[XHARD — Pro]` All-100 classification bootstrap + deterministic 50-case selection
+   (route-stratification is impossible before locks exist):
+   - Classify all 100 scenarios ONCE → freeze `classification_lock.json`.
+   - Select/freeze 50 with the quota table:
+     routes: clarify 2, respond 8, inspect 8, research 8, requires-custom-nodes 2,
+     revise 12, adapt 8, reorganise 2; behavior: 24 edit / 26 non-edit; ledger:
+     25 in-57 / 25 out; graph size: 15 small / 20 medium / 15 large; media:
+     13 image / 14 video / 12 multimodal / 5 audio / 5 3D / 1 special.
+     Route/edit/ledger quotas HARD; media/size best-fit with documented stable-hash
+     fallback + committed actual quota table.
+   - `tests/live_agentic_harness/two_step_50_manifest.json`: references ALL 100 canonical
+     descriptors (strict validation intact), 50 included / 50 excluded; pin descriptor +
+     source hashes.
 
-From `.oracle/sensecheck-remaining-2026-08-13.md`:
-1. **Selector must survive subprocess isolation.** `run_tag()` constructs child commands at `tests/live_agentic_harness/runner.py:543`; transport must pass explicitly CLI → child → adapter → every profile phase (classify/research/implement/reply).
-2. **Ambient credentials still win.** Adapter hydrates local `.env` (`adapter.py:20`) + runtime imports `~/.hermes/.env` (`runtime.py:196`). Use a pinned child environment; test conflicting keys/base URLs (ambient key present but `--transport native` must still resolve to `https://api.deepseek.com/v1` with the native key).
-3. **False comparability.** Precommit the ten scenario IDs + model/profile/concurrency/timeout + configuration digest. Assert every B01 attempt's OBSERVED transport matches selection. Since historical typed-empty evidence is absent, call this a DETERMINISTIC PROBE — not "empty-heavy" — unless the selection basis is restored.
+3. `[XHARD — Pro]` `tests/live_agentic_harness/compare_pipeline_modes.py`:
+   - Classify each scenario once, persist lock, run full + two-step with the IDENTICAL
+     decision (test-only injection).
+   - Separate durable session roots per mode (no cross-contamination).
+   - Per-scenario + aggregate JSON/Markdown.
+   - Compare: pi_edit(post), canonical Δ replay, judge outcome, evidence/claim correctness,
+     failure family, rejection/replacement use, unsupported claims, self-check/judge
+     disagreement, latency, tokens, cost, session-reuse rate.
+   - Cache paired results so the 50-lane ∩ 57-ledger overlap is not billed twice.
 
-## Key files
-- `tests/live_agentic_harness/runner.py` (`run_tag` `:543`, child command construction), `adapter.py` (`:20` env hydration), `tests/test_live_agentic_runner_persistence.py`
-- `vibecomfy/comfy_nodes/agent/runtime.py` (`:196` hermes env import), `worker.py`, `provider.py` (transport resolution)
-- `vibecomfy/agent/artifacts.py`, `tests/test_agent_runtime_adapter.py`, `tests/test_headless_agent_artifacts.py`
+4. (Flash) `tests/test_live_agentic_two_step_comparison.py`:
+   - Manifest count/hash validation.
+   - Lock completeness + route equality.
+   - Pair completeness.
+   - Comparator behavior WITHOUT model calls.
+   - Honest treatment of blocked provider/infra results.
 
-## Verification (run, retain output)
+5. (Flash) Second comparator selection from `ledger_scenario_ids()`
+   (`intent/_ledger.py:293`); ledger label `current` or `ir-everywhere-57-v3` —
+   `ir-everywhere-57` is an INVALID legacy label.
+
+6. (Flash) Document commands + rollout order in `tests/live_agentic_harness/README.md`:
+   respond/inspect → simple revise/reorganise → bounded research; adapt opt-in.
+
+## Acceptance gate (deterministic wiring)
+
 ```bash
-.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_agent_runtime_adapter.py tests/test_live_agentic_runner_persistence.py tests/test_headless_agent_artifacts.py -k 'transport or provenance or ambient or redact or endpoint or openrouter or native'
+python -m pytest -q \
+  tests/test_live_agentic_two_step_comparison.py \
+  tests/test_live_agentic_harness_corpus_manifest.py \
+  tests/test_live_agentic_runner_persistence.py
+python -m tests.live_agentic_harness.compare_pipeline_modes \
+  --manifest tests/live_agentic_harness/two_step_50_manifest.json --validate-only
 ```
-Plus:
+
+Live paired runs happen AFTER the final sense-check (host runs them):
 ```bash
-.venv/bin/python -m tests.live_agentic_harness.runner --help | grep -F -- '--transport'
+python -m tests.live_agentic_harness.compare_pipeline_modes \
+  --manifest tests/live_agentic_harness/two_step_50_manifest.json --tag two-step-50 \
+  --capture-classifications --max-workers 4 --json
+python -m tests.live_agentic_harness.compare_pipeline_modes \
+  --ledger current --tag two-step-ledger-57 --capture-classifications --max-workers 4 --json
 ```
-Expected: one matching help line and exit 0.
 
-## Acceptance (from tasklist)
-- Ambient credentials cannot silently change transport.
-- Every attempt reports requested/resolved model, provider, transport, endpoint, finish reason, tokens, attempt.
-- Secrets remain redacted.
-- The experiment reports scenario IDs, typed-empty rate, attempts, latency, configuration digest.
-- No all-Flash profile or prompt rewrite introduced.
-- A written decision retains OpenRouter or proposes a separately approved change.
+B07 passes when: both paired runs complete; every pair used the same locked classification;
+all Δ replays + claim-reference checks valid; no full-mode compatibility regression;
+respond/inspect meet non-inferiority gate; adapt reported but not auto-enabled.
 
-## Report
-Return: selector plumbing (CLI→child→adapter→phases), the pinned-environment approach, the ten precommitted scenario IDs + digest, observed-vs-selected transport assertion, probe results, pytest output. Do NOT commit.
+## Constraints
+- Commit by scope: Flash `git commit -m "B07: harness CLI + manifest + docs (Flash)"`;
+  Pro `git commit -m "B07: comparator + 100-classification bootstrap (Pro)"`. Stage by path.
+- Do NOT run the live 50/57 runs yourself — leave that for the host after the final
+  sense-check. `--validate-only` IS in your gate.
+- Report: files changed, gate output, deviations.

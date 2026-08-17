@@ -1,50 +1,68 @@
-# MEGADO BATCH B06 [HARD] — Universal UI evidence and semantic adjudication
+# B06 — Unit, continuity, IR-law, differential validation (Flash + XHARD Pro)
 
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). This is a [HARD] task — executor: Grok (grok-4.6, workspace-write). You may modify files and run tests. Skip formatters/linters/full suites; run focused tests only.
+Worktree: /private/tmp/vc-twostep (branch two-step-megado). Python: `PYENV_VERSION=3.11.11`, venv at /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv, `PYTHONPATH=$PWD` if needed.
 
-## Context
-Two gaps from the failure analysis: (1) refusal/unchanged/clarify/non-edit turns lack universal UI evidence (`original.ui.json`/`final.ui.json`), and (2) the 35 D13 semantic non-edit scenarios have rubrics but NO judge — they'd pass on health alone. Also: refusal-kind auto-acceptance currently bypasses groundedness judging.
+You are implementing batch B06. The differential harness tasks are `[XHARD]` → DeepSeek Pro;
+the continuity/IR-law/regression tasks are Flash. If you are the Flash agent, do the
+non-XHARD tasks; if Pro, do the XHARD tasks. B01–B05 must be present first
+(`git log --oneline -8`).
 
-D13 already delivered: 100-scenario manifest, 35 scenarios with `semantic_answer` rubrics (grounded/relevant/correct → pass; hallucinated/wrong/irrelevant/vacuous/empty → fail), 2 health controls (`excluded_from_semantic_product_rates: true`), 3 corrected edits, fail-closed judge verdict parsers (malformed verdicts fail, never pass). B01 delivered typed evidence. G0R/D13 made the assessor structured-only.
+## Tasks
 
-## Tasks (from .oracle/tasklist.md B06)
+1. (Flash) Complete the five thread-continuity cases in `tests/test_executor_two_step_continuity.py`:
+   - Same session ID reuses ONE execute identity; turn-1 observations + accepted Δ visible.
+   - New chat-window ID starts fresh; no prior refs.
+   - Route changes mid-thread after reclassification WITHOUT replacing the execute session.
+   - Follow-up claiming a missing turn-1 Δ fails.
+   - Session budgets accumulate while each message receives only its route slice.
 
-1. **Persist authoritative `original.ui.json` and `final.ui.json` for EVERY adjudicated route.** Unchanged/refused/clarify routes explicitly project final from original.
-2. **Replace refusal-kind auto-acceptance with tri-state grounded-refusal adjudication**: supported blocker + no representable edit → pass; unsupported/fabricated inability → fail; missing evidence/judge outage → undetermined.
-3. **Implement ONE rubric-driven tri-state answer judge for the 35 D13 semantic non-edits**: grounded, relevant, correct response → pass; hallucinated/wrong/irrelevant/vacuous/empty-but-valid → fail; unavailable evidence/judge outage → undetermined.
-4. **Keep the two health controls structurally scored and separately reported.**
-5. **Ensure the three corrected edits use the edit-intent judge.**
-6. **Never use prose substrings as evidence.**
+2. (Flash) Reuse all five IR laws against BOTH modes — mode-parameterized executor adapter;
+   keep the existing lower-level law suite unchanged.
 
-## Sense-check precommit (adversary predictions — cover these FIRST)
+3. (Flash) Full-path regressions: `classify_only`, `answer_only`, missing execute profile,
+   route-policy coverage, tool denial, budget exhaustion, prompt sections,
+   events/report compatibility.
 
-From `.oracle/sensecheck-remaining-2026-08-13.md`:
-1. **"Universal" evidence misses non-edit routes.** Headless synthesis only copies whatever durable JSON happens to exist (`vibecomfy/agent/artifacts.py:467`); executor-only routes explicitly lack the normal edit turn (`vibecomfy/agent/service.py:207`). Require route-matrix fixtures proving BOTH files exist and `final == original` for respond/research/inspect/clarify/refusal.
-2. **Refusal remains label-first.** `safe_refusal_accepted` is established BEFORE judging (`tests/live_agentic_harness/assessor.py:641`), and non-`desired` allowlisted refusals bypass the judge. Replace this exemption UNIVERSALLY — identical plausible prose with contradictory schema/graph evidence must fail.
-3. **Tri-state collapses to Boolean.** Assessment returns only `passed` (`assessor.py:964`) and the guard maps directly to pass/product-fail. Persist `pass|fail|undetermined`; outage is `undetermined` but still cannot satisfy the scenario. Preserve D13's rule: malformed judge verdicts FAIL, not mislabeled outages.
-4. **The 35 rubric scenarios never enter a judge** because judging is gated on expected edits (`assessor.py:821`). The semantic-answer judge must run for the 35 regardless of edit expectation.
+4. `[XHARD — Pro]` Concurrency/recovery cases (append to `test_executor_two_step_continuity.py`):
+   - Two simultaneous messages for one session serialize or one fails stale.
+   - Server restart reconstructs retained state through named ingest + canonical Δ replay.
+   - Changed current canvas that does not match retained revision fails CAS.
+   - Idempotent message replay does not duplicate tool calls or Δ.
 
-## Key files
-- `tests/live_agentic_harness/assessor.py`, `intent_judge.py`, `guard.py`, `runner.py`
-- `vibecomfy/agent/artifacts.py` (`:467` headless synthesis), `vibecomfy/agent/service.py` (`:207` executor-only route)
-- `tests/test_live_agentic_harness_guard_contract.py`, `tests/test_live_agentic_intent_judge_schema_context.py`, `tests/test_headless_agent_artifacts.py`, `tests/test_live_agentic_assessor_score_honesty.py`
+5. `[XHARD — Pro]` `tests/executor_mode_harness.py` + `tests/test_executor_two_step_differential.py`:
+   - Inject the SAME locked `ClassifyDecision` into both modes through a test-only seam
+     (patch `_run_classify()` or the test-injectable outcome boundary — NO new production
+     classifier API).
+   - Cover: named-field edits, rewires, add/remove, inspect, research, adapt, reorganise.
+   - Compare: `pi_edit(post)` (import the helper deliberately from `tests/test_ir_laws.py:198`
+     — it is NOT a production API), accepted Δ replay, evidence validity, failure family,
+     latency, tokens, cost.
+   - NEVER compare prose equality.
+   - Judge outcomes stay in B07 — use a deterministic stub judge here at most.
+   - Resolve + inventory all 57 IDs from `vibecomfy.intent._ledger`
+     (`ledger_scenario_ids()` at `intent/_ledger.py:293`); refuse duplicate/missing/
+     unmanifested ledger IDs.
 
-## Verification (run, retain output)
+## Acceptance gate (run everything)
+
 ```bash
-.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_live_agentic_harness_guard_contract.py tests/test_live_agentic_intent_judge_schema_context.py tests/test_headless_agent_artifacts.py -k 'grounded_refusal or refusal or undetermined or original or final or semantic or rubric or ui_evidence or outage or judge'
-```
-Plus the full files (expected exit 0; rerunfailures plugin binds a socket and cannot run here):
-```bash
-.venv/bin/python -m pytest -p no:rerunfailures -q tests/test_live_agentic_harness_guard_contract.py tests/test_live_agentic_assessor_score_honesty.py tests/test_live_agentic_intent_judge_schema_context.py tests/test_headless_agent_artifacts.py
+python -m pytest -q \
+  tests/test_executor_pipeline_mode.py tests/test_executor_two_step_policy.py \
+  tests/test_executor_two_step_tools.py tests/test_executor_two_step_prompt.py \
+  tests/test_executor_two_step_contracts.py tests/test_executor_two_step_atomic.py \
+  tests/test_executor_two_step_precedents.py tests/test_executor_two_step_continuity.py \
+  tests/test_executor_two_step_reporting.py tests/test_executor_two_step_differential.py \
+  tests/test_executor_profiles.py tests/test_executor_classify_only.py \
+  tests/test_executor_flows.py tests/test_ir_laws.py
+PYTHONHASHSEED=0 python -m pytest -n 8 -q -p no:cacheprovider
 ```
 
-## Acceptance (from tasklist)
-- Refusal fixtures produce pass/fail/fail/undetermined for grounded, unsupported, fabricated, and outage cases.
-- A healthy but false explanation fails.
-- Judge outage never passes.
-- Every selected semantic non-edit has a rubric and judge result.
-- All routes carry original/final UI evidence.
-- Only `pass` satisfies a semantic scenario.
+No B06 pass if any atomicity, reference-integrity, continuity, or full-mode compatibility
+test is quarantined or xfailed.
 
-## Report
-Return: per-task changes (file:line), the route-matrix fixtures, the tri-state persistence shape, refusal-judge + semantic-judge fixture results, pytest output. Do NOT commit.
+## Constraints
+- Flash agent commits its portion: `git commit -m "B06: continuity + IR-law + regressions (Flash)"`.
+- Pro agent commits its portion: `git commit -m "B06: differential harness + concurrency (Pro)"`.
+  Stage by path to avoid clobbering.
+- Do not start B07 work.
+- Report: files changed, gate output, deviations.

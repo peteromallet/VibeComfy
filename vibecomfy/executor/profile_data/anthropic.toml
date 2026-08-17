@@ -6,4 +6,5 @@
 classify   = "claude:claude-haiku-4-5:low"
 research   = "claude:claude-sonnet-4-6:medium"
 implement  = "claude:claude-opus-4-7:high"
+execute    = "claude:claude-opus-4-7:high"
 reply      = "claude:claude-haiku-4-5:low"

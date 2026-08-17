@@ -1,0 +1,58 @@
+{
+  "executor_id": "exec-abc",
+  "phases": {
+    "classify": {
+      "emitted_at": "2026-01-02T03:04:05.678+00:00",
+      "executor_id": "exec-abc",
+      "has_graph": true,
+      "phase": "classify",
+      "profile": "default",
+      "query_preview": "make it brighter",
+      "session_id": "session-1",
+      "status": "start"
+    },
+    "implement": {
+      "emitted_at": "2026-01-02T03:04:05.678+00:00",
+      "executor_id": "exec-abc",
+      "has_graph": true,
+      "phase": "implement",
+      "profile": "default",
+      "query_preview": "make it brighter",
+      "session_id": "session-1",
+      "status": "start"
+    },
+    "reply": {
+      "emitted_at": "2026-01-02T03:04:05.678+00:00",
+      "executor_id": "exec-abc",
+      "has_graph": true,
+      "phase": "reply",
+      "profile": "default",
+      "query_preview": "make it brighter",
+      "session_id": "session-1",
+      "status": "start"
+    },
+    "research": {
+      "emitted_at": "2026-01-02T03:04:05.678+00:00",
+      "executor_id": "exec-abc",
+      "has_graph": true,
+      "phase": "research",
+      "profile": "default",
+      "query_preview": "make it brighter",
+      "session_id": "session-1",
+      "status": "start"
+    }
+  },
+  "request": {
+    "graph": {
+      "links": [],
+      "nodes": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "profile": "default",
+    "query": "make it brighter",
+    "session_id": "session-1"
+  }
+}

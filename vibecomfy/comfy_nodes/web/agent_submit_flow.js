@@ -37,6 +37,10 @@ export function createSubmitFlow(deps) {
     api,
     normalizeRoutePreference,
     agentPanelFailure,
+    // Optional two-step bound-session resolver.  When twoStepMode is set on a
+    // submit, buildSubmitBody sends the browser-owned (get-or-create) session
+    // id instead of `undefined` — the server never mints ids for two-step.
+    getOrCreateBoundSessionId,
     // Optional UI hook invoked when the inactivity watchdog expires while the
     // absolute deadline still has time (see runSubmitFetchWithDeadline). The
     // flow marks the non-terminal stall state and re-arms itself; the host
@@ -76,7 +80,12 @@ export function createSubmitFlow(deps) {
       route: snapshot.route,
       profile,
       model: snapshot.model || undefined,
-      session_id: sessionIdOverride || panel.state.sessionId || undefined,
+      session_id:
+        sessionIdOverride
+        || panel.state.sessionId
+        || (options.twoStepMode && typeof getOrCreateBoundSessionId === "function"
+          ? getOrCreateBoundSessionId()
+          : undefined),
       client_id: api?.clientId || undefined,
       client_graph_hash: snapshot.graphHash,
       client_structural_graph_hash: snapshot.structuralHash,

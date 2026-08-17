@@ -350,4 +350,278 @@ def run_reply_turn(
         return reply
 
 
-__all__ = ["run_classify_turn", "run_reply_turn"]
+# ── two-step bounded continuation loop (B03) ─────────────────────────────────
+#
+# One logical execute-session identity across messages and route changes.  The
+# loop re-injects the compact accumulated transcript into EVERY continuation by
+# FLATTENING it into the final user payload — ``runtime._split_messages`` keeps
+# only the first system + last user message, so assistant/tool history passed
+# as ordinary messages would be silently dropped.  No provider-native memory is
+# used: continuity is host-owned via the durable session transcript.
+
+from vibecomfy.executor.two_step import (  # noqa: E402
+    BudgetUsage,
+    MessageBudget,
+    check_before_model_call,
+    check_before_tool_call,
+    consume_output_tokens,
+    consume_tool_call,
+)
+from vibecomfy.executor.two_step_session import (  # noqa: E402
+    TwoStepSessionError,
+    TwoStepSessionState,
+    TwoStepSessionStore,
+    derive_research_attempt,
+)
+
+_HOST_ACTIONS = frozenset({"tool_call", "apply", "submit"})
+
+
+def _completion_tokens(result: dict[str, Any], raw: str | None) -> int:
+    """Best-effort completion-token count from worker evidence, else a fallback."""
+    attempts = coerce_model_attempts(result.get("model_attempts"))
+    for attempt in reversed(attempts):
+        usage = attempt.get("token_usage")
+        if isinstance(usage, dict):
+            value = usage.get("completion_tokens")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return max(0, int(value))
+    return max(0, len(raw or "") // 4)
+
+
+def _parse_host_action(raw: str) -> dict[str, Any]:
+    """Parse one host action JSON object from model output.
+
+    Accepts exactly ``tool_call`` / ``apply`` / ``submit``.  Returns a dict with
+    an ``action`` key; malformed output raises ``ValueError`` (the caller maps
+    it to a typed parse failure without mutating the session).
+    """
+    from .prompts import _extract_json_object  # noqa: PLC0415
+
+    payload = _extract_json_object(raw)
+    action = payload.get("action")
+    if action not in _HOST_ACTIONS:
+        raise ValueError(
+            f"unknown host action {action!r} (expected tool_call, apply, or submit)"
+        )
+    return payload
+
+
+def _render_compact_transcript(state: TwoStepSessionState, *, limit: int = 2400) -> str:
+    """Render the compact accumulated transcript for re-injection.
+
+    Only the durable message log is rendered (never an in-memory dict as the
+    authority); content is length-bounded so the flattened payload stays compact.
+    """
+    lines: list[str] = []
+    for message in state.messages:
+        role = str(message.get("role") or "")
+        content = str(message.get("content") or "")
+        if not content.strip():
+            continue
+        turn = message.get("turn")
+        label = f"[turn {turn}]" if turn else ""
+        if len(content) > 200:
+            content = content[:197].rstrip() + "..."
+        lines.append(f"{label}[{role}]: {content}")
+    text = "\n".join(lines)
+    if len(text) > limit:
+        text = text[-limit:]
+    return text or "(none)"
+
+
+def _run_tool_call(
+    *,
+    store: TwoStepSessionStore,
+    session_id: str,
+    turn: int,
+    route: str,
+    tool: str,
+    args: dict[str, Any],
+    message_budget: MessageBudget,
+    budget_usage: BudgetUsage,
+    tool_executor: Any,
+    web_search_enabled: bool,
+) -> tuple[BudgetUsage, str]:
+    """Gate, invoke, and record one registered tool call.
+
+    The allowlist/cap/wall-clock gates fire BEFORE dispatch (B02); a denial
+    raises :class:`BudgetExceeded` and consumes nothing.  The result is
+    projected through the registered ledger projector and recorded in the
+    session transcript (evidence ledger).
+    """
+    check_before_tool_call(
+        message_budget, budget_usage, tool, web_search_enabled=web_search_enabled
+    )
+    budget_usage = consume_tool_call(message_budget, budget_usage, tool)
+    result = tool_executor(tool, args)
+    if result is None:
+        digest = f"{tool}({sorted(args)})"
+        evidence_ids: list[str] = []
+    else:
+        # result is expected to be (evidence_artifacts, ledger_entry, digest)
+        artifacts, _entry, digest = result
+        evidence_ids = list(artifacts) if isinstance(artifacts, dict) else []
+    store.append(
+        session_id,
+        "tool_call",
+        {
+            "tool": tool,
+            "args": args,
+            "evidence_ids": evidence_ids,
+            "digest": str(digest),
+            "route": route,
+        },
+        turn=turn,
+    )
+    return budget_usage, str(digest)
+
+
+def run_execute_turn(
+    request: Any,
+    *,
+    plan: ClassifyDecision,
+    route: str,
+    spec: Any,
+    session_store: TwoStepSessionStore,
+    session_id: str,
+    graph_render: str | None = None,
+    model_turn_fn: Any = None,
+    tool_executor: Any = None,
+    max_continuations: int | None = None,
+) -> dict[str, Any]:
+    """Run ONE bounded two-step execute turn for *request*.
+
+    Returns a plain dict (``ok``, ``reply``, ``route``, ``research_attempt``,
+    ``accepted_delta_ids``, ``budget``, ``failure``).  The heavy edit state
+    machine (parse/apply/gate/commit) is B04; B03 owns the bounded loop, host
+    action parsing, tool execution, transcript re-injection, and session
+    identity.
+    """
+    from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
+
+    if model_turn_fn is None:
+        model_turn_fn = run_model_turn
+
+    # Validate identity/staleness/concurrency BEFORE any model work.
+    try:
+        state = session_store.begin_message(
+            session_id,
+            base_graph=getattr(request, "graph", None),
+            expected_baseline_hash=getattr(request, "expected_baseline_graph_hash", None),
+            message_fingerprint=getattr(request, "idempotency_key", None),
+        )
+    except TwoStepSessionError as exc:
+        return {"ok": False, "reply": None, "route": route, "failure": exc}
+
+    message_budget = MessageBudget.for_route(route)
+    budget_usage = BudgetUsage(route=route)
+    turn = (len(state.messages) // 2) + 1
+    state = session_store.append(session_id, "route", {"route": route}, turn=turn)
+    state = session_store.append(
+        session_id, "user_message", {"query": getattr(request, "query", ""), "route": route}, turn=turn
+    )
+
+    try:
+        continuation = 0
+        while True:
+            session_budget = state.budget
+            try:
+                session_budget = session_budget.record_model_continuation()
+            except Exception as exc:  # BudgetExceeded
+                return {"ok": False, "reply": None, "route": route, "failure": exc}
+            cap = max_continuations if max_continuations is not None else session_budget.max_model_continuations
+            if continuation >= cap:
+                return {"ok": False, "reply": None, "route": route, "failure": TwoStepSessionError(
+                    "stale_message", "execute continuation budget exhausted", session_id=session_id
+                )}
+
+            check_before_model_call(message_budget, budget_usage)
+            transcript = _render_compact_transcript(state)
+            from .prompts import build_two_step_execute_messages  # noqa: PLC0415
+
+            messages = build_two_step_execute_messages(
+                getattr(request, "query", ""),
+                route=route,
+                plan=plan,
+                graph_render=graph_render,
+                transcript=transcript,
+            )
+            result = model_turn_fn(
+                getattr(request, "query", ""),
+                messages,
+                route=getattr(spec, "agent", None),
+                model=getattr(spec, "model", None),
+                effort=getattr(spec, "effort", None),
+                response_contract="json",
+                remaining_output_cap=session_budget.remaining_output_tokens(),
+            )
+            raw = _extract_content(result)
+            tokens = _completion_tokens(result, raw)
+            budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
+            session_budget = session_budget.record_output_tokens(tokens)
+            state = session_store.append(
+                session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
+            )
+
+            try:
+                action = _parse_host_action(raw)
+            except Exception as exc:
+                return {"ok": False, "reply": None, "route": route, "failure": exc}
+
+            kind = action.get("action")
+            if kind == "tool_call":
+                tool = str(action.get("tool") or "")
+                args = action.get("args") if isinstance(action.get("args"), dict) else {}
+                budget_usage, _digest = _run_tool_call(
+                    store=session_store,
+                    session_id=session_id,
+                    turn=turn,
+                    route=route,
+                    tool=tool,
+                    args=args,
+                    message_budget=message_budget,
+                    budget_usage=budget_usage,
+                    tool_executor=tool_executor,
+                    web_search_enabled=False,
+                )
+                state = session_store.load(session_id)
+            elif kind == "apply":
+                session_store.append(
+                    session_id,
+                    "apply",
+                    {"python": str(action.get("python") or ""), "route": route},
+                    turn=turn,
+                )
+                state = session_store.load(session_id)
+            elif kind == "submit":
+                delta_ids = action.get("delta_ids") or ()
+                state = session_store.load(session_id)
+                state.validate_delta_references(delta_ids)
+                reply_text = str(action.get("reply") or "")
+                session_store.append(
+                    session_id,
+                    "reply",
+                    {"reply": reply_text, "route": route},
+                    turn=turn,
+                )
+                state = session_store.load(session_id)
+                return {
+                    "ok": True,
+                    "reply": reply_text,
+                    "route": route,
+                    "research_attempt": state.research_attempt(),
+                    "accepted_delta_ids": list(state.accepted_delta_ids()),
+                    "budget": state.budget,
+                }
+            continuation += 1
+    finally:
+        try:
+            session_store.end_message(
+                session_id, message_fingerprint=getattr(request, "idempotency_key", None)
+            )
+        except Exception:  # noqa: BLE001 - best-effort marker clear
+            pass
+
+
+__all__ = ["run_classify_turn", "run_reply_turn", "run_execute_turn"]

@@ -31,6 +31,7 @@ export const EXECUTOR_PHASES = Object.freeze([
   "research",
   "implement",
   "reply",
+  "execute",
 ]);
 
 export const EXECUTOR_PHASE_STATUSES = Object.freeze([
@@ -316,6 +317,17 @@ export function progressFromExecutorPhase(normalized) {
         ...extras,
       });
     }
+    if (phase === "execute") {
+      // Two-step execute phase: decide (classify) is done; the edit work is
+      // complete; review (the reply surface) is still pending.
+      return createExecutorProgressSnapshot({
+        decide: "done",
+        research: "done",
+        execute: "done",
+        review: "pending",
+        ...extras,
+      });
+    }
     if (phase === "reply") {
       // Non-applyable routes (respond, research, inspect, clarify) never
       // run execute/review — do not imply those stages are complete.
@@ -367,6 +379,16 @@ export function progressFromExecutorPhase(normalized) {
         ...extras,
       });
     }
+    if (phase === "execute") {
+      // Two-step execute skipped: the decision is made, no edit work ran.
+      return createExecutorProgressSnapshot({
+        decide: "done",
+        research: "pending",
+        execute: "pending",
+        review: "pending",
+        ...extras,
+      });
+    }
     // classify skipped means the executor skipped classification entirely
     if (phase === "classify") {
       return createExecutorProgressSnapshot({
@@ -399,6 +421,16 @@ export function progressFromExecutorPhase(normalized) {
     });
   }
   if (phase === "implement") {
+    return createExecutorProgressSnapshot({
+      decide: "done",
+      research: "done",
+      execute: "active",
+      review: "pending",
+      ...extras,
+    });
+  }
+  if (phase === "execute") {
+    // Two-step execute active: the decision is done and edit work is running.
     return createExecutorProgressSnapshot({
       decide: "done",
       research: "done",

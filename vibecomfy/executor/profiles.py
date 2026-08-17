@@ -1,12 +1,13 @@
 """Profile loading and resolution for the embedded VibeComfy executor.
 
-Loads per-phase agent specs from Arnold-owned TOML profiles.  Each profile
-maps the canonical stages (``classify``, ``research``, ``implement``,
-``reply``) to an :class:`AgentSpecShape` with ``agent``, ``model``, and
-``effort`` fields.
+Loads per-phase agent specs from the TOML profiles packaged inside
+``vibecomfy.executor.profile_data``.  Each profile maps the canonical
+required stages (``classify``, ``research``, ``implement``, ``reply``) and
+the optional two-step stage (``execute``) to an :class:`AgentSpecShape`
+with ``agent``, ``model``, and ``effort`` fields.
 
-The primary source is ``arnold.pipelines.vibecomfy_executor.profiles``
-loaded via ``importlib.resources``.  For testing, callers can override
+The packaged TOMLs are the SOLE runtime authority: there is no external
+Arnold mirror consulted at runtime.  For testing, callers can override
 the profile directory via ``set_profile_override_dir()``.
 
 Spec-to-provider mapping (executed by ``agent_backend.py``, not here):
@@ -25,10 +26,30 @@ from typing import Any
 
 # ── canonical stages ─────────────────────────────────────────────────────────
 
-DECLARED_STAGES: frozenset[str] = frozenset({"classify", "research", "implement", "reply"})
+# Every profile must declare these four full-mode stages.  ``execute`` is the
+# optional two-step-only stage: it may appear in a profile but is never
+# required, and the two-step path resolves it explicitly (it never falls back
+# to ``implement``).
+REQUIRED_STAGES: frozenset[str] = frozenset(
+    {"classify", "research", "implement", "reply"}
+)
+ALLOWED_STAGES: frozenset[str] = REQUIRED_STAGES | frozenset({"execute"})
+# Backwards-compatible alias for the required full-mode stage set.
+DECLARED_STAGES: frozenset[str] = REQUIRED_STAGES
 _KNOWN_AGENTS: frozenset[str] = frozenset(
     {"hermes", "openrouter", "codex", "claude", "shannon"}
 )
+
+
+class MissingProfileStageError(ValueError):
+    """Raised when a profile omits a stage the caller requires.
+
+    Subclasses :class:`ValueError` so generic profile-failure handling keeps
+    working, but carries a distinct type so orchestration code
+    (``core._resolve_spec``) can let it propagate unwrapped — a missing
+    two-step ``execute`` stage is a typed, actionable failure, not a generic
+    profile parse error.
+    """
 
 # ── AgentSpecShape ───────────────────────────────────────────────────────────
 
@@ -63,7 +84,7 @@ def set_profile_override_dir(path: Path | str | None) -> None:
     """Override the directory from which profile TOMLs are loaded.
 
     Set to a :class:`Path` to load from a local directory (useful for testing).
-    Set to ``None`` to restore the default Arnold package-resource behaviour.
+    Set to ``None`` to restore the default packaged-profile behaviour.
     """
     global _profile_override_dir
     if path is None:
@@ -106,12 +127,19 @@ _EFFORT_TOKENS: frozenset[str] = frozenset({"low", "medium", "high"})
 
 
 def _validate_stages(stage_map: dict[str, Any]) -> None:
-    """Ensure *stage_map* contains exactly the declared stages."""
+    """Ensure *stage_map* has every required stage and only allowed extras.
+
+    A profile must declare all of :data:`REQUIRED_STAGES`; a missing
+    required stage raises :class:`MissingProfileStageError`.  Extra stages
+    are permitted only when they are in :data:`ALLOWED_STAGES` (today that
+    is exactly ``execute``, the optional two-step stage); anything else is
+    an unknown-stage :class:`ValueError`.
+    """
     stages = frozenset(stage_map.keys())
-    missing = DECLARED_STAGES - stages
-    extra = stages - DECLARED_STAGES
+    missing = REQUIRED_STAGES - stages
+    extra = stages - ALLOWED_STAGES
     if missing:
-        raise ValueError(
+        raise MissingProfileStageError(
             f"Profile is missing required stages: {sorted(missing)}"
         )
     if extra:
@@ -213,8 +241,11 @@ def load_profile(name: str) -> dict[str, AgentSpecShape]:
     Reads ``{name}.toml`` from the profile directory and parses each
     declared stage into an :class:`AgentSpecShape`.
 
-    Returns a mapping from stage name (``"classify"``, ``"research"``,
-    ``"implement"``, ``"reply"``) to its resolved spec.
+    Returns a mapping from stage name (the required ``\"classify\"``,
+    ``\"research\"``, ``\"implement\"``, ``\"reply\"`` plus the optional
+    two-step ``\"execute\"`` when the profile declares it) to its resolved
+    spec.  ``execute`` is never synthesized from ``implement`` — a profile
+    either declares it or does not.
     """
     toml_path = _profile_dir() / f"{name}.toml"
     if not toml_path.is_file():
@@ -225,9 +256,9 @@ def load_profile(name: str) -> dict[str, AgentSpecShape]:
     # Allow profiles to nest their stages under a top-level key.  Two common
     # conventions exist in the wild:
     #   1. Stages directly at top level.
-    #   2. Stages under [profiles.{name}] (Arnold-style packaging).
+    #   2. Stages under [profiles.{name}] (packaged-profile style).
     #   3. Stages under a single wrapper key such as [default] or [profile].
-    has_stages_directly = bool(DECLARED_STAGES & frozenset(raw.keys()))
+    has_stages_directly = bool(REQUIRED_STAGES & frozenset(raw.keys()))
     if not has_stages_directly:
         # Convention 2: {profiles = {name = {classify = ...}}}
         if (
@@ -239,14 +270,16 @@ def load_profile(name: str) -> dict[str, AgentSpecShape]:
         else:
             # Convention 3: single wrapper key containing the stage dict.
             for value in raw.values():
-                if isinstance(value, dict) and DECLARED_STAGES & frozenset(value.keys()):
+                if isinstance(value, dict) and REQUIRED_STAGES & frozenset(value.keys()):
                     raw = value
                     break
 
     _validate_stages(raw)
 
+    # Return every declared stage (required four + optional ``execute``);
+    # sorted for deterministic load order.
     return {
-        stage: _parse_spec(raw[stage], stage=stage) for stage in DECLARED_STAGES
+        stage: _parse_spec(raw[stage], stage=stage) for stage in sorted(raw)
     }
 
 
@@ -264,7 +297,10 @@ def load_all_profiles() -> dict[str, dict[str, AgentSpecShape]]:
 
 __all__ = [
     "AgentSpecShape",
+    "ALLOWED_STAGES",
     "DECLARED_STAGES",
+    "MissingProfileStageError",
+    "REQUIRED_STAGES",
     "load_all_profiles",
     "load_profile",
     "set_profile_override_dir",

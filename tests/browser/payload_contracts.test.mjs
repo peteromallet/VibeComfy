@@ -1175,6 +1175,7 @@ for (const fixtureName of agentTurnFixtures) {
 
 const executorPhaseFixtures = [
   "websocket_executor_phase_classify.json",
+  "websocket_executor_phase_execute.json",
   "websocket_executor_phase_implement.json",
   "websocket_executor_phase_reply.json",
   "websocket_executor_phase_research.json",

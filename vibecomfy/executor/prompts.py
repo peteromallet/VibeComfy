@@ -689,6 +689,234 @@ def build_reply_messages(
     ]
 
 
+# ── two-step execute prompt (B03) ────────────────────────────────────────────
+#
+# The two-step pipeline replaces research → implement → reply with a single
+# bounded execute phase.  One prompt carries every authoritative design
+# section: the locked route/plan/query, the current workflow render lenses,
+# RESEARCH, PRECEDENT TRANSLATION, EDITING, REPLY, and SELF-CHECK + the final
+# contract.  The STAGES AND AVAILABLE TOOLS section is rendered prominently and
+# lists exactly the route-allowed catalog (B02 policy) — no union-catalog
+# leakage.  The compact accumulated transcript is FLATTENED into the final user
+# payload because ``runtime._split_messages`` keeps only the first system and
+# last user message; assistant/tool history passed as ordinary messages would
+# be silently dropped.
+
+_NON_EDIT_ROUTES = frozenset(
+    {"clarify", "respond", "inspect", "research", "requires_custom_nodes"}
+)
+
+_TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
+    "You are the execute agent for a ComfyUI canvas editor's two-step pipeline.\n"
+    "The classifier has already locked the route.  Run ONE bounded execute turn\n"
+    "for the current message; the turn may span several model continuations.\n"
+    "Each continuation returns exactly one host action JSON object (a tool call,\n"
+    "a Python edit batch, or the final SUBMIT contract).  Return ONLY that JSON\n"
+    "object — no markdown fences, no commentary.\n"
+    "\n"
+    "STAGES AND AVAILABLE TOOLS\n"
+    "==========================\n"
+    "Work in exactly this order:\n"
+    "\n"
+    "1. RESEARCH — gather the evidence this route is allowed to gather.\n"
+    "   Available research tools:\n"
+    "__RESEARCH_TOOLS__\n"
+    "\n"
+    "2. CHANGE — prepare the edit with advisory/schema/layout tools.\n"
+    "   Available change tools:\n"
+    "__CHANGE_TOOLS__\n"
+    "   Python editing on this route: __PYTHON_EDITING__.\n"
+    "\n"
+    "3. SUBMIT — no tools.  Return the final JSON contract only.\n"
+    "\n"
+    "Tools not listed for your route are DENIED by the host: a call to an\n"
+    "unavailable tool is rejected before it runs.  Use only the tools shown\n"
+    "above for this exact route.\n"
+    "\n"
+    "SAME-WINDOW CONTINUITY\n"
+    "======================\n"
+    "You are ONE thread-continuous session for this chat window.  Prior turns in\n"
+    "the same window are supplied in the PRIOR TURNS block of the user payload;\n"
+    "use them to resolve follow-up references (\"that node\", \"option 2\", \"the\n"
+    "change I asked for\", etc.).  Do not re-derive work already recorded in the\n"
+    "transcript, and never cite a Δ id, lens fact id, or evidence id that was\n"
+    "not produced in THIS window.\n"
+    "__NON_EDIT_NOTE__"
+    "FINAL CONTRACT (SUBMIT)\n"
+    "=======================\n"
+    "Return a single JSON object with these keys:\n"
+    "  \"action\": \"submit\"\n"
+    "  \"reply\": string — the user-facing prose.\n"
+    "  \"delta_ids\": array of strings — accepted Δ ids, in THIS session only.\n"
+    "  \"lens_fact_ids\": array of strings — lens fact ids, in THIS session only.\n"
+    "  \"evidence_ids\": array of strings — evidence ids, in THIS session only.\n"
+    "  \"edit_applied\": true/false.\n"
+    "  \"self_check\": {\"research\": \"never|empty|thin|grounded\", \"confidence\":\n"
+    "                  string, \"notes\": string}.\n"
+    "__NON_EDIT_CONTRACT__"
+    "SELF-CHECK\n"
+    "==========\n"
+    "Before SUBMIT, verify: (1) every cited id exists in this session's ledger;\n"
+    "(2) an edit_applied=true contract cites at least one accepted Δ;\n"
+    "(3) the reply prose is concrete and never mentions internal gate names;\n"
+    "(4) you used no tool outside this route's allowed catalog.\n"
+    "\n"
+    "CONTINUATION ACTIONS (while working, before SUBMIT)\n"
+    "===================================================\n"
+    "Return exactly one of:\n"
+    "  - Tool call:     {\"action\": \"tool_call\", \"tool\": \"<name>\", \"args\": {...}}\n"
+    "  - Python batch:  {\"action\": \"apply\", \"python\": \"<edit statements>\"}\n"
+    "  - Final:         the SUBMIT contract above.\n"
+)
+
+_TWO_STEP_NON_EDIT_NOTE = (
+    "\n"
+    "NON-EDIT ROUTE\n"
+    "==============\n"
+    "This route may not submit any change: delta_ids must be [] and edit_applied\n"
+    "must be false.  Do not emit a Python batch or an apply action.\n"
+)
+
+_TWO_STEP_NON_EDIT_CONTRACT = (
+    "  For THIS non-edit route: \"delta_ids\": [], \"edit_applied\": false.\n"
+)
+
+
+def _two_step_stage_catalogs(route: str, *, web_search_enabled: bool) -> tuple[str, str, bool]:
+    """Return (research_docs, change_docs, python_allowed) for *route*.
+
+    The catalogs are the exact route-allowed tools partitioned by phase — never
+    the union catalog, and never ``phase=None`` (which would leak implement
+    tools into RESEARCH or research tools into CHANGE).
+    """
+    from vibecomfy.executor.tool_specs import (  # noqa: PLC0415
+        PHASE_IMPLEMENT,
+        PHASE_RESEARCH,
+        tool_catalog_docs,
+    )
+    from vibecomfy.executor.two_step import (  # noqa: PLC0415
+        TWO_STEP_ROUTE_POLICIES,
+        effective_route_tools,
+    )
+
+    effective = effective_route_tools(route, web_search_enabled=web_search_enabled)
+    research = tool_catalog_docs(phase=PHASE_RESEARCH, allowed_names=effective)
+    change = tool_catalog_docs(phase=PHASE_IMPLEMENT, allowed_names=effective)
+    policy = TWO_STEP_ROUTE_POLICIES[route]
+    return research, change, policy.allows_python_edits
+
+
+def _build_two_step_execute_system(
+    route: str, *, web_search_enabled: bool = False
+) -> str:
+    research, change, python_allowed = _two_step_stage_catalogs(
+        route, web_search_enabled=web_search_enabled
+    )
+    research_text = research if research else "   (none for this route)"
+    change_text = change if change else "   (none for this route)"
+    python_text = "ALLOWED" if python_allowed else "NOT ALLOWED"
+    non_edit = route in _NON_EDIT_ROUTES
+    system = _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE
+    system = system.replace("__RESEARCH_TOOLS__", research_text)
+    system = system.replace("__CHANGE_TOOLS__", change_text)
+    system = system.replace("__PYTHON_EDITING__", python_text)
+    system = system.replace(
+        "__NON_EDIT_NOTE__", _TWO_STEP_NON_EDIT_NOTE if non_edit else ""
+    )
+    system = system.replace(
+        "__NON_EDIT_CONTRACT__", _TWO_STEP_NON_EDIT_CONTRACT if non_edit else ""
+    )
+    return system
+
+
+def build_two_step_execute_messages(
+    query: str,
+    *,
+    route: str,
+    plan: ClassifyDecision | None = None,
+    graph_render: str | None = None,
+    research_context: str | None = None,
+    precedent_context: str | None = None,
+    editing_context: str | None = None,
+    transcript: str | None = None,
+    web_search_enabled: bool = False,
+) -> list[dict[str, str]]:
+    """Build system + user messages for one bounded two-step execute turn.
+
+    The system message carries the static design sections (STAGES AND AVAILABLE
+    TOOLS, same-window continuity, the final contract, SELF-CHECK).  The user
+    message carries the per-turn design sections — route/plan/query, the
+    current workflow render lenses, RESEARCH, PRECEDENT TRANSLATION, EDITING,
+    REPLY — plus the FLATTENED compact transcript and the new message.  Only
+    the route-allowed catalog is rendered (B02 policy); unavailable tools are
+    denied by the host.
+    """
+    system = _build_two_step_execute_system(
+        route, web_search_enabled=web_search_enabled
+    )
+    parts: list[str] = []
+
+    task = plan.effective_task if plan is not None else ""
+    plan_summary = plan.plan_summary if plan is not None else ""
+    parts.append(
+        "ROUTE / PLAN / QUERY\n"
+        "--------------------\n"
+        f"Active route: {route}\n"
+        f"Task: {task or '(none)'}\n"
+        f"Plan: {plan_summary or '(none)'}\n"
+        f"User request: {query}"
+    )
+
+    parts.append(
+        "\nCURRENT WORKFLOW (render lenses)\n"
+        "--------------------------------\n"
+        f"{graph_render if graph_render else '(no graph attached to this request)'}"
+    )
+
+    parts.append(
+        "\nRESEARCH\n"
+        "--------\n"
+        f"{research_context if research_context else '(none yet — gather it if the route allows and the request needs it)'}"
+    )
+
+    parts.append(
+        "\nPRECEDENT TRANSLATION\n"
+        "---------------------\n"
+        f"{precedent_context if precedent_context else '(none)'}"
+    )
+
+    parts.append(
+        "\nEDITING\n"
+        "-------\n"
+        f"{editing_context if editing_context else '(no edit accepted yet in this session)'}"
+    )
+
+    parts.append(
+        "\nREPLY\n"
+        "-----\n"
+        "Produce a concrete, user-facing reply in the SUBMIT contract.  Acknowledge\n"
+        "what was done; name nodes, templates, or parameters where relevant.  Never\n"
+        "mention internal gate names, provider routes, or pipeline stages."
+    )
+
+    parts.append(
+        "\nPRIOR TURNS (this window)\n"
+        "------------------------\n"
+        f"{transcript if transcript else '(none — this is the first message in this window)'}"
+    )
+
+    parts.append(
+        "\nCURRENT MESSAGE\n"
+        "---------------\n"
+        f"{query}"
+    )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n".join(parts)},
+    ]
+
+
 # ── response parsers ─────────────────────────────────────────────────────────
 
 # Matches a JSON object that starts with { and ends with } across lines.

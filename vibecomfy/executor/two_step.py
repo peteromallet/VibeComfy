@@ -16,6 +16,12 @@ plumbing wires in.  Session persistence and cumulative enforcement are NOT
 implemented here — this module provides immutable policy/type definitions and
 the per-message enforcement primitives only.
 
+B05 (Flash scope) wires the two-step profile ``execute`` resolution (typed
+``MissingProfileStageError``, never a fallback to ``implement``), the
+``phase="execute"`` lifecycle events (start/working/done/error), the single
+``phase="execute"`` profiler span with the execute budget counters, and the
+``report.executor.execute`` section.
+
 The full-mode route authority (``core._ROUTE_BEHAVIORS``) is never moved or
 duplicated: :func:`assert_route_policy_coverage` imports it lazily and asserts
 exact route-set coverage.
@@ -23,6 +29,8 @@ exact route-set coverage.
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -30,12 +38,21 @@ from typing import Any, Mapping
 
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
+    ExecuteReport,
     ExecutorRequest,
     ExecutorResult,
     PipelineMode,
     Report,
     resolve_pipeline_mode,
 )
+from vibecomfy.executor.profiler import (
+    ProfilerSpan,
+    profiler_log,
+    profiler_span,
+    short_text,
+)
+
+LOGGER = logging.getLogger(__name__)
 
 
 # ── B02: budget families ─────────────────────────────────────────────────────
@@ -768,6 +785,11 @@ class SessionBudget:
 
 # ── B01 entrypoint (unchanged semantics + coverage assertion) ────────────────
 
+# Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
+# events emitted while the execute phase is running (B05; mirrors the
+# full-mode implement heartbeat).
+_EXECUTE_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
 
 def _run_two_step(
     request: ExecutorRequest,
@@ -777,25 +799,168 @@ def _run_two_step(
     executor_id: str,
     additive: bool = False,
 ) -> ExecutorResult:
-    """Two-step execute entrypoint (B01 seam; real execution in B03–B04).
+    """Two-step execute entrypoint (B01 seam; B05 wiring; execution in B03–B04).
 
     The request has already been classified by
     :func:`vibecomfy.executor.core.run_executor`; for ``answer_only``
     interactions the plan has additionally been rewritten to forbid edits
     before this seam is reached.  This entrypoint re-resolves the pipeline
-    mode for the typed outcome and delegates to the injectable outcome
+    mode and delegates to the injectable outcome boundary.
+
+    B05: the explicit two-step ``execute`` profile stage is resolved here —
+    NEVER a fallback to ``implement``; a missing stage is a typed
+    :class:`~vibecomfy.executor.profiles.MissingProfileStageError` that
+    surfaces as a typed profile failure result.  The execute lifecycle events
+    (start/working/done/error) and the single ``phase="execute"`` profiler
+    span with the execute budget counters are emitted around the outcome
     boundary.  B02: the route-policy coverage assertion runs on every
     execution (lazy import of the full-mode route authority).
     """
     assert_route_policy_coverage()
     pipeline_mode = resolve_pipeline_mode(request)
-    return _two_step_outcome(
-        request=request,
-        plan=plan,
-        pipeline_mode=pipeline_mode,
-        client_id=client_id,
+
+    # Lazy imports: ``core`` imports this module during its own
+    # initialization, so module-level imports would observe the
+    # partially-initialized ``core`` (same pattern as
+    # :func:`assert_route_policy_coverage`).
+    from vibecomfy.executor.core import (  # noqa: PLC0415
+        _emit_executor_phase_event,
+        _resolve_spec,
+        _spec_fields,
+    )
+    from vibecomfy.comfy_nodes.agent.contracts import classify_failure  # noqa: PLC0415
+
+    # ── Resolve the execute profile spec (two-step ONLY) ────────────────
+    # ``execute`` is never synthesized from ``implement``: the profile must
+    # declare it explicitly, otherwise the typed MissingProfileStageError
+    # (preserved by ``_resolve_spec``) becomes a typed profile failure.
+    try:
+        execute_spec = _resolve_spec(request.profile, "execute")
+    except Exception as exc:
+        failure = classify_failure("profile", exc)
+        return ExecutorResult.failure(
+            kind=failure.kind.value,
+            stage="profile",
+            message=failure.user_facing_message,
+            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+        )
+
+    request_fields = {
+        "executor_id": executor_id,
+        "pipeline_mode": pipeline_mode,
+        "profile": request.profile or "default",
+        "session_id": request.session_id,
+        "has_graph": request.graph is not None,
+        "query_preview": short_text(request.query),
+    }
+
+    profiler_log(
+        LOGGER,
+        "executor.profile_resolved",
+        **request_fields,
+        execute=_spec_fields(execute_spec),
+    )
+
+    _emit_executor_phase_event(
+        request,
         executor_id=executor_id,
-        additive=additive,
+        phase="execute",
+        status="start",
+        client_id=client_id,
+    )
+
+    # Keep the panel alive during long model-backed execute turns: a daemon
+    # thread re-emits phase="execute" status="working" every ~15s until the
+    # outcome boundary returns.  send_sync is thread-safe.
+    heartbeat_stop = threading.Event()
+
+    def _execute_heartbeat() -> None:
+        while not heartbeat_stop.wait(_EXECUTE_HEARTBEAT_INTERVAL_SECONDS):
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="execute",
+                status="working",
+                client_id=client_id,
+            )
+
+    heartbeat_thread = threading.Thread(
+        target=_execute_heartbeat,
+        name="vibecomfy-executor-execute-heartbeat",
+        daemon=True,
+    )
+
+    with profiler_span(
+        LOGGER,
+        "executor.phase",
+        **request_fields,
+        phase="execute",
+        **_spec_fields(execute_spec),
+    ) as span:
+        heartbeat_thread.start()
+        try:
+            result = _two_step_outcome(
+                request=request,
+                plan=plan,
+                pipeline_mode=pipeline_mode,
+                client_id=client_id,
+                executor_id=executor_id,
+                additive=additive,
+            )
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2.0)
+        _span_update_from_execute_result(span, result)
+
+    # Canonical terminal statuses: "done" on success, "error" on failure —
+    # never "completed"/"failed".
+    if getattr(result, "ok", False):
+        _emit_executor_phase_event(
+            request,
+            executor_id=executor_id,
+            phase="execute",
+            status="done",
+            client_id=client_id,
+        )
+    else:
+        _emit_executor_phase_event(
+            request,
+            executor_id=executor_id,
+            phase="execute",
+            status="error",
+            client_id=client_id,
+        )
+
+    profiler_log(
+        LOGGER,
+        "executor.result",
+        **request_fields,
+        has_execute=True,
+        result_has_graph=getattr(result, "graph", None) is not None,
+        reply_preview=short_text(getattr(result, "reply", None)),
+    )
+    return result
+
+
+def _span_update_from_execute_result(span: ProfilerSpan, result: ExecutorResult) -> None:
+    """Fold the execute report's budget counters and identity into the span.
+
+    The execute span is the ONE ``phase="execute"`` profiler span; its
+    result fields mirror the canonical execute budget counters so the
+    profiler log carries continuation/tool/budget usage without a second
+    span.  Identity fields are prefixed (``execute_route`` /
+    ``execute_session_id``) so they never collide with the span's base
+    spec fields (``route`` / ``model`` / ``effort``).  Canned test outcomes
+    without an execute report are skipped.
+    """
+    report = getattr(result, "report", None)
+    execute = getattr(report, "execute", None)
+    if execute is None:
+        return
+    span.update(
+        execute_route=execute.route,
+        execute_session_id=execute.session_id,
+        **dict(execute.budget_usage),
     )
 
 
@@ -808,19 +973,88 @@ def _two_step_outcome(
     executor_id: str,
     additive: bool,
 ) -> ExecutorResult:
-    """Test-injectable outcome boundary (B01 stub; real execution in B03–B04).
+    """Real B03 execute boundary (was a B01 stub).
 
-    B03–B04 replace this body with the bounded execute session; tests inject
-    a canned outcome by monkeypatching this function.  The default stub
-    returns a typed success result carrying the classified plan so the
-    orchestration toggle is exercisable end-to-end without model calls.
+    Validates the two-step session identity, resolves the ``execute`` profile
+    spec (never falling back to ``implement``), and runs the bounded execute
+    loop.  Session failures map to typed failure results; a missing session id
+    and a closed session are validated here AND in the pre-classification
+    preflight (``core.run_executor``).
     """
-    del request, client_id, executor_id, additive
-    return ExecutorResult.success(
-        report=Report(plan=plan),
-        graph=None,
-        reply=(
-            "[two-step] execute phase active (pipeline_mode="
-            f"{pipeline_mode}); full execution lands in B03–B04."
-        ),
+    del client_id, executor_id, additive
+    from vibecomfy.executor.two_step_session import (  # noqa: PLC0415
+        TwoStepSessionError,
+        TwoStepSessionStore,
+        normalize_session_id,
     )
+
+    if not request.session_id:
+        exc = TwoStepSessionError(
+            "invalid_request",
+            "two-step execute requires a session_id (the server never mints ids).",
+        )
+        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
+
+    route = plan.effective_route or _fallback_route(plan)
+    store = TwoStepSessionStore()
+    session_id = normalize_session_id(request.session_id)
+
+    from vibecomfy.executor.agent_backend import run_execute_turn  # noqa: PLC0415
+
+    try:
+        from vibecomfy.executor.core import _resolve_spec  # noqa: PLC0415
+
+        spec = _resolve_spec(request.profile, "execute")
+        outcome = run_execute_turn(
+            request,
+            plan=plan,
+            route=route,
+            spec=spec,
+            session_store=store,
+            session_id=session_id,
+        )
+    except TwoStepSessionError as exc:
+        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
+    except Exception as exc:  # noqa: BLE001 - typed failure envelope
+        return ExecutorResult.failure(kind="ExecuteError", stage="execute", message=str(exc))
+
+    if not outcome.get("ok"):
+        failure = outcome.get("failure")
+        kind = getattr(failure, "kind", None) or "ExecuteError"
+        return ExecutorResult.failure(kind=kind, stage="execute", message=str(failure))
+    # B05: the two-step report always serializes the resolved pipeline mode
+    # and carries the optional ``execute`` section (session identity, route,
+    # budget usage, tool/evidence/Δ IDs, claim validation, replacement use,
+    # self-assessment).  Full-mode reports never carry ``execute``.
+    return ExecutorResult.success(
+        report=Report(
+            plan=plan,
+            pipeline_mode=pipeline_mode,
+            execute=ExecuteReport(
+                session_id=request.session_id,
+                route=route,
+                budget_usage={
+                    "output_tokens": 0,
+                    "model_continuations": 0,
+                    "tool_calls": 0,
+                    "apply_batches": 0,
+                    "replacement_attempts": 0,
+                    "wall_clock_seconds": 0.0,
+                },
+                claim_validation={"status": "not_run"},
+            ),
+        ),
+        graph=None,
+        reply=outcome.get("reply"),
+    )
+
+
+def _fallback_route(plan: ClassifyDecision) -> str:
+    """Canonical route fallback without importing ``core`` at module scope."""
+    if plan.implement and plan.research:
+        return "adapt"
+    if plan.implement:
+        return "revise"
+    if plan.research:
+        return "research"
+    return "respond"

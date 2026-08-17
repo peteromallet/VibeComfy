@@ -1922,6 +1922,89 @@ class ImplementationResult:
 # ── report (nested executor metadata) ────────────────────────────────────────
 
 
+# Canonical cumulative execute-budget keys mirrored from the two-step session
+# budget (``two_step.SessionBudget``).  The execute report only ever carries
+# these keys, so a rogue ``budget_usage`` mapping cannot smuggle fields.
+_EXECUTE_BUDGET_KEYS: tuple[str, ...] = (
+    "output_tokens",
+    "model_continuations",
+    "tool_calls",
+    "apply_batches",
+    "replacement_attempts",
+    "wall_clock_seconds",
+)
+
+
+@dataclass(frozen=True)
+class ExecuteReport:
+    """Two-step ``execute`` phase metadata (B05).
+
+    Optional section serialized under ``report.executor.execute`` ONLY for
+    two-step runs; full-mode reports never carry it.  Captures the bounded
+    execute session's identity (``session_id``), the classified ``route``,
+    cumulative budget usage (the seven canonical ``budget_usage`` counters),
+    the tool-call / evidence / accepted-Δ reference IDs, claim-validation
+    results (every change claim must reference the accepted Δ), whether the
+    execute agent used a replacement, and its self-assessment.
+    """
+
+    session_id: str | None = None
+    route: str = ""
+    budget_usage: Mapping[str, int | float] = field(default_factory=dict)
+    tool_call_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    accepted_delta_ids: tuple[str, ...] = ()
+    claim_validation: Mapping[str, Any] = field(default_factory=dict)
+    replacement_used: bool = False
+    self_assessment: Any = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "session_id",
+            str(self.session_id) if self.session_id is not None else None,
+        )
+        object.__setattr__(self, "route", str(self.route or ""))
+        object.__setattr__(
+            self,
+            "budget_usage",
+            MappingProxyType({
+                str(key): value
+                for key, value in dict(self.budget_usage).items()
+                if key in _EXECUTE_BUDGET_KEYS and value is not None
+            }),
+        )
+        for name in ("tool_call_ids", "evidence_ids", "accepted_delta_ids"):
+            values = getattr(self, name)
+            object.__setattr__(
+                self, name, tuple(str(item) for item in (values or ()))
+            )
+        object.__setattr__(
+            self,
+            "claim_validation",
+            MappingProxyType({
+                str(key): _freeze_jsonish(value)
+                for key, value in dict(self.claim_validation).items()
+            }),
+        )
+        object.__setattr__(self, "replacement_used", bool(self.replacement_used))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "session_id": self.session_id,
+            "route": self.route,
+            "budget_usage": dict(self.budget_usage),
+            "tool_call_ids": list(self.tool_call_ids),
+            "evidence_ids": list(self.evidence_ids),
+            "accepted_delta_ids": list(self.accepted_delta_ids),
+            "claim_validation": _thaw_jsonish(self.claim_validation),
+            "replacement_used": self.replacement_used,
+        }
+        if self.self_assessment is not None:
+            payload["self_assessment"] = _thaw_jsonish(self.self_assessment)
+        return payload
+
+
 @dataclass(frozen=True)
 class Report:
     """Executor metadata nested under ``report`` in the final envelope.
@@ -1935,6 +2018,11 @@ class Report:
     (``precedent_packet`` / ``adaptation_plan`` / ``precedent_slices``) were
     removed by the agent-judgment rework (D02) and are rejected explicitly
     instead of being silently rewritten.
+
+    ``pipeline_mode`` (B05) is the RESOLVED pipeline mode and is always
+    serialized — including ``"full"`` — so consumers can tell which
+    orchestration produced the report.  ``execute`` (B05) carries the
+    two-step execute metadata and is serialized ONLY for two-step runs.
     """
 
     plan: ClassifyDecision | None = None
@@ -1950,6 +2038,11 @@ class Report:
     # Canonical per-call evidence for every successful and failed model attempt
     # observed across classify, implement/batch, and reply.
     model_attempts: tuple[dict[str, Any], ...] = ()
+    # Resolved pipeline mode (B05).  None = unresolved/legacy construction;
+    # serialization defaults it to DEFAULT_PIPELINE_MODE ("full").
+    pipeline_mode: PipelineMode | None = None
+    # Two-step execute metadata (B05); None for full-mode runs.
+    execute: ExecuteReport | None = None
 
     def __post_init__(self) -> None:
         if self.research is not None and not callable(getattr(self.research, "to_dict", None)):
@@ -1996,6 +2089,11 @@ class Report:
             inner["research"] = self.research.to_dict()
         if self.implementation is not None:
             inner["implementation"] = self.implementation.to_dict()
+        # B05: the resolved pipeline mode is ALWAYS serialized (including
+        # "full") so consumers can tell which orchestration ran.
+        inner["pipeline_mode"] = self.pipeline_mode or DEFAULT_PIPELINE_MODE
+        if self.execute is not None:
+            inner["execute"] = self.execute.to_dict()
         usage_payload = coerce_deepseek_usage(self.deepseek_usage)
         inner["deepseek_usage"] = usage_payload
         if self.deepseek_est_cost_usd is not None:
@@ -2518,6 +2616,7 @@ __all__ = [
     "AgentEvidence",
     "AgentTurnResult",
     "ClassifyDecision",
+    "ExecuteReport",
     "ExecutorRequest",
     "ExecutorResult",
     "GraphFacts",
