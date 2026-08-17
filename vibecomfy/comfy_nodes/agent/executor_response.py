@@ -155,7 +155,57 @@ def serialize_executor_result(result: Any) -> dict[str, Any]:
         merged = _strip_non_applyable_forbidden_fields(merged)
     if is_clarify:
         merged = _sanitize_clarify_payload(merged)
+    # Batch 10 fix: "claims ⊆ Δ" is enforced on the product path.  The reply
+    # may only claim changes the accepted Δ actually landed; invalid claims
+    # are stripped from the response (change_details.operations and
+    # outcome.changes) and recorded as violations.
+    from vibecomfy.executor.contracts import validate_reply_change_claims
+
+    violations = validate_reply_change_claims(merged)
+    if violations:
+        merged["claims_violations"] = violations
+        merged = _strip_invalid_change_claims(merged, violations)
     return merged
+
+
+def _strip_invalid_change_claims(payload: Mapping[str, Any], violations: list[str]) -> dict[str, Any]:
+    """Strip change claims that are not in the accepted Δ.
+
+    ``change_details.operations`` / ``outcome.changes`` /
+    ``internal_outcome.changes`` items whose ``(uid, field_path)`` produced a
+    violation are removed so the serialized response never claims an edit the
+    accepted Δ did not land.
+    """
+    invalid_keys: set[tuple[str, str]] = set()
+    for violation in violations:
+        import re
+
+        match = re.search(r"\(([^,]+), ([^)]+)\)", violation)
+        if match:
+            invalid_keys.add((match.group(1).strip(), match.group(2).strip()))
+    if not invalid_keys:
+        return dict(payload)
+    result = dict(payload)
+    for key in ("change_details", "outcome", "internal_outcome"):
+        section = result.get(key)
+        if not isinstance(section, Mapping):
+            continue
+        cleaned = dict(section)
+        for list_key in ("operations", "changes"):
+            items = cleaned.get(list_key)
+            if not isinstance(items, list):
+                continue
+            kept = [
+                item
+                for item in items
+                if not (
+                    isinstance(item, Mapping)
+                    and (str(item.get("uid")), str(item.get("field_path"))) in invalid_keys
+                )
+            ]
+            cleaned[list_key] = kept
+        result[key] = cleaned
+    return result
 
 
 _serialize_executor_result = serialize_executor_result

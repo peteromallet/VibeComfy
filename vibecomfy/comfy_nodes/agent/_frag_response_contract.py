@@ -1227,10 +1227,12 @@ def _build_batch_repl_response(
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
     # ── Accepted Δ references ─────────────────────────────────────────────
-    # The response's change claims (reply, report, change_details, outcome)
-    # are grounded in the accepted Δ: the batch statements that landed.
-    # ``accepted_batch`` carries those statements so consumers can verify
-    # claims ⊆ Δ (the reply-must-match-diff law).
+    # The response's change claims (reply, report, outcome) are grounded in
+    # the accepted Δ: the batch statements that landed.  ``accepted_batch``
+    # carries those statements (each with its landed op) so consumers can
+    # verify claims ⊆ Δ (the reply-must-match-diff law).  It is the canonical
+    # Δ representation; the V2 envelope below is the apply transaction
+    # binding (plan_hash), not a parallel claims source.
     response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))
     # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
     # Use the envelope validated by _validate_delta_evidence_for_apply rather
@@ -1238,12 +1240,43 @@ def _build_batch_repl_response(
     # validated envelope includes any synthesized empty V2 envelope so that
     # identity/no-op apply carries explicit evidence.  When delta evidence
     # validation failed (has_candidate cleared), the envelope is None.
+    # ``accepted_batch`` above is the canonical Δ (each accepted statement
+    # carries its landed op); the envelope remains the server-authored
+    # V2 mutation-plan binding (plan_hash / transaction identity) for apply.
     cumulative_delta_envelope = delta_evidence_envelope
     if cumulative_delta_envelope is not None:
         response["agent_edit_protocol"] = "v2_delta"
         response["delta_ops_envelope"] = cumulative_delta_envelope
         # delta_ops is a read-only derived compatibility view from the canonical envelope.
         response["delta_ops"] = list(cumulative_delta_envelope["ops"])
+    # ── "claims ⊆ Δ" enforcement on the product path ──────────────────────
+    # The reply may only claim changes the accepted Δ actually landed.  Any
+    # invalid claim is stripped from outcome.changes and recorded so a false
+    # claim can never reach the client as fact.
+    try:
+        from vibecomfy.executor.contracts import validate_reply_change_claims
+
+        claims_violations = validate_reply_change_claims(response)
+        if claims_violations:
+            response["claims_violations"] = claims_violations
+            outcome_payload = response.get("outcome")
+            if isinstance(outcome_payload, Mapping):
+                cleaned = dict(outcome_payload)
+                changes = cleaned.get("changes")
+                if isinstance(changes, list):
+                    claim_keys = _accepted_delta_claim_keys(response)
+                    cleaned["changes"] = [
+                        change
+                        for change in changes
+                        if not (
+                            isinstance(change, Mapping)
+                            and (str(change.get("uid")), str(change.get("field_path"))) not in claim_keys
+                            and (str(change.get("uid")), "*") not in claim_keys
+                        )
+                    ]
+                response["outcome"] = cleaned
+    except Exception:
+        pass
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

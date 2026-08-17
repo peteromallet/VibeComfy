@@ -465,12 +465,14 @@ def _load_accepted_batch(
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """Return the accepted Δ from a run response: ``(accepted_batch, delta_envelope)``.
 
-    ``accepted_batch`` is the list of batch statements that succeeded
-    (``ok`` and ``landed`` both true) — the accepted batch that the reply
-    claims.  ``delta_envelope`` is the canonical cumulative Δ envelope
-    (``delta_ops_envelope``), with the derived ``delta_ops`` view as a
-    fallback.  Both are sourced from the durable response only; prose is
-    never used.
+    ``accepted_batch`` is the durable response's accepted Δ — the batch
+    statements that succeeded (``ok`` and ``landed`` both true) that the
+    reply claims.  Each accepted edit statement carries its landed ``op``
+    (the typed op the grammar yielded), so the statements alone are the
+    canonical Δ (Law 3); no parallel envelope is required.  ``delta_envelope``
+    is derived from those ops (``{"ops": [...]}``), with the legacy
+    ``delta_ops_envelope`` / ``delta_ops`` views accepted as a fallback for
+    older durable artifacts.  Prose is never used.
     """
     if not isinstance(response, Mapping):
         return [], None
@@ -478,18 +480,39 @@ def _load_accepted_batch(
     for turn in response.get("batch_turns") or []:
         if not isinstance(turn, Mapping):
             continue
+        envelope = turn.get("delta_ops_envelope")
+        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+        if not isinstance(turn_ops, list):
+            flat_ops = turn.get("delta_ops")
+            turn_ops = flat_ops if isinstance(flat_ops, list) else ()
+        landed_op_iter = iter(
+            op for op in turn_ops if isinstance(op, Mapping)
+        )
         for statement in turn.get("statements") or []:
             if not isinstance(statement, Mapping):
                 continue
             if statement.get("ok") is True and statement.get("landed") is True:
-                accepted.append(
-                    {
-                        "statement_index": statement.get("statement_index"),
-                        "source": statement.get("source"),
-                        "op_kind": statement.get("op_kind"),
-                        "touched_uids": list(statement.get("touched_uids") or ()),
-                    }
-                )
+                entry: dict[str, Any] = {
+                    "statement_index": statement.get("statement_index"),
+                    "source": statement.get("source"),
+                    "op_kind": statement.get("op_kind"),
+                    "touched_uids": list(statement.get("touched_uids") or ()),
+                }
+                op = statement.get("op")
+                if not isinstance(op, Mapping):
+                    op = next(landed_op_iter, None)
+                if isinstance(op, Mapping):
+                    entry["op"] = op
+                accepted.append(entry)
+    # The durable top-level accepted_batch (when present) is the single
+    # source of truth; batch_turns reconstruction is a fallback for older
+    # artifacts.
+    durable_batch = response.get("accepted_batch")
+    if isinstance(durable_batch, list) and durable_batch:
+        accepted = [dict(item) for item in durable_batch if isinstance(item, Mapping)]
+    ops = [item["op"] for item in accepted if isinstance(item.get("op"), Mapping)]
+    if ops:
+        return accepted, {"ops": list(ops)}
     envelope = response.get("delta_ops_envelope")
     if isinstance(envelope, Mapping):
         return accepted, dict(envelope)
@@ -499,23 +522,127 @@ def _load_accepted_batch(
     return accepted, None
 
 
-def _ui_node_value_fields(node: Mapping[str, Any]) -> dict[str, Any]:
-    """Best-effort field/value view of a UI node (inputs, widgets, widgets_values)."""
-    values: dict[str, Any] = {}
-    inputs = node.get("inputs")
-    if isinstance(inputs, Mapping):
-        values.update({str(k): v for k, v in inputs.items()})
-    widgets = node.get("widgets")
-    widgets_values = node.get("widgets_values")
-    if isinstance(widgets, list) and isinstance(widgets_values, list):
-        for index, widget in enumerate(widgets):
-            if (
-                isinstance(widget, Mapping)
-                and isinstance(widget.get("name"), str)
-                and index < len(widgets_values)
-            ):
-                values[str(widget["name"])] = widgets_values[index]
-    return values
+def _ui_node_value_fields(node: Mapping[str, Any], *, schema_provider: Any = None) -> dict[str, Any]:
+    """Field/value view of a UI node via the EditableSurface (batch 6).
+
+    The surface hydrates the INSTANCE — named ``inputs``, named ``widgets[]``
+    AND positional ``widgets_values`` (resolved against the class schema) —
+    so typical LiteGraph nodes with positional widget vectors resolve to
+    their schema field names instead of failing closed.
+    """
+    try:
+        from vibecomfy.porting.edit.editable_surface import editable_surface_for
+
+        surface = editable_surface_for(node, schema_provider=schema_provider)
+        return {
+            str(field.name): field.value
+            for field in surface.literals
+            if field.name
+        }
+    except Exception:
+        return {}
+
+
+def _to_workflow_ir(ir: Mapping[str, Any], *, schema_provider: Any = None) -> Any:
+    """Convert a durable graph view (UI or rich envelope) to a VibeWorkflow IR."""
+    from vibecomfy.ingest.normalize import from_envelope, from_ui
+
+    if isinstance(ir.get("nodes"), dict) or "vibecomfy_format_version" in ir:
+        return from_envelope(dict(ir))
+    return from_ui(
+        dict(ir),
+        schema_provider=schema_provider,
+        use_comfy_converter=False,
+    )
+
+
+def _verify_delta_replay(
+    pre_ir: Mapping[str, Any],
+    post_ir: Mapping[str, Any],
+    delta_ops: Any,
+    *,
+    schema_provider: Any = None,
+) -> dict[str, Any]:
+    """Verify the canonical Δ replayable-constructs post from pre (Law 3).
+
+    The judge grades the accepted Δ directly: ``interpret(pre, Δ)`` must
+    apply cleanly and reproduce post (``diff(interpret(pre, Δ), post) == ()``),
+    and the Δ must equal the canonical diff of the IR pair — i.e. the Δ is
+    what actually changed.  When the IR pair cannot be lifted to a
+    VibeWorkflow, ``verified`` is None and the LLM judges (with the
+    EditableSurface-resolved field values as context).  Returns
+    ``{"verified": bool | None, "checked": int, "mismatches": [...]}``.
+    """
+    if not isinstance(delta_ops, (list, tuple)) or not delta_ops:
+        return {"verified": None, "checked": 0, "mismatches": []}
+    from vibecomfy.porting.edit._diff import diff
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.edit.ops import parse_edit_delta
+
+    try:
+        pre_wf = _to_workflow_ir(pre_ir, schema_provider=schema_provider)
+        post_wf = _to_workflow_ir(post_ir, schema_provider=schema_provider)
+        ops = parse_edit_delta(list(delta_ops))
+    except Exception as exc:
+        return {
+            "verified": None,
+            "checked": 0,
+            "mismatches": [],
+            "error": f"could not lift IR for replay: {exc}",
+        }
+    if not ops:
+        return {"verified": None, "checked": 0, "mismatches": []}
+    mismatches: list[str] = []
+    try:
+        result = interpret(pre_wf, ops, schema_provider=schema_provider)
+    except Exception as exc:
+        return {
+            "verified": False,
+            "checked": len(ops),
+            "mismatches": [f"interpret(pre, Δ) raised: {exc}"],
+        }
+    if not result.ok:
+        codes = [diag.code for diag in result.diagnostics]
+        mismatches.append(
+            "interpret(pre, Δ) failed to apply: " + ", ".join(codes[:4] or ["apply_failed"])
+        )
+    else:
+        leftover = diff(result.workflow, post_wf)
+        if leftover:
+            mismatches.append(
+                f"interpret(pre, Δ) does not reconstruct post: "
+                f"{len(leftover)} leftover op(s) in diff(interpret(pre, Δ), post)"
+            )
+    try:
+        expected = diff(pre_wf, post_wf)
+        _actual = {_op_fingerprint(op) for op in expected}
+        _claimed = {_op_fingerprint(op) for op in ops}
+        if _claimed - _actual:
+            mismatches.append(
+                "Δ claims changes that are not what actually changed between pre_ir and post_ir"
+            )
+    except Exception:
+        pass
+    if not mismatches:
+        return {"verified": True, "checked": len(ops), "mismatches": []}
+    return {
+        "verified": False,
+        "checked": len(ops),
+        "mismatches": mismatches[:8],
+    }
+
+
+def _op_fingerprint(op: Any) -> tuple[Any, ...]:
+    """Stable comparable fingerprint of an edit op (dict or typed)."""
+    if isinstance(op, Mapping):
+        return (op.get("op"), json.dumps(op, sort_keys=True, default=str))
+    try:
+        from vibecomfy.porting.edit.ops import op_to_dict
+
+        payload = op_to_dict(op)
+    except Exception:
+        return (getattr(op, "op", type(op).__name__), str(op))
+    return (payload.get("op"), json.dumps(payload, sort_keys=True, default=str))
 
 
 def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -537,82 +664,12 @@ def _nodes_by_uid(ir: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return result
 
 
-def _verify_delta_replay(
-    pre_ir: Mapping[str, Any],
-    post_ir: Mapping[str, Any],
-    delta_ops: Any,
-) -> dict[str, Any]:
-    """Deterministically verify the canonical Δ against pre/post IR.
+def _verify_delta_replay_legacy_removed() -> None:  # pragma: no cover
+    """Removed: the homemade UI-widget walker on V2 apply-envelope ops.
 
-    The Δ is replayable when every op's claim is satisfied by the IR pair:
-    ``set_node_field`` claims its target field holds the op value in
-    ``post_ir``, ``add_node`` claims the uid exists only after, and
-    ``remove_node`` claims the uid exists only before.  Returns
-    ``{"verified": bool | None, "checked": int, "mismatches": [...]}`` where
-    ``verified`` is None when no op was checkable (the LLM judges).
+    Batch 10 fix: the judge verifies the accepted Δ via
+    ``interpret(pre, Δ)`` / ``diff`` (Law 3) — see :func:`_verify_delta_replay`.
     """
-    if not isinstance(delta_ops, (list, tuple)) or not delta_ops:
-        return {"verified": None, "checked": 0, "mismatches": []}
-    pre_nodes = _nodes_by_uid(pre_ir)
-    post_nodes = _nodes_by_uid(post_ir)
-    mismatches: list[str] = []
-    checked = 0
-    for op in delta_ops:
-        if not isinstance(op, Mapping):
-            continue
-        kind = op.get("op")
-        if kind == "set_node_field":
-            target = op.get("target")
-            if not (isinstance(target, (list, tuple)) and len(target) >= 3):
-                continue
-            uid, field_path = str(target[1]), str(target[2])
-            post_node = post_nodes.get(uid)
-            if post_node is None:
-                mismatches.append(
-                    f"set_node_field claims {uid}.{field_path} but {uid} is absent from post IR"
-                )
-                checked += 1
-                continue
-            values = _ui_node_value_fields(post_node)
-            if field_path in values and values[field_path] == op.get("value"):
-                checked += 1
-            else:
-                mismatches.append(
-                    f"set_node_field claims {uid}.{field_path} = {op.get('value')!r} "
-                    f"but post IR has {values.get(field_path, '<absent>')!r}"
-                )
-                checked += 1
-        elif kind == "add_node":
-            uid = op.get("uid")
-            if uid is None:
-                continue
-            uid = str(uid)
-            if uid in post_nodes and uid not in pre_nodes:
-                checked += 1
-            else:
-                mismatches.append(
-                    f"add_node claims {uid} was added but pre/post IR do not show it"
-                )
-                checked += 1
-        elif kind == "remove_node":
-            target = op.get("target")
-            if not (isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None):
-                continue
-            uid = str(target[1])
-            if uid in pre_nodes and uid not in post_nodes:
-                checked += 1
-            else:
-                mismatches.append(
-                    f"remove_node claims {uid} was removed but pre/post IR do not show it"
-                )
-                checked += 1
-    if checked == 0:
-        return {"verified": None, "checked": 0, "mismatches": []}
-    return {
-        "verified": not mismatches,
-        "checked": checked,
-        "mismatches": mismatches[:8],
-    }
 
 
 def judge_edit_intent(
@@ -672,7 +729,14 @@ def judge_edit_intent(
 
     accepted_batch, delta_envelope = _load_accepted_batch(response)
     delta_ops = delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
-    delta_replay = _verify_delta_replay(pre_ir, post_ir, delta_ops)
+    from vibecomfy.schema import get_schema_provider  # late import: judge stays light
+
+    delta_replay = _verify_delta_replay(
+        pre_ir,
+        post_ir,
+        delta_ops,
+        schema_provider=get_schema_provider("auto"),
+    )
     # The Δ is what actually changed: when the deterministic replay of the
     # canonical Δ contradicts the pre/post IR, no edit satisfies the intent —
     # fail closed without a model call (the reply-must-match-diff law).
@@ -712,11 +776,12 @@ def judge_edit_intent(
         system_prompt = (
             system_prompt.rstrip()
             + "\n\n## Accepted Δ (the canonical change)\n"
-            "The accepted_batch statements and the delta envelope below are the ONLY "
-            "changes that actually landed (the canonical Δ). Grade the edit against "
-            "them directly: the Δ is what actually changed between pre_ir and post_ir. "
-            "Do not infer additional edits from the IR pair that the Δ does not claim, "
-            "and do not excuse a claimed edit that the Δ does not contain."
+            "The accepted_batch statements below are the ONLY changes that actually "
+            "landed (the canonical Δ). Grade the edit against them directly: the Δ is "
+            "what actually changed between pre_ir and post_ir, verified by "
+            "interpret(pre, Δ) reconstructing post. Do not infer additional edits from "
+            "the IR pair that the Δ does not claim, and do not excuse a claimed edit "
+            "that the Δ does not contain."
         )
     # Optional non-prescriptive "desired outcome" rubric from the scenario. When
     # present, it grounds the judge on what a GOOD result achieves (the outcome +

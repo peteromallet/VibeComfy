@@ -720,8 +720,17 @@ def _judge_delta_response_json(original: Path, candidate: Path, *, ops: list[dic
             "original_ui": str(original),
             "candidate_ui": str(candidate),
         },
-        "delta_ops_envelope": {"schema_version": "2.0.0", "ops": ops},
-        "delta_ops": ops,
+        # The accepted Δ is the batch: each accepted statement carries its
+        # landed op.  No parallel delta_ops_envelope/change_details.
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": ops[0] if ops else None,
+            }
+        ],
         "batch_turns": [
             {
                 "statements": [
@@ -755,6 +764,8 @@ def test_intent_judge_grades_delta_with_replay_evidence(
     canonical Δ directly; the replay evidence is present."""
     original = tmp_path / "original.ui.json"
     candidate = tmp_path / "candidate.ui.json"
+    # widgets_values are positional in schema order (seed, control_after_generate,
+    # steps, cfg, sampler_name, scheduler, denoise); steps is index 2.
     original.write_text(
         json.dumps(
             {
@@ -763,8 +774,7 @@ def test_intent_judge_grades_delta_with_replay_evidence(
                         "id": "sampler",
                         "type": "KSampler",
                         "properties": {"vibecomfy_uid": "sampler"},
-                        "widgets": [{"name": "steps"}, {"name": "seed"}],
-                        "widgets_values": [20, 42],
+                        "widgets_values": [42, "fixed", 20, 7, "euler", "normal", 1],
                     }
                 ]
             }
@@ -779,8 +789,7 @@ def test_intent_judge_grades_delta_with_replay_evidence(
                         "id": "sampler",
                         "type": "KSampler",
                         "properties": {"vibecomfy_uid": "sampler"},
-                        "widgets": [{"name": "steps"}, {"name": "seed"}],
-                        "widgets_values": [30, 42],
+                        "widgets_values": [42, "fixed", 30, 7, "euler", "normal", 1],
                     }
                 ]
             }
@@ -819,9 +828,9 @@ def test_intent_judge_grades_delta_with_replay_evidence(
     assert payload["delta_replay"]["checked"] == 1
     # Only accepted statements are the Δ references.
     assert [item["statement_index"] for item in payload["accepted_batch"]] == [1]
-    assert payload["pre_ir"]["nodes"][0]["widgets_values"][0] == 20
-    assert payload["post_ir"]["nodes"][0]["widgets_values"][0] == 30
-    assert "Accepted Δ" in messages[0]["content"]
+    assert payload["pre_ir"]["nodes"][0]["widgets_values"][2] == 20
+    assert payload["post_ir"]["nodes"][0]["widgets_values"][2] == 30
+    assert "Accepted Δ" in seen["messages"][0]["content"]
 
 
 def test_intent_judge_fails_closed_on_delta_replay_mismatch(

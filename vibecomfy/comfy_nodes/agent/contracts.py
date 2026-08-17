@@ -1042,7 +1042,7 @@ def _default_gate_results() -> dict[str, GateResult]:
 
 @dataclass
 class TurnContext:
-    session_id: str
+    session_id: str = ""
     turn_id: str | None = None
     baseline_turn_id: str | None = None
     client_graph_hash: str | None = None

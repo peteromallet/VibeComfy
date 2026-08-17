@@ -20,8 +20,8 @@ from vibecomfy.porting.edit.types import FieldChange
 from ._frag_chat import _json_safe
 from ._frag_state import (
     AgentEditState,
-    _accepted_batch_delta_ops,
     _accepted_batch_field_changes,
+    _accepted_batch_statements,
     _total_landed_edit_count,
 )
 
@@ -335,24 +335,27 @@ def _first_link_source_label(
 
 
 def _delta_structural_uids(state: AgentEditState) -> tuple[set[str], set[str]]:
-    """Return ``(added_uids, removed_uids)`` from the accepted Δ ops.
+    """Return ``(added_uids, removed_uids)`` from the accepted Δ statements.
 
-    add_node / remove_node ops are the Δ's structural claims; the summary
-    phrases are derived from them so prose can never claim a structural
-    change the accepted batch did not land.
+    add_node (``node_call``) / ``remove_node`` statements of the accepted
+    batch are the Δ's structural claims; the summary phrases are derived from
+    them so prose can never claim a structural change the accepted batch did
+    not land.  Only the accepted Δ (the batch) is consumed — no parallel
+    delta-op envelope.
     """
     added: set[str] = set()
     removed: set[str] = set()
-    for op in _accepted_batch_delta_ops(state):
-        kind = op.get("op")
-        if kind == "add_node":
-            uid = op.get("uid")
-            if uid is not None:
-                added.add(str(uid))
+    for statement in _accepted_batch_statements(state):
+        kind = statement.get("op_kind")
+        uids = statement.get("touched_uids") or ()
+        if kind == "node_call":
+            for uid in uids:
+                if uid is not None:
+                    added.add(str(uid))
         elif kind == "remove_node":
-            target = op.get("target")
-            if isinstance(target, (list, tuple)) and len(target) >= 2 and target[1] is not None:
-                removed.add(str(target[1]))
+            for uid in uids:
+                if uid is not None:
+                    removed.add(str(uid))
     return added, removed
 
 

@@ -2275,42 +2275,67 @@ def validate_reply_change_claims(response: Any) -> list[str]:
     """Return violations when the response's change claims exceed the accepted Δ.
 
     The reply-must-match-diff law: every change claim in the response
-    (``change_details.operations``) must reference a statement that landed —
-    i.e. its ``(uid, field_path)`` must appear among the accepted Δ ops
-    (``delta_ops_envelope.ops``, with the derived ``delta_ops`` view as a
-    fallback).  A claim about a non-landed statement is invalid and is
-    reported as a violation; an empty list means all claims are within Δ.
+    (``change_details.operations`` and ``outcome.changes``) must reference a
+    statement that landed — i.e. its ``(uid, field_path)`` must appear among
+    the accepted Δ ops carried by ``accepted_batch`` statements (each accepted
+    statement carries its landed ``op``).  A claim about a non-landed
+    statement is invalid and is reported as a violation; an empty list means
+    all claims are within Δ.  Responses without an ``accepted_batch`` (or
+    legacy ``delta_ops_envelope``/``delta_ops``) make no claims checkable and
+    report no violations.
     """
     if not isinstance(response, Mapping):
         return ["response must be a mapping"]
-    envelope = response.get("delta_ops_envelope")
-    delta_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+    delta_ops: Any = None
+    accepted_batch = response.get("accepted_batch")
+    if isinstance(accepted_batch, list):
+        delta_ops = [
+            item.get("op")
+            for item in accepted_batch
+            if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+        ]
+    if not isinstance(delta_ops, (list, tuple)):
+        envelope = response.get("delta_ops_envelope")
+        delta_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
     if not isinstance(delta_ops, (list, tuple)):
         delta_ops = response.get("delta_ops")
     claim_keys = _delta_op_claim_keys(delta_ops)
+    if not claim_keys:
+        return []
     violations: list[str] = []
-    change_details = response.get("change_details")
-    operations = (
-        change_details.get("operations")
-        if isinstance(change_details, Mapping)
-        else None
-    )
-    if not isinstance(operations, list):
-        return violations
-    for operation in operations:
-        if not isinstance(operation, Mapping):
-            continue
-        uid = operation.get("uid")
-        field_path = operation.get("field_path")
-        if uid is None or field_path is None:
-            continue
-        key = (str(uid), str(field_path))
-        if key not in claim_keys:
+    for source, operations in (
+        ("change_details.operations", _claim_operations(response.get("change_details"))),
+        ("outcome.changes", _claim_operations(response.get("outcome"))),
+        ("internal_outcome.changes", _claim_operations(response.get("internal_outcome"))),
+    ):
+        for operation in operations:
+            if not isinstance(operation, Mapping):
+                continue
+            uid = operation.get("uid")
+            field_path = operation.get("field_path")
+            if uid is None or field_path is None:
+                continue
+            key = (str(uid), str(field_path))
+            if key in claim_keys or (str(uid), "*") in claim_keys:
+                continue
             violations.append(
-                f"change claim ({uid}, {field_path}) is not in the accepted Δ; "
-                "a claim about a non-landed statement is invalid"
+                f"change claim ({uid}, {field_path}) in {source} is not in the "
+                "accepted Δ; a claim about a non-landed statement is invalid"
             )
     return violations
+
+
+def _claim_operations(payload: Any) -> list[Any]:
+    """Collect ``(uid, field_path)`` claim items from a payload mapping."""
+    if not isinstance(payload, Mapping):
+        return []
+    operations = payload.get("operations")
+    if isinstance(operations, list):
+        return operations
+    changes = payload.get("changes")
+    if isinstance(changes, list):
+        return changes
+    return []
 
 
 __all__ = [

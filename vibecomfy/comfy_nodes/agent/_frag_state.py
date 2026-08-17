@@ -400,37 +400,52 @@ def _accepted_batch_statements(state: AgentEditState) -> tuple[dict[str, Any], .
     A statement is accepted iff it landed (``ok`` and ``landed`` both true).
     Rejected statements are excluded so every consumer (reply, report,
     humanize, judge) is grounded in the same single source of truth and can
-    never claim an edit that did not land.  The returned dicts are the
-    canonical Δ references (statement index, source, op kind, touched uids).
+    never claim an edit that did not land.  Each accepted edit statement
+    additionally carries its landed ``op`` (the typed op the grammar yielded,
+    matched from the turn's Δ ops in landed order), so the accepted batch IS
+    the canonical Δ (Law 3) — no parallel envelope is needed.
     """
     accepted: list[dict[str, Any]] = []
     for turn in state.batch_turns:
         if not isinstance(turn, Mapping):
             continue
+        envelope = turn.get("delta_ops_envelope")
+        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
+        if not isinstance(turn_ops, list):
+            flat_ops = turn.get("delta_ops")
+            turn_ops = flat_ops if isinstance(flat_ops, list) else ()
+        landed_op_iter = iter(op for op in turn_ops if isinstance(op, Mapping))
         for statement in turn.get("statements") or []:
             if not isinstance(statement, Mapping):
                 continue
             if statement.get("ok") is not True or statement.get("landed") is not True:
                 continue
-            accepted.append({
+            entry = {
                 "statement_index": statement.get("statement_index"),
                 "source": statement.get("source"),
                 "op_kind": statement.get("op_kind"),
                 "touched_uids": list(statement.get("touched_uids") or ()),
                 "status": statement.get("status"),
                 "reason": statement.get("reason"),
-            })
+            }
+            op = statement.get("op")
+            if not isinstance(op, Mapping):
+                op = next(landed_op_iter, None)
+            if isinstance(op, Mapping):
+                entry["op"] = op
+            accepted.append(entry)
     return tuple(accepted)
 
 
 def _accepted_batch_field_changes(state: AgentEditState) -> tuple[FieldChange, ...]:
-    """Return the field-change projection of the accepted Δ.
+    """Return the field-change projection of the accepted Δ (landed/ok only).
 
-    The per-turn ``field_changes`` payloads are the Δ's field-change view:
-    the loop records only real, lint-surviving changes of landed statements,
-    so a rejected statement can never contribute a change.  Falls back to
+    A per-turn ``field_changes`` item is included ONLY when the turn has an
+    accepted (``ok`` and ``landed`` both true) statement touching that uid —
+    a rejected statement can never contribute a change.  Turns with no
+    accepted statements contribute nothing.  Falls back to
     ``state.batch_field_changes`` (the loop-maintained accumulation of
-    exactly those payloads) only when no turn carries a field-change payload
+    landed changes only) when no turn carries a field-change payload
     (synthetic/pre-batch states with no batch evidence).
     """
     changes: list[FieldChange] = []
@@ -440,8 +455,18 @@ def _accepted_batch_field_changes(state: AgentEditState) -> tuple[FieldChange, .
         payload = turn.get("field_changes")
         if not isinstance(payload, list):
             continue
+        accepted_uids: set[str] = set()
+        for statement in turn.get("statements") or []:
+            if not isinstance(statement, Mapping):
+                continue
+            if statement.get("ok") is True and statement.get("landed") is True:
+                accepted_uids.update(str(uid) for uid in statement.get("touched_uids") or ())
+        if not accepted_uids:
+            continue
         for item in payload:
             if not isinstance(item, Mapping):
+                continue
+            if str(item.get("uid")) not in accepted_uids:
                 continue
             changes.append(
                 FieldChange(
