@@ -60,14 +60,17 @@ TWO_STEP_50_MANIFEST = HARNESS_DIR / "two_step_50_manifest.json"
 CLASSIFICATION_LOCK = HARNESS_DIR / "classification_lock.json"
 
 # Route vocabulary from the B07 brief's quota table.  A locked classification
-# must resolve to one of these — an unknown route is a wiring error.
+# must resolve to one of these — an unknown route is a wiring error.  Names use
+# the EXECUTOR's canonical spelling (``requires_custom_nodes`` with underscores,
+# as in vibecomfy.executor.contracts._ALLOWED_ROUTES), not the brief's prose
+# hyphenation.
 KNOWN_ROUTES = frozenset(
     {
         "clarify",
         "respond",
         "inspect",
         "research",
-        "requires-custom-nodes",
+        "requires_custom_nodes",
         "revise",
         "adapt",
         "reorganise",
@@ -678,3 +681,79 @@ def test_ledger_lane_overlaps_50_lane_when_manifest_present() -> None:
     }
     overlap = lane_ids & set(ledger_scenario_ids())
     assert len(overlap) == 25
+
+
+# ── Pro B07: classification bootstrap + comparator deterministic wiring ─────
+#
+# These tests pin the Pro-owned frozen artifacts (classification_lock.json +
+# two_step_50_manifest.json) and the compare_pipeline_modes --validate-only
+# gate path.  Deterministic only — no model calls.
+
+
+def test_pro_lock_dimensions_valid() -> None:
+    from tests.live_agentic_harness import classification as C
+    from tests.live_agentic_harness.compare_pipeline_modes import load_in_57_ids, load_lock
+
+    lock = load_lock()
+    scenarios = {
+        path.stem: None
+        for path in discover_manifest_scenarios(DEFAULT_SCENARIOS_DIR)
+    }
+    C.validate_lock(lock, scenario_ids=frozenset(scenarios), in_57_ids=load_in_57_ids())
+    for entry in lock["entries"]:
+        assert entry["behavior"] == ("edit" if entry["route"] in C.EDIT_ROUTES else "non-edit")
+
+
+def test_pro_selection_hits_hard_quotas_exactly() -> None:
+    from tests.live_agentic_harness import classification as C
+
+    lock = json.loads(CLASSIFICATION_LOCK.read_text(encoding="utf-8"))
+    manifest = json.loads(TWO_STEP_50_MANIFEST.read_text(encoding="utf-8"))
+    C.validate_manifest_quotas(manifest, lock)
+
+
+def test_pro_injection_plan_covers_all_routes() -> None:
+    from tests.live_agentic_harness import classification as C
+    from tests.live_agentic_harness.compare_pipeline_modes import build_injected_plan
+
+    for route in C.ROUTES:
+        plan = build_injected_plan(route)
+        assert isinstance(plan.to_dict(), dict)
+        # The executor normalizes the install-intent route to an executable
+        # route; every other route round-trips its locked value exactly.
+        if route != "requires_custom_nodes":
+            assert plan.effective_route == route
+
+
+def test_pro_validate_only_gate() -> None:
+    from tests.live_agentic_harness.compare_pipeline_modes import validate_only
+
+    result = validate_only()
+    assert result["ok"] is True
+    actual = result["quota_table"]["actual"]
+    assert actual["routes"] == {
+        "clarify": 2,
+        "respond": 8,
+        "inspect": 8,
+        "research": 8,
+        "requires_custom_nodes": 2,
+        "revise": 12,
+        "adapt": 8,
+        "reorganise": 2,
+    }
+    assert actual["behavior"] == {"edit": 24, "non-edit": 26}
+    assert actual["ledger"] == {"in": 25, "out": 25}
+
+
+def test_pro_regeneration_is_idempotent() -> None:
+    from tests.live_agentic_harness import classification as C
+    from tests.live_agentic_harness.compare_pipeline_modes import load_in_57_ids, load_scenarios
+
+    scenarios = load_scenarios()
+    regenerated = C.build_classification_lock(scenarios, in_57_ids=load_in_57_ids())
+    committed = json.loads(CLASSIFICATION_LOCK.read_text(encoding="utf-8"))
+    assert regenerated["entries"] == committed["entries"]
+    assert regenerated["selected_ids"] == committed["selected_ids"]
+    assert C.build_two_step_manifest(regenerated)["entries"] == json.loads(
+        TWO_STEP_50_MANIFEST.read_text(encoding="utf-8")
+    )["entries"]

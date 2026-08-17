@@ -1,0 +1,1159 @@
+{
+  "schema_version": 1,
+  "scenario_count": 100,
+  "selected_count": 50,
+  "selected_ids": [
+    "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
+    "3d-3d-model-generation-and-preview-workflow-cc0df7",
+    "3d-3d-model-generation-and-retargeting-workflow-f65774",
+    "3d-3d-model-load-edit-and-export-workflow-d66a66",
+    "3d-converts-image-to-3d-model",
+    "3d-generates-a-3d-mesh-from",
+    "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+    "audio-acestep-audio-generation-with-ksampler-e8c20a",
+    "audio-acestep-audio-generation-workflow-2a31ec",
+    "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+    "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+    "audio-transcribes-audio-appends-text-regenerates",
+    "audio-tts-narration-using-indextts-2",
+    "hotshot-16-frames-agent-edit",
+    "image-animatediff-image-to-video-with-latent-composi-17dc9b",
+    "image-background-removal-and-grid-composition-54a681",
+    "image-face-detection-and-cropping-workflow-949658",
+    "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
+    "image-generates-a-2x2-seed-variation",
+    "image-image-comparison-and-enhancement-with-florence-007018",
+    "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+    "image-llava-image-captioning-and-keyword-extraction-d38dc8",
+    "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+    "live-graph-explanation-smoke",
+    "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+    "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
+    "multi-audio-to-image-mel-band-roformer-workflow-b22937",
+    "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
+    "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
+    "speed-distillation-research",
+    "video-animatediff-video-to-video-with-controlnet-and-3c978e",
+    "video-animatediff-video-with-controlnet-and-depth-89b02a",
+    "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+    "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
+    "video-generates-a-video-from-a",
+    "video-hunyuan-video-text-to-video-generation-265847",
+    "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
+    "video-image-to-video-conversion-with-moonvalley-d7853c",
+    "video-image-to-video-with-svd-and-webp-output-1882aa",
+    "video-inpaint-and-video-composition-with-spline-path-0c2716",
+    "video-ltx-video-upscaling-and-enhancement",
+    "video-ltx-video-with-audio-and-inpainting-b3ba8a",
+    "video-seedvr2-video-upscaling-workflow-052e59",
+    "video-video-loading-and-saving-workflow-1c7ad8",
+    "video-video-output-workflow-f855de",
+    "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
+    "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+    "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
+    "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
+    "video-wanvideo-text-to-video-generation-71f825"
+  ],
+  "quota_table": {
+    "routes": {
+      "clarify": 2,
+      "respond": 8,
+      "inspect": 8,
+      "research": 8,
+      "requires_custom_nodes": 2,
+      "revise": 12,
+      "adapt": 8,
+      "reorganise": 2
+    },
+    "behavior": {
+      "edit": 24,
+      "non-edit": 26
+    },
+    "ledger": {
+      "in": 25,
+      "out": 25
+    },
+    "media_target": {
+      "image": 13,
+      "video": 14,
+      "multimodal": 12,
+      "audio": 5,
+      "3d": 5,
+      "special": 1
+    },
+    "graph_size_target": {
+      "small": 15,
+      "medium": 20,
+      "large": 15
+    },
+    "actual": {
+      "routes": {
+        "clarify": 2,
+        "respond": 8,
+        "inspect": 8,
+        "research": 8,
+        "requires_custom_nodes": 2,
+        "revise": 12,
+        "adapt": 8,
+        "reorganise": 2
+      },
+      "behavior": {
+        "edit": 24,
+        "non-edit": 26
+      },
+      "ledger": {
+        "in": 25,
+        "out": 25
+      },
+      "media": {
+        "image": 11,
+        "video": 20,
+        "multimodal": 5,
+        "audio": 7,
+        "3d": 6,
+        "special": 1
+      },
+      "graph_size": {
+        "small": 28,
+        "medium": 17,
+        "large": 5
+      },
+      "in_57_allocation": {
+        "inspect": 4,
+        "research": 4,
+        "revise": 0,
+        "adapt": 8
+      }
+    }
+  },
+  "rules": {
+    "behavior": "derived from route (edit = revise/adapt/reorganise/requires_custom_nodes)",
+    "ledger": "in == scenario id present in scenfails57_manifest.json",
+    "graph_size_thresholds": {
+      "small": "<= 15 nodes",
+      "medium": "16-40 nodes",
+      "large": "> 40 nodes",
+      "graphless_default": "small"
+    },
+    "media": "modality tag -> id prefix -> special (graph-less) / image fallback",
+    "stable_hash_fallback": "sha256(scenario_id) breaks selection ties",
+    "explicit_route_overrides": {
+      "image-generates-a-2x2-seed-variation": "reorganise",
+      "image-background-removal-and-grid-composition-54a681": "reorganise",
+      "audio-acestep-audio-generation-workflow-2a31ec": "requires_custom_nodes",
+      "hotshot-16-frames-agent-edit": "requires_custom_nodes",
+      "live-graph-explanation-smoke": "clarify",
+      "video-wan-video-generation-with-vace-and-multi-outpu-d1caec": "clarify",
+      "multi-animated-image-to-video-with-svd-and-lora-4ed6d9": "respond",
+      "multi-audio-to-image-mel-band-roformer-workflow-b22937": "respond",
+      "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14": "respond",
+      "video-animatediff-video-to-video-with-controlnet-and-3c978e": "respond",
+      "video-image-to-video-with-svd-and-webp-output-1882aa": "respond",
+      "video-inpaint-and-video-composition-with-spline-path-0c2716": "respond",
+      "video-seedvr2-video-upscaling-workflow-052e59": "respond",
+      "video-video-loading-and-saving-workflow-1c7ad8": "respond"
+    }
+  },
+  "entries": [
+    {
+      "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "3d",
+      "node_count": 17
+    },
+    {
+      "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "3d",
+      "node_count": 18
+    },
+    {
+      "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "3d",
+      "node_count": 20
+    },
+    {
+      "id": "3d-3d-model-generation-and-rigging-from-image-352066",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 11
+    },
+    {
+      "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 15
+    },
+    {
+      "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 4
+    },
+    {
+      "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 7
+    },
+    {
+      "id": "3d-converts-image-to-3d-model",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 3
+    },
+    {
+      "id": "3d-generates-a-3d-mesh-from",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "3d",
+      "node_count": 10
+    },
+    {
+      "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "large",
+      "media": "audio",
+      "node_count": 46
+    },
+    {
+      "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 12
+    },
+    {
+      "id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 13
+    },
+    {
+      "id": "audio-acestep-audio-generation-workflow-2a31ec",
+      "route": "requires_custom_nodes",
+      "route_source": "explicit",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 7
+    },
+    {
+      "id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "large",
+      "media": "audio",
+      "node_count": 85
+    },
+    {
+      "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 6
+    },
+    {
+      "id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 7
+    },
+    {
+      "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "audio",
+      "node_count": 41
+    },
+    {
+      "id": "audio-transcribes-audio-appends-text-regenerates",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "audio",
+      "node_count": 11
+    },
+    {
+      "id": "audio-tts-narration-using-indextts-2",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "audio",
+      "node_count": 21
+    },
+    {
+      "id": "hotshot-16-frames-agent-edit",
+      "route": "requires_custom_nodes",
+      "route_source": "explicit",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 8
+    },
+    {
+      "id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 16
+    },
+    {
+      "id": "image-animatediff-video-from-images-with",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 20
+    },
+    {
+      "id": "image-animatediff-video-generation-with-vae-d20410",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 12
+    },
+    {
+      "id": "image-auraflow-image-generation-with-qwen-clip-9a3109",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 12
+    },
+    {
+      "id": "image-background-removal-and-grid-composition-54a681",
+      "route": "reorganise",
+      "route_source": "explicit",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 14
+    },
+    {
+      "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 20
+    },
+    {
+      "id": "image-face-detection-and-cropping-workflow-949658",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 33
+    },
+    {
+      "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "image",
+      "node_count": 72
+    },
+    {
+      "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 12
+    },
+    {
+      "id": "image-generates-a-2x2-seed-variation",
+      "route": "reorganise",
+      "route_source": "explicit",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 25
+    },
+    {
+      "id": "image-image-comparison-and-enhancement-with-florence-007018",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "image",
+      "node_count": 43
+    },
+    {
+      "id": "image-image-editing-with-qwen-image",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 15
+    },
+    {
+      "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 14
+    },
+    {
+      "id": "image-image-to-image-with-controlnet-and-dwpreproces-49d057",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 15
+    },
+    {
+      "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 17
+    },
+    {
+      "id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 11
+    },
+    {
+      "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 12
+    },
+    {
+      "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 19
+    },
+    {
+      "id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 6
+    },
+    {
+      "id": "image-llava-image-captioning-and-keyword-extraction-d38dc8",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 12
+    },
+    {
+      "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 24
+    },
+    {
+      "id": "image-sd3-image-generation-with-controlnet-19d221",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 14
+    },
+    {
+      "id": "image-sdxl-txt2img-cat-in-spacesuit",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 10
+    },
+    {
+      "id": "image-style-transfer-using-ip-adapter",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 13
+    },
+    {
+      "id": "image-two-stage-qwen-image-generation",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 24
+    },
+    {
+      "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "image",
+      "node_count": 25
+    },
+    {
+      "id": "live-graph-explanation-smoke",
+      "route": "clarify",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 3
+    },
+    {
+      "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 12
+    },
+    {
+      "id": "multi-3d-preview-and-image-output-workflow-d93baf",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 8
+    },
+    {
+      "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 29
+    },
+    {
+      "id": "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 14
+    },
+    {
+      "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 136
+    },
+    {
+      "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 16
+    },
+    {
+      "id": "multi-audio-to-image-mel-band-roformer-workflow-b22937",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 8
+    },
+    {
+      "id": "multi-crops-face-previews-it-sets",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 5
+    },
+    {
+      "id": "multi-deforum-stable-diffusion-animation-with-ip-ada-78afac",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 32
+    },
+    {
+      "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 34
+    },
+    {
+      "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 8
+    },
+    {
+      "id": "multi-image-to-video-generation-with",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 20
+    },
+    {
+      "id": "multi-image-to-video-generation-with-2",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 56
+    },
+    {
+      "id": "multi-image-to-video-with-llm",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 38
+    },
+    {
+      "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 56
+    },
+    {
+      "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 21
+    },
+    {
+      "id": "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 13
+    },
+    {
+      "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "multimodal",
+      "node_count": 4
+    },
+    {
+      "id": "multi-video-based-character-replacement-using",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 41
+    },
+    {
+      "id": "multi-wan-vace-video-retargeting-driven",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 75
+    },
+    {
+      "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 76
+    },
+    {
+      "id": "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 22
+    },
+    {
+      "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 38
+    },
+    {
+      "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
+      "route": "adapt",
+      "route_source": "query_type",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 178
+    },
+    {
+      "id": "speed-distillation-research",
+      "route": "research",
+      "route_source": "health_control",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "special",
+      "node_count": null
+    },
+    {
+      "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 21
+    },
+    {
+      "id": "video-animatediff-video-with-controlnet-and-depth-89b02a",
+      "route": "research",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "video",
+      "node_count": 72
+    },
+    {
+      "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 38
+    },
+    {
+      "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 14
+    },
+    {
+      "id": "video-generates-a-video-from-a",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 3
+    },
+    {
+      "id": "video-hunyuan-video-text-to-video-generation-265847",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 17
+    },
+    {
+      "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 27
+    },
+    {
+      "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 4
+    },
+    {
+      "id": "video-image-to-video-with-svd-and-webp-output-1882aa",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 7
+    },
+    {
+      "id": "video-inpaint-and-video-composition-with-spline-path-0c2716",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 12
+    },
+    {
+      "id": "video-ltx-video-upscaling-and-enhancement",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 19
+    },
+    {
+      "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "video",
+      "node_count": 78
+    },
+    {
+      "id": "video-seedvr2-video-upscaling-workflow-052e59",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 11
+    },
+    {
+      "id": "video-svd-image-to-video-generation-fc240f",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 9
+    },
+    {
+      "id": "video-video-combine-with-image-loading-5b31ce",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 4
+    },
+    {
+      "id": "video-video-frame-by-frame-style",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 14
+    },
+    {
+      "id": "video-video-generation-from-resized-image",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 22
+    },
+    {
+      "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 6
+    },
+    {
+      "id": "video-video-loading-and-saving-workflow-1c7ad8",
+      "route": "respond",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 13
+    },
+    {
+      "id": "video-video-output-workflow-f855de",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 9
+    },
+    {
+      "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 14
+    },
+    {
+      "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
+      "route": "clarify",
+      "route_source": "explicit",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "video",
+      "node_count": 168
+    },
+    {
+      "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 28
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+      "route": "revise",
+      "route_source": "query_type_default",
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 15
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 16
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 17
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 37
+    },
+    {
+      "id": "video-wanvideo-text-to-video-generation-71f825",
+      "route": "inspect",
+      "route_source": "query_type",
+      "behavior": "non-edit",
+      "ledger": "in",
+      "graph_size": "small",
+      "media": "video",
+      "node_count": 13
+    }
+  ]
+}
