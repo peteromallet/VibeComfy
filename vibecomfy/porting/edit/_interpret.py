@@ -3,7 +3,8 @@
 ``interpret(pre, batch)`` is the Law 2 engine: same ``(pre, batch)`` yields
 the same post-IR, the pre-IR is never mutated, and a batch is transactional
 (all landed edits apply, or the pre-IR is returned with per-statement
-outcomes). Session history is ``(wf_i, Δ_i)`` pairs of this function.
+outcomes).  Session history entries are ``(wf_i, Δ_i, landed_ops)`` triples
+where ``Δ_i`` is the accepted batch source of this function.
 """
 
 from __future__ import annotations

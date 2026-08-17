@@ -593,7 +593,7 @@ def test_door_subgraph_edit_keeps_definitions_structure() -> None:
     ids=("envelope", "definitions", "unknown-schema"),
 )
 def test_law_2_editable_isomorphism(kind: str, path: Path, _hash: str) -> None:
-    from vibecomfy.porting.edit.interpret import interpret
+    from vibecomfy.porting.edit._interpret import interpret
 
     _, workflow = _load_specimen(path)
     pre_snapshot = workflow.copy()
@@ -606,10 +606,6 @@ def test_law_2_editable_isomorphism(kind: str, path: Path, _hash: str) -> None:
     assert pi_edit(result.workflow) == pi_edit(workflow)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="batch 9: canonical Delta implements deterministic minimal diff and replay",
-)
 def test_law_3_delta_replay_is_deterministic_and_minimal() -> None:
     from vibecomfy.porting.edit import diff, interpret
 
@@ -619,11 +615,151 @@ def test_law_3_delta_replay_is_deterministic_and_minimal() -> None:
     delta = diff(pre, post)
     assert delta == diff(pre, post)
     assert len(delta) > 0
-    assert pi_edit(interpret(pre, delta)) == pi_edit(post)
+    assert pi_edit(interpret(pre, delta).workflow) == pi_edit(post)
     assert len(diff(post, post)) == 0
     for index in range(len(delta)):
         reduced = delta[:index] + delta[index + 1 :]
-        assert pi_edit(interpret(pre, reduced)) != pi_edit(post)
+        assert pi_edit(interpret(pre, reduced).workflow) != pi_edit(post)
+
+
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    ("kind", "path", "_hash"),
+    SPIKE_CORPUS,
+    ids=("envelope", "definitions", "unknown-schema"),
+)
+def test_law_3_spike_corpus_diff_is_an_inverse_over_the_quotient(
+    kind: str,
+    path: Path,
+    _hash: str,
+) -> None:
+    """Law 3 on the spike corpus: ``diff(pre, post)`` is a valid batch whose
+    interpretation reconstructs ``post``'s π_edit; the Δ is deterministic,
+    minimal (every op is individually necessary), and zero for identical IRs."""
+    from vibecomfy.workflow import VibeEdge, VibeNode, mode_to_litegraph
+    from vibecomfy.porting.edit import diff, interpret
+    from vibecomfy.porting.edit._diff import _quotient_bindings
+    from vibecomfy.porting.edit.editable_surface import editable_surface_for
+    from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_aliases
+
+    _, pre = _load_specimen(path)
+    provider = get_schema_provider("local")
+
+    def nid_for_uid(wf, uid):
+        return next(
+            nid for nid, node in wf.nodes.items() if str(getattr(node, "uid", "") or "") == uid
+        )
+
+    def mutate(mutation: str):
+        post = pre.copy()
+        uids = sorted(_quotient_bindings(pre))
+        changed = False
+        if mutation == "field":
+            for uid in uids:
+                node = post.nodes[nid_for_uid(post, uid)]
+                for channel in ("widgets", "inputs"):
+                    for name in list(getattr(node, channel, {})):
+                        value = getattr(node, channel)[name]
+                        if isinstance(value, str):
+                            getattr(node, channel)[name] = value + "-edited"
+                        elif isinstance(value, bool):
+                            getattr(node, channel)[name] = not value
+                        elif isinstance(value, int):
+                            getattr(node, channel)[name] = value + 1
+                        elif isinstance(value, float):
+                            getattr(node, channel)[name] = value + 0.5
+                        else:
+                            continue
+                        changed = True
+                        break
+                    if changed:
+                        break
+                if changed:
+                    break
+        elif mutation == "mode":
+            for uid in uids:
+                nid = nid_for_uid(post, uid)
+                if mode_to_litegraph(post.nodes[nid].mode) == 0:
+                    post.nodes[nid].mode = 2
+                    changed = True
+                    break
+        elif mutation == "link_remove":
+            uid_set = set(uids)
+            for edge in list(post.edges):
+                src = str(getattr(post.nodes.get(str(edge.from_node)), "uid", "") or "")
+                dst = str(getattr(post.nodes.get(str(edge.to_node)), "uid", "") or "")
+                if src in uid_set and dst in uid_set:
+                    post.edges.remove(edge)
+                    changed = True
+                    break
+        elif mutation == "link_add":
+            uid_set = set(uids)
+            for src_nid, src in post.nodes.items():
+                src_uid = str(getattr(src, "uid", "") or "")
+                if src_uid not in uid_set:
+                    continue
+                aliases = _agent_edit_output_aliases(src)
+                if not aliases:
+                    continue
+                port = sorted(aliases.values())[0]
+                for tgt_nid, tgt in post.nodes.items():
+                    tgt_uid = str(getattr(tgt, "uid", "") or "")
+                    if tgt_uid not in uid_set or tgt_uid == src_uid:
+                        continue
+                    surface = editable_surface_for(
+                        tgt, schema_provider=provider, edges=post.edges
+                    )
+                    wired = {
+                        edge.to_input
+                        for edge in post.edges
+                        if str(edge.to_node) == tgt_nid
+                    }
+                    available = [
+                        name for name in surface.socket_names() if name not in wired
+                    ]
+                    if available:
+                        post.edges.append(
+                            VibeEdge(src_nid, port, tgt_nid, available[0])
+                        )
+                        changed = True
+                        break
+                if changed:
+                    break
+        elif mutation == "remove_node":
+            last_uid = uids[-1]
+            nid = nid_for_uid(post, last_uid)
+            post.nodes.pop(nid)
+            post.edges = [
+                edge
+                for edge in post.edges
+                if edge.from_node != nid and edge.to_node != nid
+            ]
+            changed = True
+        elif mutation == "add_node":
+            new_id = str(
+                max(int(nid) for nid in post.nodes if str(nid).isdigit()) + 1
+            )
+            post.nodes[new_id] = VibeNode(
+                new_id, "PreviewImage", inputs={}, widgets={}, uid="diff-corpus-new"
+            )
+            changed = True
+        return post if changed else pre
+
+    for mutation in ("field", "mode", "link_remove", "link_add", "remove_node", "add_node"):
+        post = mutate(mutation)
+        if post is pre:
+            continue
+        delta = diff(pre, post)
+        assert delta == diff(pre, post), mutation
+        reconstructed = interpret(pre, delta)
+        assert reconstructed.ok, mutation
+        assert pi_edit(reconstructed.workflow) == pi_edit(post), mutation
+        assert len(diff(post, post)) == 0, mutation
+        for index in range(len(delta)):
+            reduced = delta[:index] + delta[index + 1 :]
+            assert pi_edit(interpret(pre, reduced).workflow) != pi_edit(post), (
+                f"{mutation}: op {index} is not individually necessary"
+            )
 
 
 @pytest.mark.xfail(

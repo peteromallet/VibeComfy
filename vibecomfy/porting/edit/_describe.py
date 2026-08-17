@@ -781,7 +781,7 @@ class _DescribeMixin:
         slot: Any = source.output_slot
         workflow = getattr(self, "workflow", None)
         if workflow is not None and isinstance(slot, str):
-            from vibecomfy.porting.edit.interpret import _ui_output_slot
+            from vibecomfy.porting.edit._interpret import _ui_output_slot
 
             for item in workflow.nodes.values():
                 if str(getattr(item, "uid", "") or "") == str(source.uid):

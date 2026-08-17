@@ -176,15 +176,18 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
-        # Batch 7 (Law 2): committed history is (wf_i, Δ_i).  wf_0 is a COPY
-        # of the ingest IR so later mutation of self.workflow cannot alias it.
+        # Batch 7 (Law 2) / Batch 9 (Law 3): committed history is
+        # (wf_i, Δ_i, landed_ops) — Δ_i is the accepted batch source (the
+        # canonical batch value) and landed_ops records the typed ops the
+        # grammar yielded for it.  wf_0 is a COPY of the ingest IR so later
+        # mutation of self.workflow cannot alias it.
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
         self._wf0: VibeWorkflow | None = (
             _cow_workflow_copy(self.workflow) if self.workflow is not None else None
         )
         self._ui0: dict[str, Any] = deepcopy(self.working_ui)
-        self.history: list[tuple[VibeWorkflow, str]] = []
+        self.history: list[tuple[VibeWorkflow, str, tuple[Any, ...]]] = []
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
     # name_by_uid / uid_by_name are READ-ONLY derivations from the IR (the
@@ -229,7 +232,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         if steps <= 0 or not self.history:
             return False
         del self.history[-steps:]
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
         workflow = self._wf0
@@ -240,7 +243,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         working_ui = deepcopy(getattr(self, "_ui0", self.original_ui))
         remaining_ops: list[Any] = []
         remaining_resolved: list[Any] = []
-        for _pre, delta in self.history:
+        for entry in self.history:
+            _pre, delta, _recorded_ops = entry
             result = interpret(
                 workflow,
                 delta,
@@ -264,6 +268,62 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self._transient_uid_index = {}
         self.unbound_names = set()
         return True
+
+    def verify_delta_history(self, equality: Any | None = None) -> VibeWorkflow:
+        """Replay ``wf_0 → wf_1 → …`` via ``interpret`` with the recorded Δ
+        sources (Law 3) and verify each recorded batch.
+
+        For every history entry the replayed post-IR is produced by
+        ``interpret(pre, source)`` — the recorded source is the Δ — and
+        ``diff(pre, post)`` must agree with it.  By default agreement means the
+        generalized Δ equals the recorded landed ops exactly; pass a quotient
+        comparator (``equality(a, b)``, e.g. a π_edit projection equality) to
+        verify over the editable quotient instead — that also tolerates CAS
+        no-op statements the minimal generalizer folds away.  Raises
+        ``ValueError`` on the first mismatch.  Returns the replayed final
+        workflow.
+        """
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+        from vibecomfy.porting.edit._diff import diff
+
+        workflow = self._wf0
+        if workflow is None:
+            workflow = self._workflow_from_ui(self.original_ui)
+            self._wf0 = _cow_workflow_copy(workflow)
+        workflow = _cow_workflow_copy(workflow)
+        for index, (_pre, source, recorded_ops) in enumerate(self.history):
+            result = interpret(
+                workflow,
+                source,
+                schema_provider=self.schema_provider,
+                max_batch_bytes=self.max_batch_bytes,
+                max_statements=self.max_statements,
+                max_expanded_statements=self.max_expanded_statements,
+                max_for_iterations=self.max_for_iterations,
+            )
+            if not result.ok:
+                raise ValueError(
+                    f"delta history entry {index}: recorded source did not "
+                    f"replay (ok=False): {source!r}"
+                )
+            generalized = diff(workflow, result.workflow)
+            if equality is not None:
+                reconstructed = interpret(workflow, generalized)
+                if not equality(reconstructed.workflow, result.workflow):
+                    raise ValueError(
+                        f"delta history entry {index}: diff(pre, post) "
+                        f"{tuple(generalized)!r} does not reconstruct the "
+                        f"recorded batch's quotient for source {source!r}"
+                    )
+            elif tuple(generalized) != tuple(recorded_ops):
+                raise ValueError(
+                    f"delta history entry {index}: diff(pre, post) "
+                    f"{tuple(generalized)!r} does not match the recorded batch "
+                    f"{tuple(recorded_ops)!r} for source {source!r}"
+                )
+            workflow = result.workflow
+        return workflow
 
     def _cas_snapshot(self, workflow: VibeWorkflow | None) -> dict[tuple[str, str], Any]:
         snapshot: dict[tuple[str, str], Any] = {}
@@ -322,7 +382,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
     def _projection_op(self, op: Any) -> Any:
         """Rewrite IR slot aliases to UI slot names for the emit projector."""
-        from vibecomfy.porting.edit.interpret import _ui_output_slot
+        from vibecomfy.porting.edit._interpret import _ui_output_slot
         from vibecomfy.porting.edit.ops import AddNodeOp, LinkSourceRef, UpsertLinkOp
 
         workflow = getattr(self, "workflow", None)

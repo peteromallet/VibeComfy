@@ -130,7 +130,7 @@ class _GatesMixin:
         )
 
     def _replay_interpret_for_done(self) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
 
         workflow = getattr(self, "_wf0", None)
@@ -143,7 +143,8 @@ class _GatesMixin:
                 ),
             )
         workflow = _cow_workflow_copy(workflow)
-        for _pre, delta in getattr(self, "history", []) or ():
+        for entry in getattr(self, "history", []) or ():
+            _pre, delta, _recorded_ops = entry
             result = interpret(
                 workflow,
                 delta,

@@ -714,7 +714,7 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
     before = session._snapshot_mutable_state()
-    import vibecomfy.porting.edit.interpret as interpret_mod
+    import vibecomfy.porting.edit._interpret as interpret_mod
 
     original_interpret = interpret_mod.interpret
 
@@ -774,7 +774,7 @@ def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(
 def test_interpret_python_view_isomorphism_on_flat(flat_ui: dict[str, Any]) -> None:
     """emit(wf) → interpret(∅, source) equals π_edit(wf) on the flat fixture."""
     from vibecomfy.ingest.normalize import from_ui
-    from vibecomfy.porting.edit.interpret import interpret
+    from vibecomfy.porting.edit._interpret import interpret
     from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
     from tests.test_ir_laws import pi_edit

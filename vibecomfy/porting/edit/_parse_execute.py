@@ -30,7 +30,7 @@ class _ParseExecuteMixin:
         still sees typed catalog results.
         """
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
 
         parsed = _parse_and_validate_batch(
             code,
@@ -73,7 +73,15 @@ class _ParseExecuteMixin:
                 self.workflow = interpreted.workflow
                 if getattr(self, "history", None) is None:
                     self.history = []
-                self.history.append((pre_ir, code))
+                # Batch 9 (Law 3): the accepted batch IS the Δ.  Each history
+                # entry records (wf_i, source, landed_ops) — the Python-surface
+                # source AND the typed ops the grammar yields are the same
+                # batch value (no parallel delta representation); ``diff`` is
+                # the generalizer that reproduces the landed ops from the IR
+                # pair alone.
+                self.history.append(
+                    (pre_ir, code, tuple(interpreted.landed_ops))
+                )
                 self.landed_ops.extend(interpreted.landed_ops)
                 # Emit-side snapshot only: working_ui is recomputed from the
                 # retained base (_ui0) over ALL landed ops, so the JSON store

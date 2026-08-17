@@ -6053,7 +6053,7 @@ class TestImmutableInterpreter:
     def test_interpret_is_pure_and_copy_on_write(self) -> None:
         from copy import deepcopy
 
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
 
         pre = self._tiny()
         snapshot = deepcopy(pre)
@@ -6066,7 +6066,7 @@ class TestImmutableInterpreter:
         assert pi_edit_nodes(first) == pi_edit_nodes(second)
 
     def test_cas_rejects_stale_expected_value(self) -> None:
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
 
         pre = self._tiny()
         result = interpret(
@@ -6080,7 +6080,7 @@ class TestImmutableInterpreter:
         assert result.workflow.nodes["1"].inputs["prompt"] == "before"
 
     def test_idempotent_field_write_is_skipped(self) -> None:
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
 
         pre = self._tiny()
         result = interpret(pre, 'lawnode.prompt = "before"\n')
@@ -6089,7 +6089,7 @@ class TestImmutableInterpreter:
 
     def test_socket_literal_mismatch_is_rejected(self) -> None:
         from vibecomfy.porting.edit.editable_surface import editable_surface_for
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
         from vibecomfy.schema import InputSpec, NodeSchema
         from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
@@ -6126,7 +6126,7 @@ class TestImmutableInterpreter:
         }
 
     def test_unknown_schema_accepts_instance_literals(self) -> None:
-        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._interpret import interpret
         from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
         workflow = VibeWorkflow("unk", WorkflowSource("unk"))
@@ -6200,3 +6200,94 @@ def pi_edit_nodes(result) -> tuple:
     from tests.test_ir_laws import pi_edit
 
     return pi_edit(result.workflow)[0]
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch 9 (Law 3): the session's accepted batch IS the Δ.
+#
+# History entries record (wf_i, Δ_i) with Δ_i = the accepted batch source AND
+# the typed ops the grammar yielded (no parallel delta representation).
+# Replay goes through interpret with the recorded source; rollback pops;
+# diff (the generalizer) agrees with the recorded source over π_edit.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+class TestSessionDeltaHistory:
+    """Law 3 on the session: recorded history replays via interpret, rollback
+    pops, and ``diff(pre, post)`` agrees with the recorded batch source."""
+
+    def test_history_replays_via_interpret_and_diff_agrees(self) -> None:
+        from vibecomfy.porting.edit import diff, interpret
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        first = session.apply_batch("widget.seed = 42\n")
+        assert first.ok, first.diagnostics
+        second = session.apply_batch("dst.value = src.in_\n")
+        assert second.ok, second.diagnostics
+
+        assert len(session.history) == 2
+        (pre1, source1, ops1), (pre2, source2, ops2) = session.history
+        assert source1 == "widget.seed = 42\n"
+        assert source2 == "dst.value = src.in_\n"
+        assert all(op.op == "set_node_field" for op in ops1)
+        assert ops2[-1].op == "upsert_link"
+
+        # Replay wf_0 → wf_1 → wf_2 via the recorded Δ sources.
+        wf1 = interpret(pre1, source1).workflow
+        wf2 = interpret(wf1, source2).workflow
+        assert pi_edit(session.workflow) == pi_edit(wf2)
+
+        # diff (the generalizer) agrees with the recorded source: the same
+        # IR pair yields exactly the typed batch the interpreter accepted.
+        assert diff(pre1, wf1) == ops1
+        assert diff(wf1, wf2) == ops2
+
+        # Full-history verification replays every recorded source through
+        # interpret and checks the generalized Δ over the quotient.
+        final = session.verify_delta_history(equality=lambda a, b: pi_edit(a) == pi_edit(b))
+        assert pi_edit(final) == pi_edit(session.workflow)
+
+    def test_rollback_pops_history_and_replays_remaining_sources(self) -> None:
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        assert session.apply_batch("widget.seed = 42\n").ok
+        assert session.apply_batch("widget.seed = 7\n").ok
+        assert len(session.history) == 2
+
+        assert session.rollback(1)
+        assert len(session.history) == 1
+        assert session.workflow.nodes["2"].inputs["seed"] == 42
+
+        assert session.rollback(1)
+        assert session.history == []
+        assert pi_edit(session.workflow) == pi_edit(session._wf0)
+
+        # Re-applying the recorded source after the pop reproduces wf_1.
+        assert session.apply_batch("widget.seed = 42\n").ok
+        assert len(session.history) == 1
+        assert session.workflow.nodes["2"].inputs["seed"] == 42
+
+    def test_cas_noop_batch_still_records_source_and_diff_stays_minimal(self) -> None:
+        """A batch whose statements land as CAS no-ops is still recorded as an
+        accepted Δ; the minimal generalizer folds the no-ops away, so the
+        quotient verification (not raw equality) is the contract."""
+        from vibecomfy.porting.edit import diff, interpret
+        from tests.test_ir_laws import pi_edit
+
+        session = _primitive_session()
+        assert session.apply_batch("widget.seed = 42\n").ok
+        pre = session.workflow.copy()
+        assert session.apply_batch("widget.seed = 42\n").ok  # no-op
+        assert len(session.history) == 2
+        assert session.history[-1][1] == "widget.seed = 42\n"
+        # The IR did not move: the generalized Δ is empty.
+        assert diff(pre, session.workflow) == ()
+        # verify_delta_history tolerates the folded no-op over the quotient.
+        final = session.verify_delta_history(
+            equality=lambda a, b: pi_edit(a) == pi_edit(b)
+        )
+        assert pi_edit(final) == pi_edit(session.workflow)
+        replayed = interpret(pre, "widget.seed = 42\n")
+        assert pi_edit(replayed.workflow) == pi_edit(session.workflow)
