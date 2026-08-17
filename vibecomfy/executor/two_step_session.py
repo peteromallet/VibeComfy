@@ -342,8 +342,10 @@ class EditSessionCache:
 def _apply_delta_ops(base_graph: Mapping[str, Any] | None, ops: Any) -> dict[str, Any] | None:
     if not isinstance(base_graph, Mapping):
         return None
+    from vibecomfy.ingest.normalize import door_setdefault_nodes  # Law 5 door
+
     graph: dict[str, Any] = json.loads(json.dumps(dict(base_graph)))
-    nodes = graph.setdefault("nodes", [])
+    nodes = door_setdefault_nodes(graph, [])
     if not isinstance(nodes, list):
         return graph
     for op in ops or ():

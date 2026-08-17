@@ -13,7 +13,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
@@ -2005,6 +2005,207 @@ class ExecuteReport:
         return payload
 
 
+# ── two-step final contracts (B04) ───────────────────────────────────────────
+#
+# The execute agent's final submit payload is typed here so the claim-ref
+# validation (``validate_two_step_final``) and the durable execution report can
+# be built from a single frozen shape instead of ad-hoc dicts.  Delta IDs are
+# METADATA pointing at canonical accepted-batch operations — never a new delta
+# body: the canonical operations live in the session's accepted-Δ ledger.
+
+_EDIT_SUCCESS_OUTCOMES = frozenset({"edited", "edit_success", "applied"})
+
+
+@dataclass(frozen=True)
+class TwoStepClaimRefs:
+    """Claim references a two-step final cites against the session ledgers.
+
+    * ``delta_ids``     — accepted-Δ IDs (must be in the accumulated ledger).
+    * ``lens_fact_ids`` — reply-lens fact IDs (must be in the current facts).
+    * ``evidence_ids``  — tool-evidence IDs (must be in the tool ledger).
+    """
+
+    delta_ids: tuple[str, ...] = ()
+    lens_fact_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("delta_ids", "lens_fact_ids", "evidence_ids"):
+            object.__setattr__(
+                self,
+                name,
+                tuple(
+                    str(item)
+                    for item in (getattr(self, name) or ())
+                    if item is not None and str(item) != ""
+                ),
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "delta_ids": list(self.delta_ids),
+            "lens_fact_ids": list(self.lens_fact_ids),
+            "evidence_ids": list(self.evidence_ids),
+        }
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "TwoStepClaimRefs":
+        if not isinstance(payload, Mapping):
+            return cls()
+        return cls(
+            delta_ids=tuple(payload.get("delta_ids") or ()),
+            lens_fact_ids=tuple(payload.get("lens_fact_ids") or ()),
+            evidence_ids=tuple(payload.get("evidence_ids") or ()),
+        )
+
+
+@dataclass(frozen=True)
+class TwoStepSelfAssessment:
+    """The execute agent's self-assessment of its final turn.
+
+    ``outcome`` is ``edited`` / ``edit_success`` / ``applied`` for an
+    edit-success claim (which requires a non-empty accepted-Δ ledger), or any
+    other short label (``no_change``, ``clarify``, ...) otherwise.
+    """
+
+    outcome: str = ""
+    confidence: str | None = None
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "outcome", str(self.outcome or ""))
+        if self.confidence is not None and not isinstance(self.confidence, str):
+            raise ValueError("`confidence` must be a string or null.")
+        object.__setattr__(self, "note", str(self.note or ""))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"outcome": self.outcome}
+        if self.confidence is not None:
+            payload["confidence"] = self.confidence
+        if self.note:
+            payload["note"] = self.note
+        return payload
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "TwoStepSelfAssessment":
+        if not isinstance(payload, Mapping):
+            return cls()
+        return cls(
+            outcome=str(payload.get("outcome") or ""),
+            confidence=payload.get("confidence"),
+            note=str(payload.get("note") or ""),
+        )
+
+
+@dataclass(frozen=True)
+class TwoStepFinal:
+    """The final submit payload of one two-step execute turn."""
+
+    reply: str = ""
+    claim_refs: TwoStepClaimRefs = field(default_factory=TwoStepClaimRefs)
+    self_assessment: TwoStepSelfAssessment | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "reply", str(self.reply or ""))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "reply": self.reply,
+            "claim_refs": self.claim_refs.to_dict(),
+        }
+        if self.self_assessment is not None:
+            payload["self_assessment"] = self.self_assessment.to_dict()
+        return payload
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "TwoStepFinal":
+        if not isinstance(payload, Mapping):
+            return cls()
+        refs = payload.get("claim_refs")
+        assessment = payload.get("self_assessment")
+        return cls(
+            reply=str(payload.get("reply") or ""),
+            claim_refs=(
+                TwoStepClaimRefs.from_mapping(refs)
+                if isinstance(refs, Mapping)
+                else TwoStepClaimRefs()
+            ),
+            self_assessment=(
+                TwoStepSelfAssessment.from_mapping(assessment)
+                if isinstance(assessment, Mapping)
+                else None
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class TwoStepExecutionReport:
+    """Durable per-turn execute report (B04).
+
+    Captures the resolved session identity, route, the final reply, the
+    derived research attempt, the accepted-Δ / tool / evidence / lens-fact ID
+    ledgers, whether a replacement was used, the emitted candidate graph, the
+    claim validation result, and the self-assessment.  This is the durable
+    mapping source for the ``ImplementationResult`` / ``ExecuteReport``
+    envelope (B04) — never a new delta body.
+    """
+
+    session_id: str | None = None
+    route: str = ""
+    reply: str = ""
+    research_attempt: str = ""
+    accepted_delta_ids: tuple[str, ...] = ()
+    tool_call_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    lens_fact_ids: tuple[str, ...] = ()
+    replacement_used: bool = False
+    graph: dict[str, Any] | None = None
+    claim_validation: Mapping[str, Any] = field(default_factory=dict)
+    self_assessment: Any = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "session_id", str(self.session_id) if self.session_id is not None else None
+        )
+        object.__setattr__(self, "route", str(self.route or ""))
+        object.__setattr__(self, "reply", str(self.reply or ""))
+        object.__setattr__(self, "research_attempt", str(self.research_attempt or ""))
+        for name in ("accepted_delta_ids", "tool_call_ids", "evidence_ids", "lens_fact_ids"):
+            object.__setattr__(
+                self, name, tuple(str(item) for item in (getattr(self, name) or ()))
+            )
+        object.__setattr__(self, "replacement_used", bool(self.replacement_used))
+        if self.graph is not None:
+            object.__setattr__(self, "graph", _freeze_jsonish(dict(self.graph)))
+        object.__setattr__(
+            self,
+            "claim_validation",
+            MappingProxyType({
+                str(key): _freeze_jsonish(value)
+                for key, value in dict(self.claim_validation).items()
+            }),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "session_id": self.session_id,
+            "route": self.route,
+            "reply": self.reply,
+            "research_attempt": self.research_attempt,
+            "accepted_delta_ids": list(self.accepted_delta_ids),
+            "tool_call_ids": list(self.tool_call_ids),
+            "evidence_ids": list(self.evidence_ids),
+            "lens_fact_ids": list(self.lens_fact_ids),
+            "replacement_used": self.replacement_used,
+            "claim_validation": _thaw_jsonish(self.claim_validation),
+        }
+        if self.graph is not None:
+            payload["graph"] = _thaw_jsonish(self.graph)
+        if self.self_assessment is not None:
+            payload["self_assessment"] = _thaw_jsonish(self.self_assessment)
+        return payload
+
+
 @dataclass(frozen=True)
 class Report:
     """Executor metadata nested under ``report`` in the final envelope.
@@ -2523,6 +2724,74 @@ def _claim_operations(payload: Any) -> list[Any]:
     return []
 
 
+def validate_two_step_final(
+    final: TwoStepFinal | Mapping[str, Any],
+    *,
+    accepted_delta_ids: Iterable[str] = (),
+    lens_fact_ids: Iterable[str] = (),
+    evidence_ids: Iterable[str] = (),
+) -> tuple[str, ...]:
+    """Validate a two-step final's claim references (B04).  Fail closed.
+
+    Returns a tuple of human-readable violations; an empty tuple means the
+    final's references are all within the session's accumulated ledgers.
+
+    * ``delta_ids``      ⊆ accumulated accepted-Δ ledger.
+    * ``lens_fact_ids``  ⊆ current reply-lens facts.
+    * ``evidence_ids``   ⊆ accumulated tool ledger.
+    * an edit-success outcome (``edited`` / ``edit_success`` / ``applied``)
+      requires a non-empty accepted-Δ ledger.
+    * a turn-1 Δ id referenced in a later turn is valid only while that Δ is
+      present in this session's ledger; forged or cross-session references
+      (an id absent from the ledger) always produce a violation.
+
+    *final* may be a :class:`TwoStepFinal` or a raw submit-payload mapping.
+    """
+    if isinstance(final, TwoStepFinal):
+        refs = final.claim_refs
+        assessment = final.self_assessment
+    elif isinstance(final, Mapping):
+        refs = TwoStepClaimRefs.from_mapping(final.get("claim_refs"))
+        raw_assessment = final.get("self_assessment")
+        assessment = (
+            TwoStepSelfAssessment.from_mapping(raw_assessment)
+            if isinstance(raw_assessment, Mapping)
+            else None
+        )
+    else:
+        return ("final must be a TwoStepFinal or a mapping",)
+
+    accepted = {str(item) for item in accepted_delta_ids}
+    facts = {str(item) for item in lens_fact_ids}
+    evidence = {str(item) for item in evidence_ids}
+
+    violations: list[str] = []
+    for delta_id in refs.delta_ids:
+        if delta_id not in accepted:
+            violations.append(
+                f"delta id {delta_id!r} is not an accepted Δ in this session"
+            )
+    for fact_id in refs.lens_fact_ids:
+        if fact_id not in facts:
+            violations.append(
+                f"lens fact id {fact_id!r} is not in the current reply-lens facts"
+            )
+    for evidence_id in refs.evidence_ids:
+        if evidence_id not in evidence:
+            violations.append(
+                f"evidence id {evidence_id!r} is not in the accumulated tool ledger"
+            )
+    if (
+        assessment is not None
+        and assessment.outcome in _EDIT_SUCCESS_OUTCOMES
+        and not accepted
+    ):
+        violations.append(
+            "edit-success outcome requires at least one accepted Δ"
+        )
+    return tuple(violations)
+
+
 # ── Hivemind record views (batch 13: IR-shaped research records) ─────────────
 #
 # Typed classification of fetched Hivemind rows served to the research agent.
@@ -2551,18 +2820,25 @@ class HivemindRecordView:
 
     * ``workflow`` — ``surface_lens`` carries ``render(wf, "surface")`` (the
       Python view) of the record normalized through the named ingest door;
-      ``shape`` records the detected door shape (``ui`` / ``api`` / ``vibe``).
+      ``topology`` carries the B04 bounded precedent-topology projection
+      (surface + topology only — NEVER the raw workflow JSON); ``shape``
+      records the detected door shape (``ui`` / ``api`` / ``vibe``).
     * ``non_workflow`` — ``content`` carries the record's actual text/body.
     * ``malformed_record`` — ``error`` carries the normalization failure.
 
     The view is an immutable source pattern for the research agent: it is
     read and cited (by ``evidence_id``), never merged into the user's graph.
+    ``topology`` is a bounded projection (128 nodes / 256 edges / 64 KiB
+    rendered) that always carries ``omitted_node_count``,
+    ``omitted_edge_count`` and ``global_topology_complete=false`` — it is
+    never the Law-4 complete-topology contract.
     """
 
     record_type: str
     evidence_id: str
     source_type: str = "hivemind"
     surface_lens: str | None = None
+    topology: Mapping[str, Any] | None = None
     content: str | None = None
     error: str | None = None
     shape: str | None = None
@@ -2584,6 +2860,8 @@ class HivemindRecordView:
             value = getattr(self, name)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"`{name}` must be a string or null.")
+        if self.topology is not None:
+            object.__setattr__(self, "topology", _freeze_jsonish(dict(self.topology)))
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -2595,6 +2873,8 @@ class HivemindRecordView:
             value = getattr(self, name)
             if value is not None:
                 payload[name] = value
+        if self.topology is not None:
+            payload["topology"] = _thaw_jsonish(self.topology)
         return payload
 
     @classmethod
@@ -2606,6 +2886,7 @@ class HivemindRecordView:
             evidence_id=payload.get("evidence_id", ""),
             source_type=payload.get("source_type", "hivemind"),
             surface_lens=payload.get("surface_lens"),
+            topology=payload.get("topology"),
             content=payload.get("content"),
             error=payload.get("error"),
             shape=payload.get("shape"),
@@ -2638,6 +2919,10 @@ __all__ = [
     "ModelAttemptEvidence",
     "TopologyFindings",
     "TopologyManifest",
+    "TwoStepClaimRefs",
+    "TwoStepExecutionReport",
+    "TwoStepFinal",
+    "TwoStepSelfAssessment",
     "adaptation_plan_actionability",
     "adaptation_plan_actionability_payload",
     "build_topology_manifest",
@@ -2646,5 +2931,6 @@ __all__ = [
     "normalize_model_endpoint",
     "redact_model_preview",
     "validate_reply_change_claims",
+    "validate_two_step_final",
     "warning_detail_from_exception",
 ]

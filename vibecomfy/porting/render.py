@@ -39,6 +39,9 @@ same workflow renders the same string every time.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
 from vibecomfy.workflow import VibeWorkflow
@@ -513,7 +516,78 @@ def _render_diff_summary(delta: tuple[Any, ...]) -> str:
     return "\n".join(lines)
 
 
+# ── fact pack (B04: stable IDs over canonical lens items) ────────────────────
+#
+# A fact pack is a flat, ID-addressable projection of the canonical lens
+# items — NOT a new graph representation.  Text lenses contribute one fact
+# per canonical rendered line; the topology lens contributes one fact per
+# canonical edge tuple ``(origin_uid, origin_socket, target_uid, target_input)``
+# (the exact items ``render(wf, "topology")`` returns).  Fact IDs are stable
+# content hashes over ``(lens, index, canonical item)`` so the same workflow
+# always yields the same IDs, and a cited ID always references the canonical
+# item it was derived from.
+#
+# This is intentionally separate from the canonical topology renderer
+# (:func:`_render_topology_facts` / :func:`_render_topology_text`): those keep
+# Law 4's complete-topology contract (every node, every edge, no truncation),
+# while the fact pack only *references* their items.  The Law 4 lens ceiling
+# is enforced here exactly as in :func:`render`.
+
+
+@dataclass(frozen=True)
+class FactRef:
+    """One stable reference to a canonical lens item (never a graph of its own)."""
+
+    fact_id: str
+    lens: str
+    content: Any  # str (text line) or tuple (topology edge fact)
+
+
+def _fact_id(lens: str, index: int, content: Any) -> str:
+    raw = json.dumps(
+        {"lens": lens, "index": index, "content": content},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return f"{lens}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
+def render_fact_pack(
+    wf: VibeWorkflow | Mapping[str, Any],
+    lenses: Iterable[str] = (LENS_SURFACE, LENS_TOPOLOGY),
+    *,
+    ceiling: Iterable[str] | None = None,
+) -> tuple[FactRef, ...]:
+    """Return stable fact references for the requested canonical lens items.
+
+    The pack is a flat tuple of :class:`FactRef` in canonical order.  The
+    topology lens contributes the complete canonical edge tuples (same items
+    as ``render(wf, "topology")``); every other lens contributes its canonical
+    rendered lines.  ``ceiling=`` enforces Law 4 exactly like :func:`render`:
+    a requested lens outside the reply's lens set raises
+    :class:`LensSubsetViolation`.
+    """
+    workflow = _coerce_workflow(wf)
+    names = tuple(lenses)
+    for name in names:
+        _require_lens(name)
+    _enforce_ceiling(names, ceiling)
+
+    facts: list[FactRef] = []
+    for name in names:
+        if name == LENS_TOPOLOGY:
+            for index, edge in enumerate(_edge_facts(workflow)):
+                facts.append(FactRef(_fact_id(name, index, edge), name, edge))
+            continue
+        rendered = str(_render_lens_value(workflow, name, ()))
+        for index, line in enumerate(rendered.splitlines()):
+            facts.append(FactRef(_fact_id(name, index, line), name, line))
+    return tuple(facts)
+
+
 __all__ = [
+    "FactRef",
     "LENS_CENSUS",
     "LENS_DIFF",
     "LENS_SURFACE",
@@ -521,5 +595,6 @@ __all__ = [
     "LensSubsetViolation",
     "SUPPORTED_LENSES",
     "render",
+    "render_fact_pack",
     "render_text",
 ]

@@ -346,6 +346,7 @@ def serve_hivemind_record(
     row: Mapping[str, Any],
     *,
     evidence_id: str,
+    query: str = "",
 ) -> HivemindRecordView:
     """Classify and serve one fetched Hivemind row to the research agent.
 
@@ -353,7 +354,12 @@ def serve_hivemind_record(
 
     * ``workflow`` — the workflow JSON was normalized through the named door
       matching its shape (``from_envelope`` / ``from_ui`` / ``from_api``) and
-      ``surface_lens`` carries ``render(wf, "surface")``, the Python view.
+      ``surface_lens`` carries ``render(wf, "surface")``, the Python view;
+      ``topology`` carries the B04 bounded precedent-topology projection
+      (ranked by ``query``/class matches → 1-hop → 2-hop; induced edges only;
+      128 nodes / 256 edges / 64 KiB rendered; always
+      ``global_topology_complete=false``).  The raw workflow JSON never rides
+      in the view.
     * ``non_workflow`` — the record is not a workflow (a message, a text post,
       a non-workflow JSON): ``content`` carries its actual text/body.  It is
       never pretended to be a workflow and never normalized with a fake shape.
@@ -395,6 +401,9 @@ def serve_hivemind_record(
         from_envelope,
         from_ui,
     )
+    from vibecomfy.executor.precedents import (  # noqa: PLC0415
+        project_precedent_topology,
+    )
     from vibecomfy.porting.render import render  # noqa: PLC0415
 
     try:
@@ -426,6 +435,7 @@ def serve_hivemind_record(
         evidence_id=evidence_id,
         source_type=source_type,
         surface_lens=render(workflow, "surface"),
+        topology=project_precedent_topology(workflow, query=query),
         shape=shape,
     )
 

@@ -1865,3 +1865,50 @@ def test_law_4_editable_surface_is_instance_hydrated() -> None:
     assert "prompt" in surface.socket_names()
     assert all(field.name_confidence != "none" or not field.name for field in surface.literals)
     assert all(not field.name.startswith("widget_") for field in surface.literals)
+
+
+# ── B04: fact pack (stable IDs over canonical lens items) ─────────────────────
+
+
+def test_fact_pack_topology_ids_reference_canonical_tuples() -> None:
+    from vibecomfy.porting.render import render, render_fact_pack
+
+    workflow = _tiny_workflow()
+    facts = render_fact_pack(workflow, lenses=("topology",))
+    canonical = render(workflow, "topology")
+    # Every topology fact ID references the canonical edge tuple — no new
+    # graph representation is created.
+    assert tuple(fact.content for fact in facts) == tuple(canonical)
+    assert len(facts) == len(canonical)
+
+
+def test_fact_pack_ids_are_stable_and_distinct() -> None:
+    from vibecomfy.porting.render import render_fact_pack
+
+    workflow = _tiny_workflow()
+    a = render_fact_pack(workflow, lenses=("surface", "topology"))
+    b = render_fact_pack(workflow, lenses=("surface", "topology"))
+    assert [f.fact_id for f in a] == [f.fact_id for f in b]
+    ids = [f.fact_id for f in a]
+    assert len(ids) == len(set(ids))
+    assert all(f.fact_id for f in a)
+
+
+def test_fact_pack_text_facts_are_canonical_rendered_lines() -> None:
+    from vibecomfy.porting.render import render, render_fact_pack
+
+    workflow = _tiny_workflow()
+    facts = render_fact_pack(workflow, lenses=("surface",))
+    rendered_lines = render(workflow, "surface").splitlines()
+    assert tuple(fact.content for fact in facts) == tuple(rendered_lines)
+
+
+def test_fact_pack_preserves_law4_lens_ceiling() -> None:
+    import pytest
+
+    from vibecomfy.porting.render import LensSubsetViolation, render_fact_pack
+
+    workflow = _tiny_workflow()
+    with pytest.raises(LensSubsetViolation):
+        render_fact_pack(workflow, lenses=("topology",), ceiling=("surface",))
+

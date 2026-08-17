@@ -704,22 +704,30 @@ def ready_template_load(
             content = content[:READY_CONTENT_CHAR_CAP]
             truncated = True
 
-    return _result(
-        tool,
-        ToolStatus.OK,
-        result={
-            "id": stable_id,
-            "requested_id": requested_id,
-            "path": relative_path,
-            "scope": "repo" if owning_root == READY_ROOT.expanduser().resolve() else "dynamic",
-            "sha256": hashlib.sha256(data).hexdigest(),
-            "size_bytes": len(data),
-            "content": content,
-            "content_truncated": truncated,
-            "is_research_evidence": READY_IS_RESEARCH_EVIDENCE,
-            "evidence_label": READY_EVIDENCE_LABEL,
-        },
-    )
+    # B04: a workflow-valued ready-template observation is sanitized through
+    # the precedent projection (surface + bounded topology) — the raw workflow
+    # JSON is never echoed as precedent content.
+    workflow_view: dict[str, Any] | None = None
+    if content:
+        from vibecomfy.executor.precedents import sanitize_workflow_text  # noqa: PLC0415
+
+        workflow_view = sanitize_workflow_text(content)
+
+    result_payload: dict[str, Any] = {
+        "id": stable_id,
+        "requested_id": requested_id,
+        "path": relative_path,
+        "scope": "repo" if owning_root == READY_ROOT.expanduser().resolve() else "dynamic",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size_bytes": len(data),
+        "content": content,
+        "content_truncated": truncated,
+        "is_research_evidence": READY_IS_RESEARCH_EVIDENCE,
+        "evidence_label": READY_EVIDENCE_LABEL,
+    }
+    if workflow_view is not None:
+        result_payload["workflow_view"] = workflow_view
+    return _result(tool, ToolStatus.OK, result=result_payload)
 
 
 # ── Tool registry (implement-phase + research-phase tool surface) ────────────

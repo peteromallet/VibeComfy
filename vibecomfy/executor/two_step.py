@@ -1022,31 +1022,76 @@ def _two_step_outcome(
         failure = outcome.get("failure")
         kind = getattr(failure, "kind", None) or "ExecuteError"
         return ExecutorResult.failure(kind=kind, stage="execute", message=str(failure))
-    # B05: the two-step report always serializes the resolved pipeline mode
-    # and carries the optional ``execute`` section (session identity, route,
-    # budget usage, tool/evidence/Δ IDs, claim validation, replacement use,
-    # self-assessment).  Full-mode reports never carry ``execute``.
+    # B04: map accepted work into the existing ImplementationResult + durable
+    # candidate + ExecutorResult envelope.  Delta IDs are metadata pointing at
+    # the canonical accepted-batch operations (already in the session ledger) —
+    # never a new delta body.  B05: the two-step report always serializes the
+    # resolved pipeline mode and carries the optional ``execute`` section.
+    from vibecomfy.executor.contracts import ImplementationResult  # noqa: PLC0415
+
+    budget = outcome.get("budget")
+    budget_usage = _execute_budget_usage(budget)
+    graph = outcome.get("graph")
+    accepted_delta_ids = tuple(str(i) for i in (outcome.get("accepted_delta_ids") or ()))
+    evidence_ids = tuple(str(i) for i in (outcome.get("evidence_ids") or ()))
+    tool_call_ids = tuple(str(i) for i in (outcome.get("tool_call_ids") or ()))
+    lens_fact_ids = tuple(str(i) for i in (outcome.get("lens_fact_ids") or ()))
+    claim_validation = outcome.get("claim_validation") or {"status": "not_run"}
+    self_assessment = outcome.get("self_assessment")
+
+    implementation: ImplementationResult | None = None
+    if graph is not None:
+        durable_response = outcome.get("durable_response")
+        implementation = ImplementationResult(
+            graph=graph,
+            message=str(outcome.get("reply") or ""),
+            durable_response=durable_response if isinstance(durable_response, Mapping) else None,
+        )
+
     return ExecutorResult.success(
         report=Report(
             plan=plan,
             pipeline_mode=pipeline_mode,
+            implementation=implementation,
             execute=ExecuteReport(
                 session_id=request.session_id,
                 route=route,
-                budget_usage={
-                    "output_tokens": 0,
-                    "model_continuations": 0,
-                    "tool_calls": 0,
-                    "apply_batches": 0,
-                    "replacement_attempts": 0,
-                    "wall_clock_seconds": 0.0,
-                },
-                claim_validation={"status": "not_run"},
+                budget_usage=budget_usage,
+                tool_call_ids=tool_call_ids,
+                evidence_ids=evidence_ids,
+                accepted_delta_ids=accepted_delta_ids,
+                claim_validation=claim_validation,
+                replacement_used=bool(outcome.get("replacement_used")),
+                self_assessment=self_assessment,
             ),
         ),
-        graph=None,
+        graph=graph,
         reply=outcome.get("reply"),
     )
+
+
+_EXECUTE_BUDGET_USAGE_KEYS: tuple[str, ...] = (
+    "output_tokens",
+    "model_continuations",
+    "tool_calls",
+    "apply_batches",
+    "replacement_attempts",
+    "wall_clock_seconds",
+)
+
+
+def _execute_budget_usage(budget: Any) -> dict[str, int | float]:
+    """Fold a two-step session budget into the canonical execute counters."""
+    usage: dict[str, int | float] = {key: 0 for key in _EXECUTE_BUDGET_USAGE_KEYS}
+    to_dict = getattr(budget, "to_dict", None)
+    if callable(to_dict):
+        payload = to_dict()
+        if isinstance(payload, Mapping):
+            for key in _EXECUTE_BUDGET_USAGE_KEYS:
+                value = payload.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    usage[key] = value
+    return usage
 
 
 def _fallback_route(plan: ClassifyDecision) -> str:
@@ -1058,3 +1103,186 @@ def _fallback_route(plan: ClassifyDecision) -> str:
     if plan.research:
         return "research"
     return "respond"
+
+
+# ── B04: atomic edit state machine ───────────────────────────────────────────
+#
+# The two-step execute phase may run several model continuations; research /
+# tool continuations may precede editing.  Editing itself is ATOMIC:
+#
+#   * exactly ONE complete Python batch may be accepted per message;
+#   * one complete replacement is allowed ONLY after a rejection;
+#   * after acceptance, further edit submissions are denied;
+#   * a second rejection returns no candidate.
+#
+# Parse, resolution, CAS, channel, bounds, or done-gate failure returns ZERO Δ
+# (``EditSession.apply_batch`` is the parse/interpret/gate/commit authority —
+# its all-or-nothing interpreter already rolls a failed batch back, and the
+# done-gate failure below rolls the just-applied batch back too).
+#
+# CAS is the request baseline + the current session revision ONLY — never
+# model-supplied per-op old-values (the grammar/op schemas are NOT extended).
+# The stale-baseline diagnostic surfaces on the one replacement continuation.
+
+
+@dataclass(frozen=True)
+class ApplyBatchOutcome:
+    """The apply authority's verdict for one Python batch (B04)."""
+
+    ok: bool
+    landed_ops: tuple[Any, ...] = ()
+    graph: Any = None
+    reason: str = ""
+    diagnostics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class TwoStepApplyResult:
+    """The state machine's verdict for one edit submission (B04)."""
+
+    accepted: bool
+    delta_ids: tuple[str, ...] = ()
+    graph: Any = None
+    reason: str = ""
+    diagnostics: tuple[str, ...] = ()
+    replacement_allowed: bool = False
+    no_candidate: bool = False
+
+
+def _batch_reject_reason(result: Any) -> str:
+    """Derive a stable rejection reason from an ``apply_batch`` result."""
+    for diagnostic in (getattr(result, "diagnostics", ()) or ()):
+        code = getattr(diagnostic, "code", "")
+        if code:
+            return str(code)
+    if not getattr(result, "ok", False):
+        return "batch_failed"
+    if not getattr(result, "landed_ops", ()):
+        return "no_landed_ops"
+    if not getattr(result, "apply_eligible", False):
+        return "apply_gate_rejected"
+    return "rejected"
+
+
+def apply_python_batch(
+    edit_session: Any,
+    code: str,
+    *,
+    done_fn: Any | None = None,
+    emit_graph: bool = True,
+) -> ApplyBatchOutcome:
+    """Apply ONE Python batch through ``EditSession.apply_batch()`` (B04).
+
+    ``apply_batch`` is the parse/interpret/gate/commit authority: this helper
+    never independently calls parse / interpret / verify_apply.  After a
+    successful apply the done-gate runs (``EditSession.done()``); a done-gate
+    failure rolls the just-applied batch back so zero Δ is retained.
+    """
+    result = edit_session.apply_batch(code)
+    if not (
+        getattr(result, "ok", False)
+        and getattr(result, "landed_ops", ())
+        and getattr(result, "apply_eligible", False)
+    ):
+        diagnostics = tuple(
+            str(getattr(d, "message", "") or getattr(d, "code", ""))
+            for d in (getattr(result, "diagnostics", ()) or ())
+        )
+        return ApplyBatchOutcome(
+            ok=False,
+            reason=_batch_reject_reason(result),
+            diagnostics=diagnostics,
+        )
+    done = done_fn() if done_fn is not None else edit_session.done()
+    if not getattr(done, "ok", False):
+        try:
+            edit_session.rollback(1)
+        except Exception:  # noqa: BLE001 - best-effort rollback
+            pass
+        return ApplyBatchOutcome(
+            ok=False,
+            reason="done_gate_failed",
+            diagnostics=(str(getattr(done, "summary", "") or "done_gate_failed"),),
+        )
+    graph: Any = None
+    if emit_graph:
+        try:
+            graph = edit_session.working_ui
+        except Exception:  # noqa: BLE001 - graph emission is best-effort
+            graph = None
+    return ApplyBatchOutcome(ok=True, landed_ops=tuple(result.landed_ops), graph=graph)
+
+
+class TwoStepEditStateMachine:
+    """Atomic edit lifecycle for ONE two-step message turn (B04)."""
+
+    def __init__(
+        self,
+        *,
+        apply_fn: Any,
+        id_factory: Any | None = None,
+    ) -> None:
+        self._apply_fn = apply_fn
+        self._id_factory = id_factory or (lambda seq: f"d{seq}")
+        self._accepted = False
+        self._rejections = 0
+        self._seq = 0
+        self._accepted_delta_ids: tuple[str, ...] = ()
+        self._graph: Any = None
+        self._replacement_used = False
+
+    # -- queries -------------------------------------------------------------
+
+    @property
+    def accepted(self) -> bool:
+        return self._accepted
+
+    @property
+    def accepted_delta_ids(self) -> tuple[str, ...]:
+        return self._accepted_delta_ids
+
+    @property
+    def graph(self) -> Any:
+        return self._graph
+
+    @property
+    def replacement_used(self) -> bool:
+        return self._replacement_used
+
+    # -- mutation ------------------------------------------------------------
+
+    def submit(self, code: str) -> TwoStepApplyResult:
+        """Submit one Python batch; enforce the atomic lifecycle."""
+        if self._accepted:
+            return TwoStepApplyResult(
+                accepted=False,
+                reason="edit_already_accepted",
+            )
+        if self._rejections >= 2:
+            return TwoStepApplyResult(
+                accepted=False,
+                reason="second_rejection_no_candidate",
+                no_candidate=True,
+            )
+        if self._rejections == 1:
+            self._replacement_used = True
+        outcome = self._apply_fn(code)
+        if getattr(outcome, "ok", False):
+            self._accepted = True
+            self._seq += 1
+            self._accepted_delta_ids = (self._id_factory(self._seq),)
+            self._graph = getattr(outcome, "graph", None)
+            return TwoStepApplyResult(
+                accepted=True,
+                delta_ids=self._accepted_delta_ids,
+                graph=self._graph,
+                reason="accepted",
+            )
+        self._rejections += 1
+        return TwoStepApplyResult(
+            accepted=False,
+            reason=str(getattr(outcome, "reason", "") or "rejected"),
+            diagnostics=tuple(getattr(outcome, "diagnostics", ()) or ()),
+            replacement_allowed=(self._rejections == 1),
+            no_candidate=(self._rejections >= 2),
+        )

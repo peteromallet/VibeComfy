@@ -389,6 +389,26 @@ def _ready_template_load_projector(
         excerpt = _shorten_query_text(content, max_chars=1200)
         truncated = " [truncated]" if len(content) > 1200 else ""
         lines.append(f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}")
+    # B04: a workflow-valued ready-template observation is sanitized through
+    # the precedent projection (surface + bounded topology).  The raw workflow
+    # JSON is never echoed — only the sanitized surface/topology view.
+    workflow_view = body.get("workflow_view")
+    if isinstance(workflow_view, Mapping):
+        topology = workflow_view.get("topology")
+        if isinstance(topology, Mapping):
+            from vibecomfy.executor.precedents import render_precedent_topology  # noqa: PLC0415
+
+            lines.append(
+                "  workflow view (sanitized; raw workflow JSON not echoed):\n"
+                + render_precedent_topology(topology)
+            )
+        else:
+            surface = workflow_view.get("surface_lens")
+            if isinstance(surface, str) and surface.strip():
+                lines.append(
+                    "  workflow view surface (sanitized):\n"
+                    + _shorten_query_text(surface, max_chars=1200)
+                )
     return artifacts, entry, "\n".join(lines)
 
 
