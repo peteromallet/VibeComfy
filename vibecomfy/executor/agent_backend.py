@@ -244,6 +244,7 @@ def run_reply_turn(
     effective_task: str | None = None,
     candidate_present: bool = False,
     interaction_mode: str | None = None,
+    research_attempt: str | None = None,
 ) -> str:
     """Run a single reply model turn through the provider seam.
 
@@ -302,6 +303,7 @@ def run_reply_turn(
         effective_task=effective_task,
         candidate_present=candidate_present,
         interaction_mode=interaction_mode,
+        research_attempt=research_attempt,
     )
     model_turn_id = new_profile_id("model")
     with profiler_span(

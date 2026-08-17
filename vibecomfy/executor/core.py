@@ -50,9 +50,13 @@ from vibecomfy.executor.profiler import (
 
 from .agent_backend import run_classify_turn, run_reply_turn
 from .agent_research_stage import (
-    DECISION_SYNTHESIZE,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_GROUNDED,
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_THIN,
     AgentResearchTrace,
     build_research_brief,
+    derive_research_attempt,
     form_research_question,
     run_agent_research_stage,
 )
@@ -794,6 +798,20 @@ class AgentResearchResult:
         return self.trace.summary
 
     @property
+    def research_attempt(self) -> str:
+        """Typed attempt (never/empty/thin/grounded) derived from the ledger.
+
+        Batch 14: the attempt is derived in Python from the research tool
+        ledger + artifacts — never from model judgment — so it is correct
+        even for manually-constructed results whose trace lacks an ``attempt``
+        field.
+        """
+        return derive_research_attempt(
+            ledger=self.ledger,
+            artifacts=self.evidence_pack.artifacts,
+        )
+
+    @property
     def warnings(self) -> tuple[str, ...]:
         return tuple(self.trace.warnings) + tuple(
             str(item.get("message") or "")
@@ -807,6 +825,7 @@ class AgentResearchResult:
             "route": self.route,
             "status": self.trace.status,
             "verdict": self.trace.final_verdict,
+            "research_attempt": self.research_attempt,
             "diagnostics": [dict(item) for item in self.policy_diagnostics],
         }
         if self.decision_memo is not None:
@@ -853,6 +872,7 @@ def _research_decision_memo(
     trace: AgentResearchTrace,
     *,
     diagnostics: tuple[dict[str, Any], ...],
+    attempt: str,
 ) -> dict[str, Any]:
     inspected = [
         evidence_id
@@ -865,15 +885,32 @@ def _research_decision_memo(
         for item in diagnostics
         if str(item.get("message") or "").strip()
     )
+    # Batch 14: the memo NEVER refuses because research was thin.  When no
+    # external evidence was gathered (never/empty), the conclusion states the
+    # fact plainly so the reply model answers from the attached graph and its
+    # own knowledge — "No supported conclusion was produced" is gone.
+    conclusion = trace.summary or (
+        "No external evidence was gathered by the research stage; "
+        "answer from the attached workflow graph and general knowledge."
+    )
     return {
         "question": trace.question,
-        "conclusion": trace.summary or "No supported conclusion was produced.",
+        "conclusion": conclusion,
         "citations": inspected[:6],
         "uncertainty": " ".join(uncertainty_parts),
+        "research_attempt": attempt,
         "next_action": (
             "Use this conclusion for the requested next step."
-            if trace.final_verdict == "enough"
-            else "Refine the unresolved research question before acting on this conclusion."
+            if trace.final_verdict == "enough" and attempt in {
+                RESEARCH_ATTEMPT_THIN,
+                RESEARCH_ATTEMPT_GROUNDED,
+            }
+            else (
+                "Answer from the attached graph and general knowledge; "
+                "no external evidence was gathered."
+                if attempt in {RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY}
+                else "Refine the unresolved research question before acting on this conclusion."
+            )
         ),
     }
 
@@ -884,6 +921,7 @@ def _research_stage_package(
     trace: AgentResearchTrace,
     pack: EvidencePack,
     policy_diagnostics: tuple[dict[str, Any], ...],
+    research_attempt: str = RESEARCH_ATTEMPT_NEVER,
 ) -> StagePackage:
     """Build the F01 research :class:`StagePackage` handed to implement.
 
@@ -891,7 +929,8 @@ def _research_stage_package(
     and typed diagnostics (policy warnings, trace failures) — the only
     research content the implement phase may consume.  ``StageRequest`` is
     not part of this seam: the classify decision (goal/route) is authoritative
-    and the package references are explicit on the wire.
+    and the package references are explicit on the wire.  ``research_attempt``
+    is the batch-14 typed attempt derived from the research tool ledger.
     """
     diagnostics: list[StageDiagnostic] = [
         StageDiagnostic(
@@ -936,6 +975,7 @@ def _research_stage_package(
         status=status,
         next_stage_hints=("implement",) if route == "adapt" else (),
         ledger=pack.ledger,
+        research_attempt=research_attempt,
     )
 
 
@@ -960,7 +1000,16 @@ def _run_agent_owned_research(
             artifacts=pack.artifacts,
             ledger=EvidenceLedger(entries=pack.ledger.entries + policy_entries),
         )
-    memo = _research_decision_memo(trace, diagnostics=diagnostics) if route == "research" else None
+    attempt = derive_research_attempt(ledger=pack.ledger, artifacts=pack.artifacts)
+    memo = (
+        _research_decision_memo(
+            trace,
+            diagnostics=diagnostics,
+            attempt=attempt,
+        )
+        if route == "research"
+        else None
+    )
     return AgentResearchResult(
         route=route,
         trace=trace,
@@ -970,43 +1019,22 @@ def _run_agent_owned_research(
             trace=trace,
             pack=pack,
             policy_diagnostics=diagnostics,
+            research_attempt=attempt,
         ),
         policy_diagnostics=diagnostics,
         decision_memo=memo,
     )
 
 
-def _research_recorded_synthesis(research_result: AgentResearchResult | None) -> bool:
-    """True when the research ledger records a usable partial synthesis.
-
-    A usable synthesis is a ``synthesize`` ledger entry that cites at least
-    one evidence ID: the research agent concluded a direction grounded in
-    evidence, even if it also recorded uncertainty or an unresolved refine
-    question.  A synthesize entry with no citations, or no synthesize entry
-    at all, means there is nothing evidence-backed to implement from.
-    """
-    ledger = getattr(research_result, "ledger", None)
-    if ledger is None:
-        return False
-    for entry in ledger.entries:
-        if entry.decision == DECISION_SYNTHESIZE and entry.evidence_ids:
-            return True
-    return False
-
-
 def _research_package_is_usable(research_result: AgentResearchResult | None) -> bool:
-    """Fail-closed gate for the research→implement handoff.
+    """Attempt-typed gate for the research→implement handoff (batch 14).
 
-    The gate stays strict about research-RESULT validity: an adapt
-    implementation may proceed only when the C1 research package is a typed
-    ``StagePackage`` with ``status=OK`` (failed / exhausted / untyped results
-    are never implementable).  The ``enough`` verdict requirement is relaxed:
-    a verdict of ``refine`` (or any non-``enough`` verdict on an OK package)
-    still hands a usable direction to implement when the research agent
-    recorded a partial synthesis — a ``synthesize`` ledger entry citing
-    evidence.  The only research that skips implement is one that produced NO
-    synthesis whatsoever: an unavailable package, or an OK package whose
-    ledger records no evidence-backed synthesize entry.
+    The gate proceeds when the research package is a typed ``StagePackage``
+    with ``status=OK`` AND the research attempt is ``thin`` or ``grounded``
+    (evidence exists — at least search hits, and ideally fetched citations).
+    ``never`` / ``empty`` attempts skip implement: zero executed tool calls or
+    zero artifacts means there is no evidence-backed direction to implement
+    from.  Failed / exhausted / untyped packages are never implementable.
     """
     if research_result is None:
         return False
@@ -1015,12 +1043,10 @@ def _research_package_is_usable(research_result: AgentResearchResult | None) -> 
         return False
     if package.status is not ToolStatus.OK:
         return False
-    trace = getattr(research_result, "trace", None)
-    if trace is not None and getattr(trace, "final_verdict", None) in (None, "enough"):
-        return True
-    # Refine (or otherwise non-enough) verdict: proceed iff the research agent
-    # recorded a usable partial synthesis; skip only when there is none.
-    return _research_recorded_synthesis(research_result)
+    return research_result.research_attempt in {
+        RESEARCH_ATTEMPT_THIN,
+        RESEARCH_ATTEMPT_GROUNDED,
+    }
 
 
 def _run_implement(
@@ -1043,33 +1069,23 @@ def _run_implement(
     the edit engine are surfaced as :class:`_ExecutorPhaseError`.
     """
     executor_route = _canonical_route_for_plan(plan)
-    # P0-b: consume the research package status fail-closed.  An adapt
-    # implementation must not run — and must not report success — when the
-    # C1 research stage failed, exhausted its loop without an agent finish,
-    # or concluded with a refine verdict: there is no usable synthesis to
-    # implement from.
+    # Batch 14 attempt gate: an adapt implementation proceeds only when the
+    # research package is OK AND the research attempt is thin/grounded
+    # (evidence exists).  never/empty/non-OK research SKIPS implement — it is
+    # no longer a hard failure: the reply phase still answers from the graph
+    # and general knowledge, so the user never sees a "no supported
+    # conclusion" refusal caused by thin research.
     if (
         executor_route == "adapt"
         and research_result is not None
         and not _research_package_is_usable(research_result)
     ):
-        trace = research_result.trace
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
-            "research",
-            agent_failure_context={
-                "explanation": (
-                    "C1 research produced no usable synthesis "
-                    f"(status={trace.status}, verdict={trace.final_verdict}); "
-                    "implement was skipped so no edit is made from unsupported conclusions."
-                )
-            },
-        )
-        raise _ExecutorPhaseError(
-            stage="research",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
+        return ImplementationResult(
+            message=(
+                "No graph edit was made: research produced no "
+                "evidence-backed direction to implement "
+                f"(research_attempt={research_result.research_attempt})."
+            ),
         )
     if request.graph is None and executor_route != "research":
         return ImplementationResult(
@@ -1410,6 +1426,11 @@ def _run_reply(
         if research_result is not None and effective_route == "adapt"
         else None
     )
+    research_attempt = (
+        research_result.research_attempt
+        if research_result is not None and effective_route in {"research", "adapt"}
+        else None
+    )
 
     try:
         reply_kwargs: dict[str, Any] = {
@@ -1419,6 +1440,7 @@ def _run_reply(
             "plan": plan,
             "research_memo": research_memo,
             "research_ledger": research_ledger,
+            "research_attempt": research_attempt,
             "implementation_message": implementation_message,
             "graph_summary": effective_graph_context,
             "effective_route": effective_route,
@@ -1431,7 +1453,7 @@ def _run_reply(
         optional_reply_kwargs = (
             "graph_summary", "research_memo", "research_ledger",
             "effective_route", "effective_task",
-            "candidate_present", "interaction_mode",
+            "candidate_present", "interaction_mode", "research_attempt",
         )
         while True:
             try:

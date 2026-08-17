@@ -18,6 +18,12 @@ from .evidence_pack import (
 )
 from .tool_contracts import ToolStatus, normalize_tool_status
 
+# Batch 14: typed ResearchAttempt vocabulary (mirrors
+# ``agent_research_stage.RESEARCH_ATTEMPTS``; kept local so this low-level
+# contract module never imports the research stage).  An unknown value fails
+# safe to ``never``.
+_RESEARCH_ATTEMPTS = frozenset({"never", "empty", "thin", "grounded"})
+
 
 def _canonical_timestamp(value: Any) -> str:
     text = _required_text(value, "produced_at")
@@ -146,7 +152,14 @@ class NeedsInput:
 
 @dataclass(frozen=True)
 class StagePackage:
-    """Validated envelope handed from one stage to the next."""
+    """Validated envelope handed from one stage to the next.
+
+    ``research_attempt`` (research stage only) carries the batch-14 typed
+    attempt semantics (never/empty/thin/grounded) derived from the research
+    tool ledger — Python-derived, never model judgment.  It is optional and
+    fails safe to ``never`` when absent (a package that does not declare
+    evidence must not gate an implement on it).
+    """
 
     stage_id: str
     produced_at: str
@@ -156,6 +169,7 @@ class StagePackage:
     next_stage_hints: tuple[str, ...]
     ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
     needs_input: NeedsInput | None = None
+    research_attempt: str = "never"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "stage_id", _required_text(self.stage_id, "stage_id"))
@@ -186,6 +200,10 @@ class StagePackage:
         if needs_input is not None and not isinstance(needs_input, NeedsInput):
             needs_input = NeedsInput.from_dict(needs_input)
         object.__setattr__(self, "needs_input", needs_input)
+        attempt = str(self.research_attempt or "").strip()
+        if attempt not in _RESEARCH_ATTEMPTS:
+            attempt = "never"
+        object.__setattr__(self, "research_attempt", attempt)
 
         referenced_ids = set(ledger.evidence_ids)
         for diagnostic in diagnostics:
@@ -217,6 +235,7 @@ class StagePackage:
             "next_stage_hints": list(self.next_stage_hints),
             "ledger": self.ledger.to_dict(),
             "needs_input": self.needs_input.to_dict() if self.needs_input is not None else None,
+            "research_attempt": self.research_attempt,
         }
 
     @classmethod
@@ -235,6 +254,7 @@ class StagePackage:
                 "ledger",
                 "needs_input",
             }),
+            optional=frozenset({"research_attempt"}),
             contract="StagePackage",
         )
         needs_input = payload["needs_input"]
@@ -247,6 +267,7 @@ class StagePackage:
             next_stage_hints=payload["next_stage_hints"],
             ledger=EvidenceLedger.from_dict(payload["ledger"]),
             needs_input=NeedsInput.from_dict(needs_input) if needs_input is not None else None,
+            research_attempt=payload.get("research_attempt", "never"),
         )
 
 

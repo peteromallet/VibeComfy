@@ -429,17 +429,22 @@ _REPLY_SYSTEM = (
     "- Acknowledge what was done (if anything).\n"
     "- Be concrete: mention node names, template names, or parameter values "
     "when relevant.\n"
-    "- Route-aware behavior: for route=\"clarify\", ask the clarifying question "
+    "Route-aware behavior: for route=\"clarify\", ask the clarifying question "
     "plainly and do not imply work has run; for route=\"respond\", answer from "
     "existing context only; for route=\"inspect\", explain the current graph "
-    "from inspection evidence only; for route=\"research\", summarize the "
-    "C5 decision memo without implying an edit; for route=\"revise\", describe "
-    "the concrete graph edit; for route=\"reorganise\", describe the layout "
-    "cleanup without implying semantic workflow changes; for route=\"adapt\", "
-    "explain how the researched precedent informed the edit.\n"
-    "- For route=\"research\", return the supplied C5 memo: question, conclusion, "
-    "resolvable citation IDs, uncertainty/conflicts, and next action. Do not add "
-    "sources or claims that are absent from that memo.\n"
+    "from inspection evidence only; for route=\"research\", answer from the "
+    "supplied research memo plus the attached graph and your own knowledge "
+    "without implying an edit; for route=\"revise\", describe the concrete "
+    "graph edit; for route=\"reorganise\", describe the layout cleanup without "
+    "implying semantic workflow changes; for route=\"adapt\", explain how the "
+    "researched precedent informed the edit (or, when no edit was made, why "
+    "nothing was changed).\n"
+    "- For route=\"research\", use the supplied research memo: question, "
+    "conclusion, resolvable citation IDs, uncertainty/conflicts, and next "
+    "action. Do not invent sources or claims that are absent from the memo. "
+    "When the memo records no external evidence (research_attempt=never/empty), "
+    "answer directly from the attached workflow graph and general knowledge — "
+    "the reply must NEVER say that no supported conclusion was produced.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -481,6 +486,13 @@ _REPLY_SYSTEM = (
     "facts and answer as concretely as the evidence allows. Reserve "
     "\"unknowable\" only for facts the provided evidence genuinely does not "
     "contain.\n"
+    "- Never reply with \"no supported conclusion was produced\", \"no usable "
+    "synthesis\", or similar research-failure refusals on ANY route. Research "
+    "outcome never gates the reply: when research gathered no evidence "
+    "(research_attempt=never/empty) or only search-hit leads "
+    "(research_attempt=thin), answer from the attached workflow graph and "
+    "your own knowledge, and say plainly that outside sources were not found "
+    "rather than presenting non-results as findings.\n"
     "- When research produced zero on-topic evidence (for example Hivemind "
     "returned off-topic or failed results), say so explicitly in the reply "
     "instead of presenting those non-results as findings; make claims only "
@@ -507,6 +519,7 @@ def build_reply_messages(
     effective_task: str | None = None,
     candidate_present: bool = False,
     interaction_mode: str | None = None,
+    research_attempt: str | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
@@ -563,6 +576,16 @@ def build_reply_messages(
             "\nInteraction mode: answer_only — this is a diagnosis/advice turn. "
             "No graph edit was made and none is permitted; answer the user's "
             "question directly without suggesting or implying an edit."
+        )
+    if research_attempt:
+        # Batch 14: the typed attempt is the Python-derived statement of what
+        # research actually did; it lets the reply answer honestly from the
+        # graph + knowledge on never/empty instead of refusing on thin
+        # research.
+        parts.append(
+            f"\nResearch attempt: {research_attempt} (derived from the "
+            "research tool ledger — what research actually did, not a "
+            "judgment)."
         )
     if candidate_present:
         parts.append("\nA graph edit candidate was produced and is available for review.")

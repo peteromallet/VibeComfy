@@ -38,6 +38,9 @@
         {"type": "null"},
         {"$ref": "#/$defs/needs_input"}
       ]
+    },
+    "research_attempt": {
+      "enum": ["never", "empty", "thin", "grounded"]
     }
   },
   "$defs": {

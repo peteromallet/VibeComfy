@@ -28,7 +28,16 @@ from vibecomfy.executor.contracts import (
     ExecutorRequest,
 )
 from vibecomfy.executor import core as executor_core
-from vibecomfy.executor.agent_research_stage import DECISION_SYNTHESIZE, AgentResearchTrace
+from vibecomfy.executor.agent_research_stage import (
+    DECISION_GET,
+    DECISION_SYNTHESIZE,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_GROUNDED,
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_THIN,
+    AgentResearchTrace,
+    derive_research_attempt,
+)
 from vibecomfy.executor.core import AgentResearchResult, run_executor
 from vibecomfy.executor.evidence_pack import (
     EvidenceArtifact,
@@ -189,12 +198,27 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> tuple[AgentResearchTrace, EvidencePack]:
         del research_brief
         del spec
+        # Batch 14: the offline fixture records an EXECUTED hivemind_get call
+        # plus a synthesize citation so the derived research_attempt is
+        # "grounded" (thin/grounded is what lets adapt proceed to implement).
         ledger = EvidenceLedger(
             entries=(
                 EvidenceLedgerEntry(
+                    decision=DECISION_GET,
+                    conclusion="workflow record hivemind_get:fixture",
+                    evidence_ids=("hivemind_get:fixture",),
+                    uncertainty="",
+                ),
+                EvidenceLedgerEntry(
                     decision="agent_research",
                     conclusion="Agent-owned research completed for the requested route.",
-                    evidence_ids=(),
+                    evidence_ids=("hivemind_get:fixture",),
+                    uncertainty="low",
+                ),
+                EvidenceLedgerEntry(
+                    decision=DECISION_SYNTHESIZE,
+                    conclusion="Agent-owned research completed for the requested route.",
+                    evidence_ids=("hivemind_get:fixture",),
                     uncertainty="low",
                 ),
             )
@@ -210,7 +234,17 @@ def _stub_agent_owned_research(monkeypatch: pytest.MonkeyPatch) -> None:
             status="ok",
             elapsed_seconds=0.0,
         )
-        return trace, EvidencePack(artifacts={}, ledger=ledger)
+        return trace, EvidencePack(
+            artifacts={
+                "hivemind_get:fixture": EvidenceArtifact(
+                    evidence_id="hivemind_get:fixture",
+                    kind="hivemind_get",
+                    body={"content": "fixture fetched record"},
+                    source="hivemind",
+                ),
+            },
+            ledger=ledger,
+        )
 
     monkeypatch.setattr(executor_core, "run_agent_research_stage", fake_agent_research_stage)
 
@@ -683,6 +717,7 @@ class TestAgentOwnedResearchFlow:
             "conclusion": "Agent-owned research completed for the requested route.",
             "citations": [],
             "uncertainty": "low Requested source 'web' is unavailable in the active C1 research stage; it was not silently substituted or removed.",
+            "research_attempt": RESEARCH_ATTEMPT_GROUNDED,
             "next_action": "Use this conclusion for the requested next step.",
         }
         wire_research = result.to_dict()["report"]["executor"]["research"]
@@ -1849,6 +1884,18 @@ def _agent_owned_research_result(
             evidence_ids=("hivemind_get:abc123",),
             uncertainty="low",
         ),
+        EvidenceLedgerEntry(
+            decision=DECISION_GET,
+            conclusion="workflow record hivemind_get:abc123",
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="",
+        ),
+        EvidenceLedgerEntry(
+            decision=DECISION_SYNTHESIZE,
+            conclusion=summary,
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="low",
+        ),
     ))
     trace = AgentResearchTrace(
         route="adapt",
@@ -1957,10 +2004,27 @@ def _failed_research_trace(*, status: str = "failed", verdict: str = "failed") -
     )
 
 
-def test_adapt_implement_fails_closed_when_research_failed() -> None:
-    """P0-b: a failed C1 research package (status=unavailable) must stop the
-    adapt implement phase — handle_agent_edit is never called and the request
-    fails instead of proceeding to success without usable synthesis."""
+def _adapt_never_research_result() -> AgentResearchResult:
+    """Adapt research result typed ``never`` (zero executed tool calls)."""
+    return _agent_owned_research_result_with_trace(
+        AgentResearchTrace(
+            route="adapt",
+            question="q",
+            iterations=(),
+            final_verdict="enough",
+            summary="",
+            citations=(),
+            uncertainty="",
+            status="ok",
+            elapsed_seconds=0.0,
+        )
+    )
+
+
+def test_adapt_implement_skips_when_research_failed() -> None:
+    """Batch 14: a failed research package (status=unavailable) SKIPS the
+    adapt implement phase — handle_agent_edit is never called and no hard
+    failure is raised (the reply phase still answers)."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
@@ -1971,24 +2035,21 @@ def test_adapt_implement_fails_closed_when_research_failed() -> None:
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
     mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "no usable synthesis" in explanation
-    assert "status=failed" in explanation
+    assert result.graph is None
+    assert "No graph edit was made" in result.message
 
 
-def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
-    """P0-b + P1-a: deadline/max-turn exhaustion (status=exhausted) is
-    consumed fail-closed — no implement without an agent finish."""
+def test_adapt_implement_skips_when_research_exhausted() -> None:
+    """Batch 14: deadline/max-turn exhaustion (status=exhausted) is a non-OK
+    package — implement skips, no raise, no edit."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
@@ -2001,58 +2062,74 @@ def test_adapt_implement_fails_closed_when_research_exhausted() -> None:
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
     mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "status=exhausted" in explanation
-    # The typed package carries the exhausted diagnostic and unavailable status.
+    assert result.graph is None
     assert research.package.status is ToolStatus.UNAVAILABLE
     codes = [diag.code for diag in research.package.diagnostics]
     assert "research_stage_exhausted" in codes
 
 
-def test_adapt_implement_fails_closed_when_research_refined_without_synthesis() -> None:
-    """REC-B gate rule: a refine verdict alone no longer skips implement — but
-    a refine verdict with NO recorded synthesis in the ledger still fails
-    closed (there is nothing evidence-backed to implement from)."""
+def test_adapt_implement_skips_when_research_never() -> None:
+    """Batch 14: a ``never`` attempt (zero tool calls) skips implement — no
+    raise, no edit, and the skip message names the typed attempt."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
-    research = _agent_owned_research_result_with_trace(
-        _failed_research_trace(status="ok", verdict="refine")
-    )
+    research = _adapt_never_research_result()
+    assert research.research_attempt == RESEARCH_ATTEMPT_NEVER
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
     ) as mock_edit:
-        with pytest.raises(executor_core._ExecutorPhaseError) as excinfo:
-            executor_core._run_implement(
-                request,
-                AgentSpecShape(agent="hermes", model="test"),
-                plan=plan,
-                research_result=research,
-            )
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
 
     mock_edit.assert_not_called()
-    assert excinfo.value.stage == "research"
-    explanation = excinfo.value.failure_envelope.agent_failure_context["explanation"]
-    assert "verdict=refine" in explanation
+    assert result.graph is None
+    assert "research_attempt=never" in result.message
+
+
+def test_adapt_implement_proceeds_when_research_grounded() -> None:
+    """Batch 14: a ``grounded`` attempt (fetched citation) proceeds to
+    implement."""
+    plan = _fake_classify_adapt("Switch to Hotshot")
+    request = ExecutorRequest(
+        query="Switch to Hotshot",
+        graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+    )
+    research = _agent_owned_research_result()
+    assert research.research_attempt == RESEARCH_ATTEMPT_GROUNDED
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    assert result.graph is not None
+    mock_edit.assert_called_once()
 
 
 def _refined_research_result_with_synthesis() -> AgentResearchResult:
     """Refine-verdict research result whose ledger records an evidence-backed
-    partial synthesis — the REC-B recovery shape (research concluded a
-    direction despite a Hivemind hiccup / unresolved refine question)."""
+    partial synthesis (a fetched hivemind_get citation) — typed ``grounded``."""
     trace = AgentResearchTrace(
         route="adapt",
         question="q",
@@ -2065,6 +2142,12 @@ def _refined_research_result_with_synthesis() -> AgentResearchResult:
         elapsed_seconds=0.0,
     )
     ledger = EvidenceLedger(entries=(
+        EvidenceLedgerEntry(
+            decision=DECISION_GET,
+            conclusion="workflow record hivemind_get:abc123",
+            evidence_ids=("hivemind_get:abc123",),
+            uncertainty="",
+        ),
         EvidenceLedgerEntry(
             decision=DECISION_SYNTHESIZE,
             conclusion="Use LoadAudio -> ConditioningCombine before WanImageToVideo",
@@ -2098,15 +2181,15 @@ def _refined_research_result_with_synthesis() -> AgentResearchResult:
 
 
 def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None:
-    """REC-B gate rule: a refine verdict WITH an evidence-backed partial
-    synthesis in the ledger must proceed to implement — the gate checks 'was
-    there a synthesis at all', not 'was it perfect'."""
+    """Batch 14: a refine verdict WITH a fetched-citation partial synthesis is
+    typed ``grounded`` and proceeds to implement."""
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
         query="Switch to Hotshot",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _refined_research_result_with_synthesis()
+    assert research.research_attempt == RESEARCH_ATTEMPT_GROUNDED
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
@@ -2129,9 +2212,8 @@ def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None
 
 
 def test_research_package_usable_gate_matrix() -> None:
-    """REC-B gate matrix: strict about package validity + status; the verdict
-    requirement is 'an evidence-backed synthesis was recorded', not 'enough'.
-    Skip happens ONLY when no synthesis whatsoever was recorded."""
+    """Batch 14 gate matrix: usable iff OK package AND attempt in
+    {thin, grounded}.  never/empty/non-OK are skipped."""
     base_kwargs = dict(
         route="adapt",
         question="q",
@@ -2143,7 +2225,6 @@ def test_research_package_usable_gate_matrix() -> None:
         elapsed_seconds=0.0,
     )
     assert executor_core._research_package_is_usable(None) is False
-    # Typed package validity + status stay fail-closed.
     failed = _agent_owned_research_result_with_trace(
         _failed_research_trace(status="failed", verdict="failed")
     )
@@ -2152,53 +2233,104 @@ def test_research_package_usable_gate_matrix() -> None:
         _failed_research_trace(status="exhausted", verdict="refine")
     )
     assert executor_core._research_package_is_usable(exhausted) is False
-    # Enough verdict → usable without needing a ledger.
-    enough = _agent_owned_research_result_with_trace(
-        AgentResearchTrace(final_verdict="enough", **base_kwargs)
-    )
-    assert executor_core._research_package_is_usable(enough) is True
-    # Refine with NO synthesis in the ledger → skip.
-    refined_empty = _agent_owned_research_result_with_trace(
-        AgentResearchTrace(final_verdict="refine", **base_kwargs)
-    )
-    assert executor_core._research_package_is_usable(refined_empty) is False
-    # Refine WITH an evidence-backed synthesis → usable (the recovery path).
-    assert executor_core._research_package_is_usable(
-        _refined_research_result_with_synthesis()
-    ) is True
-    # Refine with a synthesize entry that cites NO evidence → still skip.
-    trace = AgentResearchTrace(final_verdict="refine", **base_kwargs)
-    pack = EvidencePack(
+    # never (zero tool calls) → skip.
+    never_result = _adapt_never_research_result()
+    assert never_result.research_attempt == RESEARCH_ATTEMPT_NEVER
+    assert executor_core._research_package_is_usable(never_result) is False
+    # empty (calls ran, zero artifacts) → skip.
+    empty_trace = AgentResearchTrace(final_verdict="enough", **base_kwargs)
+    empty_pack = EvidencePack(
         artifacts={},
         ledger=EvidenceLedger(entries=(
             EvidenceLedgerEntry(
-                decision=DECISION_SYNTHESIZE,
-                conclusion="direction with no backing citation",
+                decision=DECISION_GET,
+                conclusion="timeout: hivemind timed out",
                 evidence_ids=(),
+                uncertainty="timeout: hivemind timed out",
+            ),
+        )),
+    )
+    empty_result = AgentResearchResult(
+        route="adapt",
+        trace=empty_trace,
+        evidence_pack=empty_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=empty_trace, pack=empty_pack, policy_diagnostics=(),
+        ),
+    )
+    assert empty_result.research_attempt == RESEARCH_ATTEMPT_EMPTY
+    assert executor_core._research_package_is_usable(empty_result) is False
+    # grounded → usable (the recovery path now types by fetched citation).
+    assert executor_core._research_package_is_usable(
+        _refined_research_result_with_synthesis()
+    ) is True
+    # thin (search hits only, no fetched citation) → usable.
+    thin_trace = AgentResearchTrace(final_verdict="enough", **base_kwargs)
+    thin_pack = EvidencePack(
+        artifacts={
+            "hivemind:ext:1": EvidenceArtifact(
+                evidence_id="hivemind:ext:1",
+                kind="hivemind_search_hit",
+                body={"title": "lead"},
+                source="hivemind",
+            ),
+        },
+        ledger=EvidenceLedger(entries=(
+            EvidenceLedgerEntry(
+                decision="hivemind_search",
+                conclusion="1 hit(s)",
+                evidence_ids=("hivemind:ext:1",),
+                uncertainty="",
+            ),
+            EvidenceLedgerEntry(
+                decision=DECISION_SYNTHESIZE,
+                conclusion="direction from search lead",
+                evidence_ids=("hivemind:ext:1",),
                 uncertainty="",
             ),
         )),
     )
-    package = executor_core._research_stage_package(
-        route="adapt", trace=trace, pack=pack, policy_diagnostics=(),
+    thin_result = AgentResearchResult(
+        route="adapt",
+        trace=thin_trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=thin_trace, pack=thin_pack, policy_diagnostics=(),
+        ),
     )
-    ungrounded = AgentResearchResult(
-        route="adapt", trace=trace, evidence_pack=pack, package=package,
-    )
-    assert executor_core._research_package_is_usable(ungrounded) is False
+    assert thin_result.research_attempt == RESEARCH_ATTEMPT_THIN
+    assert executor_core._research_package_is_usable(thin_result) is True
 
 
-def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Path) -> None:
-    """P0-b end-to-end: run_executor with a failing research stage returns a
-    research-stage failure and never calls handle_agent_edit."""
-    def failing_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
-        del route, question, spec, research_brief
-        return _failed_research_trace(), EvidencePack(artifacts={}, ledger=EvidenceLedger(entries=()))
+def test_run_executor_skips_implement_but_replies_when_adapt_research_never(profile_dir: Path) -> None:
+    """Batch 14 end-to-end: a never/empty research attempt on adapt SKIPS
+    implement (no hard failure) and the semantic reply STILL runs with a real
+    answer — no 'no supported conclusion' refusal on any route."""
+    def never_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
+        del route, spec, research_brief
+        return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
+            artifacts={
+                "research_question": EvidenceArtifact(
+                    evidence_id="research_question",
+                    kind="research_question",
+                    body={"question": question, "route": "adapt"},
+                    source="classify",
+                ),
+            },
+            ledger=EvidenceLedger(entries=(
+                EvidenceLedgerEntry(
+                    decision="research_question",
+                    conclusion=question,
+                    evidence_ids=("research_question",),
+                    uncertainty="",
+                ),
+            )),
+        )
 
     with mock.patch(
         "vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt
     ), mock.patch(
-        "vibecomfy.executor.core.run_agent_research_stage", side_effect=failing_research_stage
+        "vibecomfy.executor.core.run_agent_research_stage", side_effect=never_research_stage
     ), mock.patch(
         "vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_graph_describe
     ) as mock_reply, mock.patch(
@@ -2212,15 +2344,15 @@ def test_run_executor_fails_closed_when_adapt_research_unusable(profile_dir: Pat
             )
         )
 
-    assert result.ok is False
-    assert result.failure_stage == "research"
-    assert result.failure_kind == "ValidationError"
-    impl_failure = result.report.implementation.failure
-    assert impl_failure is not None
-    explanation = impl_failure["agent_failure_context"]["explanation"]
-    assert "no usable synthesis" in explanation
+    assert result.ok is True
+    assert result.report.research.research_attempt == RESEARCH_ATTEMPT_NEVER
+    assert result.report.implementation is not None
+    assert result.report.implementation.graph is None
+    assert "No graph edit was made" in result.report.implementation.message
+    assert result.graph is None
     mock_edit.assert_not_called()
-    mock_reply.assert_not_called()
+    # The semantic reply STILL runs and produces a real answer.
+    mock_reply.assert_called_once()
 
 
 def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:

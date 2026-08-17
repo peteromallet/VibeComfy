@@ -105,6 +105,123 @@ DECISION_ENOUGH_REFINE = "enough_refine"
 # ungrounded finish (or auto-failing the stage).
 DECISION_FINISH_PREMATURE = "finish_premature"
 
+# Batch 14: ResearchAttempt — the plan's attempt semantics, derived in Python
+# from the research tool ledger (never model judgment).  The four states are
+# ordered weakest → strongest:
+#   never    — zero executed evidence tool calls (only the research_question
+#              entry).
+#   empty    — tool calls ran but produced zero artifacts/results.
+#   thin     — artifacts exist but zero hivemind_get/registry_lookup citations
+#              (search hits only).
+#   grounded — at least one fetched citation (hivemind_get/registry result).
+RESEARCH_ATTEMPT_NEVER = "never"
+RESEARCH_ATTEMPT_EMPTY = "empty"
+RESEARCH_ATTEMPT_THIN = "thin"
+RESEARCH_ATTEMPT_GROUNDED = "grounded"
+RESEARCH_ATTEMPTS: tuple[str, ...] = (
+    RESEARCH_ATTEMPT_NEVER,
+    RESEARCH_ATTEMPT_EMPTY,
+    RESEARCH_ATTEMPT_THIN,
+    RESEARCH_ATTEMPT_GROUNDED,
+)
+
+# Ledger decisions that denote evidence tool calls.  Refusals share the same
+# decision strings, so executed calls are distinguished by their entry shape
+# (see ``_entry_is_executed_tool_call``).
+_RESEARCH_TOOL_DECISIONS: frozenset[str] = frozenset({
+    DECISION_SEARCH,
+    DECISION_GET,
+    DECISION_REGISTRY,
+})
+# Executed-but-failed tool calls are recorded with a status-prefixed
+# conclusion (``_status_ledger_entry`` in tool_specs.py: "timeout: ...",
+# "no_results: ..."); refusals carry a free-form stage-authored message.
+_EXECUTED_STATUS_TOKENS: frozenset[str] = frozenset({
+    "no_results",
+    "rate_limited",
+    "timeout",
+    "unavailable",
+    "invalid_request",
+})
+
+
+def _entry_is_executed_tool_call(entry: EvidenceLedgerEntry) -> bool:
+    """True when a ledger entry records an EXECUTED evidence tool call.
+
+    Refusals (budget exhausted / out-of-allowlist) are recorded under the
+    same decision strings, so an executed call is identified by its shape:
+    cited evidence ids, an empty uncertainty (OK call), or a
+    status-prefixed conclusion (executed-but-failed call such as a timeout
+    or a zero-hit search).
+    """
+    if entry.decision not in _RESEARCH_TOOL_DECISIONS:
+        return False
+    if entry.evidence_ids:
+        return True
+    if entry.uncertainty == "":
+        return True
+    token = entry.conclusion.split(" ", 1)[0].rstrip(":").casefold()
+    return token in _EXECUTED_STATUS_TOKENS
+
+
+def _is_fetched_citation(evidence_id: str) -> bool:
+    """True when a cited evidence id denotes fetched (not search-hit) content.
+
+    Fetched citations are the namespaced ``hivemind_get:<id>`` artifact ids
+    recorded by the stage for every successful record fetch, and the
+    registry's ``tool:registry_lookup-<class>`` evidence ids.  Search-hit ids
+    (``hivemind:<table>:<id>``) are leads, not fetched content.
+    """
+    return str(evidence_id).startswith("hivemind_get:") or str(
+        evidence_id
+    ).startswith("tool:registry_lookup")
+
+
+def derive_research_attempt(
+    *,
+    ledger: EvidenceLedger | None,
+    artifacts: Mapping[str, EvidenceArtifact] | None = None,
+) -> str:
+    """Derive the typed ``ResearchAttempt`` from the research tool ledger.
+
+    The attempt is a Python-side statement about what the research phase
+    actually did — it is NEVER model judgment:
+
+    * ``never`` — zero executed evidence tool calls (only the
+      ``research_question`` entry).
+    * ``empty`` — tool calls ran but produced zero artifacts/results.
+    * ``thin`` — artifacts exist but zero ``hivemind_get``/``registry_lookup``
+      citations (search hits only).
+    * ``grounded`` — at least one fetched citation (a ``hivemind_get`` or
+      registry result is cited by a ``synthesize`` ledger entry).
+
+    ``artifacts`` is the research evidence-pack artifact map (the
+    ``research_question`` marker artifact never counts as a result).
+    """
+    entries = tuple(ledger.entries) if isinstance(ledger, EvidenceLedger) else ()
+    artifacts_map = dict(artifacts or {})
+    tool_calls_made = sum(
+        1 for entry in entries if _entry_is_executed_tool_call(entry)
+    )
+    if tool_calls_made == 0:
+        return RESEARCH_ATTEMPT_NEVER
+    result_artifacts = {
+        evidence_id: artifact
+        for evidence_id, artifact in artifacts_map.items()
+        if evidence_id != _QUESTION_ARTIFACT_ID
+    }
+    if not result_artifacts:
+        return RESEARCH_ATTEMPT_EMPTY
+    cited = (
+        evidence_id
+        for entry in entries
+        if entry.decision == DECISION_SYNTHESIZE
+        for evidence_id in entry.evidence_ids
+    )
+    if any(_is_fetched_citation(evidence_id) for evidence_id in cited):
+        return RESEARCH_ATTEMPT_GROUNDED
+    return RESEARCH_ATTEMPT_THIN
+
 # Research-phase tool allowlist (C01): the agent may only call these tools.
 # web_search is intentionally absent — it is disabled by default (A06) and the
 # executor research phase is Hivemind-first.
@@ -645,7 +762,12 @@ class AgentResearchIteration:
 
 @dataclass(frozen=True)
 class AgentResearchTrace:
-    """Full trace of one agent-owned research run (question + decisions)."""
+    """Full trace of one agent-owned research run (question + decisions).
+
+    ``attempt`` carries the batch-14 :data:`derive_research_attempt` typing
+    (never/empty/thin/grounded) — a Python-side statement derived from the
+    research tool ledger, never model judgment.
+    """
 
     route: str
     question: str
@@ -656,6 +778,7 @@ class AgentResearchTrace:
     uncertainty: str
     status: str  # "ok" | "exhausted" | "failed" | "skipped"
     elapsed_seconds: float
+    attempt: str = RESEARCH_ATTEMPT_NEVER
     warnings: tuple[str, ...] = ()
     error: str | None = None
 
@@ -670,6 +793,7 @@ class AgentResearchTrace:
             "uncertainty": self.uncertainty,
             "status": self.status,
             "elapsed_seconds": round(self.elapsed_seconds, 6),
+            "attempt": self.attempt,
         }
         if self.warnings:
             payload["warnings"] = list(self.warnings)
@@ -1243,6 +1367,10 @@ def run_agent_research_stage(
         uncertainty=final_uncertainty,
         status=status,
         elapsed_seconds=now() - started,
+        attempt=derive_research_attempt(
+            ledger=EvidenceLedger(entries=tuple(ledger_entries)),
+            artifacts=artifacts,
+        ),
         warnings=tuple(warnings),
         error=error,
     )
@@ -1261,12 +1389,18 @@ __all__ = [
     "DECISION_SEARCH",
     "DECISION_SYNTHESIZE",
     "RESEARCH_ALLOWED_TOOLS",
+    "RESEARCH_ATTEMPT_EMPTY",
+    "RESEARCH_ATTEMPT_GROUNDED",
+    "RESEARCH_ATTEMPT_NEVER",
+    "RESEARCH_ATTEMPT_THIN",
+    "RESEARCH_ATTEMPTS",
     "TOOL_FETCH_BUDGET",
     "TOOL_PHASE_DEADLINE_SECONDS",
     "TOOL_SEARCH_BUDGET",
     "build_agent_research_messages",
     "build_evidence_digest",
     "build_research_brief",
+    "derive_research_attempt",
     "form_research_question",
     "parse_agent_research_decision",
     "run_agent_research_stage",
