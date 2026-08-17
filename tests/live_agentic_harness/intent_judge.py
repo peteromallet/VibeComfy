@@ -820,8 +820,11 @@ def judge_edit_intent(
         gates = response.get("gates")
         queue_gate_failed = isinstance(gates, Mapping) and gates.get("queue_validate_ok") is False
 
-    if not delta_ops:
+    if not delta_ops or queue_gate_failed:
         # Same-door Δ: never re-diff raw original.ui vs final.ui shapes (RC4).
+        # RC12b: a withheld accepted_batch (queue_validate_ok=false) is not
+        # the product — seed from diff(pre_wf, post_wf) even if a stale
+        # batch exists.
         from vibecomfy.porting.edit._diff import diff
         from vibecomfy.porting.edit.ops import op_to_dict
 
@@ -870,6 +873,15 @@ def judge_edit_intent(
             **delta_replay,
             "queue_gate_issue": "queue_validate_ok=false; grading canonical product",
         }
+        if delta_replay.get("verified") is False:
+            # RC12b: leftover replay of a withheld/stale batch is not a
+            # corrupt product. Grade the canonical product; keep the gate
+            # as a separate issue.
+            delta_replay = {
+                **delta_replay,
+                "verified": None,
+                "withheld_accepted_batch": True,
+            }
     # The Δ is what actually changed: when the deterministic replay of the
     # canonical Δ contradicts the pre/post IR, no edit satisfies the intent —
     # fail closed without a model call (the reply-must-match-diff law).

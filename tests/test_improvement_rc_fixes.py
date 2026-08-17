@@ -1,4 +1,4 @@
-"""Focused gates for RC4 / RC7 / RC8-A / RC9 / RC11 improvement fixes."""
+"""Focused gates for RC4 / RC7 / RC8-A / RC9 / RC11 / RC12 improvement fixes."""
 
 from __future__ import annotations
 
@@ -6,12 +6,16 @@ import copy
 import json
 from pathlib import Path
 
+from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
 from vibecomfy.executor.core import _classify_stage_message
 from vibecomfy.executor.graph_inspection import inspect_workflow
 from vibecomfy.executor.stage_contracts import NeedsInput
 from vibecomfy.porting.edit.constants import MODE_LABELS
+from vibecomfy.porting.edit.lint import LintIndex, lint_delta
+from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.porting.emit.emit_prepare import _AGENT_EDIT_MODE_LABELS
 from vibecomfy.schema import get_schema_provider
+from vibecomfy.schema.provider import InputSpec, NodeSchema
 from vibecomfy.workflow import RawWidgetPayload, VibeNode, VibeWorkflow, WorkflowSource
 from tests.live_agentic_harness.assessor import assess_live_output_dir
 from tests.live_agentic_harness.intent_judge import (
@@ -451,6 +455,213 @@ def test_semantic_judge_does_not_soften_ungrounded_causal_claim(
     assert verdict["criteria"]["grounded"] is False
     assert verdict["pass_"] is False
     assert "pregrade" not in (verdict.get("metadata") or {})
+
+
+def test_rc12b_queue_withheld_batch_grades_product_not_fail_close(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """RC12b: queue_validate_ok=false + stale accepted_batch must not
+    fail-close leftover replay. Seed Δ from the product and call the LLM."""
+    original = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [0, "fixed", 20, 8, "euler", "normal", 1],
+            }
+        ],
+        "links": [],
+    }
+    post = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [0, "fixed", 30, 8, "euler", "normal", 1],
+            }
+        ],
+        "links": [],
+    }
+    (tmp_path / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(post), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "gates": {"queue_validate_ok": False},
+                "accepted_batch": [
+                    {
+                        "ok": True,
+                        "landed": True,
+                        "op": {
+                            "op": "set_node_field",
+                            "target": ["", "1", "seed"],
+                            "value": 99,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["payload"] = json.loads(messages[1]["content"])
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {
+                        "correct_node_targeted": True,
+                        "correct_parameter_changed": True,
+                        "value_semantically_matches_intent": True,
+                        "no_orphaned_wiring": True,
+                    },
+                    "rationale": "product has the steps edit",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
+    assert "payload" in seen
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["delta_replay"].get("queue_gate_issue")
+    assert payload["delta"].get("seed") == "canonical_diff"
+    assert verdict["pass_"] is True
+
+
+def test_rc12a_untouched_preexisting_schema_less_is_warning_not_block() -> None:
+    """b80848-shaped: dest remint on untouched TTS must keep queue_validate_ok."""
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "11",
+                "class_type": "VibeVoiceTTS",
+                "schema_less": True,
+                "preexisting_ui_node": True,
+                "ui_connection_shape_unchanged": False,
+                "schema_less_queue_safe": False,
+                "schema_less_safety": "schema_less_existing_output_links_removed",
+            }
+        ]
+    )
+    assert diagnostics.ok is True
+    assert any(
+        issue["code"] == "schema_less_queue_warning"
+        and issue.get("severity") == "warning"
+        for issue in diagnostics.issues
+    )
+    assert not any(
+        issue["code"] == "schema_less_queue_blocker"
+        and issue.get("severity") == "error"
+        for issue in diagnostics.issues
+    )
+
+
+def test_rc12a_new_schema_less_node_stays_hard_block() -> None:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "99",
+                "class_type": "BrandNewSchemaLess",
+                "schema_less": True,
+                "preexisting_ui_node": False,
+                "ui_connection_shape_unchanged": False,
+                "schema_less_queue_safe": False,
+                "schema_less_safety": "new_schema_less_node",
+            }
+        ]
+    )
+    assert diagnostics.ok is False
+    assert any(issue["code"] == "schema_less_queue_blocker" for issue in diagnostics.issues)
+
+
+def test_rc12c_named_scale_on_schema_less_class_is_not_unknown_field() -> None:
+    """8800a9-shaped: node_schema lists scale even if object_info is schema-less."""
+
+    class _Provider:
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            if class_type != "UltraShapeRefine":
+                return None
+            return NodeSchema(
+                class_type=class_type,
+                pack=None,
+                inputs={
+                    "scale": InputSpec(type="FLOAT", required=False, default=1.0),
+                },
+                outputs=[],
+                source_provider="node_schema",
+                confidence=0.8,
+            )
+
+    raw = {
+        "nodes": [
+            {
+                "id": 7,
+                "type": "UltraShapeRefine",
+                "properties": {"vibecomfy_uid": "7"},
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "widgets_values": [1.0],
+            }
+        ],
+        "links": [],
+    }
+    result = lint_delta(
+        parse_edit_delta(
+            [
+                {
+                    "op": "set_node_field",
+                    "target": ["", "7", "scale"],
+                    "value": 0.4,
+                }
+            ]
+        ),
+        LintIndex.build(raw),
+        schema_provider=_Provider(),
+    )
+    assert result.rejected_count == 0
+    assert not any(issue.code == "unknown_field" for issue in result.issues)
+
+
+def test_rc12d_untouched_unknown_class_does_not_veto_widget_only_edit() -> None:
+    """485ff2-shaped: unknown-class on an untouched node must not fail the queue."""
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "2",
+                "class_type": "INPAINT_InpaintWithModel",
+                "schema_less": True,
+                "preexisting_ui_node": True,
+                "ui_connection_shape_unchanged": False,
+                "schema_less_queue_safe": False,
+                "schema_less_safety": "schema_less_existing_output_links_removed",
+            },
+            {
+                "node_id": "1",
+                "class_type": "KSampler",
+                "schema_less": False,
+                "preexisting_ui_node": True,
+                "ui_connection_shape_unchanged": True,
+                "confidence": 1.0,
+            },
+        ]
+    )
+    assert diagnostics.ok is True
 
 
 def test_named_fields_map_uses_executor_surface() -> None:

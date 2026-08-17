@@ -1495,7 +1495,12 @@ class _ResolveMixin:
             field_name = ui_only_alias[0]
         schema_input = _input_spec_for_field(schema_inputs, field_name)
         raw_input = _find_named_slot(node_ref.node.get("inputs"), field_name)
-        widget_value = _widget_value_for_field(node_ref.node, node_ref.class_type, field_name)
+        widget_value = _widget_value_for_field(
+            node_ref.node,
+            node_ref.class_type,
+            field_name,
+            schema_provider=self.schema_provider,
+        )
         if (
             raw_input is None
             and schema_input is None

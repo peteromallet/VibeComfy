@@ -176,8 +176,14 @@ def _known_core_input_socket_type(class_type: str, field_name: str) -> str | Non
     return _KNOWN_CORE_INPUT_SOCKET_TYPES.get((class_type, field_name))
 
 
-def _widget_value_for_field(node: Mapping[str, Any], class_type: str, field_name: str) -> Any:
-    return widget_value_for_field(node, field_name)
+def _widget_value_for_field(
+    node: Mapping[str, Any],
+    class_type: str,
+    field_name: str,
+    *,
+    schema_provider: Any = None,
+) -> Any:
+    return widget_value_for_field(node, field_name, schema_provider=schema_provider)
 
 
 def _socket_type_from_widget_value(value: Any) -> str | None:

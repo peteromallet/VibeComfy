@@ -118,12 +118,13 @@ def _queue_issue(
     message: str,
     detail: dict[str, Any],
     failure_kind: FailureKind,
+    severity: str = "error",
 ) -> dict[str, Any]:
     return {
         "source": "agent_diagnostics.queue_stage",
         "code": code,
         "message": message,
-        "severity": "error",
+        "severity": severity,
         "detail": detail,
         "failure_kind": failure_kind.value,
     }
@@ -184,6 +185,8 @@ def _intent_node_queue_ready(
 
 def classify_queue_issues(issues: tuple[dict[str, Any], ...]) -> FailureKind | None:
     for issue in issues:
+        if issue.get("severity", "error") != "error":
+            continue
         raw_kind = issue.get("failure_kind")
         if isinstance(raw_kind, str):
             return FailureKind(raw_kind)
@@ -334,6 +337,35 @@ def queue_stage_diagnostics(
                 continue
             if entry.get("schema_less_queue_safe") is True:
                 continue
+            safety = entry.get("schema_less_safety")
+            own_surface_changed = safety in {
+                "schema_less_inputs_changed",
+                "schema_less_output_slots_changed",
+            } or entry.get("preexisting_ui_node") is not True
+            # RC12a: untouched preexisting schema-less (destination / link-id
+            # churn only) is a warning. New schema-less nodes and nodes whose
+            # own class / slot names changed stay a hard block.
+            if safety != "new_schema_less_node" and not own_surface_changed:
+                issues.append(
+                    _queue_issue(
+                        code="schema_less_queue_warning",
+                        message=(
+                            f"Node {node_id} ({class_type}) is preexisting schema-less "
+                            "and was not itself edited; queue continues."
+                        ),
+                        detail={
+                            "node_id": node_id,
+                            "class_type": class_type,
+                            "provider": entry.get("provider"),
+                            "confidence": confidence,
+                            "diagnostic": entry.get("diagnostic"),
+                            "schema_less_safety": safety,
+                        },
+                        failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
+                        severity="warning",
+                    )
+                )
+                continue
             issues.append(
                 _queue_issue(
                     code="schema_less_queue_blocker",
@@ -346,7 +378,7 @@ def queue_stage_diagnostics(
                         "provider": entry.get("provider"),
                         "confidence": confidence,
                         "diagnostic": entry.get("diagnostic"),
-                        "schema_less_safety": entry.get("schema_less_safety"),
+                        "schema_less_safety": safety,
                     },
                     failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
                 )
@@ -400,8 +432,11 @@ def queue_stage_diagnostics(
         )
 
     deduped = _dedupe(issues)
+    errors = tuple(
+        issue for issue in deduped if issue.get("severity", "error") == "error"
+    )
     return QueueDiagnostics(
-        ok=not deduped,
+        ok=not errors,
         blocking=False,
         failure_kind=classify_queue_issues(deduped),
         issues=deduped,

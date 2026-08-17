@@ -681,7 +681,12 @@ def _find_matching_link(
 
 
 def _node_field_value(
-    index: LintIndex, scope_path: str, uid: str, field_path: str
+    index: LintIndex,
+    scope_path: str,
+    uid: str,
+    field_path: str,
+    *,
+    schema_provider: Any = None,
 ) -> Any:
     """Read the current value of *field_path* from the live node dict.
 
@@ -717,6 +722,20 @@ def _node_field_value(
         if isinstance(widgets, list) and 0 <= idx < len(widgets):
             return widgets[idx]
         return _MISSING
+    # Named widget via the same compact resolver apply uses (RC12c).
+    try:
+        from vibecomfy.porting.widgets.compact_resolver import (
+            missing_widget_value_sentinel,
+            widget_value_for_field,
+        )
+
+        resolved = widget_value_for_field(
+            node, field_path, schema_provider=schema_provider
+        )
+        if resolved is not missing_widget_value_sentinel():
+            return resolved
+    except Exception:
+        pass
     # Top-level node property
     if field_path in node:
         return node[field_path]
@@ -744,7 +763,11 @@ _MISSING = _MissingSentinel()
 # ── per-op linters ──────────────────────────────────────────────────────────
 
 def _lint_set_node_field(
-    op: SetNodeFieldOp, op_index: int, index: LintIndex
+    op: SetNodeFieldOp,
+    op_index: int,
+    index: LintIndex,
+    *,
+    schema_provider: Any = None,
 ) -> tuple[EditOp | None, LintIssue | None, str]:
     """Lint a ``set_node_field`` op.
 
@@ -757,7 +780,13 @@ def _lint_set_node_field(
         return None, issue, "rejected"
 
     # Check that the field exists on the node
-    current = _node_field_value(index, target.scope_path, target.uid, target.field_path)
+    current = _node_field_value(
+        index,
+        target.scope_path,
+        target.uid,
+        target.field_path,
+        schema_provider=schema_provider,
+    )
     if current is _MISSING:
         # When a node carries widget values the field path may name a widget
         # whose index we cannot resolve without schema assistance.  Rather
@@ -1192,7 +1221,7 @@ def lint_delta(
         "set_mode": _lint_set_mode,
     }
 
-    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link"})
+    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link", "set_node_field"})
 
     # Link/field ops may legitimately depend on nodes added earlier in the
     # same ordered delta.  LintIndex is intentionally immutable and normally
