@@ -7,7 +7,7 @@ this module is the live implementation. Imports of sibling _frag modules follow
 the foundation dependency order; names that would form an import cycle are
 resolved lazily at call time (marked with a T-038 late import comment).
 """
-from vibecomfy.ingest.door_access import door_get_links, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_widgets_values
 import json
 import os
 import re

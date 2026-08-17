@@ -26,7 +26,7 @@ from vibecomfy.porting.wrappers import codegen as _wrapper_codegen
 from vibecomfy.porting.wrappers import discovery as _wrapper_discovery
 
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 def _cmd_nodes_list(args: argparse.Namespace) -> int:
     path = Path("node_index.json")
     if not path.exists():

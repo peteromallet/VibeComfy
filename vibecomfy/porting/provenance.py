@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 _HELPER_UI_CLASS_TYPES: frozenset[str] = frozenset(
     {
         "Note",

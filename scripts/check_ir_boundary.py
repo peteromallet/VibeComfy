@@ -48,7 +48,6 @@ PRODUCT_ROOT = REPO_ROOT / "vibecomfy"
 GRAPH_JSON_DOORS: frozenset[str] = frozenset(
     {
         "vibecomfy/ingest/normalize.py",
-        "vibecomfy/ingest/door_access.py",
         "vibecomfy/porting/emit/ui.py",
     }
 )

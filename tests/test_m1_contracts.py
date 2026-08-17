@@ -49,6 +49,17 @@ def _add_node_indices(ops: list) -> list[int]:
     return [i for i, op in enumerate(ops) if isinstance(op, dict) and op.get("op") == "add_node"]
 
 
+def _accepted_batch_for(ops: list) -> list[dict[str, object]]:
+    return [{"op": op} for op in ops]
+
+
+def _accepted_batch_digest(ops: list) -> str:
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+
+    return content_hash(derived_accepted_delta_envelope({"accepted_batch": _accepted_batch_for(ops)}))
+
+
 def _authority(*, family: str = "structural") -> dict[str, object]:
     projection = "layout_v1" if family == "layout" else "structural_v1"
     if family == "layout":
@@ -60,13 +71,19 @@ def _authority(*, family: str = "structural") -> dict[str, object]:
         }
         layout_env["digest"] = compute_layout_operation_digest(layout_env["ops"])
         operation: dict[str, object] = {
-            "delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": ops,
+            "delta_contract": "delta_v1",
+            "wire_version": "2.0.0",
+            "accepted_batch_digest": _accepted_batch_digest(ops),
             "layout_operation": layout_env,
             "layout_operation_digest": layout_env["digest"],
         }
     else:
         ops = CORPUS["delta_ops"]
-        operation = {"delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": ops}
+        operation = {
+            "delta_contract": "delta_v1",
+            "wire_version": "2.0.0",
+            "accepted_batch_digest": _accepted_batch_digest(ops),
+        }
         add_indices = _add_node_indices(ops)
         if add_indices:
             entries = [{"source_op_index": i, "kind": "add_node"} for i in add_indices]
@@ -91,7 +108,13 @@ def _authority(*, family: str = "structural") -> dict[str, object]:
         "authority_receipt_digest": "d" * 64,
     }
     if family == "layout": value["structural_witness"] = {**_ref("structural_v1"), "precondition_digest": "c" * 64, "postcondition_digest": "c" * 64}
+    _authority.last_batch = _accepted_batch_for(ops)  # type: ignore[attr-defined]
     return value
+
+
+def _prep(authority: dict[str, object], **kwargs):
+    batch = kwargs.pop("accepted_batch", getattr(_authority, "last_batch", None))
+    return validate_prepared_authority_v1(authority, accepted_batch=batch, **kwargs)
 
 
 def test_shared_m1_golden_projection_corpus() -> None:
@@ -148,7 +171,7 @@ def _ref(projection: str) -> dict[str, str]:
 
 def test_delta_v1_and_prepared_authority_are_strict_and_immutable() -> None:
     assert len(normalize_delta_v1({"delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": CORPUS["delta_ops"]}).ops) == 6
-    frozen = validate_prepared_authority_v1(_authority(), freeze=True)
+    frozen = _prep(_authority(), freeze=True)
     with pytest.raises(TypeError): frozen["generation"] = 2  # type: ignore[index]
     prepared = _authority()
     candidate = {key: value for key, value in prepared.items() if key not in {"generation", "lease_nonce"}}
@@ -170,18 +193,18 @@ def test_delta_v1_and_prepared_authority_are_strict_and_immutable() -> None:
         with pytest.raises(EditOpParseError):
             normalize_delta_v1({"delta_contract": "delta_v1", "wire_version": "2.0.0", "ops": [malformed["op"]]})
     invalid = _authority(); invalid["rollback_projection"] = "layout_v1"
-    with pytest.raises(ContractError, match="Rollback"): validate_prepared_authority_v1(invalid)
+    with pytest.raises(ContractError, match="Rollback"): _prep(invalid)
     invalid = _authority(); invalid["scope"] = {"kind": "nested", "path": "definitions/x"}
-    with pytest.raises(ContractError) as caught: validate_prepared_authority_v1(invalid)
+    with pytest.raises(ContractError) as caught: _prep(invalid)
     assert caught.value.code == "unsupported_scope"
     invalid = _authority(); invalid["contract_version"] = "prepared_authority_v9"
-    with pytest.raises(ContractError) as caught: validate_prepared_authority_v1(invalid)
+    with pytest.raises(ContractError) as caught: _prep(invalid)
     assert caught.value.code == "unknown_authority_version"
     invalid = _authority(); invalid.pop("authority_receipt_contract_version")
-    with pytest.raises(ContractError) as caught: validate_prepared_authority_v1(invalid)
+    with pytest.raises(ContractError) as caught: _prep(invalid)
     assert caught.value.code == "unknown_authority_receipt_version"
     invalid = _authority(); invalid["authority_receipt_digest"] = "ABC"
-    with pytest.raises(ContractError) as caught: validate_prepared_authority_v1(invalid)
+    with pytest.raises(ContractError) as caught: _prep(invalid)
     assert caught.value.code == "invalid_authority_receipt_digest"
 
 
@@ -263,9 +286,9 @@ def test_projection_reference_canonical_evidence_is_digest_bound() -> None:
 
 
 def test_layout_undo_and_legacy_policies_fail_closed() -> None:
-    assert validate_prepared_authority_v1(_authority(family="layout"))
+    assert _prep(_authority(family="layout"))
     broken = _authority(family="layout"); broken["structural_witness"]["postcondition_digest"] = "d" * 64  # type: ignore[index]
-    with pytest.raises(ContractError) as caught: validate_prepared_authority_v1(broken)
+    with pytest.raises(ContractError) as caught: _prep(broken)
     assert caught.value.code == "layout_structural_witness_mismatch"
     assert classify_legacy_migration_v1({"contract_version": "candidate_transaction_v1", "state": "finalized"})["classification"] == "legacy_terminal_read_only"
     assert classify_legacy_migration_v1({"contract_version": "candidate_transaction_v1", "state": "prepared"})["classification"] == "legacy_prepared_nonresumable"
@@ -427,7 +450,7 @@ def test_structural_family_missing_materialization_fails_closed():
     authority["operation"].pop("mutation_materialization", None)
     authority["operation"].pop("mutation_materialization_digest", None)
     with pytest.raises(ContractError) as caught:
-        validate_prepared_authority_v1(authority)
+        _prep(authority)
     assert caught.value.code == "missing_materialization"
 
 
@@ -436,7 +459,7 @@ def test_layout_family_missing_layout_operation_fails_closed():
     authority["operation"].pop("layout_operation")
     authority["operation"].pop("layout_operation_digest")
     with pytest.raises(ContractError) as caught:
-        validate_prepared_authority_v1(authority)
+        _prep(authority)
     assert caught.value.code == "missing_layout_operation"
 
 
@@ -445,14 +468,16 @@ def test_structural_family_unexpected_materialization_fails_closed():
     # Structural ops in CORPUS have no add_node after materialization is added;
     # remove materialization then verify structural-without-add_node rejects it.
     # Instead build a minimal structural authority with no add_node:
+    ops = [{"op": "set_mode", "target": ["", "n"], "mode": 4}]
     authority["operation"] = {
         "delta_contract": "delta_v1", "wire_version": "2.0.0",
-        "ops": [{"op": "set_mode", "target": ["", "n"], "mode": 4}],
+        "accepted_batch_digest": _accepted_batch_digest(ops),
         "mutation_materialization": {"contract_version": "mutation_materialization_v1", "wire_version": "1.0.0", "entries": [], "digest": "0" * 64},
         "mutation_materialization_digest": "0" * 64,
     }
+    _authority.last_batch = _accepted_batch_for(ops)
     with pytest.raises(ContractError) as caught:
-        validate_prepared_authority_v1(authority)
+        _prep(authority)
     assert caught.value.code == "unexpected_materialization"
 
 

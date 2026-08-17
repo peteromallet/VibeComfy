@@ -23,7 +23,7 @@ Important contract boundaries:
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 import json
 import re
 from typing import Any, Mapping, Sequence

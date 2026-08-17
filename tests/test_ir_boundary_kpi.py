@@ -25,7 +25,6 @@ from scripts.check_ir_boundary import (
 def test_boundary_contract_has_exact_named_doors_and_pass_through_adapters() -> None:
     assert GRAPH_JSON_DOORS == {
         "vibecomfy/ingest/normalize.py",
-        "vibecomfy/ingest/door_access.py",
         "vibecomfy/porting/emit/ui.py",
     }
     assert PASS_THROUGH_ADAPTERS == {

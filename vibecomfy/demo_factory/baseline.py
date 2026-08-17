@@ -21,7 +21,7 @@ from vibecomfy.metadata import OUTPUT_NODE_NAMES
 from vibecomfy.templates import _OUTPUT_KIND_HEURISTIC, _is_terminal_output_class
 
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 @dataclass(frozen=True, slots=True)
 class BaselineResult:
     """Result of baseline validation."""

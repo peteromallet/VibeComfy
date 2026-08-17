@@ -45,7 +45,7 @@ Hashing identity is the shared leaf (``_canonical_contract_primitives``).
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_widgets_values
+from vibecomfy.ingest.normalize import door_widgets_values
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any

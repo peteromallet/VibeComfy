@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
-from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
     "lower_ok",

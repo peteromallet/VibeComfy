@@ -1,12 +1,68 @@
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes
 import ast
 from copy import deepcopy
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Mapping
+
+
+class _ImmutableList(list):
+    """List that compares like a list but rejects mutation."""
+
+    def _frozen(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise TypeError("ingest snapshot is immutable")
+
+    __setitem__ = _frozen  # type: ignore[assignment]
+    __delitem__ = _frozen  # type: ignore[assignment]
+    append = _frozen  # type: ignore[assignment]
+    extend = _frozen  # type: ignore[assignment]
+    insert = _frozen  # type: ignore[assignment]
+    pop = _frozen  # type: ignore[assignment]
+    remove = _frozen  # type: ignore[assignment]
+    clear = _frozen  # type: ignore[assignment]
+    sort = _frozen  # type: ignore[assignment]
+    reverse = _frozen  # type: ignore[assignment]
+
+    def __iadd__(self, _other: Any) -> Any:
+        raise TypeError("ingest snapshot is immutable")
+
+    def __imul__(self, _other: Any) -> Any:
+        raise TypeError("ingest snapshot is immutable")
+
+
+class _FrozenDict(dict):
+    """Dict that compares like a dict but rejects mutation."""
+
+    def _frozen(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise TypeError("ingest snapshot is immutable")
+
+    __setitem__ = _frozen  # type: ignore[assignment]
+    __delitem__ = _frozen  # type: ignore[assignment]
+    clear = _frozen  # type: ignore[assignment]
+    pop = _frozen  # type: ignore[assignment]
+    popitem = _frozen  # type: ignore[assignment]
+    setdefault = _frozen  # type: ignore[assignment]
+    update = _frozen  # type: ignore[assignment]
+
+    def __ior__(self, _other: Any) -> Any:
+        raise TypeError("ingest snapshot is immutable")
+
+
+def _deep_freeze(value: Any) -> Any:
+    if isinstance(value, Mapping) and not isinstance(value, _FrozenDict):
+        return _FrozenDict((key, _deep_freeze(item)) for key, item in value.items())
+    if isinstance(value, list) and not isinstance(value, _ImmutableList):
+        return _ImmutableList(_deep_freeze(item) for item in value)
+    return value
+
+
+def _unfreeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _unfreeze(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unfreeze(item) for item in value]
+    return value
 
 from .ops import (
     AddNodeOp,
@@ -128,9 +184,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         initial_workflow: VibeWorkflow | None = None,
     ) -> None:
         # raw_ui_json is door input only: the named ingest builds the retained
-        # IR once.  The frozen ingest snapshot is emit prior_ui furniture,
+        # IR once.  The ingest snapshot is deep-frozen emit prior_ui furniture,
         # not a parallel mutation store and never a re-ingest fallback.
-        self._ingest_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
+        self._ingest_ui: Mapping[str, Any] = _deep_freeze(deepcopy(dict(raw_ui_json)))
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
@@ -142,7 +198,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.max_expanded_statements = max_expanded_statements
         self.max_for_iterations = max_for_iterations
         self.value_default_context = (
-            value_default_context.with_graph_protections(self._ingest_ui)
+            value_default_context.with_graph_protections(_unfreeze(self._ingest_ui))
             if value_default_context is not None
             else None
         )
@@ -165,7 +221,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # exposes is derived through the emit door.
         self.workflow: VibeWorkflow | None = initial_workflow
         if self.workflow is None:
-            self.workflow = self._workflow_from_ui(self._ingest_ui)
+            self.workflow = self._workflow_from_ui(_unfreeze(self._ingest_ui))
         # Resolved edit-op attribution from the apply engine, accumulated per
         # committed statement for the emit-boundary guard (guard_emit).
         self.resolved_ops: list[Any] = []
@@ -215,8 +271,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         return self._derived_name_maps()[1]
 
     @property
-    def original_ui(self) -> dict[str, Any]:
-        """Frozen ingest snapshot used only as emit prior_ui furniture."""
+    def original_ui(self) -> Mapping[str, Any]:
+        """Deep-frozen ingest snapshot used only as emit prior_ui furniture."""
         return self._ingest_ui
 
     @property
@@ -347,14 +403,15 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         target = workflow if workflow is not None else getattr(self, "workflow", None)
         if target is None:
             raise RuntimeError("EditSession cannot emit UI without a retained IR")
+        prior_ui = _unfreeze(self._ingest_ui)
         emitted = emit_ui_json(
             target,
             schema_provider=self.schema_provider,
             include_virtual_wires=True,
-            prior_ui_payload=self._ingest_ui,
+            prior_ui_payload=prior_ui,
         )
         pin_ops = tuple(self.landed_ops if ops is None else ops)
-        return pin_untouched_ui(self._ingest_ui, emitted, pin_ops)
+        return pin_untouched_ui(prior_ui, emitted, pin_ops)
 
     def node_ui(self, uid: str, scope_path: str = "") -> dict[str, Any] | None:
         """Return the emit-side node dict for *uid*, or None.
@@ -364,6 +421,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         """
         if self.workflow is None:
             raise RuntimeError("EditSession.node_ui requires a retained IR")
+        from vibecomfy.ingest.normalize import door_get_nodes
+
         graph = self._emit_working_snapshot()
         if scope_path:
             for part in scope_path.split("/"):

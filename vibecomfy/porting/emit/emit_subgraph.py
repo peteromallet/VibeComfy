@@ -9,7 +9,7 @@ via explicit re-exports so that existing callers are unaffected.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_nodes
 import hashlib
 import json
 import keyword as _keyword

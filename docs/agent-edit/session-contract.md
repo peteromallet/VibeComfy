@@ -57,10 +57,13 @@ EditSession(
 | `max_for_iterations` | 100 | Maximum iterations for any single `for i in range(N)` loop. |
 
 The constructor ingests `raw_ui_json` once through `from_ui` and retains that
-IR (`self.workflow` / `self._wf0`). A frozen ingest snapshot is kept only as
-emit `prior_ui` furniture. There is no `working_ui` mutation store, no
-`EditLedger`, and no `apply_delta` path. Any UI the session exposes is
-derived through `emit_ui_json` + `pin_untouched_ui`.
+IR (`self.workflow` / `self._wf0`). The ingest snapshot is **deep-frozen**
+(immutable dict/list wrappers) and is emit `prior_ui` furniture only.
+`original_ui` exposes that frozen mapping; mutating it cannot change
+`working_ui` or the proof baselines. Proofs emit the retained IR through the
+emit door (`emit(wf_0)` / `emit(current)`), they do not re-read a writable UI
+twin. There is no `working_ui` mutation store, no lock table, no
+`EditLedger`, and no `apply_delta` / `ledger.resolve_node` path.
 
 ---
 
@@ -341,8 +344,9 @@ lowered:
 
 - `name_by_uid` / `uid_by_name` are **read-only properties** derived from
   the retained IR via `(class_type, uid-order)`.
-- There is no lock table, no write-once map, and no stored binding consulted
-  on later renders. A re-render of the same IR always produces the same names.
+- There is no lock table, no write-once map, no seeding/enforcement across
+  renders, and no `ledger.resolve_node`. A re-render of the same IR always
+  produces the same names.
 
 ### 8.3 Unbound names
 

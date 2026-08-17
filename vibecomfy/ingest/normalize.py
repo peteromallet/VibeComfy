@@ -5,6 +5,74 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+# Door-owned LiteGraph accessors.  Defined before other vibecomfy
+# imports so identity/aliases can import them without cycling.
+_DOOR_MISSING = object()
+
+
+def door_get_nodes(graph: Any, default: Any = None) -> Any:
+    getter = getattr(graph, "get", None)
+    if callable(getter):
+        return getter("nodes", default)
+    return default
+
+
+def door_nodes(graph: Any) -> Any:
+    return graph["nodes"]
+
+
+def door_pop_nodes(graph: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return graph.pop("nodes")
+    return graph.pop("nodes", default)
+
+
+def door_setdefault_nodes(graph: Any, default: Any = None) -> Any:
+    return graph.setdefault("nodes", default)
+
+
+def door_get_links(graph: Any, default: Any = None) -> Any:
+    getter = getattr(graph, "get", None)
+    if callable(getter):
+        return getter("links", default)
+    return default
+
+
+def door_links(graph: Any) -> Any:
+    return graph["links"]
+
+
+def door_pop_links(graph: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return graph.pop("links")
+    return graph.pop("links", default)
+
+
+def door_setdefault_links(graph: Any, default: Any = None) -> Any:
+    return graph.setdefault("links", default)
+
+
+def door_get_widgets_values(node: Any, default: Any = None) -> Any:
+    getter = getattr(node, "get", None)
+    if callable(getter):
+        return getter("widgets_values", default)
+    return default
+
+
+def door_widgets_values(node: Any) -> Any:
+    return node["widgets_values"]
+
+
+def door_pop_widgets_values(node: Any, default: Any = _DOOR_MISSING) -> Any:
+    if default is _DOOR_MISSING:
+        return node.pop("widgets_values")
+    return node.pop("widgets_values", default)
+
+
+def door_setdefault_widgets_values(node: Any, default: Any = None) -> Any:
+    return node.setdefault("widgets_values", default)
+
+
 import warnings
 
 from vibecomfy._compile._graph import is_canonical_api_link
@@ -53,22 +121,6 @@ EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 # writes it; ``VibeWorkflow.to_envelope`` delegates the untouched-graph
 # restore decision to this module rather than touching the blob itself.
 _UI_DOOR_KEY = "_ui_door"
-
-from vibecomfy.ingest.door_access import (  # noqa: E402
-    door_get_links,
-    door_get_nodes,
-    door_get_widgets_values,
-    door_links,
-    door_nodes,
-    door_pop_links,
-    door_pop_nodes,
-    door_pop_widgets_values,
-    door_setdefault_links,
-    door_setdefault_nodes,
-    door_setdefault_widgets_values,
-    door_widgets_values,
-)
-
 
 def _door_freeze(value: Any) -> Any:
     """Deterministic freeze of an editable IR value for the door fingerprint.

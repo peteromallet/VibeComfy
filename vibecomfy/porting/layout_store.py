@@ -46,7 +46,7 @@ from vibecomfy.porting.canonical_coords import snap_pos, snap_size
 from vibecomfy.identity.scope import compose_scope_path, sg_key
 from vibecomfy.identity.uid import make_uid, mint_local_uid
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
 

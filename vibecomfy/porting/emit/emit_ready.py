@@ -30,7 +30,7 @@ Part of the M2 structural decomposition of vibecomfy/porting/emitter.py.
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 import ast
 import json
 import warnings

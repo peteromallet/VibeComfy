@@ -16,7 +16,7 @@ from vibecomfy.comfy_nodes.agent.gates import apply_stage_gate_updates, update_s
 from vibecomfy.comfy_nodes.agent.provider import build_delta_messages, build_messages
 from ._frag_state import AgentEditState, DeepSeekClient, _artifact, _duration_ms
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 def _record(context: TurnContext, result: StageResult) -> StageResult:
     context.stage_results[result.stage] = result
     apply_stage_gate_updates(context, result)

@@ -758,6 +758,162 @@ def test_law_2_reserved_side_channel_does_not_collide() -> None:
     assert "foo_bar" not in dotted.inputs
     assert "foo.bar" not in dotted.inputs
 
+    dotted_input_wf = VibeWorkflow("dotted-input", WorkflowSource("law"))
+    dotted_input_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello", "foo.bar": "from-input"},
+        widgets={"seed": 7},
+        uid="stable-di",
+    )
+    dotted_input = _round_trip(dotted_input_wf)
+    assert dotted_input.inputs.get("foo.bar") == "from-input"
+    assert dotted_input.widgets.get("seed") == 7
+    assert "foo.bar" not in dotted_input.widgets
+    assert "foo_bar" not in dotted_input.inputs
+
+
+def test_law_3_interface_op_does_not_permit_unrelated_state_drift() -> None:
+    """An unrelated SubgraphInterfaceOp must not waive Law 3 minimality."""
+    from vibecomfy.porting.edit.ops import SubgraphInterfaceOp
+    from vibecomfy.porting.emit.ui import guard_exit_ui
+
+    original = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Note",
+                "title": "keep",
+                "properties": {"vibecomfy_uid": "n1"},
+            }
+        ],
+        "links": [],
+        "state": {"lastRerouteId": 0},
+    }
+    candidate = copy.deepcopy(original)
+    candidate["state"]["sentinel"] = "UNRELATED_CHANGE"
+    bare = guard_exit_ui(original, candidate, ())
+    assert bare.ok is False
+    assert any(
+        issue.code == "full_ui_scope_field_changed_unattributed"
+        and (issue.detail or {}).get("field") == "state.sentinel"
+        for issue in bare.diagnostics
+    )
+
+    interface = SubgraphInterfaceOp(
+        op="subgraph_interface",
+        action="add",
+        name="Session",
+        id="sg-session",
+    )
+    drifted = guard_exit_ui(original, candidate, (interface,))
+    assert drifted.ok is False
+    assert any(
+        issue.code == "full_ui_scope_field_changed_unattributed"
+        and (issue.detail or {}).get("field") == "state.sentinel"
+        for issue in drifted.diagnostics
+    )
+
+    unmatched = copy.deepcopy(original)
+    unmatched["definitions"] = {
+        "subgraphs": [{"id": "sg-unrelated", "nodes": [], "links": []}]
+    }
+    extra_scope = guard_exit_ui(original, unmatched, (interface,))
+    assert extra_scope.ok is False
+    assert any(issue.code == "full_ui_scope_added" for issue in extra_scope.diagnostics)
+
+
+def test_accepted_batch_is_the_sole_durable_delta() -> None:
+    """B2-R3: receipts/transactions store a digest, not a copy of ops."""
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+    from vibecomfy.comfy_nodes.agent.authority_receipts import build_authority_receipt
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import build_candidate_transaction
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Note",
+                "mode": 0,
+                "properties": {"vibecomfy_uid": "n1"},
+            }
+        ],
+        "links": [],
+    }
+    accepted_batch = [
+        {"op": {"op": "set_mode", "target": ["", "n1"], "mode": 4}},
+        {"op": {"op": "set_node_field", "target": ["", "n1", "title"], "value": "x"}},
+    ]
+    envelope = derived_accepted_delta_envelope({"accepted_batch": accepted_batch})
+    receipt = build_authority_receipt(
+        session_id="s",
+        turn_id="t",
+        submit_graph=graph,
+        cumulative_delta_envelope=envelope,
+        candidate=graph,
+        response={"accepted_batch": accepted_batch, "outcome": {"kind": "candidate"}},
+        schema_version="2.0.0",
+    )
+    persisted = receipt.to_dict()
+    dumped = json.dumps(persisted)
+    assert "accepted_batch_digest" in persisted
+    assert "cumulative_delta_envelope" not in persisted
+    assert dumped.count('"set_mode"') == 0
+    assert dumped.count('"set_node_field"') == 0
+
+    transaction = build_candidate_transaction(
+        workflow_id="123e4567-e89b-12d3-a456-426614174000",
+        session_id="s",
+        turn_id="t",
+        plan_hash="p",
+        submit_graph=graph,
+        candidate_graph=graph,
+        accepted_batch=accepted_batch,
+        delta_hash=receipt.cumulative_delta_hash,
+        submit_graph_hash=receipt.submit_graph_hash,
+        submit_structural_graph_hash="a" * 64,
+        candidate_graph_hash="b" * 64,
+        candidate_structural_graph_hash="c" * 64,
+        authority_receipt_hash="d" * 64,
+        schema_witness={"witness_hash": "e" * 64},
+        replay_ok=True,
+        candidate_matches=True,
+        applyable=False,
+    )
+    tx_dump = json.dumps(transaction)
+    assert transaction["plan"]["accepted_batch"] == accepted_batch
+    assert "ops" not in transaction["candidate_authority"]["operation"]
+    assert transaction["candidate_authority"]["operation"]["accepted_batch_digest"]
+    # The only durable op copies live under plan.accepted_batch.
+    assert tx_dump.count('"set_mode"') == 1
+    assert tx_dump.count('"set_node_field"') == 1
+
+
+def test_exposed_original_ui_mutation_cannot_affect_working_ui_or_proofs() -> None:
+    """B3-R3: the ingest snapshot is not a writable proof authority."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    raw = json.loads(SPIKE_CORPUS[1][1].read_bytes())
+    session = EditSession(raw)
+    done_before = session.done()
+    assert done_before.ok, done_before.summary
+    working_before = session.working_ui
+    exposed = session.original_ui
+    try:
+        exposed["nodes"][0]["title"] = "EXTERNALLY_MUTATED"
+    except (TypeError, KeyError, IndexError):
+        pass
+    working = session.working_ui
+    assert working == working_before
+    titles = [
+        node.get("title")
+        for node in (working.get("nodes") or [])
+        if isinstance(node, Mapping)
+    ]
+    assert "EXTERNALLY_MUTATED" not in titles
+    done = session.done()
+    assert done.ok, done.summary
+
 
 def test_subgraph_interface_source_commits_typed_op() -> None:
     """subgraph_interface(...) is a canonical typed op that lands in Δ."""

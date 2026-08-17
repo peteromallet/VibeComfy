@@ -11,7 +11,7 @@ Public-input helpers and ready-template backend live in emit_ready.py (T8).
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 import keyword
 import re
 import warnings

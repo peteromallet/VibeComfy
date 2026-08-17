@@ -40,8 +40,9 @@ results land, every id must become `resolved`, `capability_floor`, or
 `infra_out_of_scope`. The named floors already classified from the 2026-08-15
 recovery rerun stay as:
 
-- capability_floor: `cc0df7`, `90a1d5`, `multi-wan-vace-video-retargeting-driven`, `5b31ce`
+- capability_floor: `cc0df7`, `90a1d5`, `multi-wan-vace-video-retargeting-driven`
 - infra_out_of_scope: `c24aa2`, `f65774`, `00444a`
+- `5b31ce` stays `pending_live_rerun`: `other.md` is not named floor evidence
 
 ## Result (partial, run still live at commit time)
 
@@ -51,8 +52,8 @@ first ~8 minutes the partial summary recorded 4/57 completed, 0 passed,
 floors (`cc0df7`, `c24aa2`) plus `8800a9` and `f0859f` — none qualify
 as `resolved`.
 
-The ledger therefore still has **50 `pending_live_rerun`**, **4
+The ledger therefore still has **51 `pending_live_rerun`**, **3
 `capability_floor`**, **3 `infra_out_of_scope`**, **0 `resolved`**.
-That is honest: the post-migration rerun was launched and is not yet
-complete. Reconcile again when
-`out/agentic/ir-everywhere-57/run_summary.json` has `complete: true`.
+`5b31ce` is not a named floor. That is honest: the post-migration
+rerun was launched and is not yet complete. Reconcile again when
+`out/agentic/ir-everywhere-57-v3/run_summary.json` has `complete: true`.

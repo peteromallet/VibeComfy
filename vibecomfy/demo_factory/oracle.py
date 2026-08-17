@@ -5,7 +5,7 @@ the repaired predicate describes an additive witness.
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 import json
 from dataclasses import dataclass, field
 from enum import Enum

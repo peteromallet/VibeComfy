@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 import copy
 import json
 import re

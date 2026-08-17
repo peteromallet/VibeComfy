@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 from vibecomfy.porting.emit.ui import _canonicalize_coord
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

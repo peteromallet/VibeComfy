@@ -32,7 +32,7 @@ from typing import Any, Iterator, Literal
 
 from .contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from vibecomfy.porting.edit.ops import parse_edit_delta
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 # T-045 module-level host import: ``TurnState`` is referenced only in annotations
 # (PEP 563 strings -- never evaluated at runtime), imported here so those
 # annotations stay resolvable for type checkers; ``session`` is fully defined
@@ -253,39 +253,9 @@ def _load_turn_delta_ops_diagnostic(
             "detail": {"op_count": len(ops)},
         }
 
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        return {
-            "shape": "legacy_envelope",
-            "code": "legacy_delta_ops_envelope",
-            "detail": {"schema_version": envelope.get("schema_version")},
-        }
-
-    delta_ops = response.get("delta_ops")
-    if isinstance(delta_ops, list):
-        return {
-            "shape": "legacy_flat",
-            "code": "legacy_delta_ops_flat",
-            "detail": {},
-        }
-    if isinstance(delta_ops, Mapping):
-        legacy_keys = sorted(
-            k for k in delta_ops
-            if k in (
-                "delta", "delta_ops", "diagnostics", "guard_result",
-                "automatic_link_removals", "re_stitches", "normalize",
-                "ops",
-            )
-        )
-        return {
-            "shape": "legacy_wrapped",
-            "code": "legacy_delta_shape",
-            "detail": {"keys": legacy_keys},
-        }
-
     return {
         "shape": "missing",
-        "code": "missing_delta_ops",
+        "code": "missing_accepted_batch",
         "detail": {},
     }
 

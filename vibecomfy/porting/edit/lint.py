@@ -47,7 +47,7 @@ Rules enforced:
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_widgets_values
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 import re

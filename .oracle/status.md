@@ -1,30 +1,26 @@
-# Megado status — informational-research path
+# Sprint status — IR-everywhere migration
 
-Phase: 6 (complete) — all batches PASSED and verified
+Updated: 2026-08-17 (sol review-3 fix)
 
-Batches:
-  B01 317a3cdf  messages client (hivemind_clients.py) + 52 tests
-  B02 29c9991d  sources= tier gating (research() + _resolve split)
-  B03 2ae42426  research-route omit default (messages+web), followup, memory, community_summary
-  B04 ad1a3c3d  hoist research_findings + _run_reply fix (critical)
-  B05 289e61d2  real batch-REPL integration test
-  B06 f11fd66e  web 429 backoff + cache TTL
+## Phase: review-3 close on sol3-improvements
 
-Verification:
-  - 967 passed / 0 failed across the six research-path test files
-  - LIVE acceptance gate PASSED:
-    * MiniMax H3 probe: 6 agent-judgment research iterations; cited hicho +
-      Gotobius in #minimax_h3_chatter with specific tuning (guidance 1.0,
-      8 steps, 0.6 MP); reply = community answer with names/channel/settings
-    * LTX 2.5 probe: 7 agent-judgment research iterations; cited VK in
-      #ltx_chatter (vid2vid workflow ask); honest thinness admission, no
-      invented consensus
-  - Both probes ran the real pipeline: classify -> research-route omit-default
-    -> messages client -> agent judgment iteration -> hoist -> _run_reply
-  - Pre-existing env issues (not regressions): missing corpus JSON on fresh
-    worktree (symlinked), arnold venv quirk (used oracle-worktree venv),
-    OpenRouter key limit (used _2 key for probes, restored after)
+Worktree: `/tmp/vc-sol3` @ `sol3-improvements`. Venv: `PYTHONPATH=$PWD` + `reigh-workspace/vibecomfy/.venv`.
 
-Constraint honored: NO deterministic loops/actions — all search/stop decisions
-are agent judgment (user ruling 2026-08-12). No research_iteration.py, no
-scoring, no latches, no expansion, no research-call caps.
+Sprint tree `vibecomfy/` is frozen for the v3 57-run. Do not edit it.
+
+### Ledger (L-R3)
+
+v3 (`ir-everywhere-57-v3`) was **not complete** at this pass (`run_summary.partial.json` only). No id is `resolved`.
+
+Honest interim counts:
+
+| status | count | ids |
+|---|---|---|
+| capability_floor | 3 | `cc0df7`, `90a1d5`, `multi-wan-vace-video-retargeting-driven` |
+| infra_out_of_scope | 3 | `c24aa2`, `f65774`, `00444a` |
+| pending_live_rerun | 51 | remaining, including `video-video-combine-with-image-loading-5b31ce` |
+| resolved | 0 | — |
+
+`5b31ce` was prematurely `capability_floor`. `docs/failure-analysis/other.md` is an ambiguous bucket, not named Class-D / variance evidence. Reclassified `pending_live_rerun` until a finished v3 artifact names a floor.
+
+Reconcile again when `out/agentic/ir-everywhere-57-v3/run_summary.json` has `complete: true`.

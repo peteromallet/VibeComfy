@@ -15,7 +15,7 @@ from vibecomfy.comfy_nodes.agent.provider import AgentTurnResult, BatchTurnResul
 
 from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
     python = response.get("python")
     message = response.get("message")

@@ -35,7 +35,8 @@ Status rules
   law/harness test that would pass those cases.  None of these 57 passed
   the recovery rerun, so none are ``resolved``.
 - ``capability_floor`` is used only with named evidence (Class D hard floor
-  or the variance family doc).  ``cc0df7`` and ``90a1d5`` live only here.
+  or the variance family doc).  ``cc0df7``, ``90a1d5``, and the variance
+  id live only here.  ``5b31ce`` is not a named floor.
 - ``infra_out_of_scope`` is the recovery-rerun ``infra_blocked`` trio.
 - everything else is ``pending_live_rerun`` until v3 finishes on this
   commit.  A mechanism may exist as a law test; that is not a live pass.
@@ -222,8 +223,12 @@ EXIT_FAILURE_LEDGER: tuple[FailureLedgerRow, ...] = (
         family="other",
         owner="capability-floor candidate; reclassify with evidence",
         scenario_ids=("video-video-combine-with-image-loading-5b31ce",),
-        status="capability_floor",
-        evidence="docs/failure-analysis/other.md; plan.md other bucket.",
+        status="pending_live_rerun",
+        evidence=(
+            "docs/failure-analysis/other.md is an ambiguous bucket, not named "
+            "Class-D or variance floor evidence.  v3 was incomplete at review-3; "
+            "stay pending_live_rerun until the finished artifact names a floor."
+        ),
     ),
     FailureLedgerRow(
         family="recovery_rerun_unpartitioned",

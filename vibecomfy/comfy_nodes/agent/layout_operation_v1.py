@@ -38,7 +38,7 @@ authority validator.  No second hash owner, no second canonicaliser.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 from collections.abc import Mapping
 from typing import Any
 

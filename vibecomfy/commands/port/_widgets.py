@@ -9,7 +9,7 @@ from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.porting.workbench import load_port_source
 
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 def _cmd_port_widgets(args: argparse.Namespace) -> int:
     from vibecomfy.commands import port as _port
 

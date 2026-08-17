@@ -12,7 +12,7 @@ import copy
 from typing import Literal, Any
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 def probe_refusal_spine(
     orig: Any,
     edited: Any,
