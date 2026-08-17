@@ -53,6 +53,7 @@ DEFAULT_MAX_WORKERS = 6
 DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenario
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
+_RETRYABLE_INFRA_CLASSES = frozenset({"infra_empty_response", "infra_timeout"})
 _SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
 REPO = Path(__file__).resolve().parents[2]
 
@@ -388,7 +389,7 @@ def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
 def _mark_summary_as_infra(summary: dict[str, Any], failure_class: str) -> None:
     summary["failure_class"] = failure_class
     summary["score_class"] = "infra_blocked"
-    summary["retryable_infra"] = failure_class == "infra_empty_response"
+    summary["retryable_infra"] = failure_class in _RETRYABLE_INFRA_CLASSES
     guard = summary.get("guard")
     if isinstance(guard, dict):
         guard["failure_class"] = failure_class
@@ -465,7 +466,7 @@ def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
     _classify_retryable_infra_summary(summary)
     if summary.get("guard", {}).get("live_agentic_success") is True:
         return False
-    return _provider_infra_failure_class(summary) == "infra_empty_response"
+    return _provider_infra_failure_class(summary) in _RETRYABLE_INFRA_CLASSES
 
 
 def _build_run_summary(

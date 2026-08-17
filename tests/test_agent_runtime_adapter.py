@@ -17,6 +17,17 @@ from vibecomfy.comfy_nodes.agent import worker
 from vibecomfy.executor.agent_backend import run_classify_turn, run_reply_turn
 
 
+def test_turn_timeout_raises_for_large_serialized_graphs() -> None:
+    small = runtime._turn_timeout_seconds("tiny")
+    large = runtime._turn_timeout_seconds("x" * 60_000)
+    assert small == runtime._TURN_TIMEOUT_SECONDS
+    assert large == min(
+        max(runtime._TURN_TIMEOUT_SECONDS, runtime._LARGE_GRAPH_TURN_TIMEOUT_SECONDS),
+        runtime._TURN_TIMEOUT_HARD_CAP_SECONDS,
+    )
+    assert large >= 480
+
+
 def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
 

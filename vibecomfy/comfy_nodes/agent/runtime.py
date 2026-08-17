@@ -62,6 +62,15 @@ from vibecomfy.executor.profiler import (
 
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "240"))
+# RC3: large implement graphs (serialized > 50KB) get a raised turn budget.
+# Hard cap keeps a scenario from running unbounded even if both fire.
+_LARGE_GRAPH_TURN_TIMEOUT_SECONDS = float(
+    os.getenv("VIBECOMFY_AGENT_LARGE_TURN_TIMEOUT", "480")
+)
+_LARGE_GRAPH_BYTES = 50_000
+_TURN_TIMEOUT_HARD_CAP_SECONDS = float(
+    os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT_CAP", "600")
+)
 # Grace granted after SIGTERM before a timed-out worker's process GROUP is
 # SIGKILLed. Short by design: a hung grandchild (the cluster-A pipe hang) must
 # not extend the turn timeout meaningfully.
@@ -93,8 +102,9 @@ _ITERATION_EXHAUSTION_MAX_CORRECTIONS = max(
 
 # A fresh worker/transport retry is deliberately narrow: only a canonical
 # empty-response failure with observed zero completion tokens may consume the
-# extra attempts. Timeouts, capacity/provider errors, and malformed content do
-# not retry here.
+# extra attempts. Timeouts are retried by the live-agentic harness
+# (retryable_infra, cap 1), not inside this worker loop. Capacity/provider
+# errors and malformed content do not retry here.
 _WORKER_TRANSIENT_MAX_ATTEMPTS = max(1, int(os.getenv("VIBECOMFY_AGENT_TURN_RETRIES", "3")))
 _WORKER_TRANSIENT_BACKOFF_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_RETRY_BACKOFF", "2.0"))
 LOGGER = logging.getLogger(__name__)
@@ -865,6 +875,15 @@ def _run_worker(
     raise RuntimeError("agent worker retry loop exited without a result")
 
 
+def _turn_timeout_seconds(user_msg: str, system_msg: str | None = None) -> float:
+    """Per-turn worker timeout, raised for large implement graphs (RC3)."""
+    payload = f"{system_msg or ''}{user_msg or ''}"
+    timeout = _TURN_TIMEOUT_SECONDS
+    if len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES:
+        timeout = max(timeout, _LARGE_GRAPH_TURN_TIMEOUT_SECONDS)
+    return min(timeout, _TURN_TIMEOUT_HARD_CAP_SECONDS)
+
+
 def _run_worker_once(
     agent_kwargs: dict[str, Any],
     system_msg: str | None,
@@ -916,6 +935,7 @@ def _run_worker_once(
         # `utils` collision); run from a neutral directory.
         stdout_path = os.path.join(tmp, "worker.stdout.log")
         stderr_path = os.path.join(tmp, "worker.stderr.log")
+        turn_timeout = _turn_timeout_seconds(user_msg, system_msg)
         try:
             with profiler_span(
                 LOGGER,
@@ -929,7 +949,7 @@ def _run_worker_once(
                     [sys.executable, _WORKER_PATH, req_path, res_path],
                     cwd=tmp,
                     env=env,
-                    timeout=_TURN_TIMEOUT_SECONDS,
+                    timeout=turn_timeout,
                     stdout_path=stdout_path,
                     stderr_path=stderr_path,
                 )
@@ -940,7 +960,7 @@ def _run_worker_once(
                 )
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(
-                f"Agent worker timed out after {_TURN_TIMEOUT_SECONDS:g} seconds."
+                f"Agent worker timed out after {turn_timeout:g} seconds."
             ) from exc
         try:
             with open(res_path, encoding="utf-8") as fh:
