@@ -9,10 +9,11 @@ canonical ``to_dict()`` serializer so the executor can produce the standard
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Literal, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from vibecomfy.agent.deepseek_usage import coerce_deepseek_usage
@@ -84,6 +85,81 @@ def coerce_max_batches(value: Any, *, field_name: str = "max_batches") -> int | 
             f"`{field_name}` must be between 1 and {MAX_BATCHES_LIMIT}; got {value!r}."
         )
     return int(value)
+
+
+# ── pipeline mode (B01) ──────────────────────────────────────────────────────
+#
+# ``PipelineMode`` is the two-step orchestration toggle.  Resolution order is
+# the validated per-request ``pipeline_mode`` field →
+# ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` → ``"full"``.  An invalid request value
+# is a request error; an invalid environment value is a configuration error —
+# the pipeline never silently falls back between modes.
+PIPELINE_MODE_ENV_VAR = "VIBECOMFY_EXECUTOR_PIPELINE_MODE"
+PipelineMode = Literal["full", "two_step"]
+DEFAULT_PIPELINE_MODE: PipelineMode = "full"
+_PIPELINE_MODES = frozenset({"full", "two_step"})
+
+
+class PipelineModeRequestError(ValueError):
+    """Raised when a request carries an invalid ``pipeline_mode`` value."""
+
+
+class PipelineModeConfigurationError(ValueError):
+    """Raised when ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` holds an invalid value."""
+
+
+def coerce_pipeline_mode(
+    value: Any,
+    *,
+    field_name: str = "pipeline_mode",
+) -> PipelineMode | None:
+    """Validate a ``pipeline_mode`` value and return it, or None when unset.
+
+    Accepts exactly ``"full"`` or ``"two_step"``.  ``None`` passes through
+    (the caller default applies).  Any other value — including booleans,
+    numbers, and strings with surrounding whitespace — raises
+    :class:`PipelineModeRequestError`.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and value in _PIPELINE_MODES:
+        return value  # type: ignore[return-value]
+    raise PipelineModeRequestError(
+        f"`{field_name}` must be one of 'full' or 'two_step'; got {value!r}."
+    )
+
+
+def resolve_pipeline_mode(
+    request: "ExecutorRequest",
+    environ: Mapping[str, str] | None = None,
+) -> PipelineMode:
+    """Resolve the effective pipeline mode for *request*.
+
+    Order: the validated ``request.pipeline_mode`` field →
+    ``VIBECOMFY_EXECUTOR_PIPELINE_MODE`` → ``"full"``.
+
+    * An invalid request value raises :class:`PipelineModeRequestError` (the
+      request contract already rejects it at construction).
+    * An invalid environment value raises
+      :class:`PipelineModeConfigurationError` — configuration loading fails
+      loudly rather than silently running the wrong pipeline.
+    * An empty environment value is treated as unset (default applies).
+
+    ``environ=None`` reads ``os.environ``; callers (and tests) may pass an
+    explicit mapping instead.
+    """
+    if request.pipeline_mode is not None:
+        return coerce_pipeline_mode(request.pipeline_mode)
+    environ = os.environ if environ is None else environ
+    raw = environ.get(PIPELINE_MODE_ENV_VAR)
+    if raw is None or raw == "":
+        return DEFAULT_PIPELINE_MODE
+    try:
+        return coerce_pipeline_mode(raw, field_name=PIPELINE_MODE_ENV_VAR)
+    except PipelineModeRequestError as exc:
+        raise PipelineModeConfigurationError(str(exc)) from exc
+
+
 # Oracle finding 5: failure previews can embed the secret as a JSON-quoted
 # value (``{"api_key": "sk-..."}``), which the unquoted assignment and
 # authorization-header patterns cannot see.  Match quoted sensitive fields in
@@ -988,6 +1064,11 @@ class ExecutorRequest:
     # None = default (DEFAULT_MAX_BATCHES).  Forwarded into the implement
     # payload as ``max_batches`` and enforced again at the edit entrypoint.
     max_batches: int | None = None
+    # Two-step pipeline mode toggle (B01).  ``"two_step"`` dispatches to the
+    # bounded classify → execute orchestration after classification;
+    # ``"full"`` (default) keeps the existing research → implement → reply
+    # pipeline.  None = unspecified → environment/default applies.
+    pipeline_mode: PipelineMode | None = None
 
     def __post_init__(self) -> None:
         # Preserve the distinction between an explicit null from a current
@@ -999,6 +1080,12 @@ class ExecutorRequest:
                 self,
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
+        if self.pipeline_mode is not None:
+            object.__setattr__(
+                self,
+                "pipeline_mode",
+                coerce_pipeline_mode(self.pipeline_mode),
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1027,6 +1114,8 @@ class ExecutorRequest:
             payload["interaction_mode"] = self.interaction_mode
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
+        if self.pipeline_mode is not None:
+            payload["pipeline_mode"] = self.pipeline_mode
         return payload
 
     @classmethod
@@ -1099,6 +1188,7 @@ class ExecutorRequest:
                 "ExecutorRequest `interaction_mode` must be a string or null."
             )
         max_batches = coerce_max_batches(payload.get("max_batches"), field_name="max_batches")
+        pipeline_mode = coerce_pipeline_mode(payload.get("pipeline_mode"))
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
         ):
@@ -1120,6 +1210,7 @@ class ExecutorRequest:
             on_demand_schemas=on_demand_schemas,
             interaction_mode=interaction_mode,
             max_batches=max_batches,
+            pipeline_mode=pipeline_mode,
         )
 
 

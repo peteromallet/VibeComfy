@@ -242,6 +242,37 @@ class TestExecutorRequest:
         with pytest.raises(ValueError, match="graph"):
             ExecutorRequest.from_payload({"query": "x", "graph": "not-a-dict"})
 
+    def test_pipeline_mode_round_trip(self) -> None:
+        """pipeline_mode survives from_payload → to_dict for both modes."""
+        for mode in ("full", "two_step"):
+            req = ExecutorRequest.from_payload({"query": "x", "pipeline_mode": mode})
+            assert req.pipeline_mode == mode
+            assert req.to_dict()["pipeline_mode"] == mode
+
+    def test_pipeline_mode_omitted_when_unspecified(self) -> None:
+        """Unspecified pipeline_mode is preserved as None and omitted from to_dict."""
+        req = ExecutorRequest.from_payload({"query": "x"})
+        assert req.pipeline_mode is None
+        assert "pipeline_mode" not in req.to_dict()
+        direct = ExecutorRequest(query="x")
+        assert direct.pipeline_mode is None
+        assert "pipeline_mode" not in direct.to_dict()
+
+    def test_pipeline_mode_direct_construction_validates(self) -> None:
+        """Direct construction validates pipeline_mode (typed request error)."""
+        assert ExecutorRequest(query="x", pipeline_mode="full").pipeline_mode == "full"
+        assert (
+            ExecutorRequest(query="x", pipeline_mode="two_step").pipeline_mode
+            == "two_step"
+        )
+        with pytest.raises(ValueError, match="pipeline_mode"):
+            ExecutorRequest(query="x", pipeline_mode="bogus")
+
+    def test_pipeline_mode_from_payload_validates(self) -> None:
+        """from_payload validates pipeline_mode (typed request error)."""
+        with pytest.raises(ValueError, match="pipeline_mode"):
+            ExecutorRequest.from_payload({"query": "x", "pipeline_mode": 42})
+
 
 # ── ClassifyDecision ─────────────────────────────────────────────────────────
 

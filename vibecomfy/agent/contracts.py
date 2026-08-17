@@ -108,6 +108,11 @@ class HeadlessAgentRequest:
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..250; None =
     # default 50.  Forwarded through to_executor_request → implement payload.
     max_batches: int | None = None
+    # Two-step pipeline mode toggle (B01).  ``"two_step"`` dispatches to the
+    # bounded classify → execute orchestration after classification;
+    # ``"full"`` (default) keeps the existing research → implement → reply
+    # pipeline.  None = unspecified → environment/default applies.
+    pipeline_mode: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -157,6 +162,14 @@ class HeadlessAgentRequest:
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
             )
+        if self.pipeline_mode is not None:
+            from vibecomfy.executor.contracts import coerce_pipeline_mode  # noqa: PLC0415
+
+            object.__setattr__(
+                self,
+                "pipeline_mode",
+                coerce_pipeline_mode(self.pipeline_mode, field_name="pipeline_mode"),
+            )
         object.__setattr__(self, "extra", dict(self.extra or {}))
 
     @property
@@ -183,6 +196,7 @@ class HeadlessAgentRequest:
             idempotency_key=self.idempotency_key,
             interaction_mode=self.interaction_mode,
             max_batches=self.max_batches,
+            pipeline_mode=self.pipeline_mode,
         )
 
     def resolve_provider_readiness_kwargs(self, *, stage: str = "classify") -> dict[str, str | None]:
@@ -223,13 +237,18 @@ class HeadlessAgentRequest:
             payload["interaction_mode"] = self.interaction_mode
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
+        if self.pipeline_mode is not None:
+            payload["pipeline_mode"] = self.pipeline_mode
         if self.extra:
             payload["extra"] = dict(self.extra)
         return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "HeadlessAgentRequest":
-        from vibecomfy.executor.contracts import coerce_max_batches  # noqa: PLC0415
+        from vibecomfy.executor.contracts import (  # noqa: PLC0415
+            coerce_max_batches,
+            coerce_pipeline_mode,
+        )
 
         if not isinstance(payload, Mapping):
             raise ValueError("HeadlessAgentRequest payload must be a mapping.")
@@ -282,6 +301,7 @@ class HeadlessAgentRequest:
                 payload.get("max_batches"),
                 field_name="max_batches",
             ),
+            pipeline_mode=coerce_pipeline_mode(payload.get("pipeline_mode")),
             extra=_parse_extra(payload.get("extra")),
         )
 

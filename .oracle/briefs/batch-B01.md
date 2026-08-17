@@ -1,39 +1,64 @@
-# MEGADO BATCH B01 [HARD] — Typed failures and unified attempt provenance
+# B01 — Mode plumbing and dispatch toggle
 
-Repo: /Users/peteromalley/Documents/reigh-workspace/vibecomfy-oracle (branch oracle-run). This is a [HARD] task — you are the executor (GPT-5.6 Sol, workspace-write). You may modify files and run tests. Skip formatters/linters/full suites; run focused tests only.
+Worktree: /private/tmp/vc-twostep (branch two-step-megado). Python: `PYENV_VERSION=3.11.11` with the repo venv at /Users/peteromalley/Documents/reigh-workspace/vibecomfy/.venv (set `PYTHONPATH=$PWD` if needed; check how other tests run first).
 
-## Context
-G0-T4 already added failed-call evidence (parse_reason, raw preview, finish reason, tokens, model, phase, endpoint) at classify+reply, and G0R closed the scorer/narrator. B01 makes model-attempt evidence a UNIFIED contract across success AND failure, typed, with redaction. B07-lite consumes this contract — do not create a second metadata format.
+You are implementing batch B01 of the two-step pipeline mode megado run. Follow the frozen tasklist exactly (`.oracle/tasklist.md` → B01). Do NOT touch files outside B01's scope.
 
-## Tasks (from .oracle/tasklist.md B01)
+## Tasks
 
-1. **One additive model-attempt evidence contract** across worker, runtime, provider/backend, executor, artifacts, and harness.
-2. **Distinguish failure types**: empty response; malformed non-empty JSON; non-JSON content; missing required fields; timeout; capacity/provider failure.
-3. **Persist on every successful AND failed attempt**: phase and attempt; requested and resolved model; adapter; actual provider and transport; normalized endpoint; finish reason; token usage.
-4. **Persist bounded raw previews only for failures** (never for success).
-5. **Fix the three success-path runtime stripping seams** (find where successful-call provenance is currently stripped/dropped in runtime/worker/agent_backend) and merge worker-observed metadata into batch audit metadata and final report artifacts.
-6. **Permit a fresh-transport retry ONLY for typed empty responses** — never derive infra status from response wording (G0-T3 already gates on completion_tokens==0; keep that).
-7. **Serialize unavailable non-Hermes provenance as `unknown`**; never infer.
+1. `vibecomfy/executor/contracts.py`:
+   - Add `PipelineMode = Literal["full", "two_step"]`.
+   - Add typed `PipelineModeRequestError` and `PipelineModeConfigurationError`.
+   - Add `coerce_pipeline_mode()` and `resolve_pipeline_mode(request, environ=None)`.
+   - Add optional `ExecutorRequest.pipeline_mode`.
+   - Validate direct construction and `from_payload()`.
+   - Preserve omission in `to_dict()` when unspecified.
 
-## Key files
-- vibecomfy/comfy_nodes/agent/worker.py, runtime.py, provider.py
-- vibecomfy/executor/agent_backend.py, core.py, contracts.py, provenance.py
-- vibecomfy/agent/artifacts.py
-- tests/test_agent_runtime_adapter.py, tests/test_headless_agent_artifacts.py, tests/test_executor_contracts.py, tests/test_live_agentic_runner_persistence.py
+2. `vibecomfy/agent/contracts.py`:
+   - Add optional `HeadlessAgentRequest.pipeline_mode`.
+   - Carry it through parsing and `to_executor_request()`.
 
-## Verification (run, retain output)
+3. `vibecomfy/executor/core.py`:
+   - Resolve mode once for profiler/report use.
+   - Preserve the existing classify and `answer_only` behavior.
+   - Add the only orchestration branch immediately after the current `answer_only` block (before research begins — see core.py around 1865-1928):
+     `if pipeline_mode == "two_step": return _run_two_step(...)`
+   - Keep the existing research → implement → reply block structurally untouched.
+   - For `classify_only`: full mode emits its existing skipped events; two-step emits only `execute: skipped`.
+   - IMPORTANT guard: do NOT resolve the optional `execute` profile before the `classify_only` return.
+
+4. Add `vibecomfy/executor/two_step.py` with the typed entrypoint seam and a test-injectable outcome boundary. Real execution lands in B03–B04, so this file should define the `_run_two_step(...)` signature, the `PipelineMode` resolution call, and a stub/typed result path that tests can inject into. Keep it minimal — no policy, prompt, or session logic yet.
+
+5. Add `tests/fixtures/payload_contracts/agent_executor_two_step_request.json`; do NOT rewrite the existing request fixture merely to include an optional field.
+
+6. Add:
+   - `tests/test_executor_pipeline_mode.py`
+   - Mode round-trip cases to `tests/test_executor_contracts.py`
+   - Branch/classify-only cases to `tests/test_executor_classify_only.py`
+
+## Acceptance gate
+
 ```bash
-.venv/bin/python -m pytest -q tests/test_executor_classify_only.py tests/test_executor_contracts.py tests/test_executor_flows.py tests/test_agent_runtime_adapter.py tests/test_headless_agent_artifacts.py tests/test_live_agentic_runner_persistence.py tests/test_runtime_worker_retry.py
+python -m pytest -q \
+  tests/test_executor_pipeline_mode.py \
+  tests/test_executor_contracts.py \
+  tests/test_executor_classify_only.py \
+  tests/test_executor_flows.py
 ```
-Expected exit 0. Add focused tests for the typed failure distinctions and success-path provenance (fixtures: empty vs malformed non-empty vs non-JSON vs missing-field vs timeout vs capacity).
 
-## Acceptance
-- Every failure type serializes distinctly.
-- Successful classify, reply, and batch calls retain provenance through final artifacts.
-- Requested vs resolved model remain distinct across routing/retries.
-- Typed empty evidence reaches the existing retry; malformed non-empty stays product_fail.
-- Unsupported routes report explicit unknowns.
-- Redaction: keys, authorization data, secret URL params cannot persist (negative fixture).
+Must prove:
+- Request beats environment.
+- Environment beats default.
+- Invalid request value is a request error.
+- Invalid environment value is a configuration error.
+- Default is full.
+- `classify_only` never resolves or invokes `execute`.
+- `answer_only` reaches two-step only after its edit-forbidding rewrite.
+- Full-mode phase calls and event payloads are unchanged.
 
-## Report
-Return: contract shape (field names), files changed, failure-type taxonomy, success-path seam fixes, redaction proof, pytest output. Do NOT commit.
+Also run `git diff --check` and make sure existing executor tests still pass (`tests/test_executor_flows.py` is in the gate; if a broader smoke is cheap, run `tests/test_agent_executor_response.py` too).
+
+## Constraints
+- Commit only this batch's scope: `git add -A && git commit -m "B01: two-step mode plumbing + toggle"`.
+- Do not start B02 work.
+- Report: what changed (files), gate output (pass counts), any deviations from the tasklist.

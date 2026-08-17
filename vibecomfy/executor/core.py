@@ -69,15 +69,18 @@ from .contracts import (
     ExecutorRequest,
     ExecutorResult,
     ImplementationResult,
+    PipelineModeConfigurationError,
     Report,
     _ALLOWED_ROUTES,
     coerce_model_attempts,
+    resolve_pipeline_mode,
     warning_detail_from_exception,
 )
 from .profiles import (
     AgentSpecShape,
     load_profile,
 )
+from .two_step import _run_two_step
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1720,6 +1723,10 @@ def run_executor(
         implement payload so the revise pipeline can relax ONLY the pre-edit
         "input graph has dangling/absent endpoints -> refuse to compound"
         precondition.  All post-edit validation and gates remain enforced.
+    pipeline_mode:
+        Resolved from the request field → ``VIBECOMFY_EXECUTOR_PIPELINE_MODE``
+        → ``"full"`` (B01).  ``"two_step"`` dispatches to the bounded
+        classify → execute orchestration after classification.
 
     Returns
     -------
@@ -1733,8 +1740,23 @@ def run_executor(
     effective_graph: dict[str, Any] | None = request.graph
     result_graph: dict[str, Any] | None = None
     executor_id = new_profile_id("executor")
+
+    # ── Resolve pipeline mode once (B01) ─────────────────────────────────
+    # Validated request field → VIBECOMFY_EXECUTOR_PIPELINE_MODE → "full".
+    # A bad environment value is a configuration failure: it fails fast
+    # before any model call and is captured in the result shape (never
+    # raised raw), matching every other executor failure.
+    try:
+        pipeline_mode = resolve_pipeline_mode(request)
+    except PipelineModeConfigurationError as exc:
+        return ExecutorResult.failure(
+            kind="ConfigurationError",
+            stage="configuration",
+            message=str(exc),
+        )
     request_fields = {
         "executor_id": executor_id,
+        "pipeline_mode": pipeline_mode,
         "profile": request.profile or "default",
         "session_id": request.session_id,
         "has_graph": request.graph is not None,
@@ -1864,27 +1886,39 @@ def run_executor(
 
     # ── Classify-only dry-run exit ─────────────────────────────────────────
     if classify_only:
-        _emit_executor_phase_event(
-            request,
-            executor_id=executor_id,
-            phase="research",
-            status="skipped",
-            client_id=client_id,
-        )
-        _emit_executor_phase_event(
-            request,
-            executor_id=executor_id,
-            phase="implement",
-            status="skipped",
-            client_id=client_id,
-        )
-        _emit_executor_phase_event(
-            request,
-            executor_id=executor_id,
-            phase="reply",
-            status="skipped",
-            client_id=client_id,
-        )
+        if pipeline_mode == "two_step":
+            # Two-step mode has a single post-classify phase; only the
+            # execute phase can be skipped (no research/implement/reply
+            # phase events exist in this mode).
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="execute",
+                status="skipped",
+                client_id=client_id,
+            )
+        else:
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="research",
+                status="skipped",
+                client_id=client_id,
+            )
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="implement",
+                status="skipped",
+                client_id=client_id,
+            )
+            _emit_executor_phase_event(
+                request,
+                executor_id=executor_id,
+                phase="reply",
+                status="skipped",
+                client_id=client_id,
+            )
         profiler_log(
             LOGGER,
             "executor.result",
@@ -1924,6 +1958,21 @@ def run_executor(
             plan.effective_task,
             plan.implement,
         )
+
+    # ── Two-step mode dispatch (B01) ─────────────────────────────────────
+    # The only orchestration branch: two_step replaces the research →
+    # implement → reply phases with a single bounded execute phase.  It sits
+    # after the answer_only rewrite so edit-forbidding semantics hold in
+    # both modes, and after the classify_only exit so dry runs never reach
+    # the execute phase.
+    if pipeline_mode == "two_step":
+        return _finish(_run_two_step(
+            request,
+            plan=plan,
+            client_id=client_id,
+            executor_id=executor_id,
+            additive=additive,
+        ))
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
     if _canonical_route_for_plan(plan) in {"research", "adapt"}:

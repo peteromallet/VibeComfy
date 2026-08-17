@@ -1,0 +1,22 @@
+{
+  "query": "explain why changing the KSampler seed does not change the output",
+  "graph": {
+    "nodes": [
+      {
+        "id": 1,
+        "type": "KSampler",
+        "properties": { "vibecomfy_uid": "uid-1" }
+      },
+      {
+        "id": 2,
+        "type": "SaveImage",
+        "properties": { "vibecomfy_uid": "uid-2" }
+      }
+    ],
+    "links": [[1, 1, 0, 2, 0, "IMAGE"]]
+  },
+  "profile": "default",
+  "session_id": "sess-two-step-abc",
+  "idempotency_key": "submit:new:arnold:default:two-step:abc123def456:uuid-1",
+  "pipeline_mode": "two_step"
+}
