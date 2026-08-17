@@ -774,14 +774,63 @@ def test_law_4_topology_is_computed_from_ir_edges() -> None:
     assert rendered["topology_source"] == "computed"
 
 
-def test_law_4_judge_lens_is_strict_subset_of_reply_lens() -> None:
-    from vibecomfy.porting.render import render
+def test_law_4_judge_lens_subset_is_enforced_at_render_boundary() -> None:
+    """Law 4 is ENFORCED in code: the render boundary is a typed check.
+
+    The harness passes the reply stage's lens set as ``ceiling=``; the judge
+    may request any subset of it, but requesting a lens the reply did not
+    receive raises :class:`LensSubsetViolation` — the reply's lens set is the
+    ceiling.  This is enforcement, not a vacuous dict-subset assertion.
+    """
+    from vibecomfy.porting.render import (
+        LensSubsetViolation,
+        render,
+        render_text,
+    )
 
     workflow = _tiny_workflow()
-    reply = render(workflow, lenses=("surface", "diff", "topology"), delta=())
-    judge = render(workflow, lenses=("diff", "topology"), delta=())
+    reply_lenses = ("surface", "diff", "topology")
+    reply = render(workflow, lenses=reply_lenses, delta=())
+
+    # A within-ceiling judge request renders the identical lens values and
+    # is a strict subset of the reply.
+    judge = render(
+        workflow,
+        lenses=("diff", "topology"),
+        delta=(),
+        ceiling=reply_lenses,
+    )
     assert set(judge) < set(reply)
     assert all(judge[key] == reply[key] for key in judge)
+
+    # A judge requesting a lens the reply did not get FAILS loudly.
+    with pytest.raises(LensSubsetViolation):
+        render(
+            workflow,
+            lenses=("census",),
+            delta=(),
+            ceiling=reply_lenses,
+        )
+    # The single-lens form is enforced identically.
+    with pytest.raises(LensSubsetViolation):
+        render(workflow, "census", ceiling=reply_lenses)
+    # The text boundary is enforced identically (judge text ⊆ reply text).
+    with pytest.raises(LensSubsetViolation):
+        render_text(
+            workflow,
+            lenses=("surface", "topology"),
+            ceiling=("diff",),
+        )
+    # A within-ceiling text request still renders fine.
+    judge_text = render_text(
+        workflow,
+        lenses=("diff", "topology"),
+        delta=(),
+        ceiling=reply_lenses,
+    )
+    assert judge_text is not None and "## Diff" in judge_text
+    # No ceiling supplied → no enforcement (backwards compatible).
+    assert render(workflow, "census") is not None
 
 
 # ── Law 4 (batch 11): composable renderer lens goldens ───────────────────────
@@ -916,127 +965,90 @@ def test_law_4_topology_lens_has_no_truncation_cap() -> None:
     assert "orphans: <none>" in text
 
 
-def _controlnet_chain_raw_ui() -> dict[str, Any]:
-    """3c978e-style ControlNet chain wired by links 11, 13, 16, 17, 19, 20.
+# The REAL 3c978e specimen: the canonical 21-node / 25-edge workflow
+# (canonical hash 3c978e6c11a8a768d4646bf6283d97b405a33034adf3f786fe90d3c2dd127905)
+# from the recovery corpus, copied verbatim into tests/fixtures/.  It is the
+# workflow whose ControlNet chain (raw links 11, 13, 16, 17, 19, 20) was the
+# actual ``[:20]`` truncation failure: a toy 6-edge facsimile cannot lose a
+# ControlNet chain to truncation, so this test uses the real specimen.
+_3C978E_FIXTURE = REPO_ROOT / "tests/fixtures/3c978e6c11a8a768.json"
 
-    Mirrors the 3c978e6c11a8a768 workflow's ControlNet section: a
-    ControlNetLoaderAdvanced feeding a chain of ControlNetApply nodes.  The
-    raw link ids are the 3c978e ids; the IR edges do not retain raw link ids,
-    so the lens must include EVERY edge of the chain with named endpoints —
-    no truncation loss.
+# The complete ControlNet chain in IR terms, with named endpoints:
+#   link 11: 15 -> 16 (ControlNetApply conditioning)
+#   link 13: 18 -> 16 (VHS_LoadVideo image)
+#   link 16: 25 -> 26 (VHS_LoadVideo image)
+#   link 17: 26 -> 3  (ControlNetApply positive -> KSampler)
+#   link 19: 33 -> 16 (ControlNetLoaderAdvanced control_net)
+#   link 20: 34 -> 26 (ControlNetLoaderAdvanced control_net)
+_3C978E_CONTROLNET_CHAIN: tuple[tuple[str, str, str, str], ...] = (
+    ("15", "0", "16", "conditioning"),
+    ("18", "0", "16", "image"),
+    ("25", "0", "26", "image"),
+    ("26", "0", "3", "positive"),
+    ("33", "0", "16", "control_net"),
+    ("34", "0", "26", "control_net"),
+)
+
+# All 21 node ids of the real specimen (node ids are not contiguous).
+_3C978E_NODE_IDS: tuple[str, ...] = (
+    "3", "4", "6", "7", "8", "10", "12", "13", "15", "16", "18",
+    "19", "20", "23", "25", "26", "32", "33", "34", "35", "36",
+)
+
+
+def _load_3c978e_workflow() -> dict[str, Any]:
+    """Load the real 3c978e specimen and prove it is the real one.
+
+    Guards the fixture itself: 21 nodes / 25 edges, matching the canonical
+    hash recorded in the corpus provenance.
     """
-
-    def node(
-        nid: int,
-        class_type: str,
-        *,
-        inputs: list[dict[str, Any]] | None = None,
-        outputs: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        built: dict[str, Any] = {
-            "id": nid,
-            "type": class_type,
-            "class_type": class_type,
-            "widgets_values": [],
-        }
-        if inputs:
-            built["inputs"] = inputs
-        if outputs:
-            built["outputs"] = outputs
-        return built
-
-    return {
-        "nodes": [
-            node(
-                1,
-                "ControlNetLoaderAdvanced",
-                outputs=[{"name": "CONTROL_NET", "type": "CONTROL_NET", "links": [11], "slot_index": 0}],
-            ),
-            node(
-                2,
-                "LoadImage",
-                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13], "slot_index": 0}],
-            ),
-            node(
-                3,
-                "ControlNetApply",
-                inputs=[
-                    {"name": "conditioning", "type": "CONDITIONING", "link": None},
-                    {"name": "control_net", "type": "CONTROL_NET", "link": 11, "slot_index": 1},
-                    {"name": "image", "type": "IMAGE", "link": 13, "slot_index": 2},
-                    {"name": "strength", "type": "FLOAT", "link": None},
-                ],
-                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [16], "slot_index": 0}],
-            ),
-            node(
-                4,
-                "ControlNetApply",
-                inputs=[
-                    {"name": "conditioning", "type": "CONDITIONING", "link": None},
-                    {"name": "control_net", "type": "CONTROL_NET", "link": None},
-                    {"name": "image", "type": "IMAGE", "link": 16, "slot_index": 2},
-                    {"name": "strength", "type": "FLOAT", "link": None},
-                ],
-                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [17], "slot_index": 0}],
-            ),
-            node(
-                5,
-                "ControlNetApply",
-                inputs=[{"name": "image", "type": "IMAGE", "link": 17, "slot_index": 2}],
-                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [19], "slot_index": 0}],
-            ),
-            node(
-                6,
-                "ControlNetApply",
-                inputs=[{"name": "image", "type": "IMAGE", "link": 19, "slot_index": 2}],
-                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [20], "slot_index": 0}],
-            ),
-            node(
-                7,
-                "ControlNetApply",
-                inputs=[{"name": "image", "type": "IMAGE", "link": 20, "slot_index": 2}],
-            ),
-        ],
-        "links": [
-            [11, 1, 0, 3, 1, "CONTROL_NET"],
-            [13, 2, 0, 3, 2, "IMAGE"],
-            [16, 3, 0, 4, 2, "IMAGE"],
-            [17, 4, 0, 5, 2, "IMAGE"],
-            [19, 5, 0, 6, 2, "IMAGE"],
-            [20, 6, 0, 7, 2, "IMAGE"],
-        ],
-    }
+    with open(_3C978E_FIXTURE) as fh:
+        raw = json.load(fh)
+    assert len(raw["nodes"]) == 21, "3c978e fixture must be the 21-node specimen"
+    assert len(raw["edges"]) == 25, "3c978e fixture must be the 25-edge specimen"
+    source = raw.get("source") or {}
+    provenance = source.get("provenance") or {}
+    assert (
+        provenance.get("canonical_workflow_hash", "").startswith("3c978e6c11a8a768")
+    ), "3c978e fixture provenance must match the canonical specimen"
+    return raw
 
 
 def test_law_4_3c978e_controlnet_chain_topology_complete() -> None:
-    """3c978e: the topology lens includes the complete ControlNet chain.
+    """3c978e (REAL specimen, 21 nodes / 25 edges): topology lens is COMPLETE.
 
-    All six chain links (11, 13, 16, 17, 19, 20) must survive the ingest door
-    into IR edges and every one must appear in the topology lens with named
-    endpoints — computed from IR edges, never inferred from truncated prose.
+    The entire ControlNet chain (raw links 11, 13, 16, 17, 19, 20) survives
+    the ingest door into IR edges and every chain link appears in the
+    topology lens with named endpoints — proving no ``[:20]`` truncation
+    loss.  All 25 edges are present as facts and all 21 nodes appear in the
+    degree index.
     """
     from vibecomfy.porting.render import render, render_text
 
-    raw = _controlnet_chain_raw_ui()
+    raw = _load_3c978e_workflow()
     rendered = render(raw, lenses=("topology",))
     facts = tuple(rendered["topology"])
     assert rendered["topology_source"] == "computed"
-    assert len(facts) == 6
-    expected = (
-        ("1", "0", "3", "control_net"),
-        ("2", "0", "3", "image"),
-        ("3", "0", "4", "image"),
-        ("4", "0", "5", "image"),
-        ("5", "0", "6", "image"),
-        ("6", "0", "7", "image"),
-    )
-    assert facts == expected
+
+    # The complete ControlNet chain, by named endpoints.
+    for fact in _3C978E_CONTROLNET_CHAIN:
+        assert fact in facts, f"ControlNet chain link missing from topology: {fact}"
+
+    # No truncation: every one of the 25 edges is present as a fact.
+    assert len(facts) == 25
+
+    # The text view is equally complete: 21 nodes / 25 edges, every chain
+    # link rendered with named endpoints, and all 21 node ids in the index.
     text = render_text(raw, lenses=("topology",))
-    assert "1 -> 3 (1.0 -> 3.control_net)" in text
-    assert "6 -> 7 (6.0 -> 7.image)" in text
+    assert "21 node(s), 25 edge(s)" in text
     assert "edges:\n  <none>" not in text
-    for index in range(6):
-        assert text.count("->") >= 6  # every chain edge rendered
+    for origin, origin_socket, target, target_input in _3C978E_CONTROLNET_CHAIN:
+        assert (
+            f"{origin} -> {target} ({origin}.{origin_socket} -> "
+            f"{target}.{target_input})"
+        ) in text
+    for nid in _3C978E_NODE_IDS:
+        assert f"\n  {nid}:" in text, f"node {nid} missing from the topology index"
 
 
 

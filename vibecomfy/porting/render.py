@@ -24,9 +24,12 @@ Lenses
     the batch contains — nothing more, nothing inferred).
 
 The renderer is the single entry point for model-facing graph text.  A stage
-requests exactly the lens set it is allowed to see: the judge lens is a
-subset of the reply lens by construction, because ``render``/``render_text``
-never return a lens the caller did not request.
+requests exactly the lens set it is allowed to see — and Law 4 is ENFORCED at
+this boundary, not assumed: the harness passes the reply stage's lens set as
+``ceiling=`` and any requested lens outside that set raises
+:class:`LensSubsetViolation` (``judge_lens ⊆ reply_lens``; the reply's lens
+set is the ceiling).  ``render``/``render_text`` never return a lens the
+caller did not request.
 
 Inputs may be a :class:`~vibecomfy.workflow.VibeWorkflow` (the IR) or a raw
 graph dict (converted through the ingest door — never read structurally
@@ -56,11 +59,45 @@ _TOPOLOGY_SOURCE_COMPUTED = "computed"
 _MODE_LABELS = {0: "enabled", 2: "muted", 4: "bypassed"}
 
 
+class LensSubsetViolation(ValueError):
+    """Law 4: a stage requested a lens the reply stage did not receive.
+
+    Raised at the render/request boundary when ``ceiling=`` is supplied (the
+    reply stage's lens set) and the requested lens set is not a subset of it.
+    The reply's lens set is the ceiling: the judge cannot request a lens the
+    reply didn't get.
+    """
+
+
 def _require_lens(name: str) -> None:
     if name not in SUPPORTED_LENSES:
         raise ValueError(
             f"Unknown render lens {name!r}; supported lenses: "
             + ", ".join(sorted(SUPPORTED_LENSES))
+        )
+
+
+def _enforce_ceiling(names: Iterable[str], ceiling: Iterable[str] | None) -> None:
+    """Law 4: every requested lens must be within the reply's lens set.
+
+    *names* is the requesting stage's lens set (the judge's request);
+    *ceiling* is the reply stage's lens set.  When *ceiling* is ``None`` no
+    enforcement applies; when supplied, any requested lens outside it is a
+    typed :class:`LensSubsetViolation`.
+    """
+    if ceiling is None:
+        return
+    ceiling_set = frozenset(ceiling)
+    missing = [name for name in names if name not in ceiling_set]
+    if missing:
+        raise LensSubsetViolation(
+            "Law 4: requested lens(es) "
+            + ", ".join(repr(name) for name in missing)
+            + " not in the reply stage's lens set "
+            + "("
+            + ", ".join(sorted(ceiling_set))
+            + "); judge_lens must be a subset of reply_lens — the reply's "
+            "lens set is the ceiling."
         )
 
 
@@ -124,6 +161,7 @@ def render(
     *,
     lenses: Iterable[str] | None = None,
     delta: Any = (),
+    ceiling: Iterable[str] | None = None,
 ) -> str | tuple[tuple[str, str, str, str], ...] | dict[str, Any]:
     """Render *wf* through exactly the requested lens (set).
 
@@ -135,6 +173,11 @@ def render(
     same per-lens values.  When ``topology`` is requested the dict also
     carries ``topology_source: "computed"``.  A lens requested is a lens
     returned — never more (Law 4: judge lens ⊆ reply lens).
+
+    Law 4 is enforced here, not assumed: pass the reply stage's lens set as
+    ``ceiling=`` and any requested lens outside it raises
+    :class:`LensSubsetViolation` — the judge cannot request a lens the reply
+    didn't get; the reply's lens set is the ceiling.
     """
     if lens is not None and lenses is not None:
         raise TypeError("render() accepts lens= or lenses=, not both.")
@@ -145,11 +188,13 @@ def render(
 
     if lens is not None:
         _require_lens(lens)
+        _enforce_ceiling((lens,), ceiling)
         return _render_lens_value(workflow, lens, batch)
 
     names = tuple(lenses or ())
     for name in names:
         _require_lens(name)
+    _enforce_ceiling(names, ceiling)
     result: dict[str, Any] = {}
     for name in names:
         result[name] = _render_lens_value(workflow, name, batch)
@@ -163,20 +208,28 @@ def render_text(
     lenses: Iterable[str] = (LENS_SURFACE, LENS_TOPOLOGY),
     *,
     delta: Any = (),
+    ceiling: Iterable[str] | None = None,
 ) -> str | None:
     """Render the model-facing text for the requested lens set.
 
     This is the single entry point stages consume for graph text.  The
     topology contribution is the COMPLETE computed view (every node, every
     edge, computed index) — no truncation.  Returns ``None`` for no graph.
+
+    Law 4 is enforced here too: with ``ceiling=`` (the reply stage's lens
+    set), any requested lens outside it raises
+    :class:`LensSubsetViolation`.
     """
     if wf is None:
         return None
     workflow = _coerce_workflow(wf)
     batch = _normalise_delta(delta)
-    parts: list[str] = []
-    for name in lenses:
+    names = tuple(lenses)
+    for name in names:
         _require_lens(name)
+    _enforce_ceiling(names, ceiling)
+    parts: list[str] = []
+    for name in names:
         if name == LENS_TOPOLOGY:
             parts.append(_render_topology_text(workflow))
         else:
@@ -448,6 +501,7 @@ __all__ = [
     "LENS_DIFF",
     "LENS_SURFACE",
     "LENS_TOPOLOGY",
+    "LensSubsetViolation",
     "SUPPORTED_LENSES",
     "render",
     "render_text",
