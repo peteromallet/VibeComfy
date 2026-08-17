@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
@@ -138,6 +138,36 @@ INTERNAL_TO_PUBLIC_OUTCOME: Mapping[str, str] = MappingProxyType({
     "budget": "noop",
     "failure": "error",
 })
+
+
+def missing_runtime_classes_from_report(report: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return class names proven absent from a batch ``report`` payload."""
+    if not isinstance(report, Mapping):
+        return ()
+    blocker = report.get("authoring_blocker")
+    if not isinstance(blocker, Mapping):
+        return ()
+    raw = blocker.get("missing_runtime_classes")
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(str(item) for item in raw if item)
+
+
+def promote_requires_custom_nodes_outcome(
+    public_outcome: Mapping[str, Any],
+    *,
+    missing_classes: Sequence[str] = (),
+    unresolved_schema_terminal: bool = False,
+) -> dict[str, Any]:
+    """Rewrite a no-edit public outcome to ``requires_custom_nodes`` on proven absence."""
+    payload = dict(public_outcome)
+    names = tuple(str(item) for item in missing_classes if item)
+    if not names and not unresolved_schema_terminal:
+        return payload
+    payload["kind"] = "requires_custom_nodes"
+    if names:
+        payload["missing_classes"] = list(names)
+    return payload
 
 # Well-known keys that, when present on a response object, signal a failure.
 FAILURE_HINT_KEYS: tuple[str, ...] = (
@@ -2649,6 +2679,8 @@ __all__ = [
     "public_compact_diagnostic",
     "public_latest_candidate",
     "public_latest_turn_lifecycle",
+    "missing_runtime_classes_from_report",
+    "promote_requires_custom_nodes_outcome",
     "public_outcome_from_turn_outcome",
     "public_response_details",
     "public_session_json_payload",

@@ -664,6 +664,149 @@ def test_rc12d_untouched_unknown_class_does_not_veto_widget_only_edit() -> None:
     assert diagnostics.ok is True
 
 
+def test_rc13_empty_allowlist_defaults_on_missing_class(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Well-formed requires_custom_nodes + proven missing class + empty
+    previous allowlist is a grounded-refusal candidate."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    output_dir = tmp_path / "rc13-missing-class"
+    output_dir.mkdir()
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": [], "links": []}), encoding="utf-8"
+    )
+    (output_dir / "final.ui.json").write_text(
+        json.dumps({"nodes": [], "links": []}), encoding="utf-8"
+    )
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "outcome": {
+                    "kind": "requires_custom_nodes",
+                    "missing_classes": ["HotshotXLAnimateDiffLoader"],
+                },
+                "report": {
+                    "authoring_blocker": {
+                        "reason": "unresolved_runtime_classes",
+                        "missing_runtime_classes": ["HotshotXLAnimateDiffLoader"],
+                    }
+                },
+                "message": "HotshotXLAnimateDiffLoader is not installed.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: {
+            "pass_": True,
+            "criteria": {
+                "supported_blocker": True,
+                "no_representable_edit": True,
+                "specific_next_action": True,
+                "no_fabricated_inability": True,
+            },
+            "rationale": "class is absent from schema",
+        },
+    )
+    assessment = assess_live_output_dir(
+        output_dir,
+        scenario={
+            "query": "make this 16 frames with Hotshot",
+            "assessment": {"expect_graph_changed": True},
+            "_tags": {"requires_custom_nodes": True},
+        },
+    )
+    assert assessment["verdict"] == "pass"
+    assert any(item["judge"] == "grounded_refusal" for item in assessment["judge_results"])
+
+
+def test_rc13_face_mtcnn_refusal_still_fails_when_substitution_exists(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Face/kolors: allowlist is not sufficient; grounded_refusal stays authority."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    output_dir = tmp_path / "rc13-face"
+    output_dir.mkdir()
+    (output_dir / "original.ui.json").write_text(
+        json.dumps({"nodes": [{"id": 1, "type": "UltralyticsDetectorProvider"}], "links": []}),
+        encoding="utf-8",
+    )
+    (output_dir / "final.ui.json").write_text(
+        (output_dir / "original.ui.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "outcome": {"kind": "requires_custom_nodes"},
+                "message": "MTCNN is missing.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        lambda *args, **kwargs: {
+            "pass_": False,
+            "criteria": {
+                "supported_blocker": True,
+                "no_representable_edit": False,
+                "specific_next_action": True,
+                "no_fabricated_inability": False,
+            },
+            "rationale": "a BBOX_DETECTOR substitution is representable",
+        },
+    )
+    assessment = assess_live_output_dir(
+        output_dir,
+        scenario={
+            "query": "detect the face",
+            "assessment": {
+                "expect_graph_changed": True,
+                "allow_safe_refusal_outcome_kinds": [
+                    "clarify",
+                    "requires_custom_nodes",
+                ],
+            },
+        },
+    )
+    assert assessment["verdict"] != "pass"
+    assert any(
+        issue["check"] == "grounded_refusal" and issue["severity"] == "error"
+        for issue in assessment["issues"]
+    )
+
+
+def test_rc13_promote_missing_class_emits_requires_custom_nodes() -> None:
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    report = {
+        "authoring_blocker": {
+            "reason": "unresolved_runtime_classes",
+            "missing_runtime_classes": ["Rodin3D_Regular"],
+        }
+    }
+    assert missing_runtime_classes_from_report(report) == ("Rodin3D_Regular",)
+    promoted = promote_requires_custom_nodes_outcome(
+        {"kind": "clarify", "question": "install Rodin3D_Regular"},
+        missing_classes=("Rodin3D_Regular",),
+    )
+    assert promoted["kind"] == "requires_custom_nodes"
+    assert promoted["missing_classes"] == ["Rodin3D_Regular"]
+
+
 def test_named_fields_map_uses_executor_surface() -> None:
     original, post, ops = _fc240f_ui_pair()
     named = _named_fields_for_delta(

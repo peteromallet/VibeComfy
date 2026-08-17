@@ -1112,6 +1112,16 @@ def _build_batch_repl_response(
         internal_outcome,
         response={"candidate": candidate_payload},
     )
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    public_outcome = promote_requires_custom_nodes_outcome(
+        public_outcome,
+        missing_classes=missing_runtime_classes_from_report(state.report),
+        unresolved_schema_terminal=unresolved_schema_terminal,
+    )
     change_details = _change_details_payload(state, context)
     _prepare_narrative_artifact_paths(state)
     try:
@@ -1143,6 +1153,16 @@ def _build_batch_repl_response(
         message,
         internal_outcome=internal_outcome,
         public_outcome=public_outcome,
+    )
+    from vibecomfy.comfy_nodes.agent.contracts import (
+        missing_runtime_classes_from_report,
+        promote_requires_custom_nodes_outcome,
+    )
+
+    public_outcome = promote_requires_custom_nodes_outcome(
+        public_outcome,
+        missing_classes=missing_runtime_classes_from_report(state.report),
+        unresolved_schema_terminal=unresolved_schema_terminal,
     )
     gate_snapshot = context.gate_snapshot()
     response = success_envelope(
