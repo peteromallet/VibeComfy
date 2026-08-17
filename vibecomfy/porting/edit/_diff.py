@@ -532,6 +532,9 @@ class _DiffMixin:
             return self._summarize_remove_link(op)
         if isinstance(op, SetModeOp):
             return self._summarize_set_mode(op)
+        if isinstance(op, SubgraphInterfaceOp):
+            target = op.id or op.name or "subgraph"
+            return f"{op.action.capitalize()} subgraph interface {target}."
         return ""
 
     def _summarize_set_node_field(self, op: SetNodeFieldOp) -> str:

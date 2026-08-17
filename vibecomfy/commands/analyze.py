@@ -22,7 +22,7 @@ from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import VibeWorkflow
 
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 ANALYSIS_FORMATS = ("text", "json", "tsv")
 
 

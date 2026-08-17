@@ -519,13 +519,36 @@ export function assertRestorationStrategyCompensation(value, authority) {
   return digestCompensation(value, authority);
 }
 
+// ── Sole durable Δ: plan.accepted_batch + operation.accepted_batch_digest ────
+//
+// Forward ops are derived from plan.accepted_batch[*].op. operation.ops is a
+// deleted durable copy and is rejected on current envelopes.
+
+export function forwardOpsFromAcceptedBatch(acceptedBatch) {
+  if (!Array.isArray(acceptedBatch)) return [];
+  const ops = [];
+  for (const statement of acceptedBatch) {
+    if (_isPlainObject(statement) && _isPlainObject(statement.op)) {
+      ops.push(statement.op);
+    }
+  }
+  return ops;
+}
+
+export function acceptedBatchDigest(acceptedBatch) {
+  return sha256Hex({
+    schema_version: "2.0.0",
+    ops: forwardOpsFromAcceptedBatch(acceptedBatch),
+  });
+}
+
 // ── Family contract binding (§1.5 / §2.5) ────────────────────────────────────
 
-function _bindFamilyContracts(raw, family) {
+function _bindFamilyContracts(raw, family, forwardOps) {
   const operation = raw.operation;
-  const ops = _isPlainObject(operation) ? operation.ops : null;
+  const ops = Array.isArray(forwardOps) ? forwardOps : [];
   if (family === "layout") {
-    if (operation.ops && operation.ops.length > 0) {
+    if (ops.length > 0) {
       throw _fail("Layout family requires empty structural ops", "layout_family_requires_empty_structural_ops");
     }
     const layout = operation.layout_operation;
@@ -563,20 +586,29 @@ function _bindFamilyContracts(raw, family) {
 
 // ── Common authority validator ───────────────────────────────────────────────
 
-function validateAuthorityCommon(raw, contract) {
+function validateAuthorityCommon(raw, contract, options = {}) {
   if (!raw || raw.contract_version !== contract) { throw _fail("Unsupported authority version.", "unknown_authority_version"); }
   ["transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash"].forEach((key) => issuedIdentityV1(raw[key], key)); workflowIdentityV1(raw.workflow_id); assertRootScopeV1(raw.scope);
   if (raw.authority_receipt_contract_version !== AUTHORITY_RECEIPT_CONTRACT_VERSION) { throw _fail("Authority receipt contract version must be explicit.", "unknown_authority_receipt_version"); }
   if (raw.authority_receipt_delta_schema !== DELTA_SCHEMA_VERSION) { throw _fail("Authority receipt delta schema must match delta_v1.", "authority_receipt_delta_schema_mismatch"); }
   if (typeof raw.authority_receipt_digest !== "string" || !/^[0-9a-f]{64}$/.test(raw.authority_receipt_digest)) { throw _fail("Authority receipt digest must be exact lowercase SHA-256.", "invalid_authority_receipt_digest"); }
-  if (!raw.operation || raw.operation.delta_contract !== "delta_v1" || raw.operation.wire_version !== DELTA_SCHEMA_VERSION || !Array.isArray(raw.operation.ops)) { throw _fail("Operation must explicitly bind delta_v1 to wire 2.0.0.", "invalid_delta_contract"); }
-  const envelope = normalizeDeltaEnvelope({ schema_version: raw.operation.wire_version, ops: raw.operation.ops }, { strict: true }); ensureRootScopedOps(envelope.ops);
+  const operation = raw.operation;
+  if (!operation || operation.delta_contract !== "delta_v1" || operation.wire_version !== DELTA_SCHEMA_VERSION) { throw _fail("Operation must explicitly bind delta_v1 to wire 2.0.0.", "invalid_delta_contract"); }
+  if (Object.prototype.hasOwnProperty.call(operation, "ops")) { throw _fail("operation must not persist ops; accepted_batch is the durable Δ", "durable_delta_ops_copy"); }
+  const batchDigest = operation.accepted_batch_digest;
+  if (typeof batchDigest !== "string" || !_HEX64.test(batchDigest)) { throw _fail("Operation must reference accepted_batch by digest", "invalid_delta_contract"); }
+  const accepted_batch = options.accepted_batch;
+  const forwardOps = forwardOpsFromAcceptedBatch(accepted_batch);
+  if (accepted_batch !== undefined && accepted_batch !== null) {
+    if (batchDigest !== acceptedBatchDigest(accepted_batch)) { throw _fail("accepted_batch_digest does not match plan.accepted_batch", "accepted_batch_digest_mismatch"); }
+    const envelope = normalizeDeltaEnvelope({ schema_version: operation.wire_version, ops: forwardOps }, { strict: true }); ensureRootScopedOps(envelope.ops);
+  }
   if (!["structural", "layout"].includes(raw.operation_family)) { throw _fail("Unknown operation family.", "unknown_operation_family"); }
   const expected = raw.operation_family === "layout" ? "layout_v1" : "structural_v1"; assertForwardProjectionV1(expected); assertProjectionReferenceV1(raw.precondition, { expected }); assertProjectionReferenceV1(raw.postcondition, { expected });
   if (raw.rollback_projection !== expected) { throw _fail("Rollback projection must equal forward projection family.", "rollback_projection_mismatch"); }
   if (raw.operation_family === "layout") { const structural = raw.structural_witness; assertProjectionReferenceV1(structural, { expected: "structural_v1" }); if (structural.precondition_digest !== structural.postcondition_digest) { throw _fail("Layout requires structural no-op witness.", "layout_structural_witness_mismatch"); } }
-  _bindFamilyContracts(raw, raw.operation_family);
-  digest(raw.restoration_strategy, { family: raw.operation_family, forwardOps: raw.operation.ops });
+  _bindFamilyContracts(raw, raw.operation_family, forwardOps);
+  digest(raw.restoration_strategy, { family: raw.operation_family, forwardOps });
   // Prepare-owned optional compensation slot: validated only on prepared authority.
   if (Object.prototype.hasOwnProperty.call(raw, "restoration_strategy_compensation") && raw.contract_version === PREPARED_AUTHORITY_V1) {
     digestCompensation(raw.restoration_strategy_compensation, raw);
@@ -584,15 +616,15 @@ function validateAuthorityCommon(raw, contract) {
   return raw;
 }
 
-export function validateCandidateAuthorityV1(raw) {
-  validateAuthorityCommon(raw, CANDIDATE_AUTHORITY_V1);
+export function validateCandidateAuthorityV1(raw, options = {}) {
+  validateAuthorityCommon(raw, CANDIDATE_AUTHORITY_V1, options);
   if (Object.hasOwn(raw, "generation") || Object.hasOwn(raw, "lease_nonce")) { throw _fail("Candidate authority cannot infer prepare identity.", "unexpected_prepare_identity"); }
   if (Object.hasOwn(raw, "restoration_strategy_compensation")) { throw _fail("Candidate authority may not carry restoration_strategy_compensation.", "candidate_compensation_forbidden"); }
   return freeze(clone({ ...raw, operation: { ...raw.operation } }));
 }
 
-export function validatePreparedAuthorityV1(raw) {
-  validateAuthorityCommon(raw, PREPARED_AUTHORITY_V1);
+export function validatePreparedAuthorityV1(raw, options = {}) {
+  validateAuthorityCommon(raw, PREPARED_AUTHORITY_V1, options);
   issuedIdentityV1(raw.lease_nonce, "lease_nonce");
   if (!Number.isInteger(raw.generation) || raw.generation <= 0) { throw _fail("generation must be positive.", "invalid_generation"); }
   return freeze(clone({ ...raw, operation: { ...raw.operation } }));
@@ -610,11 +642,12 @@ const _TRANSITION_KEYS = [
 export function validateCandidateTransactionV2(value) {
   if (!value || value.contract_version !== CANDIDATE_TRANSACTION_V2) { throw _fail("Unsupported candidate transaction version.", "unsupported_candidate_transaction"); }
   if (!value.candidate_authority) { throw _fail("candidate_transaction_v2 requires candidate_authority_v1.", "missing_candidate_authority"); }
-  const candidate = validateCandidateAuthorityV1(value.candidate_authority);
+  const accepted_batch = _isPlainObject(value.plan) ? value.plan.accepted_batch : undefined;
+  const candidate = validateCandidateAuthorityV1(value.candidate_authority, { accepted_batch });
   const preparedStates = new Set(["prepared", "canvas_verified", "finalized", "rollback_complete", "superseded"]);
   if (["candidate_ready", "recoverable_error", "discarded"].includes(value.state)) { if (value.prepared_authority != null) { throw _fail("Unprepared transaction carries prepared authority.", "unexpected_prepared_authority"); } return candidate; }
   if (!preparedStates.has(value.state)) { throw _fail("Unknown candidate transaction state.", "invalid_candidate_transaction_state"); }
-  const prepared = validatePreparedAuthorityV1(value.prepared_authority);
+  const prepared = validatePreparedAuthorityV1(value.prepared_authority, { accepted_batch });
   for (const key of _TRANSITION_KEYS) {
     if (JSON.stringify(prepared[key]) !== JSON.stringify(candidate[key])) {
       throw _fail("Prepared authority changed candidate-time authority.", "prepared_authority_transition_mismatch");

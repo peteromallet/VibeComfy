@@ -13,7 +13,7 @@ from vibecomfy.porting.widgets.settings_contract import node_settings_for
 from vibecomfy.schema import socket_types_compatible
 
 
-from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 _WIDGET_KEY_RE = re.compile(r"widget_(\d+)$")
 
 

@@ -23,6 +23,7 @@ from vibecomfy.porting.edit._ir_utils import (
     apply_edit_cow,
 )
 from vibecomfy.porting.edit._parse import (
+    _channel_side_unpack,
     _fold_constant,
     _is_graph_reference_value,
     _parse_and_validate_batch,
@@ -59,9 +60,13 @@ from vibecomfy.porting.edit.ops import (
 from vibecomfy.porting.edit.constants import (
     HELPER_NODE_TYPES,
     MODE_LABELS,
-    WIDGET_CHANNEL_SIDE_KEY as _WIDGET_CHANNEL_SIDE_KEY,
 )
-from vibecomfy.identity.codec import _BUILTIN_NAMES, to_python_identifier, to_raw_name
+from vibecomfy.identity.codec import (
+    _BUILTIN_NAMES,
+    encode_slot_names,
+    to_python_identifier,
+    to_raw_name,
+)
 from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
 from vibecomfy.porting.edit._resolve import (
@@ -490,6 +495,7 @@ class _InterpretRunner:
         near_ref: NodeTarget | None = None
         group_title: str | None = None
         widget_field_names: tuple[str, ...] = ()
+        emit_order_names: tuple[str, ...] = ()
         exec_io_value: Any = None
         if class_type == _EXEC_CLASS_TYPE:
             for keyword in value.keywords:
@@ -498,28 +504,11 @@ class _InterpretRunner:
                     break
         for keyword in value.keywords:
             if keyword.arg is None:
-                literal, literal_issue = _fold_constant(keyword.value, env=item.env)
-                if literal_issue is not None:
-                    issues.append(literal_issue)
-                    continue
-                if (
-                    isinstance(literal, dict)
-                    and set(literal) == {_WIDGET_CHANNEL_SIDE_KEY}
-                ):
-                    names = literal[_WIDGET_CHANNEL_SIDE_KEY]
-                    if isinstance(names, (list, tuple)) and all(
-                        isinstance(name, str) for name in names
-                    ):
-                        widget_field_names = tuple(str(name) for name in names)
-                    else:
-                        issues.append(
-                            _diag(
-                                "invalid_widget_channel_side",
-                                f"{_WIDGET_CHANNEL_SIDE_KEY!r} must be a sequence of field names.",
-                                severity="error",
-                                detail={"target_name": target_name},
-                            )
-                        )
+                side = _channel_side_unpack(keyword, env=item.env)
+                if side is not None:
+                    widget_field_names, emit_order_names, side_issue = side
+                    if side_issue is not None:
+                        issues.append(side_issue)
                     continue
                 issues.append(
                     _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
@@ -636,6 +625,10 @@ class _InterpretRunner:
                 issues.extend(_port_issues(hard))
                 continue
             fields[name] = literal
+        roster = emit_order_names or widget_field_names
+        if roster:
+            fields = _remap_encoded_field_names(fields, roster)
+            linked = _remap_encoded_field_names(linked, roster)
         if class_type == _EXEC_CLASS_TYPE:
             normalized_io = _normalize_exec_io(fields.get("io", exec_io_value))
             if normalized_io is None or (
@@ -1435,6 +1428,22 @@ def _surface_field_name(
     return _decode_kwarg_name(
         name, schema_inputs, class_type, schema_provider=schema_provider
     )
+
+
+def _remap_encoded_field_names(
+    fields: Mapping[str, Any],
+    raw_names: Sequence[str],
+) -> dict[str, Any]:
+    """Restore emit's ``encode_slot_names`` encoding to the roster's raw names."""
+    if not raw_names:
+        return dict(fields)
+    raw_list = [str(name) for name in raw_names]
+    raw_set = set(raw_list)
+    reverse = {encoded: raw for raw, encoded in encode_slot_names(raw_list).items()}
+    return {
+        (name if name in raw_set else reverse.get(name, name)): value
+        for name, value in fields.items()
+    }
 
 
 def _decode_kwarg_name(

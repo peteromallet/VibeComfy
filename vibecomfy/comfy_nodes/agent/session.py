@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes
 import hashlib
 import json
 import logging
@@ -999,6 +998,8 @@ def iter_turn_records(
         else:
             outcome = lifecycle or "?"
 
+        from vibecomfy.ingest.normalize import door_get_nodes
+
         candidate_graph = response.get("graph")
         candidate_nodes = (
             len(door_get_nodes(candidate_graph, []))
@@ -1847,7 +1848,9 @@ def _load_authoritative_candidate_transaction(
     from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
 
     plan_envelope = derived_accepted_delta_envelope({"accepted_batch": accepted})
-    if authority.cumulative_delta_envelope != plan_envelope:
+    plan_digest = payload_hash(plan_envelope)
+    receipt_digest = authority.accepted_batch_digest or authority.cumulative_delta_hash
+    if plan_digest != receipt_digest:
         return None, "authority_delta_mismatch"
     if plan.get("delta_hash") != authority.cumulative_delta_hash:
         return None, "authority_delta_hash_mismatch"
@@ -4025,7 +4028,7 @@ def record_idempotent_response(
             and authority_receipt is not None
             and isinstance(candidate_plan_hash, str)
             and isinstance(candidate_structural_graph_hash, str)
-            and isinstance(authority_receipt.cumulative_delta_envelope, Mapping)
+            and isinstance(authority_receipt.accepted_batch_digest or authority_receipt.cumulative_delta_hash, str)
             and isinstance(authority_receipt.cumulative_delta_hash, str)
             and isinstance(authority_receipt.schema_witness, Mapping)
         )
@@ -4068,9 +4071,12 @@ def record_idempotent_response(
             layout_operation_envelope = build_layout_operation_envelope(
                 submit_graph, candidate_graph
             )
+        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
         accepted_batch = stamped_response.get("accepted_batch")
         if not isinstance(accepted_batch, list):
             accepted_batch = []
+        accepted_ops = list(_ops_from_accepted_batch(stamped_response))
         transaction = build_candidate_transaction(
             workflow_id=workflow_id,
             session_id=session_id,
@@ -4099,12 +4105,10 @@ def record_idempotent_response(
             applyable=applyable,
             state="candidate_ready" if applyable else "recoverable_error",
             mutation_materialization_envelope=(
-                build_mutation_materialization_v1(
-                    authority_receipt.cumulative_delta_envelope.get("ops", [])
-                )
+                build_mutation_materialization_v1(accepted_ops)
                 if any(
                     isinstance(op, Mapping) and op.get("op") == "add_node"
-                    for op in authority_receipt.cumulative_delta_envelope.get("ops", [])
+                    for op in accepted_ops
                 )
                 else None
             ),

@@ -38,7 +38,7 @@ from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
 
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_setdefault_links
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_setdefault_links
 def _export_ready_ui(ready_id: str) -> dict | None:
     """Emit a schema'd golden UI graph for a ready template via offline port export.
 

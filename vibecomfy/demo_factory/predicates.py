@@ -11,7 +11,7 @@ from enum import Enum
 import re
 from typing import Any, Literal
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_links
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_links
 # Sentinel: returned by :func:`_find_additive_witness` when no witness node
 # satisfies the additive contract.  Distinct from a valid (string) node id.
 _ADDITIVE_WITNESS_MISS: str | None = None

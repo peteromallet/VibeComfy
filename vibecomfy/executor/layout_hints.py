@@ -18,7 +18,7 @@ its reason and requested anchors recorded in the result.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 import hashlib
 import json
 from dataclasses import dataclass

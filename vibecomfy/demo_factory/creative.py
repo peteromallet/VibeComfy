@@ -15,7 +15,7 @@ from typing import Any
 
 from vibecomfy.porting.object_info import get_class
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
 # The creative bar: seed the proposer with these examples of subtle bugs
 _BUG_EXAMPLES = """
 ## Creative, realistic, single-cause defects (the bar we aim for):

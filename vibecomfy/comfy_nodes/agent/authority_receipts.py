@@ -125,8 +125,8 @@ class AuthorityReceipt:
         turn_id: Turn identifier.
         submit_graph_hash: Hash of the submit graph (canonical JSON).
         submit_graph_bytes_sha256: SHA-256 of the canonical submit graph bytes.
-        cumulative_delta_envelope: The normalized cumulative V2 delta envelope.
-        cumulative_delta_hash: Hash of the cumulative delta envelope.
+        accepted_batch_digest: Hash of the sole durable Δ (accepted_batch).
+        cumulative_delta_hash: Same digest; reference to accepted_batch, not ops.
         candidate_hash: Hash of the persisted candidate graph.
         replay: Replay verification result.
         response_metadata: Hashes of response metadata fields.
@@ -138,7 +138,7 @@ class AuthorityReceipt:
     turn_id: str
     submit_graph_hash: str | None
     submit_graph_bytes_sha256: str | None
-    cumulative_delta_envelope: dict[str, Any] | None
+    accepted_batch_digest: str | None
     cumulative_delta_hash: str | None
     candidate_hash: str | None
     schema_witness: dict[str, Any] | None
@@ -159,7 +159,7 @@ class AuthorityReceipt:
             "turn_id": self.turn_id,
             "submit_graph_hash": self.submit_graph_hash,
             "submit_graph_bytes_sha256": self.submit_graph_bytes_sha256,
-            "cumulative_delta_envelope": self.cumulative_delta_envelope,
+            "accepted_batch_digest": self.accepted_batch_digest,
             "cumulative_delta_hash": self.cumulative_delta_hash,
             "candidate_hash": self.candidate_hash,
             "schema_witness": self.schema_witness,
@@ -180,7 +180,9 @@ class AuthorityReceipt:
         meta = ResponseMetadataHashes.from_dict(meta_data) if isinstance(meta_data, Mapping) else ResponseMetadataHashes(
             response_hash=None, eligibility_hash=None, outcome_hash=None,
         )
-        envelope = data.get("cumulative_delta_envelope")
+        digest = data.get("accepted_batch_digest")
+        if not isinstance(digest, str):
+            digest = data.get("cumulative_delta_hash")
         schema_witness = data.get("schema_witness")
         receipt = cls(
             schema_version=(
@@ -192,7 +194,7 @@ class AuthorityReceipt:
             turn_id=data.get("turn_id", ""),
             submit_graph_hash=data.get("submit_graph_hash"),
             submit_graph_bytes_sha256=data.get("submit_graph_bytes_sha256"),
-            cumulative_delta_envelope=dict(envelope) if isinstance(envelope, Mapping) else None,
+            accepted_batch_digest=digest if isinstance(digest, str) else None,
             cumulative_delta_hash=data.get("cumulative_delta_hash"),
             candidate_hash=data.get("candidate_hash"),
             schema_witness=(
@@ -216,13 +218,13 @@ class AuthorityReceipt:
     def is_applyable(self) -> bool:
         """Only ``True`` when replay succeeded and candidate matches exactly."""
         witness_ok, _ = validate_schema_witness(self.schema_witness)
+        digest = self.accepted_batch_digest or self.cumulative_delta_hash
         return (
             self.contract_version == AUTHORITY_RECEIPT_CONTRACT_VERSION
             and self.schema_version == "2.0.0"
-            and isinstance(self.cumulative_delta_envelope, Mapping)
-            and self.cumulative_delta_envelope.get("schema_version") == self.schema_version
-            and isinstance(self.cumulative_delta_envelope.get("ops"), list)
-            and self.cumulative_delta_hash == payload_hash(self.cumulative_delta_envelope)
+            and isinstance(digest, str)
+            and len(digest) == 64
+            and self.cumulative_delta_hash == digest
             and witness_ok
             and self.schema_witness_hash == self.schema_witness.get("witness_hash")
             and self.replay.replay_ok
@@ -557,7 +559,7 @@ def build_authority_receipt(
         turn_id=turn_id,
         submit_graph_hash=submit_graph_hash,
         submit_graph_bytes_sha256=submit_graph_bytes_sha256,
-        cumulative_delta_envelope=delta_envelope_dict,
+        accepted_batch_digest=cumulative_delta_hash,
         cumulative_delta_hash=cumulative_delta_hash,
         candidate_hash=candidate_hash,
         schema_witness=schema_witness,

@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, Mapping
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 _ConvertUiToApi = Callable[[dict[str, Any]], Mapping[str, Any]]
 _convert_ui_to_api: _ConvertUiToApi | None = None
 _IMPORT_ERROR: BaseException | None = None

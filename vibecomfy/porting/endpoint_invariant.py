@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
 
-from vibecomfy.ingest.door_access import door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_widgets_values
 UNKNOWN_OUTPUT_SLOT = "unknown_output_slot"
 UNKNOWN_TARGET_INPUT = "unknown_target_input"
 SOURCE_SLOT_OUT_OF_BOUNDS = "source_slot_out_of_bounds"

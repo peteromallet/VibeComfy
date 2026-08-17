@@ -6,7 +6,7 @@ field-by-field.
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_links, door_nodes
 import json
 import copy
 from dataclasses import dataclass, field

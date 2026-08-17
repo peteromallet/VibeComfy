@@ -16,7 +16,7 @@ import time
 from typing import Any, Mapping
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 _BATCH_PROTOCOL_RETRY_PROMPT = """Your previous response could not be applied because it did not include a valid batch block.
 
 Reply in exactly this format:

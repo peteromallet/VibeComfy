@@ -6,7 +6,7 @@ changed the right place but the edit does not actually achieve the nl_intent.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 import copy
 import json
 from dataclasses import dataclass

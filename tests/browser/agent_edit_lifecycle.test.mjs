@@ -2,14 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DELTA_DIAGNOSTIC_LEGACY_SHAPE,
-  DELTA_DIAGNOSTIC_MALFORMED,
-  DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
-  DELTA_SCHEMA_VERSION,
-  DeltaDiagnosticError,
-} from "../../vibecomfy/comfy_nodes/web/canonical_delta.js";
-
-import {
   PANEL_STATE,
   LIFECYCLE_STATE_FIELDS,
   RENDER_SECTIONS,
@@ -60,6 +52,10 @@ function canonicalTransaction(deltaOps = [], overrides = {}) {
     deltaOps,
     overrides,
   });
+}
+
+function acceptedBatch(ops) {
+  return ops.map((op) => ({ op }));
 }
 
 function assertBaselineDefaults(state) {
@@ -455,47 +451,46 @@ test("normalizeDeltaOpsFromSubmit returns null for non-object input", () => {
   assert.equal(normalizeDeltaOpsFromSubmit(42), null);
 });
 
-test("normalizeDeltaOpsFromSubmit returns null when delta_ops is absent", () => {
+test("normalizeDeltaOpsFromSubmit returns null when accepted_batch is absent", () => {
   assert.equal(normalizeDeltaOpsFromSubmit({}), null);
   assert.equal(normalizeDeltaOpsFromSubmit({ ok: true }), null);
 });
 
-test("normalizeDeltaOpsFromSubmit returns null when delta_ops is not an array", () => {
-  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: "not-array" }), null);
-  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: 123 }), null);
-  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: {} }), null);
+test("normalizeDeltaOpsFromSubmit returns null when accepted_batch is not an array", () => {
+  assert.equal(normalizeDeltaOpsFromSubmit({ accepted_batch: "not-array" }), null);
+  assert.equal(normalizeDeltaOpsFromSubmit({ accepted_batch: 123 }), null);
+  assert.equal(normalizeDeltaOpsFromSubmit({ accepted_batch: {} }), null);
 });
 
-test("normalizeDeltaOpsFromSubmit returns empty array for empty delta_ops", () => {
-  assert.deepEqual(normalizeDeltaOpsFromSubmit({ delta_ops: [] }), []);
+test("normalizeDeltaOpsFromSubmit returns empty array for empty accepted_batch", () => {
+  assert.deepEqual(normalizeDeltaOpsFromSubmit({ accepted_batch: [] }), []);
 });
 
-test("normalizeDeltaOpsFromSubmit normalizes valid delta_ops entries", () => {
+test("normalizeDeltaOpsFromSubmit extracts ops from accepted_batch statements", () => {
   const result = {
-    delta_ops: [
+    accepted_batch: acceptedBatch([
       { op: "set_node_field", target: ["nodes", 3, "widgets_values", 0], value: "hello" },
       { op: "set_mode", target: ["mode"], value: 4 },
-    ],
+    ]),
   };
   const normalized = normalizeDeltaOpsFromSubmit(result);
   assert.ok(Array.isArray(normalized));
   assert.equal(normalized.length, 2);
   assert.equal(normalized[0].op, "set_node_field");
   assert.equal(normalized[1].op, "set_mode");
-  // Keys must be sorted
   assert.deepEqual(Object.keys(normalized[0]), ["op", "target", "value"]);
 });
 
-test("normalizeDeltaOpsFromSubmit skips entries without a valid op string", () => {
+test("normalizeDeltaOpsFromSubmit skips statements without an object op", () => {
   const result = {
-    delta_ops: [
-      { op: "set_node_field", target: ["nodes", 1], value: "keep" },
+    accepted_batch: [
+      { op: { op: "set_node_field", target: ["nodes", 1], value: "keep" } },
       { not_an_op: true },
-      { op: "", target: [] },
+      { op: "" },
       {},
       null,
       "invalid",
-      { op: "set_mode", target: ["mode"], value: 0 },
+      { op: { op: "set_mode", target: ["mode"], value: 0 } },
     ],
   };
   const normalized = normalizeDeltaOpsFromSubmit(result);
@@ -504,14 +499,14 @@ test("normalizeDeltaOpsFromSubmit skips entries without a valid op string", () =
   assert.equal(normalized[1].op, "set_mode");
 });
 
-test("normalizeDeltaOpsFromSubmit returns null when all entries are invalid", () => {
+test("normalizeDeltaOpsFromSubmit returns empty array when no statements have an object op", () => {
   const result = {
-    delta_ops: [
+    accepted_batch: [
       { not_an_op: true },
       { op: "" },
     ],
   };
-  assert.equal(normalizeDeltaOpsFromSubmit(result), null);
+  assert.deepEqual(normalizeDeltaOpsFromSubmit(result), []);
 });
 
 // ── deltaOps lifecycle ──────────────────────────────────────────────────────
@@ -527,7 +522,7 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
     result: {
       session_id: "sess-v2",
       turn_id: "t-v2",
-      delta_ops: deltaOps,
+      accepted_batch: acceptedBatch(deltaOps),
       candidate_transaction: canonicalTransaction(deltaOps),
       message: "V2 candidate ready",
       submit_graph_hash: "abc123",
@@ -2081,12 +2076,12 @@ test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clea
     { op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "sunset" },
   ];
 
-  // Step 1: candidate arrives with delta_ops
+  // Step 1: candidate arrives with accepted_batch
   transition(panel, "OK_CANDIDATE_RESPONSE", {
     result: {
       session_id: "sess-review",
       turn_id: "t-review",
-      delta_ops: deltaOps,
+      accepted_batch: acceptedBatch(deltaOps),
       message: "Review candidate",
       submit_graph_hash: "hash-review",
       canvas_apply_allowed: true,
@@ -2115,15 +2110,15 @@ test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clea
   assert.equal(panel.state.deltaOps[0].value, "sunset");
 });
 
-test("OK_CANDIDATE_RESPONSE sets deltaOps to null when submit result has malformed delta_ops", () => {
+test("OK_CANDIDATE_RESPONSE sets deltaOps to null when submit result has malformed accepted_batch", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
 
   transition(panel, "OK_CANDIDATE_RESPONSE", {
     result: {
       session_id: "sess-malformed",
       turn_id: "t-malformed",
-      delta_ops: "not-an-array", // malformed
-      message: "Bad delta_ops",
+      accepted_batch: "not-an-array",
+      message: "Bad accepted_batch",
       submit_graph_hash: "hash-bad",
       canvas_apply_allowed: true,
       queue_allowed: false,
@@ -2133,17 +2128,17 @@ test("OK_CANDIDATE_RESPONSE sets deltaOps to null when submit result has malform
     applyEligibility: { applyable: true },
   });
 
-  assert.equal(panel.state.deltaOps, null, "malformed delta_ops must produce null");
+  assert.equal(panel.state.deltaOps, null, "malformed accepted_batch must produce null");
 });
 
-test("OK_CANDIDATE_RESPONSE sets deltaOps to null when all delta_ops entries are invalid", () => {
+test("OK_CANDIDATE_RESPONSE sets deltaOps to empty when accepted_batch statements have no object op", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
 
   transition(panel, "OK_CANDIDATE_RESPONSE", {
     result: {
       session_id: "sess-invalid",
       turn_id: "t-invalid",
-      delta_ops: [
+      accepted_batch: [
         { not_an_op: true },
         { op: "" },
       ],
@@ -2157,7 +2152,7 @@ test("OK_CANDIDATE_RESPONSE sets deltaOps to null when all delta_ops entries are
     applyEligibility: { applyable: true },
   });
 
-  assert.equal(panel.state.deltaOps, null, "all-invalid entries must produce null");
+  assert.deepEqual(panel.state.deltaOps, [], "statements without an object op yield empty Δ");
 });
 
 test("terminal submit responses without session metadata do not trigger chat rehydrate", () => {
@@ -2219,7 +2214,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE extracts deltaOps from baseline.ra
     baseline: {
       baseline_turn_id: "t-base",
       baseline_graph_hash: "base-hash",
-      raw: { delta_ops: deltaOps },
+      raw: { accepted_batch: acceptedBatch(deltaOps) },
     },
     candidateGraph,
     candidateGraphHash: "rehydrate-hash",
@@ -2249,7 +2244,7 @@ test("deltaOps survives the full review cycle from OK_CANDIDATE_RESPONSE through
     result: {
       session_id: "sess-full",
       turn_id: "t-full",
-      delta_ops: deltaOps,
+      accepted_batch: acceptedBatch(deltaOps),
       message: "Full review",
       report: { changed: true },
       submit_graph_hash: "hash-full",
@@ -2401,7 +2396,7 @@ test("INVALIDATE_CANDIDATE clears deltaOps alongside other candidate fields", ()
 test("deltaOps is cleared and then repopulated across a submit→review→clear→new submit lifecycle", () => {
   const panel = makePanel({ phase: PANEL_STATE.IDLE });
 
-  // First submit cycle: candidate arrives with delta_ops
+  // First submit cycle: candidate arrives with accepted_batch
   transition(panel, "SUBMIT_START", { lastSubmit: { task: "edit prompt" } });
   assert.equal(panel.state.deltaOps, null, "cleared on submit start");
 
@@ -2409,7 +2404,7 @@ test("deltaOps is cleared and then repopulated across a submit→review→clear�
     result: {
       session_id: "sess-cycle",
       turn_id: "t-1",
-      delta_ops: [{ op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "cycle-1" }],
+      accepted_batch: acceptedBatch([{ op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "cycle-1" }]),
       message: "First candidate",
       submit_graph_hash: "hash-1",
       canvas_apply_allowed: true,
@@ -2436,7 +2431,7 @@ test("deltaOps is cleared and then repopulated across a submit→review→clear�
     result: {
       session_id: "sess-cycle",
       turn_id: "t-2",
-      delta_ops: [{ op: "set_mode", target: ["mode"], value: 3 }],
+      accepted_batch: acceptedBatch([{ op: "set_mode", target: ["mode"], value: 3 }]),
       message: "Second candidate",
       submit_graph_hash: "hash-2",
       canvas_apply_allowed: true,
@@ -6758,42 +6753,36 @@ test("assertApplyScopeConsistency: refuses when candidate is from different sess
 
 // ── T8: Canonical delta normalization in lifecycle ──────────────────────────
 
-test("normalizeDeltaOpsFromSubmit extracts ops from canonical delta_ops_envelope", () => {
+test("normalizeDeltaOpsFromSubmit extracts ops from accepted_batch", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [
-        { op: "set_node_field", target: ["", "n", "w"], value: "canonical" },
-      ],
-    },
+    accepted_batch: acceptedBatch([
+      { op: "set_node_field", target: ["", "n", "w"], value: "canonical" },
+    ]),
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
   assert.ok(Array.isArray(ops));
   assert.equal(ops.length, 1);
   assert.equal(ops[0].op, "set_node_field");
   assert.equal(ops[0].value, "canonical");
-  // No diagnostic set on success
   assert.equal(result._deltaDiagnostic, undefined);
 });
 
-test("normalizeDeltaOpsFromSubmit falls back to legacy flat delta_ops when no envelope", () => {
+test("normalizeDeltaOpsFromSubmit returns null for archived flat delta_ops", () => {
   const result = {
     delta_ops: [
       { op: "set_node_field", target: ["", "n", "w"], value: "legacy" },
     ],
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
-  assert.ok(Array.isArray(ops));
-  assert.equal(ops.length, 1);
-  assert.equal(ops[0].value, "legacy");
+  assert.equal(ops, null);
+  assert.equal(result._deltaDiagnostic.code, "missing_delta_ops");
 });
 
-test("normalizeDeltaOpsFromSubmit prefers delta_ops_envelope over delta_ops", () => {
+test("normalizeDeltaOpsFromSubmit reads accepted_batch and ignores archived delta_ops", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [{ op: "set_mode", target: ["", "m"], mode: 4 }],
-    },
+    accepted_batch: acceptedBatch([
+      { op: "set_mode", target: ["", "m"], mode: 4 },
+    ]),
     delta_ops: [
       { op: "set_node_field", target: ["", "n", "w"], value: 999 },
     ],
@@ -6803,67 +6792,51 @@ test("normalizeDeltaOpsFromSubmit prefers delta_ops_envelope over delta_ops", ()
   assert.equal(ops[0].op, "set_mode");
 });
 
-test("normalizeDeltaOpsFromSubmit sets _deltaDiagnostic on legacy wrapped delta_ops", () => {
+test("normalizeDeltaOpsFromSubmit sets _deltaDiagnostic on archived wrapped delta_ops", () => {
   const result = {
     delta_ops: { ops: [], diagnostics: [] },
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
   assert.equal(ops, null);
   assert.ok(result._deltaDiagnostic);
-  assert.equal(result._deltaDiagnostic.code, DELTA_DIAGNOSTIC_LEGACY_SHAPE);
-  assert.ok(result._deltaDiagnostic.message.includes("Legacy wrapped"));
+  assert.equal(result._deltaDiagnostic.code, "missing_delta_ops");
+  assert.ok(result._deltaDiagnostic.message.includes("accepted_batch"));
 });
 
-test("normalizeDeltaOpsFromSubmit passes add_node without uid through lenient validation (backend-trusted)", () => {
-  // The browser-side normalizeDeltaOpsFromSubmit uses lenient validation
-  // (strict=false) for canonical envelopes received from the backend.
-  // The backend pre-validates add_node identity before persistence,
-  // so the browser trusts the backend and does not re-reject here.
+test("normalizeDeltaOpsFromSubmit extracts add_node without uid from accepted_batch", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [
-        {
-          op: "add_node",
-          scope_path: "",
-          // missing uid — would be rejected in strict mode but passes lenient
-          node_id: "42",
-          class_type: "PreviewImage",
-          fields: {},
-          inputs: {},
-        },
-      ],
-    },
+    accepted_batch: acceptedBatch([
+      {
+        op: "add_node",
+        scope_path: "",
+        node_id: "42",
+        class_type: "PreviewImage",
+        fields: {},
+        inputs: {},
+      },
+    ]),
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
-  // Lenient validation passes this through; identity is checked downstream
   assert.ok(Array.isArray(ops));
   assert.equal(ops.length, 1);
   assert.equal(ops[0].op, "add_node");
   assert.equal(ops[0].node_id, "42");
-  assert.equal(ops[0].uid, undefined); // uid was not present
-  // No diagnostic on success
+  assert.equal(ops[0].uid, undefined);
   assert.equal(result._deltaDiagnostic, undefined);
 });
 
-test("normalizeDeltaOpsFromSubmit passes add_node without node_id through lenient validation (backend-trusted)", () => {
-  // Same as above — lenient validation passes add_node through even with
-  // missing node_id. The backend pre-validates these before persistence.
+test("normalizeDeltaOpsFromSubmit extracts add_node without node_id from accepted_batch", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [
-        {
-          op: "add_node",
-          scope_path: "",
-          uid: "uid-1",
-          // missing node_id
-          class_type: "PreviewImage",
-          fields: {},
-          inputs: {},
-        },
-      ],
-    },
+    accepted_batch: acceptedBatch([
+      {
+        op: "add_node",
+        scope_path: "",
+        uid: "uid-1",
+        class_type: "PreviewImage",
+        fields: {},
+        inputs: {},
+      },
+    ]),
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
   assert.ok(Array.isArray(ops));
@@ -6874,35 +6847,26 @@ test("normalizeDeltaOpsFromSubmit passes add_node without node_id through lenien
   assert.equal(result._deltaDiagnostic, undefined);
 });
 
-test("normalizeDeltaOpsFromSubmit returns null for empty canonical ops after filtering", () => {
-  // Canonical envelope with an unknown op
+test("normalizeDeltaOpsFromSubmit returns empty array when accepted_batch has no extractable ops", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [
-        { op: "noop" }, // unknown op
-      ],
-    },
+    accepted_batch: [
+      { not_an_op: true },
+    ],
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
-  assert.equal(ops, null);
-  assert.ok(result._deltaDiagnostic);
+  assert.deepEqual(ops, []);
+  assert.equal(result._deltaDiagnostic, undefined);
 });
 
 test("normalizeDeltaOpsFromSubmit passes through scoped ops for downstream scope checking", () => {
-  // The envelope validation accepts upsert_link with valid shapes;
-  // scope checking is deferred to ensureRootScopedOps
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [
-        {
-          op: "upsert_link",
-          from: ["sg:nested", "seed-node", "IMAGE"],
-          to: ["", "preview-node", "images"],
-        },
-      ],
-    },
+    accepted_batch: acceptedBatch([
+      {
+        op: "upsert_link",
+        from: ["sg:nested", "seed-node", "IMAGE"],
+        to: ["", "preview-node", "images"],
+      },
+    ]),
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
   assert.ok(Array.isArray(ops));
@@ -6910,36 +6874,31 @@ test("normalizeDeltaOpsFromSubmit passes through scoped ops for downstream scope
   assert.equal(ops[0].op, "upsert_link");
 });
 
-test("normalizeDeltaOpsFromSubmit sets _deltaDiagnostic on unknown op in canonical envelope", () => {
+test("normalizeDeltaOpsFromSubmit extracts accepted_batch ops without validating op names", () => {
   const result = {
-    delta_ops_envelope: {
-      schema_version: DELTA_SCHEMA_VERSION,
-      ops: [{ op: "rename_everything", target: ["", "u1"] }],
-    },
+    accepted_batch: acceptedBatch([
+      { op: "rename_everything", target: ["", "u1"] },
+    ]),
   };
   const ops = normalizeDeltaOpsFromSubmit(result);
-  assert.equal(ops, null);
-  assert.ok(result._deltaDiagnostic);
-  assert.equal(result._deltaDiagnostic.code, DELTA_DIAGNOSTIC_MALFORMED);
-  assert.ok(result._deltaDiagnostic.message.includes("Unsupported edit op"));
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].op, "rename_everything");
+  assert.equal(result._deltaDiagnostic, undefined);
 });
 
 // ── T8: Lifecycle transition with canonical delta envelope ─────────────────
 
-test("OK_CANDIDATE_RESPONSE normalizes canonical delta_ops_envelope into deltaOps", () => {
+test("OK_CANDIDATE_RESPONSE normalizes accepted_batch into deltaOps", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
 
   const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
     result: {
       session_id: "sess-canon",
       turn_id: "t-canon",
-      delta_ops_envelope: {
-        schema_version: DELTA_SCHEMA_VERSION,
-        ops: [
-          { op: "set_node_field", target: ["", "n1", "w1"], value: "canonical-val" },
-          { op: "set_mode", target: ["", "n2"], mode: 2 },
-        ],
-      },
+      accepted_batch: acceptedBatch([
+        { op: "set_node_field", target: ["", "n1", "w1"], value: "canonical-val" },
+        { op: "set_mode", target: ["", "n2"], mode: 2 },
+      ]),
       message: "Canonical V2 response",
       submit_graph_hash: "abc-canon",
       canvas_apply_allowed: true,
@@ -6965,20 +6924,17 @@ test("OK_CANDIDATE_RESPONSE with canonical add_node carries uid and node_id thro
     result: {
       session_id: "sess-add",
       turn_id: "t-add",
-      delta_ops_envelope: {
-        schema_version: DELTA_SCHEMA_VERSION,
-        ops: [
-          {
-            op: "add_node",
-            scope_path: "",
-            uid: "uid-prod-1",
-            node_id: "123",
-            class_type: "KSampler",
-            fields: { steps: 20 },
-            inputs: { model: ["", "loader", "MODEL"] },
-          },
-        ],
-      },
+      accepted_batch: acceptedBatch([
+        {
+          op: "add_node",
+          scope_path: "",
+          uid: "uid-prod-1",
+          node_id: "123",
+          class_type: "KSampler",
+          fields: { steps: 20 },
+          inputs: { model: ["", "loader", "MODEL"] },
+        },
+      ]),
       message: "Added KSampler",
       submit_graph_hash: "hash-add",
       canvas_apply_allowed: true,
@@ -7003,20 +6959,16 @@ test("OK_CANDIDATE_RESPONSE with leniently-validated add_node (missing uid) pass
     result: {
       session_id: "sess-malformed",
       turn_id: "t-malformed",
-      delta_ops_envelope: {
-        schema_version: DELTA_SCHEMA_VERSION,
-        ops: [
-          {
-            op: "add_node",
-            scope_path: "",
-            // Missing uid — passes lenient validation (backend trusted)
-            node_id: "42",
-            class_type: "PreviewImage",
-            fields: {},
-            inputs: {},
-          },
-        ],
-      },
+      accepted_batch: acceptedBatch([
+        {
+          op: "add_node",
+          scope_path: "",
+          node_id: "42",
+          class_type: "PreviewImage",
+          fields: {},
+          inputs: {},
+        },
+      ]),
       message: "Add node without uid",
       submit_graph_hash: "hash-lenient",
       canvas_apply_allowed: true,
@@ -7039,15 +6991,15 @@ test("OK_CANDIDATE_RESPONSE with leniently-validated add_node (missing uid) pass
   assert.deepEqual(panel.state.candidateGraph, { nodes: [{ id: 1 }] });
 });
 
-test("OK_CANDIDATE_RESPONSE with legacy wrapped delta_ops sets deltaOps null", () => {
+test("OK_CANDIDATE_RESPONSE with archived wrapped delta_ops sets deltaOps null", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
 
   const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
     result: {
       session_id: "sess-legacy",
       turn_id: "t-legacy",
-      delta_ops: { ops: [], diagnostics: [] }, // legacy wrapped shape
-      message: "Legacy wrapped response",
+      delta_ops: { ops: [], diagnostics: [] },
+      message: "Archived wrapped response",
       submit_graph_hash: "hash-legacy",
       canvas_apply_allowed: true,
     },
@@ -7061,7 +7013,7 @@ test("OK_CANDIDATE_RESPONSE with legacy wrapped delta_ops sets deltaOps null", (
   assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
 });
 
-test("OK_CANDIDATE_RESPONSE with legacy flat delta_ops still works through bridge", () => {
+test("OK_CANDIDATE_RESPONSE extracts deltaOps from accepted_batch", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
 
   const deltaOps = [
@@ -7072,8 +7024,8 @@ test("OK_CANDIDATE_RESPONSE with legacy flat delta_ops still works through bridg
     result: {
       session_id: "sess-flat",
       turn_id: "t-flat",
-      delta_ops: deltaOps,
-      message: "Legacy flat V2 response",
+      accepted_batch: acceptedBatch(deltaOps),
+      message: "accepted_batch V2 response",
       submit_graph_hash: "hash-flat",
       canvas_apply_allowed: true,
     },

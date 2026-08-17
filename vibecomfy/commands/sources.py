@@ -6,7 +6,7 @@ from vibecomfy.commands._output import emit
 from vibecomfy.ingest.sources import sync_sources
 
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 def _cmd_sources_sync(args: argparse.Namespace) -> int:
     result = sync_sources(
         official=args.official,

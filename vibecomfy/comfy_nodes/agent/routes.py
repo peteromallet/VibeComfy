@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 _LOGGER = logging.getLogger(__name__)
 
 from vibecomfy.security.gate import CapabilityFenceError

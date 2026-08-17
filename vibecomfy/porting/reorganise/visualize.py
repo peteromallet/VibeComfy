@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 def write_layout_png(ui_json: Mapping[str, Any], path: Path) -> None:
     """Write an abstract PNG of a ComfyUI workflow layout.
 

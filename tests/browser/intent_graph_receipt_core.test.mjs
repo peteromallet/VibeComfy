@@ -12,19 +12,23 @@ import assert from "node:assert/strict";
 
 import * as intentGraphReceiptCore from "../../vibecomfy/comfy_nodes/web/_intent_graph_receipt_core.mjs";
 const { createIntentGraphReceiptCore } = intentGraphReceiptCore;
-import { forwardOperationDigest } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
+import { forwardOperationDigest, forwardOpsFromAcceptedBatch } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 import { makeValidCandidateTransactionV2 } from "./authority_factory.mjs";
 
 // ── Canonical prepared-authority fixture ─────────────────────────────────────
 
-const PREPARED = makeValidCandidateTransactionV2({
+const RECEIPT_TX = makeValidCandidateTransactionV2({
   sessionId: "sess-receipt",
   planHash: "plan-receipt",
   state: "prepared",
   deltaOps: [{ op: "set_node_field", target: ["", "node-1", "seed"], value: 12345 }],
-}).prepared_authority;
+});
+const PREPARED = {
+  ...RECEIPT_TX.prepared_authority,
+  accepted_batch: RECEIPT_TX.plan.accepted_batch,
+};
 
-const OPERATION_DIGEST = forwardOperationDigest(PREPARED.operation.ops);
+const OPERATION_DIGEST = forwardOperationDigest(forwardOpsFromAcceptedBatch(PREPARED.accepted_batch));
 const RESTORATION_DIGEST = PREPARED.restoration_strategy.digest;
 
 // A canonical, valid, externally-minted fence bound to PREPARED.

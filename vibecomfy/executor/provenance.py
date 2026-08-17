@@ -18,7 +18,7 @@ from typing import Any
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.registry.ready import _resolve_ready_path
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 _SOURCE_WORKFLOW_PATH_RE = re.compile(r"'source_workflow_path'\s*:\s*'([^']+)'")
 
 

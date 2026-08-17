@@ -23,7 +23,7 @@ from vibecomfy.schema.validate import socket_types_compatible
 from .contracts import GraphFacts, ReadinessReport, ScopedDiff, TopologyFindings
 from .graph_inspection import EdgeEvidence, normalise_links
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values, door_pop_links
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values, door_pop_links
 LOGGER = logging.getLogger(__name__)
 
 # ── public helpers ───────────────────────────────────────────────────────────

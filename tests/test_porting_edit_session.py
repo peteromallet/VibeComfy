@@ -1844,7 +1844,9 @@ class TestPublicM1SurfaceImports:
         session = EditSession(_load_flat_fixture_raw())
         rendered = session.render()
 
-        assert isinstance(session.original_ui, dict)
+        from collections.abc import Mapping as MappingABC
+
+        assert isinstance(session.original_ui, MappingABC)
         assert isinstance(session.working_ui, dict)
         assert isinstance(session.name_by_uid, dict)
         assert isinstance(session.uid_by_name, dict)

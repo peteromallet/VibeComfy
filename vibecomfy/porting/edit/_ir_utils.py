@@ -268,6 +268,16 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
             (op.source.scope_path, op.source.uid),
             (op.target.scope_path, op.target.uid),
         )
+    if isinstance(op, AddNodeOp):
+        pairs: list[tuple[str, str]] = []
+        if op.uid:
+            pairs.append((op.scope_path, str(op.uid)))
+        pairs.extend(
+            (source.scope_path, source.uid) for source in op.inputs.values()
+        )
+        return tuple(pairs)
+    if isinstance(op, SubgraphInterfaceOp) and op.id:
+        return (("", str(op.id)),)
     return ()
 
 
@@ -276,7 +286,6 @@ def _done_gate_b_uids_for_ops(ops: tuple[EditOp, ...]) -> tuple[tuple[str, str],
     for op in ops:
         pairs.extend(_uids_for_op(op))
         if isinstance(op, AddNodeOp):
-            pairs.extend((source.scope_path, source.uid) for source in op.inputs.values())
             if op.anchor is not None:
                 if op.anchor.near is not None:
                     pairs.append((op.anchor.near.scope_path, op.anchor.near.uid))

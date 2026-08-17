@@ -48,7 +48,6 @@ PRODUCT_ROOT = REPO_ROOT / "vibecomfy"
 GRAPH_JSON_DOORS: frozenset[str] = frozenset(
     {
         "vibecomfy/ingest/normalize.py",
-        "vibecomfy/ingest/door_access.py",
         "vibecomfy/porting/emit/ui.py",
     }
 )
@@ -70,10 +69,6 @@ FORBIDDEN_SYMBOLS: frozenset[str] = frozenset(
         "render_edit_projection",
     }
 )
-
-# Product structural readers must be zero.  Door helpers live in
-# ingest/normalize.py; leftover campaign fixtures are symbol-only.
-STRUCTURAL_READ_ALLOWLIST: frozenset[str] = frozenset()
 
 _GRAPH_KEYS: frozenset[str] = frozenset({"nodes", "links", "widgets_values"})
 # Receivers whose key names collide with LiteGraph but are not graph

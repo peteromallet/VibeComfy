@@ -8,7 +8,7 @@ append-only lifecycle events are the durable source of truth.
 
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
@@ -455,7 +455,7 @@ def build_candidate_transaction(
     operation: dict[str, Any] = {
         "delta_contract": "delta_v1",
         "wire_version": "2.0.0",
-        "ops": delta_ops,
+        "accepted_batch_digest": delta_hash,
     }
     hashes_extra: dict[str, Any] = {}
     if family == "layout":
@@ -695,9 +695,11 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
             if hashes.get("layout_operation_digest") != recomputed_layout:
                 return False, "layout_operation_digest_mismatch"
         if isinstance(operation.get("mutation_materialization"), Mapping):
+            from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
             recomputed_mat = _compute_mutation_materialization_digest(
                 operation["mutation_materialization"].get("entries", []),
-                operation.get("ops", []),
+                list(_ops_from_accepted_batch({"accepted_batch": accepted})),
             )
             if hashes.get("mutation_materialization_digest") != recomputed_mat:
                 return False, "mutation_materialization_digest_mismatch"

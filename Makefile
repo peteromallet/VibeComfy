@@ -20,8 +20,6 @@ FAST_PYTEST := \
 	tests/test_comfy_nodes_agent_backend_spine.py \
 	tests/test_porting_edit_apply.py \
 	tests/test_porting_edit_ops.py \
-	tests/test_porting_edit_projection.py \
-	tests/test_porting_edit_ledger.py \
 	tests/test_porting_edit_corpus.py \
 	tests/test_porting_ui_materialize.py
 

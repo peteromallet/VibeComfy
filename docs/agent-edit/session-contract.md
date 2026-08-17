@@ -57,10 +57,13 @@ EditSession(
 | `max_for_iterations` | 100 | Maximum iterations for any single `for i in range(N)` loop. |
 
 The constructor ingests `raw_ui_json` once through `from_ui` and retains that
-IR (`self.workflow` / `self._wf0`). A frozen ingest snapshot is kept only as
-emit `prior_ui` furniture. There is no `working_ui` mutation store, no
-`EditLedger`, and no `apply_delta` path. Any UI the session exposes is
-derived through `emit_ui_json` + `pin_untouched_ui`.
+IR (`self.workflow` / `self._wf0`). The ingest snapshot is **deep-frozen**
+(immutable dict/list wrappers) and is emit `prior_ui` furniture only.
+`original_ui` exposes that frozen mapping; mutating it cannot change
+`working_ui` or the proof baselines. Proofs emit the retained IR through the
+emit door (`emit(wf_0)` / `emit(current)`), they do not re-read a writable UI
+twin. There is no `working_ui` mutation store, no lock table, no
+`EditLedger`, and no `apply_delta` / `ledger.resolve_node` path.
 
 ---
 
@@ -162,8 +165,8 @@ class StatementResult:
     diagnostics: tuple[CompactDiagnostic, ...]
     landed: bool                # was an edit op applied?
     op_kind: str | None         # "set_node_field", "upsert_link", "remove_link",
-                                # "remove_node", "set_mode", "node_call",
-                                # "done", "query"
+                                # "remove_node", "set_mode", "subgraph_interface",
+                                # "node_call", "done", "query"
     detail: dict[str, Any]      # resolved target/endpoint/call info
     touched_uids: tuple[str, ...]  # uids affected by this op (empty if not landed)
     dependency_cause: str | None   # if failed due to a dependency
@@ -315,7 +318,7 @@ lowered:
 | Dunder names (`__something__`) | `dunder_name_not_allowed` |
 | Dunder attributes (`obj.__attr`) | `dunder_attribute_not_allowed` |
 | Nested calls (`f(g())`) | `nested_call_not_allowed` |
-| `**kwargs` unpacking | `kwargs_unpack_not_allowed` |
+| `**kwargs` unpacking (except the field-roster side channel) | `kwargs_unpack_not_allowed` |
 | Positional args in node calls | `positional_args_not_allowed` |
 | Non-`range` for-loop iterators | `for_iter_not_range` |
 | `for`/`else` | `for_else_not_allowed` |
@@ -337,13 +340,13 @@ lowered:
   local_uid)`.
 - UIDs are stable across renders and batches.
 
-### 8.2 Lock tables
+### 8.2 Derived bindings
 
-- `name_by_uid: dict[str, str]` — maps `uid` → `variable_name`.
-- `uid_by_name: dict[str, str]` — maps `variable_name` → `uid`.
-- Both are **write-once**: an existing mapping is never silently overwritten.
-- Seeded on first `render()` from `# uid:` comments in the emitted source.
-- Enforced strictly on later `render()` calls.
+- `name_by_uid` / `uid_by_name` are **read-only properties** derived from
+  the retained IR via `(class_type, uid-order)`.
+- There is no lock table, no write-once map, no seeding/enforcement across
+  renders, and no `ledger.resolve_node`. A re-render of the same IR always
+  produces the same names.
 
 ### 8.3 Unbound names
 
@@ -355,9 +358,9 @@ lowered:
 
 ### 8.4 Name resolution in apply_batch
 
-- `uid_by_name[name]` → stale check against `ledger.resolve_node` → passes or
-  fails with `stale_graph_name`.
-- If not in `uid_by_name`, fails with `unknown_graph_name`.
+- Names resolve from the retained IR (`(class_type, uid-order)`) plus the
+  transient within-batch index for nodes minted earlier in the same batch.
+- Unknown names fail with `unknown_graph_name`.
 - Dunder names are rejected at validation time.
 
 ---
@@ -377,14 +380,15 @@ Before `AddNodeOp` construction, a **pre-pass** over the parsed batch:
 4. **Explicit placement hints** (`near=…`, `relation=…`, `group=…`) take
    priority over inferred placement.
 
-The existing `vibecomfy/porting/edit/apply.py` semantics and the raw-coordinate surface are
-**unchanged**.
+Raw coordinate kwargs (`pos`, `x`, `y`, …) stay rejected. Placement is
+hints-only (`near=` / `relation=` / `group=`); mutation authority is
+`interpret`.
 
 ---
 
 ## 10. Slot codec
 
-`vibecomfy/porting/slot_codec.py` provides deterministic, reversible
+`vibecomfy/identity/codec.py` provides deterministic, reversible
 conversion between raw slot names and valid Python identifiers.
 
 ### 10.1 Public API
@@ -457,8 +461,8 @@ when all three pass.
    `compile("api")`.
 2. Derive the **touched region** (set of API node ids):
    - All nodes explicitly touched by landed ops (via uid → node_id mappings).
-   - Added nodes (in working/candidate but not original).
-   - Removed nodes (in original but not working/candidate).
+   - Added nodes (in the current/replayed IR but not `wf_0`).
+   - Removed nodes (in `wf_0` but not the current/replayed IR).
    - One-hop neighbors of every node in the region.
    - All endpoints of changed edges.
 3. Subset working and candidate API graphs to the touched region.
@@ -477,6 +481,7 @@ Generates a human-readable summary sentence for each landed op:
 | `UpsertLinkOp` | "Connected *src.slot* (TYPE) → *dst.field*." or "Rewired *dst.field* (TYPE) from *prev.src* → *new.src*." |
 | `RemoveLinkOp` | "Disconnected *name.field* from *prev.src*." |
 | `SetModeOp` | "Changed *name* mode from *old_label* to *new_label*." |
+| `SubgraphInterfaceOp` | "Added/changed/removed subgraph interface *id*." |
 
 ### 12.4 DoneResult
 
@@ -590,13 +595,11 @@ block. The following are explicitly **out of scope** for M1:
 
 **Existing paths preserved:**
 
-- `emit_scratchpad_python(…)` is **untouched** and continues to serve the
-  existing agent-edit pipeline.
-- `emit_agent_edit_python(…)` is the **new parallel entry point** used by
-  `EditSession.render()`.
-- The existing typed edit-op infrastructure (`vibecomfy/porting/edit/ops.py`,
-  `vibecomfy/porting/edit/apply.py`, `vibecomfy/porting/edit/ledger.py`) is **unchanged** — `EditSession` lowers its interpreted
-  statements to the same op types.
+- `emit_scratchpad_python(…)` remains the package scratchpad emitter. It does
+  not accept binding locks.
+- `emit_agent_edit_python(…)` is the session render / interpret inverse.
+- Typed ops live in `vibecomfy/porting/edit/ops.py`. The only mutation
+  authority is `interpret` — there is no `apply.py` or `EditLedger`.
 
 ---
 

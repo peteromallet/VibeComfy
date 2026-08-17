@@ -55,7 +55,7 @@ from vibecomfy.porting.widgets.settings_contract import node_settings_for
 
 from .tool_contracts import ToolDiagnostic, ToolResult, ToolStatus
 
-from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_nodes, door_get_widgets_values
 # Same parameter-term set the legacy tweak ranking keys on.
 PARAMETER_TWEAK_TARGET_TERMS = (
     "detail",

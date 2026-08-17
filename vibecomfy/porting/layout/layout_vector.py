@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 @dataclass
 class LayoutDriftReport:
     """Summary of positional drift between two layout snapshots."""

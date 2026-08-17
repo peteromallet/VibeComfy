@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from vibecomfy._compile._graph import node_id_sort_key
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 HF_SPLIT_FILES_DIRS = {
     "text_encoders",
     "diffusion_models",

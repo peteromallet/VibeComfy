@@ -14,6 +14,7 @@ import {
   commitLifecycleReset,
   normalizeCommitApplyEligibility,
 } from "../../vibecomfy/comfy_nodes/web/agent_lifecycle_commit.js";
+import { acceptedBatchDigest } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // T11 — Cross-source lifecycle/projection parity.
@@ -64,7 +65,7 @@ const CANONICAL = Object.freeze({
       operation: Object.freeze({
         delta_contract: "delta_v1",
         wire_version: "2.0.0",
-        ops: Object.freeze([]),
+        accepted_batch_digest: acceptedBatchDigest([]),
       }),
       operation_family: "structural",
       precondition: Object.freeze({
@@ -96,6 +97,7 @@ const CANONICAL = Object.freeze({
     lease_nonce: "lease-parity-001",
     plan: Object.freeze({
       schema_version: "2.0.0",
+      accepted_batch: Object.freeze([]),
       delta_ops_envelope: Object.freeze({ schema_version: "2.0.0", ops: Object.freeze([]) }),
       delta_hash: "delta-parity-001",
       op_count: 0,

@@ -11,7 +11,7 @@ Public-input helpers and ready-template backend live in emit_ready.py (T8).
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_nodes
+from vibecomfy.ingest.normalize import door_nodes
 import keyword
 import re
 import warnings
@@ -484,16 +484,34 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             alias = input_aliases.get(raw_key) or to_python_identifier(raw_key)
             kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
             widget_channel_names.append(raw_key)
-        # Named widget-channel fields (not just widget_N) must survive
-        # emit→interpret for unknown-schema IRs.  The side channel is a
-        # non-identifier **unpack key so no valid node field can collide.
-        if any(not name.startswith("widget_") for name in widget_channel_names):
-            from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
+        # Named widget-channel fields and any non-identifier input names must
+        # survive emit→interpret.  The roster rides a non-identifier **unpack
+        # key; a real field with that raw name is identifier-encoded, never
+        # this unpack.
+        from vibecomfy.porting.edit.constants import (
+            CHANNEL_SIDE_ORDER,
+            CHANNEL_SIDE_WIDGETS,
+            WIDGET_CHANNEL_SIDE_KEY,
+        )
 
+        needs_widget_roster = any(
+            not name.startswith("widget_") for name in widget_channel_names
+        )
+        needs_name_roster = any(
+            name == WIDGET_CHANNEL_SIDE_KEY or to_python_identifier(name) != name
+            for name in raw_fields
+        )
+        if needs_widget_roster or needs_name_roster:
             kwargs.append(
                 (
                     None,
-                    _format_value(tuple(widget_channel_names), elide_strings_over=None),
+                    _format_value(
+                        {
+                            CHANNEL_SIDE_WIDGETS: tuple(widget_channel_names),
+                            CHANNEL_SIDE_ORDER: tuple(raw_fields),
+                        },
+                        elide_strings_over=None,
+                    ),
                     WIDGET_CHANNEL_SIDE_KEY,
                 )
             )

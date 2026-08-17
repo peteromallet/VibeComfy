@@ -1,18 +1,7 @@
 // canonical_delta.js — Browser-side canonical delta normalization
 //
-// Mirrors the Python backend's canonical V2 delta contract defined in
-// `vibecomfy/porting/edit/ops.py`.  The canonical persisted/runtime-facing
-// contract is ``{schema_version: "2.0.0", ops: [...]}`` with exactly seven
-// supported op kinds.
-//
-// This module is the single browser-side authority for delta normalisation.
-// All lifecycle consumers (preview, apply, accept) must receive ops that have
-// been normalised through this module.
-//
-// Legacy handling is explicit:
-//   - Flat V2 op arrays are only accepted via the `allowLegacyList` bridge.
-//   - Legacy wrapped mappings are rejected as `legacy_delta_shape` so consumers
-//     do not silently confuse audit metadata with canonical ops.
+// The sole durable Δ is ``accepted_batch``. Apply derives ops from
+// ``accepted_batch[*].op``. Envelope and flat shapes are not durable.
 
 // ── Constants (aligned with Python backend) ─────────────────────────────────
 
@@ -347,43 +336,6 @@ export function classifyDeltaShape(payload) {
     };
   }
 
-  const envelope = payload.delta_ops_envelope;
-  if (_isObject(envelope)) {
-    const ops = envelope.ops;
-    if (Array.isArray(ops)) {
-      return {
-        shape: "canonical",
-        code: "canonical_delta_ops",
-        detail: { schema_version: envelope.schema_version || null },
-      };
-    }
-    return {
-      shape: "canonical",
-      code: "canonical_envelope_malformed_ops",
-      detail: { ops_type: typeof ops },
-    };
-  }
-
-  const deltaOps = payload.delta_ops;
-  if (Array.isArray(deltaOps)) {
-    return {
-      shape: "legacy_flat",
-      code: "legacy_delta_ops_flat",
-      detail: {},
-    };
-  }
-
-  if (_isObject(deltaOps)) {
-    const legacyKeys = Object.keys(deltaOps)
-      .filter((k) => _LEGACY_WRAPPER_KEYS.has(k))
-      .sort();
-    return {
-      shape: "legacy_wrapped",
-      code: DELTA_DIAGNOSTIC_LEGACY_SHAPE,
-      detail: { keys: legacyKeys },
-    };
-  }
-
   return {
     shape: "missing",
     code: "missing_delta_ops",
@@ -536,14 +488,6 @@ export function normalizeDeltaOpsFromSubmitPayload(payload) {
       }
     }
     return ops;
-  }
-
-  if (shape.shape === "canonical" || shape.shape === "legacy_flat" || shape.shape === "legacy_wrapped") {
-    throw new DeltaDiagnosticError(
-      "Envelope and flat delta shapes are not durable Δ. Apply derives ops from accepted_batch.",
-      shape.code || "legacy_delta_shape",
-      shape.detail,
-    );
   }
 
   throw new DeltaDiagnosticError(

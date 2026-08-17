@@ -13,7 +13,10 @@ from vibecomfy.porting.edit._session_types import (
     _ParsedBatch,
     _diag,
 )
-from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
+from vibecomfy.porting.edit.constants import (
+    WIDGET_CHANNEL_SIDE_KEY,
+    decode_channel_side_payload,
+)
 from vibecomfy.porting.edit.grammar import (
     ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES,
     CONTROL_CALL_NAMES,
@@ -37,16 +40,16 @@ _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
 
 
-def _widget_channel_side_names(
+def _channel_side_unpack(
     keyword: ast.keyword,
     *,
     env: Mapping[str, Any],
-) -> tuple[tuple[str, ...], CompactDiagnostic | None] | None:
-    """Return widget-channel names if *keyword* is the collision-free side channel.
+) -> tuple[tuple[str, ...], tuple[str, ...], CompactDiagnostic | None] | None:
+    """Return ``(widgets, order, issue)`` if *keyword* is the field roster.
 
-    The side channel is ``**{WIDGET_CHANNEL_SIDE_KEY: (...)}`` — a
-    non-identifier key, so it cannot collide with a node field.  Returns
-    ``None`` when this is not that unpack.
+    The side channel is ``**{WIDGET_CHANNEL_SIDE_KEY: {widgets, order}}`` —
+    a non-identifier unpack key.  A real field with that raw name is never
+    emitted as this unpack.  Returns ``None`` when this is not that unpack.
     """
     if keyword.arg is not None:
         return None
@@ -55,15 +58,19 @@ def _widget_channel_side_names(
         return None
     if not isinstance(literal, dict) or set(literal) != {WIDGET_CHANNEL_SIDE_KEY}:
         return None
-    names = literal[WIDGET_CHANNEL_SIDE_KEY]
-    if isinstance(names, (list, tuple)) and all(isinstance(name, str) for name in names):
-        return tuple(str(name) for name in names), None
+    decoded = decode_channel_side_payload(literal[WIDGET_CHANNEL_SIDE_KEY])
+    if decoded is not None:
+        return decoded[0], decoded[1], None
     return (
+        (),
         (),
         _unsafe(
             keyword.value,
             "invalid_widget_channel_side",
-            f"{WIDGET_CHANNEL_SIDE_KEY!r} must be a sequence of field names.",
+            (
+                f"{WIDGET_CHANNEL_SIDE_KEY!r} must be a field-name sequence "
+                "or a {{widgets, order}} roster."
+            ),
         ),
     )
 
@@ -508,9 +515,9 @@ def _validate_call(
     issues: list[CompactDiagnostic] = []
     for keyword in node.keywords:
         if keyword.arg is None:
-            side = _widget_channel_side_names(keyword, env=env)
+            side = _channel_side_unpack(keyword, env=env)
             if side is not None:
-                _names, side_issue = side
+                _widgets, _inputs, side_issue = side
                 if side_issue is not None:
                     issues.append(side_issue)
                 continue

@@ -3645,7 +3645,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     link_ops: set[str] = set()
     new_scope_ids: set[str] = set()
     removed_scope_ids: set[str] = set()
-    interface_ops = False
+    changed_scope_ids: set[str] = set()
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -3683,17 +3683,21 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
             link_ops.add(op.scope_path)
             continue
         if isinstance(op, SubgraphInterfaceOp):
-            # Definitions-level signature change.  Emit rewrites the
-            # definitions blob and may materialize root/subgraph furniture
-            # (revision, state.lastRerouteId) plus a new sgN scope.
-            interface_ops = True
+            # Attribute only the emitted paths this op can touch: root
+            # revision / state.lastRerouteId, and the named subgraph
+            # signature.  Never the whole state/definitions objects.
             touched_scopes.add("")
-            scope_field_paths.setdefault("", set()).update({"revision", "state", "definitions"})
+            scope_field_paths.setdefault("", set()).update(
+                {"revision", "state.lastRerouteId"}
+            )
             if op.id:
+                sid = str(op.id)
                 if op.action == "add":
-                    new_scope_ids.add(str(op.id))
+                    new_scope_ids.add(sid)
                 elif op.action == "remove":
-                    removed_scope_ids.add(str(op.id))
+                    removed_scope_ids.add(sid)
+                else:
+                    changed_scope_ids.add(sid)
             continue
     return {
         "node_paths": node_paths,
@@ -3704,7 +3708,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "link_ops": link_ops,
         "new_scope_ids": new_scope_ids,
         "removed_scope_ids": removed_scope_ids,
-        "interface_ops": interface_ops,
+        "changed_scope_ids": changed_scope_ids,
     }
 
 
@@ -3722,23 +3726,34 @@ def _guard_counter(scope_path: str, field: str, original: Any, candidate: Any) -
     ]
 
 
-def _guard_subgraph_state(scope_path: str, original: Any, candidate: Any) -> list[PortIssue]:
+def _guard_subgraph_state(
+    scope_path: str,
+    original: Any,
+    candidate: Any,
+    allowed_paths: set[str] | None = None,
+) -> list[PortIssue]:
     if original == candidate:
+        return []
+    allowed_paths = allowed_paths or set()
+    if "state" in allowed_paths:
         return []
     original_state = original if isinstance(original, Mapping) else {}
     candidate_state = candidate if isinstance(candidate, Mapping) else {}
     diagnostics: list[PortIssue] = []
     keys = set(original_state) | set(candidate_state)
     for key in sorted(keys):
+        field = f"state.{key}"
+        if any(_path_is_at_or_below(field, allowed) for allowed in allowed_paths):
+            continue
         if key in {"lastNodeId", "lastLinkId"}:
-            diagnostics.extend(_guard_counter(scope_path, f"state.{key}", original_state.get(key), candidate_state.get(key)))
+            diagnostics.extend(_guard_counter(scope_path, field, original_state.get(key), candidate_state.get(key)))
             continue
         if original_state.get(key) != candidate_state.get(key):
             diagnostics.append(
                 _issue(
                     "full_ui_scope_field_changed_unattributed",
                     "Candidate changed a subgraph state field without an attributed operation.",
-                    detail={"scope_path": scope_path, "field": f"state.{key}"},
+                    detail={"scope_path": scope_path, "field": field},
                 )
             )
     return diagnostics
@@ -3790,10 +3805,42 @@ def pin_untouched_ui(
         if scope_path not in attribution["link_ops"] and "links" in original_scope:
             scope["links"] = deepcopy(original_scope.get("links") or [])
         allowed_scope = set(attribution["scope_field_paths"].get(scope_path, set()))
-        if attribution["interface_ops"]:
-            allowed_scope.update({"revision", "state", "definitions"})
+        scope_id = _scope_definition_id(scope) or _scope_definition_id(original_scope)
+        if scope_id and scope_id in attribution["changed_scope_ids"]:
+            allowed_scope.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
         for key in list(scope):
             if key in {"nodes", "links", "definitions", "last_node_id", "last_link_id"}:
+                continue
+            if key == "state":
+                allowed_state_keys = {
+                    allowed.split(".", 1)[1].split(".", 1)[0]
+                    for allowed in allowed_scope
+                    if allowed.startswith("state.")
+                }
+                if "state" in allowed_scope:
+                    continue
+                original_state = original_scope.get("state")
+                candidate_state = scope.get("state")
+                if allowed_state_keys and isinstance(candidate_state, dict):
+                    merged = (
+                        deepcopy(dict(original_state))
+                        if isinstance(original_state, Mapping)
+                        else {}
+                    )
+                    for state_key in allowed_state_keys:
+                        if state_key in candidate_state:
+                            merged[state_key] = deepcopy(candidate_state[state_key])
+                    if merged:
+                        scope["state"] = merged
+                    elif "state" in original_scope:
+                        scope["state"] = deepcopy(original_scope["state"])
+                    else:
+                        del scope["state"]
+                    continue
+                if "state" in original_scope:
+                    scope["state"] = deepcopy(original_scope["state"])
+                else:
+                    del scope["state"]
                 continue
             if key in allowed_scope:
                 continue
@@ -3834,8 +3881,9 @@ def guard_exit_ui(
         ignored = {"nodes", "links", "definitions"}
         keys = (set(original_scope) | set(candidate_scope)) - ignored
         allowed_scope_paths = set(attribution["scope_field_paths"].get(scope_path, set()))
-        if attribution["interface_ops"]:
-            allowed_scope_paths.update({"revision", "state", "definitions"})
+        scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
+        if scope_id and scope_id in attribution["changed_scope_ids"]:
+            allowed_scope_paths.update({"name", "inputs", "outputs", "revision", "state.lastRerouteId"})
         for key in sorted(keys):
             if key == "last_node_id":
                 diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
@@ -3844,9 +3892,14 @@ def guard_exit_ui(
                 diagnostics.extend(_guard_counter(scope_path, key, original_scope.get(key), candidate_scope.get(key)))
                 continue
             if key == "state":
-                if "state" in allowed_scope_paths:
-                    continue
-                diagnostics.extend(_guard_subgraph_state(scope_path, original_scope.get(key), candidate_scope.get(key)))
+                diagnostics.extend(
+                    _guard_subgraph_state(
+                        scope_path,
+                        original_scope.get(key),
+                        candidate_scope.get(key),
+                        allowed_paths=allowed_scope_paths,
+                    )
+                )
                 continue
             if key in _EMIT_SCOPE_FURNITURE or (
                 key == "groups" and not original_scope.get("groups")
@@ -3935,10 +3988,6 @@ def guard_exit_ui(
         if scope_path not in original_scopes:
             added_id = _scope_definition_id(candidate_scopes[scope_path])
             if added_id and added_id in attribution["new_scope_ids"]:
-                continue
-            if attribution["interface_ops"] and attribution["new_scope_ids"] and (
-                scope_path == "" or scope_path.split("/")[-1].startswith("sg")
-            ):
                 continue
             diagnostics.append(
                 _issue(

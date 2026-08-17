@@ -212,8 +212,11 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
     path = write_authority_receipt(turn_dir, receipt)
     raw = json.loads(path.read_text(encoding="utf-8"))
 
-    assert raw["cumulative_delta_envelope"] == envelope
-    assert raw["cumulative_delta_envelope"] != "<REDACTED>"
+    assert "cumulative_delta_envelope" not in raw
+    assert "ops" not in raw
+    assert isinstance(raw["accepted_batch_digest"], str)
+    assert len(raw["accepted_batch_digest"]) == 64
+    assert raw["accepted_batch_digest"] == raw["cumulative_delta_hash"]
     assert load_authority_receipt(turn_dir) == receipt
     assert write_authority_receipt(turn_dir, receipt) == path
     with pytest.raises(ValueError, match="collision"):

@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from vibecomfy.executor.contracts import RevisionEvidence
 from ._frag_state import AgentEditState, LOGGER
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 def _is_graph_explain_intent(task: str) -> bool:
     from ._frag_ingest import _GRAPH_EXPLAIN_TRIGGER_TERMS, _task_mentions_any  # T-038 late import: sibling cycle broken; resolved at call time
     return _task_mentions_any(task, _GRAPH_EXPLAIN_TRIGGER_TERMS)

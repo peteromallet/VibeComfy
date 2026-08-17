@@ -3,10 +3,11 @@ from __future__ import annotations
 """Edit-op parsing plus canonical delta-envelope normalization.
 
 The canonical persisted/runtime-facing V2 contract is
-``{schema_version: "2.0.0", ops: [...]}`` with exactly six supported op kinds
+``{schema_version: "2.0.0", ops: [...]}`` with seven supported op kinds
 (``set_node_field``, ``set_mode``, ``add_node``, ``upsert_link``,
-``remove_node``, ``remove_link``).  ``reorder`` and ``set_title`` are not part
-of the designed grammar — they are rejected at parse time.
+``remove_node``, ``remove_link``, ``subgraph_interface``).  ``reorder`` and
+``set_title`` are not part of the designed grammar — they are rejected at
+parse time.
 
 Legacy handling is explicit:
 

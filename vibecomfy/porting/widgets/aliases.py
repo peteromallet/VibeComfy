@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from vibecomfy.ingest.door_access import door_get_nodes, door_get_widgets_values, door_nodes, door_widgets_values
 from dataclasses import dataclass
 from typing import Any
 
@@ -280,6 +279,8 @@ def _widget_alias_suggestions(
     if not unresolved:
         return []
 
+    from vibecomfy.ingest.normalize import door_nodes
+
     raw_ui_nodes = _raw_ui_nodes_by_id(raw_workflow)
     groups: dict[str, dict[str, Any]] = {}
     for alias in unresolved:
@@ -346,6 +347,8 @@ def _schema_entry_for_class(class_type: str, schema_provider: Any | None) -> tup
 def _raw_ui_nodes_by_id(raw_workflow: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(raw_workflow, dict):
         return {}
+    from vibecomfy.ingest.normalize import door_get_nodes
+
     raw = raw_workflow.get("prompt") if isinstance(raw_workflow.get("prompt"), dict) else raw_workflow
     nodes = door_get_nodes(raw) if isinstance(raw, dict) else None
     if not isinstance(nodes, list):
@@ -357,6 +360,8 @@ def _widget_values_for_node(node_id: str, api_node: Any, raw_ui_nodes: dict[str,
     raw_ui = raw_ui_nodes.get(node_id)
     if raw_ui is None and isinstance(api_node, dict) and isinstance(api_node.get("_ui"), dict):
         raw_ui = api_node["_ui"]
+    from vibecomfy.ingest.normalize import door_get_widgets_values, door_widgets_values
+
     if isinstance(raw_ui, dict) and isinstance(door_get_widgets_values(raw_ui), list):
         return list(door_widgets_values(raw_ui))
     if not isinstance(api_node, dict) or not isinstance(api_node.get("inputs"), dict):

@@ -17,7 +17,7 @@ import time
 from typing import Any, Mapping
 
 
-from vibecomfy.ingest.door_access import door_get_links, door_get_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
 def load_agent_generated_scratchpad(path: Any) -> Any:
     """T-039 required_post_split surface: top-level edit-module attr.
 

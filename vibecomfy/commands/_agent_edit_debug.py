@@ -51,7 +51,7 @@ from pathlib import Path
 
 from vibecomfy.comfy_nodes.agent.session import iter_turn_records
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 HOME = os.path.expanduser("~")
 COMFY_DIR = os.environ.get("COMFY_DIR", os.path.join(HOME, "Documents/reigh-workspace/ComfyUI"))
 SESS_ROOT = os.path.join(COMFY_DIR, "out", "editor_sessions")

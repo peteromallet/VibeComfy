@@ -35,24 +35,17 @@ Output: `out/agentic/ir-everywhere-57/` (and `/tmp/ir-everywhere-57-run.log`).
 
 ## Allowed statuses
 
-`pending_live_rerun` is only legal *before* this rerun completes. After
-results land, every id must become `resolved`, `capability_floor`, or
-`infra_out_of_scope`. The named floors already classified from the 2026-08-15
-recovery rerun stay as:
+Judge verdicts are `assessment.json` `passed`, not executor-level `ok`.
 
-- capability_floor: `cc0df7`, `90a1d5`, `multi-wan-vace-video-retargeting-driven`, `5b31ce`
-- infra_out_of_scope: `c24aa2`, `f65774`, `00444a`
+- `resolved`: v3 judge `passed=true` (16 ids). Mechanism: v3 live rerun on ir-everywhere branch.
+- `capability_floor`: named evidence only (Class D `cc0df7`/`90a1d5` in `b09_reducer.py`; variance `multi-wan-vace-video-retargeting-driven` in `variance.md`) that v3 still confirms as product_fail.
+- `infra_out_of_scope`: v3 `failure_class=infra_timeout` (8 ids).
+- `pending_live_rerun`: remaining v3 product_fail, including `5b31ce` (`other.md` is not named floor evidence).
 
-## Result (partial, run still live at commit time)
+## Result (v3 complete)
 
-The runner process is live (`--max-workers 6`, OpenRouter). After the
-first ~8 minutes the partial summary recorded 4/57 completed, 0 passed,
-4 product_fail, `complete: false`. Early ids include the already-named
-floors (`cc0df7`, `c24aa2`) plus `8800a9` and `f0859f` — none qualify
-as `resolved`.
+`out/agentic/ir-everywhere-57-v3/run_summary.json`: `complete: true`,
+`final_score: 16/57` (16 passed / 8 infra / 33 product_fail).
 
-The ledger therefore still has **50 `pending_live_rerun`**, **4
-`capability_floor`**, **3 `infra_out_of_scope`**, **0 `resolved`**.
-That is honest: the post-migration rerun was launched and is not yet
-complete. Reconcile again when
-`out/agentic/ir-everywhere-57/run_summary.json` has `complete: true`.
+Ledger after reconcile: **16 `resolved`**, **3 `capability_floor`**,
+**8 `infra_out_of_scope`**, **30 `pending_live_rerun`**.

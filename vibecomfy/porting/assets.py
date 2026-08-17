@@ -10,7 +10,7 @@ from vibecomfy.model_assets import _node_class_type, _strip_download_true, _subd
 from vibecomfy.porting.report import AssetCandidate, AssetCheckResult, PortIssue
 
 
-from vibecomfy.ingest.door_access import door_get_nodes
+from vibecomfy.ingest.normalize import door_get_nodes
 _MODEL_NAME_SUFFIXES = (
     ".safetensors",
     ".ckpt",

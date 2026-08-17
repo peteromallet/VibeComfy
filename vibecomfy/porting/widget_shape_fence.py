@@ -13,7 +13,7 @@ from typing import Any, Mapping
 
 from vibecomfy.porting.emit.ui import WidgetShapeEvidence
 
-from vibecomfy.ingest.door_access import door_get_widgets_values
+from vibecomfy.ingest.normalize import door_get_widgets_values
 _LOW_CONFIDENCE_THRESHOLD = 0.3
 _WIDGET_FIELD_PREFIX = "widget_"
 _WIDGET_FIELDS = frozenset({"widgets", "widgets_values", "raw_widgets", "_raw_widgets"})
