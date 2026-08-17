@@ -885,14 +885,28 @@ def _research_decision_memo(
         for item in diagnostics
         if str(item.get("message") or "").strip()
     )
-    # Batch 14: the memo NEVER refuses because research was thin.  When no
-    # external evidence was gathered (never/empty), the conclusion states the
-    # fact plainly so the reply model answers from the attached graph and its
-    # own knowledge — "No supported conclusion was produced" is gone.
-    conclusion = trace.summary or (
-        "No external evidence was gathered by the research stage; "
-        "answer from the attached workflow graph and general knowledge."
-    )
+    # Batch 14: the memo NEVER refuses because research was thin.  The memo is
+    # attempt-typed: on never/empty the conclusion states the attempt's own
+    # fact (no evidence tools were called / no evidence was gathered) — never
+    # a fake synthesis pulled from a blank trace.summary — so the reply model
+    # answers from the attached graph and its own knowledge.  "No supported
+    # conclusion was produced" is gone.
+    if attempt == RESEARCH_ATTEMPT_NEVER:
+        conclusion = (
+            "No evidence tools were called; no external evidence was gathered. "
+            "Answer from the attached workflow graph and general knowledge."
+        )
+    elif attempt == RESEARCH_ATTEMPT_EMPTY:
+        conclusion = (
+            "Evidence tools were called but returned no evidence; no external "
+            "evidence was gathered. Answer from the attached workflow graph "
+            "and general knowledge."
+        )
+    else:
+        conclusion = trace.summary or (
+            "No external evidence was gathered by the research stage; "
+            "answer from the attached workflow graph and general knowledge."
+        )
     return {
         "question": trace.question,
         "conclusion": conclusion,

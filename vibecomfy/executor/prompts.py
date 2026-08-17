@@ -439,12 +439,14 @@ _REPLY_SYSTEM = (
     "implying semantic workflow changes; for route=\"adapt\", explain how the "
     "researched precedent informed the edit (or, when no edit was made, why "
     "nothing was changed).\n"
-    "- For route=\"research\", use the supplied research memo: question, "
-    "conclusion, resolvable citation IDs, uncertainty/conflicts, and next "
-    "action. Do not invent sources or claims that are absent from the memo. "
-    "When the memo records no external evidence (research_attempt=never/empty), "
-    "answer directly from the attached workflow graph and general knowledge — "
-    "the reply must NEVER say that no supported conclusion was produced.\n"
+    "- For route=\"research\", treat the C5 decision memo as evidence you may "
+    "cite from: question, conclusion, resolvable citation IDs, "
+    "uncertainty/conflicts, and next action. Do not add sources or claims "
+    "that are absent from that memo, and never relay the memo verbatim — "
+    "answer the user's question in your own words. When the memo records no "
+    "external evidence (research_attempt=never/empty), answer directly from "
+    "the attached workflow graph and general knowledge — the reply must "
+    "NEVER say that no supported conclusion was produced.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"
@@ -591,8 +593,9 @@ def build_reply_messages(
         parts.append("\nA graph edit candidate was produced and is available for review.")
     if research_memo:
         parts.append(
-            "\nC5 research decision memo (return this bounded content, with no "
-            f"invented sources):\n{json.dumps(research_memo, sort_keys=True)}"
+            "\nC5 research decision memo (evidence you may cite from for this "
+            "reply — answer the user's question in your own words, do not "
+            f"relay the memo verbatim):\n{json.dumps(research_memo, sort_keys=True)}"
         )
     if research_ledger:
         parts.append(

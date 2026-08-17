@@ -2355,6 +2355,297 @@ def test_run_executor_skips_implement_but_replies_when_adapt_research_never(prof
     mock_reply.assert_called_once()
 
 
+# ── Batch 14: semantic non-gating enforced on the PRODUCED reply ─────────────
+
+
+def _fake_reply_model_turn(
+    task: str,
+    messages: list[dict[str, Any]] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Provider-level fake for the REAL reply turn (batch 14).
+
+    Emulates a model that follows the reply prompt: if the prompt still
+    carries the C5 ``return this bounded content`` relay instruction, or the
+    memo still contains a fake synthesis (``synthesis produced no
+    conclusion``), it refuses — which trips the assertions below.  Otherwise
+    it answers substantively from the query/graph and never refuses on thin
+    research.
+    """
+    del kwargs
+    prompt_text = "\n".join(
+        str(message.get("content") or "") for message in (messages or [])
+    )
+    if "return this bounded content" in prompt_text:
+        return {"content": "I cannot provide a supported conclusion."}
+    if "synthesis produced no conclusion" in prompt_text:
+        return {"content": "No supported conclusion was produced by research."}
+    query = str(task or "")
+    query_l = query.casefold()
+    if "hotshot" in query_l:
+        return {
+            "content": (
+                "Your graph contains a single KSampler node with no model "
+                "checkpoint attached. Switching to a Hotshot workflow means "
+                "replacing the checkpoint with a Hotshot-compatible video "
+                "model and adding the Hotshot loader nodes. No outside "
+                "sources were found, so this is based on the attached graph "
+                "and general knowledge."
+            )
+        }
+    if "upscale" in query_l:
+        return {
+            "content": (
+                "For latent upscaling without changing your sampler, add a "
+                "LatentUpscale node after the KSampler and keep the sampler "
+                "settings unchanged — the upscale operates on the latent "
+                "before decoding."
+            )
+        }
+    return {
+        "content": (
+            "The attached workflow contains one KSampler node. A KSampler "
+            "takes a model, positive and negative conditioning, and a latent "
+            "image, then runs the configured sampler steps to produce a "
+            "denoised latent."
+        )
+    }
+
+
+def test_research_as_answer_reply_is_substantive_when_research_never_empty(profile_dir: Path) -> None:
+    """Batch 14: never/empty research NEVER gates the research-as-answer reply.
+
+    The real reply turn runs (only the provider model call is faked) and the
+    produced reply is a substantive answer addressing the query — no
+    ``no supported conclusion`` refusal.  The decision memo is attempt-typed:
+    a never/empty attempt carries its own conclusion (no evidence tools were
+    called / no evidence was gathered), never a fake synthesis from a blank
+    trace.summary.
+    """
+    def research_stage_for(attempt: str):
+        def stage(
+            *,
+            route: str,
+            question: str,
+            spec: Any,
+            research_brief: str = "",
+        ) -> tuple[AgentResearchTrace, EvidencePack]:
+            del route, spec, research_brief
+            question_artifact = EvidenceArtifact(
+                evidence_id="research_question",
+                kind="research_question",
+                body={"question": question, "route": "research"},
+                source="classify",
+            )
+            if attempt == RESEARCH_ATTEMPT_NEVER:
+                return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
+                    artifacts={"research_question": question_artifact},
+                    ledger=EvidenceLedger(entries=(
+                        EvidenceLedgerEntry(
+                            decision="research_question",
+                            conclusion=question,
+                            evidence_ids=("research_question",),
+                            uncertainty="",
+                        ),
+                    )),
+                )
+            return AgentResearchTrace(
+                route="research",
+                question=question,
+                iterations=(),
+                final_verdict="refine",
+                summary="",
+                citations=(),
+                uncertainty="",
+                status="ok",
+                elapsed_seconds=0.0,
+            ), EvidencePack(
+                artifacts={"research_question": question_artifact},
+                ledger=EvidenceLedger(entries=(
+                    EvidenceLedgerEntry(
+                        decision="research_question",
+                        conclusion=question,
+                        evidence_ids=("research_question",),
+                        uncertainty="",
+                    ),
+                    EvidenceLedgerEntry(
+                        decision=DECISION_GET,
+                        conclusion="no_results: hivemind returned nothing",
+                        evidence_ids=(),
+                        uncertainty="no_results: hivemind returned nothing",
+                    ),
+                )),
+            )
+
+        return stage
+
+    def classify_research(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=True,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="research Hotshot workflows",
+            intent="research",
+            route="research",
+            task="research_nodes",
+        )
+
+    for attempt in (RESEARCH_ATTEMPT_NEVER, RESEARCH_ATTEMPT_EMPTY):
+        with mock.patch(
+            "vibecomfy.executor.core.run_classify_turn", side_effect=classify_research
+        ), mock.patch(
+            "vibecomfy.executor.core.run_agent_research_stage",
+            side_effect=research_stage_for(attempt),
+        ), mock.patch(
+            "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+            side_effect=_fake_reply_model_turn,
+        ):
+            result = run_executor(
+                ExecutorRequest(
+                    query="What is the best way to run Hotshot workflows?",
+                    graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+                    profile="default",
+                )
+            )
+
+        assert result.ok is True, result.failure_message
+        assert result.report.research is not None
+        assert result.report.research.research_attempt == attempt
+        memo = result.report.research.decision_memo
+        assert memo is not None
+        assert memo["research_attempt"] == attempt
+        conclusion = memo["conclusion"].casefold()
+        assert "synthesis produced no conclusion" not in conclusion
+        if attempt == RESEARCH_ATTEMPT_NEVER:
+            assert "no evidence tools were called" in conclusion
+        else:
+            assert "evidence tools were called but returned no evidence" in conclusion
+        # The produced reply is substantive and addresses the query — the
+        # real reply turn ran with the provider faked, not run_reply_turn.
+        assert result.reply is not None and result.reply.strip()
+        assert "no supported conclusion" not in result.reply.casefold()
+        assert "hotshot" in result.reply.casefold()
+
+
+def test_research_reply_prompt_has_no_c5_return_instruction() -> None:
+    """Batch 14: the research reply prompt no longer tells the model to RELAY
+    the C5 memo as bounded content — the memo is evidence it may cite from,
+    and on never/empty the model answers from the graph + knowledge."""
+    from vibecomfy.executor.prompts import build_reply_messages
+
+    memo = {
+        "question": "How should I run Hotshot workflows?",
+        "conclusion": (
+            "No evidence tools were called; no external evidence was gathered. "
+            "Answer from the attached workflow graph and general knowledge."
+        ),
+        "citations": [],
+        "uncertainty": "",
+        "research_attempt": RESEARCH_ATTEMPT_NEVER,
+        "next_action": (
+            "Answer from the attached graph and general knowledge; "
+            "no external evidence was gathered."
+        ),
+    }
+    messages = build_reply_messages(
+        "What is the best way to run Hotshot workflows?",
+        plan=ClassifyDecision(
+            research=True, implement=False, reply=True, route="research"
+        ),
+        research_memo=memo,
+        research_attempt=RESEARCH_ATTEMPT_NEVER,
+        effective_route="research",
+        graph_summary="[1] KSampler\n",
+    )
+    system = messages[0]["content"]
+    user = messages[1]["content"]
+    # The C5-return relay contract is deleted from the reply prompt.
+    assert "return this bounded content" not in system
+    assert "return this bounded content" not in user
+    assert "no invented sources" not in system
+    assert "no invented sources" not in user
+    # The memo is still supplied as citable evidence — not verbatim relay.
+    assert "C5 decision memo" in system
+    assert "never relay the memo verbatim" in system
+    assert "C5 research decision memo" in user
+    assert '"research_attempt": "never"' in user
+    # On never/empty the model answers from the graph + knowledge.
+    assert "research_attempt=never/empty" in system
+    assert "answer directly from " in system
+
+
+def test_inspect_and_respond_reply_substantive_without_research(profile_dir: Path) -> None:
+    """Batch 14: inspect/respond routes with never/empty research (research
+    skipped — zero evidence tools) still produce a substantive answer from the
+    graph + knowledge; no 'no supported conclusion' refusal on any route."""
+    def classify_inspect(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="explain what the graph does",
+            intent="explain_graph",
+            route="inspect",
+            task="inspect_graph",
+        )
+
+    def classify_respond(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
+        return ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="low",
+            plan_summary="answer directly",
+            intent="respond",
+            route="respond",
+            task="respond",
+        )
+
+    with mock.patch(
+        "vibecomfy.executor.core.run_classify_turn", side_effect=classify_inspect
+    ), mock.patch(
+        "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+        side_effect=_fake_reply_model_turn,
+    ):
+        inspect_result = run_executor(
+            ExecutorRequest(
+                query="Explain what this graph does",
+                graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
+                profile="default",
+            )
+        )
+
+    assert inspect_result.ok is True, inspect_result.failure_message
+    assert inspect_result.report.plan.effective_route == "inspect"
+    # Research skipped on inspect → research outcome is effectively never.
+    assert inspect_result.report.research is None
+    assert inspect_result.reply is not None and inspect_result.reply.strip()
+    assert "no supported conclusion" not in inspect_result.reply.casefold()
+    assert "ksampler" in inspect_result.reply.casefold()
+
+    with mock.patch(
+        "vibecomfy.executor.core.run_classify_turn", side_effect=classify_respond
+    ), mock.patch(
+        "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+        side_effect=_fake_reply_model_turn,
+    ):
+        respond_result = run_executor(
+            ExecutorRequest(
+                query="How do I upscale latents without changing my sampler?",
+                profile="default",
+            )
+        )
+
+    assert respond_result.ok is True, respond_result.failure_message
+    assert respond_result.report.plan.effective_route == "respond"
+    assert respond_result.report.research is None
+    assert respond_result.reply is not None and respond_result.reply.strip()
+    assert "no supported conclusion" not in respond_result.reply.casefold()
+    assert "upscale" in respond_result.reply.casefold()
+
+
 def test_adapt_payload_never_builds_deterministic_execution_plan_note() -> None:
     plan = ClassifyDecision(
         research=True,
