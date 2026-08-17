@@ -67,6 +67,7 @@ class _ParseExecuteMixin:
             statement_results = self._overlay_query_results(
                 parsed.expanded, statement_results
             )
+            apply_gate_eligible = True
             if interpreted.ok and interpreted.landed_ops:
                 from vibecomfy.porting.edit.apply_gate import verify_apply
 
@@ -77,7 +78,8 @@ class _ParseExecuteMixin:
                     landed_ops=interpreted.landed_ops,
                     schema_provider=self.schema_provider,
                 )
-                if not gate.apply_eligible:
+                apply_gate_eligible = gate.apply_eligible
+                if not gate.ok:
                     rejected = tuple(
                         StatementResult(
                             statement_index=item.statement_index,
@@ -152,7 +154,7 @@ class _ParseExecuteMixin:
                 diagnostics=diagnostics,
                 landed_ops=interpreted.landed_ops,
                 field_changes=field_changes,
-                apply_eligible=batch_ok and bool(interpreted.landed_ops),
+                apply_eligible=batch_ok and bool(interpreted.landed_ops) and apply_gate_eligible,
             )
         except Exception:
             self._restore_snapshot(snapshot)

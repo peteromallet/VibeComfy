@@ -410,9 +410,8 @@ def test_apply_gate_empty_replay_is_not_eligible() -> None:
         landed_ops=interpreted.landed_ops,
         schema_provider=provider,
     )
-    assert gate.ok is False
     assert gate.apply_eligible is False
-    assert gate.reason == "empty_replay"
+    assert gate.reason == "empty_delta"
 
 
 def test_interpret_pre_delta_reconstructs_post() -> None:

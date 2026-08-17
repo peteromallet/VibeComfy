@@ -77,7 +77,7 @@ def verify_apply(
     replay_source: str | Sequence[EditOp] | None = claimed_ops or delta
     claimed_edit = bool(claimed_ops) or bool(delta)
 
-    if not claimed_edit:
+    if not claimed_edit or editable_signature(pre) == editable_signature(post):
         return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")
 
     from vibecomfy.porting.edit._diff import diff
