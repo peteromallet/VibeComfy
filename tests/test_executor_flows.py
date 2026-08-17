@@ -2152,7 +2152,7 @@ def test_adapt_implement_proceeds_for_widget_edit_when_research_unavailable() ->
         ),
     )
     assert research.research_attempt == RESEARCH_ATTEMPT_THIN
-    assert research.package.status is ToolStatus.UNAVAILABLE
+    assert research.package.status is ToolStatus.OK
 
     with mock.patch(
         "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
@@ -2392,7 +2392,8 @@ def test_research_package_usable_gate_matrix() -> None:
         ),
     )
     assert thin_unavailable.research_attempt == RESEARCH_ATTEMPT_THIN
-    assert thin_unavailable.package.status is ToolStatus.UNAVAILABLE
+    # RC1: artifacts exist, so a 57014/exhaustion does not fail the package.
+    assert thin_unavailable.package.status is ToolStatus.OK
     assert executor_core._research_package_is_usable(thin_unavailable) is True
 
 

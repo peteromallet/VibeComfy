@@ -974,9 +974,15 @@ def _research_stage_package(
                 severity="error",
             )
         )
+    has_result_artifacts = any(
+        str(evidence_id) != "research_question" for evidence_id in pack.artifacts
+    )
+    # RC1: a single 57014 must not fail the whole package when any search
+    # hit or fetched artifact already exists.  Exhausted/failed with only
+    # the question marker stays UNAVAILABLE.
     status = (
         ToolStatus.OK
-        if trace.status == "ok"
+        if trace.status == "ok" or has_result_artifacts
         else ToolStatus.UNAVAILABLE
     )
     return StagePackage(

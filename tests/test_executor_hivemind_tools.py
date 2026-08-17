@@ -1214,6 +1214,37 @@ class TestStatementTimeoutRetry:
         assert calls["n"] == 2
         sleep.assert_called_once()
 
+    def test_57014_on_fat_query_succeeds_on_degraded_query(self) -> None:
+        """RC1: persistent 57014 on the leading-wildcard query retries the
+        degraded (no leading ``*``) query and returns hits."""
+        from urllib.parse import unquote
+
+        calls: list[str] = []
+
+        def _fat_then_degraded(req: Any, *args: Any, **kwargs: Any) -> Any:
+            url = unquote(req.full_url)
+            calls.append(url)
+            if "ilike.*" in url:
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    500,
+                    "statement timeout",
+                    {},
+                    io.BytesIO(
+                        b'{"code":"57014","message":"canceling statement due to statement timeout"}'
+                    ),
+                )
+            return _json_response([_workflow_row("wf-degraded", title="LTX workflow")])
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch("urllib.request.urlopen", side_effect=_fat_then_degraded):
+            result = hivemind_search("ltx video generation workflow", filters={"source_type": "workflow"})
+        assert result.status is ToolStatus.OK
+        assert result.result["count"] == 1
+        assert any("ilike.*" in url for url in calls)
+        assert any("ilike." in url and "ilike.*" not in url for url in calls)
+
     def test_persistent_57014_is_soft_miss_not_hard_failure(self) -> None:
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
