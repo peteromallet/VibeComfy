@@ -2007,20 +2007,13 @@ test("DELTA_DIAGNOSTIC_CODES includes malformed, corrupted, truncated, absent, r
 
 // ── Cumulative delta envelope consumption ───────────────────────────────
 
-test("readDeltaEnvelope extracts canonical V2 delta envelope from fixture response", () => {
+test("readDeltaEnvelope extracts ops from accepted_batch", () => {
   const fixture = {
     ok: true,
     outcome: { kind: "candidate" },
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: [
-        { op: "set_node_field", target: ["", "n1", "widgets.steps"], value: 28 },
-        { op: "add_node", scope_path: "", uid: "u-new", node_id: "99", class_type: "PreviewImage", fields: {}, inputs: {} },
-      ],
-    },
-    delta_ops: [
-      { op: "set_node_field", target: ["", "n1", "widgets.steps"], value: 28 },
-      { op: "add_node", scope_path: "", uid: "u-new", node_id: "99", class_type: "PreviewImage", fields: {}, inputs: {} },
+    accepted_batch: [
+      { op: { op: "set_node_field", target: ["", "n1", "widgets.steps"], value: 28 } },
+      { op: { op: "add_node", scope_path: "", uid: "u-new", node_id: "99", class_type: "PreviewImage", fields: {}, inputs: {} } },
     ],
   };
 
@@ -2032,17 +2025,19 @@ test("readDeltaEnvelope extracts canonical V2 delta envelope from fixture respon
   assert.equal(envelope.ops[1].op, "add_node");
 });
 
-test("readDeltaEnvelope returns null when delta_ops_envelope is absent", () => {
+test("readDeltaEnvelope returns null when accepted_batch is absent", () => {
   assert.equal(readDeltaEnvelope({ ok: true }), null);
+  assert.equal(readDeltaEnvelope({ accepted_batch: null }), null);
   assert.equal(readDeltaEnvelope({ delta_ops_envelope: null }), null);
   assert.equal(readDeltaEnvelope(null), null);
 });
 
-test("readDeltaEnvelope returns empty ops array when ops is not an array", () => {
+test("readDeltaEnvelope returns empty ops when accepted_batch statements have no object op", () => {
   const envelope = readDeltaEnvelope({
-    delta_ops_envelope: { schema_version: "2.0.0", ops: "not-array" },
+    accepted_batch: [{ not_an_op: true }, { op: "not-object" }],
   });
   assert.ok(envelope);
+  assert.equal(envelope.schema_version, "2.0.0");
   assert.deepEqual(envelope.ops, []);
 });
 
@@ -2271,10 +2266,9 @@ test("generated read helpers consume authority receipt hash fields from fixture"
     candidate_graph_hash: "candidate-graph-hash",
     submit_graph_hash: "submit-graph-hash",
     idempotency_key: "idem-auth-001",
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
-    },
+    accepted_batch: [
+      { op: { op: "set_node_field", target: ["", "n", "w"], value: 1 } },
+    ],
     apply_eligibility: {
       applyable: true,
       reason: "applyable",
@@ -2296,25 +2290,18 @@ test("generated read helpers consume authority receipt hash fields from fixture"
 
 // ── Malformed delta evidence in response fixtures ───────────────────────
 
-test("readDeltaEnvelope returns null for malformed delta_ops_envelope (missing schema_version)", () => {
-  // Malformed envelope with no schema_version still returns an object,
-  // but schema_version will be null.  The browser consumer should treat
-  // null schema_version as non-canonical.
+test("readDeltaEnvelope returns null for archived delta_ops_envelope without accepted_batch", () => {
   const envelope = readDeltaEnvelope({
     delta_ops_envelope: { ops: [] },
   });
-  assert.ok(envelope);
-  assert.equal(envelope.schema_version, null);
-  assert.deepEqual(envelope.ops, []);
+  assert.equal(envelope, null);
 });
 
-test("readDeltaEnvelope handles corrupted delta_ops_envelope (ops is null)", () => {
+test("readDeltaEnvelope returns null for archived envelope with null ops", () => {
   const envelope = readDeltaEnvelope({
     delta_ops_envelope: { schema_version: "2.0.0", ops: null },
   });
-  assert.ok(envelope);
-  assert.equal(envelope.schema_version, "2.0.0");
-  assert.deepEqual(envelope.ops, []);
+  assert.equal(envelope, null);
 });
 
 test("normalizeAgentEditResponse does not crash on malformed delta evidence in debug", () => {
@@ -2341,41 +2328,15 @@ test("normalizeAgentEditResponse does not crash on malformed delta evidence in d
 
 // ── Cumulative delta across batch turns ─────────────────────────────────
 
-test("readDeltaEnvelope reads cumulative multi-turn delta from fixture", () => {
-  // Simulating a batch_repl response with cumulative delta across turns.
+test("readDeltaEnvelope reads cumulative multi-turn delta from accepted_batch", () => {
   const fixture = {
     ok: true,
     outcome: { kind: "candidate" },
-    delta_ops_envelope: {
-      schema_version: "2.0.0",
-      ops: [
-        { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
-        { op: "set_mode", target: ["", "n2"], mode: 4 },
-        { op: "add_node", scope_path: "", uid: "n3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
-        { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "n3", "images"] },
-      ],
-    },
-    batch_turns: [
-      {
-        turn_number: 0,
-        delta_ops_envelope: {
-          schema_version: "2.0.0",
-          ops: [
-            { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
-            { op: "set_mode", target: ["", "n2"], mode: 4 },
-          ],
-        },
-      },
-      {
-        turn_number: 1,
-        delta_ops_envelope: {
-          schema_version: "2.0.0",
-          ops: [
-            { op: "add_node", scope_path: "", uid: "n3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
-            { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "n3", "images"] },
-          ],
-        },
-      },
+    accepted_batch: [
+      { op: { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 } },
+      { op: { op: "set_mode", target: ["", "n2"], mode: 4 } },
+      { op: { op: "add_node", scope_path: "", uid: "n3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} } },
+      { op: { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "n3", "images"] } },
     ],
   };
 

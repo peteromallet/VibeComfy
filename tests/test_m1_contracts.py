@@ -117,6 +117,10 @@ def _prep(authority: dict[str, object], **kwargs):
     return validate_prepared_authority_v1(authority, accepted_batch=batch, **kwargs)
 
 
+def _tx_plan() -> dict[str, object]:
+    return {"accepted_batch": getattr(_authority, "last_batch", [])}
+
+
 def test_shared_m1_golden_projection_corpus() -> None:
     for case in CORPUS["projection_cases"]:
         if "error" in case:
@@ -181,6 +185,7 @@ def test_delta_v1_and_prepared_authority_are_strict_and_immutable() -> None:
         "state": "prepared",
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "plan": _tx_plan(),
     })
     with pytest.raises(ContractError) as caught:
         validate_candidate_transaction_v2({"contract_version": CANDIDATE_TRANSACTION_V2, "prepared_authority": prepared})
@@ -351,6 +356,7 @@ def test_candidate_authority_rejects_compensation():
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "candidate_ready",
             "candidate_authority": candidate,
+            "plan": _tx_plan(),
         })
     assert caught.value.code == "candidate_compensation_forbidden"
 
@@ -366,6 +372,7 @@ def test_candidate_authority_rejects_null_compensation():
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "candidate_ready",
             "candidate_authority": candidate,
+            "plan": _tx_plan(),
         })
     assert caught.value.code == "candidate_compensation_forbidden"
 
@@ -379,6 +386,7 @@ def test_prepared_authority_without_compensation_is_valid():
         "state": "prepared",
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "plan": _tx_plan(),
     })
 
 
@@ -392,6 +400,7 @@ def test_prepared_authority_with_valid_compensation_is_valid():
         "state": "prepared",
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "plan": _tx_plan(),
     })
 
 
@@ -408,6 +417,7 @@ def test_prepared_authority_compensation_fence_unbound():
             "state": "prepared",
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "plan": _tx_plan(),
         })
     assert caught.value.code == "compensation_fence_unbound"
 
@@ -423,6 +433,7 @@ def test_prepared_authority_compensation_digest_mismatch():
             "state": "prepared",
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "plan": _tx_plan(),
         })
     assert caught.value.code == "compensation_digest_mismatch"
 
@@ -440,8 +451,17 @@ def test_prepared_authority_malformed_compensation():
             "state": "prepared",
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "plan": _tx_plan(),
         })
     assert caught.value.code == "malformed_restoration_compensation"
+
+
+def test_persisted_operation_ops_is_rejected() -> None:
+    authority = _authority()
+    authority["operation"]["ops"] = CORPUS["delta_ops"]
+    with pytest.raises(ContractError) as caught:
+        _prep(authority)
+    assert caught.value.code == "durable_delta_ops_copy"
 
 
 def test_structural_family_missing_materialization_fails_closed():

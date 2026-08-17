@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildPreparedPlan } from "../../vibecomfy/comfy_nodes/web/_prepared_plan_builder_v1.mjs";
+import { acceptedBatchDigest } from "../../vibecomfy/comfy_nodes/web/prepared_authority_v1.js";
 import { sha256Hex, canonicalizeContractNumeric } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
 import { computeLayoutOperationDigest } from "../../vibecomfy/comfy_nodes/web/layout_operation_v1.js";
 import { computeMutationMaterializationDigest } from "../../vibecomfy/comfy_nodes/web/mutation_materialization_v1.js";
@@ -112,21 +113,27 @@ function makeAuthority({
 } = {}) {
   const projection = family === "layout" ? "layout_v1" : "structural_v1";
   let operation;
+  let structuralOps;
   if (family === "layout") {
+    structuralOps = [];
     const lops = layoutOps ?? [{ op: "set_node_geometry", uid: "node-1", pos: [10, 20] }];
     const layoutEnv = { contract_version: "layout_operation_v1", wire_version: "1.0.0", ops: lops };
     layoutEnv.digest = computeLayoutOperationDigest(lops);
     operation = {
       delta_contract: "delta_v1",
       wire_version: "2.0.0",
-      ops: [],
+      accepted_batch_digest: acceptedBatchDigest(structuralOps.map((op) => ({ op }))),
       layout_operation: layoutEnv,
       layout_operation_digest: layoutEnv.digest,
     };
   } else {
-    const useOps = ops ?? corpus.delta_ops;
-    operation = { delta_contract: "delta_v1", wire_version: "2.0.0", ops: useOps };
-    const mat = _materializationEnvelope(useOps);
+    structuralOps = ops ?? corpus.delta_ops;
+    operation = {
+      delta_contract: "delta_v1",
+      wire_version: "2.0.0",
+      accepted_batch_digest: acceptedBatchDigest(structuralOps.map((op) => ({ op }))),
+    };
+    const mat = _materializationEnvelope(structuralOps);
     if (mat) {
       operation.mutation_materialization = mat;
       operation.mutation_materialization_digest = mat.digest;
@@ -159,6 +166,7 @@ function makeAuthority({
     value.structural_witness = { ...ref("structural_v1"), precondition_digest: pre, postcondition_digest: post };
   }
   if (compensation) value.restoration_strategy_compensation = compensation;
+  value.accepted_batch = structuralOps.map((op) => ({ op }));
   return value;
 }
 
@@ -213,7 +221,7 @@ test("structural prepared authority with add_node builds a frozen zero-native pl
   assert.equal(result.plan.contract_version, "prepared_plan_v1");
   assertDeepFrozen(result.plan);
 
-  // Intended primitives are derived solely from the authority's operation.ops.
+  // Intended primitives are derived from plan.accepted_batch (sibling adapter).
   assert.equal(result.plan.operation_family, "structural");
   const expectedKinds = corpus.delta_ops.map((op) => op.op);
   const actualKinds = result.plan.intended_primitives.map((p) => p.kind);
@@ -330,7 +338,7 @@ test("plan is derived solely from prepared authority and independent of later mu
   // Mutate the input authority after the plan is built; the frozen plan must
   // be unaffected (deep freeze + derivation from a clone).
   authority.plan_hash = "mutated";
-  authority.operation.ops = [];
+  authority.accepted_batch = [];
   assert.equal(JSON.stringify(result.plan), planSnapshot);
   assert.equal(result.plan.authority_receipt.plan_hash, "plan-1");
 });
@@ -384,8 +392,9 @@ test("layout family with non-empty structural ops fails closed", () => {
   };
   layoutEnv.digest = computeLayoutOperationDigest(layoutEnv.ops);
   const authority = makeAuthority({ family: "layout", layoutOps: [{ op: "set_node_geometry", uid: "n1", pos: [1, 2] }] });
-  // Inject a non-empty structural op to trip the family rule.
-  authority.operation.ops = [{ op: "set_node_field", target: ["", "n1", "f"], value: 1 }];
+  // Inject a non-empty structural batch to trip the family rule.
+  authority.accepted_batch = [{ op: { op: "set_node_field", target: ["", "n1", "f"], value: 1 } }];
+  authority.operation.accepted_batch_digest = acceptedBatchDigest(authority.accepted_batch);
   assertFail(authority, "layout_family_requires_empty_structural_ops");
 });
 
