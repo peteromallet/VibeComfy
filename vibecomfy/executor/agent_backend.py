@@ -597,7 +597,13 @@ def run_execute_turn(
             elif kind == "submit":
                 delta_ids = action.get("delta_ids") or ()
                 state = session_store.load(session_id)
-                state.validate_delta_references(delta_ids)
+                try:
+                    state.validate_delta_references(delta_ids)
+                except TwoStepSessionError as exc:
+                    # Typed session errors (forged/unknown delta references)
+                    # are a documented dict result, not a propagation: the
+                    # finally block still clears the message marker.
+                    return {"ok": False, "reply": None, "route": route, "failure": exc}
                 reply_text = str(action.get("reply") or "")
                 session_store.append(
                     session_id,

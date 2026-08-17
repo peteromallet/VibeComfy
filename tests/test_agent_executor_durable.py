@@ -10,6 +10,14 @@ from vibecomfy.comfy_nodes.agent.executor_durable import maybe_write_executor_on
 
 def test_executor_durable_module_import_does_not_load_routes_edit_or_executor_core() -> None:
     code = """
+import os
+# Headless isolation: the comfy_nodes package __init__ registers agent routes
+# whenever a ComfyUI PromptServer is importable (e.g. pip-installed comfyui),
+# which is a package-level side effect unrelated to executor_durable's own
+# import graph.  This test verifies executor_durable stays lightweight, so
+# isolate the subprocess headless to keep the assertions meaningful in any
+# environment (an explicit import by executor_durable would still be caught).
+os.environ["VIBECOMFY_HEADLESS"] = "1"
 import sys
 import vibecomfy.comfy_nodes.agent.executor_durable
 assert "vibecomfy.comfy_nodes.agent.routes" not in sys.modules

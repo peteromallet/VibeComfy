@@ -7951,7 +7951,7 @@ async function confirmPaidSubmitGate(panel, task) {
   const isExamplePrompt = WELCOME_EXAMPLE_PROMPTS.includes(task);
   if (!isExamplePrompt) {
     try {
-      if (localStorage.getItem(PAID_SUBMIT_ACK_KEY) === "1") {
+      if (_lsGet(PAID_SUBMIT_ACK_KEY) === "1") {
         return true;
       }
     } catch (_error) {
@@ -7977,7 +7977,7 @@ async function confirmPaidSubmitGate(panel, task) {
   }
   if (confirmed && !isExamplePrompt) {
     try {
-      localStorage.setItem(PAID_SUBMIT_ACK_KEY, "1");
+      _lsSet(PAID_SUBMIT_ACK_KEY, "1");
     } catch (_error) {
       // Best-effort persistence only.
     }
