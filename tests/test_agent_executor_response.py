@@ -243,23 +243,23 @@ def test_serialize_executor_result_preserves_delta_references() -> None:
         "ok": True,
         "route": "edit",
         "reply": "Changed sampler.steps from 20 to 30.",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
         "accepted_batch": [
             {
                 "statement_index": 1,
                 "source": 'set_field(uid="sampler", field="steps", value=30)',
                 "op_kind": "edit",
                 "touched_uids": ["sampler"],
+                "op": envelope["ops"][0],
             }
         ],
     }
 
     serialized = serialize_executor_result(payload)
 
-    assert serialized["delta_ops_envelope"] == envelope
-    assert serialized["delta_ops"] == envelope["ops"]
+    assert "delta_ops_envelope" not in serialized
+    assert "delta_ops" not in serialized
     assert serialized["accepted_batch"][0]["statement_index"] == 1
+    assert serialized["accepted_batch"][0]["op"] == envelope["ops"][0]
 
 
 def test_reply_change_claims_must_reference_accepted_delta() -> None:

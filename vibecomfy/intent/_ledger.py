@@ -14,6 +14,16 @@ recovery rerun:
 is False on exactly those 57 unique ids.  All 57 ids are recoverable from
 that artifact.
 
+A post-migration live rerun was launched on the sol-review-fix tree
+(command in ``docs/plans/ir-everywhere-57-rerun.md``) against
+
+    /Users/peteromalley/Documents/reigh-workspace/vibecomfy-recovery-run/out/agentic/ir-everywhere-57/
+
+That run is the checkpoint-16 reconciliation source.  Until it
+``complete: true``, ids that are not named floors stay
+``pending_live_rerun``.  No id is ``resolved`` unless that run records
+``raw_first_attempt_success`` for it.
+
 A prior planning reconstruction (``.oracle/findings/failure-partition.txt``)
 built 48 family-doc ids + 9 case-note ids.  That is a *different* 57
 (partial overlap with this run).  This ledger does not mix the two sets

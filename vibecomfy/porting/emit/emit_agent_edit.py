@@ -31,17 +31,14 @@ def emit_agent_edit_python(
     *,
     diagnostics: list[EmissionDiagnostic] | None = None,
     raw_workflow: dict[str, Any] | None = None,
-    variable_name_locks: Mapping[str, str] | None = None,
-    strict_variable_name_locks: bool = False,
 ) -> str:
     """Render a workflow as the Python assignment view used by EditSession.
 
     This is the implementation of the renderer's ``surface`` lens
     (``vibecomfy.porting.render``): the model-facing graph text flows through
-    the composable renderer, never through ad-hoc projections.  The function
-    is intentionally parallel to ``emit_scratchpad_python``.  It reuses the
-    same lower-level workflow preparation and locked variable-name plumbing,
-    but emits a compact edit surface rather than runnable scratchpad code.
+    the composable renderer, never through ad-hoc projections.  Bindings are
+    a pure function of ``(class_type, uid-order)`` — the agent-edit surface
+    does not accept locked aliases.
     """
     from vibecomfy.workflow import VibeWorkflow
 
@@ -60,8 +57,6 @@ def emit_agent_edit_python(
         apply_overrides=None,
         keep_virtual_wires=True,
         prune_dead_branches=False,
-        variable_name_locks=variable_name_locks,
-        strict_variable_name_locks=strict_variable_name_locks,
         diagnostics=diagnostics,
     )
     definitions_source = raw_workflow

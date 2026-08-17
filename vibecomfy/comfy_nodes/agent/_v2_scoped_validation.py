@@ -112,44 +112,24 @@ def _load_turn_candidate_graph(
 def _load_turn_delta_ops(
     *, session_dir: Path, turn_id: str
 ) -> tuple[dict[str, Any], ...] | None:
-    """Load canonical ``delta_ops`` from the persisted turn response.
+    """Load canonical Δ ops from the persisted turn ``accepted_batch``.
 
-    Prefers the ``delta_ops_envelope`` (``{schema_version: "2.0.0", ops: [...]}``)
-    over the legacy flat ``delta_ops`` list.  Returns None if the response does
-    not contain a valid ops list.
+    The accepted batch is the sole durable Δ.  Compatibility envelope/flat
+    fields and FieldChange inference are not consulted.
     """
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
     response = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
     if response is None:
         return None
-
-    # Canonical path: delta_ops_envelope with {schema_version, ops}
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        ops = envelope.get("ops")
-        if isinstance(ops, list) and all(isinstance(op, Mapping) for op in ops):
-            # Validate each op through the backend normaliser so that
-            # malformed ops (unknown op kind, missing required fields,
-            # etc.) inside a syntactically-valid envelope are rejected
-            # before downstream accept verification consumes them.
-            try:
-                parse_edit_delta(ops)
-            except ValueError:
-                return None
-            return tuple(dict(op) for op in ops)
-        # Envelope present but ops is malformed — fall through to delta_ops.
-        # We record the shape for diagnostics in _build_v2_accept_evidence.
-
-    # Legacy bridge: flat delta_ops list
-    delta_ops = response.get("delta_ops")
-    if isinstance(delta_ops, list) and all(isinstance(op, Mapping) for op in delta_ops):
-        return tuple(dict(op) for op in delta_ops)
-
-    # Legacy wrapped shape: a dict under delta_ops that is NOT a list
-    # (e.g. {"delta_ops": {...}, "diagnostics": [...]}) — reject.
-    if isinstance(delta_ops, Mapping):
+    ops = _ops_from_accepted_batch(response)
+    if not ops:
         return None
-
-    return _infer_delta_ops_from_legacy_field_changes(response)
+    try:
+        parse_edit_delta(list(ops))
+    except ValueError:
+        return None
+    return ops
 
 
 def _iter_legacy_field_changes(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:

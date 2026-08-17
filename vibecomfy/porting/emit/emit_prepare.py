@@ -483,6 +483,7 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             alias = input_aliases.get(raw_key, to_python_identifier(raw_key))
             kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
 
+        widget_channel_names: list[str] = []
         for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
             raw_key = str(raw_name)
             if raw_key in edge_fields:
@@ -493,6 +494,19 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
             # inequality from π_edit.
             alias = input_aliases.get(raw_key) or to_python_identifier(raw_key)
             kwargs.append((alias, _format_value(value, elide_strings_over=None), raw_key))
+            widget_channel_names.append(raw_key)
+        # Named widget-channel fields (not just widget_N) must survive
+        # emit→interpret for unknown-schema IRs.  The reserved constructor
+        # kwarg is the side channel AddNodeOp.widget_field_names already
+        # carries on the typed-op path.
+        if any(not name.startswith("widget_") for name in widget_channel_names):
+            kwargs.append(
+                (
+                    "literal_channel_names",
+                    _format_value(tuple(widget_channel_names), elide_strings_over=None),
+                    "literal_channel_names",
+                )
+            )
 
         comment = _agent_edit_comment(nid, node, output_aliases.get(nid, {}), var_name=var)
         call_name = str(node.class_type)

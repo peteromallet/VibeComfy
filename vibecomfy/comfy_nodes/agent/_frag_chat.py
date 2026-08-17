@@ -228,8 +228,12 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
                     "state": turn_state.get("state"),
                 }
             )
-        delta_ops_envelope = response.get("delta_ops_envelope")
-        delta_ops = response.get("delta_ops")
+        accepted_batch = response.get("accepted_batch")
+        if not isinstance(accepted_batch, list):
+            accepted_batch = None
+        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+        accepted_ops = list(_ops_from_accepted_batch(response)) if accepted_batch is not None else None
         prepared_baseline = None
         if turn_state.get("state") in {"prepared", "apply_prepared"}:
             original_path = turn_dir / "original.ui.json"
@@ -279,15 +283,11 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "lease_nonce": (
                 aggregate.get("lease_nonce") if isinstance(aggregate, Mapping) else None
             ),
-            "delta_ops_envelope": (
-                _json_safe(delta_ops_envelope)
-                if isinstance(delta_ops_envelope, Mapping)
-                else None
+            "accepted_batch": (
+                _json_safe(accepted_batch) if accepted_batch is not None else None
             ),
-            # Keep absence distinct from an intentionally empty V2 delta.  The
-            # browser uses an array as protocol evidence; emitting [] for a V1
-            # response would incorrectly upgrade it to v2_delta on rehydrate.
-            "delta_ops": _json_safe(delta_ops) if isinstance(delta_ops, list) else None,
+            # Apply still consumes a local ops list derived from accepted_batch.
+            "delta_ops": _json_safe(accepted_ops) if accepted_ops is not None else None,
             "apply_eligibility": (
                 {
                     "applyable": False,

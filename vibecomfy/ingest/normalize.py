@@ -80,6 +80,52 @@ def _door_freeze(value: Any) -> Any:
     return value
 
 
+def _door_signature_ports(entries: Any) -> tuple[Any, ...]:
+    ports: list[tuple[Any, ...]] = []
+    if not isinstance(entries, (list, tuple)):
+        return ()
+    for item in entries:
+        if not isinstance(item, Mapping):
+            continue
+        ports.append(
+            (
+                str(item.get("name") or ""),
+                item.get("type"),
+                str(item.get("label") or ""),
+            )
+        )
+    return tuple(ports)
+
+
+def _door_definitions_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
+    """Editable subgraph signatures for the door fingerprint.
+
+    Covers id, name, and each port's name/type/label.  Inner nodes, links,
+    and geometry stay door-owned and are not fingerprinted.
+    """
+    metadata = getattr(workflow, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return ()
+    definitions = metadata.get("definitions")
+    if not isinstance(definitions, Mapping):
+        return ()
+    subgraphs = definitions.get("subgraphs")
+    if not isinstance(subgraphs, (list, tuple)):
+        return ()
+    return tuple(
+        sorted(
+            (
+                str(entry.get("id") or entry.get("name") or ""),
+                str(entry.get("name") or ""),
+                _door_signature_ports(entry.get("inputs")),
+                _door_signature_ports(entry.get("outputs")),
+            )
+            for entry in subgraphs
+            if isinstance(entry, Mapping)
+        )
+    )
+
+
 def _door_schema_status(metadata: Mapping[str, Any]) -> str:
     """Schema status derived from the IR-only ``schema_source`` metadata.
 
@@ -180,7 +226,12 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
             for item in workflow.outputs
         )
     )
-    return (nodes, edges, public_inputs, public_outputs)
+    # Grammar-visible subgraph signatures (id, name, ports).  A
+    # definitions-only edit that changes an emitted port (e.g. a subgraph
+    # input label that becomes the Python kwarg) must flip this fingerprint
+    # so the emit door cannot restore the captured original and discard it.
+    # Inner bodies / furniture stay door-owned and are not fingerprinted.
+    return (nodes, edges, public_inputs, public_outputs, _door_definitions_fingerprint(workflow))
 
 
 def _capture_ui_door(
@@ -1099,17 +1150,18 @@ def from_ui(
     # produced by the converter drops them, so carry them across from the raw
     # graph here (fail-closed: a non-list groups is rejected).
     workflow.groups = _vibe_groups(raw.get("groups"))
+    # Subgraph signatures are part of π_edit.  Copy them onto the IR BEFORE
+    # the door fingerprint is captured so a later definitions-only edit is
+    # distinguishable from the ingest snapshot.
+    raw_definitions = raw.get("definitions")
+    if isinstance(raw_definitions, dict):
+        workflow.metadata["definitions"] = deepcopy(raw_definitions)
     # Law 1: stash the raw wire bytes at the door.  The emit boundary
     # reproduces them byte-for-byte for an untouched graph
     # (``emit_ui(from_ui(J)) == J``) and prefers them for edited graphs.
     workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
         raw, workflow, use_comfy_converter=use_comfy_converter
     )
-    # Subgraph signatures are part of π_edit.  The door also retains the raw
-    # bytes; this copy is the IR-visible interface the quotient reads.
-    raw_definitions = raw.get("definitions")
-    if isinstance(raw_definitions, dict):
-        workflow.metadata["definitions"] = deepcopy(raw_definitions)
     return workflow
 
 

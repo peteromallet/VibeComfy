@@ -274,6 +274,8 @@ def evaluate_execution_plan_for_state(
         )
     else:
         candidate_graph = graph if graph is not None else getattr(state, "ui_payload", None)
+        # Always inspect the candidate graph through the ingest door.  The
+        # retained ingest IR on state.workflow is not the post-edit candidate.
         evaluation = evaluate_execution_plan(
             candidate_graph,
             plan,

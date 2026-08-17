@@ -72,20 +72,18 @@ source_string = session.render()
 
 1. Re-ingest `working_ui` into `self.ledger`.
 2. Convert `working_ui` → `normalize_to_api(…, use_comfy_converter=False)` → `from_api(…)`.
-3. Call `emit_agent_edit_python(workflow, …, variable_name_locks=name_by_uid, strict_variable_name_locks=…)`.
+3. Call `emit_agent_edit_python(workflow)` — bindings are a pure function of
+   `(class_type, uid-order)`. The agent-edit surface does not accept
+   `variable_name_locks`.
 4. Parse `# uid:` comments from the emitted source to extract `(uid, name)` pairs.
-5. Seed (first call) or validate (later calls) the lock tables.
-6. If `render_budget_ms` is set and elapsed time exceeds it, emit a
+5. If `render_budget_ms` is set and elapsed time exceeds it, emit a
    `render_budget_exceeded` warning diagnostic.
 
 **Identity invariants:**
 
-- First render: every `uid`↔`name` pair seeds `name_by_uid` and `uid_by_name`.
-  These are write-once — an existing mapping is never silently overwritten.
-- Later renders: strict lock enforcement. A re-render that changes a locked name
-  produces `render_name_lock_mismatch`; a re-render that maps a locked name to a
-  different uid produces `render_uid_lock_mismatch`; a previously-locked uid
-  absent from the render produces `render_locked_uid_missing`.
+- Bindings are derived, never stored. A re-render of the same IR always
+  produces the same names. There is no lock table and no lock-mismatch
+  diagnostic on the agent-edit surface.
 - The source always passes `ast.parse` before being returned (a `SyntaxError`
   raises `RuntimeError` at the emitter level).
 

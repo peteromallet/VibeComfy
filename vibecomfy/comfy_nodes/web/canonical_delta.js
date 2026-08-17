@@ -338,6 +338,15 @@ export function classifyDeltaShape(payload) {
     };
   }
 
+  const accepted = payload.accepted_batch;
+  if (Array.isArray(accepted)) {
+    return {
+      shape: "accepted_batch",
+      code: "accepted_batch",
+      detail: { count: accepted.length },
+    };
+  }
+
   const envelope = payload.delta_ops_envelope;
   if (_isObject(envelope)) {
     const ops = envelope.ops;
@@ -518,6 +527,16 @@ export function normalizeDeltaV1(payload) {
 
 export function normalizeDeltaOpsFromSubmitPayload(payload) {
   const shape = classifyDeltaShape(payload);
+
+  if (shape.shape === "accepted_batch") {
+    const ops = [];
+    for (const statement of payload.accepted_batch) {
+      if (_isObject(statement) && _isObject(statement.op)) {
+        ops.push(statement.op);
+      }
+    }
+    return ops;
+  }
 
   if (shape.shape === "canonical") {
     try {

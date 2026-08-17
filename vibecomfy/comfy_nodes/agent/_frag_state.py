@@ -372,25 +372,42 @@ def _duration_ms(start: float) -> int:
     return max(0, int((time.monotonic() - start) * 1000))
 
 
+def _ops_from_accepted_batch(payload: Mapping[str, Any] | None) -> tuple[dict[str, Any], ...]:
+    """Durable Δ ops: landed ``accepted_batch[*].op`` only."""
+    if not isinstance(payload, Mapping):
+        return ()
+    accepted = payload.get("accepted_batch")
+    if not isinstance(accepted, list):
+        return ()
+    ops: list[dict[str, Any]] = []
+    for statement in accepted:
+        if not isinstance(statement, Mapping):
+            continue
+        op = statement.get("op")
+        if isinstance(op, Mapping):
+            ops.append(dict(op))
+    return tuple(ops)
+
+
+def derived_accepted_delta_envelope(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Apply-binding envelope derived from the sole durable Δ (accepted_batch)."""
+    return {
+        "schema_version": "2.0.0",
+        "ops": list(_ops_from_accepted_batch(payload)),
+    }
+
+
 def _total_landed_edit_count(state: AgentEditState) -> int:
     # FieldChange captures field, mode, and link mutations, but node creation
     # and deletion have no FieldChange representation. Count those from the
-    # effective canonical delta evidence so add-only and mixed edits remain
-    # visible without resurrecting lint-dropped or same-value operations.
+    # accepted-batch ops so add-only and mixed edits remain visible.
     from ._frag_humanize import _net_field_changes  # T-038 late import: sibling cycle broken; resolved at call time
     total = len(_net_field_changes(tuple(state.batch_field_changes or ())))
-    for turn in state.batch_turns:
-        envelope = turn.get("delta_ops_envelope")
-        if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
-            delta_ops = envelope["ops"]
-        else:
-            flat_delta_ops = turn.get("delta_ops")
-            delta_ops = flat_delta_ops if isinstance(flat_delta_ops, list) else ()
-        total += sum(
-            1
-            for op in delta_ops
-            if isinstance(op, Mapping) and op.get("op") in {"add_node", "remove_node"}
-        )
+    total += sum(
+        1
+        for op in _accepted_batch_delta_ops(state)
+        if op.get("op") in {"add_node", "remove_node"}
+    )
     return total
 
 
@@ -409,12 +426,6 @@ def _accepted_batch_statements(state: AgentEditState) -> tuple[dict[str, Any], .
     for turn in state.batch_turns:
         if not isinstance(turn, Mapping):
             continue
-        envelope = turn.get("delta_ops_envelope")
-        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
-        if not isinstance(turn_ops, list):
-            flat_ops = turn.get("delta_ops")
-            turn_ops = flat_ops if isinstance(flat_ops, list) else ()
-        landed_op_iter = iter(op for op in turn_ops if isinstance(op, Mapping))
         for statement in turn.get("statements") or []:
             if not isinstance(statement, Mapping):
                 continue
@@ -430,7 +441,9 @@ def _accepted_batch_statements(state: AgentEditState) -> tuple[dict[str, Any], .
             }
             op = statement.get("op")
             if not isinstance(op, Mapping):
-                op = next(landed_op_iter, None)
+                detail = statement.get("detail")
+                if isinstance(detail, Mapping) and isinstance(detail.get("edit_op"), Mapping):
+                    op = detail["edit_op"]
             if isinstance(op, Mapping):
                 entry["op"] = op
             accepted.append(entry)
@@ -484,23 +497,10 @@ def _accepted_batch_field_changes(state: AgentEditState) -> tuple[FieldChange, .
 def _accepted_batch_delta_ops(state: AgentEditState) -> tuple[dict[str, Any], ...]:
     """Return the cumulative Δ ops of the accepted batch, in turn order.
 
-    Every op here is a landed op of the accepted batch — the canonical Δ.
-    Consumers (structural humanization, response claims, replay checks)
-    derive from this list instead of recomputing a parallel diff.
+    Derived only from landed ``statement.op`` values — no envelope/flat
+    compatibility view.
     """
-    ops: list[dict[str, Any]] = []
-    for turn in state.batch_turns:
-        if not isinstance(turn, Mapping):
-            continue
-        envelope = turn.get("delta_ops_envelope")
-        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
-        if not isinstance(turn_ops, list):
-            flat = turn.get("delta_ops")
-            turn_ops = flat if isinstance(flat, list) else ()
-        for op in turn_ops:
-            if isinstance(op, Mapping):
-                ops.append(dict(op))
-    return tuple(ops)
+    return _ops_from_accepted_batch({"accepted_batch": list(_accepted_batch_statements(state))})
 
 
 def _read_only_discovery_turn_count(state: AgentEditState) -> int:
@@ -666,5 +666,7 @@ __all__ = (
      "validation_errors_payload", "write_allocation_failure_audit", "write_audit",
      "write_json_artifact",
      "_accepted_batch_delta_ops", "_accepted_batch_field_changes",
+     "_ops_from_accepted_batch",
+     "derived_accepted_delta_envelope",
      "_accepted_batch_statements",
 )

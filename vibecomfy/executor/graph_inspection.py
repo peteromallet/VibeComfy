@@ -1,20 +1,22 @@
 """Deterministic graph-inspection evidence extraction.
 
-Extracts nodes, widgets, slots, and link edges from a ComfyUI prompt/API
-graph dict.  Normalises both list-shaped and dict-shaped link formats so
-downstream consumers (reply renderer, compliance checks) never need to
-branch on edge topology.
+Product-path inspection projects from the IR (:class:`VibeWorkflow`).
+Raw LiteGraph / envelope dicts enter only through the named ingest
+doors (``from_ui`` / ``from_envelope`` / ``from_api``) and are then
+read as ``wf.nodes``, ``wf.edges``, and ``wf.widgets``.
 
-Every public function is pure: it only reads from *graph* and never
-mutates it.  Failures are signalled through exceptions so callers can
-wrap them if needed, but for well-formed graphs the module always
-returns structured evidence.
+Every public function is pure: it never mutates the workflow or the
+raw dict.  Failures during ingest yield empty evidence so callers can
+treat inspection as best-effort.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from vibecomfy.workflow import VibeNode, VibeWorkflow
 
 
 # ── typed evidence structures ────────────────────────────────────────────────
@@ -144,17 +146,6 @@ def normalise_links(links: list) -> tuple[EdgeEvidence, ...]:
 # ── node extraction ──────────────────────────────────────────────────────────
 
 
-def _extract_widgets(node: dict) -> tuple[WidgetEvidence, ...]:
-    """Extract widget values from ``widgets_values`` (optional)."""
-    widgets = node.get("widgets_values")
-    if not isinstance(widgets, list):
-        return ()
-    result: list[WidgetEvidence] = []
-    for i, value in enumerate(widgets):
-        result.append(WidgetEvidence(index=i, value=value))
-    return tuple(result)
-
-
 def _sort_widget_name(name: str) -> tuple[int, Any]:
     if name.startswith("widget_"):
         suffix = name.split("_", 1)[1]
@@ -163,200 +154,117 @@ def _sort_widget_name(name: str) -> tuple[int, Any]:
     return (1, name)
 
 
-def _extract_vibe_widgets(node: dict) -> tuple[WidgetEvidence, ...]:
-    """Extract widget evidence from a Vibe graph node dict."""
-    named_values: list[WidgetEvidence] = []
-
-    inputs = node.get("inputs")
-    if isinstance(inputs, dict):
-        for index, name in enumerate(sorted(inputs)):
-            value = inputs[name]
-            if isinstance(value, (dict, list, tuple)):
-                continue
-            named_values.append(WidgetEvidence(index=index, name=str(name), value=value))
-
-    widgets = node.get("widgets")
-    if isinstance(widgets, dict):
-        base_index = len(named_values)
-        for offset, name in enumerate(sorted((str(key) for key in widgets), key=_sort_widget_name)):
-            named_values.append(
-                WidgetEvidence(index=base_index + offset, name=name, value=widgets[name])
-            )
-
-    if named_values:
-        return tuple(named_values)
-
-    raw_widgets = node.get("raw_widgets")
-    if isinstance(raw_widgets, dict):
-        values = raw_widgets.get("values")
-        if isinstance(values, list):
-            return tuple(
-                WidgetEvidence(index=index, name=f"widget_{index}", value=value)
-                for index, value in enumerate(values)
-            )
-
-    raw_ui = node.get("metadata", {}).get("_ui") if isinstance(node.get("metadata"), dict) else None
-    if isinstance(raw_ui, dict):
-        values = raw_ui.get("widgets_values")
-        if isinstance(values, list):
-            return tuple(
-                WidgetEvidence(index=index, name=f"widget_{index}", value=value)
-                for index, value in enumerate(values)
-            )
-
-    return ()
+def _evidence_id(value: Any) -> int | str:
+    """Prefer an int node id when the IR id is a digit string."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    text = str(value)
+    if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
+        return int(text)
+    return value if isinstance(value, str) else text
 
 
-def _extract_slot_names_list(slot_list: list | None) -> tuple[str, ...]:
-    """Return a tuple of slot-name strings from a list of dicts or strings."""
-    if not slot_list:
+def _slot_index(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _node_title(node: VibeNode) -> str | None:
+    metadata = node.metadata
+    if not isinstance(metadata, dict):
+        return None
+    raw_ui = metadata.get("_ui")
+    if not isinstance(raw_ui, dict):
+        return None
+    title = raw_ui.get("title")
+    if isinstance(title, str) and title.strip():
+        return title
+    return None
+
+
+def _declared_output_names(node: VibeNode) -> tuple[str, ...]:
+    metadata = node.metadata
+    if not isinstance(metadata, dict):
         return ()
     names: list[str] = []
-    for item in slot_list:
-        if isinstance(item, dict):
-            name = item.get("name", "")
-            if name:
-                names.append(name)
-        elif isinstance(item, str) and item:
-            names.append(item)
+    seen: set[str] = set()
+
+    def _add(name: Any) -> None:
+        text = str(name)
+        if not text or text in seen:
+            return
+        seen.add(text)
+        names.append(text)
+
+    declared = metadata.get("output_names")
+    if isinstance(declared, (list, tuple)):
+        for name in declared:
+            _add(name)
+    raw_ui = metadata.get("_ui")
+    if isinstance(raw_ui, dict):
+        outputs = raw_ui.get("outputs")
+        if isinstance(outputs, list):
+            for item in outputs:
+                if isinstance(item, dict):
+                    _add(item.get("name"))
+                elif isinstance(item, str):
+                    _add(item)
     return tuple(names)
 
 
-def _collect_input_slots(node: dict, node_id: int | str, links_map: dict[int, EdgeEvidence]) -> tuple[SlotEvidence, ...]:
-    """Build input-slot evidence for *node*."""
-    inputs = node.get("inputs")
-    slot_names = _extract_slot_names_list(inputs if isinstance(inputs, list) else None)
-    if not slot_names and isinstance(inputs, list):
-        # If no names, use index-based slots
-        result: list[SlotEvidence] = []
-        for i, inp in enumerate(inputs):
-            if isinstance(inp, dict):
-                link_id_val = inp.get("link")
-                lid = int(link_id_val) if link_id_val is not None else None
-                result.append(SlotEvidence(
-                    name=inp.get("name", f"slot_{i}"),
-                    slot_type="input",
-                    link_id=lid,
-                ))
-        return tuple(result)
-    # Names extracted; resolve link wiring
-    result = []
-    for name in slot_names:
-        # Try to find matching input dict for link info
-        lid = None
-        if isinstance(inputs, list):
-            for inp in inputs:
-                if isinstance(inp, dict) and inp.get("name") == name:
-                    link_val = inp.get("link")
-                    if link_val is not None:
-                        lid = int(link_val)
-                    break
-        result.append(SlotEvidence(name=name, slot_type="input", link_id=lid))
-    return tuple(result)
+def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
+    raw = node.raw_widgets
+    values = getattr(raw, "values", None)
+    if isinstance(values, list):
+        return tuple(WidgetEvidence(index=index, value=value) for index, value in enumerate(values))
 
-
-def _collect_output_slots(node: dict) -> tuple[SlotEvidence, ...]:
-    """Build output-slot evidence for *node*."""
-    outputs = node.get("outputs")
-    slot_names = _extract_slot_names_list(outputs if isinstance(outputs, list) else None)
-    if not slot_names:
-        return ()
-    return tuple(
-        SlotEvidence(name=name, slot_type="output")
-        for name in slot_names
-    )
-
-
-def _normalise_vibe_edges(edges_raw: list | None) -> tuple[EdgeEvidence, ...]:
-    if not isinstance(edges_raw, list):
-        return ()
-    edges: list[EdgeEvidence] = []
-    for index, edge in enumerate(edges_raw):
-        if isinstance(edge, dict):
-            origin = edge.get("from_node")
-            target = edge.get("to_node")
-            if origin is None or target is None:
-                continue
-            from_output = edge.get("from_output")
-            try:
-                origin_slot = int(from_output) if from_output is not None else 0
-            except (TypeError, ValueError):
-                origin_slot = 0
-            edges.append(
-                EdgeEvidence(
-                    link_id=index,
-                    origin_node=origin,
-                    origin_slot=origin_slot,
-                    target_node=target,
-                    target_slot=0,
-                    link_type=None,
-                )
-            )
-    return tuple(edges)
-
-
-def _extract_vibe_node(
-    node_id: int | str,
-    node: dict,
-    incoming_inputs: dict[int | str, dict[str, int]],
-    outgoing_outputs: dict[int | str, set[str]],
-) -> NodeEvidence:
-    class_type: str = node.get("class_type") or node.get("type") or "Unknown"
-    raw_title: str | None = None
-    metadata = node.get("metadata")
-    if isinstance(metadata, dict):
-        raw_ui = metadata.get("_ui")
-        if isinstance(raw_ui, dict):
-            raw_title = raw_ui.get("title")
-
-    input_slots: list[SlotEvidence] = []
-    inputs = node.get("inputs")
+    named: list[WidgetEvidence] = []
+    widgets = node.widgets
+    if isinstance(widgets, dict) and widgets:
+        for offset, name in enumerate(sorted((str(key) for key in widgets), key=_sort_widget_name)):
+            named.append(WidgetEvidence(index=offset, name=name, value=widgets[name]))
+    inputs = node.inputs
     if isinstance(inputs, dict):
-        for name in sorted(inputs):
-            input_slots.append(
-                SlotEvidence(
-                    name=str(name),
-                    slot_type="input",
-                    link_id=incoming_inputs.get(node_id, {}).get(str(name)),
-                )
-            )
+        base = len(named)
+        for offset, name in enumerate(sorted(str(key) for key in inputs)):
+            value = inputs[name]
+            if isinstance(value, (dict, list, tuple)):
+                continue
+            named.append(WidgetEvidence(index=base + offset, name=str(name), value=value))
+    return tuple(named)
 
-    output_names = outgoing_outputs.get(node_id, set())
-    output_slots = tuple(
-        SlotEvidence(name=name, slot_type="output")
-        for name in sorted(output_names)
+
+def _node_from_ir(
+    node: VibeNode,
+    incoming: dict[str, dict[str, int]],
+    outgoing: dict[str, set[str]],
+) -> NodeEvidence:
+    node_key = str(node.id)
+    incoming_for_node = incoming.get(node_key, {})
+    input_slots = tuple(
+        SlotEvidence(name=name, slot_type="input", link_id=link_id)
+        for name, link_id in sorted(incoming_for_node.items())
     )
-
+    output_names = list(_declared_output_names(node))
+    seen = set(output_names)
+    for name in sorted(outgoing.get(node_key, set())):
+        if name not in seen:
+            output_names.append(name)
+            seen.add(name)
+    output_slots = tuple(SlotEvidence(name=name, slot_type="output") for name in output_names)
     return NodeEvidence(
-        node_id=node_id,
-        class_type=class_type,
-        title=raw_title if (isinstance(raw_title, str) and raw_title.strip()) else None,
-        widgets=_extract_vibe_widgets(node),
-        input_slots=tuple(input_slots),
-        output_slots=output_slots,
-    )
-
-
-def _extract_node(node: dict, index: int, links_map: dict[int, EdgeEvidence]) -> NodeEvidence:
-    """Extract a single :class:`NodeEvidence` from a node dict."""
-    node_id: int | str = node.get("id", index)
-    class_type: str = node.get("class_type") or node.get("type") or "Unknown"
-    raw_title: str | None = node.get("title")
-    if not raw_title:
-        meta = node.get("_meta")
-        if isinstance(meta, dict):
-            raw_title = meta.get("title")
-    title: str | None = raw_title if (isinstance(raw_title, str) and raw_title.strip()) else None
-
-    widgets = _extract_widgets(node)
-    input_slots = _collect_input_slots(node, node_id, links_map)
-    output_slots = _collect_output_slots(node)
-
-    return NodeEvidence(
-        node_id=node_id,
-        class_type=class_type,
-        title=title,
-        widgets=widgets,
+        node_id=_evidence_id(node.id),
+        class_type=node.class_type or "Unknown",
+        title=_node_title(node),
+        widgets=_widgets_from_ir(node),
         input_slots=input_slots,
         output_slots=output_slots,
     )
@@ -600,7 +508,10 @@ _EXPENSIVE_RISKY_PATTERNS: dict[str, str] = {
 
 
 def _widget_steps(node: NodeEvidence) -> int | None:
-    """Heuristic: return the steps count if widget 2 looks like a steps value."""
+    """Heuristic: return the steps count from a named or positional widget."""
+    for widget in node.widgets:
+        if widget.name == "steps" and isinstance(widget.value, (int, float)) and widget.value > 0:
+            return int(widget.value)
     if len(node.widgets) > 2:
         val = node.widgets[2].value
         if isinstance(val, (int, float)) and val > 0:
@@ -976,169 +887,73 @@ def _format_widget_value(value: Any) -> str:
     return str(value)[:80]
 
 
-# ── text summary builder ─────────────────────────────────────────────────────
-#
-# Batch 12 (Law 4): this truncated text summary is fully RETIRED from the
-# model-facing path.  Stages consume the composable renderer
-# (``vibecomfy.porting.render.render_text(wf, ("surface", "diff",
-# "topology"))``) which is COMPLETE — no 5-widget / 6-input / 20-edge caps.
-# The function below remains only for back-compat tests; it is not what any
-# stage consumes.
-
-
-def _build_text_summary(evidence: GraphEvidence) -> str:
-    """Build a human-readable text summary from structured evidence.
-
-    Back-compat only (batch 12, Law 4): mirrors the original
-    ``_graph_inspection`` output format for existing tests.  Stages no longer
-    consume this truncated view — they consume
-    ``vibecomfy.porting.render.render_text(wf, ("surface", "diff",
-    "topology"))``, which is complete and cap-free.
-    """
-    if evidence.node_count == 0:
-        return "Empty graph (0 nodes)."
-
-    lines: list[str] = []
-    for node in evidence.nodes:
-        ct = node.class_type
-        nid = node.node_id
-        parts: list[str] = [f"[{nid}] {ct}"]
-
-        if node.title:
-            parts.append(f'("{node.title}")')
-
-        if node.widgets:
-            widget_parts = []
-            for w in node.widgets[:5]:
-                if w.value is not None and str(w.value).strip():
-                    label = w.name if w.name else f"w{w.index}"
-                    widget_parts.append(f"{label}={str(w.value)[:80]}")
-            if widget_parts:
-                parts.append("values=(" + ", ".join(widget_parts) + ")")
-
-        if node.input_slots:
-            slot_info = []
-            for slot in node.input_slots[:6]:
-                if slot.link_id is not None:
-                    slot_info.append(f"{slot.name}=linked({slot.link_id})")
-                else:
-                    slot_info.append(f"{slot.name}=open")
-            if slot_info:
-                parts.append("inputs=(" + "; ".join(slot_info) + ")")
-
-        lines.append(" ".join(parts))
-
-    if evidence.edges:
-        edge_lines: list[str] = []
-        for edge in evidence.edges[:20]:
-            edge_lines.append(f"  {edge.origin_node} -> {edge.target_node}")
-        if edge_lines:
-            lines.append("Edges:")
-            lines.extend(edge_lines)
-
-    return f"{evidence.node_count} node(s):\n" + "\n".join(lines)
-
-
 # ── public API ───────────────────────────────────────────────────────────────
 
 
-def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
-    """Extract structured evidence from a ComfyUI prompt graph dict.
+def inspect_workflow(wf: VibeWorkflow) -> GraphEvidence:
+    """Project structured evidence from an already-ingested :class:`VibeWorkflow`.
 
-    Parameters
-    ----------
-    graph:
-        A ComfyUI ``prompt`` dict with ``nodes`` and optional ``links`` keys,
-        or ``None``.
-
-    Returns
-    -------
-    GraphEvidence
-        Always returns a :class:`GraphEvidence` — an empty (node_count=0) result
-        for ``None`` or empty graphs.
+    Reads only IR fields (``wf.nodes``, ``wf.edges``, ``wf.widgets``,
+    per-node ``raw_widgets`` / metadata furniture).  This is the product
+    path; :func:`inspect_graph` is the raw-dict adapter that enters via
+    the named ingest doors and then calls this function.
     """
-    if not graph:
-        return GraphEvidence(node_count=0)
-
-    nodes_raw = graph.get("nodes")
-    if isinstance(nodes_raw, dict) and nodes_raw:
-        edges = _normalise_vibe_edges(graph.get("edges"))
-        incoming_inputs: dict[int | str, dict[str, int]] = {}
-        outgoing_outputs: dict[int | str, set[str]] = {}
-        if isinstance(graph.get("edges"), list):
-            for index, raw_edge in enumerate(graph["edges"]):
-                if not isinstance(raw_edge, dict):
-                    continue
-                target = raw_edge.get("to_node")
-                input_name = raw_edge.get("to_input")
-                if target is not None and input_name is not None:
-                    incoming_inputs.setdefault(target, {})[str(input_name)] = index
-                origin = raw_edge.get("from_node")
-                output_name = raw_edge.get("from_output")
-                if origin is not None and output_name is not None:
-                    outgoing_outputs.setdefault(origin, set()).add(str(output_name))
-        for edge in edges:
-            outgoing_outputs.setdefault(edge.origin_node, set()).add(str(edge.origin_slot))
-        nodes = [
-            _extract_vibe_node(node_id, node_dict, incoming_inputs, outgoing_outputs)
-            for node_id, node_dict in nodes_raw.items()
-            if isinstance(node_dict, dict)
-        ]
-        evidence = GraphEvidence(
-            node_count=len(nodes),
-            nodes=tuple(nodes),
-            edges=edges,
+    incoming: dict[str, dict[str, int]] = {}
+    outgoing: dict[str, set[str]] = {}
+    edges: list[EdgeEvidence] = []
+    for index, edge in enumerate(wf.edges):
+        from_node = str(edge.from_node)
+        to_node = str(edge.to_node)
+        to_input = str(edge.to_input)
+        from_output = str(edge.from_output)
+        incoming.setdefault(to_node, {})[to_input] = index
+        outgoing.setdefault(from_node, set()).add(from_output)
+        edges.append(
+            EdgeEvidence(
+                link_id=index,
+                origin_node=_evidence_id(edge.from_node),
+                origin_slot=_slot_index(edge.from_output),
+                target_node=_evidence_id(edge.to_node),
+                target_slot=_slot_index(edge.to_input),
+                link_type=None,
+            )
         )
-        object.__setattr__(evidence, "summary", _build_text_summary(evidence))
-        return evidence
 
-    if not isinstance(nodes_raw, list) or not nodes_raw:
-        return GraphEvidence(node_count=0)
-
-    # Normalise links first so we can resolve input-slot wiring.
-    links_raw = graph.get("links")
-    edges: tuple[EdgeEvidence, ...] = ()
-    links_map: dict[int, EdgeEvidence] = {}
-    if isinstance(links_raw, list):
-        edges = normalise_links(links_raw)
-        links_map = {e.link_id: e for e in edges}
-
-    nodes: list[NodeEvidence] = []
-    for i, node_dict in enumerate(nodes_raw):
-        if not isinstance(node_dict, dict):
-            continue
-        nodes.append(_extract_node(node_dict, i, links_map))
-
-    evidence = GraphEvidence(
-        node_count=len(nodes),
-        nodes=tuple(nodes),
-        edges=edges,
+    nodes = tuple(
+        _node_from_ir(node, incoming, outgoing) for node in wf.nodes.values()
     )
-    # Attach the text summary (frozen dataclass → object.__setattr__)
-    object.__setattr__(evidence, "summary", _build_text_summary(evidence))
-    return evidence
+    return GraphEvidence(node_count=len(nodes), nodes=nodes, edges=tuple(edges))
 
 
-def graph_inspection_text(graph: dict[str, Any] | None) -> str | None:
-    """Return a human-readable graph description for reply prompts.
+def _ingest_raw_graph(graph: dict[str, Any]) -> VibeWorkflow:
+    """Enter a raw dict through the named ingest doors."""
+    from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui
 
-    Back-compat only (batch 12, Law 4).  Returns ``None`` when no graph is
-    attached; otherwise returns a string (node-by-node description with
-    widget values and slot wiring).  Stages no longer consume this truncated
-    view — they consume ``vibecomfy.porting.render.render_text`` with the
-    ``surface`` + ``diff`` + ``topology`` lenses, which is complete and
-    cap-free.
+    try:
+        return from_envelope(graph)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return from_ui(graph, use_comfy_converter=False)
+    except (TypeError, ValueError):
+        pass
+    return from_api(graph)
+
+
+def inspect_graph(graph: dict[str, Any] | None) -> GraphEvidence:
+    """Extract structured evidence from a raw workflow dict.
+
+    Ingests *graph* through the named doors (``from_envelope`` /
+    ``from_ui`` / ``from_api``) and projects via :func:`inspect_workflow`.
+    ``None``, empty, or uningestible input yields empty evidence.
     """
     if not graph:
-        return None
-    evidence = inspect_graph(graph)
-    if evidence.node_count == 0:
-        return None
-    return evidence.summary
-
-
-# Re-export the original name so ``core.py`` can do a drop-in import.
-_graph_inspection = graph_inspection_text
+        return GraphEvidence(node_count=0)
+    try:
+        workflow = _ingest_raw_graph(dict(graph))
+    except (TypeError, ValueError):
+        return GraphEvidence(node_count=0)
+    return inspect_workflow(workflow)
 
 
 __all__ = [
@@ -1154,9 +969,8 @@ __all__ = [
     "derive_inputs",
     "derive_model_stack",
     "derive_outputs",
-    "graph_inspection_text",
     "inspect_graph",
+    "inspect_workflow",
     "normalise_links",
     "render_inspect_markdown",
-    "_graph_inspection",
 ]

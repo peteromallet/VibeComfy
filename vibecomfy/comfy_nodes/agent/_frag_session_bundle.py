@@ -337,7 +337,7 @@ def _edit_lint_enabled() -> bool:
     Rollout flag / off-switch
     -------------------------
     Setting ``VIBECOMFY_AGENT_EDIT_LINT=0`` disables the entire lint gate in
-    ``_stage_apply_delta`` and ``_stage_agent_batch_repl``.  When lint is off the
+    ``_stage_agent_batch_repl``.  When lint is off the
     pipeline sends every op straight to ``interpret``: no-ops are not
     pre-filtered, and diagnostics come from interpret / the emit-exit guard
     rather than from ``lint_delta()``.  This flag is intended as an emergency

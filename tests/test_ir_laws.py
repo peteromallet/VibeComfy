@@ -539,6 +539,46 @@ def test_door_fingerprint_detects_every_semantic_edit_path() -> None:
     assert_touched(lambda wf: wf.nodes["160"].widgets.__setitem__("seed", 1234))
 
 
+def test_door_fingerprint_detects_edited_definitions() -> None:
+    """Law 1: a definitions-only edit (subgraph input label) flips the
+    fingerprint and is reflected in emit_ui_json — never silently discarded
+    by the untouched-byte passthrough."""
+    from vibecomfy.ingest.normalize import _door_node_fingerprint
+
+    path = SPIKE_CORPUS[1][1]  # subgraphed_wan: retained definitions
+
+    raw = json.loads(path.read_bytes())
+    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    door = workflow.metadata["_ui_door"]
+    assert _door_node_fingerprint(workflow) == door["fingerprint"]
+
+    subgraphs = workflow.metadata["definitions"]["subgraphs"]
+    target = None
+    for subgraph in subgraphs:
+        for port in subgraph.get("inputs") or []:
+            if isinstance(port, dict) and port.get("label") == "start image":
+                target = port
+                break
+        if target is not None:
+            break
+    assert target is not None
+    target["label"] = "edited start image"
+
+    assert _door_node_fingerprint(workflow) != door["fingerprint"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        emitted = emit_ui_json(workflow)
+    assert canonical_json_bytes(emitted) != canonical_json_bytes(raw)
+    emitted_labels = [
+        port.get("label")
+        for subgraph in (emitted.get("definitions") or {}).get("subgraphs") or []
+        for port in subgraph.get("inputs") or []
+        if isinstance(port, dict)
+    ]
+    assert "edited start image" in emitted_labels
+    assert "start image" not in emitted_labels
+
+
 def test_door_envelope_edit_is_not_silently_discarded() -> None:
     """An edited envelope takes the IR rendering (not the byte passthrough),
     and the edit is reflected in the serialized output."""
@@ -603,6 +643,103 @@ def test_law_2_editable_isomorphism(kind: str, path: Path, _hash: str) -> None:
     assert result.workflow is not empty
     assert empty.nodes == {}
     assert pi_edit(result.workflow) == pi_edit(workflow)
+
+
+def test_law_2_unknown_schema_named_widget_channel() -> None:
+    """Law 2 is total over VibeWorkflow, including the named-widget +
+    widget_N mixed channel shape the frozen corpus specimens do not cover."""
+    from vibecomfy.porting.edit._interpret import interpret
+
+    workflow = VibeWorkflow("widget-channel", WorkflowSource("law"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello"},
+        widgets={"seed": 7, "widget_0": 11},
+        uid="stable-u",
+    )
+    pre_snapshot = workflow.copy()
+    emitted = emit_agent_edit_python(workflow)
+    empty = VibeWorkflow("empty", WorkflowSource("law"))
+    result = interpret(empty, emitted)
+    assert workflow == pre_snapshot
+    assert result.ok
+    reconstructed = next(iter(result.workflow.nodes.values()))
+    assert reconstructed.widgets.get("seed") == 7
+    assert reconstructed.widgets.get("widget_0") == 11
+    assert reconstructed.inputs.get("prompt") == "hello"
+    assert "seed" not in reconstructed.inputs
+    assert pi_edit(result.workflow) == pi_edit(workflow)
+
+
+def test_subgraph_interface_source_commits_typed_op() -> None:
+    """subgraph_interface(...) is a canonical typed op that lands in Δ."""
+    from vibecomfy.porting.edit._interpret import interpret
+    from vibecomfy.porting.edit.ops import SubgraphInterfaceOp
+
+    empty = VibeWorkflow("empty", WorkflowSource("law"))
+    source = (
+        "subgraph_interface("
+        "name='Law Graph', id='sg-law', "
+        "inputs=(('in', 'IMAGE'),), outputs=(('out', 'IMAGE'),))\n"
+    )
+    result = interpret(empty, source)
+    assert result.ok
+    assert len(result.landed_ops) == 1
+    op = result.landed_ops[0]
+    assert isinstance(op, SubgraphInterfaceOp)
+    assert op.action == "add"
+    assert op.name == "Law Graph"
+    assert result.workflow.metadata["definitions"]["subgraphs"][0]["id"] == "sg-law"
+
+
+def test_session_subgraph_interface_commits_history() -> None:
+    """An interface-only batch commits through session history/Δ (not dropped)."""
+    from vibecomfy.porting.edit.session import EditSession
+
+    raw = json.loads(SPIKE_CORPUS[1][1].read_bytes())
+    session = EditSession(raw)
+    result = session.apply_batch(
+        "subgraph_interface("
+        "name='Extra', id='sg-session', "
+        "inputs=(('in_x', 'LATENT'),), outputs=(('out_x', 'LATENT'),))\n"
+    )
+    assert result.ok
+    assert session.landed_ops
+    assert session.history
+    assert session.landed_ops[0].op == "subgraph_interface"
+    ids = [
+        entry.get("id")
+        for entry in (session.workflow.metadata.get("definitions") or {}).get("subgraphs") or []
+        if isinstance(entry, dict)
+    ]
+    assert "sg-session" in ids
+
+
+def test_diff_covers_interface_only_graphs() -> None:
+    """Law 3: interface-only IRs (no root quotient nodes) still produce Δ."""
+    from vibecomfy.porting.edit import diff
+
+    pre = VibeWorkflow("iface", WorkflowSource("law"))
+    pre.metadata["definitions"] = {
+        "subgraphs": [
+            {
+                "id": "sg-only",
+                "name": "Only Graph",
+                "inputs": [{"name": "in_a", "type": "IMAGE", "label": "in_a"}],
+                "outputs": [{"name": "out_a", "type": "IMAGE"}],
+                "nodes": [],
+                "links": [],
+            }
+        ]
+    }
+    post = pre.copy()
+    post.metadata["definitions"]["subgraphs"][0]["inputs"] = [
+        {"name": "edited_in", "type": "IMAGE", "label": "edited_in"}
+    ]
+    delta = diff(pre, post)
+    assert delta
+    assert all(op.op == "subgraph_interface" for op in delta)
 
 
 def test_law_3_delta_replay_is_deterministic_and_minimal() -> None:
@@ -916,7 +1053,11 @@ def test_law_4_surface_lens_content() -> None:
     from vibecomfy.porting.render import render
 
     rendered = render(_tiny_workflow(), "surface")
-    assert "lawnode = LawNode(prompt='before', seed=7, widget_0=11)" in rendered
+    assert "lawnode = LawNode(" in rendered
+    assert "prompt='before'" in rendered
+    assert "seed=7" in rendered
+    assert "widget_0=11" in rendered
+    assert "literal_channel_names=('seed', 'widget_0')" in rendered
     assert "uid:law-a" in rendered
     assert "image=lawnode.unknown_0" in rendered
 

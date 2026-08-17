@@ -758,7 +758,7 @@ def apply_edit_cow(
                 entry for entry in subgraphs if _entry_key(entry) != subgraph_id
             ]
             return post
-        entry = {
+        signature = {
             "id": subgraph_id,
             "name": op.name,
             "inputs": [
@@ -778,23 +778,26 @@ def apply_edit_cow(
                 for port in op.outputs
                 if isinstance(port, (list, tuple)) and port
             ],
-            "nodes": [],
-            "links": [],
         }
         if op.action == "change":
             replaced = False
             updated: list[Any] = []
             for existing in subgraphs:
                 if _entry_key(existing) == subgraph_id:
-                    updated.append(entry)
+                    merged = dict(existing) if isinstance(existing, Mapping) else {}
+                    merged.update(signature)
+                    updated.append(merged)
                     replaced = True
                 else:
                     updated.append(existing)
             if not replaced:
-                updated.append(entry)
+                updated.append({**signature, "nodes": [], "links": []})
             definitions["subgraphs"] = updated
         else:  # add
-            definitions["subgraphs"] = [*subgraphs, entry]
+            definitions["subgraphs"] = [
+                *subgraphs,
+                {**signature, "nodes": [], "links": []},
+            ]
         return post
 
     if isinstance(op, AddNodeOp):

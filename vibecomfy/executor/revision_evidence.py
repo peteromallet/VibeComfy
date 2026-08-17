@@ -21,7 +21,7 @@ from vibecomfy.porting.object_info import class_is_known
 from vibecomfy.schema.validate import socket_types_compatible
 
 from .contracts import GraphFacts, ReadinessReport, ScopedDiff, TopologyFindings
-from .graph_inspection import EdgeEvidence, inspect_graph, normalise_links
+from .graph_inspection import EdgeEvidence, normalise_links
 
 LOGGER = logging.getLogger(__name__)
 

@@ -1,9 +1,10 @@
 """Phase-8 boundary KPI: the CI checker is the single source of truth.
 
 Post-deletion (batch 15) the raw-UI mutation engine is gone.  This module
-asserts the final allow-list, that a planted structural read outside the
+asserts the named doors, that a planted structural read outside the
 allow-list is a CI violation, that generic ``json`` calls are not
-violations, and that the product tree has zero CI violations.
+violations, that the product tree has zero CI violations, and that the
+leftover structural readers equal ``STRUCTURAL_READ_ALLOWLIST`` exactly.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from scripts.check_ir_boundary import (
     GRAPH_JSON_DOORS,
     PASS_THROUGH_ADAPTERS,
-    STRUCTURAL_READ_INVENTORY,
+    STRUCTURAL_READ_ALLOWLIST,
     ci_violations,
     classify_violation,
     forbidden_symbol_paths,
@@ -90,5 +91,5 @@ def test_boundary_kpi_is_zero_outside_the_exact_allow_list() -> None:
     assert ci_violations() == ()
 
 
-def test_structural_readers_do_not_grow_beyond_the_post_deletion_inventory() -> None:
-    assert structural_read_paths() <= STRUCTURAL_READ_INVENTORY
+def test_structural_readers_match_the_named_allow_list_exactly() -> None:
+    assert structural_read_paths() == STRUCTURAL_READ_ALLOWLIST

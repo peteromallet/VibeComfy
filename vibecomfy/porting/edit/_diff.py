@@ -408,8 +408,6 @@ def diff(
     common_uids = sorted(pre_uids & post_uids)
     removed_uids = sorted(pre_uids - post_uids)
     added_uids = sorted(post_uids - pre_uids)
-    if not (common_uids or removed_uids or added_uids):
-        return ()
 
     rebuild_uids: set[str] = set()
     ops: list[EditOp] = []
@@ -417,8 +415,11 @@ def diff(
     # 0. Subgraph-interface statements: π_edit includes grammar-visible
     #    subgraph signatures (``metadata["definitions"]``), so a definitions
     #    delta is part of the canonical Δ (Law 3).  Emitted first; they are
-    #    independent of the node/link ops below.
+    #    independent of the node/link ops below.  Interface-only graphs have
+    #    no root quotient nodes — still emit these ops (do not early-return).
     ops.extend(_subgraph_interface_ops(pre, post))
+    if not (common_uids or removed_uids or added_uids):
+        return tuple(ops)
 
     # 1. Node removals (incl. rebuild removals for common nodes whose π_edit
     #    cannot be expressed with set_node_field/set_mode alone).

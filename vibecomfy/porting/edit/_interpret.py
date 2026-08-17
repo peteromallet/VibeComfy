@@ -53,6 +53,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 from vibecomfy.porting.edit.constants import HELPER_NODE_TYPES, MODE_LABELS
@@ -80,6 +81,7 @@ _SLOT_COMMENT = re.compile(
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 _PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
 _RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
+_WIDGET_FIELD_NAMES_KWARG = "literal_channel_names"
 
 
 @dataclass(frozen=True, slots=True)
@@ -484,6 +486,7 @@ class _InterpretRunner:
         relation: str | None = None
         near_ref: NodeTarget | None = None
         group_title: str | None = None
+        widget_field_names: tuple[str, ...] = ()
         exec_io_value: Any = None
         if class_type == _EXEC_CLASS_TYPE:
             for keyword in value.keywords:
@@ -540,6 +543,23 @@ class _InterpretRunner:
                 near_ref = NodeTarget(endpoint.scope_path, endpoint.uid)
                 continue
             if name in _PLACEMENT_KWARGS:
+                continue
+            if name == _WIDGET_FIELD_NAMES_KWARG:
+                literal, literal_issue = _fold_constant(keyword.value, env=item.env)
+                if literal_issue is not None:
+                    issues.append(literal_issue)
+                    continue
+                if isinstance(literal, (list, tuple)):
+                    widget_field_names = tuple(str(item) for item in literal)
+                else:
+                    issues.append(
+                        _diag(
+                            "invalid_literal_channel_names",
+                            "literal_channel_names= must be a sequence of field names.",
+                            severity="error",
+                            detail={"target_name": target_name},
+                        )
+                    )
                 continue
             if class_type == _EXEC_CLASS_TYPE:
                 name = _exec_semantic_slot_name(
@@ -669,6 +689,7 @@ class _InterpretRunner:
             anchor=anchor,
             uid=uid,
             node_id=node_id,
+            widget_field_names=widget_field_names,
         )
         applied = self._apply(item, op)
         if isinstance(applied, StatementOutcome):
@@ -1283,45 +1304,46 @@ class _InterpretRunner:
             )
         if issues:
             return self._reject_diagnostics(item, "subgraph_interface", issues)
-        definitions = self.workflow.metadata.get("definitions")
-        if not isinstance(definitions, dict):
-            definitions = {}
-            self.workflow.metadata["definitions"] = definitions
-        subgraphs = definitions.get("subgraphs")
-        if not isinstance(subgraphs, list):
-            subgraphs = []
-            definitions["subgraphs"] = subgraphs
-        subgraphs.append(
-            {
-                "id": subgraph_id if isinstance(subgraph_id, str) and subgraph_id else name,
-                "name": name,
-                "inputs": [
-                    {
-                        "name": str(port[0]),
-                        "type": port[1],
-                        "label": str(port[0]),
-                    }
-                    for port in inputs
-                    if isinstance(port, (list, tuple)) and port
-                ],
-                "outputs": [
-                    {
-                        "name": str(port[0]),
-                        "type": port[1] if len(port) > 1 else None,
-                    }
-                    for port in outputs
-                    if isinstance(port, (list, tuple)) and port
-                ],
-                "nodes": [],
-                "links": [],
-            }
+        subgraph_id_str = (
+            subgraph_id if isinstance(subgraph_id, str) and subgraph_id else name
         )
+        parsed_inputs = tuple(
+            (str(port[0]), port[1] if len(port) > 1 else None)
+            for port in inputs
+            if isinstance(port, (list, tuple)) and port
+        )
+        parsed_outputs = tuple(
+            (str(port[0]), port[1] if len(port) > 1 else None)
+            for port in outputs
+            if isinstance(port, (list, tuple)) and port
+        )
+        existing = self.workflow.metadata.get("definitions")
+        existing_ids: set[str] = set()
+        if isinstance(existing, Mapping):
+            for entry in existing.get("subgraphs") or []:
+                if isinstance(entry, Mapping):
+                    existing_ids.add(str(entry.get("id") or entry.get("name") or ""))
+        action: Literal["add", "change"] = (
+            "change" if subgraph_id_str in existing_ids else "add"
+        )
+        op = SubgraphInterfaceOp(
+            op="subgraph_interface",
+            action=action,
+            name=name,
+            inputs=parsed_inputs,
+            outputs=parsed_outputs,
+            id=subgraph_id_str,
+        )
+        applied = self._apply(item, op)
+        if isinstance(applied, StatementOutcome):
+            return applied
         return StatementOutcome(
             statement_index=item.statement_index,
             source=item.source,
             status="applied",
             op_kind="subgraph_interface",
-            detail={"name": name},
+            op=op,
+            detail={"name": name, "id": subgraph_id_str, "action": action},
         )
 
     def _reject(

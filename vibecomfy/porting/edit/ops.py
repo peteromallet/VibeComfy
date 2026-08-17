@@ -288,10 +288,9 @@ class AgentDeltaTurnResult:
         return normalize_delta_envelope(payload)
 
     def to_dict(self) -> dict[str, Any]:
-        envelope = self.canonical_envelope().to_dict()
+        ops = [canonical_op_to_dict(op) for op in self.delta]
         return {
-            "delta": list(envelope["ops"]),
-            "delta_ops_envelope": envelope,
+            "accepted_batch": [{"op": op} for op in ops],
             "message": self.message,
             "route": self.route,
             "model": self.model,

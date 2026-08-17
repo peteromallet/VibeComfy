@@ -263,18 +263,8 @@ class TestRenderEditRerenderIdentity:
         """
         wf = _load_flat_fixture_wf()
         rendered1 = _emit_agent_edit_python_stub(wf)
-        rendered2 = _emit_agent_edit_python_stub(
-            wf,
-            variable_name_locks={
-                "1": "checkpointloadersimple",
-                "5": "ksampler",
-                "7": "saveimage",
-            },
-            strict_variable_name_locks=True,
-        )
-        assert "checkpointloadersimple = CheckpointLoaderSimple(" in rendered2
-        assert "ksampler = KSampler(" in rendered2
-        assert "saveimage = SaveImage(" in rendered2
+        rendered2 = _emit_agent_edit_python_stub(wf)
+        assert rendered1 == rendered2
         assert rendered1.count("uid:") == rendered2.count("uid:")
 
     def test_session_rerender_keeps_locked_names_after_topology_change(self) -> None:
@@ -588,20 +578,21 @@ class TestAgentEditPythonEmitter:
         with pytest.raises(TypeError, match="emit_agent_edit_python requires VibeWorkflow"):
             emit_agent_edit_python(_load_flat_fixture_raw())  # type: ignore[arg-type]
 
-    def test_agent_edit_python_preserves_locked_names_without_changing_scratchpad(self) -> None:
+    def test_agent_edit_python_rejects_variable_name_locks(self) -> None:
         from vibecomfy.porting.emitter import emit_agent_edit_python, emit_scratchpad_python
 
         wf = _load_flat_fixture_wf()
         baseline_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
-        rendered = emit_agent_edit_python(
-            wf,
-            variable_name_locks={"5": "sampler_locked", "7": "save_locked"},
-            strict_variable_name_locks=True,
-        )
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            emit_agent_edit_python(
+                wf,
+                variable_name_locks={"5": "sampler_locked", "7": "save_locked"},
+                strict_variable_name_locks=True,
+            )
+        rendered = emit_agent_edit_python(wf)
         after_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
-
-        assert "sampler_locked = KSampler(" in rendered
-        assert "save_locked = SaveImage(" in rendered
+        assert "sampler_locked" not in rendered
+        assert "save_locked" not in rendered
         assert baseline_scratchpad == after_scratchpad
         assert "_node(wf," in baseline_scratchpad
         assert "_node(wf," not in rendered

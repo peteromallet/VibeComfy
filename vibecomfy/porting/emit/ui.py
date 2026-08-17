@@ -3222,10 +3222,10 @@ def emit_ui_json(
     }
 
     # Subgraph definitions: caller-provided `definitions` (from sidecar envelope)
-    # takes precedence; door-captured definitions (the raw wire blob) come next
-    # so edited graphs preserve them; re-emitting from IR metadata is the
-    # fallback.  The breadcrumb stamp below runs on a detached copy so the
-    # caller's dict is never mutated.
+    # takes precedence.  When the retained IR definitions differ from the
+    # door-captured blob (a definitions-only edit: label, ports, add/remove),
+    # emit from the IR so the edit is not silently discarded.  Otherwise keep
+    # the captured wire blob so untouched subgraph bodies stay byte-stable.
     effective_defs = definitions
     if effective_defs is None:
         captured_defs = (
@@ -3233,9 +3233,22 @@ def emit_ui_json(
             if isinstance(_door_top(_door), Mapping)
             else None
         )
-        effective_defs = (
-            deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
-        )
+        metadata = getattr(wf, "metadata", None)
+        ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
+        from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
+
+        if (
+            isinstance(ir_defs, Mapping)
+            and isinstance(captured_defs, Mapping)
+            and _door_freeze(ir_defs) != _door_freeze(captured_defs)
+        ):
+            effective_defs = _emit_definitions(wf)
+            if effective_defs is None:
+                effective_defs = deepcopy(ir_defs)
+        else:
+            effective_defs = (
+                deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
+            )
     if effective_defs is not None:
         if effective_defs is definitions:
             effective_defs = deepcopy(effective_defs)

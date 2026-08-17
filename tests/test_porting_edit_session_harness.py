@@ -697,7 +697,8 @@ def test_session_snapshot_includes_render_caches_and_journal_surface(
     session.render()
     snapshot = session._snapshot_mutable_state()
     assert set(snapshot) >= {
-        "working_ui",
+        "workflow",
+        "history",
         "landed_ops",
         "touched_uids",
         "touched_node_ids",
@@ -710,6 +711,7 @@ def test_session_snapshot_includes_render_caches_and_journal_surface(
         "last_rendered_workflow",
         "last_render_diagnostics",
     }
+    assert "working_ui" not in snapshot
     assert snapshot["render_count"] == 1
     assert isinstance(snapshot["last_rendered_source"], str)
     assert snapshot["last_rendered_source"]
@@ -720,6 +722,7 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
 ) -> None:
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
+    before_ui = json.loads(json.dumps(session.working_ui))
     before = session._snapshot_mutable_state()
     import vibecomfy.porting.edit._interpret as interpret_mod
 
@@ -740,7 +743,7 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     finally:
         interpret_mod.interpret = original_interpret
 
-    assert session.working_ui == before["working_ui"]
+    assert session.working_ui == before_ui
     assert session.landed_ops == before["landed_ops"]
     assert session.touched_uids == before["touched_uids"]
     assert session.touched_node_ids == before["touched_node_ids"]
@@ -752,7 +755,11 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     assert session.last_rendered_source == before["last_rendered_source"]
     assert session.last_rendered_workflow is before["last_rendered_workflow"]
     assert session.last_render_diagnostics == before["last_render_diagnostics"]
-    assert session.node_ui("2") is not None
+    assert "2" in session.name_by_uid
+    assert any(
+        isinstance(node, dict) and node.get("id") == 2
+        for node in session.working_ui.get("nodes") or []
+    )
 
 
 def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(

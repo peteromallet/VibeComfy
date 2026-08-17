@@ -126,9 +126,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         value_default_context: ValueDefaultContext | None = None,
         initial_workflow: VibeWorkflow | None = None,
     ) -> None:
-        # raw_ui_json is ingest-only: the named door builds the retained IR
-        # once.  working_ui starts as that ingest snapshot and is later only
-        # an emit-side projection of the accepted IR — never a mutation store.
+        # raw_ui_json is door input only: the named ingest builds the retained
+        # IR once.  original_ui is that ingest snapshot (from_ui / pin /
+        # guard).  It is not mutation authority.  working_ui starts as the
+        # same ingest snapshot and is later only an emit-side cache of the
+        # retained IR via _emit_working_snapshot — never a mutation store.
         self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.landed_ops: list[Any] = []
@@ -162,8 +164,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
         # The ingest IR is constructed once by the named door and retained
         # here.  Renders ALWAYS come from this IR.  working_ui is only the
-        # emit-side snapshot used by the exit guard — never render authority
-        # and never a parallel mutation store.
+        # emit-side cache of this IR — never render authority and never a
+        # parallel mutation store.
         self.workflow: VibeWorkflow | None = initial_workflow
         if self.workflow is None:
             self.workflow = self._workflow_from_ui(self.original_ui)
@@ -180,7 +182,6 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self._wf0: VibeWorkflow | None = (
             _cow_workflow_copy(self.workflow) if self.workflow is not None else None
         )
-        self._ui0: dict[str, Any] = deepcopy(self.working_ui)
         self.history: list[tuple[VibeWorkflow, str, tuple[Any, ...]]] = []
 
     # ── Batch 4 (Law 5): deterministic bindings, no session name locks ──
@@ -221,7 +222,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
         Replay from ``wf_0`` through the remaining deltas via ``interpret`` so
         no in-place mutation is required.  ``working_ui`` is rebuilt by
-        emitting the replayed IR.
+        emitting the replayed IR (emit-side cache only).
         """
         if steps <= 0 or not self.history:
             return False
@@ -234,7 +235,6 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             workflow = self._workflow_from_ui(self.original_ui)
             self._wf0 = _cow_workflow_copy(workflow)
         workflow = _cow_workflow_copy(workflow)
-        working_ui = deepcopy(getattr(self, "_ui0", self.original_ui))
         remaining_ops: list[Any] = []
         remaining_resolved: list[Any] = []
         for entry in self.history:

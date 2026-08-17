@@ -63,6 +63,7 @@ from vibecomfy.executor.contracts import (
     TopologyFindings,
 )
 from vibecomfy.comfy_nodes.agent.provider import ProviderError
+from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
 from vibecomfy.comfy_nodes.agent.session import (
     finalize_turn_transaction,
     payload_hash,
@@ -1039,7 +1040,7 @@ def test_batch_response_default_off_does_not_add_reorganisation_advisory(
     assert response["candidate"]["structural_hash_before"] == structural_graph_hash(before)
     assert response["candidate"]["structural_hash_after"] == structural_graph_hash(after)
     assert response["candidate"]["plan_hash"] == v2_mutation_plan_hash(
-        delta_ops_envelope=response["delta_ops_envelope"],
+        delta_ops_envelope=derived_accepted_delta_envelope(response),
         structural_hash_before=structural_graph_hash(before),
         structural_hash_after=structural_graph_hash(after),
     )
@@ -9348,8 +9349,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "turn_id": turn_id,
             "graph": candidate_graph,
             "agent_edit_protocol": "v2_delta",
-            "delta_ops_envelope": envelope,
-            "delta_ops": list(envelope["ops"]),
+            "accepted_batch": [{"op": op} for op in envelope["ops"]],
             "candidate": {
                 "graph": candidate_graph,
                 "plan_hash": plan_hash,
@@ -9566,8 +9566,7 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
             "turn_id": turn_id,
             "graph": candidate_graph,
             "agent_edit_protocol": "v2_delta",
-            "delta_ops_envelope": envelope,
-            "delta_ops": list(envelope["ops"]),
+            "accepted_batch": [{"op": op} for op in envelope["ops"]],
             "candidate": {
                 "graph": candidate_graph,
                 "plan_hash": plan_hash,
@@ -10108,8 +10107,7 @@ def test_route_reject_idempotency_replays_same_request_body(
             "turn_id": turn_id,
             "graph": candidate_graph,
             "agent_edit_protocol": "v2_delta",
-            "delta_ops_envelope": envelope,
-            "delta_ops": list(envelope["ops"]),
+            "accepted_batch": [{"op": op} for op in envelope["ops"]],
             "candidate": {
                 "graph": candidate_graph,
                 "plan_hash": plan_hash,
@@ -10214,8 +10212,7 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
             "turn_id": turn_id,
             "graph": candidate_graph,
             "agent_edit_protocol": "v2_delta",
-            "delta_ops_envelope": envelope,
-            "delta_ops": list(envelope["ops"]),
+            "accepted_batch": [{"op": op} for op in envelope["ops"]],
             "candidate": {
                 "graph": candidate_graph,
                 "plan_hash": plan_hash,
@@ -13088,8 +13085,7 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
         "graph": graph,
         "candidate": candidate,
         "agent_edit_protocol": "v2_delta",
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
         "candidate_graph_hash": "candidate-hash",
         "apply_eligibility": {"applyable": True, "reason": "applyable"},
         "outcome": {"kind": "candidate", "changes": []},
@@ -13121,7 +13117,7 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
     assert latest["plan_hash"] == "plan-hash"
     assert latest["structural_hash_before"] == "before-hash"
     assert latest["structural_hash_after"] == "after-hash"
-    assert latest["delta_ops_envelope"] == envelope
+    assert latest["accepted_batch"] == [{"op": op} for op in envelope["ops"]]
     assert latest["delta_ops"] == envelope["ops"]
 
     public = public_chat_rehydrate_payload(
@@ -13129,7 +13125,7 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
     )["latest_candidate"]
     assert public["agent_edit_protocol"] == "v2_delta"
     assert public["plan_hash"] == "plan-hash"
-    assert public["delta_ops_envelope"] == envelope
+    assert public["accepted_batch"] == [{"op": op} for op in envelope["ops"]]
     assert public["delta_ops"] == envelope["ops"]
 
 
@@ -14919,178 +14915,6 @@ def test_field_change_is_noop_without_lint_dropped_ids_flag_off() -> None:
     noop = _noop_field_changes(changes)
     assert len(noop) == 1
     assert noop[0].uid == "b"
-
-
-# ── flag-off parity tests (T7) ──────────────────────────────────────────
-
-
-def test_flag_off_lint_noop_field_set_follows_pre_lint_behavior(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When VIBECOMFY_AGENT_EDIT_LINT=0, a no-op set_mode (same mode value)
-    passes through to apply_delta() unchanged rather than being dropped by the
-    lint gate.  The pre-lint path never classifies it as a no-op."""
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
-
-    from vibecomfy.comfy_nodes.agent.edit import (
-        _edit_lint_enabled,
-        _stage_apply_delta,
-        AgentEditState,
-    )
-    from vibecomfy.porting.edit.ops import NodeTarget, SetModeOp
-    from pathlib import Path as _Path
-
-    # Verify the flag is genuinely off
-    assert not _edit_lint_enabled()
-
-    # Build a minimal state with a no-op set_mode on the flat.json fixture
-    import json as _json
-    fixture = _json.loads(
-        (_Path("tests/fixtures/agent_edit/flat.json")).read_text(encoding="utf-8")
-    )
-
-    state = AgentEditState(
-        task="flag-off noop mode",
-        graph=fixture,
-        guard_original_ui=fixture,
-        request_payload={},
-        schema_provider=None,
-        baseline_graph_hash=None,
-        submit_graph_hash=None,
-        submit_structural_graph_hash=None,
-        submitted_client_graph_hash=None,
-        submitted_client_structural_graph_hash=None,
-        session_dir=_Path("/tmp/test_flag_off"),
-        turn_dir=_Path("/tmp/test_flag_off/turn_001"),
-        request_path=_Path("/tmp/test_flag_off/request.json"),
-        original_ui_path=_Path("/tmp/test_flag_off/original.json"),
-        before_py_path=_Path("/tmp/test_flag_off/before.py"),
-        after_py_path=_Path("/tmp/test_flag_off/after.py"),
-        projection_path=_Path("/tmp/test_flag_off/projection.json"),
-        model_request_path=_Path("/tmp/test_flag_off/model_request.json"),
-        model_response_path=_Path("/tmp/test_flag_off/model_response.json"),
-        candidate_ui_path=_Path("/tmp/test_flag_off/candidate.json"),
-        messages_path=_Path("/tmp/test_flag_off/messages.json"),
-    )
-
-    # Node 2 (CLIPTextEncode) has mode=0 in flat.json.  Setting mode=0 again
-    # is a no-op that lint would drop, but the pre-lint path applies it through.
-    state.delta_ops = (
-        SetModeOp(
-            op="set_mode",
-            target=NodeTarget(scope_path="", uid="2"),
-            mode=0,
-        ),
-    )
-
-    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
-    result = _stage_apply_delta(
-        state, TurnContext(session_id="flag-off-noop", turn_id="0001")
-    )
-
-    # Pre-lint behaviour: the op is not rejected and not silently dropped.
-    # apply_delta() resolves and applies it (even though the value is unchanged).
-    # The StageResult is ok=True because apply_delta succeeds.
-    assert result.ok is True, f"Expected ok=True, got {result.value}"
-
-    # The no-op is NOT lint-dropped; it flows through to apply_delta → guard.
-    # The resulting report/candidate reflect normal application.
-    assert state.report is not None
-    # lint_noop must NOT appear (that key is set only by the lint gate)
-    assert state.report.get("change", {}).get("lint_noop") is not True
-
-
-def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When VIBECOMFY_AGENT_EDIT_LINT=0, a malformed set_node_field targeting a
-    non-existent uid follows the pre-lint apply_delta() path: it fails in
-    resolve_delta() with an "unknown_node_target" diagnostic rather than
-    producing a lint-specific "unknown_node" rejection."""
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
-
-    from vibecomfy.comfy_nodes.agent.edit import (
-        _edit_lint_enabled,
-        _stage_apply_delta,
-        AgentEditState,
-    )
-    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
-    from pathlib import Path as _Path
-
-    assert not _edit_lint_enabled()
-
-    import json as _json
-    fixture = _json.loads(
-        (_Path("tests/fixtures/agent_edit/flat.json")).read_text(encoding="utf-8")
-    )
-
-    state = AgentEditState(
-        task="flag-off unknown node",
-        graph=fixture,
-        guard_original_ui=fixture,
-        request_payload={},
-        schema_provider=None,
-        baseline_graph_hash=None,
-        submit_graph_hash=None,
-        submit_structural_graph_hash=None,
-        submitted_client_graph_hash=None,
-        submitted_client_structural_graph_hash=None,
-        session_dir=_Path("/tmp/test_flag_off_unk"),
-        turn_dir=_Path("/tmp/test_flag_off_unk/turn_001"),
-        request_path=_Path("/tmp/test_flag_off_unk/request.json"),
-        original_ui_path=_Path("/tmp/test_flag_off_unk/original.json"),
-        before_py_path=_Path("/tmp/test_flag_off_unk/before.py"),
-        after_py_path=_Path("/tmp/test_flag_off_unk/after.py"),
-        projection_path=_Path("/tmp/test_flag_off_unk/projection.json"),
-        model_request_path=_Path("/tmp/test_flag_off_unk/model_request.json"),
-        model_response_path=_Path("/tmp/test_flag_off_unk/model_response.json"),
-        candidate_ui_path=_Path("/tmp/test_flag_off_unk/candidate.json"),
-        messages_path=_Path("/tmp/test_flag_off_unk/messages.json"),
-    )
-
-    # uid "999" does not exist in flat.json
-    state.delta_ops = (
-        SetNodeFieldOp(
-            op="set_node_field",
-            target=NodeFieldTarget(
-                scope_path="", uid="999", field_path="widgets_values"
-            ),
-            value="any",
-        ),
-    )
-
-    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
-    result = _stage_apply_delta(
-        state, TurnContext(session_id="flag-off-unk", turn_id="0001")
-    )
-
-    # Pre-lint behaviour: resolve_delta fails because the node doesn't exist.
-    # The StageResult is ok=False with a blocking validation error.
-    assert result.ok is False
-    assert result.blocking is True
-
-    # The failure kind comes from apply_delta's path, not lint.
-    assert result.value.get("failure_kind") == "ValidationError"
-
-    # The diagnostics should contain the pre-lint "unknown_node_target" message,
-    # NOT lint-specific issue codes like "unknown_node".
-    issue_codes = {i.get("code") for i in (result.issues or ())}
-    assert issue_codes & {
-        "unknown_node_target",
-        "apply_failed",
-        "batch_transaction_rolled_back",
-        "unknown_graph_name",
-    }, (
-        f"Expected an unknown-target diagnostic, got {issue_codes}"
-    )
-    assert "unknown_node" not in issue_codes, (
-        f"Lint 'unknown_node' code leaked into flag-off path: {issue_codes}"
-    )
-    # The message should mention the uid
-    issue_messages = " ".join(
-        str(i.get("message", "")) for i in (result.issues or ())
-    )
-    assert "999" in issue_messages
 
 
 # ---------------------------------------------------------------------------
@@ -18073,7 +17897,6 @@ def _b05_capture_loop_entry(monkeypatch: pytest.MonkeyPatch) -> dict[str, object
 
 
 def _b05_assert_session_restored(session, snapshot: dict) -> None:
-    assert session.working_ui == snapshot["working_ui"]
     assert session.landed_ops == snapshot["landed_ops"]
     assert session.touched_uids == snapshot["touched_uids"]
     assert session.touched_node_ids == snapshot["touched_node_ids"]
@@ -18104,6 +17927,15 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
     assert session.last_rendered_source == snapshot["last_rendered_source"]
     assert session.last_rendered_workflow is snapshot["last_rendered_workflow"]
     assert session.last_render_diagnostics == snapshot["last_render_diagnostics"]
+    # working_ui is an emit-side cache of the restored IR, not snapshot
+    # authority.  With no accepted Δ the cache is the ingest snapshot.
+    if snapshot.get("landed_ops"):
+        expected_ui = session._emit_working_snapshot(
+            snapshot.get("workflow"), ops=snapshot["landed_ops"]
+        )
+    else:
+        expected_ui = session.original_ui
+    assert session.working_ui == expected_ui
     restored_ids = {
         str(node.get("id"))
         for node in session.working_ui.get("nodes") or []
@@ -18111,7 +17943,7 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
     }
     original_ids = {
         str(node.get("id"))
-        for node in snapshot["working_ui"].get("nodes") or []
+        for node in expected_ui.get("nodes") or []
         if isinstance(node, dict)
     }
     assert restored_ids == original_ids

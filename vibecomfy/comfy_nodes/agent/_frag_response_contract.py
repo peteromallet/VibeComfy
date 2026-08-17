@@ -136,26 +136,30 @@ def _v2_candidate_mutation_plan_fields(
     *,
     compatibility_fields: Mapping[str, Any],
     delta_ops_envelope: Mapping[str, Any] | None,
+    accepted_ops: list[dict[str, Any]] | None = None,
 ) -> dict[str, str | None]:
     from vibecomfy.comfy_nodes.agent.edit import (v2_mutation_plan_hash)  # T-039 late import: host namespace lookup; resolved at call time
     """Bind a reviewable V2 candidate to its canonical mutation evidence.
 
-    The plan identity covers both the canonical delta and the structural graph
-    boundary it is expected to cross.  Keeping this derivation on the server
-    prevents the browser from inventing an arbitrary transaction identity and
-    makes ordinary adapt/revise candidates use the same prepare/finalize path
-    as layout candidates.
+    The plan identity covers the accepted-batch ops (the sole durable Δ) and
+    the structural graph boundary it is expected to cross.
     """
-    if not isinstance(delta_ops_envelope, Mapping):
+    ops: list[Any] | None = None
+    if accepted_ops is not None:
+        ops = list(accepted_ops)
+    elif isinstance(delta_ops_envelope, Mapping) and isinstance(delta_ops_envelope.get("ops"), list):
+        ops = list(delta_ops_envelope["ops"])
+    if ops is None:
         return {
             "plan_hash": None,
             "structural_hash_before": None,
             "structural_hash_after": None,
         }
+    derived_envelope = {"schema_version": "2.0.0", "ops": ops}
     structural_hash_before = compatibility_fields.get("submit_structural_graph_hash")
     structural_hash_after = compatibility_fields.get("candidate_structural_graph_hash")
     plan_hash = v2_mutation_plan_hash(
-        delta_ops_envelope=delta_ops_envelope,
+        delta_ops_envelope=derived_envelope,
         structural_hash_before=(
             structural_hash_before if isinstance(structural_hash_before, str) else None
         ),
@@ -1070,7 +1074,14 @@ def _build_batch_repl_response(
     compatibility_fields = _build_compatibility_response_fields(state)
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
-        delta_ops_envelope=delta_evidence_envelope if has_candidate else None,
+        delta_ops_envelope=None,
+        accepted_ops=[
+            dict(item["op"])
+            for item in _accepted_batch_statements(state)
+            if isinstance(item.get("op"), Mapping)
+        ]
+        if has_candidate
+        else None,
     )
     candidate_payload = _build_candidate_payload(
         state,
@@ -1234,21 +1245,11 @@ def _build_batch_repl_response(
     # Δ representation; the V2 envelope below is the apply transaction
     # binding (plan_hash), not a parallel claims source.
     response["accepted_batch"] = _json_safe(list(_accepted_batch_statements(state)))
-    # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
-    # Use the envelope validated by _validate_delta_evidence_for_apply rather
-    # than rebuilding it here.  For applyable turns with a candidate, the
-    # validated envelope includes any synthesized empty V2 envelope so that
-    # identity/no-op apply carries explicit evidence.  When delta evidence
-    # validation failed (has_candidate cleared), the envelope is None.
-    # ``accepted_batch`` above is the canonical Δ (each accepted statement
-    # carries its landed op); the envelope remains the server-authored
-    # V2 mutation-plan binding (plan_hash / transaction identity) for apply.
-    cumulative_delta_envelope = delta_evidence_envelope
-    if cumulative_delta_envelope is not None:
+    # accepted_batch is the sole durable Δ.  Apply/plan_hash derive ops from
+    # accepted_batch[*].op at the call site — no parallel envelope or flat
+    # delta_ops field is written here.
+    if response["accepted_batch"] or delta_evidence_envelope is not None:
         response["agent_edit_protocol"] = "v2_delta"
-        response["delta_ops_envelope"] = cumulative_delta_envelope
-        # delta_ops is a read-only derived compatibility view from the canonical envelope.
-        response["delta_ops"] = list(cumulative_delta_envelope["ops"])
     # ── "claims ⊆ Δ" enforcement on the product path ──────────────────────
     # The reply may only claim changes the accepted Δ actually landed.  Any
     # invalid claim is stripped from outcome.changes and recorded so a false
@@ -1365,7 +1366,14 @@ def _build_dev_success_response(
     )
     candidate_plan_fields = _v2_candidate_mutation_plan_fields(
         compatibility_fields=compatibility_fields,
-        delta_ops_envelope=delta_envelope,
+        delta_ops_envelope=None,
+        accepted_ops=[
+            dict(item["op"])
+            for item in _accepted_batch_statements(state)
+            if isinstance(item.get("op"), Mapping)
+        ]
+        if has_candidate
+        else None,
     )
     public_outcome_kind = public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None
     if _has_enough_grounded_facts_for_dev_narrative(state):
@@ -1446,10 +1454,8 @@ def _build_dev_success_response(
         response["layout_reorganisation"] = _json_safe(
             dict(state.post_edit_reorganisation_advisory)
         )
-    if delta_envelope is not None:
+    if delta_envelope is not None or response.get("accepted_batch"):
         response["agent_edit_protocol"] = "v2_delta"
-        response["delta_ops_envelope"] = delta_envelope
-        response["delta_ops"] = list(delta_envelope["ops"])
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

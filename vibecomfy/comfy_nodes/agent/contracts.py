@@ -201,6 +201,7 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "structural_hash_after",
     "monotonic_generation",
     "lease_nonce",
+    "accepted_batch",
     "delta_ops_envelope",
     "delta_ops",
     "apply_eligibility",

@@ -292,6 +292,46 @@ def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
     return capped
 
 
+def _statement_op_payload(item: Any) -> dict[str, Any] | None:
+    """Serialize the landed typed op for the accepted-batch Δ."""
+    raw = getattr(item, "op", None)
+    if raw is None and isinstance(getattr(item, "detail", None), Mapping):
+        raw = item.detail.get("edit_op")
+    if raw is None:
+        return None
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    try:
+        from vibecomfy.porting.edit.ops import op_to_dict
+
+        return op_to_dict(raw)
+    except Exception:
+        return None
+
+
+def _statement_report_entry(item: Any) -> dict[str, Any]:
+    entry = {
+        "statement_index": item.statement_index,
+        "source": item.source,
+        "ok": item.ok,
+        "landed": item.landed,
+        "status": getattr(item, "status", None),
+        "reason": getattr(item, "reason", None),
+        "op_kind": item.op_kind,
+        "detail": _json_safe(dict(item.detail)),
+        "touched_uids": list(item.touched_uids),
+        "dependency_cause": item.dependency_cause,
+        "teaching_hint": item.teaching_hint,
+        "diagnostics": [
+            _compact_diag_with_capped_detail(diag) for diag in item.diagnostics
+        ],
+    }
+    op = _statement_op_payload(item)
+    if op is not None:
+        entry["op"] = op
+    return entry
+
+
 def _format_batch_report_json(
     batch_result: Any,
     *,
@@ -315,23 +355,7 @@ def _format_batch_report_json(
             "consecutive_errors": consecutive_errors,
         },
         "statements": [
-            {
-                "statement_index": item.statement_index,
-                "source": item.source,
-                "ok": item.ok,
-                "landed": item.landed,
-                "status": getattr(item, "status", None),
-                "reason": getattr(item, "reason", None),
-                "op_kind": item.op_kind,
-                "detail": _json_safe(dict(item.detail)),
-                "touched_uids": list(item.touched_uids),
-                "dependency_cause": item.dependency_cause,
-                "teaching_hint": item.teaching_hint,
-                "diagnostics": [
-                    _compact_diag_with_capped_detail(diag) for diag in item.diagnostics
-                ],
-            }
-            for item in batch_result.statements
+            _statement_report_entry(item) for item in batch_result.statements
         ],
         "diagnostics": [
             _compact_diag_with_capped_detail(item) for item in batch_result.diagnostics

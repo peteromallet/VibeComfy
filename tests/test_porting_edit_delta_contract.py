@@ -384,9 +384,9 @@ def test_add_node_roundtrip_through_non_strict_then_strict_after_populate() -> N
     assert strict_envelope.to_dict()["ops"] == [canonical]
 
 
-def test_agent_delta_turn_result_produces_envelope_and_flat_bridge_never_legacy_wrapped() -> None:
-    """``AgentDeltaTurnResult.to_dict()`` emits ``delta_ops_envelope`` (canonical)
-    and ``delta_ops`` (derived flat legacy bridge), never a legacy wrapped mapping."""
+def test_agent_delta_turn_result_produces_accepted_batch_only() -> None:
+    """``AgentDeltaTurnResult.to_dict()`` emits ``accepted_batch`` as the
+    sole durable Δ — no parallel envelope or flat ``delta`` view."""
     from vibecomfy.porting.edit.ops import AgentDeltaTurnResult, AddNodeOp
 
     result = AgentDeltaTurnResult(
@@ -408,22 +408,12 @@ def test_agent_delta_turn_result_produces_envelope_and_flat_bridge_never_legacy_
     )
     payload = result.to_dict()
 
-    # Canonical envelope present
-    assert "delta_ops_envelope" in payload
-    envelope = payload["delta_ops_envelope"]
-    assert envelope["schema_version"] == DELTA_SCHEMA_VERSION
-    assert len(envelope["ops"]) == 1
-    assert envelope["ops"][0]["uid"] == "uid-1"
-    assert envelope["ops"][0]["node_id"] == "99"
-
-    # Flat bridge mirrors the envelope ops (key is ``delta`` in to_dict())
-    assert "delta" in payload
-    assert payload["delta"] == envelope["ops"]
-
-    # Never a legacy wrapped mapping
-    assert "delta_ops" not in envelope  # envelope itself is clean
-    assert "diagnostics" not in envelope
-    assert "automatic_link_removals" not in envelope
+    assert "delta_ops_envelope" not in payload
+    assert "delta" not in payload
+    assert "delta_ops" not in payload
+    assert len(payload["accepted_batch"]) == 1
+    assert payload["accepted_batch"][0]["op"]["uid"] == "uid-1"
+    assert payload["accepted_batch"][0]["op"]["node_id"] == "99"
 
 
 def test_non_strict_normalize_never_emits_legacy_wrapped_shape() -> None:

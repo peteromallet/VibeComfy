@@ -13,7 +13,13 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.executor.graph_inspection import EdgeEvidence, GraphEvidence, NodeEvidence, inspect_graph
+from vibecomfy.executor.graph_inspection import (
+    EdgeEvidence,
+    GraphEvidence,
+    NodeEvidence,
+    inspect_graph,
+    inspect_workflow,
+)
 
 from .completion_proofs import (
     COMPLETION_PROOF_CONTRACT_VERSION,
@@ -1086,12 +1092,15 @@ def evaluate_execution_plan(
     *,
     candidate_graph_hash: str | None = None,
     completion_proof: CompletionProof | None = None,
+    workflow: Any | None = None,
 ) -> PlanEvaluation:
     """Evaluate a candidate graph against deterministic execution-plan conditions.
 
     The evaluator is intentionally pure and evidence-driven: topology, values,
-    terminals, and frame counts are read from :func:`inspect_graph`, while graph
-    identity uses the same structural hash projection as agent session state.
+    terminals, and frame counts are read from the IR when *workflow* is
+    present, otherwise from :func:`inspect_graph` (which ingests once through
+    the named doors).  Graph identity uses the same structural hash
+    projection as agent session state.
 
     When *completion_proof* is provided it is stamped directly on the returned
     ``PlanEvaluation``; otherwise the evaluation carries no completion proof.
@@ -1104,7 +1113,10 @@ def evaluate_execution_plan(
     if unsupported is not None:
         return unsupported
 
-    evidence = inspect_graph(dict(graph) if isinstance(graph, Mapping) else None)
+    if workflow is not None:
+        evidence = inspect_workflow(workflow)
+    else:
+        evidence = inspect_graph(dict(graph) if isinstance(graph, Mapping) else None)
     computed_graph_hash = structural_graph_hash(graph)
     actual_graph_hash = candidate_graph_hash or computed_graph_hash
     failed_conditions: list[dict[str, Any]] = []

@@ -273,45 +273,24 @@ def test_resolve_delta_rejects_unknown_remove_target_before_any_mutation() -> No
     assert original == before
 
 
-def test_stage_apply_delta_fails_closed_when_exit_guard_rejects(monkeypatch, tmp_path) -> None:
-    """A bad emit must reject the batch and stamp ui_fidelity_ok False."""
-    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
-    from vibecomfy.comfy_nodes.agent.edit import AgentEditState, _stage_apply_delta
-    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+def test_interpret_emit_fails_closed_when_exit_guard_rejects(monkeypatch) -> None:
+    """A bad emit must reject via the live interpret + emit-guard path.
+
+    Mutation authority is interpret; UI is an emit-side projection; the
+    independent ``guard_exit_ui`` is the hard gate on ``EditSession.done``.
+    A rejected guard is not done and does not treat the candidate as
+    published.  The ingest snapshot is never mutated.
+    """
+    from vibecomfy.porting.edit.session import EditSession
     from vibecomfy.porting.emit.ui import ExitGuardResult
     from vibecomfy.porting.report import PortIssue
 
     original = _fixture()
-    state = AgentEditState(
-        task="exit-guard-fail-closed",
-        graph=original,
-        guard_original_ui=original,
-        request_payload={},
-        schema_provider=_SchemaProvider(),
-        baseline_graph_hash=None,
-        submit_graph_hash=None,
-        submit_structural_graph_hash=None,
-        submitted_client_graph_hash=None,
-        submitted_client_structural_graph_hash=None,
-        session_dir=tmp_path,
-        turn_dir=tmp_path / "turn_001",
-        request_path=tmp_path / "request.json",
-        original_ui_path=tmp_path / "original.json",
-        before_py_path=tmp_path / "before.py",
-        after_py_path=tmp_path / "after.py",
-        projection_path=tmp_path / "projection.json",
-        model_request_path=tmp_path / "model_request.json",
-        model_response_path=tmp_path / "model_response.json",
-        candidate_ui_path=tmp_path / "candidate.json",
-        messages_path=tmp_path / "messages.json",
-    )
-    state.delta_ops = (
-        SetNodeFieldOp(
-            op="set_node_field",
-            target=NodeFieldTarget(scope_path="", uid="5", field_path="steps"),
-            value=30,
-        ),
-    )
+    before = copy.deepcopy(original)
+    session = EditSession(original, schema_provider=_SchemaProvider())
+    batch = session.apply_batch("ksampler.steps = 30\n")
+    assert batch.ok, batch.diagnostics
+    assert session.original_ui == before
 
     monkeypatch.setattr(
         "vibecomfy.porting.emit.ui.guard_exit_ui",
@@ -327,17 +306,11 @@ def test_stage_apply_delta_fails_closed_when_exit_guard_rejects(monkeypatch, tmp
         ),
     )
 
-    result = _stage_apply_delta(
-        state, TurnContext(session_id="guard-fail", turn_id="0001")
-    )
-    assert result.ok is False
-    assert result.blocking is True
-    assert result.gate_updates.get("ui_fidelity_ok") is False
-    assert result.value.get("ui_fidelity_ok") is False
-    assert getattr(state, "ui_payload", None) != result.value
-    assert not (tmp_path / "candidate.json").exists()
+    done = session.done()
+    assert done.ok is False
     assert any(
-        (issue.get("code") if isinstance(issue, dict) else getattr(issue, "code", None))
-        == "full_ui_node_changed_unattributed"
-        for issue in (result.issues or ())
+        getattr(diag, "code", None) == "full_ui_node_changed_unattributed"
+        for diag in done.diagnostics
     )
+    assert "emit-exit guard rejected" in done.summary
+    assert session.original_ui == before

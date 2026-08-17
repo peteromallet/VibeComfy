@@ -24,9 +24,10 @@ class _ParseExecuteMixin:
         """Apply one Python batch through ``interpret(pre, batch)``.
 
         Mutation authority is the immutable interpreter.  ``working_ui`` is
-        only an emit-side projection of the accepted Δ.  Query statements
-        (search / python / tools) are overlaid after interpret so the agent
-        still sees typed catalog results.
+        only an emit-side cache of the accepted Δ (via
+        ``_emit_working_snapshot``), never a second mutation store.  Query
+        statements (search / python / tools) are overlaid after interpret so
+        the agent still sees typed catalog results.
         """
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
         from vibecomfy.porting.edit._interpret import interpret
@@ -276,8 +277,10 @@ class _ParseExecuteMixin:
         return merged
 
     def _snapshot_mutable_state(self) -> dict:
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+        workflow = getattr(self, "workflow", None)
         return {
-            "working_ui": deepcopy(self.working_ui),
             "landed_ops": list(self.landed_ops),
             "touched_uids": set(self.touched_uids),
             "touched_node_ids": set(self.touched_node_ids),
@@ -285,7 +288,9 @@ class _ParseExecuteMixin:
             "name_by_uid": None,
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
-            "workflow": self.workflow,
+            "workflow": (
+                _cow_workflow_copy(workflow) if workflow is not None else None
+            ),
             "history": list(getattr(self, "history", [])),
             "resolved_ops": list(self.resolved_ops),
             "render_count": self.render_count,
@@ -295,7 +300,6 @@ class _ParseExecuteMixin:
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
-        self.working_ui = deepcopy(snapshot["working_ui"])
         self.landed_ops = list(snapshot["landed_ops"])
         self.touched_uids = set(snapshot["touched_uids"])
         self.touched_node_ids = set(snapshot["touched_node_ids"])
@@ -311,6 +315,14 @@ class _ParseExecuteMixin:
             self.last_rendered_source = snapshot["last_rendered_source"]
             self.last_rendered_workflow = snapshot["last_rendered_workflow"]
             self.last_render_diagnostics = snapshot["last_render_diagnostics"]
+        # working_ui is an emit-side cache of the restored IR, not rollback
+        # authority.  With no accepted Δ the cache is the ingest snapshot.
+        if self.workflow is None or not self.landed_ops:
+            self.working_ui = deepcopy(self.original_ui)
+        else:
+            self.working_ui = self._emit_working_snapshot(
+                self.workflow, ops=self.landed_ops
+            )
 
     def _collect_touched_nodes(
         self,

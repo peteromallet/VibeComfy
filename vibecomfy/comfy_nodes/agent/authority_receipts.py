@@ -736,9 +736,11 @@ def build_and_persist_authority_receipt(
     fail-closed semantics when replay verification fails.
     """
     submit_graph = _extract_submit_graph(request_payload)
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
     cumulative_delta_envelope = response.get("delta_ops_envelope")
     if not isinstance(cumulative_delta_envelope, Mapping):
-        cumulative_delta_envelope = None
+        cumulative_delta_envelope = derived_accepted_delta_envelope(response)
     candidate = response.get("graph")
     if not isinstance(candidate, Mapping):
         candidate = response.get("candidate", {}).get("graph") if isinstance(

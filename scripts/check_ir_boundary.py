@@ -8,15 +8,27 @@ structure (including ``detect_workflow_shape``).  Generic ``json.loads`` /
 ``json.dumps`` is not a violation.  ``working_ui`` is not a door, adapter,
 or graph authority.
 
-Additions to either allow-list or the leftover-read inventory require
-editing this file.  There is no open-ended "transport/artifact adapters"
-category.
+The scanner flags literal graph-key access (``nodes`` / ``links`` /
+``widgets_values``) on an unknown receiver.  It does **not** treat every
+dict that happens to use those key names as LiteGraph:
+
+* IR compile dicts (receiver ``prepared``) — emit's compiled IR, not a
+  LiteGraph canvas.
+* CLI / report envelopes (receiver ``payload``) — census counts and
+  formatted report fields.
+* Non-graph ``data`` blobs — CLI census, layout-section node-id lists,
+  and Comfy websocket event fields.
+
+Those collisions are suppressed by ``_NON_GRAPH_RECEIVER``.  Remaining
+real LiteGraph / envelope walkers outside the doors live in
+``STRUCTURAL_READ_ALLOWLIST`` with a per-file justification.  They are
+not graph mutation authority.  Additions require editing this file.
 
 Exit 1 when the product tree has a CI violation:
 
 * a forbidden legacy authority symbol
 * a structural write of a graph key outside the doors
-* a structural graph-key read outside the doors and leftover inventory
+* a structural graph-key read outside the doors and the named allow-list
 * any structural graph-key access, or ``detect_workflow_shape``, inside a
   pass-through adapter
 """
@@ -58,72 +70,117 @@ FORBIDDEN_SYMBOLS: frozenset[str] = frozenset(
     }
 )
 
-# Leftover inspection of emitted/transport JSON.  Not mutation authority and
-# not a door.  Additions mean a new reader landed outside the doors.
-STRUCTURAL_READ_INVENTORY: frozenset[str] = frozenset(
+# Justified leftover LiteGraph / envelope walkers.  Not mutation authority
+# and not a door.  Empty is the target; every entry needs a one-line reason.
+# See docs/plans/ir-everywhere-law5-allowlist.md.
+STRUCTURAL_READ_ALLOWLIST: frozenset[str] = frozenset(
     {
+        # Candidate/scope LiteGraph node lists for batch apply.
         "vibecomfy/comfy_nodes/agent/_frag_batch_loop.py",
+        # Reconstructs graph snapshots from stored scope nodes.
         "vibecomfy/comfy_nodes/agent/_frag_batch_memory.py",
+        # Narrates the canvas from widgets_values / links.
         "vibecomfy/comfy_nodes/agent/_frag_humanize.py",
+        # Walks UI nodes while attaching identity before IR is retained.
         "vibecomfy/comfy_nodes/agent/_frag_ingest.py",
+        # Research stage still inspects raw nodes/links/widgets.
         "vibecomfy/comfy_nodes/agent/_frag_research.py",
+        # Transform/recovery compares UI payload links.
         "vibecomfy/comfy_nodes/agent/_frag_transform_stages.py",
+        # Scoped validator walks LiteGraph nodes/links/widgets.
         "vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py",
+        # Audit dump of candidate graph nodes.
         "vibecomfy/comfy_nodes/agent/audit.py",
+        # Transaction scope node list.
         "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
+        # Contract helpers read graph nodes/widgets_values.
         "vibecomfy/comfy_nodes/agent/contracts.py",
+        # REPL walks scope/candidate LiteGraph nodes.
         "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+        # Layout op compares submit/candidate UI nodes.
         "vibecomfy/comfy_nodes/agent/layout_operation_v1.py",
+        # Materializes widget rows from raw UI.
         "vibecomfy/comfy_nodes/agent/mutation_materialization_v1.py",
+        # Projection registry still keyed on LiteGraph.
         "vibecomfy/comfy_nodes/agent/projection_registry_v1.py",
+        # Route handlers detect/copy list-shaped UI graphs.
         "vibecomfy/comfy_nodes/agent/routes.py",
+        # Session census of candidate_graph nodes.
         "vibecomfy/comfy_nodes/agent/session.py",
+        # Debug diff of before/candidate UI nodes.
         "vibecomfy/commands/_agent_edit_debug.py",
-        "vibecomfy/commands/analyze.py",
+        # CLI report interpolates payload['nodes'] as a count (key collision).
         "vibecomfy/commands/inspect.py",
+        # Lists inner subgraph LiteGraph nodes/links.
         "vibecomfy/commands/nodes.py",
-        "vibecomfy/commands/sources.py",
+        # Suggestion tools walk raw nodes/widgets.
         "vibecomfy/executor/edit_suggestion_tools.py",
+        # Effective-field facts still dual-walk LiteGraph + API.
         "vibecomfy/executor/graph_facts.py",
-        "vibecomfy/executor/graph_inspection.py",
+        # Layout hints read raw nodes/links.
         "vibecomfy/executor/layout_hints.py",
+        # Provenance extractors walk source/raw nodes/links/widgets.
         "vibecomfy/executor/provenance.py",
+        # Topology/readiness evidence is still LiteGraph-shaped.
         "vibecomfy/executor/revision_evidence.py",
+        # Subgraph definition nodes/links for scope maps.
         "vibecomfy/identity/scope.py",
-        "vibecomfy/ingest/summarize.py",
+        # Fixture builders walk wf/subgraph nodes/widgets.
         "vibecomfy/intent/_fixture.py",
+        # Probe detects list-shaped UI graphs.
         "vibecomfy/intent/_refusal_spine_probe.py",
+        # Model harvest walks raw nodes.
         "vibecomfy/model_assets.py",
+        # Asset harvest walks raw nodes.
         "vibecomfy/porting/assets.py",
+        # Describe lens reads furniture widgets_values.
         "vibecomfy/porting/edit/_describe.py",
+        # Alias rewrite walks graph nodes/widgets_values.
         "vibecomfy/porting/edit/apply_field_aliases.py",
+        # Surface builder reads instance widgets_values.
         "vibecomfy/porting/edit/editable_surface.py",
+        # Lint walks node widgets_values.
         "vibecomfy/porting/edit/lint.py",
+        # Edit session inspects graph nodes.
         "vibecomfy/porting/edit/session.py",
-        "vibecomfy/porting/emit/emit_prepare.py",
-        "vibecomfy/porting/emit/emit_ready.py",
+        # Subgraph emit copies raw nodes/links/widgets.
         "vibecomfy/porting/emit/emit_subgraph.py",
+        # Signature helper unwraps a nested nodes mapping.
         "vibecomfy/porting/emit/signatures.py",
+        # Widget-shape invariant reads widgets_values.
         "vibecomfy/porting/endpoint_invariant.py",
+        # Group layout reads subgraph nodes.
         "vibecomfy/porting/layout/groups.py",
+        # Layout vector reads ui_json nodes.
         "vibecomfy/porting/layout/layout_vector.py",
+        # Store migrate/load walks UI/group/subgraph nodes.
         "vibecomfy/porting/layout_store.py",
+        # Porting provenance walks raw/subgraph nodes.
         "vibecomfy/porting/provenance.py",
+        # uid map from UI JSON nodes (not mutation authority).
         "vibecomfy/porting/refuse.py",
+        # Reorganise facts walk LiteGraph.
         "vibecomfy/porting/reorganise/graph_facts.py",
+        # Orchestrate reads definitions.nodes.
         "vibecomfy/porting/reorganise/orchestrate.py",
-        "vibecomfy/porting/reorganise/parse.py",
+        # Visualize reads ui_json nodes.
         "vibecomfy/porting/reorganise/visualize.py",
+        # Fence reads raw_ui widgets_values.
         "vibecomfy/porting/widget_shape_fence.py",
+        # Alias helper reads raw nodes/widgets_values.
         "vibecomfy/porting/widgets/aliases.py",
+        # Compact resolver reads widgets_values.
         "vibecomfy/porting/widgets/compact_resolver.py",
-        "vibecomfy/runtime/watchdog.py",
     }
 )
 
 _GRAPH_KEYS: frozenset[str] = frozenset({"nodes", "links", "widgets_values"})
+# Receivers whose key names collide with LiteGraph but are not graph
+# structure.  Substring matches cover historical names (schema, report,
+# group).  ``prepared`` / ``data`` are exact identifiers so ``ui_payload``
+# and planted ``payload['widgets_values']`` stay flagged as graph.
 _NON_GRAPH_RECEIVER = re.compile(
-    r"schema|report|manifest|plan|dependency|group",
+    r"schema|report|manifest|plan|dependency|group|^prepared$|^data$",
     re.IGNORECASE,
 )
 _SHAPE_INSPECTORS: frozenset[str] = frozenset({"detect_workflow_shape"})
@@ -254,7 +311,7 @@ def _is_symbol_only(rel: str) -> bool:
 
 
 def classify_violation(item: Violation) -> str | None:
-    """Return the CI bucket, or None if the hit is allow-listed / inventory-only."""
+    """Return the CI bucket, or None if the hit is allow-listed."""
     rel = item.path
     if rel in GRAPH_JSON_DOORS:
         return None
@@ -269,7 +326,7 @@ def classify_violation(item: Violation) -> str | None:
     if item.kind == "shape_inspection":
         return None
     if item.kind == "structural_read":
-        if rel in STRUCTURAL_READ_INVENTORY:
+        if rel in STRUCTURAL_READ_ALLOWLIST:
             return None
         return "structural_read"
     return None

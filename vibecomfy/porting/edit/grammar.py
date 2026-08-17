@@ -140,7 +140,7 @@ STATEMENT_FORMS: tuple[StatementForm, ...] = (
     StatementForm(
         form_id="subgraph_interface",
         surface="`subgraph_interface(name=..., inputs=..., outputs=...)`",
-        op=None,
+        op="subgraph_interface",
         interpreter="reconstruct subgraph signatures onto metadata['definitions']",
         ast_types=(ast.Expr, ast.Call, ast.Name, ast.keyword, ast.Constant, ast.Tuple),
         in_doc_table=False,

@@ -1855,7 +1855,12 @@ def _load_authoritative_candidate_transaction(
     )
     if not isinstance(response, Mapping):
         return None, "missing_turn_response"
-    if response.get("delta_ops_envelope") != envelope:
+    from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
+
+    response_envelope = response.get("delta_ops_envelope")
+    if not isinstance(response_envelope, Mapping):
+        response_envelope = derived_accepted_delta_envelope(response)
+    if response_envelope != envelope:
         return None, "response_delta_mismatch"
     response_transaction = response.get("candidate_transaction")
     if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
@@ -3238,33 +3243,30 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
     if explicit is not None and explicit not in {"v1", "v2_delta"}:
         raise ValueError(f"Unsupported agent_edit_protocol {explicit!r}.")
 
-    delta_envelope = response.get("delta_ops_envelope")
-    flat_delta_ops = response.get("delta_ops")
-    canonical_ops: list[dict[str, Any]] | None = None
-    if isinstance(delta_envelope, Mapping):
-        from vibecomfy.porting.edit.ops import ensure_root_scoped_delta_envelope
+    from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
 
-        canonical = ensure_root_scoped_delta_envelope(delta_envelope, strict=True)
-        canonical_payload = canonical.to_dict()
-        raw_ops = canonical_payload.get("ops")
-        canonical_ops = list(raw_ops) if isinstance(raw_ops, list) else []
+    accepted = response.get("accepted_batch")
+    accepted_ops = list(_ops_from_accepted_batch(response))
+    has_accepted_batch = isinstance(accepted, list)
+    canonical_ops: list[dict[str, Any]] | None = accepted_ops if has_accepted_batch else None
+    derived_envelope = {
+        "schema_version": "2.0.0",
+        "ops": accepted_ops,
+    }
 
     if explicit == "v1":
-        if canonical_ops is not None or isinstance(flat_delta_ops, list):
+        if has_accepted_batch and accepted_ops:
             raise ValueError("agent_edit_protocol 'v1' cannot carry V2 delta evidence.")
         if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
             raise ValueError("agent_edit_protocol 'v1' candidate authority is historical and read-only.")
         return "v1"
 
     if explicit == "v2_delta":
-        if canonical_ops is None:
-            raise ValueError(
-                "agent_edit_protocol 'v2_delta' requires delta_ops_envelope."
-            )
-        if isinstance(flat_delta_ops, list) and flat_delta_ops != canonical_ops:
-            raise ValueError(
-                "delta_ops compatibility view does not match delta_ops_envelope."
-            )
+        # Missing accepted_batch is an empty Δ (identity / no landed edits).
+        if not has_accepted_batch:
+            accepted_ops = []
+            has_accepted_batch = True
+            derived_envelope = {"schema_version": "2.0.0", "ops": []}
         candidate = response.get("candidate")
         eligibility = response.get("eligibility")
         if not isinstance(eligibility, Mapping):
@@ -3308,7 +3310,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
                     "match the candidate graph."
                 )
             expected_plan_hash = v2_mutation_plan_hash(
-                delta_ops_envelope=delta_envelope,
+                delta_ops_envelope=derived_envelope,
                 structural_hash_before=candidate.get("structural_hash_before"),
                 structural_hash_after=candidate.get("structural_hash_after"),
             )
@@ -3320,9 +3322,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
         return "v2_delta"
 
     if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
-        if isinstance(flat_delta_ops, list):
-            # Legacy flat-delta_ops candidate without a v2_delta envelope is
-            # still rejected: the strict path requires a canonical envelope.
+        if has_accepted_batch and accepted_ops and explicit != "v2_delta":
             raise ValueError("New candidate authority requires explicit v2_delta evidence.")
         # Non-delta contracts (e.g. the default ``batch_repl``/canvas contract)
         # produce a legitimate applyable candidate but carry no delta evidence.
@@ -3335,7 +3335,7 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
             "as v1 audit artifact; delta_ops_envelope absent on this response."
         )
         return "v1"
-    if canonical_ops is not None or isinstance(flat_delta_ops, list):
+    if has_accepted_batch:
         return "v2_delta"
     # Answer-only/no-candidate records remain readable audit artifacts.
     return "v1"
@@ -3947,8 +3947,10 @@ def record_idempotent_response(
     stamped_response = response
     authority_receipt: Any = None
     request_payload: Mapping[str, Any] | None = None
-    requested_v2 = response.get("agent_edit_protocol") == "v2_delta" or isinstance(
-        response.get("delta_ops_envelope"), Mapping
+    requested_v2 = (
+        response.get("agent_edit_protocol") == "v2_delta"
+        or isinstance(response.get("delta_ops_envelope"), Mapping)
+        or isinstance(response.get("accepted_batch"), list)
     )
     if scope == "edit" and turn_id is not None:
         try:
@@ -3969,6 +3971,12 @@ def record_idempotent_response(
 
                     schema_version = ""
                     delta_envelope = response.get("delta_ops_envelope")
+                    if not isinstance(delta_envelope, Mapping):
+                        from vibecomfy.comfy_nodes.agent._frag_state import (
+                            derived_accepted_delta_envelope,
+                        )
+
+                        delta_envelope = derived_accepted_delta_envelope(response)
                     if isinstance(delta_envelope, Mapping):
                         raw_schema_version = delta_envelope.get("schema_version")
                         if isinstance(raw_schema_version, str):
