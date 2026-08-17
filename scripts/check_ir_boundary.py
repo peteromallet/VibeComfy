@@ -71,10 +71,6 @@ FORBIDDEN_SYMBOLS: frozenset[str] = frozenset(
     }
 )
 
-# Product structural readers must be zero.  Door helpers live in
-# ingest/normalize.py; leftover campaign fixtures are symbol-only.
-STRUCTURAL_READ_ALLOWLIST: frozenset[str] = frozenset()
-
 _GRAPH_KEYS: frozenset[str] = frozenset({"nodes", "links", "widgets_values"})
 # Receivers whose key names collide with LiteGraph but are not graph
 # structure.  Substring matches cover historical names (schema, report,

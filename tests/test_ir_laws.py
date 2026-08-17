@@ -673,14 +673,14 @@ def test_law_2_unknown_schema_named_widget_channel() -> None:
 
 
 def test_law_2_reserved_side_channel_does_not_collide() -> None:
-    """Law 2 stays total when a valid field reuses any former side-channel name."""
+    """Law 2 stays total for former side-channel names AND the live roster key."""
     from vibecomfy.porting.edit._interpret import interpret
     from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
 
     def _round_trip(workflow: VibeWorkflow) -> VibeNode:
         pre_snapshot = workflow.copy()
         emitted = emit_agent_edit_python(workflow)
-        assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}:" in emitted or "literal_channel_names=" in emitted
+        assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}:" in emitted
         empty = VibeWorkflow("empty", WorkflowSource("law"))
         result = interpret(empty, emitted)
         assert workflow == pre_snapshot
@@ -714,6 +714,49 @@ def test_law_2_reserved_side_channel_does_not_collide() -> None:
     assert input_node.inputs.get("literal_channel_names") == "from-input"
     assert input_node.widgets.get("seed") == 7
     assert "literal_channel_names" not in input_node.widgets
+
+    live_widget_wf = VibeWorkflow("live-side-widget", WorkflowSource("law"))
+    live_widget_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello"},
+        widgets={WIDGET_CHANNEL_SIDE_KEY: "real-value", "seed": 7},
+        uid="stable-lw",
+    )
+    live_widget = _round_trip(live_widget_wf)
+    assert live_widget.widgets.get(WIDGET_CHANNEL_SIDE_KEY) == "real-value"
+    assert live_widget.widgets.get("seed") == 7
+    assert live_widget.inputs.get("prompt") == "hello"
+    assert WIDGET_CHANNEL_SIDE_KEY not in live_widget.inputs
+    assert "vibe_widget_channel_names" not in live_widget.inputs
+
+    live_input_wf = VibeWorkflow("live-side-input", WorkflowSource("law"))
+    live_input_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello", WIDGET_CHANNEL_SIDE_KEY: "from-input"},
+        widgets={"seed": 7},
+        uid="stable-li",
+    )
+    live_input = _round_trip(live_input_wf)
+    assert live_input.inputs.get(WIDGET_CHANNEL_SIDE_KEY) == "from-input"
+    assert live_input.widgets.get("seed") == 7
+    assert WIDGET_CHANNEL_SIDE_KEY not in live_input.widgets
+    assert "vibe_widget_channel_names" not in live_input.inputs
+
+    dotted_wf = VibeWorkflow("dotted-widget", WorkflowSource("law"))
+    dotted_wf.nodes["1"] = VibeNode(
+        "1",
+        "UnknownWidgetNode",
+        inputs={"prompt": "hello"},
+        widgets={"foo.bar": 3, "seed": 7},
+        uid="stable-d",
+    )
+    dotted = _round_trip(dotted_wf)
+    assert dotted.widgets.get("foo.bar") == 3
+    assert dotted.widgets.get("seed") == 7
+    assert "foo_bar" not in dotted.inputs
+    assert "foo.bar" not in dotted.inputs
 
 
 def test_subgraph_interface_source_commits_typed_op() -> None:
@@ -1105,7 +1148,10 @@ def test_law_4_surface_lens_content() -> None:
     assert "widget_0=11" in rendered
     from vibecomfy.porting.edit.constants import WIDGET_CHANNEL_SIDE_KEY
 
-    assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}: ('seed', 'widget_0')}}" in rendered
+    assert (
+        f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}: {{'widgets': ('seed', 'widget_0'), 'order': ('prompt', 'seed', 'widget_0')}}}}"
+        in rendered
+    )
     assert "uid:law-a" in rendered
     assert "image=lawnode.unknown_0" in rendered
 
