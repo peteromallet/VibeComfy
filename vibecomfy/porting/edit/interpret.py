@@ -37,6 +37,7 @@ from vibecomfy.porting.edit.apply_values import _validate_literal_value
 from vibecomfy.porting.edit.editable_surface import (
     editable_surface_for,
     is_positional_alias,
+    _is_link_value,
 )
 from vibecomfy.porting.edit.grammar import op_kind_for_assignment
 from vibecomfy.porting.edit.ops import (
@@ -54,7 +55,7 @@ from vibecomfy.porting.edit.ops import (
     UpsertLinkOp,
 )
 from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
-from vibecomfy.identity.codec import _BUILTIN_NAMES, to_python_identifier
+from vibecomfy.identity.codec import _BUILTIN_NAMES, to_python_identifier, to_raw_name
 from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
 from vibecomfy.porting.edit._resolve import (
@@ -63,6 +64,7 @@ from vibecomfy.porting.edit._resolve import (
     _infer_exec_io,
     _normalize_exec_io,
 )
+from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget, input_spec_is_socket_only
 from vibecomfy.schema import get_schema_provider, schema_for, socket_types_compatible
 from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
 
@@ -75,7 +77,8 @@ _SLOT_COMMENT = re.compile(
     r"(\w+)(?:='([^']*)')?(?:\s+(?:known|provisional|unknown))?"
 )
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
-_PLACEMENT_KWARGS = frozenset({"near", "relation", "group", "pos", "position", "coords", "x", "y"})
+_PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
+_RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +124,7 @@ def interpret(
     max_expanded_statements: int = 20_000,
     max_for_iterations: int = 100,
     cas_old: Mapping[tuple[str, str], Any] | None = None,
+    name_hints: Mapping[str, str] | None = None,
 ) -> InterpretationResult:
     """Interpret ``batch_source`` against ``pre_workflow``, returning a NEW IR.
 
@@ -143,6 +147,7 @@ def interpret(
         max_expanded_statements=max_expanded_statements,
         max_for_iterations=max_for_iterations,
         cas_old=cas_old,
+        name_hints=name_hints,
     )
 
 
@@ -156,6 +161,7 @@ def _interpret_source(
     max_expanded_statements: int,
     max_for_iterations: int,
     cas_old: Mapping[tuple[str, str], Any] | None,
+    name_hints: Mapping[str, str] | None,
 ) -> InterpretationResult:
     parsed = _parse_and_validate_batch(
         source,
@@ -178,6 +184,7 @@ def _interpret_source(
         schema_provider=schema_provider,
         cas_old=cas_old,
         source=source,
+        name_hints=name_hints,
     )
     return runner.run(parsed.expanded)
 
@@ -292,6 +299,7 @@ class _InterpretRunner:
         schema_provider: Any,
         cas_old: Mapping[tuple[str, str], Any] | None,
         source: str = "",
+        name_hints: Mapping[str, str] | None = None,
     ) -> None:
         self._pre = pre_workflow
         self.workflow = _cow_workflow_copy(pre_workflow)
@@ -300,7 +308,7 @@ class _InterpretRunner:
         self._source = source
         self._source_lines = source.splitlines()
         self.unbound: set[str] = set()
-        self.transient: dict[str, str] = {}
+        self.transient: dict[str, str] = dict(name_hints or {})
         self._pre_helper_uids = {
             str(node.uid)
             for node in pre_workflow.nodes.values()
@@ -308,8 +316,16 @@ class _InterpretRunner:
             and str(node.class_type) in HELPER_NODE_TYPES
         }
         self._refresh_bindings()
+        self.placement_facts = None
 
     def run(self, statements: tuple[_ExpandedStatement, ...]) -> InterpretationResult:
+        from vibecomfy.porting.layout.placement import build_batch_placement_facts
+
+        self.placement_facts = build_batch_placement_facts(
+            statements,
+            graph_name_exists=lambda name: self._resolve_name(name)[0] is not None,
+            estimate_add_node_width=lambda _class_type: 210,
+        )
         outcomes: list[StatementOutcome] = []
         landed: list[EditOp] = []
         diagnostics: list[CompactDiagnostic] = []
@@ -325,6 +341,13 @@ class _InterpretRunner:
                 saw_landed_edit = True
                 if outcome.op is not None:
                     landed.append(outcome.op)
+                continue
+            if (
+                outcome.status == "skipped"
+                and outcome.reason == "cas_unchanged"
+                and outcome.op is not None
+            ):
+                landed.append(outcome.op)
                 continue
             if outcome.status == "rejected" and is_edit:
                 # All-or-nothing commit: keep evaluating later statements so
@@ -433,6 +456,29 @@ class _InterpretRunner:
             _uid_from_source(item.source) or self._uid_from_lines(item)
         )
         schema = schema_for(self.schema_provider, class_type)
+        if schema is None:
+            from vibecomfy.porting.authoring_names import class_type_for_constructor_name
+            from vibecomfy.porting.edit._ir_utils import _resolve_class_type_from_alias
+
+            resolved = _resolve_class_type_from_alias(class_type, self.schema_provider)
+            if resolved:
+                class_type = resolved
+                schema = schema_for(self.schema_provider, class_type)
+            if schema is None:
+                raw_class_type = class_type_for_constructor_name(
+                    self.schema_provider, class_type
+                )
+                if raw_class_type is not None:
+                    class_type = raw_class_type
+                    schema = schema_for(self.schema_provider, class_type)
+        if schema is None and not reconstructing:
+            self.unbound.add(target_name)
+            return self._reject(
+                item,
+                "unknown_add_node_class_type",
+                "node_call",
+                f"Unknown class_type {class_type!r} for add_node.",
+            )
         schema_inputs = getattr(schema, "inputs", {}) or {}
         relation: str | None = None
         near_ref: NodeTarget | None = None
@@ -465,6 +511,16 @@ class _InterpretRunner:
                     continue
                 if isinstance(literal, str):
                     group_title = literal
+                continue
+            if name in _RAW_COORDINATE_KWARGS:
+                issues.append(
+                    _diag(
+                        "raw_coordinate_kwarg_not_allowed",
+                        f"Raw coordinate keyword {name!r} is not allowed; use near=/relation=.",
+                        severity="error",
+                        detail={"keyword": name, "target_name": target_name},
+                    )
+                )
                 continue
             if name == "near":
                 if isinstance(keyword.value, ast.Name):
@@ -514,6 +570,21 @@ class _InterpretRunner:
                 issues.append(literal_issue)
                 continue
             spec = _input_spec_for_field(schema_inputs, name)
+            if input_spec_is_socket_only(spec) and not reconstructing:
+                issues.append(
+                    _diag(
+                        "socket_input_not_literal_widget",
+                        f"{class_type}.{name} is an input socket, not a widget; connect a source node instead.",
+                        severity="error",
+                        detail={
+                            "class_type": class_type,
+                            "input": name,
+                            "target_name": target_name,
+                            "input_type": getattr(spec, "type", None),
+                        },
+                    )
+                )
+                continue
             bound_issues = _validate_literal_value(
                 value=literal,
                 spec=spec,
@@ -548,6 +619,25 @@ class _InterpretRunner:
                     "inputs": [[name, socket_type] for name, socket_type in normalized_io["inputs"]],
                     "outputs": [[name, socket_type] for name, socket_type in normalized_io["outputs"]],
                 }
+        inferred_anchor: AnchorRef | None = None
+        inferred_anchor_diag: CompactDiagnostic | None = None
+        if (
+            relation is None
+            and near_ref is None
+            and group_title is None
+            and self.placement_facts is not None
+        ):
+            inferred_anchor = self._inferred_anchor(target_name, linked)
+            if inferred_anchor is not None and inferred_anchor.relation == "between":
+                inferred_anchor_diag = _diag(
+                    "splice_anchor_no_group",
+                    (
+                        f"Splice-placed node of type '{class_type}': neither "
+                        "downstream nor upstream belongs to a group; leaving ungrouped."
+                    ),
+                    severity="info",
+                    detail={"class_type": class_type, "target_name": target_name},
+                )
         if relation is not None and near_ref is None and group_title is None:
             issues.append(
                 _diag(
@@ -562,8 +652,8 @@ class _InterpretRunner:
             return self._reject_diagnostics(item, "node_call", issues)
         uid = _uid_from_source(item.source) or self._uid_from_lines(item) or _mint_ir_uid(self.workflow)
         node_id = uid if uid not in {str(n.id) for n in self.workflow.nodes.values()} else None
-        anchor = None
-        if near_ref is not None or group_title is not None:
+        anchor = inferred_anchor
+        if anchor is None and (near_ref is not None or group_title is not None):
             anchor = AnchorRef(
                 relation=(relation or "near"),  # type: ignore[arg-type]
                 near=near_ref,
@@ -599,6 +689,7 @@ class _InterpretRunner:
             status="applied",
             op_kind="node_call",
             op=op,
+            diagnostics=() if inferred_anchor_diag is None else (inferred_anchor_diag,),
             detail={"target_name": target_name, "minted_uid": minted, "class_type": class_type},
         )
 
@@ -609,7 +700,8 @@ class _InterpretRunner:
         rhs: ast.expr,
     ) -> StatementOutcome:
         node, node_issues = self._resolve_name(
-            target.value.id if isinstance(target.value, ast.Name) else ""
+            target.value.id if isinstance(target.value, ast.Name) else "",
+            unknown_code="unknown_target_name",
         )
         if node_issues:
             return self._reject_diagnostics(
@@ -649,6 +741,7 @@ class _InterpretRunner:
                 "Mode assignments must use 0, 2, 4 or their MODE_LABELS-derived labels.",
             )
         current = mode_to_litegraph(node.mode)
+        op = SetModeOp(op="set_mode", target=NodeTarget("", str(node.uid)), mode=mode)  # type: ignore[arg-type]
         if current == mode:
             return StatementOutcome(
                 statement_index=item.statement_index,
@@ -656,8 +749,8 @@ class _InterpretRunner:
                 status="skipped",
                 reason="cas_unchanged",
                 op_kind="set_mode",
+                op=op,
             )
-        op = SetModeOp(op="set_mode", target=NodeTarget("", str(node.uid)), mode=mode)  # type: ignore[arg-type]
         applied = self._apply(item, op)
         if isinstance(applied, StatementOutcome):
             return applied
@@ -683,31 +776,35 @@ class _InterpretRunner:
         if field_name in surface.socket_names() and field_name not in surface.literal_names():
             schema = schema_for(self.schema_provider, node.class_type)
             spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
-            from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
-
-            if not input_spec_is_literal_widget(spec) and field_name not in node.widgets:
+            current_input = node.inputs.get(field_name) if isinstance(getattr(node, "inputs", None), Mapping) else None
+            scalar_input = current_input is not None and not _is_link_value(current_input)
+            if (
+                not input_spec_is_literal_widget(spec)
+                and field_name not in node.widgets
+                and not scalar_input
+            ):
                 return self._reject(
                     item,
                     "socket_input_not_literal_widget",
                     "set_node_field",
                     f"{node.class_type}.{field_name} is an input socket, not a widget; connect a source node instead.",
                 )
+        schema = schema_for(self.schema_provider, node.class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
         if (
             field_name
             and field_name not in surface.literal_names()
             and field_name not in node.inputs
             and field_name not in node.widgets
+            and field_name not in schema_inputs
             and not is_positional_alias(field_name)
         ):
-            # Unknown-schema instance: allow a new named literal the emit
-            # surface produced.  Completely unknown names still reject.
-            if surface.schema_status != "unknown" and surface.literal_names():
-                return self._reject(
-                    item,
-                    "unknown_target_field",
-                    "set_node_field",
-                    f"{node.class_type} has no editable field or input named {field_name!r}.",
-                )
+            return self._reject(
+                item,
+                "unknown_target_field",
+                "set_node_field",
+                f"{node.class_type} has no editable field or input named {field_name!r}.",
+            )
         literal, issue = _fold_constant(rhs, env=item.env)
         if issue is not None:
             return self._reject_diagnostics(item, "set_node_field", (issue,))
@@ -736,12 +833,18 @@ class _InterpretRunner:
                 f"{node.class_type}.{field_name} CAS failed: expected {expected!r}, current {current!r}.",
             )
         if current == literal:
+            op = SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", str(node.uid), field_name),
+                value=literal,
+            )
             return StatementOutcome(
                 statement_index=item.statement_index,
                 source=item.source,
                 status="skipped",
                 reason="cas_unchanged",
                 op_kind="set_node_field",
+                op=op,
             )
         op = SetNodeFieldOp(
             op="set_node_field",
@@ -856,10 +959,15 @@ class _InterpretRunner:
             op=op,
         )
 
-    def _resolve_name(self, name: str) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
+    def _resolve_name(
+        self,
+        name: str,
+        *,
+        unknown_code: str = "unknown_graph_name",
+    ) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
         if not name:
             return None, (
-                _diag("unknown_graph_name", "Unknown graph name.", severity="error", detail={"name": name}),
+                _diag(unknown_code, "Unknown graph name.", severity="error", detail={"name": name}),
             )
         if name in self.unbound:
             return None, (
@@ -877,7 +985,7 @@ class _InterpretRunner:
                 return node, ()
             return None, (
                 _diag(
-                    "unknown_graph_name",
+                    unknown_code,
                     f"Unknown graph name {name!r}. Render the session again if the canvas changed.",
                     severity="error",
                     detail={"name": name},
@@ -903,7 +1011,7 @@ class _InterpretRunner:
             assert node is not None
             ports = _agent_edit_output_ports(node)
             if len(ports) == 1:
-                slot = next(iter(ports.values()))
+                slot = _raw_output_slot(node, next(iter(ports.values())))
                 return LinkSourceRef("", str(node.uid), slot), ()
             return None, (
                 _diag(
@@ -921,11 +1029,16 @@ class _InterpretRunner:
                     severity="error",
                 ),
             )
-        node, issues = self._resolve_name(value.value.id)
+        node, issues = self._resolve_name(value.value.id, unknown_code="unknown_source_name")
         if issues:
             return None, issues
         assert node is not None
-        slot = _resolve_output_slot(node, value.attr)
+        if is_positional_alias(value.attr):
+            slot = None
+        else:
+            slot = _resolve_output_slot(node, value.attr)
+            if slot is None and _TYPED_PORT.fullmatch(value.attr):
+                slot = value.attr
         if slot is None:
             return None, (
                 _diag(
@@ -938,6 +1051,21 @@ class _InterpretRunner:
         return LinkSourceRef("", str(node.uid), slot), ()
 
     def _canonical_field(self, node: Any, raw: str) -> str:
+        from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
+
+        mapping: dict[str, Any] = {"type": node.class_type, "class_type": node.class_type}
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, Mapping):
+            ui = metadata.get("_ui")
+            if isinstance(ui, Mapping):
+                mapping.update(ui)
+                mapping["type"] = node.class_type
+                mapping["class_type"] = node.class_type
+        alias = _canonical_ui_only_widget_field(
+            mapping, raw, schema_provider=self.schema_provider
+        )
+        if alias is not None:
+            return alias[0]
         if str(node.class_type) == _EXEC_CLASS_TYPE:
             io_value = None
             if isinstance(getattr(node, "inputs", None), Mapping):
@@ -978,6 +1106,90 @@ class _InterpretRunner:
             if str(node.class_type) == class_type and str(getattr(node, "uid", "") or ""):
                 return str(node.uid)
         return None
+
+    def _inferred_anchor(
+        self,
+        target_name: str,
+        linked: Mapping[str, LinkSourceRef],
+    ) -> AnchorRef | None:
+        from vibecomfy.porting.layout.placement import infer_add_node_anchor_hint
+
+        if self.placement_facts is None:
+            return None
+        hint = infer_add_node_anchor_hint(
+            target_name=target_name,
+            resolved_inputs=linked,
+            placement_facts=self.placement_facts,
+            current_input_source_ref=self._current_input_source_ref,
+            target_has_any_link=self._target_has_any_link,
+            uid_to_name={uid: name for name, uid in self.name_to_uid.items()},
+        )
+        if hint is not None and hint.relation == "between":
+            pass
+        else:
+            pre_uids = {
+                str(getattr(node, "uid", "") or "")
+                for node in self._pre.nodes.values()
+                if getattr(node, "uid", None)
+            }
+            for rewire in self.placement_facts.rewires_by_source.get(target_name, ()):
+                dest, dest_issues = self._resolve_name(rewire.target_name)
+                if (
+                    dest is not None
+                    and not dest_issues
+                    and str(dest.uid) in pre_uids
+                    and self._target_has_any_link(rewire.target_name)
+                ):
+                    return AnchorRef(
+                        relation="left_of",
+                        near=NodeTarget("", str(dest.uid)),
+                    )
+        if hint is None:
+            return None
+        if hint.relation == "between" and hint.between_names is not None:
+            left, left_issues = self._resolve_name(hint.between_names[0])
+            right, right_issues = self._resolve_name(hint.between_names[1])
+            if left is None or right is None or left_issues or right_issues:
+                return None
+            return AnchorRef(
+                relation="between",
+                between=(
+                    NodeTarget("", str(left.uid)),
+                    NodeTarget("", str(right.uid)),
+                ),
+            )
+        if hint.near_name is None:
+            return None
+        near, near_issues = self._resolve_name(hint.near_name)
+        if near is None or near_issues:
+            return None
+        return AnchorRef(relation=hint.relation, near=NodeTarget("", str(near.uid)))
+
+    def _current_input_source_ref(self, target_name: str, target_field: str) -> LinkSourceRef | None:
+        node, issues = self._resolve_name(target_name)
+        if node is None or issues:
+            return None
+        node_id = str(getattr(node, "id", "") or "")
+        for edge in self.workflow.edges:
+            if str(getattr(edge, "to_node", "")) == node_id and str(
+                getattr(edge, "to_input", "")
+            ) == target_field:
+                source = self.workflow.nodes.get(str(getattr(edge, "from_node", "")))
+                if source is None:
+                    continue
+                return LinkSourceRef(
+                    "",
+                    str(getattr(source, "uid", "") or ""),
+                    _raw_output_slot(source, str(getattr(edge, "from_output", "") or "")),
+                )
+        return None
+
+    def _target_has_any_link(self, target_name: str) -> bool:
+        node, issues = self._resolve_name(target_name)
+        if node is None or issues:
+            return False
+        node_id = str(getattr(node, "id", "") or "")
+        return any(str(getattr(edge, "to_node", "")) == node_id for edge in self.workflow.edges)
 
     def _refresh_bindings(self) -> None:
         try:
@@ -1398,12 +1610,151 @@ def _resolve_output_slot(node: Any, attr: str) -> str | None:
             index = list(raw_names).index(decoded)
             return ports.get(index, decoded)
         return decoded
+    names = {str(name): str(name) for name in ports.values() if name}
+    if names:
+        try:
+            raw = to_raw_name(attr, context=names)
+        except (KeyError, ValueError):
+            raw = None
+        if raw:
+            return raw
+        lowered = attr.casefold()
+        for name in names:
+            if name.casefold() == lowered or to_python_identifier(name) == attr:
+                return name
     match = _TYPED_PORT.fullmatch(attr)
     if match is not None:
         index = int(match.group(2))
         if index in ports:
             return ports[index]
+    candidates: list[str] = [str(name) for name in ports.values() if name]
+    if isinstance(raw_names, (list, tuple)):
+        candidates.extend(str(name) for name in raw_names if name)
+    if isinstance(outputs, list):
+        for output in outputs:
+            if isinstance(output, Mapping) and output.get("name"):
+                candidates.append(str(output["name"]))
+    lowered = attr.casefold()
+    for name in candidates:
+        if name.casefold() == lowered or to_python_identifier(name) == attr:
+            return name
     return None
+
+
+def _raw_output_slot(node: Any, slot: str) -> str:
+    """Map a typed emit alias (IMAGE_0) back to the UI/raw slot name."""
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        if slot.startswith("out_") or slot.startswith("in_"):
+            return slot
+        typed = _TYPED_PORT.fullmatch(slot)
+        if typed is not None:
+            return f"out_{typed.group(2)}"
+        io_value = None
+        if isinstance(getattr(node, "inputs", None), Mapping):
+            io_value = node.inputs.get("io")
+        if io_value is None and isinstance(getattr(node, "widgets", None), Mapping):
+            io_value = node.widgets.get("io")
+        if io_value is None:
+            metadata = getattr(node, "metadata", None) or {}
+            if isinstance(metadata, Mapping):
+                vibe = metadata.get("vibecomfy")
+                if isinstance(vibe, Mapping):
+                    io_value = vibe.get("io")
+        mapped = _exec_semantic_slot_name(
+            _EXEC_CLASS_TYPE, io_value, slot, direction="output"
+        )
+        if mapped != slot:
+            return mapped
+    metadata = getattr(node, "metadata", None) or {}
+    if slot.isdigit():
+        ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+        outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+        if isinstance(outputs, list) and int(slot) < len(outputs):
+            named = outputs[int(slot)]
+            if isinstance(named, Mapping) and named.get("name"):
+                return str(named["name"])
+        ports = _agent_edit_output_ports(node)
+        mapped = ports.get(int(slot))
+        if mapped:
+            slot = str(mapped)
+    aliases = metadata.get("_edit_ports") if isinstance(metadata, Mapping) else None
+    if isinstance(aliases, Mapping):
+        for raw, typed in aliases.items():
+            if typed == slot and raw != typed:
+                return str(raw)
+    raw_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+    if isinstance(raw_names, (list, tuple)) and slot in raw_names:
+        return slot
+    ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+    if isinstance(outputs, list):
+        for output in outputs:
+            if isinstance(output, Mapping) and output.get("name") == slot:
+                return slot
+    match = _TYPED_PORT.fullmatch(slot)
+    if match is not None:
+        base = match.group(1)
+        if isinstance(outputs, list):
+            for output in outputs:
+                if isinstance(output, Mapping) and output.get("name") == base:
+                    return base
+        if isinstance(raw_names, (list, tuple)) and base in raw_names:
+            return base
+        return base
+    return slot
+
+
+def _ui_output_slot(node: Any, slot: str) -> str:
+    """Map an IR typed emit slot to the working UI output name.
+
+    Interpret keeps typed aliases (``IMAGE_0``) on ``LinkSourceRef`` for
+    Law 2.  The emit-side projector and agent-facing field changes need the
+    declared UI name: LoadImage's ``IMAGE_0`` is ``image``, ImageScaleBy's
+    ``IMAGE_0`` is ``IMAGE``.  ``_raw_output_slot`` only strips the index
+    (returning the type token), which apply_delta then rejects when the UI
+    name differs from the type.
+    """
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        return _raw_output_slot(node, slot)
+
+    metadata = getattr(node, "metadata", None) or {}
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    ui = metadata.get("_ui")
+    outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+    raw_names = metadata.get("output_names")
+
+    def _name_at(index: int) -> str | None:
+        if isinstance(outputs, list) and 0 <= index < len(outputs):
+            named = outputs[index]
+            if isinstance(named, Mapping) and named.get("name"):
+                return str(named["name"])
+        if (
+            isinstance(raw_names, (list, tuple))
+            and 0 <= index < len(raw_names)
+            and raw_names[index]
+        ):
+            return str(raw_names[index])
+        return None
+
+    aliases = metadata.get("_edit_ports")
+    if isinstance(aliases, Mapping):
+        for raw, typed in aliases.items():
+            if typed == slot and raw != typed:
+                return str(raw)
+
+    if slot.isdigit():
+        named = _name_at(int(slot))
+        if named:
+            return named
+
+    match = _TYPED_PORT.fullmatch(slot)
+    if match is not None:
+        named = _name_at(int(match.group(2)))
+        if named:
+            return named
+        return _raw_output_slot(node, slot)
+    return slot
 
 
 def _output_socket_type(node: Any, slot: str | int) -> str | None:

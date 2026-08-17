@@ -5236,14 +5236,24 @@ if _HYPOTHESIS_AVAILABLE:
             first_names = dict(session.name_by_uid)
 
             # Apply a batch, which may add new nodes/names.
-            session.apply_batch(code)
+            result = session.apply_batch(code)
 
             # Rerender.
             second_render = session.render()
             second_names = dict(session.name_by_uid)
+            from vibecomfy.porting.edit.ops import RemoveNodeOp
 
-            # All names from first render must still map to the same uids.
+            removed = {
+                str(op.target.uid)
+                for op in result.landed_ops
+                if isinstance(op, RemoveNodeOp)
+            }
+
+            # All names from first render must still map to the same uids,
+            # except nodes this batch deleted.
             for uid, name in first_names.items():
+                if uid in removed:
+                    continue
                 assert uid in second_names, (
                     f"uid {uid} ({name}) disappeared after rerender.\n"
                     f"Code:\n{code}"
@@ -5458,11 +5468,20 @@ else:
                 first_render = session.render()
                 first_names = dict(session.name_by_uid)
 
-                session.apply_batch(code)
+                result = session.apply_batch(code)
                 second_render = session.render()
                 second_names = dict(session.name_by_uid)
+                from vibecomfy.porting.edit.ops import RemoveNodeOp
+
+                removed = {
+                    str(op.target.uid)
+                    for op in result.landed_ops
+                    if isinstance(op, RemoveNodeOp)
+                }
 
                 for uid, name in first_names.items():
+                    if uid in removed:
+                        continue
                     assert uid in second_names, (
                         f"Iter {i}: uid {uid} ({name}) disappeared"
                         f" after rerender.\nCode:\n{code}"

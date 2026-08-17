@@ -179,6 +179,8 @@ class _DiffMixin:
                 touched_uids=statement.touched_uids,
                 dependency_cause=statement.dependency_cause,
                 teaching_hint=statement.teaching_hint,
+                status=statement.status,
+                reason=statement.reason,
             )
         return tuple(field_changes), tuple(updated_results)
 

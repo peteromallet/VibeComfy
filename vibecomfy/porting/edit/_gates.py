@@ -27,19 +27,17 @@ class _GatesMixin:
     def done(self) -> DoneResult:
         """Finalize the session: run Gate A and Gate B proof checks.
 
-        Gate A replays all landed ops over ``original_ui`` through the
-        deterministic ``apply_delta`` path (which internally resolves,
-        applies, and calls ``guard_full_ui``).  It then asserts the
-        recomputed candidate is deep-equal to the current ``working_ui``.
+        Gate A replays ``interpret`` over the retained ``(wf_i, Δ_i)``
+        history from ``wf_0``.  The emit-side snapshot is then checked by
+        projecting landed ops onto ``original_ui`` and comparing that
+        candidate to ``working_ui``.
 
-        Gate B compiles the current working UI and recomputed candidate
-        through the normal UI -> ``VibeWorkflow`` -> ``compile("api")`` oracle,
-        narrows both API graphs to the touched region induced by landed ops,
+        Gate B compiles the retained IR and the replayed IR through
+        ``compile("api")``, narrows both API graphs to the touched region,
         and compares them with ``parity.compile_equivalent``.
 
-        If zero ops have landed, it verifies that ``working_ui`` is still
-        identical to ``original_ui`` (the emit-side snapshot has not drifted)
-        and that the retained IR is still the ingest IR.
+        If zero ops have landed, it verifies that the emit-side snapshot
+        has not drifted and that the retained IR is still the ingest IR.
         """
         ops = tuple(self.landed_ops)
 
@@ -75,13 +73,23 @@ class _GatesMixin:
                 ),
             )
 
-        candidate, all_diags = self._replay_landed_ops_for_done(ops)
+        replayed, ir_diags = self._replay_interpret_for_done()
+        if replayed is None:
+            return DoneResult(
+                ok=False,
+                summary=(
+                    f"Gate A: interpret replay over (wf_0, Δ_i) failed "
+                    f"({len(ir_diags)} diagnostic(s))."
+                ),
+                diagnostics=ir_diags,
+            )
 
+        candidate, all_diags = self._replay_landed_ops_for_done(ops)
         if candidate is None:
             return DoneResult(
                 ok=False,
                 summary=(
-                    f"Gate A: apply_delta over original_ui failed "
+                    f"Gate A: emit-side projection over original_ui failed "
                     f"({len(all_diags)} diagnostic(s))."
                 ),
                 diagnostics=all_diags,
@@ -93,7 +101,7 @@ class _GatesMixin:
                 summary=(
                     "Gate A: recomputed candidate does not match working_ui. "
                     "The landed ops do not deterministically reproduce "
-                    "the current state from the original."
+                    "the current emit-side snapshot from the original."
                 ),
                 diagnostics=(
                     _diag(
@@ -123,6 +131,53 @@ class _GatesMixin:
             ),
         )
 
+    def _replay_interpret_for_done(self) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
+        from vibecomfy.porting.edit.interpret import interpret
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+        workflow = getattr(self, "_wf0", None)
+        if workflow is None:
+            return None, (
+                _diag(
+                    "done_gate_a_missing_wf0",
+                    "Gate A could not replay interpret: ingest IR is missing.",
+                    severity="error",
+                ),
+            )
+        workflow = _cow_workflow_copy(workflow)
+        for _pre, delta in getattr(self, "history", []) or ():
+            result = interpret(
+                workflow,
+                delta,
+                schema_provider=self.schema_provider,
+                max_batch_bytes=self.max_batch_bytes,
+                max_statements=self.max_statements,
+                max_expanded_statements=self.max_expanded_statements,
+                max_for_iterations=self.max_for_iterations,
+            )
+            if result.workflow is None:
+                return None, result.diagnostics
+            workflow = result.workflow
+        return workflow, ()
+
+    def _done_gate_b_from_ir(
+        self,
+        ops: tuple[EditOp, ...],
+        *,
+        replayed: Any | None = None,
+    ) -> DoneResult:
+        original = getattr(self, "_wf0", None) or getattr(self, "workflow", None)
+        working = getattr(self, "workflow", None)
+        candidate = replayed if replayed is not None else working
+        if original is None or working is None or candidate is None:
+            return self._done_gate_b(self.working_ui, self.working_ui, ops)
+        return self._done_gate_b_workflows(
+            original_workflow=original,
+            working_workflow=working,
+            candidate_workflow=candidate,
+            ops=ops,
+        )
+
     def _replay_landed_ops_for_done(
         self,
         ops: tuple[Any, ...],
@@ -139,7 +194,7 @@ class _GatesMixin:
         for op in ops:
             applied = apply_delta(
                 candidate,
-                (op,),
+                (self._projection_op(op),),
                 schema_provider=self.schema_provider,
             )
             if not applied.ok or applied.candidate is None:
@@ -170,6 +225,67 @@ class _GatesMixin:
         )
         workflow.finalize_metadata()
         return workflow
+
+    def _done_gate_b_workflows(
+        self,
+        *,
+        original_workflow: VibeWorkflow,
+        working_workflow: VibeWorkflow,
+        candidate_workflow: VibeWorkflow,
+        ops: tuple[EditOp, ...],
+    ) -> DoneResult:
+        compiled_original = self._compile_workflow_for_done_gate_b(original_workflow, label="original")
+        if isinstance(compiled_original, DoneResult):
+            return compiled_original
+        original_workflow, original_api = compiled_original
+
+        compiled_working = self._compile_workflow_for_done_gate_b(working_workflow, label="working")
+        if isinstance(compiled_working, DoneResult):
+            return compiled_working
+        working_workflow, working_api = compiled_working
+
+        compiled_candidate = self._compile_workflow_for_done_gate_b(candidate_workflow, label="candidate")
+        if isinstance(compiled_candidate, DoneResult):
+            return compiled_candidate
+        candidate_workflow, candidate_api = compiled_candidate
+
+        region_ids = self._done_gate_b_region_node_ids(
+            ops=ops,
+            original_workflow=original_workflow,
+            original_api=original_api,
+            working_workflow=working_workflow,
+            working_api=working_api,
+            candidate_workflow=candidate_workflow,
+            candidate_api=candidate_api,
+        )
+        working_region = _subset_api_by_node_ids(working_api, region_ids)
+        candidate_region = _subset_api_by_node_ids(candidate_api, region_ids)
+
+        from vibecomfy.porting import parity
+
+        ok, diffs = parity.compile_equivalent(working_region, candidate_region)
+        if ok:
+            return DoneResult(ok=True, summary="Gate B passed.")
+        return DoneResult(
+            ok=False,
+            summary=(
+                "Gate B failed: current working IR and replayed candidate are "
+                "not compile-equivalent over the touched region."
+            ),
+            diagnostics=(
+                _diag(
+                    "done_gate_b_compile_isomorphism_failed",
+                    "Touched-region compile equivalence failed.",
+                    severity="error",
+                    detail={
+                        "region_node_ids": tuple(sorted(region_ids, key=_node_id_sort_key)),
+                        "working_region_node_ids": tuple(sorted(working_region, key=_node_id_sort_key)),
+                        "candidate_region_node_ids": tuple(sorted(candidate_region, key=_node_id_sort_key)),
+                        "diffs": tuple(diffs),
+                    },
+                ),
+            ),
+        )
 
     def _done_gate_b(
         self,
@@ -258,6 +374,29 @@ class _GatesMixin:
             )
 
         return " ".join(parts)
+
+    def _compile_workflow_for_done_gate_b(
+        self,
+        workflow: VibeWorkflow,
+        *,
+        label: str,
+    ) -> tuple[VibeWorkflow, dict[str, Any]] | DoneResult:
+        try:
+            api = workflow.compile("api")
+        except Exception as exc:
+            return DoneResult(
+                ok=False,
+                summary=f"Gate B failed: {label} IR did not compile through the oracle.",
+                diagnostics=(
+                    _diag(
+                        "done_gate_b_compile_failed",
+                        f"Gate B could not compile {label} IR: {type(exc).__name__}: {exc}",
+                        severity="error",
+                        detail={"label": label, "exception_type": type(exc).__name__},
+                    ),
+                ),
+            )
+        return workflow, api
 
     def _compile_ui_for_done_gate_b(
         self,

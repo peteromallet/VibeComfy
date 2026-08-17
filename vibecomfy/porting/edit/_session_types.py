@@ -47,6 +47,8 @@ class StatementResult:
     touched_uids: tuple[str, ...] = ()
     dependency_cause: str | None = None
     teaching_hint: str | None = None
+    status: str | None = None
+    reason: str | None = None
 
 
 @dataclass(slots=True)

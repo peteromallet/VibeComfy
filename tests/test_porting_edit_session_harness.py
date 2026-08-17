@@ -714,23 +714,24 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
     session.render()
     before = session._snapshot_mutable_state()
-    original_execute = session._execute_statements
+    import vibecomfy.porting.edit.interpret as interpret_mod
 
-    def _boom(*args, **kwargs):
+    original_interpret = interpret_mod.interpret
+
+    def _raise(*args, **kwargs):
         session.working_ui = {"nodes": [], "links": []}
         session.landed_ops.append("dirty")
         session.touched_uids.add("dirty")
         session.render_count += 7
         session.last_rendered_source = "mutated"
-        return original_execute(*args, **kwargs)
-
-    def _raise(*args, **kwargs):
-        _boom(*args, **kwargs)
         raise RuntimeError("apply exploded")
 
-    session._execute_statements = _raise  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError, match="apply exploded"):
-        session.apply_batch('cliptextencode.text = "journal restore"')
+    interpret_mod.interpret = _raise  # type: ignore[method-assign]
+    try:
+        with pytest.raises(RuntimeError, match="apply exploded"):
+            session.apply_batch('cliptextencode.text = "journal restore"')
+    finally:
+        interpret_mod.interpret = original_interpret
 
     assert session.working_ui == before["working_ui"]
     assert session.landed_ops == before["landed_ops"]

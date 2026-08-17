@@ -241,13 +241,18 @@ def signature_row_from_surface(surface: Any, *, pack: str | None = None) -> Node
 
 
 def _iter_graph_nodes(nodes: Any):
-    """Yield node mappings from a raw UI graph (list, dict, or ``{nodes: ...}``)."""
+    """Yield node mappings or IR nodes from a UI graph or retained workflow."""
+    ir_nodes = getattr(nodes, "nodes", None)
+    if ir_nodes is not None and not isinstance(nodes, Mapping) and isinstance(ir_nodes, Mapping):
+        yield from ir_nodes.values()
+        return
     if isinstance(nodes, Mapping):
         raw = nodes.get("nodes")
         if isinstance(raw, (list, tuple, Mapping)):
             nodes = raw
         elif isinstance(nodes, Mapping) and all(
-            isinstance(v, Mapping) for v in nodes.values()
+            not isinstance(v, Mapping) or "class_type" in v or "type" in v
+            for v in nodes.values()
         ):
             nodes = list(nodes.values())
         else:
@@ -255,7 +260,11 @@ def _iter_graph_nodes(nodes: Any):
     if isinstance(nodes, Mapping):
         yield from nodes.values()
     elif isinstance(nodes, (list, tuple)):
-        yield from (n for n in nodes if isinstance(n, Mapping))
+        yield from (
+            node
+            for node in nodes
+            if isinstance(node, Mapping) or getattr(node, "class_type", None) is not None
+        )
 
 
 def filter_signature_rows_to_in_graph_nodes(
@@ -277,7 +286,10 @@ def filter_signature_rows_to_in_graph_nodes(
 
     nodes_by_class: dict[str, list[Any]] = {}
     for node in _iter_graph_nodes(nodes):
-        class_type = str(node.get("type") or node.get("class_type") or "")
+        if isinstance(node, Mapping):
+            class_type = str(node.get("type") or node.get("class_type") or "")
+        else:
+            class_type = str(getattr(node, "class_type", "") or getattr(node, "type", "") or "")
         if class_type:
             nodes_by_class.setdefault(class_type, []).append(node)
 

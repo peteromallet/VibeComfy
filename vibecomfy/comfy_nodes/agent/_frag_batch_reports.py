@@ -178,7 +178,12 @@ def _format_batch_report(
         if not statement.ok:
             failed_count += 1
         marker = "✓" if statement.ok else "✗"
-        status = "landed" if statement.landed else "not landed"
+        status = getattr(statement, "status", None)
+        reason = getattr(statement, "reason", None)
+        if status:
+            status = f"{status}" + (f" ({reason})" if reason else "")
+        else:
+            status = "landed" if statement.landed else "not landed"
         op_kind = statement.op_kind or "statement"
         source_text = _format_statement_source(statement.source)
         line = (
@@ -315,6 +320,8 @@ def _format_batch_report_json(
                 "source": item.source,
                 "ok": item.ok,
                 "landed": item.landed,
+                "status": getattr(item, "status", None),
+                "reason": getattr(item, "reason", None),
                 "op_kind": item.op_kind,
                 "detail": _json_safe(dict(item.detail)),
                 "touched_uids": list(item.touched_uids),

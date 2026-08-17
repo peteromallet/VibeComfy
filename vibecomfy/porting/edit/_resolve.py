@@ -761,6 +761,7 @@ class _ResolveMixin:
                 compatible_input_type=kwargs.get("compatible_input_type"),
                 compatible_output_type=kwargs.get("compatible_output_type"),
                 formatted=True,
+                in_graph_nodes=getattr(self, "workflow", None),
             )
         except Exception as exc:  # noqa: BLE001 - report query failures in-band
             return StatementResult(

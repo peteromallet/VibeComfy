@@ -48,6 +48,13 @@ _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 class _ParseExecuteMixin:
 
     def apply_batch(self, code: str) -> BatchResult:
+        """Apply one Python batch through ``interpret(pre, batch)``.
+
+        Mutation authority is the immutable interpreter.  ``working_ui`` is
+        only an emit-side projection of the accepted Δ.  Query statements
+        (search / python / tools) are overlaid after interpret so the agent
+        still sees typed catalog results.
+        """
         from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
         from vibecomfy.porting.edit.interpret import interpret
 
@@ -64,113 +71,231 @@ class _ParseExecuteMixin:
                 statements=parsed.statements,
                 diagnostics=parsed.diagnostics,
             )
-        placement_facts = build_batch_placement_facts(
-            parsed.expanded,
-            graph_name_exists=self._graph_name_exists,
-            estimate_add_node_width=self._estimate_add_node_width,
-        )
-        pre_batch_ui = self.working_ui
         snapshot = self._snapshot_mutable_state()
         try:
-            statement_results, landed_ops, diagnostics = self._execute_statements(
-                parsed.expanded,
-                placement_facts=placement_facts,
+            if self.workflow is None:
+                self.workflow = self._workflow_from_ui(self.original_ui)
+            pre_ir = _cow_workflow_copy(self.workflow)
+            cas_old = self._cas_snapshot(pre_ir)
+            interpreted = interpret(
+                pre_ir,
+                code,
+                schema_provider=self.schema_provider,
+                max_batch_bytes=self.max_batch_bytes,
+                max_statements=self.max_statements,
+                max_expanded_statements=self.max_expanded_statements,
+                max_for_iterations=self.max_for_iterations,
+                cas_old=cas_old,
+                name_hints=self._transient_name_index,
             )
-            saw_landed_edit = False
-            saw_failed_edit = False
-            failed_edit = False
-            for statement in statement_results:
-                if not self._is_edit_statement(statement):
-                    continue
-                if statement.landed:
-                    saw_landed_edit = True
-                    continue
-                if not statement.ok and (saw_landed_edit or saw_failed_edit):
-                    failed_edit = True
-                    break
-                if not statement.ok:
-                    saw_failed_edit = True
-            if failed_edit:
-                self._restore_snapshot(snapshot)
-                rollback_diag = _diag(
-                    "batch_transaction_rolled_back",
-                    "A later edit statement failed, so all edits from this batch were rolled back.",
-                    severity="error",
-                )
-                rolled_back: list[StatementResult] = []
-                for stmt in statement_results:
-                    diagnostics_for_statement = stmt.diagnostics
-                    ok = stmt.ok
-                    if stmt.landed and self._is_edit_statement(stmt):
-                        diagnostics_for_statement = stmt.diagnostics + (rollback_diag,)
-                        ok = False
-                    rolled_back.append(
-                        StatementResult(
-                            statement_index=stmt.statement_index,
-                            source=stmt.source,
-                            ok=ok,
-                            diagnostics=diagnostics_for_statement,
-                            landed=False,
-                            op_kind=stmt.op_kind,
-                            detail=dict(stmt.detail),
-                            touched_uids=(),
-                            dependency_cause=stmt.dependency_cause,
-                            teaching_hint=stmt.teaching_hint,
-                        )
-                    )
-                return BatchResult(
-                    ok=False,
-                    statements=tuple(rolled_back),
-                    diagnostics=diagnostics + (rollback_diag,),
-                    landed_ops=(),
-                    field_changes=(),
-                )
-            if saw_failed_edit and not landed_ops:
-                self._restore_snapshot(snapshot)
-            if landed_ops:
-                if self.workflow is None:
-                    self.workflow = self._workflow_from_ui(pre_batch_ui)
-                pre_ir = _cow_workflow_copy(self.workflow)
-                cas_old = self._cas_snapshot(pre_ir)
-                try:
-                    interpreted = interpret(
-                        pre_ir,
-                        code,
-                        schema_provider=self.schema_provider,
-                        max_batch_bytes=self.max_batch_bytes,
-                        max_statements=self.max_statements,
-                        max_expanded_statements=self.max_expanded_statements,
-                        max_for_iterations=self.max_for_iterations,
-                        cas_old=cas_old,
-                    )
-                except Exception:
-                    interpreted = None
-                if interpreted is not None and interpreted.ok and interpreted.workflow is not None:
-                    self.workflow = interpreted.workflow
-                else:
-                    ops_result = interpret(
-                        pre_ir,
-                        landed_ops,
-                        schema_provider=self.schema_provider,
-                    )
-                    self.workflow = ops_result.workflow
+            statement_results = [
+                self._statement_result_from_outcome(outcome)
+                for outcome in interpreted.statements
+            ]
+            statement_results = self._overlay_query_results(
+                parsed.expanded, statement_results
+            )
+            if interpreted.landed_ops:
+                self.workflow = interpreted.workflow
                 if getattr(self, "history", None) is None:
                     self.history = []
                 self.history.append((pre_ir, code))
+                self.working_ui, project_diags = self._project_ops_onto_ui_with_diagnostics(
+                    self.working_ui, interpreted.landed_ops
+                )
+                if project_diags:
+                    statement_results = self._merge_project_diagnostics(
+                        statement_results, project_diags
+                    )
+                self.ledger = EditLedger.ingest(self.working_ui)
+                self.landed_ops.extend(interpreted.landed_ops)
+                for op in interpreted.landed_ops:
+                    touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
+                    self.touched_uids.update(touched_uids)
+                    self.touched_node_ids.update(touched_node_ids)
+                for outcome in interpreted.statements:
+                    if outcome.status == "applied" and outcome.op_kind == "node_call":
+                        name = outcome.detail.get("target_name")
+                        uid = outcome.detail.get("minted_uid")
+                        if isinstance(name, str) and isinstance(uid, str):
+                            self._register_transient_name(name, uid)
+                    if outcome.status == "rejected" and outcome.op_kind == "node_call":
+                        name = outcome.detail.get("target_name")
+                        if isinstance(name, str):
+                            self._mark_name_unbound(name)
+            statement_results = self._enrich_statement_results(statement_results)
             field_changes, statement_results = self._build_field_changes(
-                landed_ops,
-                statement_results,
+                interpreted.landed_ops,
+                tuple(statement_results),
             )
+            query_diagnostics = tuple(
+                diagnostic
+                for statement in statement_results
+                if statement.op_kind in {"query", "done"}
+                for diagnostic in statement.diagnostics
+                if diagnostic.severity in {"error", "warning"}
+            )
+            diagnostics = interpreted.diagnostics + query_diagnostics
             return BatchResult(
-                ok=not diagnostics and all(statement.ok for statement in statement_results),
+                ok=interpreted.ok and all(statement.ok for statement in statement_results),
                 statements=statement_results,
                 diagnostics=diagnostics,
-                landed_ops=landed_ops,
+                landed_ops=interpreted.landed_ops,
                 field_changes=field_changes,
             )
         except Exception:
             self._restore_snapshot(snapshot)
             raise
+
+    @staticmethod
+    def _statement_result_from_outcome(outcome: Any) -> StatementResult:
+        status = getattr(outcome, "status", None)
+        reason = getattr(outcome, "reason", None)
+        detail = dict(getattr(outcome, "detail", {}) or {})
+        if status:
+            detail.setdefault("status", status)
+        if reason:
+            detail.setdefault("reason", reason)
+        if getattr(outcome, "op", None) is not None:
+            detail.setdefault("edit_op", outcome.op)
+        return StatementResult(
+            statement_index=outcome.statement_index,
+            source=outcome.source,
+            ok=status != "rejected",
+            landed=status == "applied" or (
+                status == "skipped" and reason == "cas_unchanged"
+            ),
+            op_kind=outcome.op_kind,
+            diagnostics=tuple(getattr(outcome, "diagnostics", ()) or ()),
+            detail=detail,
+            status=status,
+            reason=reason,
+        )
+
+    def _overlay_query_results(
+        self,
+        expanded: tuple[_ExpandedStatement, ...],
+        results: list[StatementResult] | tuple[StatementResult, ...],
+    ) -> list[StatementResult]:
+        """Run search/python/tool statements interpret skipped as non-edits."""
+        by_index = {item.statement_index: item for item in expanded}
+        overlaid: list[StatementResult] = []
+        for result in results:
+            if result.op_kind == "done":
+                overlaid.append(result)
+                continue
+            if result.op_kind != "query" or result.landed:
+                overlaid.append(result)
+                continue
+            item = by_index.get(result.statement_index)
+            node = getattr(item, "node", None) if item is not None else None
+            call = getattr(node, "value", None) if isinstance(node, ast.Expr) else None
+            if not isinstance(call, ast.Call):
+                overlaid.append(result)
+                continue
+            query = self._resolve_query_statement(
+                statement_index=item.statement_index,
+                source=item.source,
+                call=call,
+                env=item.env,
+            )
+            status = "skipped" if query.ok else "rejected"
+            reason = (
+                None
+                if query.ok
+                else (query.diagnostics[0].code if query.diagnostics else "query_failed")
+            )
+            overlaid.append(
+                StatementResult(
+                    statement_index=query.statement_index,
+                    source=query.source,
+                    ok=query.ok,
+                    landed=False,
+                    op_kind=query.op_kind,
+                    diagnostics=query.diagnostics,
+                    detail=dict(query.detail),
+                    touched_uids=query.touched_uids,
+                    dependency_cause=query.dependency_cause,
+                    teaching_hint=query.teaching_hint,
+                    status=status,
+                    reason=reason,
+                )
+            )
+        return overlaid
+
+    def _enrich_statement_results(
+        self,
+        results: list[StatementResult] | tuple[StatementResult, ...],
+    ) -> list[StatementResult]:
+        enriched: list[StatementResult] = []
+        for result in results:
+            op = result.detail.get("edit_op") if isinstance(result.detail, dict) else None
+            touched = result.touched_uids
+            if result.landed and op is not None:
+                uids, _ = self._collect_touched_nodes((op,))
+                if uids:
+                    touched = tuple(uids)
+            cause = result.dependency_cause or self._dependency_cause(result)
+            hint = result.teaching_hint
+            if hint is None:
+                for diagnostic in result.diagnostics:
+                    if diagnostic.teaching_hint:
+                        hint = diagnostic.teaching_hint
+                        break
+            enriched.append(
+                StatementResult(
+                    statement_index=result.statement_index,
+                    source=result.source,
+                    ok=result.ok,
+                    landed=result.landed,
+                    op_kind=result.op_kind,
+                    diagnostics=result.diagnostics,
+                    detail=dict(result.detail),
+                    touched_uids=touched,
+                    dependency_cause=cause,
+                    teaching_hint=hint,
+                    status=result.status,
+                    reason=result.reason,
+                )
+            )
+        return enriched
+
+    def _merge_project_diagnostics(
+        self,
+        results: list[StatementResult],
+        project_diags: tuple[Any, ...],
+    ) -> list[StatementResult]:
+        extras = [
+            diagnostic
+            for diagnostic in project_diags
+            if getattr(diagnostic, "code", "") == "splice_anchor_no_group"
+        ]
+        if not extras:
+            return results
+        merged: list[StatementResult] = []
+        attached = False
+        for result in results:
+            if not attached and result.op_kind == "node_call" and result.landed:
+                merged.append(
+                    StatementResult(
+                        statement_index=result.statement_index,
+                        source=result.source,
+                        ok=result.ok,
+                        landed=result.landed,
+                        op_kind=result.op_kind,
+                        diagnostics=result.diagnostics + tuple(extras),
+                        detail=dict(result.detail),
+                        touched_uids=result.touched_uids,
+                        dependency_cause=result.dependency_cause,
+                        teaching_hint=result.teaching_hint,
+                        status=result.status,
+                        reason=result.reason,
+                    )
+                )
+                attached = True
+            else:
+                merged.append(result)
+        return merged
 
     def _snapshot_mutable_state(self) -> dict:
         return {

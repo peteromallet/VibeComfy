@@ -223,6 +223,36 @@ def _import_from(module_path: str, name: str) -> Any:
     return getattr(importlib.import_module(module_path), name)
 
 
+def _in_graph_nodes_from_session(session: Any) -> dict[str, Any] | None:
+    """IR-backed in-graph payload for search(); UI-shaped for catalog callers."""
+    workflow = getattr(session, "workflow", None)
+    nodes = getattr(workflow, "nodes", None)
+    if isinstance(nodes, dict) and nodes:
+        payload: list[dict[str, Any]] = []
+        for node in nodes.values():
+            item: dict[str, Any] = {
+                "type": getattr(node, "class_type", ""),
+                "class_type": getattr(node, "class_type", ""),
+                "id": getattr(node, "id", None),
+            }
+            uid = getattr(node, "uid", None)
+            if uid:
+                item["properties"] = {"vibecomfy_uid": uid}
+            widgets = getattr(node, "widgets", None)
+            if isinstance(widgets, dict) and widgets:
+                item["widgets"] = dict(widgets)
+            inputs = getattr(node, "inputs", None)
+            if isinstance(inputs, dict) and inputs:
+                item["inputs"] = dict(inputs)
+            metadata = getattr(node, "metadata", None)
+            if isinstance(metadata, dict) and metadata:
+                item["metadata"] = metadata
+            payload.append(item)
+        return {"nodes": payload}
+    working_ui = getattr(session, "working_ui", None)
+    return working_ui if isinstance(working_ui, dict) else None
+
+
 def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """The UI door (porting/emit/ui.py) — the designed Agent Edit exit.
 
@@ -924,6 +954,8 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         initial_workflow=state.workflow,
     )
     session.research_only = research_only_route
+    # Multi-turn identity is session.history: (wf_i, Δ_i).  Bindings for
+    # turn N resolve against the accumulated IR, not raw UI snapshots.
     state.batch_session = session
     initial_render = session.render()
     present_types = deps._present_class_types(session)
@@ -944,7 +976,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     signature_catalog = session.search(
         focus_types=sorted(focus_types),
         formatted=True,
-        in_graph_nodes=session.working_ui,
+        in_graph_nodes=_in_graph_nodes_from_session(session),
     )
     available_node_names = deps._format_available_node_names(session.search(formatted=False))
     state.python_before = initial_render
@@ -1483,10 +1515,15 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
             lint_dropped_count = 0
             lint_diag_dicts: tuple[dict[str, Any], ...] = ()
-            persisted_landed_ops = batch_result.landed_ops
+            # Publish the emit-side projection of interpret's Δ.  Authority
+            # replay is apply_delta(submit, envelope); IR typed slots
+            # (IMAGE_0) are not UI names and must not be the durable ops.
+            persisted_landed_ops = tuple(
+                session._projection_op(op) for op in batch_result.landed_ops
+            )
             if (
                 deps._edit_lint_enabled()
-                and batch_result.landed_ops
+                and persisted_landed_ops
                 and deps._agent_edit_batch_repl_enabled()
             ):
                 LintIndex, lint_delta = _import_from("vibecomfy.porting.edit.lint", "LintIndex"), _import_from("vibecomfy.porting.edit.lint", "lint_delta")
@@ -1494,7 +1531,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
 
                 index = LintIndex.build(state.graph)
                 lint_result = lint_delta(
-                    batch_result.landed_ops,
+                    persisted_landed_ops,
                     index,
                     schema_provider=state.schema_provider,
                 )
@@ -1674,8 +1711,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             if delta_envelope_payload is not None:
                 turn_record["delta_ops_envelope"] = delta_envelope_payload
                 turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
-            if noop_field_changes:
-                turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
+            turn_record["noop_field_changes"] = deps._field_changes_payload(noop_field_changes)
             if clarify_message is not None:
                 turn_record["clarification_required"] = True
                 turn_record["clarification_message"] = clarify_message
