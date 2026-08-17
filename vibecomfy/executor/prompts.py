@@ -313,23 +313,19 @@ def build_classify_messages(
     has_graph: bool = False,
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
-    graph_reference_map: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
     When *has_graph* is True, the executor tells the model a graph is attached
     so it can decide whether research / implementation is warranted.
     *graph_summary* is the renderer's ``census`` lens (batch 12, Law 4) — the
-    compact node/class census with the reference map; classify never sees
-    widgets, edges, or topology.
+    compact node/class census with the reference map (node ids + class types,
+    derived from the IR via the renderer); classify never sees widgets,
+    edges, topology, or a raw-JSON sidecar.
 
     *session_context* provides access to recent conversation history and prior
     clarification artifacts so the classifier can resolve follow-up references
-    (e.g. \"option 2\", \"that node\") against prior turn context.
-
-    *graph_reference_map* is a compact ``{node_id: label}`` lookup built from
-    the current graph so the classifier can map user references like
-    \"the KSampler\" or \"node #3\" to concrete ids.
+    (e.g. "option 2", "that node") against prior turn context.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
@@ -412,73 +408,10 @@ def build_classify_messages(
                     + ", ".join(candidate_bits)
                 )
 
-    # ── graph reference map ──────────────────────────────────────────────
-    if isinstance(graph_reference_map, dict) and graph_reference_map:
-        ref_lines = []
-        schema_fragile_labels: list[str] = []
-        for node_id, label in sorted(graph_reference_map.items(), key=lambda kv: _ref_sort_key(kv[0])):
-            label_text = str(label)
-            ref_lines.append(f"  id={node_id}: {label_text}")
-            if _looks_schema_fragile_label(label_text):
-                schema_fragile_labels.append(f"id={node_id}: {label_text}")
-        if ref_lines:
-            parts.append(
-                "\nCurrent graph node reference map (use these ids to resolve "
-                "\"that node\", \"the KSampler\", etc.):\n"
-                + "\n".join(ref_lines[:30])
-            )
-        if schema_fragile_labels:
-            parts.append(
-                "\nSchema-fragile/custom node hint (if the requested edit touches "
-                "or depends on these classes, route adapt and use the exact class "
-                "names only as anchors for workflow/community precedent research):\n"
-                + "\n".join(schema_fragile_labels[:20])
-            )
-
     return [
         {"role": "system", "content": _CLASSIFY_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
     ]
-
-
-def _ref_sort_key(node_id: str) -> tuple[int, str]:
-    """Sort node ids numerically when possible, for stable reference maps."""
-    try:
-        return (0, str(int(node_id)).zfill(8))
-    except (ValueError, TypeError):
-        return (1, node_id)
-
-
-def _looks_schema_fragile_label(label: str) -> bool:
-    """Heuristic hint for class families where local schema may be incomplete."""
-    text = str(label)
-    lower = text.lower()
-    branded_markers = (
-        "qwen",
-        "animatediff",
-        "ade_",
-        "vhs_",
-        "reactor",
-        "ipadapter",
-        "ip-adapter",
-        "easy ",
-        "rgthree",
-        "inspire",
-        "wan",
-        "vace",
-        "ltx",
-        "rodin",
-        "gguf",
-        "faceswap",
-        "face swap",
-        "modelscope",
-    )
-    if any(marker in lower for marker in branded_markers):
-        return True
-    # Core ComfyUI classes are usually simple CamelCase without symbols/spaces.
-    # Spaces, slashes, emoji/punctuation, or lowercase prefixes often identify
-    # custom-pack nodes whose widgets/slots need exact schema hydration.
-    return any(ch in text for ch in (" ", "/", "|", "+", "-", "✨", "//"))
 
 
 # ── reply prompt ─────────────────────────────────────────────────────────────

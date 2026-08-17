@@ -1134,10 +1134,18 @@ class TestBuildClassifyMessages:
         assert "stay route=\"revise\" when concrete" in system
         assert "route=\"clarify\" when ambiguous" in system
 
-    def test_session_context_renders_text_messages_options_and_reference_map(self) -> None:
+    def test_session_context_renders_text_messages_options_and_census_reference_map(self) -> None:
         msgs = build_classify_messages(
             "option 2",
             has_graph=True,
+            graph_summary=(
+                "## Census\n"
+                "2 node(s), 0 edge(s)\n"
+                "class list: CheckpointLoaderSimple (1), KSampler (1)\n"
+                "reference map:\n"
+                "  1: CheckpointLoaderSimple\n"
+                "  2: KSampler"
+            ),
             session_context={
                 "recent_messages": [
                     {"role": "user", "text": "Change the sampler"},
@@ -1164,7 +1172,6 @@ class TestBuildClassifyMessages:
                     },
                 },
             },
-            graph_reference_map={"2": "KSampler", "1": "CheckpointLoaderSimple"},
         )
         content = msgs[1]["content"]
         assert "Recent conversation (for reference resolution):" in content
@@ -1174,8 +1181,11 @@ class TestBuildClassifyMessages:
         assert "Latest candidate reference" in content
         assert "turn=0003" in content
         assert "changed KSampler steps" in content
-        assert "id=1: CheckpointLoaderSimple" in content
-        assert "id=2: KSampler" in content
+        # The node reference map comes from the renderer's census lens (the
+        # graph summary) — no raw-JSON ref-map sidecar (batch 12 fix).
+        assert "reference map:" in content
+        assert "1: CheckpointLoaderSimple" in content
+        assert "2: KSampler" in content
 
 
 class TestBuildReplyMessages:

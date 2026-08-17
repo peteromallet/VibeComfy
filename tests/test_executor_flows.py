@@ -369,35 +369,51 @@ def _fake_reply_hotshot(
     return "Hotshot XL is an SDXL-based text-to-video model. You can insert it before SVD-XT as a frame generator."
 
 
-def test_iter_graph_nodes_uses_dict_form_nodes_mapping() -> None:
-    """Dict-form VibeComfy graphs should iterate the nested nodes mapping."""
+def test_classify_census_derives_reference_map_from_dict_form_nodes() -> None:
+    """Batch 12 fix: classify's reference map (node ids + class types) is
+    derived from the IR via the renderer's census lens — the raw-JSON
+    ``_build_graph_reference_map`` walk is gone."""
     graph = {
+        "vibecomfy_format_version": "1.0",
+        "id": "dict-form",
         "nodes": {
-            "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}},
-            "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}},
+            "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}, "widgets": {}, "uid": "uid-27", "metadata": {"_ui": {"mode": 0}}},
+            "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}, "widgets": {}, "uid": "uid-34", "metadata": {"_ui": {"mode": 0}}},
         },
-        "links": [],
-        "extra": {"note": "top-level metadata should not be treated as a node"},
+        "edges": [],
+        "source": {"id": "dict-form", "path": None, "source_type": "workflow"},
+        "requirements": {},
+        "inputs": {},
+        "outputs": [],
+        "metadata": {},
     }
 
-    assert executor_core._iter_graph_nodes(graph) == [
-        ("27", {"id": "27", "class_type": "SaveVideo", "inputs": {}}),
-        ("34", {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}}),
-    ]
+    census = executor_core._render_census_text(graph)
+    assert census is not None
+    assert "## Census" in census
+    assert "class list:" in census
+    assert "reference map:" in census
+    assert "SaveVideo" in census
+    assert "MoonvalleyImg2VideoNode" in census
 
 
-def test_iter_graph_nodes_preserves_top_level_mapping_fallback() -> None:
-    """Legacy top-level graph mappings should still be supported."""
+def test_classify_census_reference_map_covers_ui_list_form_nodes() -> None:
+    """The census lens resolves node ids + class types for UI-list graphs too —
+    the same facts the old raw-JSON walk provided, now via the renderer."""
     graph = {
-        "27": {"id": "27", "class_type": "SaveVideo", "inputs": {}},
-        "34": {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}},
-        "meta": {"note": "not a node"},
+        "nodes": [
+            {"id": 27, "type": "SaveVideo", "class_type": "SaveVideo"},
+            {"id": 34, "type": "MoonvalleyImg2VideoNode", "class_type": "MoonvalleyImg2VideoNode"},
+        ],
+        "links": [],
     }
 
-    assert executor_core._iter_graph_nodes(graph) == [
-        ("27", {"id": "27", "class_type": "SaveVideo", "inputs": {}}),
-        ("34", {"id": "34", "class_type": "MoonvalleyImg2VideoNode", "inputs": {}}),
-    ]
+    census = executor_core._render_census_text(graph)
+    assert census is not None
+    assert "## Census" in census
+    assert "reference map:" in census
+    assert "SaveVideo" in census
+    assert "MoonvalleyImg2VideoNode" in census
 
 
 def _fake_reply_edit(
@@ -3629,7 +3645,6 @@ class TestSessionReferenceContext:
                     "clarification_options": ["seed", "steps"],
                 },
             },
-            graph_reference_map={"1": "KSampler"},
         )
 
         system = messages[0]["content"]
@@ -3646,7 +3661,6 @@ class TestSessionReferenceContext:
             "Switch this workflow to generate 8 frames using HotShotXL",
             has_graph=True,
             graph_summary="2 node(s): LoadImage, KSampler",
-            graph_reference_map={"1": "LoadImage", "2": "KSampler"},
         )
 
         system = messages[0]["content"]

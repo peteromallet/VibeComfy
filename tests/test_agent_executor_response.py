@@ -264,22 +264,26 @@ def test_serialize_executor_result_preserves_delta_references() -> None:
 
 def test_reply_change_claims_must_reference_accepted_delta() -> None:
     """The reply-must-match-diff law: a claim about a non-landed statement is
-    invalid; claims within the accepted Δ pass."""
+    invalid; claims within the accepted Δ pass.  The canonical Δ source is
+    ``accepted_batch`` only (batch 10) — legacy delta_ops_envelope views are
+    never consulted."""
     from vibecomfy.executor.contracts import validate_reply_change_claims
 
-    envelope = {
-        "schema_version": "2.0.0",
-        "ops": [
-            {
-                "op": "set_node_field",
-                "target": ["", "sampler", "steps"],
-                "value": 30,
-            }
-        ],
+    op = {
+        "op": "set_node_field",
+        "target": ["", "sampler", "steps"],
+        "value": 30,
     }
     valid_response: dict = {
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": op,
+            }
+        ],
         "change_details": {
             "operations": [
                 {
@@ -293,8 +297,15 @@ def test_reply_change_claims_must_reference_accepted_delta() -> None:
     assert validate_reply_change_claims(valid_response) == []
 
     invalid_response: dict = {
-        "delta_ops_envelope": envelope,
-        "delta_ops": list(envelope["ops"]),
+        "accepted_batch": [
+            {
+                "statement_index": 1,
+                "source": 'set_field(uid="sampler", field="steps", value=30)',
+                "op_kind": "edit",
+                "touched_uids": ["sampler"],
+                "op": op,
+            }
+        ],
         "change_details": {
             "operations": [
                 {

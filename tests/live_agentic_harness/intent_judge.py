@@ -329,148 +329,6 @@ def _schema_context_from_payload(payload: Mapping[str, Any] | None) -> dict[str,
     return context
 
 
-def _ui_nodes_by_id(ui: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    nodes = ui.get("nodes")
-    if not isinstance(nodes, list):
-        return {}
-    result: dict[str, Mapping[str, Any]] = {}
-    for node in nodes:
-        if not isinstance(node, Mapping):
-            continue
-        node_id = node.get("id")
-        if node_id is not None:
-            result[str(node_id)] = node
-    return result
-
-
-def _ui_links_by_id(ui: Mapping[str, Any]) -> dict[Any, Any]:
-    links = ui.get("links")
-    if not isinstance(links, list):
-        return {}
-    result: dict[Any, Any] = {}
-    for link in links:
-        if isinstance(link, list) and link:
-            result[link[0]] = link
-        elif isinstance(link, Mapping) and "id" in link:
-            result[link.get("id")] = link
-    return result
-
-
-def _link_source(link: Any) -> dict[str, Any] | None:
-    if isinstance(link, list) and len(link) >= 3:
-        return {"node_id": str(link[1]), "slot": link[2]}
-    if isinstance(link, Mapping):
-        source_id = link.get("origin_id", link.get("source_id", link.get("from_node")))
-        source_slot = link.get("origin_slot", link.get("source_slot", link.get("from_slot")))
-        if source_id is not None:
-            return {"node_id": str(source_id), "slot": source_slot}
-    return None
-
-
-def _linked_inputs_for_node(
-    node: Mapping[str, Any],
-    *,
-    links_by_id: Mapping[Any, Any],
-    nodes_by_id: Mapping[str, Mapping[str, Any]],
-) -> list[dict[str, Any]]:
-    inputs = node.get("inputs")
-    if not isinstance(inputs, list):
-        return []
-    linked_inputs: list[dict[str, Any]] = []
-    for index, input_item in enumerate(inputs):
-        if not isinstance(input_item, Mapping):
-            continue
-        link_id = input_item.get("link")
-        if link_id is None:
-            continue
-        source = _link_source(links_by_id.get(link_id))
-        source_node = nodes_by_id.get(source["node_id"]) if source is not None else None
-        linked_inputs.append(
-            {
-                "input_index": index,
-                "name": input_item.get("name"),
-                "type": input_item.get("type"),
-                "link": link_id,
-                "source": {
-                    **(source or {}),
-                    "class_type": source_node.get("type") if isinstance(source_node, Mapping) else None,
-                },
-            }
-        )
-    return linked_inputs
-
-
-def _static_widget_dataflow_context(
-    pre_ir: Mapping[str, Any],
-    post_ir: Mapping[str, Any],
-) -> dict[str, Any] | None:
-    pre_nodes = _ui_nodes_by_id(pre_ir)
-    post_nodes = _ui_nodes_by_id(post_ir)
-    pre_links = _ui_links_by_id(pre_ir)
-    post_links = _ui_links_by_id(post_ir)
-    widget_deltas: list[dict[str, Any]] = []
-    static_removals_with_preserved_dynamic_inputs: list[dict[str, Any]] = []
-
-    for node_id, pre_node in sorted(pre_nodes.items()):
-        post_node = post_nodes.get(node_id)
-        if post_node is None:
-            continue
-        pre_widgets = pre_node.get("widgets_values")
-        post_widgets = post_node.get("widgets_values")
-        if not isinstance(pre_widgets, list) or not isinstance(post_widgets, list):
-            continue
-        linked_inputs_pre = _linked_inputs_for_node(
-            pre_node,
-            links_by_id=pre_links,
-            nodes_by_id=pre_nodes,
-        )
-        linked_inputs_post = _linked_inputs_for_node(
-            post_node,
-            links_by_id=post_links,
-            nodes_by_id=post_nodes,
-        )
-        linked_signature_pre = {
-            (item.get("name"), item.get("link"), item.get("source", {}).get("node_id"))
-            for item in linked_inputs_pre
-        }
-        linked_signature_post = {
-            (item.get("name"), item.get("link"), item.get("source", {}).get("node_id"))
-            for item in linked_inputs_post
-        }
-        preserved_dynamic_inputs = bool(linked_signature_pre & linked_signature_post)
-        for index in range(max(len(pre_widgets), len(post_widgets))):
-            old = pre_widgets[index] if index < len(pre_widgets) else None
-            new = post_widgets[index] if index < len(post_widgets) else None
-            if old == new:
-                continue
-            delta = {
-                "node_id": node_id,
-                "class_type": post_node.get("type") or pre_node.get("type"),
-                "widget_index": index,
-                "old": old,
-                "new": new,
-                "kind": "static_widget_delta",
-                "linked_inputs_pre": linked_inputs_pre,
-                "linked_inputs_post": linked_inputs_post,
-                "preserved_dynamic_inputs": preserved_dynamic_inputs,
-            }
-            widget_deltas.append(delta)
-            if isinstance(old, str) and old.strip() and (new is None or (isinstance(new, str) and not new.strip())):
-                if preserved_dynamic_inputs:
-                    static_removals_with_preserved_dynamic_inputs.append(delta)
-
-    if not widget_deltas:
-        return None
-    return {
-        "widget_deltas": widget_deltas,
-        "static_widget_removals_with_preserved_dynamic_inputs": static_removals_with_preserved_dynamic_inputs,
-        "note": (
-            "widgets_values are static node configuration. Linked inputs are dynamic dataflow. "
-            "A static text widget removal can be correct when linked dynamic inputs remain connected."
-        ),
-    }
-
-
 def _load_accepted_batch(
     response: Mapping[str, Any] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -481,55 +339,20 @@ def _load_accepted_batch(
     reply claims.  Each accepted edit statement carries its landed ``op``
     (the typed op the grammar yielded), so the statements alone are the
     canonical Δ (Law 3); no parallel envelope is required.  ``delta_envelope``
-    is derived from those ops (``{"ops": [...]}``), with the legacy
-    ``delta_ops_envelope`` / ``delta_ops`` views accepted as a fallback for
-    older durable artifacts.  Prose is never used.
+    is derived from those ops (``{"ops": [...]}``).  ``accepted_batch`` is the
+    ONE source of the Δ (batch 10) — legacy ``delta_ops_envelope`` /
+    ``delta_ops`` / ``batch_turns`` views are never consulted.  Prose is
+    never used.
     """
     if not isinstance(response, Mapping):
         return [], None
     accepted: list[dict[str, Any]] = []
-    for turn in response.get("batch_turns") or []:
-        if not isinstance(turn, Mapping):
-            continue
-        envelope = turn.get("delta_ops_envelope")
-        turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
-        if not isinstance(turn_ops, list):
-            flat_ops = turn.get("delta_ops")
-            turn_ops = flat_ops if isinstance(flat_ops, list) else ()
-        landed_op_iter = iter(
-            op for op in turn_ops if isinstance(op, Mapping)
-        )
-        for statement in turn.get("statements") or []:
-            if not isinstance(statement, Mapping):
-                continue
-            if statement.get("ok") is True and statement.get("landed") is True:
-                entry: dict[str, Any] = {
-                    "statement_index": statement.get("statement_index"),
-                    "source": statement.get("source"),
-                    "op_kind": statement.get("op_kind"),
-                    "touched_uids": list(statement.get("touched_uids") or ()),
-                }
-                op = statement.get("op")
-                if not isinstance(op, Mapping):
-                    op = next(landed_op_iter, None)
-                if isinstance(op, Mapping):
-                    entry["op"] = op
-                accepted.append(entry)
-    # The durable top-level accepted_batch (when present) is the single
-    # source of truth; batch_turns reconstruction is a fallback for older
-    # artifacts.
     durable_batch = response.get("accepted_batch")
-    if isinstance(durable_batch, list) and durable_batch:
+    if isinstance(durable_batch, list):
         accepted = [dict(item) for item in durable_batch if isinstance(item, Mapping)]
     ops = [item["op"] for item in accepted if isinstance(item.get("op"), Mapping)]
     if ops:
         return accepted, {"ops": list(ops)}
-    envelope = response.get("delta_ops_envelope")
-    if isinstance(envelope, Mapping):
-        return accepted, dict(envelope)
-    delta_ops = response.get("delta_ops")
-    if isinstance(delta_ops, list):
-        return accepted, {"ops": list(delta_ops)}
     return accepted, None
 
 
@@ -698,8 +521,8 @@ def _render_judge_lens_payload(
     :class:`LensSubsetViolation` (the reply's lens set is the ceiling).
     ``delta_ops`` (the accepted Δ) feeds the ``diff`` lens so the judge's
     view of what changed is identical to the reply's.  A graph that cannot
-    be lifted through the ingest door renders ``None`` (the raw pre/post IR
-    remain in the payload); a subset violation always propagates.
+    be lifted through the ingest door renders ``None`` for that side; a
+    subset violation always propagates.
     """
     from vibecomfy.porting.render import LensSubsetViolation, render_text
 
@@ -807,9 +630,6 @@ def judge_edit_intent(
     system_prompt = _load_prompt()
     implementation_payload = _load_implementation_payload(output_dir)
     schema_context = _schema_context_from_payload(implementation_payload) or {}
-    dataflow_context = _static_widget_dataflow_context(pre_ir, post_ir)
-    if dataflow_context:
-        schema_context["dataflow_context"] = dataflow_context
     if schema_context:
         system_prompt = (
             system_prompt.rstrip()
@@ -854,16 +674,17 @@ def judge_edit_intent(
             f"What 'smart/complete' means here: {desired.get('quality', '')}\n"
             f"Alternative approaches acceptable: {desired.get('alternatives_ok', True)}"
         )
-    payload: dict[str, Any] = {"nl_intent": query, "pre_ir": pre_ir, "post_ir": post_ir}
+    # Batch 12 (Law 4): the judge's payload is the renderer's lens subset
+    # (same facts as the reply) + the accepted Δ.  No raw pre_ir/post_ir
+    # dump and no judge-only raw-UI walker: the lens subset is enforced at
+    # the render boundary (ceiling=) and the Δ is the canonical
+    # accepted_batch only.
+    payload: dict[str, Any] = {"nl_intent": query}
     if accepted_batch:
         payload["accepted_batch"] = accepted_batch
     if isinstance(delta_envelope, Mapping):
         payload["delta"] = delta_envelope
     payload["delta_replay"] = delta_replay
-    # Batch 12 (Law 4): the judge's graph window is the renderer's lens
-    # output — a strict subset of the reply's lens set, enforced at the
-    # render boundary (ceiling=).  The judge grades against the same facts
-    # the reply model saw (symmetry), not a separate raw-graph dump.
     payload["renderer_lenses"] = _render_judge_lens_payload(
         pre_ir, post_ir, delta_ops
     )

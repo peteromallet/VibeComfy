@@ -2280,25 +2280,21 @@ def validate_reply_change_claims(response: Any) -> list[str]:
     the accepted Δ ops carried by ``accepted_batch`` statements (each accepted
     statement carries its landed ``op``).  A claim about a non-landed
     statement is invalid and is reported as a violation; an empty list means
-    all claims are within Δ.  Responses without an ``accepted_batch`` (or
-    legacy ``delta_ops_envelope``/``delta_ops``) make no claims checkable and
-    report no violations.
+    all claims are within Δ.  ``accepted_batch`` is the ONE canonical source
+    of the Δ (batch 10); legacy ``delta_ops_envelope`` / ``delta_ops`` views
+    are never consulted.  Responses without an ``accepted_batch`` make no
+    claims checkable and report no violations.
     """
     if not isinstance(response, Mapping):
         return ["response must be a mapping"]
-    delta_ops: Any = None
     accepted_batch = response.get("accepted_batch")
-    if isinstance(accepted_batch, list):
-        delta_ops = [
-            item.get("op")
-            for item in accepted_batch
-            if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
-        ]
-    if not isinstance(delta_ops, (list, tuple)):
-        envelope = response.get("delta_ops_envelope")
-        delta_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
-    if not isinstance(delta_ops, (list, tuple)):
-        delta_ops = response.get("delta_ops")
+    if not isinstance(accepted_batch, list):
+        return []
+    delta_ops = [
+        item.get("op")
+        for item in accepted_batch
+        if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+    ]
     claim_keys = _delta_op_claim_keys(delta_ops)
     if not claim_keys:
         return []

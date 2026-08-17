@@ -342,108 +342,25 @@ def _accepted_delta_ops(
 ) -> tuple[dict[str, Any], ...]:
     """Return the accepted Δ ops from the implement phase's durable response.
 
-    The canonical Δ is what the reply must describe: the landed ops from
-    the durable envelope (``batch_turns[].delta_ops_envelope.ops`` /
-    ``batch_turns[].delta_ops``, the top-level ``delta_ops_envelope`` /
-    ``delta_ops``, or ``accepted_batch[].op``).  Pure structured extraction —
-    prose is never used.
+    The canonical Δ is ``accepted_batch`` (batch 10): the accepted edit
+    statements that landed, each carrying its typed ``op``.  No other
+    representation (``batch_turns[].delta_ops_envelope`` / ``delta_ops``,
+    the top-level ``delta_ops_envelope`` / ``delta_ops``) is consulted —
+    one source.  Pure structured extraction — prose is never used.
     """
     if implementation_result is None:
         return ()
     durable = implementation_result.durable_response
     if not isinstance(durable, Mapping):
         return ()
-    ops: list[dict[str, Any]] = []
-    batch_turns = durable.get("batch_turns")
-    if isinstance(batch_turns, list):
-        for turn in batch_turns:
-            if not isinstance(turn, Mapping):
-                continue
-            envelope = turn.get("delta_ops_envelope")
-            turn_ops = envelope.get("ops") if isinstance(envelope, Mapping) else None
-            if not isinstance(turn_ops, list):
-                flat = turn.get("delta_ops")
-                turn_ops = flat if isinstance(flat, list) else ()
-            for op in turn_ops:
-                if isinstance(op, Mapping) and isinstance(op.get("op"), str):
-                    ops.append(dict(op))
-    if not ops:
-        envelope = durable.get("delta_ops_envelope")
-        if isinstance(envelope, Mapping) and isinstance(envelope.get("ops"), list):
-            ops = [
-                dict(op) for op in envelope["ops"]
-                if isinstance(op, Mapping) and isinstance(op.get("op"), str)
-            ]
-    if not ops:
-        flat = durable.get("delta_ops")
-        if isinstance(flat, list):
-            ops = [
-                dict(op) for op in flat
-                if isinstance(op, Mapping) and isinstance(op.get("op"), str)
-            ]
-    if not ops:
-        accepted = durable.get("accepted_batch")
-        if isinstance(accepted, list):
-            ops = [
-                dict(item["op"]) for item in accepted
-                if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
-            ]
+    accepted = durable.get("accepted_batch")
+    if not isinstance(accepted, list):
+        return ()
+    ops = [
+        dict(item["op"]) for item in accepted
+        if isinstance(item, Mapping) and isinstance(item.get("op"), Mapping)
+    ]
     return tuple(ops)
-
-
-def _iter_graph_nodes(graph: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
-    """Return graph nodes from UI-style lists or API-style id mappings."""
-    if not isinstance(graph, dict):
-        return []
-    nodes = graph.get("nodes")
-    if isinstance(nodes, list):
-        result: list[tuple[str, dict[str, Any]]] = []
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                continue
-            nid = node.get("id")
-            result.append((str(nid) if nid is not None else str(index), node))
-        return result
-    if isinstance(nodes, dict):
-        result = []
-        for node_id, node in nodes.items():
-            if isinstance(node, dict) and (
-                "class_type" in node or "type" in node or "inputs" in node
-            ):
-                result.append((str(node_id), node))
-        return result
-    result = []
-    for node_id, node in graph.items():
-        if isinstance(node, dict) and (
-            "class_type" in node or "type" in node or "inputs" in node
-        ):
-            result.append((str(node_id), node))
-    return result
-
-
-def _build_graph_reference_map(graph: dict[str, Any] | None) -> dict[str, str]:
-    """Build a compact ``{node_id: label}`` reference map from *graph*.
-
-    Returns an empty dict when *graph* is None or has no nodes.
-    Labels use ``title`` when available, falling back to ``class_type``/``type``.
-    """
-    ref_map: dict[str, str] = {}
-    for nid_str, node in _iter_graph_nodes(graph):
-        # Prefer title, then class_type/type.
-        title = node.get("title")
-        if isinstance(title, str) and title.strip():
-            ct = node.get("class_type") or node.get("type")
-            if isinstance(ct, str) and ct.strip():
-                ref_map[nid_str] = f"{title.strip()} ({ct.strip()})"
-            else:
-                ref_map[nid_str] = title.strip()
-        else:
-            ct = node.get("class_type") or node.get("type")
-            if isinstance(ct, str) and ct.strip():
-                ref_map[nid_str] = ct.strip()
-            else:
-                ref_map[nid_str] = f"node {nid_str}"
-    return ref_map
 
 
 def _build_session_context(request: ExecutorRequest) -> dict[str, Any] | None:
@@ -755,7 +672,6 @@ def _run_classify(
     spec: AgentSpecShape,
     *,
     session_context: dict[str, Any] | None = None,
-    graph_reference_map: dict[str, str] | None = None,
 ) -> ClassifyDecision:
     """Run the classify model turn.
 
@@ -767,7 +683,8 @@ def _run_classify(
         # for reference resolution (M3).  Otherwise, let run_classify_turn
         # build them from the default parameters.
         # Batch 12 (Law 4): classify sees ONLY the census lens — the compact
-        # node/class census + reference map.  No widgets, no edges.
+        # node/class census + reference map (derived from the IR via the
+        # renderer).  No widgets, no edges, no raw-JSON sidecar.
         graph_summary = _render_census_text(request.graph)
         classify_kwargs: dict[str, Any] = {
             "route": spec.agent,
@@ -776,25 +693,21 @@ def _run_classify(
             "has_graph": request.graph is not None,
             "graph_summary": graph_summary,
         }
-        # Pre-build messages whenever we have context beyond the bare query.
-        # First-turn graph edits need the node reference map just as much as
-        # follow-ups do; otherwise the classifier sees "a graph is attached"
-        # without the custom class names required for revise/adapt routing.
-        if graph_reference_map or (
-            isinstance(session_context, dict)
-            and (
-                session_context.get("recent_messages")
-                or session_context.get("prior_clarification")
-                or session_context.get("latest_candidate")
-                or session_context.get("prior_route")
-            )
+        # Pre-build messages whenever we have session context beyond the
+        # bare query.  The census lens already carries the node reference
+        # map, so no separate raw-JSON walk is needed for reference
+        # resolution on first-turn or follow-up graph edits.
+        if isinstance(session_context, dict) and (
+            session_context.get("recent_messages")
+            or session_context.get("prior_clarification")
+            or session_context.get("latest_candidate")
+            or session_context.get("prior_route")
         ):
             classify_kwargs["messages"] = build_classify_messages(
                 request.query,
                 has_graph=request.graph is not None,
                 graph_summary=graph_summary,
                 session_context=session_context,
-                graph_reference_map=graph_reference_map,
             )
 
         return run_classify_turn(request.query, **classify_kwargs)
@@ -1770,11 +1683,10 @@ def run_executor(
         classify=_spec_fields(classify_spec),
     )
 
-    # ── Build session context and graph reference map (M3) ────────────────
+    # ── Build session context (M3) ──────────────────────────────────────
     session_context: dict[str, Any] | None = None
     if request.session_id:
         session_context = _build_session_context(request)
-    graph_reference_map = _build_graph_reference_map(request.graph)
 
     # ── Phase 1: classify (always via model) ─────────────────────────────
     try:
@@ -1796,7 +1708,6 @@ def run_executor(
                 request,
                 classify_spec,
                 session_context=session_context,
-                graph_reference_map=graph_reference_map,
             )
             span.update(
                 plan_research=plan.research,

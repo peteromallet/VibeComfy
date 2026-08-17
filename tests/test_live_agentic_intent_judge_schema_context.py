@@ -364,10 +364,14 @@ def test_intent_judge_includes_compiled_api_schema_context(
     assert "Schema and widget evidence" in messages[0]["content"]
 
 
-def test_intent_judge_labels_static_widget_removal_and_preserved_dynamic_input(
+def test_intent_judge_payload_has_no_raw_ui_widget_walker(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
+    """Batch 12 fix: the judge's payload carries NO judge-only raw-UI
+    widget/link walker (``dataflow_context``) and no raw ``pre_ir``/``post_ir``
+    dump.  The graph facts come from the renderer's lens subset (topology,
+    same facts as the reply) + the accepted Δ only."""
     original = tmp_path / "original.ui.json"
     candidate = tmp_path / "candidate.ui.json"
     original.write_text(
@@ -450,13 +454,19 @@ def test_intent_judge_labels_static_widget_removal_and_preserved_dynamic_input(
     messages = seen["messages"]
     assert isinstance(messages, list)
     payload = json.loads(messages[1]["content"])
-    dataflow = payload["schema_context"]["dataflow_context"]
-    removals = dataflow["static_widget_removals_with_preserved_dynamic_inputs"]
-    assert removals[0]["node_id"] == "182"
-    assert removals[0]["widget_index"] == 5
-    assert removals[0]["preserved_dynamic_inputs"] is True
-    assert removals[0]["linked_inputs_post"][0]["source"]["class_type"] == "Florence2Run"
-    assert "static widget" in messages[0]["content"]
+    # No judge-only raw-UI walker: no dataflow_context anywhere in the
+    # payload, and no raw pre_ir/post_ir dump.
+    assert "dataflow_context" not in json.dumps(payload)
+    assert "pre_ir" not in payload
+    assert "post_ir" not in payload
+    # The renderer's topology lens carries the preserved dynamic link
+    # (Florence2Run -> StringFunction.text_a) — the same facts the reply
+    # window carries (symmetry, Law 4).
+    for side in ("pre", "post"):
+        rendered = payload["renderer_lenses"][side]
+        assert rendered is not None
+        assert "## Topology" in rendered
+        assert "184 -> 182 (184.0 -> 182.text_a)" in rendered
 
 
 def test_intent_judge_recomputes_schema_context_for_sidecar_less_envelope(
@@ -828,8 +838,15 @@ def test_intent_judge_grades_delta_with_replay_evidence(
     assert payload["delta_replay"]["checked"] == 1
     # Only accepted statements are the Δ references.
     assert [item["statement_index"] for item in payload["accepted_batch"]] == [1]
-    assert payload["pre_ir"]["nodes"][0]["widgets_values"][2] == 20
-    assert payload["post_ir"]["nodes"][0]["widgets_values"][2] == 30
+    # The judge's graph facts are the renderer's lens subset — the diff lens
+    # (canonical Δ) and topology — NOT a raw pre_ir/post_ir dump.
+    assert "pre_ir" not in payload
+    assert "post_ir" not in payload
+    for side in ("pre", "post"):
+        rendered = payload["renderer_lenses"][side]
+        assert rendered is not None
+        assert "## Diff" in rendered
+        assert "sampler.steps = 30" in rendered
     assert "Accepted Δ" in seen["messages"][0]["content"]
 
 
