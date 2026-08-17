@@ -360,6 +360,7 @@ def run_reply_turn(
 # used: continuity is host-owned via the durable session transcript.
 
 from vibecomfy.executor.two_step import (  # noqa: E402
+    BudgetExceeded,
     BudgetUsage,
     MessageBudget,
     check_before_model_call,
@@ -558,7 +559,12 @@ def run_execute_turn(
             )
             raw = _extract_content(result)
             tokens = _completion_tokens(result, raw)
-            budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
+            try:
+                budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
+            except BudgetExceeded as exc:
+                # Per-message output-token slice exhausted: a typed budget
+                # failure (never a raw exception leaking out of the loop).
+                return {"ok": False, "reply": None, "route": route, "failure": exc}
             session_budget = session_budget.record_output_tokens(tokens)
             state = session_store.append(
                 session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
@@ -573,18 +579,23 @@ def run_execute_turn(
             if kind == "tool_call":
                 tool = str(action.get("tool") or "")
                 args = action.get("args") if isinstance(action.get("args"), dict) else {}
-                budget_usage, _digest = _run_tool_call(
-                    store=session_store,
-                    session_id=session_id,
-                    turn=turn,
-                    route=route,
-                    tool=tool,
-                    args=args,
-                    message_budget=message_budget,
-                    budget_usage=budget_usage,
-                    tool_executor=tool_executor,
-                    web_search_enabled=False,
-                )
+                try:
+                    budget_usage, _digest = _run_tool_call(
+                        store=session_store,
+                        session_id=session_id,
+                        turn=turn,
+                        route=route,
+                        tool=tool,
+                        args=args,
+                        message_budget=message_budget,
+                        budget_usage=budget_usage,
+                        tool_executor=tool_executor,
+                        web_search_enabled=False,
+                    )
+                except BudgetExceeded as exc:
+                    # Route-allowlist denial or call-cap breach: a typed budget
+                    # failure carrying the canonical B02 ``family``.
+                    return {"ok": False, "reply": None, "route": route, "failure": exc}
                 state = session_store.load(session_id)
             elif kind == "apply":
                 session_store.append(

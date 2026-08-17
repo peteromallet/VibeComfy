@@ -208,3 +208,478 @@ def test_derive_research_attempt_levels() -> None:
     assert derive_research_attempt([{"tool": "hivemind_search", "evidence_ids": []}]) == "empty"
     assert derive_research_attempt([{"tool": "hivemind_search", "evidence_ids": ["e1"]}]) == "thin"
     assert derive_research_attempt([{"tool": "hivemind_get", "evidence_ids": ["e1"]}]) == "grounded"
+
+
+# ── B06 (Pro): concurrency / recovery / CAS / idempotent replay ──────────────
+# Appended below the B03/B04 section (do not clobber).  These exercise the
+# durable ``TwoStepSessionStore`` authority directly — the in-flight marker,
+# the stale-baseline CAS precursor, the named-ingest door, and canonical Δ
+# replay — without any model calls.
+
+import threading  # noqa: E402
+
+from vibecomfy.executor.two_step_session import (  # noqa: E402
+    ERROR_CONCURRENT_MESSAGE,
+    ERROR_STALE_MESSAGE,
+    canonical_workflow_hash,
+)
+
+
+def test_two_simultaneous_messages_serialize_without_corruption(tmp_path) -> None:
+    """Two messages for one session serialize: neither write is lost.
+
+    ``begin_message`` / ``append`` / ``end_message`` are all serialized by the
+    reused process-safe ``SessionStateLock`` (O_EXCL), so a racing second
+    message never drops the first message's transcript events.
+    """
+    store = _store(tmp_path)
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def run_one(fingerprint: str, query: str) -> None:
+        try:
+            barrier.wait()
+            store.begin_message(
+                "win-a", message_fingerprint=fingerprint, base_graph={"nodes": []}
+            )
+            store.append("win-a", "user_message", {"query": query, "route": "revise"}, turn=1)
+            store.end_message("win-a", message_fingerprint=fingerprint)
+        except BaseException as exc:  # noqa: BLE001 - collect for assertion
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=run_one, args=("m1", "first")),
+        threading.Thread(target=run_one, args=("m2", "second")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30.0)
+
+    assert errors == []
+    state = store.load("win-a")
+    queries = sorted(m["content"] for m in state.messages if m.get("role") == "user")
+    assert queries == ["first", "second"]
+    assert state.budget.user_messages == 2
+
+
+def test_two_simultaneous_messages_second_fails_stale(tmp_path) -> None:
+    """A changed canvas that no longer matches the retained revision fails CAS."""
+    store = _store(tmp_path)
+    base = {"nodes": [{"id": "1", "type": "T"}], "links": []}
+    retained = canonical_workflow_hash(base)
+    store.begin_message("win-a", message_fingerprint="m1", base_graph=base)
+    store.end_message("win-a", message_fingerprint="m1")
+
+    with pytest.raises(TwoStepSessionError) as excinfo:
+        store.begin_message(
+            "win-a",
+            message_fingerprint="m2",
+            expected_baseline_hash=canonical_workflow_hash({"nodes": []}),
+        )
+    assert excinfo.value.kind == ERROR_STALE_MESSAGE
+    assert excinfo.value.detail["retained"] == retained
+
+
+def test_server_restart_reconstructs_retained_state_via_ingest_and_replay(
+    tmp_path,
+) -> None:
+    """A fresh store (new cache) over the same durable root rehydrates the
+    retained revision through the named-ingest door plus canonical Δ replay."""
+    root = tmp_path / "sessions"
+    base = {"nodes": [{"id": "1", "type": "T", "widgets_values": ["before"]}], "links": []}
+    store_a = TwoStepSessionStore(root)
+    store_a.begin_message("win-a", message_fingerprint="m1", base_graph=base)
+    store_a.append(
+        "win-a",
+        "delta_accepted",
+        {
+            "delta_ids": ["d1"],
+            "ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["", "1", "widgets_values"],
+                    "value": ["after"],
+                }
+            ],
+        },
+        turn=1,
+    )
+    store_a.end_message("win-a", message_fingerprint="m1")
+
+    # "Server restart": a brand-new store over the same durable root (its cache
+    # is cold, so state must come from the append-only transcript).
+    store_b = TwoStepSessionStore(root)
+    state = store_b.load("win-a")
+    assert state is not None
+    assert state.accepted_delta_ids() == ("d1",)
+
+    replayed = store_b.replay_workflow(state)
+    assert replayed is not None
+    assert replayed["nodes"][0]["widgets_values"] == ["after"]
+
+
+def test_changed_canvas_does_not_match_retained_revision_fails_cas(tmp_path) -> None:
+    """CAS precursor: a message baseline that disagrees with the retained
+    revision is refused before any model work; a matching baseline passes."""
+    store = _store(tmp_path)
+    base = {"nodes": [{"id": "1", "type": "T"}], "links": []}
+    retained = canonical_workflow_hash(base)
+    store.begin_message("win-a", message_fingerprint="m1", base_graph=base)
+    # Persist the retained-revision hash through the transcript so it survives
+    # a cache eviction (the canonical-Δ fold records ``workflow_hash``).
+    store.append(
+        "win-a",
+        "delta_accepted",
+        {"delta_ids": ["d1"], "ops": [], "workflow_hash": retained},
+        turn=1,
+    )
+    store.end_message("win-a", message_fingerprint="m1")
+
+    changed = canonical_workflow_hash(
+        {"nodes": [{"id": "1", "type": "T"}, {"id": "2", "type": "U"}], "links": []}
+    )
+    with pytest.raises(TwoStepSessionError) as excinfo:
+        store.begin_message("win-a", message_fingerprint="m2", expected_baseline_hash=changed)
+    assert excinfo.value.kind == ERROR_STALE_MESSAGE
+    assert excinfo.value.detail["retained"] == retained
+
+    # A matching baseline passes the CAS check.
+    state = store.begin_message(
+        "win-a", message_fingerprint="m3", expected_baseline_hash=retained
+    )
+    assert state is not None
+    store.end_message("win-a", message_fingerprint="m3")
+
+
+def test_idempotent_replay_does_not_duplicate_tool_calls_or_delta(tmp_path) -> None:
+    """A replay of the SAME message while it is in flight fails with
+    ``concurrent_message`` instead of re-running (which would duplicate the
+    tool call and the accepted Δ)."""
+    store = _store(tmp_path)
+    store.begin_message("win-a", message_fingerprint="m1", base_graph={"nodes": []})
+    store.append(
+        "win-a",
+        "tool_call",
+        {"tool": "node_schema", "args": {}, "evidence_ids": ["e1"], "digest": "d"},
+        turn=1,
+    )
+    store.append("win-a", "delta_accepted", {"delta_ids": ["d1"], "ops": []}, turn=1)
+
+    with pytest.raises(TwoStepSessionError) as excinfo:
+        store.begin_message("win-a", message_fingerprint="m1", base_graph={"nodes": []})
+    assert excinfo.value.kind == ERROR_CONCURRENT_MESSAGE
+
+    store.end_message("win-a", message_fingerprint="m1")
+    state = store.load("win-a")
+    assert len(state.evidence_ledger) == 1
+    assert len(state.accepted_delta_refs) == 1
+
+
+# ── B06 (Flash): the five thread-continuity cases through the bounded loop ──
+
+
+def _plan_for(route: str, *, implement: bool = True, research: bool = False):
+    """Plan variant for loop-level continuity tests (existing ``_plan`` is fixed)."""
+    return SimpleNamespace(
+        effective_route=route,
+        effective_task="",
+        plan_summary=f"{route} the graph",
+        implement=implement,
+        research=research,
+    )
+
+
+def _scripted_model(*actions: dict, tokens: int = 100):
+    """Model-turn stub that emits one host action per call (then submits)."""
+    queue = [dict(action) for action in actions]
+
+    def model_turn_fn(task, messages, **kwargs):
+        action = queue.pop(0) if queue else {"action": "submit", "reply": "done", "delta_ids": []}
+        return {
+            "content": json.dumps(action),
+            "model_attempts": [{"token_usage": {"completion_tokens": tokens}}],
+        }
+
+    return model_turn_fn
+
+
+def _fake_tool_executor(tool: str, args: dict):
+    """Tool stub: no artifacts, so the call is recorded with zero evidence."""
+    return None
+
+
+def _execute_turn(
+    store,
+    session_id: str,
+    *,
+    query: str,
+    route: str,
+    model_turn_fn,
+    graph=None,
+    idempotency_key=None,
+):
+    request = SimpleNamespace(
+        query=query,
+        graph=graph,
+        session_id=session_id,
+        idempotency_key=idempotency_key,
+        expected_baseline_graph_hash=None,
+    )
+    return run_execute_turn(
+        request,
+        plan=_plan_for(route),
+        route=route,
+        spec=_spec(),
+        session_store=store,
+        session_id=session_id,
+        model_turn_fn=model_turn_fn,
+        tool_executor=_fake_tool_executor,
+    )
+
+
+def test_loop_reuses_one_execute_identity_and_exposes_turn1_observations(tmp_path) -> None:
+    """Same window across two loop turns: ONE execute identity (single durable
+    transcript), and turn-2 sees turn-1's observations + accepted Δ."""
+    store = _store(tmp_path)
+    transcript = store.transcript_path("win-a")
+
+    first = _execute_turn(
+        store,
+        "win-a",
+        query="make it brighter",
+        route="revise",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "t1 done", "delta_ids": []}),
+    )
+    assert first["ok"] is True
+
+    # B04-style acceptance lands after the loop: the Δ + lens facts become
+    # durable session state that a follow-up message may cite.
+    store.append("win-a", "delta_accepted", {"delta_ids": ["d1"], "ops": []}, turn=1)
+    store.append("win-a", "lens_fact", {"fact_ids": ["f1"]}, turn=1)
+
+    captured: dict = {}
+
+    def turn2_model(task, messages, **kwargs):
+        captured["messages"] = messages
+        return {
+            "content": json.dumps({"action": "submit", "reply": "t2 done", "delta_ids": ["d1"]}),
+            "model_attempts": [{"token_usage": {"completion_tokens": 100}}],
+        }
+
+    second = _execute_turn(
+        store,
+        "win-a",
+        query="now the seed",
+        route="revise",
+        model_turn_fn=turn2_model,
+    )
+    assert second["ok"] is True
+    assert second["accepted_delta_ids"] == ["d1"]
+
+    # ONE identity: a single durable transcript, never re-minted.
+    assert transcript.is_file()
+    assert store.session_dir("win-a").is_dir()
+
+    state = store.load("win-a")
+    assert state.session_id == "win-a"
+    assert state.accepted_delta_ids() == ("d1",)
+    assert state.lens_fact_ids() == ("f1",)
+    assert state.budget.user_messages == 2
+
+    # Turn-2's flattened transcript carries turn-1's observations verbatim.
+    user_payload = captured["messages"][1]["content"]
+    assert "PRIOR TURNS (this window)" in user_payload
+    assert "make it brighter" in user_payload
+    assert "t1 done" in user_payload
+
+
+def test_loop_new_window_starts_fresh_with_no_prior_refs(tmp_path) -> None:
+    """A new chat-window id begins a fresh session: no prior refs, evidence,
+    or budget from the other window."""
+    store = _store(tmp_path)
+    _execute_turn(
+        store,
+        "win-a",
+        query="touch graph a",
+        route="revise",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "a done", "delta_ids": []}),
+    )
+    store.append("win-a", "delta_accepted", {"delta_ids": ["d1"], "ops": []}, turn=1)
+
+    captured: dict = {}
+
+    def fresh_model(task, messages, **kwargs):
+        captured["messages"] = messages
+        return {
+            "content": json.dumps({"action": "submit", "reply": "b done", "delta_ids": []}),
+            "model_attempts": [{"token_usage": {"completion_tokens": 100}}],
+        }
+
+    outcome = _execute_turn(
+        store,
+        "win-b",
+        query="fresh window",
+        route="revise",
+        model_turn_fn=fresh_model,
+    )
+    assert outcome["ok"] is True
+
+    state = store.load("win-b")
+    assert state.accepted_delta_ids() == ()
+    assert state.evidence_ids() == ()
+    # Only the new window's own route event exists — no prior-window history.
+    assert [entry["route"] for entry in state.route_history] == ["revise"]
+    assert state.budget.user_messages == 1
+    assert state.budget.output_tokens == 100  # only this window's slice
+
+    payload = captured["messages"][1]["content"]
+    assert "PRIOR TURNS (this window)" in payload
+    assert "touch graph a" not in payload
+    assert "a done" not in payload
+    assert "fresh window" in payload
+
+
+def test_loop_mid_thread_route_change_keeps_execute_session(tmp_path) -> None:
+    """Reclassification mid-thread (revise → adapt) reuses the SAME execute
+    session: the id never changes and the route history grows."""
+    store = _store(tmp_path)
+    transcript = store.transcript_path("win-a")
+
+    first = _execute_turn(
+        store,
+        "win-a",
+        query="tweak the prompt",
+        route="revise",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "revised", "delta_ids": []}),
+    )
+    assert first["ok"] is True
+
+    request = SimpleNamespace(
+        query="now research an adapter",
+        graph={"nodes": []},
+        session_id="win-a",
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+    second = run_execute_turn(
+        request,
+        plan=_plan_for("adapt", research=True),
+        route="adapt",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "adapted", "delta_ids": []}),
+    )
+    assert second["ok"] is True
+
+    state = store.load("win-a")
+    assert state.session_id == "win-a"
+    assert [entry["route"] for entry in state.route_history] == ["revise", "adapt"]
+    assert transcript.is_file()
+    assert state.budget.user_messages == 2
+    assert [m.get("route") for m in state.messages if m.get("role") == "user"] == [
+        "revise",
+        "adapt",
+    ]
+
+
+def test_loop_followup_claiming_missing_turn1_delta_fails(tmp_path) -> None:
+    """A follow-up that cites a Δ the session never accepted fails closed with
+    the typed missing-delta-reference error through the real loop."""
+    store = _store(tmp_path)
+    first = _execute_turn(
+        store,
+        "win-a",
+        query="turn one",
+        route="revise",
+        model_turn_fn=_scripted_model({"action": "submit", "reply": "t1", "delta_ids": []}),
+    )
+    assert first["ok"] is True
+    store.append("win-a", "delta_accepted", {"delta_ids": ["d1"], "ops": []}, turn=1)
+
+    second = _execute_turn(
+        store,
+        "win-a",
+        query="follow up",
+        route="revise",
+        model_turn_fn=_scripted_model(
+            {"action": "submit", "reply": "claim", "delta_ids": ["forged"]}
+        ),
+    )
+    assert second["ok"] is False
+    assert getattr(second["failure"], "kind", None) == ERROR_MISSING_DELTA_REFERENCE
+
+    # The in-flight marker was still cleared by the loop's finally block.
+    assert not store._in_flight_path("win-a").exists()
+
+
+def test_loop_budgets_accumulate_while_messages_get_only_their_route_slice(tmp_path) -> None:
+    """Session budgets accumulate across messages; each message is gated by
+    ONLY its route's slice (a denied tool consumes nothing and never lands in
+    the evidence ledger)."""
+    from vibecomfy.executor.two_step import BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
+
+    store = _store(tmp_path)
+
+    # Turn 1 (revise): hivemind_search is NOT on the revise allowlist — the
+    # message receives only its route slice and the denial is typed.
+    denied = _execute_turn(
+        store,
+        "win-a",
+        query="revise pass",
+        route="revise",
+        model_turn_fn=_scripted_model(
+            {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "x"}}
+        ),
+    )
+    assert denied["ok"] is False
+    assert getattr(denied["failure"], "family", None) == BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
+    state = store.load("win-a")
+    assert state.evidence_ledger == ()  # denial before dispatch consumed nothing
+
+    # Turn 1 retry: layout_hints IS on the revise allowlist → succeeds.
+    t1 = _execute_turn(
+        store,
+        "win-a",
+        query="revise pass",
+        route="revise",
+        model_turn_fn=_scripted_model(
+            {"action": "tool_call", "tool": "layout_hints", "args": {}},
+            {"action": "submit", "reply": "r done", "delta_ids": []},
+        ),
+    )
+    assert t1["ok"] is True
+
+    # Turn 2 (adapt): hivemind_search is on the adapt allowlist → succeeds.
+    t2 = _execute_turn(
+        store,
+        "win-a",
+        query="adapt pass",
+        route="adapt",
+        model_turn_fn=_scripted_model(
+            {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "y"}},
+            {"action": "submit", "reply": "a done", "delta_ids": []},
+        ),
+    )
+    assert t2["ok"] is True
+
+    state = store.load("win-a")
+    # Session budget accumulates EVERY continuation's slice: the denied
+    # message's model output (1 × 100), then two 2-continuation messages
+    # (2 × 100 each) → 500; the session never resets per message.
+    assert state.budget.output_tokens == 500
+    assert state.budget.user_messages == 3
+    # Each recorded tool call carries exactly its message's route (the
+    # evidence ledger entries carry tool+turn; the assistant_tool message log
+    # carries the route that gated the call).
+    assert [(e["tool"], e["turn"]) for e in state.evidence_ledger] == [
+        ("layout_hints", 1),
+        ("hivemind_search", 3),
+    ]
+    assert [m.get("route") for m in state.messages if m.get("role") == "assistant_tool"] == [
+        "revise",
+        "adapt",
+    ]
+    assert t1["budget"].output_tokens == 300
+    assert t2["budget"].output_tokens == 500

@@ -978,8 +978,8 @@ def _two_step_outcome(
     Validates the two-step session identity, resolves the ``execute`` profile
     spec (never falling back to ``implement``), and runs the bounded execute
     loop.  Session failures map to typed failure results; a missing session id
-    and a closed session are validated here AND in the pre-classification
-    preflight (``core.run_executor``).
+    and a closed session are validated here (``begin_message`` enforces
+    expiry/staleness/concurrency before any model work).
     """
     del client_id, executor_id, additive
     from vibecomfy.executor.two_step_session import (  # noqa: PLC0415
@@ -1020,7 +1020,13 @@ def _two_step_outcome(
 
     if not outcome.get("ok"):
         failure = outcome.get("failure")
-        kind = getattr(failure, "kind", None) or "ExecuteError"
+        # Budget denials/exhaustion carry a canonical ``family`` (B02); session
+        # errors carry ``kind`` — either becomes the typed failure kind.
+        kind = (
+            getattr(failure, "kind", None)
+            or getattr(failure, "family", None)
+            or "ExecuteError"
+        )
         return ExecutorResult.failure(kind=kind, stage="execute", message=str(failure))
     # B04: map accepted work into the existing ImplementationResult + durable
     # candidate + ExecutorResult envelope.  Delta IDs are metadata pointing at

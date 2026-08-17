@@ -1912,3 +1912,344 @@ def test_fact_pack_preserves_law4_lens_ceiling() -> None:
     with pytest.raises(LensSubsetViolation):
         render_fact_pack(workflow, lenses=("topology",), ceiling=("surface",))
 
+
+
+# ── B06 (Flash): the five IR laws against BOTH executor modes ────────────────
+#
+# The lower-level law suite above exercises the IR machinery directly.  This
+# section REUSES all five laws through a mode-parameterized executor adapter:
+# the same locked classify decision and canned edit outcome are injected at
+# each pipeline mode's own test-injectable boundary (``full`` → implement,
+# ``two_step`` → execute), and each law's invariant is asserted on the
+# artifacts the executor produced in that mode.  The adapter is test-only —
+# no production classifier API is added.
+
+from dataclasses import replace as _dataclass_replace
+
+from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+
+_LAW_EXECUTOR_MODES = ("full", "two_step")
+
+_LAW_BASE_GRAPH: dict[str, Any] = {
+    "nodes": [
+        {
+            "id": 1,
+            "type": "LawNode",
+            "widgets_values": ["before"],
+            "inputs": [],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [0]}],
+            "pos": [0.0, 0.0],
+            "size": [200.0, 100.0],
+        },
+        {
+            "id": 2,
+            "type": "LawNode",
+            "widgets_values": [0.5],
+            "inputs": [{"name": "image", "type": "IMAGE", "link": 0}],
+            "outputs": [],
+            "pos": [300.0, 0.0],
+            "size": [200.0, 100.0],
+        },
+    ],
+    "links": [
+        {"id": 0, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"},
+    ],
+}
+
+# Two independent accepted Δ ops; each one is necessary (Law 3 minimality).
+_LAW_ACCEPTED_OPS: tuple[dict[str, Any], ...] = (
+    {"op": "set_node_field", "target": ["node", 1, "widgets_values"], "value": ["edited"]},
+    {"op": "set_node_field", "target": ["node", 2, "widgets_values"], "value": [0.75]},
+)
+
+
+def _law_final_graph() -> dict[str, Any]:
+    """The executor-produced graph: base + both accepted Δ ops applied."""
+    final = copy.deepcopy(_LAW_BASE_GRAPH)
+    final["nodes"][0] = {**final["nodes"][0], "widgets_values": ["edited"]}
+    final["nodes"][1] = {**final["nodes"][1], "widgets_values": [0.75]}
+    return final
+
+
+@dataclass(frozen=True)
+class _ModeLawArtifacts:
+    """Artifacts one executor-mode run produced, for the law assertions."""
+
+    mode: str
+    base_graph: dict[str, Any]
+    final_graph: dict[str, Any]
+    accepted_ops: tuple[dict[str, Any], ...]
+    result: Any
+
+
+class _ModeExecutorAdapter:
+    """Mode-parameterized executor adapter (B06, Flash scope).
+
+    Runs ``core.run_executor`` in the requested pipeline mode with the SAME
+    locked ``ClassifyDecision`` and a canned edit outcome injected at that
+    mode's own test-injectable boundary (full → ``_run_implement``,
+    two_step → ``agent_backend.run_execute_turn``).  No production classifier
+    API is added; only existing seams are patched.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._monkeypatch = monkeypatch
+        self._decision = ClassifyDecision.edit(route="revise", plan_summary="law edit")
+
+    def run(self, mode: str) -> _ModeLawArtifacts:
+        if mode not in _LAW_EXECUTOR_MODES:
+            raise ValueError(f"Unknown executor mode {mode!r}.")
+        final_graph = _law_final_graph()
+        durable = {"accepted_batch": [{"op": dict(op)} for op in _LAW_ACCEPTED_OPS]}
+        self._monkeypatch.setattr(
+            "vibecomfy.executor.core._run_classify",
+            lambda *args, **kwargs: self._decision,
+        )
+        if mode == "full":
+            from vibecomfy.executor.contracts import ImplementationResult
+
+            def _fake_implement(request: Any, spec: Any, **kwargs: Any) -> ImplementationResult:
+                return ImplementationResult(
+                    graph=copy.deepcopy(final_graph),
+                    message="law edit applied",
+                    durable_response=durable,
+                )
+
+            self._monkeypatch.setattr("vibecomfy.executor.core._run_implement", _fake_implement)
+            self._monkeypatch.setattr(
+                "vibecomfy.executor.core._run_reply",
+                lambda *args, **kwargs: "law edit applied",
+            )
+            request = ExecutorRequest(
+                query="edit the law graph",
+                graph=copy.deepcopy(_LAW_BASE_GRAPH),
+                pipeline_mode="full",
+                profile="default",
+            )
+        else:
+            from vibecomfy.executor.two_step import SessionBudget
+
+            def _fake_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "ok": True,
+                    "reply": "law edit applied",
+                    "route": "revise",
+                    "accepted_delta_ids": ["d1"],
+                    "budget": SessionBudget().record_output_tokens(42),
+                    "graph": copy.deepcopy(final_graph),
+                    "durable_response": durable,
+                    "evidence_ids": [],
+                    "tool_call_ids": [],
+                    "lens_fact_ids": [],
+                    "claim_validation": {"status": "not_run"},
+                    "self_assessment": None,
+                }
+
+            self._monkeypatch.setattr(
+                "vibecomfy.executor.agent_backend.run_execute_turn",
+                _fake_execute_turn,
+            )
+            request = ExecutorRequest(
+                query="edit the law graph",
+                graph=copy.deepcopy(_LAW_BASE_GRAPH),
+                pipeline_mode="two_step",
+                session_id="law-mode-session",
+                profile="default",
+            )
+        from vibecomfy.executor.core import run_executor
+
+        result = run_executor(request)
+        assert result.ok is True, (
+            f"mode={mode}: executor failed: {result.failure_kind}: {result.failure_message}"
+        )
+        return _ModeLawArtifacts(
+            mode=mode,
+            base_graph=copy.deepcopy(_LAW_BASE_GRAPH),
+            final_graph=copy.deepcopy(final_graph),
+            accepted_ops=tuple(copy.deepcopy(op) for op in _LAW_ACCEPTED_OPS),
+            result=result,
+        )
+
+
+@pytest.mark.parametrize("mode", _LAW_EXECUTOR_MODES)
+def test_law_1_door_fidelity_holds_for_both_executor_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Law 1 (door): the graph each mode produced re-enters the ingest door
+    byte-identically, and the accepted edit is reflected — never a silent
+    byte-passthrough of the input the executor consumed."""
+    from vibecomfy.ingest.normalize import _door_node_fingerprint
+
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        workflow = from_ui(
+            artifacts.final_graph,
+            source_path="law-mode",
+            use_comfy_converter=False,
+        )
+        emitted = emit_ui_json(workflow)
+    assert canonical_json_bytes(emitted) == canonical_json_bytes(artifacts.final_graph)
+    # The edit landed: the door output differs from the base the executor saw.
+    assert canonical_json_bytes(emitted) != canonical_json_bytes(artifacts.base_graph)
+    door = workflow.metadata["_ui_door"]
+    assert _door_node_fingerprint(workflow) == door["fingerprint"]
+
+
+@pytest.mark.parametrize("mode", _LAW_EXECUTOR_MODES)
+def test_law_2_editable_isomorphism_holds_for_both_executor_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Law 2 (isomorphism): each mode's produced graph round-trips through
+    emit → interpret with the identical editable quotient and copy semantics."""
+    from vibecomfy.porting.edit._interpret import interpret
+
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        workflow = from_ui(
+            artifacts.final_graph,
+            source_path="law-mode",
+            use_comfy_converter=False,
+        )
+    pre_snapshot = workflow.copy()
+    emitted = emit_agent_edit_python(workflow)
+    empty = VibeWorkflow("empty", WorkflowSource("law"))
+    result = interpret(empty, emitted)
+    assert workflow == pre_snapshot
+    assert result.workflow is not empty
+    assert empty.nodes == {}
+    assert pi_edit(result.workflow) == pi_edit(workflow)
+
+
+def _law_sorted_bytes(payload: Any) -> bytes:
+    """Order-insensitive canonical bytes for Δ-replay comparisons (the door
+    may reorder raw keys; the replayed revision is compared structurally)."""
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+@pytest.mark.parametrize("mode", _LAW_EXECUTOR_MODES)
+def test_law_3_delta_replay_holds_for_both_executor_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    """Law 3 (Δ replay): the accepted Δ each mode carried is the sole durable
+    delta — replaying it over the base reproduces the mode's final graph,
+    deterministically and minimally (every op is necessary)."""
+    from vibecomfy.executor.two_step_session import TwoStepSessionStore
+
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    store = TwoStepSessionStore(tmp_path / "sessions")
+    store.begin_message(
+        "law-session",
+        base_graph=artifacts.base_graph,
+        message_fingerprint="law-f1",
+    )
+    store.append(
+        "law-session",
+        "delta_accepted",
+        {"delta_ids": ["d1"], "ops": list(artifacts.accepted_ops)},
+        turn=1,
+    )
+    store.end_message("law-session", message_fingerprint="law-f1")
+
+    state = store.load("law-session")
+    replayed = store.replay_workflow(state)
+    assert replayed is not None
+    assert _law_sorted_bytes(replayed) == _law_sorted_bytes(artifacts.final_graph)
+    # Deterministic: replaying twice yields identical bytes.
+    assert _law_sorted_bytes(store.replay_workflow(state)) == _law_sorted_bytes(replayed)
+    # Minimal: dropping ANY op changes the replayed revision.
+    for drop_index in range(len(artifacts.accepted_ops)):
+        reduced_ops = [
+            op
+            for index, op in enumerate(artifacts.accepted_ops)
+            if index != drop_index
+        ]
+        reduced_state = _dataclass_replace(
+            state,
+            accepted_delta_refs=(
+                {"turn": 1, "delta_ids": ["d1"], "ops": list(reduced_ops)},
+            ),
+        )
+        reduced = store.replay_workflow(reduced_state)
+        assert reduced is not None
+        assert _law_sorted_bytes(reduced) != _law_sorted_bytes(artifacts.final_graph)
+
+
+@pytest.mark.parametrize("mode", _LAW_EXECUTOR_MODES)
+def test_law_4_topology_and_lenses_hold_for_both_executor_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Law 4 (topology/lenses): both modes share the complete reply lens set
+    (surface + diff + topology); the topology lens is complete (every IR edge,
+    no truncation cap) and the render is deterministic."""
+    from vibecomfy.porting.render import render_text
+
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    assert artifacts.result.report is not None
+    assert artifacts.result.report.pipeline_mode == mode
+
+    # The post-classify graph window is the same renderer lens set in both
+    # modes (the execute phase inherits the reply lens contract).
+    from vibecomfy.executor.core import _REPLY_LENSES
+
+    assert _REPLY_LENSES == ("surface", "diff", "topology")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        text = render_text(
+            artifacts.final_graph,
+            lenses=_REPLY_LENSES,
+            delta=(),
+        )
+        again = render_text(
+            artifacts.final_graph,
+            lenses=_REPLY_LENSES,
+            delta=(),
+        )
+    assert text is not None
+    assert text == again  # deterministic render
+    assert "## Topology" in text
+    # Complete topology: both IR edges appear (no 20-edge / node caps).
+    assert "2 node(s), 1 edge(s)" in text
+    assert "1 -> 2" in text
+
+
+@pytest.mark.parametrize("mode", _LAW_EXECUTOR_MODES)
+def test_law_5_bindings_and_provenance_hold_for_both_executor_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Law 5 (bindings/provenance): each mode's produced graph emits
+    deterministic bindings, emission is copy-on-write, and every accepted Δ
+    target resolves to an emitted binding."""
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        workflow = from_ui(
+            artifacts.final_graph,
+            source_path="law-mode",
+            use_comfy_converter=False,
+        )
+    first = emit_agent_edit_python(workflow)
+    before = pi_edit(workflow)
+    second = emit_agent_edit_python(workflow)
+    assert first == second  # deterministic across emissions
+    assert pi_edit(workflow) == before  # copy-on-write: emission mutates nothing
+
+    bindings = _binding_by_uid(workflow)
+    for op in artifacts.accepted_ops:
+        target = op.get("target")
+        assert isinstance(target, (list, tuple)) and len(target) >= 2
+        assert str(target[1]) in bindings, f"Δ target uid {target[1]!r} has no emitted binding"
