@@ -681,6 +681,25 @@ def _classify_stage_message(message: str) -> str:
     return message
 
 
+_CLASSIFY_JSON_NUDGE = (
+    "Your previous reply was missing required fields or was not valid JSON. "
+    "Return the exact JSON object required by the classify schema and nothing else."
+)
+
+
+def _classify_parse_is_retryable(exc: BaseException) -> bool:
+    """True for classify malformed_json / missing_required_fields only."""
+    if isinstance(exc, (MalformedModelJSON, MissingRequiredField)):
+        return True
+    from vibecomfy.executor.agent_backend import _downstream_failure_type
+
+    raw = getattr(exc, "raw_response_preview", None)
+    return _downstream_failure_type(raw if isinstance(raw, str) else None) in {
+        "malformed_json",
+        "missing_required_fields",
+    }
+
+
 def _run_classify(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -724,7 +743,30 @@ def _run_classify(
                 session_context=session_context,
             )
 
-        return run_classify_turn(request.query, **classify_kwargs)
+        try:
+            return run_classify_turn(request.query, **classify_kwargs)
+        except (ProviderError, AuthError, TimeoutError) as first_exc:
+            if not _classify_parse_is_retryable(first_exc):
+                raise
+        except Exception as first_exc:
+            if isinstance(first_exc, _ExecutorPhaseError) or not _classify_parse_is_retryable(
+                first_exc
+            ):
+                raise
+        retry_kwargs = dict(classify_kwargs)
+        base_messages = retry_kwargs.get("messages")
+        if not isinstance(base_messages, list):
+            base_messages = build_classify_messages(
+                request.query,
+                has_graph=request.graph is not None,
+                graph_summary=graph_summary,
+                session_context=session_context if isinstance(session_context, dict) else None,
+            )
+        retry_kwargs["messages"] = [
+            *base_messages,
+            {"role": "user", "content": _CLASSIFY_JSON_NUDGE},
+        ]
+        return run_classify_turn(request.query, **retry_kwargs)
     except _ExecutorPhaseError:
         raise
     except (ProviderError, AuthError, MalformedModelJSON,

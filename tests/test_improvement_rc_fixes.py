@@ -1,4 +1,4 @@
-"""Focused gates for RC4 / RC7 / RC8-A / RC9 / RC11 / RC12 improvement fixes."""
+"""Focused gates for RC4 / RC7 / RC8-A / RC9 / RC11-RC14 fixes."""
 
 from __future__ import annotations
 
@@ -805,6 +805,86 @@ def test_rc13_promote_missing_class_emits_requires_custom_nodes() -> None:
     )
     assert promoted["kind"] == "requires_custom_nodes"
     assert promoted["missing_classes"] == ["Rodin3D_Regular"]
+
+
+def test_rc14_classify_malformed_json_retries_once(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import _CLASSIFY_JSON_NUDGE, _run_classify
+
+    calls: list[dict[str, object]] = []
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202
+        calls.append(kwargs)
+        if len(calls) == 1:
+            exc = ValueError("not valid JSON")
+            exc.raw_response_preview = "sure, I can help {not json"
+            raise exc
+        return ClassifyDecision(intent="respond", route="inspect", reply=True)
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    decision = _run_classify(
+        ExecutorRequest(query="what is lossless on the webp node?"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+    )
+    assert len(calls) == 2
+    assert any(
+        isinstance(msg, dict) and _CLASSIFY_JSON_NUDGE in str(msg.get("content"))
+        for msg in calls[1].get("messages") or []
+    )
+    assert decision.intent == "respond"
+
+
+def test_rc14_classify_timeout_is_not_retried(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ExecutorRequest
+    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
+
+    calls = {"n": 0}
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls["n"] += 1
+        raise TimeoutError("classify timed out")
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    try:
+        _run_classify(
+            ExecutorRequest(query="inspect this"),
+            SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        )
+    except _ExecutorPhaseError:
+        pass
+    else:
+        raise AssertionError("expected classify phase error")
+    assert calls["n"] == 1
+
+
+def test_rc14_classify_missing_fields_retries_at_most_once(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from vibecomfy.comfy_nodes.agent.provider import MissingRequiredField
+    from vibecomfy.executor.contracts import ExecutorRequest
+    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
+
+    calls = {"n": 0}
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls["n"] += 1
+        raise MissingRequiredField("missing intent")
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    try:
+        _run_classify(
+            ExecutorRequest(query="inspect this"),
+            SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        )
+    except _ExecutorPhaseError:
+        pass
+    else:
+        raise AssertionError("expected classify phase error")
+    assert calls["n"] == 2
 
 
 def test_named_fields_map_uses_executor_surface() -> None:

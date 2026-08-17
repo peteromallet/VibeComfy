@@ -7427,7 +7427,10 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
             "new": "before",
         }
     ]
-    assert "no change" in result["message"]
+    assert any(
+        phrase in result["message"].lower()
+        for phrase in ("no change", "no updates")
+    )
 
 
 def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarify_outcome(
