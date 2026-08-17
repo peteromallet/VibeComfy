@@ -1133,6 +1133,21 @@ class TestBuildClassifyMessages:
         assert "Generic edits to the current graph" in system
         assert "stay route=\"revise\" when concrete" in system
         assert "route=\"clarify\" when ambiguous" in system
+        assert (
+            "Widget, edge, and single-node-swap intents are route=\"revise\""
+            in system
+        )
+        assert "Do not send these down route=\"adapt\"" in system
+
+    def test_implement_prompt_acts_on_graph_local_evidence_when_research_fails(self) -> None:
+        from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
+
+        messages = build_batch_messages(task="set steps to 30", python_source="ksampler.steps = 20")
+        system = messages[0]["content"]
+        assert "If research is thin, empty, never, UNAVAILABLE, or exhausted" in system
+        assert "graph-local edit that is fully justified by the attached IR" in system
+        assert "Refuse only architectural invention" in system
+        assert "Never use positional widget indices" in system
 
     def test_session_context_renders_text_messages_options_and_census_reference_map(self) -> None:
         msgs = build_classify_messages(

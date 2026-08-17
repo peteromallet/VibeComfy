@@ -1040,27 +1040,44 @@ def _run_agent_owned_research(
     )
 
 
-def _research_package_is_usable(research_result: AgentResearchResult | None) -> bool:
-    """Attempt-typed gate for the research→implement handoff (batch 14).
+def _research_package_is_usable(
+    research_result: AgentResearchResult | None,
+    *,
+    route: str | None = None,
+    has_graph: bool = False,
+) -> bool:
+    """Attempt-typed gate for the research→implement handoff (RC2).
 
-    The gate proceeds when the research package is a typed ``StagePackage``
-    with ``status=OK`` AND the research attempt is ``thin`` or ``grounded``
-    (evidence exists — at least search hits, and ideally fetched citations).
-    ``never`` / ``empty`` attempts skip implement: zero executed tool calls or
-    zero artifacts means there is no evidence-backed direction to implement
-    from.  Failed / exhausted / untyped packages are never implementable.
+    Implement proceeds when any of:
+
+    * attempt is ``thin`` or ``grounded`` and status is ``OK`` or
+      ``UNAVAILABLE`` (thin+UNAVAILABLE still has graph-local evidence)
+    * route is ``adapt``, a graph is attached, and the attempt is
+      ``never`` / ``empty`` or the package is ``UNAVAILABLE`` /
+      exhausted-from-timeout — the attached IR is the evidence
+
+    Architectural invention is refused later by the implement prompt and
+    the RC6 apply-gate; this gate no longer skips a one-line graph-local
+    edit just because Hivemind timed out.
     """
     if research_result is None:
         return False
     package = getattr(research_result, "package", None)
     if not isinstance(package, StagePackage):
         return False
-    if package.status is not ToolStatus.OK:
-        return False
-    return research_result.research_attempt in {
-        RESEARCH_ATTEMPT_THIN,
-        RESEARCH_ATTEMPT_GROUNDED,
-    }
+    attempt = research_result.research_attempt
+    status = package.status
+    if attempt in {RESEARCH_ATTEMPT_THIN, RESEARCH_ATTEMPT_GROUNDED}:
+        return status in {ToolStatus.OK, ToolStatus.UNAVAILABLE}
+    adapt_with_graph = route == "adapt" and has_graph
+    if adapt_with_graph and attempt in {
+        RESEARCH_ATTEMPT_NEVER,
+        RESEARCH_ATTEMPT_EMPTY,
+    }:
+        return True
+    if adapt_with_graph and status is ToolStatus.UNAVAILABLE:
+        return True
+    return False
 
 
 def _run_implement(
@@ -1083,16 +1100,17 @@ def _run_implement(
     the edit engine are surfaced as :class:`_ExecutorPhaseError`.
     """
     executor_route = _canonical_route_for_plan(plan)
-    # Batch 14 attempt gate: an adapt implementation proceeds only when the
-    # research package is OK AND the research attempt is thin/grounded
-    # (evidence exists).  never/empty/non-OK research SKIPS implement — it is
-    # no longer a hard failure: the reply phase still answers from the graph
-    # and general knowledge, so the user never sees a "no supported
-    # conclusion" refusal caused by thin research.
+    # RC2: adapt still implements when research is never/empty/UNAVAILABLE
+    # as long as a graph is attached — the IR is the evidence.  Architectural
+    # invention is refused by the implement prompt and the RC6 apply-gate.
     if (
         executor_route == "adapt"
         and research_result is not None
-        and not _research_package_is_usable(research_result)
+        and not _research_package_is_usable(
+            research_result,
+            route=executor_route,
+            has_graph=request.graph is not None,
+        )
     ):
         return ImplementationResult(
             message=(

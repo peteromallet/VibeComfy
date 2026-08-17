@@ -877,6 +877,40 @@ class TestFinishPrematureGuard:
         assert synth == []
         assert trace.citations == ()
 
+    def test_adapt_zero_tool_loop_executes_fallback_search(self, profile_dir: Path) -> None:
+        """RC2: adapt with zero agent tool calls still executes one search."""
+        spec = AgentSpecShape(agent="hermes", model="deepseek-v4-pro", effort="medium")
+        searches: list[str] = []
+
+        def always_finish(question: str, digest: str, messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            del digest, messages
+            return {
+                "action": "finish",
+                "conclusion": "no tool calls",
+                "evidence_ids": [],
+                "uncertainty": "",
+            }
+
+        def search_fn(query: str, **kwargs: Any) -> Any:
+            searches.append(str(query))
+            return _fake_search(query, **kwargs)
+
+        trace, pack = stage.run_agent_research_stage(
+            route="adapt",
+            question=_EXPLICIT_QUESTION,
+            spec=spec,
+            search_fn=search_fn,
+            get_fn=_fake_get,
+            judge_fn=always_finish,
+            max_turns=2,
+        )
+        assert searches == [_EXPLICIT_QUESTION]
+        assert any(
+            entry.decision == stage.DECISION_SEARCH for entry in pack.ledger.entries
+        )
+        assert trace.attempt in {stage.RESEARCH_ATTEMPT_THIN, stage.RESEARCH_ATTEMPT_EMPTY}
+        assert any("fallback hivemind_search" in warning for warning in trace.warnings)
+
 
 class TestModelFamilyBriefNudge:
     def test_named_model_families_nudge_hivemind_search_filters(self) -> None:

@@ -14,6 +14,9 @@ Contract:
       research-phase tool catalog, and a compact bounded digest of tool
       statuses / evidence IDs / previews — never the full research result
       object and never a workflow/graph schema dump.
+    * Python does not choose searches except the RC2 adapt fallback: when
+      the loop ends with zero executed tool calls on ``route="adapt"``, one
+      ``hivemind_search`` is executed from the research question.
     * Tool calls outside the research-phase allowlist
       (``hivemind_search``/``hivemind_get``/``registry_lookup``) are typed
       refusals, never executed, never silently rewritten.
@@ -904,6 +907,10 @@ def run_agent_research_stage(
     executes the chosen calls, records typed evidence, and enforces the
     research-phase allowlist plus I01 budgets (3 searches / 6 fetches /
     1 registry lookup / wall-clock ``deadline_seconds`` / ``max_turns``).
+    RC2 exception: on ``route="adapt"``, if the agent still made zero
+    evidence tool calls when the loop ends, Python executes one
+    ``hivemind_search`` from the research question so ``research_attempt``
+    is not stuck at ``never``.
 
     Per turn the agent returns one decision (via ``judge_fn``):
     ``{"action": "call", "tool", "args"}`` to gather more evidence or
@@ -1339,6 +1346,43 @@ def run_agent_research_stage(
                     "call; stopped early (the call's evidence is preserved)"
                 )
                 break
+
+        if (
+            route == "adapt"
+            and tool_calls_made == 0
+            and searches_left > 0
+            and now() <= deadline
+        ):
+            # RC2: classifier set research=true but the agent never executed
+            # a tool. One deterministic hivemind_search so the attempt is
+            # empty/thin instead of never.
+            searches_left -= 1
+            fallback_args = {"query": current_question, "limit": 20}
+            fallback_result = tool_fn(HIVE_MIND_SEARCH_TOOL, fallback_args)
+            spec = TOOL_SPEC_BY_NAME[HIVE_MIND_SEARCH_TOOL]
+            artifacts_map, entry, _ = project_tool_evidence(
+                spec,
+                fallback_args,
+                fallback_result,
+                _StageToolSession(
+                    search_fn=search_fn,
+                    get_fn=get_fn,
+                    cache_root=cache_root,
+                ),
+            )
+            _record_call(
+                tool=HIVE_MIND_SEARCH_TOOL,
+                result=fallback_result,
+                query=current_question,
+                decision=DECISION_SEARCH,
+                conclusion=entry["conclusion"],
+                artifacts_to_add=tuple(artifacts_map.values()),
+                evidence_ids=tuple(entry["evidence_ids"]),
+            )
+            warnings.append(
+                "research stage executed a fallback hivemind_search because "
+                "the agent finished with zero evidence tool calls"
+            )
 
         if not agent_finished:
             # P1-a: the loop stopped WITHOUT an agent finish — deadline

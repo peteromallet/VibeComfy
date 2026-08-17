@@ -2021,13 +2021,11 @@ def _adapt_never_research_result() -> AgentResearchResult:
     )
 
 
-def test_adapt_implement_skips_when_research_failed() -> None:
-    """Batch 14: a failed research package (status=unavailable) SKIPS the
-    adapt implement phase — handle_agent_edit is never called and no hard
-    failure is raised (the reply phase still answers)."""
-    plan = _fake_classify_adapt("Switch to Hotshot")
+def test_adapt_implement_proceeds_when_research_failed_with_graph() -> None:
+    """RC2: UNAVAILABLE research on adapt with a graph still implements."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
     request = ExecutorRequest(
-        query="Switch to Hotshot",
+        query="Set KSampler.steps to 30",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _agent_owned_research_result_with_trace(_failed_research_trace())
@@ -2042,17 +2040,15 @@ def test_adapt_implement_skips_when_research_failed() -> None:
             research_result=research,
         )
 
-    mock_edit.assert_not_called()
-    assert result.graph is None
-    assert "No graph edit was made" in result.message
+    mock_edit.assert_called_once()
+    assert result.graph is not None
 
 
-def test_adapt_implement_skips_when_research_exhausted() -> None:
-    """Batch 14: deadline/max-turn exhaustion (status=exhausted) is a non-OK
-    package — implement skips, no raise, no edit."""
-    plan = _fake_classify_adapt("Switch to Hotshot")
+def test_adapt_implement_proceeds_when_research_exhausted_with_graph() -> None:
+    """RC2: exhausted-from-timeout no longer skips implement on adapt+graph."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
     request = ExecutorRequest(
-        query="Switch to Hotshot",
+        query="Set KSampler.steps to 30",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _agent_owned_research_result_with_trace(
@@ -2069,19 +2065,18 @@ def test_adapt_implement_skips_when_research_exhausted() -> None:
             research_result=research,
         )
 
-    mock_edit.assert_not_called()
-    assert result.graph is None
+    mock_edit.assert_called_once()
+    assert result.graph is not None
     assert research.package.status is ToolStatus.UNAVAILABLE
     codes = [diag.code for diag in research.package.diagnostics]
     assert "research_stage_exhausted" in codes
 
 
-def test_adapt_implement_skips_when_research_never() -> None:
-    """Batch 14: a ``never`` attempt (zero tool calls) skips implement — no
-    raise, no edit, and the skip message names the typed attempt."""
-    plan = _fake_classify_adapt("Switch to Hotshot")
+def test_adapt_implement_proceeds_when_research_never_with_graph() -> None:
+    """RC2: a ``never`` attempt on adapt with a graph still implements."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
     request = ExecutorRequest(
-        query="Switch to Hotshot",
+        query="Set KSampler.steps to 30",
         graph={"nodes": [{"id": 1, "type": "KSampler"}], "links": []},
     )
     research = _adapt_never_research_result()
@@ -2097,9 +2092,80 @@ def test_adapt_implement_skips_when_research_never() -> None:
             research_result=research,
         )
 
+    mock_edit.assert_called_once()
+    assert result.graph is not None
+
+
+def test_adapt_implement_skips_when_research_never_without_graph() -> None:
+    """RC2: never/empty still skip implement when there is no graph to act on."""
+    plan = _fake_classify_adapt("Set KSampler.steps to 30")
+    request = ExecutorRequest(query="Set KSampler.steps to 30", graph=None)
+    research = _adapt_never_research_result()
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
     mock_edit.assert_not_called()
     assert result.graph is None
-    assert "research_attempt=never" in result.message
+    assert "research produced no" in result.message
+
+
+def test_adapt_implement_proceeds_for_widget_edit_when_research_unavailable() -> None:
+    """RC2 flow: named widget / fps / missing-edge work proceeds on UNAVAILABLE."""
+    plan = _fake_classify_adapt("Set EmptyLatentImage batch to 8")
+    request = ExecutorRequest(
+        query="Set EmptyLatentImage batch to 8",
+        graph={"nodes": [{"id": 1, "type": "EmptyLatentImage", "widgets_values": [512, 512, 1]}], "links": []},
+    )
+    thin_pack = EvidencePack(
+        artifacts={
+            "hivemind:ext:1": EvidenceArtifact(
+                evidence_id="hivemind:ext:1",
+                kind="hivemind_search_hit",
+                body={"title": "lead"},
+                source="hivemind",
+            ),
+        },
+        ledger=EvidenceLedger(entries=(
+            EvidenceLedgerEntry(
+                decision="hivemind_search",
+                conclusion="timeout: hivemind timed out",
+                evidence_ids=("hivemind:ext:1",),
+                uncertainty="timeout: hivemind timed out",
+            ),
+        )),
+    )
+    trace = _failed_research_trace(status="exhausted", verdict="refine")
+    research = AgentResearchResult(
+        route="adapt",
+        trace=trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt", trace=trace, pack=thin_pack, policy_diagnostics=(),
+        ),
+    )
+    assert research.research_attempt == RESEARCH_ATTEMPT_THIN
+    assert research.package.status is ToolStatus.UNAVAILABLE
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=research,
+        )
+
+    mock_edit.assert_called_once()
+    assert result.graph is not None
 
 
 def test_adapt_implement_proceeds_when_research_grounded() -> None:
@@ -2212,8 +2278,8 @@ def test_adapt_implement_proceeds_when_research_refined_with_synthesis() -> None
 
 
 def test_research_package_usable_gate_matrix() -> None:
-    """Batch 14 gate matrix: usable iff OK package AND attempt in
-    {thin, grounded}.  never/empty/non-OK are skipped."""
+    """RC2 gate matrix: thin/grounded stay usable; never/empty/UNAVAILABLE
+    become usable on adapt when a graph is attached."""
     base_kwargs = dict(
         route="adapt",
         question="q",
@@ -2229,15 +2295,22 @@ def test_research_package_usable_gate_matrix() -> None:
         _failed_research_trace(status="failed", verdict="failed")
     )
     assert executor_core._research_package_is_usable(failed) is False
+    assert executor_core._research_package_is_usable(
+        failed, route="adapt", has_graph=True
+    ) is True
     exhausted = _agent_owned_research_result_with_trace(
         _failed_research_trace(status="exhausted", verdict="refine")
     )
     assert executor_core._research_package_is_usable(exhausted) is False
-    # never (zero tool calls) → skip.
+    assert executor_core._research_package_is_usable(
+        exhausted, route="adapt", has_graph=True
+    ) is True
     never_result = _adapt_never_research_result()
     assert never_result.research_attempt == RESEARCH_ATTEMPT_NEVER
     assert executor_core._research_package_is_usable(never_result) is False
-    # empty (calls ran, zero artifacts) → skip.
+    assert executor_core._research_package_is_usable(
+        never_result, route="adapt", has_graph=True
+    ) is True
     empty_trace = AgentResearchTrace(final_verdict="enough", **base_kwargs)
     empty_pack = EvidencePack(
         artifacts={},
@@ -2260,6 +2333,9 @@ def test_research_package_usable_gate_matrix() -> None:
     )
     assert empty_result.research_attempt == RESEARCH_ATTEMPT_EMPTY
     assert executor_core._research_package_is_usable(empty_result) is False
+    assert executor_core._research_package_is_usable(
+        empty_result, route="adapt", has_graph=True
+    ) is True
     # grounded → usable (the recovery path now types by fetched citation).
     assert executor_core._research_package_is_usable(
         _refined_research_result_with_synthesis()
@@ -2300,12 +2376,28 @@ def test_research_package_usable_gate_matrix() -> None:
     )
     assert thin_result.research_attempt == RESEARCH_ATTEMPT_THIN
     assert executor_core._research_package_is_usable(thin_result) is True
+    thin_unavailable_trace = AgentResearchTrace(
+        final_verdict="refine",
+        **{**base_kwargs, "status": "exhausted"},
+    )
+    thin_unavailable = AgentResearchResult(
+        route="adapt",
+        trace=thin_unavailable_trace,
+        evidence_pack=thin_pack,
+        package=executor_core._research_stage_package(
+            route="adapt",
+            trace=thin_unavailable_trace,
+            pack=thin_pack,
+            policy_diagnostics=(),
+        ),
+    )
+    assert thin_unavailable.research_attempt == RESEARCH_ATTEMPT_THIN
+    assert thin_unavailable.package.status is ToolStatus.UNAVAILABLE
+    assert executor_core._research_package_is_usable(thin_unavailable) is True
 
 
-def test_run_executor_skips_implement_but_replies_when_adapt_research_never(profile_dir: Path) -> None:
-    """Batch 14 end-to-end: a never/empty research attempt on adapt SKIPS
-    implement (no hard failure) and the semantic reply STILL runs with a real
-    answer — no 'no supported conclusion' refusal on any route."""
+def test_run_executor_implements_when_adapt_research_never(profile_dir: Path) -> None:
+    """RC2 end-to-end: never research on adapt with a graph still implements."""
     def never_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
         del route, spec, research_brief
         return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
@@ -2347,11 +2439,8 @@ def test_run_executor_skips_implement_but_replies_when_adapt_research_never(prof
     assert result.ok is True
     assert result.report.research.research_attempt == RESEARCH_ATTEMPT_NEVER
     assert result.report.implementation is not None
-    assert result.report.implementation.graph is None
-    assert "No graph edit was made" in result.report.implementation.message
-    assert result.graph is None
-    mock_edit.assert_not_called()
-    # The semantic reply STILL runs and produces a real answer.
+    assert result.report.implementation.graph is not None
+    mock_edit.assert_called_once()
     mock_reply.assert_called_once()
 
 
