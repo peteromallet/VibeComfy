@@ -513,36 +513,37 @@ _PARAMETER_TWEAK_TARGET_TERMS = (
 
 
 def _existing_parameter_tweak_targets_from_graph(
-    graph: Mapping[str, Any],
+    graph: Any,
     *,
     query_text: str,
     seen_targets: set[str],
 ) -> list[tuple[int, str]]:
-    nodes: Any = graph.get("nodes")
-    if not isinstance(nodes, (Mapping, list)):
-        # The rich ``nodes`` mapping (or UI list) is the sole structural
-        # authority; there is no compiled_api twin to fall back to.
-        return []
-    if isinstance(nodes, Mapping):
-        node_items = list(nodes.items())
-    elif isinstance(nodes, list):
-        node_items = [
-            (
-                str(node.get("id") or index),
-                node,
-            )
-            for index, node in enumerate(nodes)
-            if isinstance(node, Mapping)
-        ]
-    else:
-        return []
+    """Rank existing nodes as parameter-tweak targets (EditableSurface-only).
 
+    Accepts the retained IR (a workflow-like object with a ``nodes`` Mapping
+    of IR nodes) or a UI-shaped graph (``nodes`` list of node dicts), and
+    reads each node's writable surface exclusively through
+    ``editable_surface_for`` — no settings-contract fallback.  The IR is the
+    authority for the agent flow.
+    """
     from vibecomfy.porting.edit.editable_surface import editable_surface_for
 
+    nodes: Any = getattr(graph, "nodes", None)
+    if isinstance(nodes, Mapping) and nodes:
+        node_items = list(nodes.values())
+        edges = getattr(graph, "edges", None)
+    elif isinstance(nodes, (list, tuple)):
+        node_items = [
+            node for node in nodes if isinstance(node, Mapping)
+        ]
+        edges = None
+    else:
+        # The retained IR ``nodes`` mapping is the sole structural
+        # authority; there is no UI-Mapping twin to fall back to.
+        return []
+
     ranked_targets: list[tuple[int, str]] = []
-    for node_id, node in node_items:
-        if not isinstance(node, Mapping) and getattr(node, "class_type", None) is None:
-            continue
+    for node in node_items:
         class_type = str(
             getattr(node, "class_type", None)
             or (node.get("class_type") or node.get("type") if isinstance(node, Mapping) else "")
@@ -550,45 +551,27 @@ def _existing_parameter_tweak_targets_from_graph(
         ).strip()
         if not class_type:
             continue
+        node_id = getattr(node, "id", None)
+        if node_id is None and isinstance(node, Mapping):
+            node_id = node.get("id")
+        if node_id is None:
+            continue
 
         field_previews: list[str] = []
         have_compact_names = False
         try:
-            surface = editable_surface_for(node)
+            surface = editable_surface_for(node, edges=edges)
             have_compact_names = bool(surface.literals or surface.inputs)
             for field in surface.literals:
-                name = field.name
-                if field.kind == "COMBO" and not name.startswith("widget_"):
-                    field_previews.append(name)
-                else:
-                    field_previews.append(name)
+                field_previews.append(field.name)
             compact_set = {preview.split("[")[0] for preview in field_previews}
             for slot in surface.inputs:
                 if slot.name and slot.name not in compact_set:
                     field_previews.append(slot.name)
         except Exception:
             pass
-        if not have_compact_names:
-            try:
-                info = node_settings_for(node, class_type)
-                if info.fields:
-                    have_compact_names = True
-                    for field in info.fields:
-                        name = field.name
-                        if field.choices and not name.startswith("widget_"):
-                            choices = list(field.choices)
-                            if len(choices) <= 3:
-                                enum_hint = "|".join(choices)
-                            else:
-                                shown = choices[:3]
-                                remaining = len(choices) - 3
-                                enum_hint = "|".join(shown) + f"|+{remaining}"
-                            name = f"{name}[{enum_hint}]"
-                        field_previews.append(name)
-            except Exception:
-                pass
 
-        if not field_previews:
+        if not have_compact_names or not field_previews:
             continue
 
         # ── 5. Build preview and score ──

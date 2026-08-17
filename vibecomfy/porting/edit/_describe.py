@@ -621,11 +621,11 @@ class _DescribeMixin:
 
     @staticmethod
     def _ir_widget_values(node: Any) -> tuple[Any, ...]:
-        metadata = getattr(node, "metadata", None)
-        if isinstance(metadata, Mapping):
-            ui = metadata.get("_ui")
-            if isinstance(ui, Mapping) and isinstance(ui.get("widgets_values"), list):
-                return tuple(ui["widgets_values"])
+        # Live IR state is the authority: raw_widgets carries the positional
+        # widget values from ingest, while captured metadata["_ui"] is never
+        # rewritten by interpret and would report stale values after an edit.
+        # raw_widgets precedes node.widgets because schema-hydrated widget
+        # fields only hold defaults (the real value often lives in inputs).
         raw = getattr(node, "raw_widgets", None)
         values = getattr(raw, "values", None) if raw is not None else None
         if isinstance(values, list):
@@ -633,6 +633,11 @@ class _DescribeMixin:
         widgets = getattr(node, "widgets", None)
         if isinstance(widgets, Mapping) and widgets:
             return tuple(widgets.values())
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, Mapping):
+            ui = metadata.get("_ui")
+            if isinstance(ui, Mapping) and isinstance(ui.get("widgets_values"), list):
+                return tuple(ui["widgets_values"])
         return ()
 
     @staticmethod
@@ -652,6 +657,18 @@ class _DescribeMixin:
 
     def _ir_incoming_link_ids(self, node: Any) -> dict[str, int]:
         incoming: dict[str, int] = {}
+        # Live IR edges are the authority; the captured metadata["_ui"] inputs
+        # are never rewritten by interpret and would report stale links.
+        workflow = getattr(self, "workflow", None)
+        node_id = str(getattr(node, "id", "") or "")
+        if workflow is not None and node_id:
+            next_id = 1
+            for edge in getattr(workflow, "edges", ()) or ():
+                if str(getattr(edge, "to_node", "")) == node_id:
+                    incoming[str(getattr(edge, "to_input", "") or "")] = next_id
+                    next_id += 1
+        if incoming:
+            return incoming
         metadata = getattr(node, "metadata", None)
         ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
         if isinstance(ui, Mapping):
@@ -662,17 +679,6 @@ class _DescribeMixin:
                 link = slot.get("link")
                 if isinstance(name, str) and isinstance(link, (int, float)):
                     incoming[name] = int(link)
-        if incoming:
-            return incoming
-        workflow = getattr(self, "workflow", None)
-        node_id = str(getattr(node, "id", "") or "")
-        if workflow is None or not node_id:
-            return incoming
-        next_id = 1
-        for edge in getattr(workflow, "edges", ()) or ():
-            if str(getattr(edge, "to_node", "")) == node_id:
-                incoming[str(getattr(edge, "to_input", "") or "")] = next_id
-                next_id += 1
         return incoming
 
     def _ir_outgoing_by_port(self, node: Any) -> dict[str, tuple[str, ...]]:

@@ -224,33 +224,38 @@ def _import_from(module_path: str, name: str) -> Any:
 
 
 def _in_graph_nodes_from_session(session: Any) -> dict[str, Any] | None:
-    """IR-backed in-graph payload for search(); UI-shaped for catalog callers."""
+    """Retained-IR in-graph payload for search(); UI-shaped for catalog callers.
+
+    The payload is rebuilt from the retained IR (``workflow.nodes``) only —
+    no ``working_ui`` fallback, the IR is the authority.  ``search()`` and
+    ``signatures._iter_graph_nodes`` accept the ``{"nodes": [...]}`` shape,
+    which is also the shape the batch loop's turn transcript records.
+    """
     workflow = getattr(session, "workflow", None)
     nodes = getattr(workflow, "nodes", None)
-    if isinstance(nodes, dict) and nodes:
-        payload: list[dict[str, Any]] = []
-        for node in nodes.values():
-            item: dict[str, Any] = {
-                "type": getattr(node, "class_type", ""),
-                "class_type": getattr(node, "class_type", ""),
-                "id": getattr(node, "id", None),
-            }
-            uid = getattr(node, "uid", None)
-            if uid:
-                item["properties"] = {"vibecomfy_uid": uid}
-            widgets = getattr(node, "widgets", None)
-            if isinstance(widgets, dict) and widgets:
-                item["widgets"] = dict(widgets)
-            inputs = getattr(node, "inputs", None)
-            if isinstance(inputs, dict) and inputs:
-                item["inputs"] = dict(inputs)
-            metadata = getattr(node, "metadata", None)
-            if isinstance(metadata, dict) and metadata:
-                item["metadata"] = metadata
-            payload.append(item)
-        return {"nodes": payload}
-    working_ui = getattr(session, "working_ui", None)
-    return working_ui if isinstance(working_ui, dict) else None
+    if not isinstance(nodes, Mapping) or not nodes:
+        return None
+    payload: list[dict[str, Any]] = []
+    for node in nodes.values():
+        item: dict[str, Any] = {
+            "type": getattr(node, "class_type", ""),
+            "class_type": getattr(node, "class_type", ""),
+            "id": getattr(node, "id", None),
+        }
+        uid = getattr(node, "uid", None)
+        if uid:
+            item["properties"] = {"vibecomfy_uid": uid}
+        widgets = getattr(node, "widgets", None)
+        if isinstance(widgets, dict) and widgets:
+            item["widgets"] = dict(widgets)
+        inputs = getattr(node, "inputs", None)
+        if isinstance(inputs, dict) and inputs:
+            item["inputs"] = dict(inputs)
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, dict) and metadata:
+            item["metadata"] = metadata
+        payload.append(item)
+    return {"nodes": payload}
 
 
 def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:

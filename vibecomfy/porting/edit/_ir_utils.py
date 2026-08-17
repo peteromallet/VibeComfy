@@ -448,6 +448,102 @@ def _ir_output_slot_name(node: Any, output_slot: str | int) -> str:
     return str(output_slot)
 
 
+def _ir_output_slot_index(node: Any, output_slot: str | int) -> str:
+    """Map an IR edge output port back to a numeric slot index (as str).
+
+    The compile oracle requires numeric output slots on runtime nodes, while
+    interpret-written edges carry named ports (type-token aliases such as
+    ``CONDITIONING_0`` or raw output names).  This resolves a named port to
+    its positional index via the node's live metadata (``output_names``
+    first, then the captured ``_ui`` outputs, then the ``output_types`` /
+    ``_ui`` output ``type`` tokens for typed aliases whose trailing integer
+    is the positional index).  Numeric ports pass through unchanged;
+    unresolvable names stay as-is so the compile error is reported honestly.
+    """
+    if not isinstance(output_slot, str):
+        return str(output_slot)
+    if output_slot.isdigit():
+        return output_slot
+    metadata = getattr(node, "metadata", None)
+    names: tuple | list = ()
+    outputs: tuple | list = ()
+    output_types: tuple | list = ()
+    if isinstance(metadata, Mapping):
+        raw_names = metadata.get("output_names")
+        if isinstance(raw_names, (list, tuple)):
+            names = raw_names
+        raw_types = metadata.get("output_types")
+        if isinstance(raw_types, (list, tuple)):
+            output_types = raw_types
+        ui = metadata.get("_ui")
+        ui_outputs = ui.get("outputs") if isinstance(ui, Mapping) else None
+        if isinstance(ui_outputs, (list, tuple)):
+            outputs = ui_outputs
+
+    def _find(name: str, *, casefold: bool = False) -> str | None:
+        for index, candidate in enumerate(names):
+            if str(candidate) == name or (
+                casefold and str(candidate).casefold() == name.casefold()
+            ):
+                return str(index)
+        for index, output in enumerate(outputs):
+            if isinstance(output, Mapping):
+                candidate = str(output.get("name", ""))
+                if candidate == name or (
+                    casefold and candidate.casefold() == name.casefold()
+                ):
+                    return str(index)
+        return None
+
+    found = _find(output_slot)
+    if found is not None:
+        return found
+    import re as _re
+
+    typed = _re.fullmatch(r"^([A-Za-z_][A-Za-z0-9_]*)_(\d+)$", output_slot)
+    if typed is not None:
+        base = typed.group(1)
+        index = int(typed.group(2))
+        # Type-token aliases are generated as ``f"{TYPE}_{position}"`` (see
+        # interpret._agent_edit_output_ports), so the trailing integer IS the
+        # positional output index.  Verify it against the live metadata so a
+        # raw name that merely looks typed is not misread.
+        if 0 <= index < len(output_types) and str(output_types[index]).casefold() == base.casefold():
+            return str(index)
+        if 0 <= index < len(outputs):
+            output = outputs[index]
+            if isinstance(output, Mapping) and str(output.get("type", "")).casefold() == base.casefold():
+                return str(index)
+        found = _find(base, casefold=True)
+        if found is not None:
+            return found
+    return output_slot
+
+
+def _compile_ready_workflow_copy(workflow: "VibeWorkflow") -> "VibeWorkflow":
+    """Return a COW copy whose edges carry numeric output slots for compile.
+
+    The retained IR is the authority and keeps named edge ports; the compile
+    oracle (``VibeWorkflow.compile("api")``) requires numeric output slots on
+    runtime nodes.  This projection rewrites only the edge ports on a copy so
+    Gate B can compile the retained IR without mutating it.
+    """
+    from vibecomfy.workflow import VibeEdge
+
+    post = _cow_workflow_copy(workflow)
+    new_edges: list[Any] = []
+    for edge in post.edges:
+        source = post.nodes.get(str(getattr(edge, "from_node", "")))
+        output = edge.from_output
+        if source is not None:
+            output = _ir_output_slot_index(source, output)
+        new_edges.append(
+            VibeEdge(edge.from_node, output, edge.to_node, edge.to_input)
+        )
+    post.edges = new_edges
+    return post
+
+
 def _split_add_fields(
     class_type: str,
     fields: Mapping[str, Any],

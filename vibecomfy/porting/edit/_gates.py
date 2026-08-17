@@ -8,6 +8,7 @@ from vibecomfy.porting.edit.ops import EditOp
 from vibecomfy.porting.edit._ir_utils import (
     _api_one_hop_neighbors,
     _changed_edge_endpoint_node_ids,
+    _compile_ready_workflow_copy,
     _done_gate_b_uids_for_ops,
     _node_id_sort_key,
     _subset_api_by_node_ids,
@@ -33,11 +34,8 @@ class _GatesMixin:
         candidate to ``working_ui``.
 
         Gate B compiles the retained IR and the replayed IR through
-        ``compile("api")``, narrows both API graphs to the touched region,
+        ``compile(\"api\")``, narrows both API graphs to the touched region,
         and compares them with ``parity.compile_equivalent``.
-
-        If zero ops have landed, it verifies that the emit-side snapshot
-        has not drifted and that the retained IR is still the ingest IR.
         """
         ops = tuple(self.landed_ops)
 
@@ -61,7 +59,7 @@ class _GatesMixin:
                         ),
                     ),
                 )
-            gate_b = self._done_gate_b(self.working_ui, self.working_ui, ops)
+            gate_b = self._done_gate_b_from_ir(ops)
             if not gate_b.ok:
                 return gate_b
             gate_c_summary = self._done_gate_c(ops)
@@ -117,7 +115,7 @@ class _GatesMixin:
                 ),
             )
 
-        gate_b = self._done_gate_b(self.working_ui, candidate, ops)
+        gate_b = self._done_gate_b_from_ir(ops, replayed=replayed)
         if not gate_b.ok:
             return gate_b
 
@@ -155,7 +153,7 @@ class _GatesMixin:
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
             )
-            if result.workflow is None:
+            if not result.ok:
                 return None, result.diagnostics
             workflow = result.workflow
         return workflow, ()
@@ -170,7 +168,21 @@ class _GatesMixin:
         working = getattr(self, "workflow", None)
         candidate = replayed if replayed is not None else working
         if original is None or working is None or candidate is None:
-            return self._done_gate_b(self.working_ui, self.working_ui, ops)
+            return DoneResult(
+                ok=False,
+                summary=(
+                    "Gate B failed: the retained IR is missing, so the "
+                    "compile-isomorphism check cannot run."
+                ),
+                diagnostics=(
+                    _diag(
+                        "done_gate_b_missing_ir",
+                        "Gate B requires the retained IR (original/working/candidate); "
+                        "none is available.",
+                        severity="error",
+                    ),
+                ),
+            )
         return self._done_gate_b_workflows(
             original_workflow=original,
             working_workflow=working,
@@ -287,65 +299,6 @@ class _GatesMixin:
             ),
         )
 
-    def _done_gate_b(
-        self,
-        working_ui: Mapping[str, Any],
-        candidate_ui: Mapping[str, Any],
-        ops: tuple[EditOp, ...],
-    ) -> DoneResult:
-        compiled_original = self._compile_ui_for_done_gate_b(self.original_ui, label="original")
-        if isinstance(compiled_original, DoneResult):
-            return compiled_original
-        original_workflow, original_api = compiled_original
-
-        compiled_working = self._compile_ui_for_done_gate_b(working_ui, label="working")
-        if isinstance(compiled_working, DoneResult):
-            return compiled_working
-        working_workflow, working_api = compiled_working
-
-        compiled_candidate = self._compile_ui_for_done_gate_b(candidate_ui, label="candidate")
-        if isinstance(compiled_candidate, DoneResult):
-            return compiled_candidate
-        candidate_workflow, candidate_api = compiled_candidate
-
-        region_ids = self._done_gate_b_region_node_ids(
-            ops=ops,
-            original_workflow=original_workflow,
-            original_api=original_api,
-            working_workflow=working_workflow,
-            working_api=working_api,
-            candidate_workflow=candidate_workflow,
-            candidate_api=candidate_api,
-        )
-        working_region = _subset_api_by_node_ids(working_api, region_ids)
-        candidate_region = _subset_api_by_node_ids(candidate_api, region_ids)
-
-        from vibecomfy.porting import parity
-
-        ok, diffs = parity.compile_equivalent(working_region, candidate_region)
-        if ok:
-            return DoneResult(ok=True, summary="Gate B passed.")
-        return DoneResult(
-            ok=False,
-            summary=(
-                "Gate B failed: current working UI and replayed candidate are "
-                "not compile-equivalent over the touched region."
-            ),
-            diagnostics=(
-                _diag(
-                    "done_gate_b_compile_isomorphism_failed",
-                    "Touched-region compile equivalence failed.",
-                    severity="error",
-                    detail={
-                        "region_node_ids": tuple(sorted(region_ids, key=_node_id_sort_key)),
-                        "working_region_node_ids": tuple(sorted(working_region, key=_node_id_sort_key)),
-                        "candidate_region_node_ids": tuple(sorted(candidate_region, key=_node_id_sort_key)),
-                        "diffs": tuple(diffs),
-                    },
-                ),
-            ),
-        )
-
     def _done_gate_c(self, ops: tuple[EditOp, ...]) -> str:
         """Gate C: generate a plain-language summary from landed ops and ledger state.
 
@@ -382,7 +335,10 @@ class _GatesMixin:
         label: str,
     ) -> tuple[VibeWorkflow, dict[str, Any]] | DoneResult:
         try:
-            api = workflow.compile("api")
+            # The compile oracle requires numeric output slots on runtime
+            # nodes; interpret-written edges carry named ports, so project
+            # the retained IR onto a compile-ready copy first.
+            api = _compile_ready_workflow_copy(workflow).compile("api")
         except Exception as exc:
             return DoneResult(
                 ok=False,
@@ -391,30 +347,6 @@ class _GatesMixin:
                     _diag(
                         "done_gate_b_compile_failed",
                         f"Gate B could not compile {label} IR: {type(exc).__name__}: {exc}",
-                        severity="error",
-                        detail={"label": label, "exception_type": type(exc).__name__},
-                    ),
-                ),
-            )
-        return workflow, api
-
-    def _compile_ui_for_done_gate_b(
-        self,
-        ui_json: Mapping[str, Any],
-        *,
-        label: str,
-    ) -> tuple[VibeWorkflow, dict[str, Any]] | DoneResult:
-        try:
-            workflow = self._workflow_from_ui(ui_json)
-            api = workflow.compile("api")
-        except Exception as exc:
-            return DoneResult(
-                ok=False,
-                summary=f"Gate B failed: {label} UI did not compile through the oracle.",
-                diagnostics=(
-                    _diag(
-                        "done_gate_b_compile_failed",
-                        f"Gate B could not compile {label} UI: {type(exc).__name__}: {exc}",
                         severity="error",
                         detail={"label": label, "exception_type": type(exc).__name__},
                     ),
