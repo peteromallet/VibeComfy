@@ -220,11 +220,33 @@ def _declared_output_names(node: VibeNode) -> tuple[str, ...]:
     return tuple(names)
 
 
+def _schema_widget_names_for_node(node: VibeNode) -> tuple[str, ...]:
+    """Schema field names for this instance, positional-index aligned (RC8-A)."""
+    try:
+        from vibecomfy.porting.widgets.schema import effective_widget_names_for_class
+
+        names = effective_widget_names_for_class(
+            str(node.class_type),
+            allow_object_info_fallback=True,
+        )
+        return tuple(str(name) for name in names if name)
+    except Exception:
+        return ()
+
+
 def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
     raw = node.raw_widgets
     values = getattr(raw, "values", None)
+    schema_names = _schema_widget_names_for_node(node)
     if isinstance(values, list):
-        return tuple(WidgetEvidence(index=index, value=value) for index, value in enumerate(values))
+        return tuple(
+            WidgetEvidence(
+                index=index,
+                name=schema_names[index] if index < len(schema_names) else None,
+                value=value,
+            )
+            for index, value in enumerate(values)
+        )
 
     named: list[WidgetEvidence] = []
     widgets = node.widgets
