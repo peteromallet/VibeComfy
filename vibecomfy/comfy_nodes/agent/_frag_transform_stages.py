@@ -179,61 +179,8 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
     from vibecomfy.comfy_nodes.agent.edit import (FailureKind, StageResult, _canonical_delta_ops_envelope_payload, _duration_ms, _edit_lint_enabled, _ensure_canonical_delta_ops, _json_safe, _port_issue_to_dict, write_json_artifact)  # T-039 late import: host namespace lookup; resolved at call time
     from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.edit._interpret import interpret
-    from vibecomfy.porting.emit.ui import guard_exit_ui
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json, guard_exit_ui, pin_untouched_ui
     from vibecomfy.porting.edit.ops import EditOpParseError
-
-    def _build_delta_audit(result: Any) -> dict[str, Any]:
-        automatic_link_removals: list[dict[str, Any]] = []
-        re_stitches: list[dict[str, Any]] = []
-        for op, resolved_op in result.resolved_ops:
-            if isinstance(resolved_op, ResolvedFieldRef) and resolved_op.automatic_link_removal is not None:
-                automatic_link_removals.append(
-                    {
-                        "scope_path": resolved_op.target.scope_path,
-                        "uid": resolved_op.target.uid,
-                        "field_path": resolved_op.target.field_path,
-                        "link_id": resolved_op.automatic_link_removal,
-                    }
-                )
-            elif isinstance(resolved_op, ResolvedRemoveNodePlan) and resolved_op.link_rewires:
-                re_stitches.append(
-                    {
-                        "scope_path": resolved_op.node_ref.target.scope_path,
-                        "uid": resolved_op.node_ref.target.uid,
-                        "class_type": resolved_op.node_ref.class_type,
-                        "link_rewrites": [
-                            {
-                                "scope_path": rewire.scope_path,
-                                "link_id": rewire.link_id,
-                                "old_origin_id": rewire.old_origin_id,
-                                "new_origin_id": rewire.new_origin_id,
-                                "new_origin_slot": rewire.new_origin_slot,
-                            }
-                            for rewire in resolved_op.link_rewires
-                        ],
-                    }
-                )
-            elif isinstance(resolved_op, AppliedAddNodeSpec):
-                continue
-        guard = result.guard_result
-        guard_payload = {
-            "ok": bool(guard.ok) if guard is not None else True,
-            "diagnostics": [
-                _port_issue_to_dict(issue) for issue in (guard.diagnostics if guard is not None else ())
-            ],
-        }
-        normalize_payload = {
-            "fallback_used": bool(getattr(guard, "normalize_fallback_used", False)),
-            "allow_list_used": bool(getattr(guard, "normalize_allow_list_used", False)),
-        }
-        return {
-            "diagnostics": [_port_issue_to_dict(issue) for issue in result.diagnostics],
-            "automatic_link_removals": automatic_link_removals,
-            "re_stitches": re_stitches,
-            "guard_result": guard_payload,
-            "normalize": normalize_payload,
-        }
 
     start = time.monotonic()
     state.delta_audit = None
@@ -400,13 +347,52 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
                 "op_count": len(state.delta_ops),
             },
         )
-    candidate = emit_ui_json(
-        interpreted.workflow,
-        schema_provider=state.schema_provider,
-        include_virtual_wires=True,
-        prior_ui_payload=original_ui,
+    candidate = pin_untouched_ui(
+        original_ui,
+        emit_ui_json(
+            interpreted.workflow,
+            schema_provider=state.schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=original_ui,
+        ),
+        interpreted.landed_ops,
     )
     exit_guard = guard_exit_ui(original_ui, candidate, interpreted.landed_ops)
+    guard_issues = tuple(
+        _port_issue_to_dict(issue) for issue in exit_guard.diagnostics
+    )
+    state.guard_result = {
+        "ok": bool(exit_guard.ok),
+        "diagnostics": [dict(issue) for issue in guard_issues],
+        "normalize": {
+            "fallback_used": False,
+            "allow_list_used": False,
+        },
+    }
+    if not exit_guard.ok:
+        state.delta_diagnostics = list(issues) + [dict(issue) for issue in guard_issues]
+        state.delta_audit = {
+            "automatic_link_removals": [],
+            "re_stitches": [],
+            "guard_result": dict(state.guard_result),
+        }
+        return StageResult(
+            stage="apply_delta",
+            ok=False,
+            blocking=True,
+            duration_ms=_duration_ms(start),
+            issues=issues + guard_issues,
+            value={
+                "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                "mutation_started": False,
+                "op_count": len(state.delta_ops),
+                "ui_fidelity_ok": False,
+            },
+            gate_updates={
+                "ui_fidelity_ok": False,
+            },
+        )
+
     state.emit_guard_resolved_ops = tuple(
         (op, None) for op in interpreted.landed_ops
     )
@@ -418,17 +404,10 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
     delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
     ops = list(delta_envelope["ops"])
     state.delta_diagnostics = list(issues)
-    state.guard_result = {
-        "ok": exit_guard.ok,
-        "diagnostics": [_port_issue_to_dict(issue) for issue in exit_guard.diagnostics],
-        "normalize": {
-            "fallback_used": False,
-            "allow_list_used": False,
-        },
-    }
     state.delta_audit = {
         "automatic_link_removals": [],
         "re_stitches": [],
+        "guard_result": dict(state.guard_result),
     }
     state.report = {
         "change": {
@@ -453,6 +432,7 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
             "mode": "agent_edit_v2_delta",
             "op_count": len(ops),
             "mutation_started": True,
+            "ui_fidelity_ok": True,
         },
         gate_updates={
             "python_load_ok": True,

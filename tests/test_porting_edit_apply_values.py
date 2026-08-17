@@ -2,14 +2,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from vibecomfy.porting.edit.apply import apply_delta
-from vibecomfy.porting.edit.apply_values import _validate_literal_value
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.ops import parse_edit_delta
+from vibecomfy.porting.edit.validate import validate_literal_value
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import InputSpec, NodeSchema
 
 
 def _validate(value: object, spec: SimpleNamespace, *, input_name: str) -> list:
-    return _validate_literal_value(
+    return validate_literal_value(
         value=value,
         spec=spec,
         class_type="TestNode",
@@ -76,7 +78,7 @@ def test_validate_asset_enum_does_not_accept_non_string_value() -> None:
     assert issues[0].severity == "error"
 
 
-def test_apply_values_add_node_keeps_missing_asset_filename_and_warning() -> None:
+def test_interpret_add_node_keeps_missing_asset_filename_and_warning() -> None:
     schema = NodeSchema(
         class_type="WanVideoLoraSelect",
         pack="test",
@@ -89,6 +91,7 @@ def test_apply_values_add_node_keeps_missing_asset_filename_and_warning() -> Non
         outputs=[],
     )
     provider = SimpleNamespace(get_schema=lambda class_type: schema if class_type == schema.class_type else None)
+    ui = {"last_node_id": 0, "last_link_id": 0, "nodes": [], "links": []}
     delta = parse_edit_delta(
         [
             {
@@ -101,14 +104,16 @@ def test_apply_values_add_node_keeps_missing_asset_filename_and_warning() -> Non
         ]
     )
 
-    result = apply_delta(
-        {"last_node_id": 0, "last_link_id": 0, "nodes": [], "links": []},
-        delta,
-        schema_provider=provider,
-    )
+    workflow = from_ui(ui, schema_provider=provider, use_comfy_converter=False)
+    result = interpret(workflow, delta, schema_provider=provider)
 
     assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"] == ["WanVid/notinstalled.safetensors"]
+    candidate = emit_ui_json(
+        result.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=ui,
+    )
+    assert candidate["nodes"][0]["widgets_values"] == ["WanVid/notinstalled.safetensors"]
     warning = next(issue for issue in result.diagnostics if issue.code == "asset_not_installed")
     assert warning.severity == "warning"

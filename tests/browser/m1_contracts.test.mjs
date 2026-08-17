@@ -185,9 +185,7 @@ test("M1 static authority guardrails keep identity and projection ownership expl
   assert.equal(/\bfunction\s+/.test(graphFacade), false);
   assert.equal(graphFacade.includes("node.id"), false);
   assert.equal(graphFacade.includes("group.title"), false);
-  const fieldFacade = await readFile(path.join(root, "vibecomfy/comfy_nodes/web/field_registry_v1.js"), "utf8");
   const identityFacade = await readFile(path.join(root, "vibecomfy/comfy_nodes/web/identity_contract_v1.js"), "utf8");
-  assert.equal(/\bfunction\s+/.test(fieldFacade), false);
   assert.equal(/\bfunction\s+/.test(identityFacade), false);
   const prepared = await readFile(path.join(root, "vibecomfy/comfy_nodes/web/prepared_authority_v1.js"), "utf8");
   assert.equal(prepared.includes('|| "delta_replay"'), false);

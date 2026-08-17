@@ -16,8 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-from vibecomfy.ingest.normalize import from_api, from_envelope, from_ui, normalize_to_api
+from vibecomfy.ingest.normalize import (
+    from_api,
+    from_envelope,
+    from_ui,
+    ingest_workflow_and_ui,
+    normalize_to_api,
+)
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
@@ -758,7 +763,7 @@ def test_vibe_rich_ingest_preserves_90a1d5() -> None:
         assert node.widgets == rich["widgets"]
 
     # Canonical UI carries every rich node with the same id/class/mode/uid projection.
-    normalized = normalize_agent_edit_graph(raw).graph
+    _, normalized = ingest_workflow_and_ui(raw)
     assert len(normalized["nodes"]) == 15
     assert len(normalized["links"]) == 10
     by_id = {str(node["id"]): node for node in normalized["nodes"]}
@@ -812,7 +817,7 @@ def test_vibe_rich_ingest_is_idempotent() -> None:
     """rich->UI and UI->IR->UI produce identical projections (nodes, edges, widgets, groups)."""
     raw = _load_90a1d5()
 
-    ui1 = normalize_agent_edit_graph(raw).graph  # rich -> UI
+    _, ui1 = ingest_workflow_and_ui(raw)  # rich -> UI
     assert len(ui1["nodes"]) == 15 and len(ui1["links"]) == 10
 
     # UI -> IR via the deterministic offline normalizer (the comfy converter
@@ -1131,19 +1136,13 @@ def test_from_api_matches_api_fixture_invariants() -> None:
     assert all(node.class_type for node in wf.nodes.values())
 
 
-def test_normalize_agent_edit_graph_accepts_api_prompt_dict() -> None:
-    """Agent Edit must accept a ComfyUI API-format prompt dict (node id -> node).
-
-    Regression guard for the Batch B migration: normalize_agent_edit_graph
-    previously hard-routed every non-list graph to ``from_envelope``, which
-    fail-closed on API-shaped payloads (no top-level ``nodes`` key) with
-    "serialized vibe envelope 'nodes' must be a mapping of node objects".
-    """
+def test_ingest_workflow_and_ui_accepts_api_prompt_dict() -> None:
+    """Agent Edit must accept a ComfyUI API-format prompt dict (node id -> node)."""
     api_prompt = {
         "107": {"class_type": "SaveImage", "inputs": {"images": ["108", 0]}},
         "108": {"class_type": "VAEDecode", "inputs": {}},
     }
-    normalized = normalize_agent_edit_graph(api_prompt).graph
+    _, normalized = ingest_workflow_and_ui(api_prompt)
     node_ids = {node["id"] for node in normalized["nodes"]}
     assert node_ids == {107, 108}, node_ids
     assert normalized["links"], "API edges must become canonical UI links"
@@ -1257,9 +1256,8 @@ def test_batch3_same_workflow_object_crosses_ingest_into_state_and_session(
     from vibecomfy.porting.edit.session import EditSession
 
     raw = deepcopy(_MINIMAL_UI_RAW)
-    door = normalize_agent_edit_graph(raw)
-    assert door.graph is raw, "UI input dict identity preserved by the door"
-    workflow = door.workflow
+    workflow, ui = ingest_workflow_and_ui(raw)
+    assert ui is raw, "UI input dict identity preserved by the door"
     assert workflow is not None
 
     state = _batch3_agent_state(tmp_path, raw, workflow=workflow)

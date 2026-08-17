@@ -338,10 +338,10 @@ def _edit_lint_enabled() -> bool:
     -------------------------
     Setting ``VIBECOMFY_AGENT_EDIT_LINT=0`` disables the entire lint gate in
     ``_stage_apply_delta`` and ``_stage_agent_batch_repl``.  When lint is off the
-    pipeline falls back to pre-lint behaviour: ``apply_delta()`` receives every
-    op unchecked, no-ops are not pre-filtered, and diagnostics come from
-    ``resolve_delta`` / ``apply_delta`` rather than from ``lint_delta()``.  This
-    flag is intended as an emergency off-switch; the default path is *enabled*.
+    pipeline sends every op straight to ``interpret``: no-ops are not
+    pre-filtered, and diagnostics come from interpret / the emit-exit guard
+    rather than from ``lint_delta()``.  This flag is intended as an emergency
+    off-switch; the default path is *enabled*.
     """
     raw = os.getenv("VIBECOMFY_AGENT_EDIT_LINT")
     if raw is None:

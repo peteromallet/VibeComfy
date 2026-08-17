@@ -1578,7 +1578,7 @@ __all__ = [
 ]
 
 
-# ── Read-only UI index (batch 15; was porting.edit.ledger) ──
+# ── Read-only UI index for reorganise/lint (not an edit ledger) ──
 import copy
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.identity.scope import compose_scope_path, sg_key

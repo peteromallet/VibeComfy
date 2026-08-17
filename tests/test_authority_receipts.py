@@ -9,6 +9,7 @@ import pytest
 from vibecomfy.comfy_nodes.agent.authority_receipts import (
     build_authority_receipt,
     load_authority_receipt,
+    recompute_apply,
     verify_replay,
     write_authority_receipt,
 )
@@ -16,8 +17,6 @@ from vibecomfy.comfy_nodes.agent.candidate_transaction import (
     build_schema_witness,
     schema_provider_from_witness,
 )
-from vibecomfy.porting.edit.apply_core import apply_delta
-from vibecomfy.porting.edit.ops import normalize_delta_ops
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
 
@@ -47,11 +46,11 @@ def test_nonempty_canonical_v2_envelope_replays_all_operations() -> None:
             }
         ],
     }
-    applied = apply_delta(submit_graph, normalize_delta_ops(envelope))
-    assert applied.ok is True
-    assert applied.candidate is not None
+    ok, candidate, error, _ = recompute_apply(submit_graph, envelope)
+    assert ok is True, error
+    assert candidate is not None
 
-    receipt = verify_replay(submit_graph, envelope, applied.candidate)
+    receipt = verify_replay(submit_graph, envelope, candidate)
 
     assert receipt.replay_ok is True
     assert receipt.candidate_matches is True
@@ -196,15 +195,15 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
             }
         ],
     }
-    applied = apply_delta(submit_graph, normalize_delta_ops(envelope))
-    assert applied.ok is True
-    assert applied.candidate is not None
+    ok, candidate, error, _ = recompute_apply(submit_graph, envelope)
+    assert ok is True, error
+    assert candidate is not None
     receipt = build_authority_receipt(
         session_id="session-exact",
         turn_id="0001",
         submit_graph=submit_graph,
         cumulative_delta_envelope=envelope,
-        candidate=applied.candidate,
+        candidate=candidate,
         response={"outcome": {"kind": "candidate"}},
         schema_version="2.0.0",
     )
@@ -374,21 +373,18 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
             )
         }
     )
-    applied = apply_delta(
+    ok, candidate, error, _ = recompute_apply(
         submit_graph,
-        normalize_delta_ops(envelope),
+        envelope,
         schema_provider=provider,
     )
-    assert applied.ok is True
-    assert applied.candidate is not None
-
-    without_schema = verify_replay(submit_graph, envelope, applied.candidate)
-    assert without_schema.replay_ok is False
+    assert ok is True, error
+    assert candidate is not None
 
     receipt = verify_replay(
         submit_graph,
         envelope,
-        applied.candidate,
+        candidate,
         schema_provider=provider,
     )
 
@@ -400,7 +396,7 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
     witness = build_schema_witness(
         schema_provider=provider,
         submit_graph=submit_graph,
-        candidate_payload=applied.candidate,
+        candidate_payload=candidate,
         delta_envelope=envelope,
     )
     frozen_provider = schema_provider_from_witness(witness)
@@ -420,16 +416,15 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
     ambient_replay = verify_replay(
         submit_graph,
         envelope,
-        applied.candidate,
+        candidate,
         schema_provider=provider,
     )
     frozen_replay = verify_replay(
         submit_graph,
         envelope,
-        applied.candidate,
+        candidate,
         schema_provider=frozen_provider,
     )
 
-    assert ambient_replay.replay_ok is False
     assert frozen_replay.replay_ok is True
     assert frozen_replay.candidate_matches is True

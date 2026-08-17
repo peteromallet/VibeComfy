@@ -3359,19 +3359,15 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     the node must be re-slotted or the candidate fails projection with
     "Missing stable link to port" (the sdxl scenario failure).
     """
-    import uuid
-
-    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-    from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
     raw = _corpus("tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json")
-    ui = normalize_agent_edit_graph(raw).graph
+    _, ui = ingest_workflow_and_ui(raw)
     node16 = next(n for n in ui["nodes"] if str(n.get("id")) == "16")
     uid = node16["properties"]["vibecomfy_uid"]
-    delta = {
-        "delta_contract": "delta_v1",
-        "wire_version": "2.0.0",
-        "scope": {"kind": "root", "path": ""},
+    envelope = {
+        "schema_version": "2.0.0",
         "ops": [
             {
                 "op": "set_node_field",
@@ -3380,12 +3376,9 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
             }
         ],
     }
-    result = apply_delta_v1_python(
-        workflow_id=str(uuid.uuid4()),
-        graph=ui,
-        delta=delta,
-    )
-    candidate = result["graph"]
+    ok, candidate, error, _ = recompute_apply(ui, envelope)
+    assert ok is True, error
+    assert candidate is not None
     by_id = {str(n["id"]): n for n in candidate["nodes"]}
     assert not [
         link
@@ -3406,8 +3399,7 @@ def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     API-declared widget shape as unmaterialized overflow (the multi-image
     scenario's ``LTXVLoader`` refusal).
     """
-    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
-    from vibecomfy.ingest.normalize import from_api
+    from vibecomfy.ingest.normalize import from_api, ingest_workflow_and_ui
     from vibecomfy.schema import get_authoring_schema_provider
 
     cand = _corpus("tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json")
@@ -3418,11 +3410,11 @@ def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
     assert ltx.raw_widgets.length == 2
     assert ltx.raw_widgets.values == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
 
-    # The full product normalization path (ingest -> emit) no longer refuses.
-    ui = normalize_agent_edit_graph(
+    # The full product ingest+emit path no longer refuses.
+    _, ui = ingest_workflow_and_ui(
         cand,
         schema_provider=get_authoring_schema_provider(),
-    ).graph
+    )
     emitted = next(n for n in ui["nodes"] if str(n.get("id")) == "249")
     assert emitted["widgets_values"] == ["ltx-video-2b-v0.9.1.safetensors", "bfloat16"]
 

@@ -28,9 +28,11 @@ class _GatesMixin:
         """Finalize the session: run Gate A and Gate B proof checks.
 
         Gate A replays ``interpret`` over the retained ``(wf_i, Δ_i)``
-        history from ``wf_0``.  The emit-side snapshot is then checked by
-        emitting the replayed IR and comparing that candidate to
-        ``working_ui``, then running the independent emit-exit guard.
+        history from ``wf_0``, emits that replayed IR, and requires the
+        candidate to equal ``working_ui``.  The independent emit-exit
+        guard (``guard_exit_ui`` / former ``guard_full_ui``) then runs as
+        a hard gate: a candidate that does not round-trip against the
+        original ingest is not done.
 
         Gate B compiles the retained IR and the replayed IR through
         ``compile(\"api\")``, narrows both API graphs to the touched region,
@@ -81,10 +83,69 @@ class _GatesMixin:
                 diagnostics=ir_diags,
             )
 
-        # Gate A is interpret replay over (wf_0, Δ_i).  Emit-side furniture
-        # may change (ids/version/counters) without affecting the editable
-        # quotient; the independent emit-exit guard is available at the UI
-        # door and is not a done() blocker.
+        try:
+            candidate_ui = self._emit_working_snapshot(replayed)
+        except Exception as exc:
+            return DoneResult(
+                ok=False,
+                summary=f"Gate A failed: emit of the replayed IR failed: {exc}",
+                diagnostics=(
+                    _diag(
+                        "done_gate_a_emit_failed",
+                        f"Gate A emit of the replayed IR failed: {exc}",
+                        severity="error",
+                    ),
+                ),
+            )
+
+        if candidate_ui != self.working_ui:
+            return DoneResult(
+                ok=False,
+                summary=(
+                    "Gate A failed: replayed emit candidate does not match working_ui."
+                ),
+                diagnostics=(
+                    _diag(
+                        "done_gate_a_mismatch",
+                        (
+                            "Replaying interpret over (wf_0, Δ_i) and emitting "
+                            "the candidate does not match working_ui. "
+                            "This means working_ui was mutated outside the "
+                            "edit-op path or emit is not a pure function of "
+                            "the retained IR."
+                        ),
+                        severity="error",
+                    ),
+                ),
+            )
+
+        from vibecomfy.porting.emit.ui import guard_exit_ui
+
+        exit_guard = guard_exit_ui(self.original_ui, candidate_ui, ops)
+        if not exit_guard.ok:
+            guard_diags = tuple(
+                _diag(
+                    issue.code,
+                    issue.message,
+                    severity=getattr(issue, "severity", "error") or "error",
+                    detail=getattr(issue, "detail", None),
+                )
+                for issue in exit_guard.diagnostics
+            ) or (
+                _diag(
+                    "done_gate_a_exit_guard",
+                    "The emit-exit guard rejected the candidate.",
+                    severity="error",
+                ),
+            )
+            return DoneResult(
+                ok=False,
+                summary=(
+                    "Gate A failed: emit-exit guard rejected the candidate "
+                    f"({len(guard_diags)} diagnostic(s))."
+                ),
+                diagnostics=guard_diags,
+            )
 
         gate_b = self._done_gate_b_from_ir(ops, replayed=replayed)
         if not gate_b.ok:

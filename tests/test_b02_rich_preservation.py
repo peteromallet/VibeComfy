@@ -335,9 +335,9 @@ def test_synthetic_envelope_groups_and_link_topology_survive() -> None:
 
     # Groups survive verbatim into the canonical projection (the checker's
     # groups axis is only meaningful because nonempty groups exist here).
-    from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 
-    canonical = normalize_agent_edit_graph(_synthetic_envelope()).graph
+    _, canonical = ingest_workflow_and_ui(_synthetic_envelope())
     assert canonical["groups"] == _synthetic_envelope()["groups"]
 
     # Link endpoint+slot topology is asserted exactly: (from, from_slot, to, to_slot).

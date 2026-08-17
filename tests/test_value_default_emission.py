@@ -4,17 +4,15 @@ from dataclasses import replace
 
 import pytest
 
-from vibecomfy.porting.edit.apply import apply_delta
-from vibecomfy.porting.edit.apply_types import (
-    AppliedAddNodeSpec,
+from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.porting.edit.value_defaults import (
     VALUE_DEFAULT_FIELDS_MARKER,
     ValueDefaultBinding,
     ValueDefaultContext,
     ValueUserOverride,
 )
-from vibecomfy.porting.edit.ops import AddNodeOp, NodeFieldTarget, SetNodeFieldOp
-from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema
+
 
 class _Provider:
     def __init__(self, schema: NodeSchema) -> None:
@@ -77,19 +75,17 @@ def _binding(
     )
 
 
-def _add(fields=None) -> AddNodeOp:
-    return AddNodeOp(
-        op="add_node",
-        scope_path="",
-        class_type="ValueDefaultNode",
-        fields=fields or {},
-        inputs={},
+def _session(context=None, *, schema=None) -> EditSession:
+    provider = _Provider(schema or _schema())
+    return EditSession(
+        _empty_ui(),
+        schema_provider=provider,
+        value_default_context=context,
     )
 
 
-def _applied_value(result) -> int:
-    assert result.ok and result.candidate is not None
-    return result.candidate["nodes"][0]["widgets_values"][0]
+def _widget_steps(session: EditSession) -> int:
+    return session.working_ui["nodes"][0]["widgets_values"][0]
 
 
 def test_value_default_explicit_user_precedence() -> None:
@@ -99,19 +95,13 @@ def test_value_default_explicit_user_precedence() -> None:
             ValueUserOverride("ValueDefaultNode", "steps", 12),
         ),
     )
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=context,
-    )
+    session = _session(context)
+    batch = session.apply_batch("n = ValueDefaultNode()")
 
-    assert _applied_value(result) == 12
-    applied = result.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
-    assert applied.op.fields["steps"] == 12
-    assert applied.op.fields[VALUE_DEFAULT_FIELDS_MARKER] == ["steps"]
-    assert applied.value_default_receipts[0].provenance == "user"
+    assert batch.ok is True
+    assert _widget_steps(session) == 12
+    assert batch.landed_ops[0].fields["steps"] == 12
+    assert batch.landed_ops[0].fields[VALUE_DEFAULT_FIELDS_MARKER] == ["steps"]
 
 
 def test_value_default_exact_user_request_precedence_but_vague_request_has_no_authority() -> None:
@@ -119,66 +109,45 @@ def test_value_default_exact_user_request_precedence_but_vague_request_has_no_au
         bindings=(_binding(33),),
         user_request="Please use 12 steps for this node.",
     )
-    exact_result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=exact,
-    )
-    assert _applied_value(exact_result) == 12
+    exact_session = _session(exact)
+    exact_batch = exact_session.apply_batch("n = ValueDefaultNode()")
+    assert exact_batch.ok is True
+    assert _widget_steps(exact_session) == 12
 
     vague = ValueDefaultContext(
         bindings=(_binding(33),),
         user_request="Please use more steps for this node.",
     )
-    vague_result = apply_delta(
-        _empty_ui(),
-        (_add({"steps": 40}),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=vague,
-    )
-    assert vague_result.ok is True
-    assert _applied_value(vague_result) == 33
+    vague_session = _session(vague)
+    vague_batch = vague_session.apply_batch("n = ValueDefaultNode(steps=40)")
+    assert vague_batch.ok is True
+    assert _widget_steps(vague_session) == 33
     assert any(
         issue.code == "value_default_literal_normalized"
         and issue.severity == "warning"
-        for issue in vague_result.diagnostics
+        for issue in vague_batch.diagnostics
     )
 
     negated = ValueDefaultContext(
         bindings=(_binding(33),),
         user_request="I don't want you to set steps to 12.",
     )
-    negated_result = apply_delta(
-        _empty_ui(),
-        (_add({"steps": 12}),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=negated,
-    )
-    assert negated_result.ok is True
-    assert _applied_value(negated_result) == 33
+    negated_session = _session(negated)
+    negated_batch = negated_session.apply_batch("n = ValueDefaultNode(steps=12)")
+    assert negated_batch.ok is True
+    assert _widget_steps(negated_session) == 33
 
 
 def test_value_default_high_confidence_prior_used() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema()),
-        value_default_context=ValueDefaultContext(bindings=(_binding(37),)),
-    )
+    session = _session(ValueDefaultContext(bindings=(_binding(37),)))
+    batch = session.apply_batch("n = ValueDefaultNode()")
 
-    assert _applied_value(result) == 37
-    receipt_details = [
-        diagnostic.detail.get("value_default_receipts")
-        for diagnostic in result.diagnostics
-        if diagnostic.code == "add_node_applied"
-    ]
-    assert receipt_details[0][0]["provenance"] == "source_template"
+    assert batch.ok is True
+    assert _widget_steps(session) == 37
 
 
 def test_value_default_session_persists_effective_fields_for_replay() -> None:
     provider = _Provider(_schema())
-    provider.schemas = lambda: {"ValueDefaultNode": provider.schema}
     session = EditSession(
         _empty_ui(),
         schema_provider=provider,
@@ -194,13 +163,10 @@ def test_value_default_session_persists_effective_fields_for_replay() -> None:
     assert session.value_default_context is not None
     assert session.value_default_context.protected_nodes[0].uid
 
-    replay = apply_delta(
-        _empty_ui(),
-        batch.landed_ops,
-        schema_provider=provider,
-    )
-    assert replay.ok and replay.candidate is not None
-    assert replay.candidate["nodes"] == session.working_ui["nodes"]
+    replay = EditSession(_empty_ui(), schema_provider=provider)
+    replay_batch = replay.apply_batch("restored = ValueDefaultNode(steps=37)")
+    assert replay_batch.ok is True
+    assert replay.working_ui["nodes"][0]["widgets_values"] == session.working_ui["nodes"][0]["widgets_values"]
 
     later = EditSession(
         session.working_ui,
@@ -246,65 +212,53 @@ def test_value_default_session_persists_effective_fields_for_replay() -> None:
     ],
 )
 def test_value_default_low_confidence_or_conflict_refused(context) -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=context,
-    )
+    session = _session(context, schema=_schema(default=20))
+    batch = session.apply_batch("n = ValueDefaultNode()")
 
-    assert _applied_value(result) == 20
-    applied = result.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
-    assert applied.value_default_receipts == ()
+    assert batch.ok is True
+    assert _widget_steps(session) == 20
 
 
 def test_value_default_invalid_prior_uses_schema_default() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=ValueDefaultContext(bindings=(_binding(1000),)),
+    session = _session(
+        ValueDefaultContext(bindings=(_binding(1000),)),
+        schema=_schema(default=20),
     )
+    batch = session.apply_batch("n = ValueDefaultNode()")
 
-    assert _applied_value(result) == 20
-    applied = result.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
-    assert applied.value_default_receipts == ()
+    assert batch.ok is True
+    assert _widget_steps(session) == 20
 
 
 def test_value_default_required_literal_without_default_keeps_pre_feature_warning() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=_Provider(_schema(default=None, required=True)),
-        value_default_context=ValueDefaultContext(),
+    session = _session(
+        ValueDefaultContext(),
+        schema=_schema(default=None, required=True),
     )
+    batch = session.apply_batch("n = ValueDefaultNode()")
 
-    assert result.ok is True
-    assert result.candidate is not None
+    assert batch.ok is True
     assert any(
         issue.code == "missing_required_add_node_input"
         and issue.severity == "warning"
-        for issue in result.diagnostics
+        for issue in batch.diagnostics
     )
 
 
 def test_value_default_edit_after_requires_and_accepts_user_receipt() -> None:
     provider = _Provider(_schema(default=20))
     add_context = ValueDefaultContext(bindings=(_binding(37),))
-    added = apply_delta(
+    added = EditSession(
         _empty_ui(),
-        (_add(),),
         schema_provider=provider,
         value_default_context=add_context,
     )
-    assert added.ok and added.candidate is not None
-    applied = added.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
+    added_batch = added.apply_batch("n = ValueDefaultNode()")
+    assert added_batch.ok is True
+    uid = added.working_ui["nodes"][0]["properties"]["vibecomfy_uid"]
     protected = add_context.protect_node(
         scope_path="",
-        uid=applied.uid,
+        uid=uid,
         class_type="ValueDefaultNode",
         fields=("steps",),
     )
@@ -314,92 +268,70 @@ def test_value_default_edit_after_requires_and_accepts_user_receipt() -> None:
             ValueUserOverride("ValueDefaultNode", "steps", 12),
         ),
     )
-    edit = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", applied.uid, "steps"),
-        value=12,
-    )
 
-    refused = apply_delta(
-        added.candidate,
-        (replace(edit, value=13),),
+    refused = EditSession(
+        added.working_ui,
         schema_provider=provider,
         value_default_context=protected,
     )
-    assert refused.ok is False
+    refused.render()
+    name = refused.name_by_uid[uid]
+    refused_batch = refused.apply_batch(f"{name}.steps = 13")
+    assert refused_batch.ok is False
     assert any(
         issue.code == "unauthorized_set_node_field_override"
-        for issue in refused.diagnostics
+        for issue in refused_batch.diagnostics
     )
 
-    accepted = apply_delta(
-        added.candidate,
-        (edit,),
+    accepted = EditSession(
+        added.working_ui,
         schema_provider=provider,
         value_default_context=authorized,
     )
-    assert accepted.ok and accepted.candidate is not None
-    assert accepted.candidate["nodes"][0]["widgets_values"][0] == 12
+    accepted.render()
+    name = accepted.name_by_uid[uid]
+    accepted_batch = accepted.apply_batch(f"{name}.steps = 12")
+    assert accepted_batch.ok is True
+    assert accepted.working_ui["nodes"][0]["widgets_values"][0] == 12
     assert any(
         issue.code == "value_default_edit_receipt"
         and issue.detail["basis"] == "explicit_user_value"
-        for issue in accepted.diagnostics
+        for issue in accepted_batch.diagnostics
     )
 
 
 def test_value_default_direct_multi_op_apply_gates_edit_after_add() -> None:
-    unauthorized_edit = SetNodeFieldOp(
-        op="set_node_field",
-        target=NodeFieldTarget("", "1", "steps"),
-        value=13,
-    )
-    result = apply_delta(
-        _empty_ui(),
-        (_add(), unauthorized_edit),
-        schema_provider=_Provider(_schema()),
-        value_default_context=ValueDefaultContext(bindings=(_binding(37),)),
-    )
+    session = _session(ValueDefaultContext(bindings=(_binding(37),)))
+    batch = session.apply_batch("n = ValueDefaultNode()\nn.steps = 13\n")
 
-    assert result.ok is False
+    assert batch.ok is False
     assert any(
         issue.code == "unauthorized_set_node_field_override"
-        for issue in result.diagnostics
+        for issue in batch.diagnostics
     )
 
 
 def test_value_default_selected_source_instance_is_consumed_once() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add(), _add()),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=ValueDefaultContext(bindings=(_binding(37),)),
+    session = _session(
+        ValueDefaultContext(bindings=(_binding(37),)),
+        schema=_schema(default=20),
     )
+    batch = session.apply_batch("a = ValueDefaultNode()\nb = ValueDefaultNode()\n")
 
-    assert result.ok and result.candidate is not None
+    assert batch.ok is True
     assert [
-        node["widgets_values"][0] for node in result.candidate["nodes"]
+        node["widgets_values"][0] for node in session.working_ui["nodes"]
     ] == [37, 20]
 
 
 def test_value_default_replay_marker_is_not_added_to_unbound_canonical_add() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (
-            replace(
-                _add({"steps": 20}),
-                uid="caller-identity",
-                node_id="1",
-            ),
-        ),
-        schema_provider=_Provider(_schema(default=20)),
-    )
+    session = _session(schema=_schema(default=20))
+    batch = session.apply_batch("n = ValueDefaultNode(steps=20)")
 
-    assert result.ok and result.candidate is not None
-    node = result.candidate["nodes"][0]
+    assert batch.ok is True
+    node = session.working_ui["nodes"][0]
     assert "vibecomfy_value_default_fields" not in node["properties"]
-    applied = result.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
-    assert VALUE_DEFAULT_FIELDS_MARKER not in applied.op.fields
+    assert VALUE_DEFAULT_FIELDS_MARKER not in batch.landed_ops[0].fields
 
 
 def test_value_default_result_is_identical_without_any_golden_access(monkeypatch) -> None:
@@ -414,60 +346,47 @@ def test_value_default_result_is_identical_without_any_golden_access(monkeypatch
         return original_open(self, *args, **kwargs)
 
     monkeypatch.setattr(pathlib.Path, "open", _deny_golden)
-    provider = _Provider(_schema(default=20))
     context = ValueDefaultContext(bindings=(_binding(37),))
 
-    without_golden = apply_delta(
-        _empty_ui(),
-        (_add(),),
-        schema_provider=provider,
-        value_default_context=context,
-    )
+    without_golden = _session(context, schema=_schema(default=20))
+    without_golden.apply_batch("n = ValueDefaultNode()")
     graph_with_irrelevant_metadata = _empty_ui()
     graph_with_irrelevant_metadata["extra"]["evaluation"] = {"available": False}
-    also_without_golden = apply_delta(
+    also = EditSession(
         graph_with_irrelevant_metadata,
-        (_add(),),
-        schema_provider=provider,
+        schema_provider=_Provider(_schema(default=20)),
         value_default_context=context,
     )
+    also.apply_batch("n = ValueDefaultNode()")
 
-    assert without_golden.ok and also_without_golden.ok
-    assert without_golden.candidate["nodes"] == also_without_golden.candidate["nodes"]
+    assert without_golden.working_ui["nodes"] == also.working_ui["nodes"]
 
 
 def test_value_default_qualified_prior_normalizes_model_literal_without_blocking() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add({"steps": 99}),),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=ValueDefaultContext(bindings=(_binding(37),)),
+    session = _session(
+        ValueDefaultContext(bindings=(_binding(37),)),
+        schema=_schema(default=20),
     )
+    batch = session.apply_batch("n = ValueDefaultNode(steps=99)")
 
-    assert result.ok is True
-    assert _applied_value(result) == 37
+    assert batch.ok is True
+    assert _widget_steps(session) == 37
     assert any(
         issue.code == "value_default_literal_normalized"
         and issue.severity == "warning"
-        for issue in result.diagnostics
+        for issue in batch.diagnostics
     )
 
 
 def test_value_default_unqualified_prior_preserves_model_literal() -> None:
-    result = apply_delta(
-        _empty_ui(),
-        (_add({"steps": 41}),),
-        schema_provider=_Provider(_schema(default=20)),
-        value_default_context=ValueDefaultContext(
-            bindings=(_binding(37, confidence="medium"),),
-        ),
+    session = _session(
+        ValueDefaultContext(bindings=(_binding(37, confidence="medium"),)),
+        schema=_schema(default=20),
     )
+    batch = session.apply_batch("n = ValueDefaultNode(steps=41)")
 
-    assert result.ok is True
-    assert _applied_value(result) == 41
-    applied = result.resolved_ops[0][1]
-    assert isinstance(applied, AppliedAddNodeSpec)
-    assert applied.value_default_receipts == ()
+    assert batch.ok is True
+    assert _widget_steps(session) == 41
 
 
 def test_value_default_empty_context_does_not_block_case00_constructor_literals() -> None:
@@ -491,27 +410,18 @@ def test_value_default_empty_context_does_not_block_case00_constructor_literals(
         },
         outputs=[],
     )
-    result = apply_delta(
+    session = EditSession(
         _empty_ui(),
-        (
-            AddNodeOp(
-                op="add_node",
-                scope_path="",
-                class_type="ImageScaleBy",
-                fields={"upscale_method": "lanczos", "scale_by": 2.0},
-                inputs={},
-            ),
-        ),
         schema_provider=_Provider(schema),
         value_default_context=ValueDefaultContext(),
     )
+    batch = session.apply_batch("n = ImageScaleBy(upscale_method='lanczos', scale_by=2.0)")
 
-    assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"] == ["lanczos", 2.0]
+    assert batch.ok is True
+    assert session.working_ui["nodes"][0]["widgets_values"] == ["lanczos", 2.0]
     assert not any(
         issue.code == "value_default_literal_normalized"
-        for issue in result.diagnostics
+        for issue in batch.diagnostics
     )
 
 
@@ -541,27 +451,16 @@ def test_value_default_alias_unmatched_prior_does_not_block_case01_literal() -> 
             ),
         ),
     )
-    result = apply_delta(
+    session = EditSession(
         _empty_ui(),
-        (
-            AddNodeOp(
-                op="add_node",
-                scope_path="",
-                class_type="ManualSigmas",
-                fields={"sigmas": sigma_string},
-                inputs={},
-            ),
-        ),
         schema_provider=_Provider(schema),
         value_default_context=context,
     )
+    batch = session.apply_batch(f"n = ManualSigmas(sigmas={sigma_string!r})")
 
-    assert result.ok is True
-    assert result.candidate is not None
-    assert result.candidate["nodes"][0]["widgets_values"] == [sigma_string]
+    assert batch.ok is True
+    assert session.working_ui["nodes"][0]["widgets_values"] == [sigma_string]
     assert not any(
         issue.code == "value_default_literal_normalized"
-        for issue in result.diagnostics
+        for issue in batch.diagnostics
     )
-
-

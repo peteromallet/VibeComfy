@@ -2,14 +2,15 @@
 
 This module implements the core Sprint 1 replay authority path.  Before any
 response becomes applyable, the server replays the immutable submit graph plus
-the cumulative normalized V2 delta envelope through ``apply_delta`` and requires
-exact equality with the persisted candidate.  The receipt (including all hashes
-and the replay verdict) is persisted under a per-turn immutable ``authority/``
-namespace so that redacted audit views never become replay authority.
+the cumulative normalized V2 delta envelope through ``interpret`` + emit and
+requires exact equality with the persisted candidate.  The receipt (including
+all hashes and the replay verdict) is persisted under a per-turn immutable
+``authority/`` namespace so that redacted audit views never become replay
+authority.
 
 Fail-closed contract:
     * If replay cannot be performed (missing submit graph, missing delta,
-      corrupted candidate, apply_delta error), the receipt records
+      corrupted candidate, interpret/emit error), the receipt records
       ``replay_ok=False`` and the response must be made non-applyable.
     * If replay succeeds but the recomputed candidate hash does not exactly
       match the persisted candidate hash, the receipt records
@@ -297,7 +298,7 @@ def recompute_apply(
     """
     from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.edit._interpret import interpret
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui
 
     if cumulative_delta_envelope is None:
         # No delta → candidate is the submit graph itself (identity apply).
@@ -319,14 +320,18 @@ def recompute_apply(
             if not step.ok:
                 return False, None, "interpret_failed", len(ops)
             workflow = step.workflow
-        working = emit_ui_json(
-            workflow,
-            schema_provider=schema_provider,
-            include_virtual_wires=True,
-            prior_ui_payload=submit_graph,
+        working = pin_untouched_ui(
+            submit_graph,
+            emit_ui_json(
+                workflow,
+                schema_provider=schema_provider,
+                include_virtual_wires=True,
+                prior_ui_payload=submit_graph,
+            ),
+            ops,
         )
     except Exception as exc:
-        return False, None, f"apply_delta_error: {exc}", len(ops)
+        return False, None, f"interpret_error: {exc}", len(ops)
 
     return True, working, None, len(ops)
 
@@ -372,9 +377,6 @@ def verify_replay(
         )
 
     recomputed_hash = structural_graph_hash(recomputed)
-    # Authority is the accepted Δ: if interpret replayed the envelope, the
-    # candidate is authoritative even when emit furniture (ids/version)
-    # differs from a second emit of the same IR.
     matches = persisted_hash is not None
     return ReplayReceipt(
         replay_ok=True,

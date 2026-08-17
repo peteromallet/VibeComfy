@@ -69,35 +69,24 @@ class _ParseExecuteMixin:
                 parsed.expanded, statement_results
             )
             if interpreted.landed_ops:
+                pending_ops = tuple(self.landed_ops) + tuple(interpreted.landed_ops)
+                candidate_ui = self._emit_working_snapshot(
+                    interpreted.workflow, ops=pending_ops
+                )
                 self.workflow = interpreted.workflow
                 if getattr(self, "history", None) is None:
                     self.history = []
-                # Batch 9 (Law 3): the accepted batch IS the Δ.  Each history
-                # entry records (wf_i, source, landed_ops) — the Python-surface
-                # source AND the typed ops the grammar yields are the same
-                # batch value (no parallel delta representation); ``diff`` is
-                # the generalizer that reproduces the landed ops from the IR
-                # pair alone.
+                # The accepted batch IS the Δ.  Each history entry records
+                # (wf_i, source, landed_ops) — the Python-surface source AND
+                # the typed ops the grammar yields are the same batch value.
                 self.history.append(
                     (pre_ir, code, tuple(interpreted.landed_ops))
                 )
                 self.landed_ops.extend(interpreted.landed_ops)
-                # Emit-side snapshot only: working_ui is recomputed from the
-                # retained base (_ui0) over ALL landed ops, so the JSON store
-                # is a pure function of the IR history — never an incremental
-                # dual-engine mutation.  interpret is the mutation authority;
-                # working_ui exists only as the exit projection.
+                # Emit-side snapshot only: working_ui is a pure function of
+                # the retained IR.  interpret is the mutation authority.
                 self.resolved_ops = []
-                self.working_ui, project_diags = self._project_ops_onto_ui_with_diagnostics(
-                    getattr(self, "_ui0", self.original_ui), tuple(self.landed_ops)
-                )
-                if project_diags:
-                    statement_results = self._merge_project_diagnostics(
-                        statement_results, project_diags
-                    )
-                from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
-
-                self.ledger = UiGraphIndex.ingest(self.working_ui)
+                self.working_ui = candidate_ui
                 for op in interpreted.landed_ops:
                     touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
                     self.touched_uids.update(touched_uids)
@@ -306,10 +295,7 @@ class _ParseExecuteMixin:
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
-        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
-
         self.working_ui = deepcopy(snapshot["working_ui"])
-        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops = list(snapshot["landed_ops"])
         self.touched_uids = set(snapshot["touched_uids"])
         self.touched_node_ids = set(snapshot["touched_node_ids"])

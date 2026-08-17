@@ -16,11 +16,12 @@ from typing import Any, Mapping
 
 import pytest
 
-from vibecomfy.porting.edit.apply import apply_delta
-from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, socket_types_compatible
-from vibecomfy.porting.edit.normalize import normalize_ui_json
 from tests.support.corpus_schema import (
     GraphInferredSchemaProvider,
     graph_inferred_schema_provider,
@@ -203,13 +204,12 @@ def ltx_i2v_provider(ltx_i2v_ui: dict[str, Any]) -> GraphInferredSchemaProvider:
 
 
 def _nodes_by_scope_and_uid(ui: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """Build a dict mapping (scope_path, uid) → normalized node dict."""
+    """Build a dict mapping (scope_path, uid) → stamped node dict."""
     import copy
-    normalized = normalize_ui_json(ui)
-    ledger = EditLedger.ingest(normalized)
+    index = UiGraphIndex.ingest(ui)
     return {
         (scope_path, uid): copy.deepcopy(node)
-        for (scope_path, uid), node in ledger.node_index.items()
+        for (scope_path, uid), node in index.node_index.items()
     }
 
 
@@ -235,8 +235,8 @@ def _assert_preserves_out_of_delta_nodes(
 
 def _scope_path_by_name(ui: Mapping[str, Any], name: str) -> str:
     """Find the scope_path for a subgraph by its display name."""
-    ledger = EditLedger.ingest(ui)
-    for scope in ledger.scopes.values():
+    index = UiGraphIndex.ingest(ui)
+    for scope in index.scopes.values():
         if scope.kind == "subgraph" and scope.graph.get("name") == name:
             return scope.scope_path
     raise AssertionError(f"Missing subgraph scope {name!r}")
@@ -474,7 +474,7 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
 def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
     """Case (d): Edit a node inside a subgraph using the correct scope_path.
 
-    Uses apply_delta directly with a scope_path since subgraph nodes are not
+    Uses interpret+emit with a scope_path since subgraph nodes are not
     accessible via EditSession.apply_batch (they don't receive top-level variable
     names from render).
     """
@@ -489,25 +489,32 @@ def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
     target_node = sg["nodes"][0]  # Pick the first subgraph node
     target_uid = str(target_node["id"])
 
-    stamped_before = EditLedger.ingest(original).stamped_copy()
+    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
 
     delta = parse_edit_delta(
         [{"op": "set_mode", "target": [scope_path, target_uid], "mode": 2}]
     )
-    result = apply_delta(original, delta, schema_provider=_wan_schema_provider())
+    provider = _wan_schema_provider()
+    workflow = from_ui(original, schema_provider=provider, use_comfy_converter=False)
+    result = interpret(workflow, delta, schema_provider=provider)
 
-    assert result.ok, f"apply_delta failed: {[str(d) for d in result.diagnostics]}"
-    assert result.candidate is not None
+    assert result.ok, f"interpret failed: {[str(d) for d in result.diagnostics]}"
+    candidate = emit_ui_json(
+        result.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=original,
+    )
 
     # Verify mode changed
     updated_node = next(
-        n for n in result.candidate["definitions"]["subgraphs"][0]["nodes"]
+        n for n in candidate["definitions"]["subgraphs"][0]["nodes"]
         if str(n["id"]) == target_uid
     )
     assert updated_node["mode"] == 2
 
     _assert_preserves_out_of_delta_nodes(
-        stamped_before, result.candidate, touched={(scope_path, target_uid)}
+        stamped_before, candidate, touched={(scope_path, target_uid)}
     )
 
 
@@ -745,7 +752,7 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     assert session.last_rendered_source == before["last_rendered_source"]
     assert session.last_rendered_workflow is before["last_rendered_workflow"]
     assert session.last_render_diagnostics == before["last_render_diagnostics"]
-    assert session.ledger.resolve_node("", "2") is not None
+    assert session.node_ui("2") is not None
 
 
 def test_apply_batch_validation_rollback_unchanged_on_later_edit_failure(

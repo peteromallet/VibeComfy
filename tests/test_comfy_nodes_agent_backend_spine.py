@@ -11991,12 +11991,10 @@ def _setup_v2_session_with_candidate(
             }
         ],
     }
-    from vibecomfy.porting.edit.apply_core import apply_delta
-    from vibecomfy.porting.edit.ops import normalize_delta_ops
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
 
-    applied = apply_delta(request["graph"], normalize_delta_ops(envelope))
-    assert applied.ok and applied.candidate is not None
-    candidate_graph = applied.candidate
+    ok, candidate_graph, error, _ = recompute_apply(request["graph"], envelope)
+    assert ok and candidate_graph is not None, error
     candidate_graph_hash = payload_hash(candidate_graph)
     structural_hash = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(

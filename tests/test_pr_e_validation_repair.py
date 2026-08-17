@@ -15,10 +15,12 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _compact_diag_to_dict,
     handle_agent_edit,
 )
+from vibecomfy.ingest.normalize import from_ui
+from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit._session_types import CompactDiagnostic, DoneResult
 from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
-from vibecomfy.porting.edit.apply import apply_delta
 from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.schema.validate import validate_api_against_schema
 from vibecomfy.workflow import ValidationIssue
@@ -85,13 +87,17 @@ def test_asset_swap_is_a_warning_not_a_hard_error_at_apply() -> None:
         target=NodeFieldTarget("", "8", "unet_name"),
         value="acestep-sft-v2.safetensors",
     )
-    applied = apply_delta(
-        _ui_graph(),
-        (op,),
-        schema_provider=provider,
-    )
+    ui = _ui_graph()
+    workflow = from_ui(ui, schema_provider=provider, use_comfy_converter=False)
+    applied = interpret(workflow, (op,), schema_provider=provider)
     assert applied.ok is True
-    assert applied.candidate is not None
+    candidate = emit_ui_json(
+        applied.workflow,
+        schema_provider=provider,
+        include_virtual_wires=True,
+        prior_ui_payload=ui,
+    )
+    assert candidate is not None
     codes = [issue.code for issue in applied.diagnostics]
     assert "asset_not_installed" in codes
     assert "value_not_in_enum" not in codes
@@ -104,7 +110,8 @@ def test_semantic_enum_violation_is_still_a_hard_error_at_apply() -> None:
         target=NodeFieldTarget("", "8", "weight_dtype"),
         value="bogus_dtype",
     )
-    applied = apply_delta(_ui_graph(), (op,), schema_provider=provider)
+    workflow = from_ui(_ui_graph(), schema_provider=provider, use_comfy_converter=False)
+    applied = interpret(workflow, (op,), schema_provider=provider)
     assert applied.ok is False
     assert any(issue.code == "value_not_in_enum" for issue in applied.diagnostics)
 

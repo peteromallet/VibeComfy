@@ -5,7 +5,7 @@ For every serialized-Vibe envelope in ``external_workflows/corpus/*.json``
 full canonical pipeline and prove deterministic lossless preservation at every
 boundary:
 
-    rich ──from_envelope──▶ ir1 ──normalize_agent_edit_graph──▶ canonical
+    rich ──from_envelope──▶ ir1 ──ingest_workflow_and_ui──▶ canonical
          ──normalize_to_api(use_comfy_converter=False)──▶ api ──from_api──▶ ir2
          ──emit_ui_json (using ir2.groups)──▶ reemit
          pin evidence: emit_ui_json(ir1, recovery_report=report)
@@ -51,8 +51,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
 from vibecomfy.ingest import from_api, from_envelope, normalize_to_api
+from vibecomfy.ingest.normalize import ingest_workflow_and_ui
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.refuse import RefusedEmit
 
@@ -307,7 +307,7 @@ def check_envelope(raw: dict[str, Any]) -> dict[str, Any]:
 
     # ── canonicalize + re-ingest + re-emit ──────────────────────────────────
     try:
-        canonical = normalize_agent_edit_graph(raw).graph
+        _, canonical = ingest_workflow_and_ui(raw)
         api2 = normalize_to_api(canonical, use_comfy_converter=False)
         ir2 = from_api(api2)
         ir2.groups = deepcopy(canonical.get("groups") or [])

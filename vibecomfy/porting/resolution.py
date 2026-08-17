@@ -1,11 +1,12 @@
-"""Shared resolution infrastructure for edit-lint and edit-apply paths.
+"""Shared resolution infrastructure for edit-lint and interpret.
 
-Provides the NodeBackend protocol, LintIndexBackend and EditLedgerBackend
-implementations, the ResolutionContext class with all resolve_* methods, and
-shared helpers build_lg_id_maps / _try_parse_lg_id.
+Provides the NodeBackend protocol, the LintIndexBackend implementation,
+the ResolutionContext class with all resolve_* methods, and shared helpers
+build_lg_id_maps / _try_parse_lg_id.
 
-Import graph constraint: this module does NOT import from edit_lint.py or
-edit_apply.py so the dependency is one-directional and acyclic.
+Import graph constraint: this module does NOT import from edit.lint so the
+dependency is one-directional and acyclic.  Mutation authority is interpret;
+this module only resolves names against a lint/index snapshot.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ _OUTPUT_ALIAS_RE = re.compile(r"output_(\d+)\Z")
 class _NodeMeta:
     """Immutable snapshot of a node's identity and I/O surface.
 
-    Used by both LintIndexBackend and EditLedgerBackend.node_meta_for.
+    Used by LintIndexBackend.node_meta_for.
     """
 
     scope_path: str
@@ -53,8 +54,7 @@ def build_lg_id_maps(
     """Build bidirectional LiteGraph-id ↔ canonical-uid maps per scope.
 
     Takes the ``node_index`` dict directly (``dict[(scope_path, uid) -> node]``)
-    rather than a full EditLedger so it can be called from both LintIndex.build
-    and EditLedgerBackend.__init__.
+    rather than a full graph index so it can be called from LintIndex.build.
 
     Returns ``(lg_id_to_uid, uid_to_lg_id)``.
     """
@@ -132,7 +132,7 @@ def _extract_node_meta(
 # ── NodeBackend protocol ──────────────────────────────────────────────────────
 
 class NodeBackend(Protocol):
-    """Backend for node lookups — implemented by LintIndexBackend and EditLedgerBackend."""
+    """Backend for node lookups — implemented by LintIndexBackend."""
 
     def node_for(self, scope_path: str, uid: str) -> dict[str, Any] | None: ...
     def node_exists(self, scope_path: str, uid: str) -> bool: ...
@@ -285,10 +285,10 @@ def _make_issue(
 # ── ResolutionContext ─────────────────────────────────────────────────────────
 
 class ResolutionContext:
-    """Unified resolution engine — backend-agnostic, used by both lint and apply.
+    """Unified resolution engine — backend-agnostic, used by lint.
 
-    All methods are stateless: they take a backend (LintIndexBackend or
-    EditLedgerBackend) plus the op reference, and return ResolveResult[T].
+    All methods are stateless: they take a NodeBackend (LintIndexBackend)
+    plus the op reference, and return ResolveResult[T].
     The instance itself carries no per-graph state.
     """
 

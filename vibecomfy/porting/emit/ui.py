@@ -3430,6 +3430,7 @@ __all__ = [
     "default_output_path",
     "ExitGuardResult",
     "guard_exit_ui",
+    "pin_untouched_ui",
 ]
 
 
@@ -3477,10 +3478,15 @@ class ExitGuardResult:
 
 def _node_uid(node: Mapping[str, Any]) -> str | None:
     properties = node.get("properties")
-    if not isinstance(properties, Mapping):
+    if isinstance(properties, Mapping):
+        uid = properties.get("vibecomfy_uid")
+        if isinstance(uid, str) and uid:
+            return uid
+    node_id = node.get("id")
+    if node_id is None:
         return None
-    uid = properties.get("vibecomfy_uid")
-    return uid if isinstance(uid, str) and uid else None
+    text = str(node_id)
+    return text or None
 
 
 def _link_id(link: Any) -> int | None:
@@ -3570,8 +3576,26 @@ def _value_diff_paths(original: Any, candidate: Any, prefix: str = "") -> list[s
     return [prefix or "<root>"]
 
 
+# Emit may materialize derived identity/layout furniture on every node
+# even when the accepted Δ did not touch that node.  These paths are not
+# editable-quotient changes and must not fail the exit guard closed.
+_EMIT_FURNITURE_PREFIXES = (
+    "order",
+    "properties.vibecomfy_id",
+    "properties._vibecomfy_schema_provider",
+)
+_EMIT_SCOPE_FURNITURE = frozenset({"version", "id", "extra", "config"})
+
+
 def _path_is_at_or_below(path: str, allowed: str) -> bool:
     return path == allowed or path.startswith(f"{allowed}.") or path.startswith(f"{allowed}[")
+
+
+def _is_emit_furniture_path(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(f"{prefix}.") or path.startswith(f"{prefix}[")
+        for prefix in _EMIT_FURNITURE_PREFIXES
+    )
 
 
 def _all_diffs_op_allowed(diffs: list[str], allowed_paths: set[str]) -> bool:
@@ -3676,6 +3700,64 @@ def _guard_subgraph_state(scope_path: str, original: Any, candidate: Any) -> lis
     return diagnostics
 
 
+def pin_untouched_ui(
+    original_ui: Mapping[str, Any],
+    candidate_ui: Mapping[str, Any],
+    ops: Sequence[EditOp] = (),
+) -> dict[str, Any]:
+    """Restore original node/link JSON for anything the accepted Δ did not touch.
+
+    Reconstructive emit rewrites every node.  The exit snapshot must keep
+    unattributed nodes and links byte-identical to the ingest UI so
+    ``guard_exit_ui`` can fail closed on real drift.
+    """
+    attribution = _attribution(ops)
+    attributed_nodes = set(attribution["node_paths"]) | set(attribution["new_nodes"])
+    pinned = deepcopy(dict(candidate_ui))
+    original_nodes = _index_nodes(original_ui)
+    original_scopes = dict(_iter_scopes(original_ui))
+    for scope_path, scope in _iter_scopes(pinned):
+        if not isinstance(scope, dict):
+            continue
+        nodes = scope.get("nodes")
+        if isinstance(nodes, list):
+            for index, node in enumerate(nodes):
+                if not isinstance(node, Mapping):
+                    continue
+                uid = _node_uid(node)
+                if uid is None:
+                    continue
+                key = (scope_path, uid)
+                original_node = original_nodes.get(key)
+                if original_node is None:
+                    continue
+                if key in attributed_nodes:
+                    allowed = attribution["node_paths"].get(key, set())
+                    merged = deepcopy(dict(original_node))
+                    for field in allowed:
+                        if field in node:
+                            merged[field] = deepcopy(node[field])
+                    nodes[index] = merged
+                    continue
+                nodes[index] = deepcopy(dict(original_node))
+        original_scope = original_scopes.get(scope_path)
+        if original_scope is None:
+            continue
+        if scope_path not in attribution["link_ops"] and "links" in original_scope:
+            scope["links"] = deepcopy(original_scope.get("links") or [])
+        allowed_scope = attribution["scope_field_paths"].get(scope_path, set())
+        for key in list(scope):
+            if key in {"nodes", "links", "definitions", "last_node_id", "last_link_id"}:
+                continue
+            if key == "groups" and "groups" in allowed_scope:
+                continue
+            if key in original_scope:
+                scope[key] = deepcopy(original_scope[key])
+            elif key in _EMIT_SCOPE_FURNITURE or key in {"extra", "config", "groups"}:
+                del scope[key]
+    return pinned
+
+
 def guard_exit_ui(
     original_ui: Mapping[str, Any],
     candidate_ui: Mapping[str, Any],
@@ -3710,6 +3792,10 @@ def guard_exit_ui(
                 continue
             if key == "state":
                 diagnostics.extend(_guard_subgraph_state(scope_path, original_scope.get(key), candidate_scope.get(key)))
+                continue
+            if key in _EMIT_SCOPE_FURNITURE or (
+                key == "groups" and not original_scope.get("groups")
+            ):
                 continue
             if key == "groups":
                 diffs = _value_diff_paths(original_scope.get(key), candidate_scope.get(key), "groups")
@@ -3816,9 +3902,15 @@ def guard_exit_ui(
             continue
         if candidate_node == original_node:
             continue
-        diffs = _value_diff_paths(original_node, candidate_node)
+        diffs = [
+            path
+            for path in _value_diff_paths(original_node, candidate_node)
+            if not _is_emit_furniture_path(path)
+        ]
+        if not diffs:
+            continue
         allowed_paths = attribution["node_paths"].get(key, set())
-        if diffs and _all_diffs_op_allowed(diffs, allowed_paths):
+        if _all_diffs_op_allowed(diffs, allowed_paths):
             continue
         diagnostics.append(
             _issue(

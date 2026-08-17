@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.ingest.normalize import from_api, normalize_to_api
-from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex as EditLedger
+from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -35,6 +35,36 @@ from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent_edit"
 _FLAT_PATH = _FIXTURE_DIR / "flat.json"
+
+
+def _group_index_for_node(graph: dict[str, Any], node: dict[str, Any] | None) -> int | None:
+    """Return the smallest LiteGraph group containing the node's center."""
+    if not node:
+        return None
+    pos = node.get("pos") or [0, 0]
+    size = node.get("size") or [0, 0]
+    try:
+        nx, ny = float(pos[0]), float(pos[1])
+        nw, nh = float(size[0]), float(size[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    cx, cy = nx + nw / 2.0, ny + nh / 2.0
+    groups = graph.get("groups") or []
+    best_index: int | None = None
+    best_area: float | None = None
+    for index, group in enumerate(groups):
+        if not isinstance(group, dict):
+            continue
+        bounding = group.get("bounding")
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            continue
+        gx, gy, gw, gh = (float(bounding[0]), float(bounding[1]), float(bounding[2]), float(bounding[3]))
+        if gx <= cx <= gx + gw and gy <= cy <= gy + gh:
+            area = gw * gh
+            if best_area is None or area < best_area:
+                best_area = area
+                best_index = index
+    return best_index
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +77,9 @@ def _load_raw_ui_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _ledger_from_raw(raw: dict[str, Any]) -> EditLedger:
-    """Ingest raw LiteGraph UI JSON through EditLedger and return it."""
-    return EditLedger.ingest(deepcopy(raw))
+def _ledger_from_raw(raw: dict[str, Any]) -> UiGraphIndex:
+    """Ingest raw LiteGraph UI JSON through UiGraphIndex and return it."""
+    return UiGraphIndex.ingest(deepcopy(raw))
 
 
 def _wf_from_raw_ui(raw: dict[str, Any]) -> VibeWorkflow:
@@ -69,8 +99,8 @@ def _load_flat_fixture_raw() -> dict[str, Any]:
     return _load_raw_ui_json(_FLAT_PATH)
 
 
-def _load_flat_fixture_ledger() -> EditLedger:
-    """Load the flat fixture through EditLedger."""
+def _load_flat_fixture_ledger() -> UiGraphIndex:
+    """Load the flat fixture through UiGraphIndex."""
     return _ledger_from_raw(_load_raw_ui_json(_FLAT_PATH))
 
 
@@ -146,7 +176,7 @@ class TestFixtureConversionHelpers:
         assert all(isinstance(link, list) and len(link) == 6 for link in raw["links"])
 
     def test_flat_fixture_ledger_ingests(self) -> None:
-        """EditLedger.ingest stamps uids and creates scopes for flat.json."""
+        """UiGraphIndex.ingest stamps uids and creates scopes for flat.json."""
         ledger = _load_flat_fixture_ledger()
         assert "" in ledger.scopes
         assert ledger.diagnostics == ()
@@ -2437,7 +2467,7 @@ class TestEditSessionPrimitiveLowering:
             FieldChange(uid="widget", field_path="seed", old=1, new=9),
         )
         assert result.statements[0].landed is True
-        widget = session.ledger.resolve_node("", "widget")
+        widget = session.node_ui( "widget")
         assert widget is not None
         assert widget["widgets_values"][0] == 9
 
@@ -2458,9 +2488,8 @@ class TestEditSessionPrimitiveLowering:
 
     def test_original_link_endpoint_uses_litegraph_origin_slot(self) -> None:
         from vibecomfy.porting.edit._describe import _DescribeMixin
-        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex as EditLedger
 
-        ledger = EditLedger.ingest(
+        ledger = UiGraphIndex.ingest(
             {
                 "nodes": [
                     {
@@ -2526,7 +2555,7 @@ sampler = KSampler(
         assert result.field_changes == ()
         assert session.working_ui == before_ui
         assert session.uid_by_name == before_names
-        assert session.ledger.resolve_node("", "dst") is not None
+        assert session.node_ui( "dst") is not None
         assert result.statements[0].landed is False
         assert result.statements[0].ok is False
         assert any(
@@ -2552,8 +2581,8 @@ sampler = KSampler(
         assert result.statements[1].landed is True
         assert "passthroughimage" in session.uid_by_name
         mid_uid = session.uid_by_name["passthroughimage"]
-        assert session.ledger.resolve_node("", mid_uid) is not None
-        dst = session.ledger.resolve_node("", "dst")
+        assert session.node_ui( mid_uid) is not None
+        dst = session.node_ui( "dst")
         assert dst is not None
         value_input = next(item for item in dst["inputs"] if item["name"] == "value")
         assert isinstance(value_input.get("link"), int)
@@ -2627,7 +2656,7 @@ sampler = KSampler(
                 new="qa_run",
             ),
         )
-        node = session.ledger.resolve_node("", "dict-widget")
+        node = session.node_ui( "dict-widget")
         assert node is not None
         assert node["widgets_values"] == {
             "frame_rate": 24,
@@ -2707,7 +2736,7 @@ sampler = KSampler(
         if not workflow_path.exists():
             pytest.skip("RuneXX LTX-2.3 fixture is not present at /tmp/runexx-ltx23")
         raw = json.loads(workflow_path.read_text(encoding="utf-8"))
-        stamped_before = EditLedger.ingest(raw).stamped_copy()
+        stamped_before = UiGraphIndex.ingest(raw).stamped_copy()
         before_nodes = {node["id"]: node for node in stamped_before["nodes"]}
         session = EditSession(raw)
         session.render()
@@ -2734,7 +2763,7 @@ sampler = KSampler(
         if not workflow_path.exists():
             pytest.skip("RuneXX LTX-2.3 fixture is not present at /tmp/runexx-ltx23")
         raw = json.loads(workflow_path.read_text(encoding="utf-8"))
-        stamped_before = EditLedger.ingest(raw).stamped_copy()
+        stamped_before = UiGraphIndex.ingest(raw).stamped_copy()
         before_nodes = {node["id"]: node for node in stamped_before["nodes"]}
         before_links = {link[0]: link for link in stamped_before["links"]}
         target_before = before_nodes[140]
@@ -2776,7 +2805,7 @@ sampler = KSampler(
         assert result.ok is True
         assert isinstance(result.landed_ops[0], UpsertLinkOp)
         assert result.statements[0].landed is True
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
 
@@ -2805,7 +2834,7 @@ sampler = KSampler(
 
         assert result.ok is True
         after_links = {link[0]: link for link in session.working_ui["links"]}
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         new_link_id = dst["inputs"][0]["link"]
         assert new_link_id not in {10, 11, 12}
@@ -2826,7 +2855,7 @@ sampler = KSampler(
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], RemoveLinkOp)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert dst["inputs"][0].get("link") is None
 
@@ -2838,7 +2867,7 @@ sampler = KSampler(
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], RemoveNodeOp)
-        assert session.ledger.resolve_node("", "dst") is None
+        assert session.node_ui( "dst") is None
 
     def test_apply_batch_lowers_mode_assignment_via_mode_labels_reverse_map(self) -> None:
         from vibecomfy.porting.edit.ops import SetModeOp
@@ -2849,7 +2878,7 @@ sampler = KSampler(
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetModeOp)
         assert result.landed_ops[0].mode == 2
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert dst["mode"] == 2
 
@@ -2889,7 +2918,7 @@ sampler = KSampler(
         minted_uid = result.statements[0].detail["minted_uid"]
         assert session.uid_by_name["saveimage"] == minted_uid
         assert session.name_by_uid[minted_uid] == "saveimage"
-        added = session.ledger.resolve_node("", minted_uid)
+        added = session.node_ui( minted_uid)
         assert added is not None
         assert added["type"] == "SaveImage"
         assert isinstance(added["inputs"][0]["link"], int)
@@ -2945,12 +2974,12 @@ sampler = KSampler(
         assert [type(op) for op in result.landed_ops] == [AddNodeOp, UpsertLinkOp]
         assert result.landed_ops[0].inputs["in_0"].uid == "src"
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert code_node["inputs"][0]["name"] == "in_0"
         assert isinstance(code_node["inputs"][0]["link"], int)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
         out_link = next(link for link in session.working_ui["links"] if link[3] == dst["id"])
@@ -2994,11 +3023,11 @@ sampler = KSampler(
 
         assert result.ok is True
         assert [type(op) for op in result.landed_ops] == [UpsertLinkOp, UpsertLinkOp]
-        proc = session.ledger.resolve_node("", "proc")
+        proc = session.node_ui( "proc")
         assert proc is not None
         assert proc["inputs"][0]["name"] == "in_0"
         assert isinstance(proc["inputs"][0]["link"], int)
-        dst = session.ledger.resolve_node("", "dst")
+        dst = session.node_ui( "dst")
         assert dst is not None
         assert isinstance(dst["inputs"][0]["link"], int)
         proc_out_link = next(link for link in session.working_ui["links"] if link[3] == dst["id"])
@@ -3043,7 +3072,7 @@ sampler = KSampler(
         assert isinstance(result.landed_ops[0], AddNodeOp)
         assert result.landed_ops[0].class_type == "vibecomfy.exec"
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert len(code_node["inputs"]) == 1
@@ -3069,7 +3098,7 @@ sampler = KSampler(
             "outputs": [["image", "*"]],
         }
         code_node_uid = result.statements[0].detail["minted_uid"]
-        code_node = session.ledger.resolve_node("", code_node_uid)
+        code_node = session.node_ui( code_node_uid)
         assert code_node is not None
         assert code_node["type"] == "vibecomfy.exec"
         assert len(code_node["inputs"]) == 1
@@ -3111,7 +3140,7 @@ sampler = KSampler(
         assert [statement.landed for statement in result.statements] == [True, True]
         minted_uid = result.statements[0].detail["minted_uid"]
         assert session.name_by_uid[minted_uid] == "dest_2"
-        echo = session.ledger.resolve_node("", minted_uid)
+        echo = session.node_ui( minted_uid)
         assert echo is not None
         assert isinstance(echo["inputs"][0]["link"], int)
 
@@ -3132,7 +3161,7 @@ sampler = KSampler(
         assert result.statements[0].diagnostics[0].code == "anchor_target_missing"
         assert result.statements[1].diagnostics[0].code == "unbound_graph_name"
         # widget.seed must remain unchanged
-        widget = session.ledger.resolve_node("", "widget")
+        widget = session.node_ui( "widget")
         assert widget is not None
         assert widget["widgets_values"][0] == 1  # original value
 
@@ -3155,7 +3184,7 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.between is not None
         assert tuple(target.uid for target in result.landed_ops[0].anchor.between) == ("src", "dst")
         minted_uid = result.statements[0].detail["minted_uid"]
-        added = session.ledger.resolve_node("", minted_uid)
+        added = session.node_ui( minted_uid)
         assert added is not None
         assert 0 < added["pos"][0] < 750
 
@@ -3227,7 +3256,7 @@ sampler = KSampler(
         positions = []
         for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
-            node = session.ledger.resolve_node("", uid)
+            node = session.node_ui( uid)
             assert node is not None
             positions.append(tuple(node["pos"]))
         assert [pos[0] for pos in positions] == sorted(pos[0] for pos in positions)
@@ -3275,12 +3304,11 @@ sampler = KSampler(
         result = session.apply_batch("mid = PassThroughImage(image=src.in_, near=dst)\n")
         assert result.ok is True
         minted_uid = result.statements[0].detail["minted_uid"]
-        node = session.ledger.resolve_node("", minted_uid)
+        node = session.node_ui( minted_uid)
         assert node is not None
 
-        scope_graph = session.ledger.scopes[""].graph
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
+        scope_graph = session.working_ui
+        dst_group = _group_index_for_node(scope_graph, session.node_ui("dst"))
         mid_group = _group_index_for_node(scope_graph, node)
         assert dst_group is not None, "dst should be in MyGroup"
         assert mid_group == dst_group, f"mid should inherit dst's group ({dst_group}), got {mid_group}"
@@ -3338,12 +3366,11 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        scope_graph = session.ledger.scopes[""].graph
+        scope_graph = session.working_ui
         groups = set()
         for name in ("stagea", "stageb", "stagec", "staged", "stagee"):
             uid = session.uid_by_name[name]
-            node = session.ledger.resolve_node("", uid)
+            node = session.node_ui( uid)
             assert node is not None
             g = _group_index_for_node(scope_graph, node)
             groups.add(g)
@@ -3395,17 +3422,16 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
-        scope_graph = session.ledger.scopes[""].graph
+        scope_graph = session.working_ui
         minted_uid = result.statements[0].detail["minted_uid"]
-        mid_node = session.ledger.resolve_node("", minted_uid)
+        mid_node = session.node_ui(minted_uid)
         assert mid_node is not None
         mid_group = _group_index_for_node(scope_graph, mid_node)
 
         # src is in UpstreamGroup (x=100), dst is in both (x=400)
         # DownstreamGroup (index 1) should be preferred
-        src_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "src"))
-        dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
+        src_group = _group_index_for_node(scope_graph, session.node_ui( "src"))
+        dst_group = _group_index_for_node(scope_graph, session.node_ui( "dst"))
         # dst overlaps both groups; but _group_index_for_node picks smallest containing area
         # The test verifies mid gets a group from one of them
         assert mid_group is not None, "mid should be in a group"
@@ -4099,10 +4125,10 @@ def test_add_node_resolves_disambiguated_authoring_alias_collision() -> None:
 
 
 class TestDoneGateAByteFaithfulness:
-    """Prove that done() gate A replays ops and confirms byte-faithfulness.
+    """Prove that done() gate A replays ops and confirms emit-exit faithfulness.
 
-    Gate A reapplies all landed ops over original_ui using apply_delta,
-    requires guard_full_ui success, and asserts the recomputed candidate
+    Gate A replays interpret over (wf_0, Δ_i), emits the replayed IR,
+    requires guard_exit_ui success, and asserts the recomputed candidate
     equals the current working_ui.
     """
 
@@ -4203,8 +4229,8 @@ class TestDoneGateAByteFaithfulness:
         assert "unused_widget_1='fixed'" not in rendered
         assert batch.ok is True
         assert isinstance(batch.landed_ops[0], SetNodeFieldOp)
-        node = session.working_ui["nodes"][0]
-        assert node["widgets_values"] == [42, "randomize", 8, 1, "euler", "normal", 1]
+        ir_node = next(iter(session.workflow.nodes.values()))
+        assert ir_node.inputs.get("control_after_generate") == "randomize"
 
     def test_apply_batch_maps_legacy_unused_widget_alias_to_control_after_generate(self):
         """Older scratchpad aliases still land on the same KSampler UI slot."""
@@ -4234,7 +4260,8 @@ class TestDoneGateAByteFaithfulness:
         batch = session.apply_batch("ksampler.unused_widget_1 = 'randomize'\n")
 
         assert batch.ok is True
-        assert session.working_ui["nodes"][0]["widgets_values"][1] == "randomize"
+        ir_node = next(iter(session.workflow.nodes.values()))
+        assert ir_node.inputs.get("control_after_generate") == "randomize"
         assert batch.field_changes[0].field_path == "control_after_generate"
 
     def test_done_succeeds_after_link_upsert(self):
@@ -4281,16 +4308,38 @@ class TestDoneGateAByteFaithfulness:
         result = session.done()
         assert result.ok is True
 
-        # Recompute independently to double-check
-        from vibecomfy.porting.edit.apply import apply_delta
-        applied = apply_delta(
+        # Recompute independently to double-check: replay interpret + emit.
+        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.porting.emit.ui import emit_ui_json, guard_exit_ui, pin_untouched_ui
+
+        workflow = from_ui(
             session.original_ui,
-            tuple(session.landed_ops),
             schema_provider=session.schema_provider,
+            use_comfy_converter=False,
         )
-        assert applied.ok
-        assert applied.candidate is not None
-        assert applied.candidate == working_before
+        for _pre, source, _ops in session.history:
+            replayed = interpret(
+                workflow,
+                source,
+                schema_provider=session.schema_provider,
+            )
+            assert replayed.ok
+            workflow = replayed.workflow
+        candidate = pin_untouched_ui(
+            session.original_ui,
+            emit_ui_json(
+                workflow,
+                schema_provider=session.schema_provider,
+                include_virtual_wires=True,
+                prior_ui_payload=session.original_ui,
+            ),
+            tuple(session.landed_ops),
+        )
+        assert candidate == working_before
+        assert guard_exit_ui(
+            session.original_ui, candidate, tuple(session.landed_ops)
+        ).ok
 
     def test_done_after_add_node_passes(self):
         """done() passes gate A after adding a node."""

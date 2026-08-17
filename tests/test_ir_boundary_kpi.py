@@ -33,38 +33,14 @@ PASS_THROUGH_ADAPTERS = frozenset(
     }
 )
 
-# Provisional baseline only.  These are the raw-UI authority sites discovered
-# before the sprint; they are not an allow-list and must be empty in Batch 16.
+# Post-deletion ceiling (batch 15).  These are the remaining raw-UI authority
+# sites on the current tree; Batch 16 drives this set to zero.
 CURRENT_AUTHORITY_EXCEPTIONS = frozenset(
     {
-        "vibecomfy/comfy_nodes/agent/_frag_batch_memory.py",
-        "vibecomfy/comfy_nodes/agent/_frag_entrypoint.py",
-        "vibecomfy/comfy_nodes/agent/_frag_ingest.py",
-        "vibecomfy/comfy_nodes/agent/_frag_transform_stages.py",
-        "vibecomfy/comfy_nodes/agent/authority_receipts.py",
         "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
-        "vibecomfy/comfy_nodes/agent/executor_durable.py",
-        "vibecomfy/comfy_nodes/agent/python_edit_v1.py",
-        "vibecomfy/porting/edit/_describe.py",
         "vibecomfy/porting/edit/_gates.py",
         "vibecomfy/porting/edit/_parse_execute.py",
-        "vibecomfy/porting/edit/_render.py",
-        "vibecomfy/porting/edit/apply_core.py",
-        "vibecomfy/porting/edit/apply_gate.py",
-        "vibecomfy/porting/edit/apply_links.py",
-        "vibecomfy/porting/edit/apply_mutate.py",
-        "vibecomfy/porting/edit/apply_place.py",
-        "vibecomfy/porting/edit/apply_resolve.py",
-        "vibecomfy/porting/edit/apply_resolve_add.py",
-        "vibecomfy/porting/edit/apply_resolve_base.py",
-        "vibecomfy/porting/edit/apply_types.py",
-        "vibecomfy/porting/edit/ledger.py",
-        "vibecomfy/porting/edit/lint.py",
-        "vibecomfy/porting/edit/projection.py",
         "vibecomfy/porting/edit/session.py",
-        "vibecomfy/porting/reorganise/graph_facts.py",
-        "vibecomfy/porting/reorganise/orchestrate.py",
-        "vibecomfy/porting/resolution.py",
     }
 )
 
@@ -77,14 +53,12 @@ CURRENT_PASS_THROUGH_EXCEPTIONS = frozenset(
     }
 )
 
-# Structural readers/writers seen at the Phase-0 baseline.  This semantic
-# ceiling complements the narrower legacy-symbol list above: a later batch may
+# Structural readers/writers on the current tree.  A later batch may
 # remove any entry without updating this test, but no new path may appear.
 CURRENT_STRUCTURAL_EXCEPTIONS = frozenset(
     {
         "vibecomfy/_compile/_resolve.py",
         "vibecomfy/comfy_nodes/agent/_frag_batch_loop.py",
-        "vibecomfy/comfy_nodes/agent/_frag_batch_memory.py",
         "vibecomfy/comfy_nodes/agent/_frag_humanize.py",
         "vibecomfy/comfy_nodes/agent/_frag_ingest.py",
         "vibecomfy/comfy_nodes/agent/_frag_research.py",
@@ -94,7 +68,6 @@ CURRENT_STRUCTURAL_EXCEPTIONS = frozenset(
         "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
         "vibecomfy/comfy_nodes/agent/contracts.py",
         "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
-        "vibecomfy/comfy_nodes/agent/graph_normalization.py",
         "vibecomfy/comfy_nodes/agent/layout_operation_v1.py",
         "vibecomfy/comfy_nodes/agent/mutation_materialization_v1.py",
         "vibecomfy/comfy_nodes/agent/projection_registry_v1.py",
@@ -109,7 +82,6 @@ CURRENT_STRUCTURAL_EXCEPTIONS = frozenset(
         "vibecomfy/demo_factory/oracle.py",
         "vibecomfy/demo_factory/predicates.py",
         "vibecomfy/demo_factory/run_campaign.py",
-        "vibecomfy/executor/core.py",
         "vibecomfy/executor/edit_suggestion_tools.py",
         "vibecomfy/executor/graph_facts.py",
         "vibecomfy/executor/graph_inspection.py",
@@ -121,16 +93,8 @@ CURRENT_STRUCTURAL_EXCEPTIONS = frozenset(
         "vibecomfy/model_assets.py",
         "vibecomfy/porting/assets.py",
         "vibecomfy/porting/edit/_describe.py",
-        "vibecomfy/porting/edit/_resolve.py",
         "vibecomfy/porting/edit/apply_field_aliases.py",
-        "vibecomfy/porting/edit/apply_gate.py",
-        "vibecomfy/porting/edit/apply_links.py",
-        "vibecomfy/porting/edit/apply_mutate.py",
-        "vibecomfy/porting/edit/apply_place.py",
-        "vibecomfy/porting/edit/apply_types.py",
-        "vibecomfy/porting/edit/ledger.py",
-        "vibecomfy/porting/edit/normalize.py",
-        "vibecomfy/porting/edit/projection.py",
+        "vibecomfy/porting/edit/session.py",
         "vibecomfy/porting/emit/emit_subgraph.py",
         "vibecomfy/porting/layout/layout_vector.py",
         "vibecomfy/porting/layout_store.py",

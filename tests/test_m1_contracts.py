@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import inspect
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +11,6 @@ from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
     CANDIDATE_AUTHORITY_V1,
     PREPARED_AUTHORITY_V1,
     ContractError,
-    assert_root_graph_v1,
     build_structural_graph_projection,
     canonical_json,
     classify_legacy_migration_v1,
@@ -31,10 +29,6 @@ from vibecomfy.comfy_nodes.agent.layout_operation_v1 import (
 from vibecomfy.comfy_nodes.agent.mutation_materialization_v1 import (
     compute_mutation_materialization_digest,
 )
-from vibecomfy.comfy_nodes.agent.python_edit_v1 import apply_delta_v1_python
-from vibecomfy.comfy_nodes.agent import edit as agent_edit
-from vibecomfy.comfy_nodes.agent import graph_normalization
-from vibecomfy.comfy_nodes.agent.graph_normalization import normalize_agent_edit_graph
 from vibecomfy.porting.edit.ops import EditOpParseError, normalize_delta_v1
 
 CORPUS = json.loads((Path(__file__).parent / "fixtures/agent_edit/m1_projection_golden_v1.json").read_text())
@@ -127,144 +121,6 @@ def test_native_projection_normalizes_host_ui_metadata_and_zero_widget_encodings
     omitted["nodes"][0].pop("widgets_values", None)
     variants.append(projection_reference_v1(omitted, "structural_v1")["digest"])
     assert len(set(variants)) == 1
-
-
-def test_agent_edit_normalizes_compiled_dict_nodes_before_strict_projection() -> None:
-    compiled_graph = {
-        "id": "6b59a19a09e6cdfe",
-        "nodes": {
-            "55": {
-                "class_type": "LoadImage",
-                "id": "55",
-                "inputs": {"image": "face_timberlake.jpg"},
-                "metadata": {
-                    "_ui": {
-                        "id": 55,
-                        "type": "LoadImage",
-                        "mode": 0,
-                        "pos": [-380, 490],
-                        "size": [315, 314],
-                        "inputs": [],
-                        "outputs": [
-                            {"name": "IMAGE", "type": "IMAGE", "links": None}
-                        ],
-                        "properties": {"Node name for S&R": "LoadImage"},
-                        "widgets_values": ["face_timberlake.jpg", "image"],
-                    }
-                },
-                "raw_widgets": {
-                    "has_dict_rows": False,
-                    "length": 2,
-                    "shape": "list",
-                    "source": "ui.widgets_values",
-                    "values": ["face_timberlake.jpg", "image"],
-                },
-                "uid": "55",
-                "widgets": {},
-            }
-        },
-        "edges": [],
-        "inputs": {},
-        "outputs": [],
-        "metadata": {},
-        "requirements": {
-            "custom_nodes": [],
-            "missing_models": [],
-            "missing_nodes": [],
-            "models": [],
-            "unsupported": [],
-        },
-        "source": {"id": "6b59a19a09e6cdfe"},
-        "strict_types": False,
-        "compiled_api": {
-            "55": {
-                "class_type": "LoadImage",
-                "inputs": {"image": "face_timberlake.jpg"},
-            }
-        },
-        "vibecomfy_format_version": "1.0",
-    }
-
-    normalized = normalize_agent_edit_graph(compiled_graph).graph
-
-    assert_root_graph_v1(normalized)
-    assert isinstance(normalized["nodes"], list)
-    assert normalized["nodes"][0]["id"] == 55
-    assert normalized["nodes"][0]["properties"]["vibecomfy_uid"] == "55"
-    assert build_structural_graph_projection(normalized)["nodes"][0]["id"] == 55
-    assert projection_reference_v1(normalized, "structural_v1")["canonical"]["nodes"][0][
-        "uid"
-    ] == "55"
-
-
-def test_agent_edit_graph_normalization_leaves_list_nodes_unchanged() -> None:
-    graph = {"nodes": [], "links": [], "metadata": {"format": "ui"}}
-
-    assert normalize_agent_edit_graph(graph).graph is graph
-
-    empty_compiled = {
-        "id": "empty",
-        "nodes": {},
-        "edges": [],
-        "inputs": {},
-        "outputs": [],
-        "metadata": {},
-        "requirements": {},
-        "source": {"id": "empty"},
-        "strict_types": False,
-        "compiled_api": {},
-        "vibecomfy_format_version": "1.0",
-    }
-    assert normalize_agent_edit_graph(empty_compiled).graph["nodes"] == []
-
-    malformed_mixed = dict(empty_compiled)
-    malformed_mixed["nodes"] = {"1": "not-a-node"}
-    with pytest.raises(ValueError, match="nodes must contain only node objects"):
-        normalize_agent_edit_graph(malformed_mixed)
-
-
-def test_agent_edit_normalizes_graph_before_turn_allocation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    submitted = {"nodes": {"55": {"id": "55"}}}
-    canonical = {"nodes": [], "links": []}
-    captured: dict[str, object] = {}
-
-    def fake_normalize(graph: dict, *, schema_provider: object) -> graph_normalization.NormalizedAgentEditGraph:
-        assert graph is submitted
-        # Batch 3: the door returns the typed result carrying both the
-        # canonical dict and the retained IR; the entrypoint stores the IR on
-        # state at allocation and never recovers it via getattr/dict tricks.
-        return graph_normalization.NormalizedAgentEditGraph(
-            graph=canonical,
-            workflow=object(),
-        )
-
-    def fake_allocate_turn(**kwargs: object) -> SimpleNamespace:
-        request_payload = kwargs["request_payload"]
-        assert isinstance(request_payload, dict)
-        captured["graph"] = request_payload["graph"]
-        return SimpleNamespace(
-            replay=SimpleNamespace(
-                response={
-                    "ok": True,
-                    "message": "Replayed.",
-                    "outcome": {"kind": "noop"},
-                }
-            ),
-            conflict=None,
-        )
-
-    monkeypatch.setattr(graph_normalization, "normalize_agent_edit_graph", fake_normalize)
-    monkeypatch.setattr(agent_edit, "allocate_turn", fake_allocate_turn)
-
-    response = agent_edit.handle_agent_edit(
-        {"task": "adjust padding", "graph": submitted, "session_id": "session"},
-        schema_provider=object(),
-    )
-
-    assert captured["graph"] is canonical
-    assert response["outcome"]["kind"] == "noop"
 
 
 def test_load_image_projection_excludes_frontend_upload_widget_carriers() -> None:
@@ -361,7 +217,6 @@ def test_m1_static_authority_guardrails() -> None:
     allowed_projection_literal_owners = {
         agent_root / "projection_registry_v1.py",
         agent_root / "candidate_transaction.py",
-        agent_root / "python_edit_v1.py",
         web_root / "projection_registry_v1.js",
         web_root / "prepared_authority_v1.js",
         web_root / "vibecomfy_roundtrip.js",
@@ -423,52 +278,6 @@ def test_layout_undo_and_legacy_policies_fail_closed() -> None:
         "identity_fence": {"transaction_id": "tx", "candidate_id": "candidate", "plan_hash": "plan", "generation": 1, "lease_nonce": "nonce"},
         "inverse_or_restore": {"contract_version": "inverse_delta_v1", "digest": "c" * 64, "payload": []},
     })
-
-
-def test_python_only_delta_v1_end_to_end_uses_explicit_workflow_identity() -> None:
-    """The supported Python path applies canonical UI JSON without browser globals."""
-    graph = {
-        "last_node_id": 1,
-        "last_link_id": 0,
-        "nodes": [
-            {
-                "id": 1,
-                "type": "KSampler",
-                "mode": 0,
-                "pos": [10, 20],
-                "size": [320, 240],
-                "properties": {"vibecomfy_uid": "sampler-1"},
-                "widgets_values": [],
-                "inputs": [],
-                "outputs": [],
-            }
-        ],
-        "links": [],
-        "groups": [],
-        "config": {},
-        "extra": {},
-        "version": 0.4,
-    }
-    delta = {
-        "delta_contract": "delta_v1",
-        "wire_version": "2.0.0",
-        "ops": [{"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}],
-    }
-
-    result = apply_delta_v1_python(workflow_id=UUID, graph=graph, delta=delta)
-
-    assert result["contract_version"] == "python_edit_result_v1"
-    assert result["workflow_id"] == UUID
-    assert result["scope"] == {"kind": "root", "path": ""}
-    assert result["operation"] == delta
-    assert result["graph"]["nodes"][0]["mode"] == 4
-    assert result["precondition"]["projection"] == "structural_v1"
-    assert result["postcondition"]["projection"] == "structural_v1"
-    assert result["precondition"]["digest"] != result["postcondition"]["digest"]
-    assert json.loads(json.dumps(result)) == result
-
-    with pytest.raises(ContractError, match="workflow_id"):
-        apply_delta_v1_python(workflow_id="not-a-workflow-uuid", graph=graph, delta=delta)
 
 
 # ---------------------------------------------------------------------------

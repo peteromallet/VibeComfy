@@ -126,12 +126,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         value_default_context: ValueDefaultContext | None = None,
         initial_workflow: VibeWorkflow | None = None,
     ) -> None:
-        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
-
+        # raw_ui_json is ingest-only: the named door builds the retained IR
+        # once.  working_ui starts as that ingest snapshot and is later only
+        # an emit-side projection of the accepted IR — never a mutation store.
         self.original_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
         self.working_ui: dict[str, Any] = deepcopy(dict(raw_ui_json))
-        self.original_ledger = UiGraphIndex.ingest(self.original_ui)
-        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
@@ -151,9 +150,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # Batch 4 (Law 5): TRANSIENT within-batch name index.  When an
         # add-node statement lands, its target_name is registered here so
         # LATER statements in the same batch can reference the minted node.
-        # It is never written to the ledger/working_ui, never consulted by
-        # the pure naming function, and carries no binding semantics — a
-        # fresh session (or render) resolves names purely by
+        # It is never written to the retained IR or emit snapshot, never
+        # consulted by the pure naming function, and carries no binding
+        # semantics — a fresh session (or render) resolves names purely by
         # (class_type, uid-order) again.
         self._transient_name_index: dict[str, str] = {}
         self._transient_uid_index: dict[str, str] = {}
@@ -161,15 +160,10 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.last_rendered_source: str | None = None
         self.last_rendered_workflow: VibeWorkflow | None = None
         self.last_render_diagnostics: tuple[CompactDiagnostic, ...] = ()
-        # Batch 3 (IR authority): the ingest IR was constructed once by the
-        # named door and is retained here.  Renders ALWAYS come from this IR;
-        # it is refreshed once per committed batch through the copy-on-write
-        # edit engine (apply_edits_cow — never a second ingest), so
-        # render() never re-derives the IR from working_ui JSON.  working_ui
-        # stays as the JSON store used for emit/ledger, not as the render
-        # authority.  The rebuild is COW (Law 5): the pre-batch IR is never
-        # mutated, untouched nodes keep their provenance, and edited nodes
-        # compose provenance through the max-taint join.
+        # The ingest IR is constructed once by the named door and retained
+        # here.  Renders ALWAYS come from this IR.  working_ui is only the
+        # emit-side snapshot used by the exit guard — never render authority
+        # and never a parallel mutation store.
         self.workflow: VibeWorkflow | None = initial_workflow
         if self.workflow is None:
             self.workflow = self._workflow_from_ui(self.original_ui)
@@ -227,7 +221,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
         Replay from ``wf_0`` through the remaining deltas via ``interpret`` so
         no in-place mutation is required.  ``working_ui`` is rebuilt by
-        projecting each remaining batch's landed ops onto ``_ui0``.
+        emitting the replayed IR.
         """
         if steps <= 0 or not self.history:
             return False
@@ -256,12 +250,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             )
             workflow = result.workflow
             remaining_ops.extend(result.landed_ops)
-        from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
-
         self.workflow = workflow
-        self.working_ui = self._emit_working_snapshot(workflow)
-        self.ledger = UiGraphIndex.ingest(self.working_ui)
         self.landed_ops = remaining_ops
+        self.working_ui = self._emit_working_snapshot(workflow, ops=remaining_ops)
         self.resolved_ops = remaining_resolved
         self.touched_uids = set()
         self.touched_node_ids = set()
@@ -338,37 +329,62 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 snapshot[(uid, str(name))] = value
         return snapshot
 
-    def _emit_working_snapshot(self, workflow: VibeWorkflow | None = None) -> dict[str, Any]:
+    def _emit_working_snapshot(
+        self,
+        workflow: VibeWorkflow | None = None,
+        *,
+        ops: tuple[Any, ...] | list[Any] | None = None,
+    ) -> dict[str, Any]:
         """Emit the current IR to UI JSON. This is the only working-graph projector."""
-        from vibecomfy.porting.emit.ui import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui
 
         target = workflow if workflow is not None else getattr(self, "workflow", None)
         if target is None:
             return deepcopy(self.original_ui)
-        return emit_ui_json(
+        emitted = emit_ui_json(
             target,
             schema_provider=self.schema_provider,
             include_virtual_wires=True,
             prior_ui_payload=self.original_ui,
         )
+        pin_ops = tuple(self.landed_ops if ops is None else ops)
+        return pin_untouched_ui(self.original_ui, emitted, pin_ops)
 
-    def _project_ops_onto_ui(
-        self,
-        working_ui: dict[str, Any],
-        ops: tuple[Any, ...] | list[Any],
-    ) -> dict[str, Any]:
-        projected, _diags = self._project_ops_onto_ui_with_diagnostics(working_ui, ops)
-        return projected
+    def node_ui(self, uid: str, scope_path: str = "") -> dict[str, Any] | None:
+        """Return the emit-side node dict for *uid*, or None.
 
-    def _project_ops_onto_ui_with_diagnostics(
-        self,
-        working_ui: dict[str, Any],
-        ops: tuple[Any, ...] | list[Any],
-    ) -> tuple[dict[str, Any], tuple[Any, ...]]:
-        del working_ui
-        if not ops:
-            return deepcopy(self.original_ui), ()
-        return self._emit_working_snapshot(), ()
+        Inspection helper only — the retained IR is the mutation authority.
+        Root scope is ``working_ui``; nested scopes walk ``definitions.subgraphs``.
+        """
+        graph = self.working_ui
+        if scope_path:
+            for part in scope_path.split("/"):
+                if not part.startswith("sg"):
+                    return None
+                try:
+                    index = int(part[2:])
+                except ValueError:
+                    return None
+                definitions = graph.get("definitions")
+                if not isinstance(definitions, Mapping):
+                    return None
+                subgraphs = definitions.get("subgraphs")
+                if not isinstance(subgraphs, list) or index >= len(subgraphs):
+                    return None
+                child = subgraphs[index]
+                if not isinstance(child, Mapping):
+                    return None
+                graph = child
+        nodes = graph.get("nodes")
+        if not isinstance(nodes, list):
+            return None
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            properties = node.get("properties")
+            if isinstance(properties, Mapping) and properties.get("vibecomfy_uid") == uid:
+                return dict(node)
+        return None
 
     def _projection_op(self, op: Any) -> Any:
         return op
