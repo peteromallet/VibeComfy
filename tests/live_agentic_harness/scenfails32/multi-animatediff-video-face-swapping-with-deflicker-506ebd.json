@@ -1,0 +1,41 @@
+{
+  "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
+  "query": "Replace the AnimateDiff motion module with a more recent v3 variant and restructure the pipeline to include a ControlNet stage for pose-guided animation as a conditioning input instead of relying solely on the base animatediff temporal module. Keep the face swapping, deflicker, and ICLight stages intact.",
+  "workflow_path": "external_workflows/corpus/506ebdde037e22d8.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The workflow now uses ControlNet for pose-conditioned video generation alongside an updated motion module, with the original face-swap, deflicker, and relighting stages still functional.",
+    "quality": "All new nodes are fully wired, no dangling connections, the video outputs correctly, and the existing downstream stages receive the proper latent input.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "controlnet",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "animatediff",
+      "face-swap",
+      "video",
+      "deflicker",
+      "iclight",
+      "masking",
+      "reactor",
+      "segment-anything",
+      "controlnet"
+    ],
+    "source_workflow_id": "506ebdde037e22d8",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This forces a model backbone swap plus addition of a control stage, testing deep structural editing specific to the workflow's AnimateDiff/ControlNet domain."
+  }
+}
