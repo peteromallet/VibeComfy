@@ -12,6 +12,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from vibecomfy.intent._ledger import (  # noqa: F401 — one ledger, re-exported
+    CLASS_D_HARD_FLOOR_IDS,
+    EXIT_FAILURE_LEDGER,
+    FailureLedgerRow,
+    LEDGER_ID_COUNT,
+    LEDGER_RECONSTRUCTION_SOURCE,
+    LEDGER_UNRECOVERABLE_COUNT,
+    assert_ledger_integrity,
+    ledger_scenario_ids,
+)
+
 
 @dataclass
 class Fixture:
@@ -94,12 +105,10 @@ def _apply_op(wf: Any, op: dict) -> None:
             inputs = node.get("inputs", [])
             widget_inputs = [i for i in inputs if i.get("widget") and i.get("link") is None]
             target = next((i for i in widget_inputs if i.get("name") == field), None)
-            if target is not None:
-                if wv is None:
-                    node["widgets_values"] = [new_val]
-                else:
-                    wv.append(new_val)
-            # If not found at all, skip silently (ALLOW by no-change)
+            if target is not None and isinstance(wv, list):
+                wv.append(new_val)
+            # Missing widgets_values is left unchanged: assigning that graph
+            # key belongs in the ingest/emit doors, not the fixture loader.
     else:
         # API-format: keys are node IDs
         if node_id in wf:

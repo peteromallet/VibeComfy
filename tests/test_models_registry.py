@@ -10,7 +10,6 @@ import pytest
 
 pytest.importorskip("dotenv", reason="requires runpod-launch extra (python-dotenv)")
 
-from scripts.runpod_corpus_matrix import _remote_script
 from vibecomfy.registry import models_loader
 from vibecomfy.registry.models_loader import (
     ModelFile,
@@ -486,6 +485,9 @@ def test_legacy_heredoc_downloads_match_registry_entries() -> None:
 
 
 def _legacy_download_tuples() -> list[tuple[str, str, str, list[str], int]]:
+    pytest.importorskip("runpod_lifecycle", reason="requires sibling runpod-lifecycle package")
+    from scripts.runpod_corpus_matrix import _remote_script
+
     blocks = [block for block in re.findall(r"\"\$PY\" - <<'PY'\n(.*?)\nPY", _remote_script(), flags=re.S) if "def materialize_model" in block]
     phases = ["core", "gguf", "ltx", "wan_wrapper"]
     assert len(blocks) == len(phases)

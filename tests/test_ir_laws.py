@@ -21,6 +21,16 @@ from typing import Any, Mapping
 import pytest
 
 from vibecomfy.ingest.normalize import from_envelope, from_ui
+from vibecomfy.intent._ledger import (
+    CLASS_D_HARD_FLOOR_IDS,
+    EXIT_FAILURE_LEDGER,
+    FailureLedgerRow,
+    LEDGER_ID_COUNT,
+    LEDGER_UNRECOVERABLE_COUNT,
+    _EXIT_STATUSES,
+    assert_ledger_integrity,
+    ledger_scenario_ids,
+)
 from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider, schema_for
@@ -48,152 +58,8 @@ SPIKE_CORPUS = (
     ),
 )
 
-@dataclass(frozen=True, slots=True)
-class FailureLedgerRow:
-    family: str
-    count: int
-    owner: str
-    scenario_ids: tuple[str, ...] | None = None
-    status: str = "resolved"
-    evidence: str = ""
-
-
-# Owner ledger from plan.md's failure partition.  Family counts stay the
-# reconciliation constraint (57).  Original per-scenario run artifacts were
-# never restored; known ids come from .oracle/findings/failure-partition.txt.
-# Live 57-id confirmation is deferred to the host's post-sprint 100-scenario
-# run.  Status is mechanism-level: resolved (owning phase landed + harness),
-# capability_floor, or infra_out_of_scope.
-EXIT_FAILURE_LEDGER = (
-    FailureLedgerRow(
-        "semantic: gen_hard_missing_precedents",
-        8,
-        "phase 6",
-        None,
-        "resolved",
-        "ResearchAttempt never/empty/thin/grounded + tests/test_executor_flows.py; live ids deferred",
-    ),
-    FailureLedgerRow(
-        "semantic: gen_hard_missing_schemas",
-        6,
-        "phase 5",
-        None,
-        "resolved",
-        "render census/surface + tests/test_ir_laws.py law 4; live ids deferred",
-    ),
-    FailureLedgerRow(
-        "semantic: variance",
-        3,
-        "phase 5",
-        (
-            "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
-            "multi-video-based-character-replacement-using",
-            "multi-wan-vace-video-retargeting-driven",
-        ),
-        "capability_floor",
-        "docs/failure-analysis/variance.md; CLASS_D_HARD_FLOOR in scripts/b09_reducer.py",
-    ),
-    FailureLedgerRow(
-        "semantic: unsupported-conclusion residue",
-        8,
-        "phase 6",
-        None,
-        "resolved",
-        "semantic routes reply without research gating; original 8 ids unrecoverable — live rerun deferred",
-    ),
-    FailureLedgerRow(
-        "edit: pre_existing_bug",
-        8,
-        "phase 3",
-        None,
-        "resolved",
-        "interpret + EditableSurface + tests/test_porting_edit_apply.py; live ids deferred",
-    ),
-    FailureLedgerRow(
-        "edit: cross_domain_over_rejection",
-        8,
-        "phase 3",
-        None,
-        "resolved",
-        "unknown-schema typed refusal on interpret; live ids deferred",
-    ),
-    FailureLedgerRow(
-        "edit: widget_shape_guard",
-        4,
-        "phase 3",
-        (
-            "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
-            "multi-crops-face-previews-it-sets",
-            "multi-image-to-video-with-upscaling-and-color-matchi-359848",
-            "video-svd-image-to-video-generation-fc240f",
-        ),
-        "resolved",
-        "widget_shape_fence + interpret CAS; live confirmation deferred",
-    ),
-    FailureLedgerRow(
-        "edit: batch_repl_gap",
-        3,
-        "phase 3",
-        (
-            "image-sdxl-txt2img-cat-in-spacesuit",
-            "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
-            "multi-image-to-3d-object-generation-with-background-1a7f84",
-        ),
-        "resolved",
-        "batch REPL → interpret; tests/test_porting_edit_apply.py",
-    ),
-    FailureLedgerRow(
-        "edit: gen_hard_architecture",
-        2,
-        "phase 5",
-        (
-            "multi-image-to-video-with-llm",
-            "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
-        ),
-        "resolved",
-        "render(wf, lens) topology/census; tests/test_ir_laws.py law 4",
-    ),
-    FailureLedgerRow(
-        "edit: revision_evidence_fix",
-        2,
-        "phase 4",
-        (
-            "3d-generates-a-3d-mesh-from",
-            "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
-        ),
-        "resolved",
-        "canonical Δ + tests/test_ir_laws.py law 3 inverse/minimality",
-    ),
-    FailureLedgerRow(
-        "edit: gen_hard_discovery_loop",
-        2,
-        "phase 3",
-        (
-            "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
-            "video-ltx-video-upscaling-and-enhancement",
-        ),
-        "resolved",
-        "grammar-bounded interpret; live confirmation deferred",
-    ),
-    FailureLedgerRow(
-        "infra",
-        2,
-        "out of scope: reclassify with evidence; phase 7 is cut",
-        ("case-03-audio_merge",),
-        "infra_out_of_scope",
-        "phase 7 cut; case-03 infra_resolver_not_enabled; second infra id unenumerated",
-    ),
-    FailureLedgerRow(
-        "other",
-        1,
-        "capability-floor candidate; reclassify with evidence",
-        None,
-        "capability_floor",
-        "finding: capability-floor candidate; original singleton id unenumerated",
-    ),
-)
+# One ledger: vibecomfy.intent._ledger (re-exported from intent._fixture).
 PROVISIONAL_FAILURE_LEDGER = EXIT_FAILURE_LEDGER
-_EXIT_STATUSES = frozenset({"resolved", "capability_floor", "infra_out_of_scope"})
 
 _UID_COMMENT = re.compile(r"\buid:([^\s]+)")
 _PROVISIONAL_SCHEMA_SOURCES = frozenset(
@@ -431,7 +297,7 @@ def _tiny_workflow(*, node_ids: tuple[str, str] = ("1", "2")) -> VibeWorkflow:
 
 @pytest.fixture
 def provisional_failure_ledger() -> tuple[FailureLedgerRow, ...]:
-    """The Phase-0 planning ledger; scenario ids intentionally remain absent."""
+    """The single 57-id owner ledger reconstructed from the recovery rerun."""
     return PROVISIONAL_FAILURE_LEDGER
 
 
@@ -445,35 +311,40 @@ def test_spike_corpus_hashes_are_frozen(
     assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash
 
 
-def test_provisional_failure_ledger_has_13_nonoverlapping_rows_totaling_57(
+def test_exit_failure_ledger_has_57_unique_ids_and_honest_statuses(
     provisional_failure_ledger: tuple[FailureLedgerRow, ...],
 ) -> None:
-    assert len(provisional_failure_ledger) == 13
+    from vibecomfy.intent import _fixture as fixture_ledger
+    from vibecomfy.intent import _ledger as intent_ledger
+
+    assert_ledger_integrity()
+    assert provisional_failure_ledger is EXIT_FAILURE_LEDGER
+    assert fixture_ledger.EXIT_FAILURE_LEDGER is EXIT_FAILURE_LEDGER
+    assert intent_ledger.EXIT_FAILURE_LEDGER is EXIT_FAILURE_LEDGER
+    assert LEDGER_UNRECOVERABLE_COUNT == 0
+    ids = ledger_scenario_ids()
+    assert len(ids) == LEDGER_ID_COUNT == 57
+    assert len(ids) == len(set(ids))
     families = [row.family for row in provisional_failure_ledger]
     assert len(families) == len(set(families))
-    assert sum(row.count for row in provisional_failure_ledger) == 57
-    assert all(row.count > 0 and row.owner and row.evidence for row in provisional_failure_ledger)
+    assert all(row.scenario_ids and row.owner and row.evidence for row in provisional_failure_ledger)
     assert all(row.status in _EXIT_STATUSES for row in provisional_failure_ledger)
-    known_ids = [
+    assert all(row.status != "resolved" or row.mechanism for row in provisional_failure_ledger)
+    hard = {
         scenario_id
         for row in provisional_failure_ledger
-        if row.scenario_ids
+        if row.family == "class_d_hard_floor"
         for scenario_id in row.scenario_ids
-    ]
-    assert len(known_ids) == len(set(known_ids))
-    assert all(
-        row.scenario_ids is None or len(row.scenario_ids) <= row.count
-        for row in provisional_failure_ledger
-    )
-    partition = {
-        prefix: sum(
-            row.count
-            for row in provisional_failure_ledger
-            if row.family == prefix or row.family.startswith(f"{prefix}:")
-        )
-        for prefix in ("semantic", "edit", "infra", "other")
     }
-    assert partition == {"semantic": 25, "edit": 29, "infra": 2, "other": 1}
+    assert hard == set(CLASS_D_HARD_FLOOR_IDS)
+    assert all(row.status == "capability_floor" for row in provisional_failure_ledger if row.family == "class_d_hard_floor")
+    variance_ids = {
+        scenario_id
+        for row in provisional_failure_ledger
+        if row.family == "semantic: variance"
+        for scenario_id in row.scenario_ids
+    }
+    assert variance_ids.isdisjoint(CLASS_D_HARD_FLOOR_IDS)
 
 
 def test_pi_edit_includes_editable_channels_mode_interfaces_and_stable_identity() -> None:
@@ -1515,6 +1386,8 @@ def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> Non
 
 def test_law_5_boundary_has_no_provisional_exceptions() -> None:
     from scripts.check_ir_boundary import (
+        GRAPH_JSON_DOORS,
+        PASS_THROUGH_ADAPTERS,
         ci_violations,
         forbidden_symbol_paths,
         pass_through_structural_paths,
@@ -1523,6 +1396,10 @@ def test_law_5_boundary_has_no_provisional_exceptions() -> None:
     assert forbidden_symbol_paths() == frozenset()
     assert pass_through_structural_paths() == frozenset()
     assert ci_violations() == ()
+    assert "working_ui" not in GRAPH_JSON_DOORS
+    assert "working_ui" not in PASS_THROUGH_ADAPTERS
+    assert all("working_ui" not in path for path in GRAPH_JSON_DOORS)
+    assert all("working_ui" not in path for path in PASS_THROUGH_ADAPTERS)
 
 
 def test_law_4_grammar_generates_allow_list_prompt_and_doc_table() -> None:

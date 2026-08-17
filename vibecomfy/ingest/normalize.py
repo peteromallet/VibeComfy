@@ -1570,3 +1570,175 @@ def ingest_workflow_and_ui(
         schema_provider=schema_provider,
         guard_original_ui=graph,
     )
+
+
+# ── Door-owned subgraph helper resolution ──────────────────────────────────
+# These helpers inspect and mutate subgraph definition JSON.  They live in
+# the ingest door because that is the only allowed graph-JSON mutation
+# surface besides the emit door.  convert() calls this after snapshotting
+# the unresolved definitions onto the IR.
+
+_SUBGRAPH_RESOLVABLE = frozenset({
+    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
+    "PrimitiveBoolean", "PrimitiveInt", "PrimitiveFloat",
+    "PrimitiveString", "PrimitiveStringMultiline",
+})
+
+
+def _subgraph_link_origin_id(link: Any) -> str:
+    if isinstance(link, dict):
+        return str(link.get("origin_id", ""))
+    return str(link[1])
+
+
+def _subgraph_link_origin_slot(link: Any) -> int:
+    if isinstance(link, dict):
+        return int(link.get("origin_slot", 0))
+    return int(link[2])
+
+
+def _subgraph_link_target_id(link: Any) -> str:
+    if isinstance(link, dict):
+        return str(link.get("target_id", ""))
+    return str(link[3])
+
+
+def _subgraph_set_link_origin(link: Any, node_id: str, slot: int) -> None:
+    if isinstance(link, dict):
+        link["origin_id"] = int(node_id) if node_id.isdigit() else node_id
+        link["origin_slot"] = slot
+    else:
+        link[1] = int(node_id) if node_id.isdigit() else node_id
+        link[2] = slot
+
+
+def _subgraph_widget(node: dict[str, Any], idx: int = 0) -> Any:
+    values = node.get("widgets_values", [])
+    if isinstance(values, list) and idx < len(values):
+        return values[idx]
+    return None
+
+
+def resolve_subgraph_helpers(
+    raw_workflow: dict[str, Any] | None,
+    top_level_nodes: dict[str, Any],
+    top_level_edges: list[Any],
+    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
+) -> None:
+    """Door-owned: fold Get/Set/Reroute/Primitive helpers inside subgraph defs."""
+    if not raw_workflow:
+        return
+    defs = raw_workflow.get("definitions")
+    if not isinstance(defs, dict):
+        return
+    subgraphs = defs.get("subgraphs")
+    if not isinstance(subgraphs, list):
+        return
+
+    if pre_collected_broadcasts is not None:
+        top_broadcasts = pre_collected_broadcasts
+    else:
+        from vibecomfy._compile._helpers import collect_broadcast_sources
+        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
+
+    for subgraph in subgraphs:
+        if isinstance(subgraph, dict):
+            _resolve_subgraph_definition(subgraph, top_broadcasts)
+
+
+def _resolve_subgraph_definition(subgraph: dict[str, Any], top_broadcasts: dict[str, Any]) -> None:
+    nodes_list = subgraph.get("nodes")
+    if not isinstance(nodes_list, list):
+        return
+    links_list = subgraph.get("links")
+    if not isinstance(links_list, list):
+        links_list = []
+
+    nodes_dict: dict[str, dict[str, Any]] = {}
+    for node in nodes_list:
+        if isinstance(node, dict) and "id" in node:
+            nodes_dict[str(node["id"])] = node
+
+    for _ in range(100):
+        changed = False
+        helper_ids = [
+            str(node["id"]) for node in nodes_list
+            if isinstance(node, dict) and node.get("type") in _SUBGRAPH_RESOLVABLE
+        ]
+        for node_id in helper_ids:
+            node = nodes_dict.get(node_id)
+            if node is None:
+                continue
+            class_type = node.get("type", "")
+            if class_type == "GetNode":
+                changed |= _resolve_subgraph_getnode(
+                    nodes_dict, nodes_list, links_list, node_id, node, top_broadcasts
+                )
+            elif class_type in ("Reroute", "PrimitiveNode"):
+                changed |= _resolve_subgraph_passthrough(
+                    nodes_dict, nodes_list, links_list, node_id
+                )
+            elif isinstance(class_type, str) and class_type.startswith("Primitive"):
+                changed |= _resolve_subgraph_primitive(
+                    nodes_dict, nodes_list, links_list, node_id
+                )
+        if not changed:
+            break
+
+    subgraph["nodes"] = nodes_list
+    subgraph["links"] = links_list
+
+
+def _resolve_subgraph_getnode(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+    node: dict[str, Any],
+    top_broadcasts: dict[str, Any],
+) -> bool:
+    name = _subgraph_widget(node, 0)
+    if not name or str(name) not in top_broadcasts:
+        return False
+    source = top_broadcasts[str(name)]
+    source_id, source_slot = str(source[0]), int(source[1])
+    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
+        _subgraph_set_link_origin(link, source_id, source_slot)
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    return True
+
+
+def _resolve_subgraph_passthrough(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+) -> bool:
+    inbound = [item for item in links_list if _subgraph_link_target_id(item) == node_id]
+    if not inbound:
+        return False
+    source_id = _subgraph_link_origin_id(inbound[0])
+    source_slot = _subgraph_link_origin_slot(inbound[0])
+    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
+        _subgraph_set_link_origin(link, source_id, source_slot)
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    links_list[:] = [item for item in links_list if _subgraph_link_target_id(item) != node_id]
+    return True
+
+
+def _resolve_subgraph_primitive(
+    nodes_dict: dict[str, dict[str, Any]],
+    nodes_list: list[Any],
+    links_list: list[Any],
+    node_id: str,
+) -> bool:
+    nodes_dict.pop(node_id, None)
+    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
+    links_list[:] = [
+        item for item in links_list
+        if _subgraph_link_origin_id(item) != node_id and _subgraph_link_target_id(item) != node_id
+    ]
+    return True
+

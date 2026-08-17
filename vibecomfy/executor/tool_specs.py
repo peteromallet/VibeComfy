@@ -580,12 +580,21 @@ def _ready_template_load_handler(
     )
 
 
+def _session_emit_graph(session: Any) -> Any:
+    """Emit-door snapshot of the retained IR.  ``working_ui`` is not authority."""
+    emit = getattr(session, "_emit_working_snapshot", None)
+    workflow = getattr(session, "workflow", None)
+    if callable(emit) and workflow is not None:
+        return emit()
+    return None
+
+
 def _rank_edit_targets_handler(
     session: Any, args: Mapping[str, Any], budget_payload: Any
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.edit_suggestion_tools")
     return mod.rank_edit_targets(
-        getattr(session, "working_ui", None),
+        _session_emit_graph(session),
         args["intent"],
         explicit=True,
         max_targets=args.get("max_targets", 4),
@@ -599,7 +608,7 @@ def _suggest_seed_nodes_handler(
     return mod.suggest_seed_nodes(
         args["intent"],
         args.get("constraints"),
-        graph=getattr(session, "working_ui", None),
+        graph=_session_emit_graph(session),
         explicit=True,
         max_suggestions=args.get("max_suggestions", 4),
     )
@@ -610,7 +619,7 @@ def _layout_hints_handler(
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.layout_hints")
     return mod.layout_hints_tool(
-        getattr(session, "working_ui", None),
+        _session_emit_graph(session),
         args["operation"],
         anchors=args.get("anchors"),
     )

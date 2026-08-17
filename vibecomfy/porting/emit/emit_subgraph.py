@@ -275,6 +275,8 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
         )
     outputs = tuple(output_ports)
 
+    # IR-held subgraph definition payload (stored on the workflow at ingest).
+    # Serialize-only for Python emission — not a second mutation authority.
     api = normalize_to_api({"nodes": list(raw.get("nodes") or ()), "links": list(raw.get("links") or ())}, use_comfy_converter=False)
     nodes: dict[str, Any] = {}
     edges_in: dict[str, list[Any]] = {}

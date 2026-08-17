@@ -695,11 +695,14 @@ def _sidecar_from_stamped_graph(stamped_graph: Mapping[str, Any]) -> dict[str, A
         filtered = copy.deepcopy(dict(stamped_graph))
         nodes = filtered.get("nodes")
         if isinstance(nodes, list):
-            filtered["nodes"] = [
-                node
-                for node in nodes
-                if isinstance(node, Mapping) and node.get("pos") is not None
-            ]
+            filtered = {
+                **filtered,
+                "nodes": [
+                    node
+                    for node in nodes
+                    if isinstance(node, Mapping) and node.get("pos") is not None
+                ],
+            }
         return store_from_ui_json(filtered)
 
 

@@ -354,9 +354,10 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         """Return the emit-side node dict for *uid*, or None.
 
         Inspection helper only — the retained IR is the mutation authority.
-        Root scope is ``working_ui``; nested scopes walk ``definitions.subgraphs``.
+        The graph is the emit-door snapshot of that IR.  ``working_ui`` is
+        not a Law-5 graph surface.
         """
-        graph = self.working_ui
+        graph = self._emit_working_snapshot() if self.workflow is not None else self.original_ui
         if scope_path:
             for part in scope_path.split("/"):
                 if not part.startswith("sg"):

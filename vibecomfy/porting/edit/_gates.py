@@ -28,9 +28,9 @@ class _GatesMixin:
         """Finalize the session: run Gate A and Gate B proof checks.
 
         Gate A replays ``interpret`` over the retained ``(wf_i, Δ_i)``
-        history from ``wf_0``, emits that replayed IR, and requires the
-        candidate to equal ``working_ui``.  The independent emit-exit
-        guard (``guard_exit_ui`` / former ``guard_full_ui``) then runs as
+        history from ``wf_0`` and emits that replayed IR.  The emit-side
+        snapshot (not a Law-5 graph surface) must equal that candidate.
+        The independent emit-exit guard (``guard_exit_ui``) then runs as
         a hard gate: a candidate that does not round-trip against the
         original ingest is not done.
 

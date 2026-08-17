@@ -4,21 +4,21 @@ Law 5: VibeWorkflow is the sole graph authority after ingest.  LiteGraph /
 envelope ``nodes``, ``links``, widget arrays, and link tuples may be
 inspected or mutated only in the two doors.  Four named pass-through
 adapters may serialize whole payloads; they may not inspect or mutate
-structure.  Generic ``json.loads`` / ``json.dumps`` is not a violation.
+structure (including ``detect_workflow_shape``).  Generic ``json.loads`` /
+``json.dumps`` is not a violation.  ``working_ui`` is not a door, adapter,
+or graph authority.
 
-Additions to either allow-list require editing this file.  There is no
-open-ended "transport/artifact adapters" category.
+Additions to either allow-list or the leftover-read inventory require
+editing this file.  There is no open-ended "transport/artifact adapters"
+category.
 
 Exit 1 when the product tree has a CI violation:
 
 * a forbidden legacy authority symbol
-* a structural write of a graph key on a graph-like receiver outside the doors
-* any structural graph-key access inside a pass-through adapter
-
-Structural *reads* outside the doors are detected (the planted-fixture
-self-test and the KPI inventory use them) but are not CI-fatal: leftover
-inspection of emitted/transport JSON is not a second mutation authority.
-They must not grow; the KPI freezes the post-deletion inventory.
+* a structural write of a graph key outside the doors
+* a structural graph-key read outside the doors and leftover inventory
+* any structural graph-key access, or ``detect_workflow_shape``, inside a
+  pass-through adapter
 """
 
 from __future__ import annotations
@@ -58,15 +58,75 @@ FORBIDDEN_SYMBOLS: frozenset[str] = frozenset(
     }
 )
 
-_GRAPH_KEYS: frozenset[str] = frozenset({"nodes", "links", "widgets_values"})
-_GRAPH_RECEIVER = re.compile(
-    r"(?:^|_)(?:graph|ui|workflow|candidate|raw|envelope|scope)(?:$|_)",
-    re.IGNORECASE,
+# Leftover inspection of emitted/transport JSON.  Not mutation authority and
+# not a door.  Additions mean a new reader landed outside the doors.
+STRUCTURAL_READ_INVENTORY: frozenset[str] = frozenset(
+    {
+        "vibecomfy/comfy_nodes/agent/_frag_batch_loop.py",
+        "vibecomfy/comfy_nodes/agent/_frag_batch_memory.py",
+        "vibecomfy/comfy_nodes/agent/_frag_humanize.py",
+        "vibecomfy/comfy_nodes/agent/_frag_ingest.py",
+        "vibecomfy/comfy_nodes/agent/_frag_research.py",
+        "vibecomfy/comfy_nodes/agent/_frag_transform_stages.py",
+        "vibecomfy/comfy_nodes/agent/_v2_scoped_validation.py",
+        "vibecomfy/comfy_nodes/agent/audit.py",
+        "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
+        "vibecomfy/comfy_nodes/agent/contracts.py",
+        "vibecomfy/comfy_nodes/agent/edit_batch_repl.py",
+        "vibecomfy/comfy_nodes/agent/layout_operation_v1.py",
+        "vibecomfy/comfy_nodes/agent/mutation_materialization_v1.py",
+        "vibecomfy/comfy_nodes/agent/projection_registry_v1.py",
+        "vibecomfy/comfy_nodes/agent/routes.py",
+        "vibecomfy/comfy_nodes/agent/session.py",
+        "vibecomfy/commands/_agent_edit_debug.py",
+        "vibecomfy/commands/analyze.py",
+        "vibecomfy/commands/inspect.py",
+        "vibecomfy/commands/nodes.py",
+        "vibecomfy/commands/sources.py",
+        "vibecomfy/executor/edit_suggestion_tools.py",
+        "vibecomfy/executor/graph_facts.py",
+        "vibecomfy/executor/graph_inspection.py",
+        "vibecomfy/executor/layout_hints.py",
+        "vibecomfy/executor/provenance.py",
+        "vibecomfy/executor/revision_evidence.py",
+        "vibecomfy/identity/scope.py",
+        "vibecomfy/ingest/summarize.py",
+        "vibecomfy/intent/_fixture.py",
+        "vibecomfy/intent/_refusal_spine_probe.py",
+        "vibecomfy/model_assets.py",
+        "vibecomfy/porting/assets.py",
+        "vibecomfy/porting/edit/_describe.py",
+        "vibecomfy/porting/edit/apply_field_aliases.py",
+        "vibecomfy/porting/edit/editable_surface.py",
+        "vibecomfy/porting/edit/lint.py",
+        "vibecomfy/porting/edit/session.py",
+        "vibecomfy/porting/emit/emit_prepare.py",
+        "vibecomfy/porting/emit/emit_ready.py",
+        "vibecomfy/porting/emit/emit_subgraph.py",
+        "vibecomfy/porting/emit/signatures.py",
+        "vibecomfy/porting/endpoint_invariant.py",
+        "vibecomfy/porting/layout/groups.py",
+        "vibecomfy/porting/layout/layout_vector.py",
+        "vibecomfy/porting/layout_store.py",
+        "vibecomfy/porting/provenance.py",
+        "vibecomfy/porting/refuse.py",
+        "vibecomfy/porting/reorganise/graph_facts.py",
+        "vibecomfy/porting/reorganise/orchestrate.py",
+        "vibecomfy/porting/reorganise/parse.py",
+        "vibecomfy/porting/reorganise/visualize.py",
+        "vibecomfy/porting/widget_shape_fence.py",
+        "vibecomfy/porting/widgets/aliases.py",
+        "vibecomfy/porting/widgets/compact_resolver.py",
+        "vibecomfy/runtime/watchdog.py",
+    }
 )
+
+_GRAPH_KEYS: frozenset[str] = frozenset({"nodes", "links", "widgets_values"})
 _NON_GRAPH_RECEIVER = re.compile(
     r"schema|report|manifest|plan|dependency|group",
     re.IGNORECASE,
 )
+_SHAPE_INSPECTORS: frozenset[str] = frozenset({"detect_workflow_shape"})
 
 # Campaign fixture generators are not product graph authority.  Forbidden
 # symbols inside them still fail the gate.  Additions require editing this file.
@@ -117,10 +177,11 @@ def _receiver_names(node: ast.AST) -> frozenset[str]:
 
 
 def _is_graph_receiver(node: ast.AST) -> bool:
+    """Unknown receivers count as graph so ``x.get("nodes")`` is flagged."""
     names = _receiver_names(node)
     if any(_NON_GRAPH_RECEIVER.search(name) for name in names):
         return False
-    return any(_GRAPH_RECEIVER.search(name) for name in names)
+    return True
 
 
 def _write_targets(node: ast.AST) -> tuple[ast.AST, ...]:
@@ -129,6 +190,15 @@ def _write_targets(node: ast.AST) -> tuple[ast.AST, ...]:
     if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
         return (node.target,)
     return ()
+
+
+def _call_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
 
 def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
@@ -151,6 +221,11 @@ def scan_source(source: str, *, filename: str) -> tuple[Violation, ...]:
             _add(node.lineno, "forbidden_symbol", node.attr)
         elif isinstance(node, ast.ClassDef) and node.name in FORBIDDEN_SYMBOLS:
             _add(node.lineno, "forbidden_symbol", node.name)
+
+        if isinstance(node, ast.Call):
+            call_name = _call_name(node)
+            if call_name in _SHAPE_INSPECTORS:
+                _add(getattr(node, "lineno", 0), "shape_inspection", call_name)
 
         for target in _write_targets(node):
             for child in ast.walk(target):
@@ -191,6 +266,12 @@ def classify_violation(item: Violation) -> str | None:
         return None
     if item.kind == "structural_write":
         return "structural_write"
+    if item.kind == "shape_inspection":
+        return None
+    if item.kind == "structural_read":
+        if rel in STRUCTURAL_READ_INVENTORY:
+            return None
+        return "structural_read"
     return None
 
 
@@ -225,7 +306,7 @@ def pass_through_structural_paths(hits: tuple[Violation, ...] | None = None) -> 
         item.path
         for item in items
         if item.path in PASS_THROUGH_ADAPTERS
-        and item.kind in {"structural_read", "structural_write"}
+        and item.kind in {"structural_read", "structural_write", "shape_inspection"}
     )
 
 
@@ -240,12 +321,39 @@ def forbidden_symbol_paths(hits: tuple[Violation, ...] | None = None) -> frozens
 
 def _self_test() -> int:
     planted = scan_source(
-        "graph = {}\nnodes = graph.get('nodes')\n",
-        filename="planted_outside_allowlist.py",
+        "x = {}\nnodes = x.get('nodes')\n",
+        filename="vibecomfy/planted_outside_allowlist.py",
     )
-    if not any(item.kind == "structural_read" and item.detail == "nodes" for item in planted):
-        print("self-test: planted structural read was not flagged", file=sys.stderr)
+    planted_read = next(
+        (item for item in planted if item.kind == "structural_read" and item.detail == "nodes"),
+        None,
+    )
+    if planted_read is None:
+        print("self-test: planted x.get('nodes') was not flagged", file=sys.stderr)
         return 1
+    if classify_violation(planted_read) != "structural_read":
+        print("self-test: planted structural read was not a CI violation", file=sys.stderr)
+        return 1
+
+    planted_wv = scan_source(
+        "payload = {}\nvalues = payload['widgets_values']\n",
+        filename="vibecomfy/planted_widgets_values.py",
+    )
+    planted_wv_read = next(
+        (
+            item
+            for item in planted_wv
+            if item.kind == "structural_read" and item.detail == "widgets_values"
+        ),
+        None,
+    )
+    if planted_wv_read is None:
+        print("self-test: planted ['widgets_values'] read was not flagged", file=sys.stderr)
+        return 1
+    if classify_violation(planted_wv_read) != "structural_read":
+        print("self-test: planted widgets_values read was not a CI violation", file=sys.stderr)
+        return 1
+
     planted_write = scan_source(
         "graph = {}\ngraph['links'] = []\n",
         filename="planted_write.py",
@@ -286,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--self-test",
         action="store_true",
-        help="flag a planted structural read; confirm doors and json.loads pass",
+        help="flag planted structural reads; confirm doors and json.loads pass",
     )
     args = parser.parse_args(argv)
     if args.self_test:

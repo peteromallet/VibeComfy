@@ -178,6 +178,8 @@ def _widgets(node: Mapping[str, Any]) -> Any:
 def _sort(values: list[Any]) -> list[Any]: return sorted(values, key=canonical_json)
 
 def project_graph_v1(graph: Any, projection: Any) -> dict[str, Any]:
+    # Historical v1 candidate projection.  Not product graph authority and
+    # not a Law-5 door; V2 authority is candidate_transaction_v2.
     assert_forward_projection_v1(projection); graph = assert_root_graph_v1(graph)
     nodes = graph.get("nodes", [])
     if not isinstance(nodes, list): raise ContractError("nodes must be a list", "malformed_graph")

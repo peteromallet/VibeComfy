@@ -431,8 +431,9 @@ def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
             groups.append(grp)
             continue
         grp_copy = dict(grp)
-        if isinstance(grp_copy.get("nodes"), list):
-            grp_copy["nodes"] = [_rekey(n) for n in grp_copy["nodes"]]
+        grp_nodes = grp_copy.get("nodes")
+        if isinstance(grp_nodes, list):
+            grp_copy = {**grp_copy, "nodes": [_rekey(n) for n in grp_nodes]}
         groups.append(grp_copy)
 
     # extra — carry forward as-is but re-key virtual_wires endpoints
@@ -464,11 +465,15 @@ def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
             for item in defs:
                 if isinstance(item, dict):
                     item_copy = dict(item)
-                    if isinstance(item_copy.get("nodes"), list):
-                        item_copy["nodes"] = [
-                            dict(n, id=_rekey(n.get("id"))) if isinstance(n, dict) else n
-                            for n in item_copy["nodes"]
-                        ]
+                    item_nodes = item_copy.get("nodes")
+                    if isinstance(item_nodes, list):
+                        item_copy = {
+                            **item_copy,
+                            "nodes": [
+                                dict(n, id=_rekey(n.get("id"))) if isinstance(n, dict) else n
+                                for n in item_nodes
+                            ],
+                        }
                     result.append(item_copy)
                 else:
                     result.append(item)

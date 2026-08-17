@@ -123,11 +123,12 @@ def refused_dangling_links(links: Iterable[Mapping[str, Any]]) -> RefusedEmit:
     it is either emitted/remapped or the whole emit is refused.
     """
     entries = list(links)
-    diff: dict[str, Any] = {"links": {}}
+    link_diff: dict[str, Any] = {}
     for entry in entries:
         key = str(_read_attr(entry, "key"))
         evidence = _read_attr(entry, "evidence")
-        diff["links"][key] = _jsonable(evidence) if evidence is not None else {}
+        link_diff[key] = _jsonable(evidence) if evidence is not None else {}
+    diff: dict[str, Any] = {"links": link_diff}
     return RefusedEmit(
         f"refusing to emit {len(entries)} dangling link(s): "
         "link endpoint has no matching emitted socket",

@@ -152,7 +152,7 @@ def _normalize_entry(raw: Any) -> dict[str, Any]:
                 "malformed_materialization_entry",
                 field="widgets_values",
             )
-        result["widgets_values"] = _clone_jsonish(wv)
+        result = {**result, "widgets_values": _clone_jsonish(wv)}
     if "pos" in raw and raw.get("pos") is not None:
         result["pos"] = _geo_vector(raw.get("pos"), 2, "pos")
     if "size" in raw and raw.get("size") is not None:
