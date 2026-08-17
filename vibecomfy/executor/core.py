@@ -671,6 +671,16 @@ def _resolve_spec(
 # ── classify phase ───────────────────────────────────────────────────────────
 
 
+def _classify_stage_message(message: str) -> str:
+    """Classify-stage failures are not workflow-validation errors (RC7)."""
+    if "edited workflow has validation errors" in (message or ""):
+        return (
+            "Classification failed: the classifier reply was missing required "
+            "fields or was not valid JSON. The graph is unchanged."
+        )
+    return message
+
+
 def _run_classify(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -725,7 +735,7 @@ def _run_classify(
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
+            message=_classify_stage_message(failure.user_facing_message),
             failure_envelope=failure,
             model_attempts=_failure_model_attempts(failure),
         ) from exc
@@ -735,7 +745,7 @@ def _run_classify(
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
+            message=_classify_stage_message(failure.user_facing_message),
             failure_envelope=failure,
             model_attempts=_failure_model_attempts(failure),
         ) from exc

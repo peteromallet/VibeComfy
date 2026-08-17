@@ -102,11 +102,10 @@ class NeedsInput:
     def __post_init__(self) -> None:
         object.__setattr__(self, "decision", _required_text(self.decision, "decision"))
         object.__setattr__(self, "question", _required_text(self.question, "question"))
-        object.__setattr__(
-            self,
-            "missing_information",
-            _text_tuple(self.missing_information, "missing_information", non_empty=True),
-        )
+        missing = _text_tuple(self.missing_information, "missing_information")
+        if not missing:
+            missing = (self.question,)
+        object.__setattr__(self, "missing_information", missing)
         object.__setattr__(self, "evidence_ids", _text_tuple(self.evidence_ids, "evidence_ids"))
         object.__setattr__(self, "options", _text_tuple(self.options, "options"))
         if self.bounded_assumption is not None:
@@ -134,18 +133,26 @@ class NeedsInput:
             raise ValueError("NeedsInput must be an object.")
         _check_keys(
             payload,
-            required=frozenset({
-                "decision", "question", "missing_information", "evidence_ids", "options"
+            required=frozenset({"question"}),
+            optional=frozenset({
+                "decision",
+                "missing_information",
+                "evidence_ids",
+                "options",
+                "bounded_assumption",
             }),
-            optional=frozenset({"bounded_assumption"}),
             contract="NeedsInput",
         )
+        question = payload["question"]
+        missing = payload.get("missing_information")
+        if not missing:
+            missing = (str(question),)
         return cls(
-            decision=payload["decision"],
-            question=payload["question"],
-            missing_information=payload["missing_information"],
-            evidence_ids=payload["evidence_ids"],
-            options=payload["options"],
+            decision=payload.get("decision") or "clarify",
+            question=question,
+            missing_information=missing,
+            evidence_ids=payload.get("evidence_ids") or (),
+            options=payload.get("options") or (),
             bounded_assumption=payload.get("bounded_assumption"),
         )
 

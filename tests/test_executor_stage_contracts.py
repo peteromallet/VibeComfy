@@ -218,12 +218,21 @@ def test_needs_input_is_a_typed_decision_critical_package() -> None:
     )
 
     assert NeedsInput.from_dict(clarification.to_dict()) == clarification
-    with pytest.raises(ValueError, match="at least one"):
-        NeedsInput(
-            decision="Choose a model.",
-            question="Which model?",
-            missing_information=(),
-        )
+    derived = NeedsInput(
+        decision="Choose a model.",
+        question="Which LoRA should I change?",
+        missing_information=(),
+    )
+    assert derived.missing_information == ("Which LoRA should I change?",)
+    parsed = NeedsInput.from_dict(
+        {
+            "question": "Which of the two LoraLoaderModelOnly nodes should I change?",
+        }
+    )
+    assert parsed.question.startswith("Which of the two")
+    assert parsed.evidence_ids == ()
+    assert parsed.options == ()
+    assert parsed.decision == "clarify"
 
 
 @pytest.mark.parametrize("status", sorted(TOOL_STATUSES))
