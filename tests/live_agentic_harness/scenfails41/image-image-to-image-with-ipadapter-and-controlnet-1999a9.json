@@ -1,0 +1,62 @@
+{
+  "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
+  "query": "How can I balance the influence between the IPAdapter style reference and the Canny edge ControlNet strength to preserve more of the original image structure while still applying the desired style? What parameters control this interplay?",
+  "workflow_path": "external_workflows/corpus/1999a9d36cb0a7f4.json",
+  "network": true,
+  "timeout": 200,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "research",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "controlnet",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-image",
+      "controlnet",
+      "ipadapter",
+      "canny",
+      "stable-diffusion",
+      "text-to-image",
+      "image-generation"
+    ],
+    "source_workflow_id": "1999a9d36cb0a7f4",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Grounded in the workflow's dual conditioning and demands understanding of how IPAdapter and ControlNet strengths interact, not a simple toggle."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/1999a9d36cb0a7f4.json",
+    "required_node_evidence": [
+      "IPAdapterApply",
+      "Canny",
+      "ControlNetApply",
+      "ControlNetLoader",
+      "KSampler"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Identify the concrete IPAdapter and Canny/ControlNet influence controls, explain their interaction, and recommend a tuning order that preserves structure without eliminating style transfer.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

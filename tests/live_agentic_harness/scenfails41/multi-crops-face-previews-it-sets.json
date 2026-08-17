@@ -1,0 +1,12 @@
+{
+  "id": "multi-crops-face-previews-it-sets",
+  "query": "The swapped face doesn't look anything like the source person.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/d7363d65465708f5.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}
