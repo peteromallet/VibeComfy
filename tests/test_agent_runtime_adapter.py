@@ -1094,3 +1094,186 @@ def test_adapter_credential_env_file_skips_transport_selecting_keys(
     assert "VIBECOMFY_TRANSPORT" not in os.environ
     assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
     assert "VIBECOMFY_FORCE_MODEL" not in os.environ
+
+
+# ── B02 Pro: remaining output-token cap plumbing ─────────────────────────────
+
+
+def test_remaining_output_cap_clamps_hermes_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+
+    capped = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="openrouter:deepseek/deepseek-v4-pro",
+        remaining_output_cap=2048,
+    )
+    assert capped["max_tokens"] == 2048
+    # A cap above the default never raises it above the full-mode default.
+    full = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="openrouter:deepseek/deepseek-v4-pro",
+        remaining_output_cap=999_999,
+    )
+    assert full["max_tokens"] == runtime._OPENROUTER_MAX_TOKENS
+
+
+def test_remaining_output_cap_none_preserves_full_mode_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+
+    kwargs = runtime._build_agent_kwargs(
+        "hermes", route="openrouter", model="openrouter:deepseek/deepseek-v4-pro"
+    )
+    assert kwargs["max_tokens"] == runtime._OPENROUTER_MAX_TOKENS
+    # The cap is never injected into the kwargs; only max_tokens is clamped.
+    assert "remaining_output_cap" not in kwargs
+
+
+def test_worker_request_metadata_is_byte_identical_without_cap() -> None:
+    base = worker._build_request(
+        agent_id="codex",
+        user_message="route this",
+        system_message="return json",
+        model="gpt-5.6-luna",
+        effort="medium",
+    )
+    assert base.metadata == {"toolsets": []}
+
+    capped = worker._build_request(
+        agent_id="codex",
+        user_message="route this",
+        system_message="return json",
+        model="gpt-5.6-luna",
+        effort="medium",
+        remaining_output_cap=128,
+    )
+    assert capped.metadata == {"toolsets": [], "remaining_output_cap": 128}
+
+
+def test_worker_serializes_remaining_output_cap_only_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_subprocess(command, **kwargs):
+        with open(command[2], encoding="utf-8") as fh:
+            captured.update(json.load(fh))
+        with open(command[3], "w", encoding="utf-8") as fh:
+            json.dump({"content": "ok"}, fh)
+        return (0, "", "")
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
+
+    runtime._run_worker(
+        {}, "sys", "usr", response_contract="text", agent_id="codex",
+        remaining_output_cap=64,
+    )
+    assert captured["remaining_output_cap"] == 64
+
+    captured.clear()
+    runtime._run_worker({}, "sys", "usr", response_contract="text", agent_id="codex")
+    assert "remaining_output_cap" not in captured
+
+
+def test_cap_exhausted_raises_typed_budget_exceeded_in_worker() -> None:
+    from vibecomfy.executor.two_step import (
+        BUDGET_FAMILY_SESSION_OUTPUT_TOKENS,
+        BudgetExceeded,
+    )
+
+    with pytest.raises(BudgetExceeded) as excinfo:
+        worker._dispatch_turn(
+            agent_id="hermes",
+            agent_kwargs={},
+            user_message="hi",
+            system_message=None,
+            remaining_output_cap=0,
+        )
+    assert excinfo.value.family == BUDGET_FAMILY_SESSION_OUTPUT_TOKENS
+    assert excinfo.value.limit == 48_000
+    assert excinfo.value.used == 48_000
+
+
+def test_cap_exhausted_surfaces_through_worker_result_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.executor.two_step import (
+        BUDGET_FAMILY_SESSION_OUTPUT_TOKENS,
+        BudgetExceeded,
+    )
+
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+
+    def fake_subprocess(command, **kwargs):
+        with open(command[3], "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "error": "remaining output-token cap exhausted; no model call dispatched.",
+                    "error_type": "BudgetExceeded",
+                    "budget_family": "session_output_tokens",
+                    "budget_limit": 48000,
+                    "budget_used": 48000,
+                    "budget_route": "hermes",
+                },
+                fh,
+            )
+        return (0, "", "")
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", fake_subprocess)
+
+    with pytest.raises(BudgetExceeded) as excinfo:
+        runtime.run_agent_turn_batch(
+            task="make it brighter",
+            route="openrouter",
+            remaining_output_cap=0,
+        )
+    assert excinfo.value.family == BUDGET_FAMILY_SESSION_OUTPUT_TOKENS
+    assert excinfo.value.limit == 48_000
+    assert excinfo.value.used == 48_000
+    # Typed evidence is attached via the worker result envelope.
+    assert excinfo.value.worker_result["error_type"] == "BudgetExceeded"
+
+
+def test_worker_subprocess_serializes_typed_budget_exceeded(tmp_path) -> None:
+    request_path = tmp_path / "request.json"
+    result_path = tmp_path / "result.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "agent_id": "hermes",
+                "agent_kwargs": {
+                    "max_iterations": 1,
+                    "enabled_toolsets": [],
+                    "max_tokens": 0,
+                },
+                "system_message": None,
+                "user_message": "hello",
+                "response_contract": "text",
+                "remaining_output_cap": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+
+    proc = subprocess.run(
+        [sys.executable, runtime._WORKER_PATH, str(request_path), str(result_path)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["error_type"] == "BudgetExceeded"
+    assert result["budget_family"] == "session_output_tokens"
+    assert result["budget_limit"] == 48000
+    assert result["budget_used"] == 48000

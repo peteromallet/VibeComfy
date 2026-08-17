@@ -59,6 +59,10 @@ from vibecomfy.executor.profiler import (
     profiler_span,
     short_text,
 )
+from vibecomfy.executor.two_step import (
+    BUDGET_FAMILY_SESSION_OUTPUT_TOKENS,
+    BudgetExceeded,
+)
 
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "240"))
@@ -368,6 +372,24 @@ def _raise_worker_error(result: Mapping[str, Any]) -> None:
         or "unauthorized" in lowered
     ):
         raise _with_worker_result(PermissionError(message))
+    if error_type == "BudgetExceeded" or isinstance(result.get("budget_family"), str):
+        # The worker refused to dispatch because the remaining output-token cap
+        # was exhausted. Re-raise the typed BudgetExceeded (B02 Pro) rather than
+        # collapsing it into a generic RuntimeError, so the session authority can
+        # detect cumulative-budget exhaustion without string-matching.
+        family = str(result.get("budget_family") or BUDGET_FAMILY_SESSION_OUTPUT_TOKENS)
+        limit = result.get("budget_limit")
+        used = result.get("budget_used")
+        route = result.get("budget_route")
+        raise _with_worker_result(
+            BudgetExceeded(
+                family=family,
+                limit=limit if isinstance(limit, (int, float)) else 0,
+                used=used if isinstance(used, (int, float)) else 0,
+                route=str(route) if route else None,
+                detail=err,
+            )
+        )
     if _is_runtime_unavailable(result):
         raise _with_worker_result(ImportError(message))
     raise _with_worker_result(RuntimeError(message))
@@ -570,7 +592,12 @@ def _split_messages(messages: Sequence[Mapping[str, Any]] | None) -> tuple[str |
     return system_msg, user_msg
 
 
-def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+def _build_agent_kwargs(
+    agent_id: str,
+    route: str | None = None,
+    model: str | None = None,
+    remaining_output_cap: int | None = None,
+) -> dict[str, Any]:
     """AIAgent constructor kwargs for a single, tool-free completion.
 
     Keyed off the resolved *dispatch agent id* (not the panel route). ``hermes``
@@ -578,6 +605,11 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
     alias. For ``codex`` / ``claude`` the worker dispatches through the default
     dispatcher and ignores ``agent_kwargs``, so we pass only the tool-free
     single-shot flags.
+
+    ``remaining_output_cap`` (B02 Pro) is the cumulative-session output-token
+    headroom the B03 session authority computed. When set, the hermes
+    ``max_tokens`` is clamped to it (``None`` keeps the full-mode default), so
+    every provider path the worker can dispatch to honors the remaining cap.
     """
     common: dict[str, Any] = dict(
         max_iterations=_AGENT_MAX_ITERATIONS,
@@ -596,12 +628,15 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
             resolved_model = _normalize_native_deepseek_model(resolved_model)
         else:
             resolved_model = _strip_provider_prefix(resolved_model, "openrouter")
+        max_tokens = _OPENROUTER_MAX_TOKENS
+        if remaining_output_cap is not None:
+            max_tokens = min(max_tokens, remaining_output_cap)
         return dict(
             model=resolved_model,
             api_key=_hermes_credential_for(route, model),
             base_url=base_url,
             provider="openrouter",
-            max_tokens=_OPENROUTER_MAX_TOKENS,
+            max_tokens=max_tokens,
             **common,
         )
     # codex / claude -> default dispatcher resolves everything; kwargs unused.
@@ -796,6 +831,7 @@ def _run_worker(
     requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
 
@@ -820,6 +856,7 @@ def _run_worker(
                 requested_model=requested_model,
                 effort=effort,
                 profiling_context=attempt_profile,
+                remaining_output_cap=remaining_output_cap,
             )
         except TimeoutError as exc:
             timeout_attempt = _timeout_model_attempt(
@@ -900,6 +937,7 @@ def _run_worker_once(
     requested_model: str | None = None,
     effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
 
@@ -913,20 +951,22 @@ def _run_worker_once(
         req_path = os.path.join(tmp, "request.json")
         res_path = os.path.join(tmp, "result.json")
         with open(req_path, "w", encoding="utf-8") as fh:
-            json.dump(
-                {
-                    "agent_id": agent_id,
-                    "model": model,
-                    "requested_model": requested_model,
-                    "effort": effort,
-                    "agent_kwargs": agent_kwargs,
-                    "system_message": system_msg,
-                    "user_message": user_msg,
-                    "response_contract": response_contract,
-                    "profiling_context": dict(profiling_context or {}),
-                },
-                fh,
-            )
+            payload: dict[str, Any] = {
+                "agent_id": agent_id,
+                "model": model,
+                "requested_model": requested_model,
+                "effort": effort,
+                "agent_kwargs": agent_kwargs,
+                "system_message": system_msg,
+                "user_message": user_msg,
+                "response_contract": response_contract,
+                "profiling_context": dict(profiling_context or {}),
+            }
+            # Only emit the key when a cap is actually set: ``None`` must keep
+            # the full-mode worker request shape byte-identical.
+            if remaining_output_cap is not None:
+                payload["remaining_output_cap"] = remaining_output_cap
+            json.dump(payload, fh)
         env = dict(os.environ)
         # Ensure the child sees the same credential the parent resolved for the
         # Hermes adapter.  For native DeepSeek endpoints this must be the
@@ -1019,6 +1059,7 @@ def run_agent_turn(
     model: str | None = None,
     effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run one agent-edit turn through the megaplan AIAgent backend.
 
@@ -1040,7 +1081,9 @@ def run_agent_turn(
             "VibeComfy panel or export OPENROUTER_API_KEY."
         )
 
-    agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    agent_kwargs = _build_agent_kwargs(
+        agent_id, route=route, model=model, remaining_output_cap=remaining_output_cap
+    )
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1051,6 +1094,7 @@ def run_agent_turn(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "implement"},
+        remaining_output_cap=remaining_output_cap,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1066,6 +1110,7 @@ def run_agent_turn_delta(
     model: str | None = None,
     effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run one v2 agent-edit turn and return ``{"delta": [...], "message": str}``."""
     agent_id = _agent_id_for_route(route)
@@ -1084,7 +1129,9 @@ def run_agent_turn_delta(
             "VibeComfy panel or export OPENROUTER_API_KEY."
         )
 
-    agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    agent_kwargs = _build_agent_kwargs(
+        agent_id, route=route, model=model, remaining_output_cap=remaining_output_cap
+    )
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1095,6 +1142,7 @@ def run_agent_turn_delta(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "implement"},
+        remaining_output_cap=remaining_output_cap,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1108,6 +1156,7 @@ def run_agent_turn_batch(
     model: str | None = None,
     effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run one batch-REPL agent-edit turn and return raw model content."""
     agent_id = _agent_id_for_route(route)
@@ -1122,7 +1171,9 @@ def run_agent_turn_batch(
             "VibeComfy panel or export OPENROUTER_API_KEY."
         )
 
-    agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+    agent_kwargs = _build_agent_kwargs(
+        agent_id, route=route, model=model, remaining_output_cap=remaining_output_cap
+    )
     result = _run_worker(
         agent_kwargs,
         system_msg,
@@ -1133,6 +1184,7 @@ def run_agent_turn_batch(
         requested_model=model,
         effort=effort,
         profiling_context={"backend_phase": "batch"},
+        remaining_output_cap=remaining_output_cap,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -1422,6 +1474,7 @@ def run_model_turn(
     effort: str | None = None,
     response_contract: str = "json",
     profiling_context: Mapping[str, Any] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run a generic model turn through the Arnold dispatch seam.
 
@@ -1468,7 +1521,9 @@ def run_model_turn(
                 "VibeComfy panel or export OPENROUTER_API_KEY."
             )
 
-        agent_kwargs = _build_agent_kwargs(agent_id, route=route, model=model)
+        agent_kwargs = _build_agent_kwargs(
+            agent_id, route=route, model=model, remaining_output_cap=remaining_output_cap
+        )
         result = _run_worker(
             agent_kwargs,
             system_msg,
@@ -1479,6 +1534,7 @@ def run_model_turn(
             requested_model=model,
             effort=effort,
             profiling_context=effective_profile,
+            remaining_output_cap=remaining_output_cap,
         )
         if "error" in result:
             _raise_worker_error(result)

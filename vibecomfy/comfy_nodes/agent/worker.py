@@ -71,6 +71,11 @@ from vibecomfy.executor.contracts import (
     redact_model_preview,
 )
 from vibecomfy.executor.profiler import profiler_log, profiler_span, short_text, utc_now_iso
+from vibecomfy.executor.two_step import (
+    BUDGET_FAMILY_SESSION_OUTPUT_TOKENS,
+    SESSION_BUDGET_CEILINGS,
+    BudgetExceeded,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,6 +106,23 @@ def _extract_json_object(text: str) -> dict:
 def _raw_response_preview(text: str | None, *, limit: int = 1200) -> str | None:
     """Return a bounded, whitespace-normalized preview of a raw model response."""
     return redact_model_preview(text, limit=limit)
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    """Coerce a JSON-sourced optional int (or numeric string) to ``int | None``.
+
+    The worker reads ``remaining_output_cap`` from the request envelope the
+    parent wrote; JSON round-trips keep it an int already, but a defensive
+    coercion keeps a numeric string or float from leaking into the adapter and
+    keeps ``None`` (absent / null) as ``None`` so the full-mode request shape
+    is unchanged.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _model_attempt_failure_type(exc: BaseException, raw_text: str | None) -> str:
@@ -258,6 +280,7 @@ def _build_request(
     system_message: str | None,
     model: str | None = None,
     effort: str | None = None,
+    remaining_output_cap: int | None = None,
 ):
     """Construct the tool-free single-shot AgentRequest for a panel turn.
 
@@ -266,9 +289,17 @@ def _build_request(
     ``enabled_toolsets=[]`` / ``max_iterations=1``. No ``output_schema`` /
     ``response_format``: the panel parses its own python/delta/batch fences from
     the raw text, so the adapter returns ``raw_output`` unchanged.
+
+    ``remaining_output_cap`` (B02 Pro) is the cumulative-session output-token
+    headroom the B03 session authority computed. ``None`` keeps the exact
+    full-mode request shape (metadata carries only ``toolsets``); a non-None
+    value is stashed in metadata so any dispatched adapter can honor it.
     """
     from arnold.agent import AgentRequest
 
+    metadata: dict[str, Any] = {"toolsets": []}
+    if remaining_output_cap is not None:
+        metadata["remaining_output_cap"] = remaining_output_cap
     return AgentRequest(
         agent=agent_id,
         mode="default",
@@ -278,7 +309,7 @@ def _build_request(
         prompt=user_message,
         system_prompt=system_message,
         read_only=True,
-        metadata={"toolsets": []},
+        metadata=metadata,
     )
 
 
@@ -290,6 +321,7 @@ def _dispatch_turn(
     system_message: str | None,
     model: str | None = None,
     effort: str | None = None,
+    remaining_output_cap: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run one agent turn through the Arnold dispatch seam; return raw text.
 
@@ -306,7 +338,25 @@ def _dispatch_turn(
       registered by their owning components; if none is registered yet,
       ``dispatch`` raises :class:`LookupError`, which the parent maps to the
       runtime-unavailable signal. We never silently route them through DeepSeek.
+
+    ``remaining_output_cap`` (B02 Pro) is the session output-token headroom the
+    parent computed. When it is exhausted (``<= 0``) no model call is
+    dispatched — a typed :class:`BudgetExceeded` is raised instead, which the
+    worker envelope serializes as ``error_type="BudgetExceeded"``.
     """
+    if remaining_output_cap is not None and remaining_output_cap <= 0:
+        ceiling = int(SESSION_BUDGET_CEILINGS["max_output_tokens"])
+        raise BudgetExceeded(
+            family=BUDGET_FAMILY_SESSION_OUTPUT_TOKENS,
+            limit=ceiling,
+            used=ceiling,
+            route=agent_id,
+            detail=(
+                "remaining output-token cap exhausted "
+                f"(remaining_output_cap={remaining_output_cap}); "
+                "no model call dispatched."
+            ),
+        )
     _anchor_agent_package_on_syspath()
     request = _build_request(
         agent_id=agent_id,
@@ -314,6 +364,7 @@ def _dispatch_turn(
         system_message=system_message,
         model=model,
         effort=effort,
+        remaining_output_cap=remaining_output_cap,
     )
 
     if agent_id == "hermes":
@@ -535,6 +586,7 @@ def main() -> int:
                 system_message=request.get("system_message"),
                 model=request.get("model"),
                 effort=request.get("effort"),
+                remaining_output_cap=_coerce_optional_int(request.get("remaining_output_cap")),
             )
             raw_text = text
             span.update(raw_text_length=len(text or ""))
@@ -597,6 +649,15 @@ def main() -> int:
             ]
     except Exception as exc:  # noqa: BLE001 - report all failures to parent
         out = {"error": str(exc), "error_type": type(exc).__name__}
+        if isinstance(exc, BudgetExceeded):
+            # Carry the typed budget family/limit/used so the parent's
+            # `_raise_worker_error` can re-raise a typed BudgetExceeded rather
+            # than a generic RuntimeError.
+            out["budget_family"] = exc.family
+            out["budget_limit"] = exc.limit
+            out["budget_used"] = exc.used
+            if exc.route:
+                out["budget_route"] = exc.route
         # A LookupError means no adapter is registered for the requested agent id
         # (e.g. codex/claude not wired into the default dispatcher yet); an
         # ImportError means the backend's heavy deps are missing. Both are setup

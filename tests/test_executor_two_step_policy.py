@@ -643,3 +643,107 @@ class TestSessionBudgetType:
 # hooks; the Pro agent wires them into worker/runtime/adapters and adds the
 # end-to-end exhaustion cases here.  Do not remove the marker.
 # =============================================================================
+
+
+# ── B02 Pro: cumulative-session enforcement (wiring hooks) ───────────────────
+#
+# The ``record_*`` primitives above enforce each ceiling individually; these
+# cases exercise the CUMULATIVE behavior the B03 session authority relies on:
+# usage accrues across many messages, exhausting one family never resets the
+# others, the remaining output-token cap tracks cumulative output, and
+# persistence round-trips the accumulated state (tampered ceilings fail).
+
+
+class TestCumulativeSessionEnforcement:
+    def test_output_tokens_accrue_across_messages_until_exhausted(self) -> None:
+        budget = SessionBudget()
+        # Six 8k-output messages exactly reach the 48k ceiling.
+        for _ in range(6):
+            budget = budget.record_output_tokens(8_000)
+        assert budget.output_tokens == 48_000
+        assert budget.remaining_output_tokens() == 0
+        with pytest.raises(BudgetExceeded) as excinfo:
+            budget.record_output_tokens(1)
+        assert excinfo.value.family == BUDGET_FAMILY_SESSION_OUTPUT_TOKENS
+        assert excinfo.value.limit == 48_000
+        assert excinfo.value.used == 48_001
+        # Exhaustion must NOT silently reset the session.
+        assert budget.output_tokens == 48_000
+        assert budget.remaining_output_tokens() == 0
+
+    def test_remaining_output_tokens_tracks_cumulative_usage(self) -> None:
+        budget = SessionBudget()
+        assert budget.remaining_output_tokens() == 48_000
+        budget = budget.record_output_tokens(30_000)
+        assert budget.remaining_output_tokens() == 18_000
+        budget = budget.record_output_tokens(18_000)
+        assert budget.remaining_output_tokens() == 0
+
+    def test_exhausting_one_family_never_resets_others(self) -> None:
+        budget = SessionBudget()
+        budget = budget.record_output_tokens(7_000)
+        budget = budget.record_model_continuation()
+        budget = budget.record_tool_call()
+        budget = budget.record_active_seconds(30.0)
+        budget = budget.record_user_message()
+        for _ in range(12):
+            budget = budget.record_apply_batch()
+        # apply_batches is now exhausted; every other counter is untouched.
+        with pytest.raises(BudgetExceeded) as excinfo:
+            budget.record_apply_batch()
+        assert excinfo.value.family == BUDGET_FAMILY_SESSION_APPLY_BATCHES
+        assert budget.apply_batches == 12
+        assert budget.output_tokens == 7_000
+        assert budget.model_continuations == 1
+        assert budget.tool_calls == 1
+        assert budget.wall_clock_seconds == 30.0
+        assert budget.user_messages == 1
+        assert budget.replacement_attempts == 0
+        # The other families remain fully usable.
+        assert budget.record_output_tokens(1).output_tokens == 7_001
+
+    def test_mixed_workload_accrues_all_counters(self) -> None:
+        budget = SessionBudget()
+        budget = budget.record_user_message()
+        budget = budget.record_model_continuation()
+        budget = budget.record_tool_call()
+        budget = budget.record_active_seconds(12.5)
+        budget = budget.record_output_tokens(1_000)
+        budget = budget.record_apply_batch()
+        budget = budget.record_replacement_attempt()
+        assert budget.user_messages == 1
+        assert budget.model_continuations == 1
+        assert budget.tool_calls == 1
+        assert budget.wall_clock_seconds == 12.5
+        assert budget.output_tokens == 1_000
+        assert budget.apply_batches == 1
+        assert budget.replacement_attempts == 1
+
+    def test_persistence_round_trip_restores_cumulative_state(self) -> None:
+        budget = SessionBudget()
+        budget = budget.record_output_tokens(9_999)
+        budget = budget.record_model_continuation()
+        budget = budget.record_tool_call()
+        budget = budget.record_active_seconds(90.0)
+        budget = budget.record_apply_batch()
+        budget = budget.record_replacement_attempt()
+        budget = budget.record_user_message()
+        restored = SessionBudget.from_dict(budget.to_dict())
+        assert restored == budget
+        assert restored.output_tokens == 9_999
+        assert restored.model_continuations == 1
+        assert restored.tool_calls == 1
+        assert restored.wall_clock_seconds == 90.0
+        assert restored.apply_batches == 1
+        assert restored.replacement_attempts == 1
+        assert restored.user_messages == 1
+
+    def test_from_dict_rejects_tampered_ceilings(self) -> None:
+        payload = SessionBudget().to_dict()
+        payload["max_output_tokens"] = 99_999
+        with pytest.raises(ValueError, match="frozen"):
+            SessionBudget.from_dict(payload)
+        payload = SessionBudget().to_dict()
+        payload["max_user_messages"] = 1
+        with pytest.raises(ValueError, match="frozen"):
+            SessionBudget.from_dict(payload)
