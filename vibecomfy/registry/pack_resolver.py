@@ -36,7 +36,8 @@ DEFAULT_REGISTRY_SUB_BUDGET_SECONDS = 30.0
 COOLDOWN_FILE_NAME = ".cooldown.json"
 COOLDOWN_LOCK_FILE_NAME = ".cooldown.lock"
 DEFAULT_COOLDOWN_SECONDS = 60.0
-MAX_COOLDOWN_SECONDS = 3600.0
+# A persisted GitHub cooldown must not outlive one registry research budget.
+MAX_COOLDOWN_SECONDS = DEFAULT_REGISTRY_SUB_BUDGET_SECONDS
 
 # R2-B2: brief negative-cache TTL for GitHub 422 "validation failed" queries.
 NEGATIVE_CACHE_TTL_SECONDS = 60.0
@@ -232,6 +233,14 @@ def _registry_budget_end(*, deadline: float | None) -> float | None:
 
 def _budget_exceeded(deadline: float | None) -> bool:
     return deadline is not None and time.monotonic() >= deadline
+
+
+def _bounded_request_timeout(timeout_seconds: float, deadline: float | None) -> float:
+    """Clamp one request to both its hard cap and the remaining sub-budget."""
+    timeout = min(timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+    if deadline is not None:
+        timeout = min(timeout, max(0.001, deadline - time.monotonic()))
+    return timeout
 
 
 # ── Rate-limit cooldown circuit (R2-B2) ─────────────────────────────────────
@@ -614,7 +623,7 @@ class _ComfyRegistryClient:
 
     @property
     def _request_timeout(self) -> float:
-        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+        return _bounded_request_timeout(self.timeout_seconds, self.deadline)
 
     def resolve_class(self, class_name: str) -> PackResolution | None:
         exact_path = f"/comfy-nodes/{quote(class_name, safe='')}/node"
@@ -770,7 +779,7 @@ class _ExternalJsonCache:
 
     @property
     def _request_timeout(self) -> float:
-        return min(self.timeout_seconds, MAX_REQUEST_TIMEOUT_SECONDS)
+        return _bounded_request_timeout(self.timeout_seconds, self.deadline)
 
     def _get_json_url(
         self,

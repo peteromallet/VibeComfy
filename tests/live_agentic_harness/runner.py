@@ -29,7 +29,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from vibecomfy.agent.deepseek_usage import (
     add_deepseek_usage,
@@ -159,6 +159,7 @@ def _run_scenario_subprocess(
     timeout: float,
     stdout_path: str,
     stderr_path: str,
+    before_terminate: Callable[[], None] | None = None,
 ) -> tuple[int, str, str]:
     """Run *command* in its own process group; return (returncode, stdout, stderr).
 
@@ -184,6 +185,11 @@ def _run_scenario_subprocess(
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            if before_terminate is not None:
+                try:
+                    before_terminate()
+                except Exception:  # noqa: BLE001 - timeout termination must proceed
+                    pass
             _terminate_scenario_group(proc.pid)
             try:
                 proc.wait(timeout=5.0)  # bounded reap after SIGKILL
@@ -276,8 +282,9 @@ def _failure_summary(
     stdout_tail: str | None = None,
     stderr_tail: str | None = None,
     elapsed_s: float | None = None,
+    killed_before_first_attempt: bool = False,
 ) -> dict[str, Any]:
-    return {
+    summary = {
         "scenario_id": scenario_id,
         "status": "error",
         "ok": False,
@@ -296,10 +303,14 @@ def _failure_summary(
         "elapsed_s": elapsed_s,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
+        "model_attempts": [],
         "deepseek_usage": {},
         "deepseek_est_cost_usd": 0.0,
         "deepseek_cost_basis": "not_available",
     }
+    if killed_before_first_attempt:
+        summary["killed_before_first_attempt"] = True
+    return summary
 
 
 def _persist_scenario_summary(summary: dict[str, Any], output_base: Any, tag: str) -> None:
@@ -340,6 +351,7 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "elapsed_s": summary.get("elapsed_s"),
         "live_agentic_success": (summary.get("guard") or {}).get("live_agentic_success"),
         "model_attempts": summary.get("model_attempts", []),
+        "killed_before_first_attempt": summary.get("killed_before_first_attempt") is True,
     }
 
 
@@ -447,6 +459,9 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
     if summary.get("guard", {}).get("live_agentic_success") is True:
         _clear_stale_retryable_infra_markers(summary)
         return summary
+    if _is_outer_timeout_before_first_attempt(summary):
+        _mark_summary_as_infra(summary, "infra_timeout")
+        return summary
     failure_class = _provider_infra_failure_class(summary)
     if failure_class is not None:
         _mark_summary_as_infra(summary, failure_class)
@@ -455,18 +470,33 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
     return summary
 
 
+def _is_outer_timeout_before_first_attempt(summary: Mapping[str, Any]) -> bool:
+    """True only for the runner's typed outer kill with no model attempt."""
+    attempts = summary.get("model_attempts")
+    return (
+        summary.get("failure_class") == "infra_timeout"
+        and summary.get("killed_before_first_attempt") is True
+        and isinstance(attempts, (list, tuple))
+        and not attempts
+    )
+
+
 def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
     """Decide retryability from the CANONICAL typed evidence on every call.
 
     The decision is the latest failed ``model_attempts`` entry's failure type
-    plus the observed completion tokens — never the inherited
+    plus the observed completion tokens, or the runner's explicit outer-kill
+    marker with an empty attempt list — never the inherited
     ``failure_class``/``retryable_infra`` flags, which can be stale from an
     earlier attempt. A succeeded scenario is never retried.
     """
     _classify_retryable_infra_summary(summary)
     if summary.get("guard", {}).get("live_agentic_success") is True:
         return False
-    return _provider_infra_failure_class(summary) in _RETRYABLE_INFRA_CLASSES
+    return (
+        _is_outer_timeout_before_first_attempt(summary)
+        or _provider_infra_failure_class(summary) in _RETRYABLE_INFRA_CLASSES
+    )
 
 
 def _build_run_summary(
@@ -731,6 +761,25 @@ def run_tag(
                         cmd += ["--transport", transport]
                     child_env = _pinned_child_env(transport)
                     started = time.monotonic()
+
+                    def persist_outer_timeout_marker() -> None:
+                        partial = _failure_summary(
+                            sid,
+                            output_base,
+                            attempt_run_tag,
+                            f"scenario exceeded {per_scenario_timeout}s; terminating",
+                            failure_class="infra_timeout",
+                            attempt=attempt,
+                            expect_graph_changed=expect_graph_changed,
+                            elapsed_s=time.monotonic() - started,
+                            killed_before_first_attempt=True,
+                        )
+                        _persist_scenario_summary(
+                            partial,
+                            output_base,
+                            attempt_run_tag,
+                        )
+
                     try:
                         returncode, stdout_text, stderr_text = _run_scenario_subprocess(
                             cmd,
@@ -739,6 +788,7 @@ def run_tag(
                             timeout=per_scenario_timeout,
                             stdout_path=str(stdout_path),
                             stderr_path=str(stderr_path),
+                            before_terminate=persist_outer_timeout_marker,
                         )
                         elapsed_s = time.monotonic() - started
                         recovered = _load_valid_summary(out_file)
@@ -791,6 +841,7 @@ def run_tag(
                                 stdout_tail=_trim(_timeout_tail(exc, "output")),
                                 stderr_tail=_trim(_timeout_tail(exc, "stderr")),
                                 elapsed_s=elapsed_s,
+                                killed_before_first_attempt=True,
                             )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure
                         elapsed_s = time.monotonic() - started

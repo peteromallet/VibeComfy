@@ -875,11 +875,16 @@ def _run_worker(
     raise RuntimeError("agent worker retry loop exited without a result")
 
 
-def _turn_timeout_seconds(user_msg: str, system_msg: str | None = None) -> float:
-    """Per-turn worker timeout, raised for large implement graphs (RC3)."""
+def _turn_timeout_seconds(
+    user_msg: str,
+    system_msg: str | None = None,
+    *,
+    stage: str | None = None,
+) -> float:
+    """Per-turn timeout, with an implement/batch floor and payload fallback."""
     payload = f"{system_msg or ''}{user_msg or ''}"
     timeout = _TURN_TIMEOUT_SECONDS
-    if len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES:
+    if stage in {"implement", "batch"} or len(payload.encode("utf-8")) > _LARGE_GRAPH_BYTES:
         timeout = max(timeout, _LARGE_GRAPH_TURN_TIMEOUT_SECONDS)
     return min(timeout, _TURN_TIMEOUT_HARD_CAP_SECONDS)
 
@@ -935,7 +940,23 @@ def _run_worker_once(
         # `utils` collision); run from a neutral directory.
         stdout_path = os.path.join(tmp, "worker.stdout.log")
         stderr_path = os.path.join(tmp, "worker.stderr.log")
-        turn_timeout = _turn_timeout_seconds(user_msg, system_msg)
+        backend_phase = str((profiling_context or {}).get("backend_phase") or "")
+        user_msg_bytes = len((user_msg or "").encode("utf-8"))
+        system_msg_bytes = len((system_msg or "").encode("utf-8"))
+        if backend_phase in {"implement", "batch"}:
+            profiler_log(
+                LOGGER,
+                "runtime.implement_payload_bytes",
+                stage=backend_phase,
+                user_msg_bytes=user_msg_bytes,
+                system_msg_bytes=system_msg_bytes,
+                total_msg_bytes=user_msg_bytes + system_msg_bytes,
+            )
+        turn_timeout = _turn_timeout_seconds(
+            user_msg,
+            system_msg,
+            stage=backend_phase,
+        )
         try:
             with profiler_span(
                 LOGGER,

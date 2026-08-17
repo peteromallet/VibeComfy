@@ -1014,10 +1014,12 @@ def test_resolve_missing_nodes_honors_deadline_with_slow_http_client(tmp_path: P
     resolver checks its budget between requests, stops after the first slow
     request, and returns partial (empty) evidence with a warning."""
     calls: list[str] = []
+    request_timeouts: list[float] = []
 
     class SlowClient:
         def get(self, url: str, **kwargs: Any) -> httpx.Response:
             calls.append(url)
+            request_timeouts.append(float(kwargs["timeout"]))
             time.sleep(0.4)
             request = httpx.Request("GET", url)
             if "custom-node-map" in url:
@@ -1036,6 +1038,7 @@ def test_resolve_missing_nodes_honors_deadline_with_slow_http_client(tmp_path: P
     )
 
     assert len(calls) == 1  # only the first manager request; budget stopped the rest
+    assert 0 < request_timeouts[0] <= 0.15
     assert result.candidates == ()
     assert any("sub-budget" in warning or "budget" in warning for warning in result.warnings)
 
@@ -1141,6 +1144,26 @@ def test_github_rate_limit_writes_cooldown_and_skips_repo_search(
     payload = json.loads(cooldown_file.read_text(encoding="utf-8"))
     assert _CODE_SEARCH_URL in payload
     assert payload[_CODE_SEARCH_URL]["retry_after"] == 10.0
+
+
+def test_github_cooldown_is_bounded_by_registry_research_budget(tmp_path: Path) -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("GET", _CODE_SEARCH_URL),
+        headers={"Retry-After": "3600"},
+        json={"message": "rate limited"},
+    )
+
+    resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=_NoRepoSearchClient(response),
+    )
+
+    payload = json.loads((tmp_path / ".cooldown.json").read_text(encoding="utf-8"))
+    assert payload[_CODE_SEARCH_URL]["retry_after"] == 30.0
 
 
 def test_github_cooldown_honored_across_calls_in_process(tmp_path: Path) -> None:

@@ -91,7 +91,7 @@ def test_final_summary_replaces_partial_summary(tmp_path: Path) -> None:
     assert not (tmp_path / "tag" / "run_summary.partial.json").exists()
 
 
-def test_runner_does_not_retry_outer_timeout(
+def test_runner_retries_outer_timeout_with_empty_attempts_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
@@ -106,6 +106,7 @@ def test_runner_does_not_retry_outer_timeout(
         nonlocal calls
         calls += 1
         if calls == 1:
+            kwargs["before_terminate"]()
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
         out_file = Path(cmd[cmd.index("--single-out") + 1])
         tag = cmd[cmd.index("--tag") + 1]
@@ -129,18 +130,35 @@ def test_runner_does_not_retry_outer_timeout(
     )
 
     scenario = summary["scenarios"][0]
-    assert calls == 1
-    assert summary["passed"] == 0
+    assert calls == 2
+    assert summary["passed"] == 1
     assert summary["raw_first_attempt_passed"] == 0
-    assert scenario["attempt_count"] == 1
+    assert scenario["attempt_count"] == 2
     assert scenario["attempts"][0]["failure_class"] == "infra_timeout"
     assert scenario["attempts"][0]["score_class"] == "infra_blocked"
-    assert scenario["attempts"][0]["retryable_infra"] is False
+    assert scenario["attempts"][0]["retryable_infra"] is True
     assert scenario["attempts"][0]["agent_exercised"] is False
+    assert scenario["attempts"][0]["model_attempts"] == []
+    assert scenario["attempts"][0]["killed_before_first_attempt"] is True
     assert scenario["attempts"][0]["elapsed_s"] is not None
+    assert scenario["final_attempt"] == 2
     assert (
         tmp_path / "out" / "tag" / "retry-me" / "agentic_summary.json"
     ).exists()
+    partial = json.loads(
+        (
+            tmp_path
+            / "out"
+            / "tag"
+            / "attempts"
+            / "retry-me"
+            / "attempt_1"
+            / "retry-me"
+            / "agentic_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert partial["killed_before_first_attempt"] is True
+    assert partial["model_attempts"] == []
 
 
 def test_runner_types_provider_capacity_without_retry(
@@ -502,6 +520,15 @@ def test_retryability_is_derived_from_canonical_typed_evidence() -> None:
     assert _is_retryable_infra_summary(summary) is True
     assert summary["failure_class"] == "infra_empty_response"
     assert summary["retryable_infra"] is True
+
+
+def test_outer_timeout_marker_requires_empty_model_attempts() -> None:
+    summary = _summary(Path("/tmp"), "outer-timeout", ok=False)
+    summary["failure_class"] = "infra_timeout"
+    summary["killed_before_first_attempt"] = True
+    summary["model_attempts"] = [_failed_attempt("malformed_json")]
+
+    assert _is_retryable_infra_summary(summary) is False
 
 
 @pytest.fixture

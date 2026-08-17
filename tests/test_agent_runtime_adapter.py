@@ -18,13 +18,17 @@ from vibecomfy.executor.agent_backend import run_classify_turn, run_reply_turn
 
 
 def test_turn_timeout_raises_for_large_serialized_graphs() -> None:
-    small = runtime._turn_timeout_seconds("tiny")
-    large = runtime._turn_timeout_seconds("x" * 60_000)
+    small = runtime._turn_timeout_seconds("tiny", stage="classify")
+    large = runtime._turn_timeout_seconds("x" * 60_000, stage="reply")
+    implement = runtime._turn_timeout_seconds("tiny", stage="implement")
+    batch = runtime._turn_timeout_seconds("tiny", stage="batch")
     assert small == runtime._TURN_TIMEOUT_SECONDS
     assert large == min(
         max(runtime._TURN_TIMEOUT_SECONDS, runtime._LARGE_GRAPH_TURN_TIMEOUT_SECONDS),
         runtime._TURN_TIMEOUT_HARD_CAP_SECONDS,
     )
+    assert implement == large
+    assert batch == large
     assert large >= 480
 
 
