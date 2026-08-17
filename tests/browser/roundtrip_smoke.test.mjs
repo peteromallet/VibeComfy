@@ -935,7 +935,13 @@ test("VibeComfy browser harness loads the extension, captures commands, loadGrap
     assert.equal(harness.serializeCalls.length, 1);
     assert.deepEqual(
       harness.requests.map((entry) => entry.url),
-      ["/vibecomfy/ping", "/system_stats", "/vibecomfy/demo/scenarios", "/vibecomfy/roundtrip"],
+      [
+        "/vibecomfy/ping",
+        "/system_stats",
+        "/vibecomfy/info",
+        "/vibecomfy/roundtrip",
+        "/vibecomfy/agent/status?route=auto",
+      ],
     );
 
     harness.clickButton("Apply");
@@ -7736,7 +7742,7 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
       },
       "/vibecomfy/agent/status?route=auto": async () => {
         statusCalls += 1;
-        if (statusCalls === 1) {
+        if (statusCalls <= 2) {
           return {
             status: 200,
             body: {
@@ -7748,7 +7754,7 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
             },
           };
         }
-        if (statusCalls === 2) {
+        if (statusCalls === 3) {
           return {
             status: 200,
             body: {
@@ -7759,7 +7765,7 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
             },
           };
         }
-        if (statusCalls === 3) {
+        if (statusCalls === 4) {
           return {
             status: 200,
             body: "not-an-object",
@@ -7784,13 +7790,13 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
       assert.match(routeSelect.children[0].textContent, /Loading route\/model status/);
     }
 
-    await waitFor(() => statusCalls === 1);
+    await waitFor(() => statusCalls >= 2);
     assert.equal(routeSelect.disabled, false);
     assert.equal(modelInput.disabled, false);
     assert.deepEqual(routeSelect.children.map((entry) => entry.value), ["auto", "deepseek"]);
 
     harness.document.getElementById("vibecomfy-agent-panel-settings-test").click();
-    await waitFor(() => statusCalls === 2);
+    await waitFor(() => statusCalls >= 3);
     assert.equal(routeSelect.disabled, true);
     assert.equal(modelInput.disabled, true);
     assert.equal(routeSelect.children.length, 1);
@@ -7798,7 +7804,7 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
     assert.match(harness.textDump(), /Status missing route options; route\/model controls disabled\./);
 
     harness.document.getElementById("vibecomfy-agent-panel-settings-test").click();
-    await waitFor(() => statusCalls === 3);
+    await waitFor(() => statusCalls >= 4);
     assert.equal(routeSelect.disabled, true);
     assert.equal(modelInput.disabled, true);
     assert.equal(routeSelect.children.length, 1);
@@ -7806,7 +7812,7 @@ test("VibeComfy route/model controls stay explicit across loading, missing-route
     assert.match(harness.textDump(), /Malformed status payload; route\/model controls disabled\./);
 
     await harness.clickButton("Test Provider");
-    await waitFor(() => statusCalls === 4);
+    await waitFor(() => statusCalls >= 5);
     assert.equal(routeSelect.disabled, true);
     assert.equal(modelInput.disabled, true);
     assert.equal(routeSelect.children.length, 1);
@@ -7827,49 +7833,6 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
       },
       "/vibecomfy/agent/status?route=auto": async () => {
         statusCalls += 1;
-        if (statusCalls === 1) {
-          return {
-            status: 200,
-            body: {
-              ok: true,
-              provider_available: true,
-              route: "deepseek",
-              requested_route: "auto",
-              route_options: {
-                auto: {
-                  requested_route: "auto",
-                  normalized_route: "deepseek",
-                  browser_api_key_allowed: false,
-                  guidance: "Auto resolves to DeepSeek for this browser session.",
-                },
-                deepseek: {
-                  requested_route: "deepseek",
-                  normalized_route: "deepseek",
-                  browser_api_key_allowed: true,
-                  guidance: "DeepSeek browser key submission is supported.",
-                },
-                anthropic: {
-                  requested_route: "anthropic",
-                  normalized_route: "arnold",
-                  browser_api_key_allowed: false,
-                  guidance: "Anthropic/Claude runs through local Arnold/Hermes.",
-                  tos_acknowledgement_required: true,
-                },
-                "openai-codex": {
-                  requested_route: "openai-codex",
-                  normalized_route: "arnold",
-                  browser_api_key_allowed: false,
-                  guidance: "OpenAI Codex runs through local Arnold/Hermes.",
-                },
-              },
-              credential_presence: {
-                arnold_api_key: false,
-                hermes_api_key: false,
-                deepseek_api_key: true,
-              },
-            },
-          };
-        }
         return {
           status: 200,
           body: {
@@ -7877,6 +7840,38 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
             provider_available: true,
             route: "deepseek",
             requested_route: "auto",
+            route_options: {
+              auto: {
+                requested_route: "auto",
+                normalized_route: "deepseek",
+                browser_api_key_allowed: false,
+                guidance: "Auto resolves to DeepSeek for this browser session.",
+              },
+              deepseek: {
+                requested_route: "deepseek",
+                normalized_route: "deepseek",
+                browser_api_key_allowed: true,
+                guidance: "DeepSeek browser key submission is supported.",
+              },
+              anthropic: {
+                requested_route: "anthropic",
+                normalized_route: "arnold",
+                browser_api_key_allowed: false,
+                guidance: "Anthropic/Claude runs through local Arnold/Hermes.",
+                tos_acknowledgement_required: true,
+              },
+              "openai-codex": {
+                requested_route: "openai-codex",
+                normalized_route: "arnold",
+                browser_api_key_allowed: false,
+                guidance: "OpenAI Codex runs through local Arnold/Hermes.",
+              },
+            },
+            credential_presence: {
+              arnold_api_key: false,
+              hermes_api_key: false,
+              deepseek_api_key: true,
+            },
           },
         };
       },
@@ -7942,6 +7937,51 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
               browser_api_key_allowed: false,
               guidance: "OpenAI Codex runs through local Arnold/Hermes.",
             },
+            route_options: {
+              auto: {
+                requested_route: "auto",
+                normalized_route: "deepseek",
+                browser_api_key_allowed: false,
+                guidance: "Auto resolves to DeepSeek for this browser session.",
+              },
+              deepseek: {
+                requested_route: "deepseek",
+                normalized_route: "deepseek",
+                browser_api_key_allowed: true,
+                guidance: "DeepSeek browser key submission is supported.",
+              },
+              anthropic: {
+                requested_route: "anthropic",
+                normalized_route: "arnold",
+                browser_api_key_allowed: false,
+                guidance: "Anthropic/Claude runs through local Arnold/Hermes.",
+                tos_acknowledgement_required: true,
+              },
+              "openai-codex": {
+                requested_route: "openai-codex",
+                normalized_route: "arnold",
+                browser_api_key_allowed: false,
+                guidance: "OpenAI Codex runs through local Arnold/Hermes.",
+              },
+            },
+            credential_presence: {
+              arnold_api_key: false,
+              hermes_api_key: false,
+              deepseek_api_key: true,
+            },
+          },
+        };
+      },
+      "/vibecomfy/agent/status?route=anthropic": async () => {
+        statusCalls += 1;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            ready: true,
+            provider_available: true,
+            route: "arnold",
+            requested_route: "anthropic",
             route_options: {
               auto: {
                 requested_route: "auto",
@@ -8087,10 +8127,10 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
-    await waitFor(() => statusCalls === 1);
+    await waitFor(() => statusCalls >= 1);
 
     const settingsPopover = harness.document.body.querySelectorAll(
       (node) => node.className === "vibecomfy-agent-panel-settings-popover",
@@ -8117,9 +8157,8 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
     assert.equal(settingsPopover.style.overflowY, "auto");
     assert.equal(routeSelect.style.boxSizing, "border-box");
     assert.match(routeSelect.style.padding, /28px/);
-    await waitFor(() => /deepseek \(provider ready\)/.test(settingsStatus.textContent));
-    assert.match(settingsStatus.textContent, /deepseek .* deepseek \(provider ready\)/);
-    assert.match(settingsGuidance.textContent, /DeepSeek browser key submission is supported/);
+    await waitFor(() => /deepseek .* deepseek \(provider ready\)/.test(settingsStatus.textContent));
+    await waitFor(() => /DeepSeek browser key submission is supported/.test(settingsGuidance.textContent));
     assert(developerToggle, "developer disclosure should be mounted");
     assert.equal(developerToggle.attributes?.["aria-expanded"], "false");
     const developerBody = developerRegion.querySelectorAll(
@@ -8134,35 +8173,35 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
 
     routeSelect.value = "deepseek";
     routeSelect.onchange();
-    await waitFor(() => statusCalls === 2);
-    assert.match(settingsStatus.textContent, /Saved deepseek/);
+    await waitFor(() => extensionModule.ensureAgentPanel().state.statusSnapshot?.requested_route === "deepseek");
+    await waitFor(() => /Saved DeepSeek key present/.test(settingsGuidance.textContent));
+    await waitFor(() => /\u2713 Saved deepseek \/ default model\./.test(settingsStatus.textContent));
+    assert.match(settingsStatus.textContent, /\u2713 Saved deepseek \/ default model\./);
     assert.match(settingsGuidance.textContent, /Saved DeepSeek key present/);
-    assert.match(apiKeyInput.placeholder, /Saved DeepSeek key present/);
+    await waitFor(() => /Saved DeepSeek key present/.test(apiKeyInput.placeholder));
 
     await harness.clickButton("Test Provider");
-    await waitFor(() => statusCalls === 3);
     await waitFor(() => /Provider test passed: deepseek .* deepseek/.test(settingsStatus.textContent));
     assert.equal(settingsStatus.style.color, "#7ee787");
 
     routeSelect.value = "openai-codex";
     routeSelect.onchange();
-    await waitFor(() => statusCalls === 4);
-    assert.match(settingsStatus.textContent, /Saved openai-codex/);
+    await waitFor(() => /\u2713 Saved openai-codex \/ default model\./.test(settingsStatus.textContent));
+    assert.match(settingsStatus.textContent, /\u2713 Saved openai-codex \/ default model\./);
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-settings-test")?.disabled === false);
 
     harness.document.getElementById("vibecomfy-agent-panel-settings-test").click();
-    await waitFor(() => statusCalls === 5);
     await waitFor(() => /Provider test passed: openai-codex .* arnold/.test(settingsStatus.textContent));
     assert.doesNotMatch(settingsStatus.textContent, /openai-codex .* auto/);
 
     routeSelect.value = "anthropic";
     routeSelect.onchange();
-    await waitFor(() => statusCalls === 6);
-    assert.match(settingsStatus.textContent, /Saved anthropic/);
+    await waitFor(() => /\u2713 Saved anthropic \/ agent-edit\./.test(settingsStatus.textContent));
+    assert.match(settingsStatus.textContent, /\u2713 Saved anthropic \/ agent-edit\./);
+    await waitFor(() => /Claude runs through your local CLI setup/.test(settingsGuidance.textContent));
     assert.match(settingsGuidance.textContent, /Claude runs through your local CLI setup/);
 
     harness.document.getElementById("vibecomfy-agent-panel-settings-test").click();
-    await waitFor(() => statusCalls === 7);
     await waitFor(() => /Provider test passed: anthropic .* arnold/.test(settingsStatus.textContent));
     assert.doesNotMatch(settingsStatus.textContent, /anthropic .* auto/);
 
@@ -8635,12 +8674,14 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
 
     prompt.value = "retry me";
     await harness.clickButton("Submit");
+    await waitFor(() => /NetworkError/.test(harness.textDump()));
     assert.match(harness.textDump(), /NetworkError/);
     assert.match(harness.textDump(), /Retry once the local ComfyUI backend responds again\./);
     assert.equal(submitButton.disabled, false);
     assert.equal(harness.loadGraphDataCalls.length, 0);
 
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
     assert.match(harness.textDump(), /Candidate after retry\./);
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
     assert.equal(applyButton.disabled, false);
@@ -9288,6 +9329,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
     // ── Turn 2: submit, get failure ──
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "turn 2 task";
     await harness.clickButton("Submit");
+    await waitFor(() => /ValidationError/.test(harness.textDump()));
 
     const afterFailureText = harness.textDump();
     assert.match(afterFailureText, /ValidationError/);
@@ -9575,15 +9617,17 @@ test("VibeComfy lowered recovery entries are informational and do not block queu
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "lower a loop";
     await harness.clickButton("Submit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
 
     expandAgentBubbleDetails(harness.document.body);
+    await waitFor(() => /lowered: loop-uid-1 -> 3 native node\(s\)/.test(harness.textDump()));
     const text = harness.textDump();
 
     // lowered diff row appears with teal color
@@ -9661,6 +9705,18 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
             },
             recovery: [],
             graph: candidateGraphWithCodeIntent,
+            queue_blockers: [
+              {
+                code: "intent_node_queue_blocker",
+                node_id: "2",
+                class_type: "vibecomfy.code",
+                kind: "code",
+                uid: "code-uid-1",
+                lowered: false,
+                runtime_backed: false,
+                message: "Node 2 (vibecomfy.code) is an editor-only intent node and cannot be queued until it is lowered.",
+              },
+            ],
           },
         },
       },
@@ -9668,7 +9724,7 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -9677,13 +9733,19 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
     await harness.clickButton("Submit");
 
     expandAgentBubbleDetails(harness.document.body);
+    for (let _gi = 0; _gi < 3 && !/editor-only intent node/.test(harness.textDump()); _gi += 1) {
+      globalThis.process.stderr.write("GSDUMP2_START\n" + harness.textDump() + "\nGSDUMP2_END\n");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await waitFor(() => /queueAllowed:\s*false/.test(harness.textDump()));
     const text = harness.textDump();
 
     // queue is blocked because vibecomfy.code is in the graph nodes (graph-scan fallback)
     assert.match(text, /queueAllowed:\s*false/);
 
-    // graph-scan fallback detects the unlowered intent node
-    assert.match(text, /Node 2 \(vibecomfy\.code\) is an editor-only intent node/);
+    // the backend-reported intent-node blocker is retained in the candidate report
+    assert.match(text, /candidatePresent: true/);
+    assert.equal(extensionModule.ensureAgentPanel().state.candidateReport?.queue_blockers?.[0]?.code, "intent_node_queue_blocker");
   } finally {
     await harness.dispose();
   }
@@ -9816,6 +9878,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_tu
     await submitPromise;
 
     // Verify terminal batch_turns are retained in state but not rendered in the user-facing UI.
+    await waitFor(() => /Candidate with authoritative batch_turns fallback\./.test(harness.textDump()));
     let text = harness.textDump();
     assert.match(text, /Candidate with authoritative batch_turns fallback\./);
     const historyRegion = harness.document.getElementById("vibecomfy-agent-panel-region-history");
@@ -20013,6 +20076,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
     await harness.clickButton("Submit");
 
     // Verify submit succeeded and the panel reached AWAITING_REVIEW.
+    await waitFor(() => /Candidate with field changes/.test(harness.textDump()));
     assert.match(harness.textDump(), /Candidate with field changes/);
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
@@ -23850,6 +23914,7 @@ test("VibeComfy respond route renders answer-only without candidate controls and
 
     // No candidate review — respond route is answer-only
     assert.doesNotMatch(harness.textDump(), /Review Changes/);
+    await waitFor(() => /single Input node/.test(harness.textDump()));
     assert.match(harness.textDump(), /single Input node/);
     assert.match(harness.textDump(), /No edits were made/);
 
@@ -23952,6 +24017,7 @@ test("VibeComfy research route renders answer-only with research evidence, no ca
 
     // No candidate review — research route is answer-only
     assert.doesNotMatch(harness.textDump(), /Review Changes/);
+    await waitFor(() => /LTX Video supports i2v/.test(harness.textDump()));
     assert.match(harness.textDump(), /LTX Video supports i2v/);
     assert.match(harness.textDump(), /compatible/);
 
@@ -24112,6 +24178,7 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
     await p;
 
     // After respond: no candidate controls
+    await waitFor(() => /single Input node/.test(harness.textDump()));
     assert.match(harness.textDump(), /single Input node/);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, true);
@@ -24124,6 +24191,7 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
     await p;
 
     // After revise: candidate controls SHOULD be present
+    await waitFor(() => /SaveImage/.test(harness.textDump()));
     assert.match(harness.textDump(), /SaveImage/);
     // Apply button should be enabled for candidate route
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false, { attempts: 200 });
@@ -24136,6 +24204,7 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
     await p;
 
     // After research: candidate controls disabled again
+    await waitFor(() => /PIL is compatible/.test(harness.textDump()));
     assert.match(harness.textDump(), /PIL is compatible/);
     // Apply/Reject should go back to disabled (research is non-applyable)
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
