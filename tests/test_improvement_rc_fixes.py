@@ -315,8 +315,24 @@ def test_fc240f_shaped_delta_passes_without_llm_field_rename(
     seen: dict[str, object] = {}
 
     def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        seen["payload"] = json.loads(messages[1]["content"])
-        return {"content": json.dumps(_edit_llm_field_rename())}
+        payload = json.loads(messages[1]["content"])
+        seen["payload"] = payload
+        delta_field = payload["delta"]["ops"][0]["target"][2]
+        correct = delta_field == "motion_bucket_id"
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": correct,
+                    "criteria": {
+                        "correct_node_targeted": True,
+                        "correct_parameter_changed": correct,
+                        "value_semantically_matches_intent": correct,
+                        "no_orphaned_wiring": True,
+                    },
+                    "rationale": f"The canonical delta sets {delta_field}.",
+                }
+            )
+        }
 
     monkeypatch.setattr(
         "tests.live_agentic_harness.intent_judge.run_model_turn",
@@ -337,6 +353,7 @@ def test_fc240f_shaped_delta_passes_without_llm_field_rename(
     assert payload["mode_labels"]["0"] == "enabled"
     assert payload["named_fields"]["12"]["motion_bucket_id"] == 200
     assert "video_frames" in payload["named_fields"]["12"]
+    assert payload["delta"]["ops"][0]["target"][2] == "motion_bucket_id"
     assert payload["pregrade"]["correct_parameter_changed"] is True
     assert verdict["criteria"]["correct_parameter_changed"] is True
     assert verdict["pass_"] is True
@@ -1237,6 +1254,108 @@ def test_false_refusal_criterion_wins_over_another_missing_without_retry(
     assert verdict["pass_"] is False
     assert verdict["criteria"]["no_representable_edit"] is False
     assert "missing_criteria" not in verdict
+
+
+def test_kolors_actionable_refusal_is_accepted_through_live_assessor(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Kolors live path: response prose reaches the real refusal judge actionable."""
+    graph = {
+        "last_node_id": 2,
+        "last_link_id": 0,
+        "nodes": [
+            {"id": 1, "type": "UltralyticsDetectorProvider"},
+            {"id": 2, "type": "ImpactSimpleDetectorSEGS_for_AD"},
+        ],
+        "links": [],
+    }
+    action = (
+        "GroundingDinoSAMSegment and GroundingDinoModelLoader are unavailable. "
+        "Please provide the missing dependency or answer the unresolved choice "
+        "named above so I can continue."
+    )
+    (tmp_path / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "outcome": {"kind": "clarify", "question": action},
+                "message": action,
+                "reply": action,
+                "no_candidate_reason": "no_changes",
+                "route": "adapt",
+                "graph_unchanged": True,
+                "gates": {
+                    "ir_validate_ok": False,
+                    "lower_ok": False,
+                    "python_load_ok": False,
+                    "queue_validate_ok": False,
+                    "ui_emit_ok": False,
+                    "ui_fidelity_ok": False,
+                    "ui_load_safe_ok": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "implementation_payload.json").write_text(
+        json.dumps(
+            {
+                "graph": {
+                    "compiled_api": {
+                        "UltralyticsDetectorProvider": {"input": {"required": {}}},
+                        "ImpactSimpleDetectorSEGS_for_AD": {"input": {"required": {}}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        payload = json.loads(messages[1]["content"])
+        seen["payload"] = payload
+        refusal_message = payload["refusal"]["message"]
+        specific = (
+            "GroundingDinoSAMSegment" in refusal_message
+            and "provide the missing dependency" in refusal_message
+        )
+        return {
+            "content": json.dumps(
+                _refusal_verdict_content(
+                    pass_=specific,
+                    criteria={
+                        "supported_blocker": True,
+                        "no_representable_edit": True,
+                        "specific_next_action": specific,
+                        "no_fabricated_inability": True,
+                    },
+                )
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={
+            "query": "Replace Ultralytics with GroundingDINO.",
+            "assessment": {
+                "expect_graph_changed": True,
+                "allow_safe_refusal_outcome_kinds": ["clarify"],
+            },
+        },
+    )
+
+    assert seen["payload"]["refusal"]["message"] == action
+    assert assessment["verdict"] == "pass"
+    assert any(issue["check"] == "safe_refusal" for issue in assessment["issues"])
+    assert not any(issue["severity"] == "error" for issue in assessment["issues"])
 
 
 # ── v5-batch-4 #7 (d1caec): harden the semantic judge JSON parse ────────────

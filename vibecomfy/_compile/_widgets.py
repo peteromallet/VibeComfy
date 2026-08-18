@@ -112,6 +112,7 @@ LINK_ONLY_TYPES: frozenset[str] = frozenset(
     {
         "AUDIO",
         "CLIP",
+        "CLIP_VISION",
         "CONDITIONING",
         "CONTROL_NET",
         "IMAGE",
