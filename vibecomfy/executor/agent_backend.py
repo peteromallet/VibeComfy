@@ -646,8 +646,14 @@ def run_execute_turn(
                 state = session_store.load(session_id)
 
         # ONE per-turn atomic edit runtime (B04): typed edit tools apply
-        # copy-on-write to the retained IR (``edit_session.workflow``).
-        edit_runtime = EditToolRuntime(edit_session=edit_session)
+        # copy-on-write to the retained IR (``edit_session.workflow``).  Δ ids
+        # are minted from a SESSION-WIDE counter (prior accepted Δs + this
+        # message's ordinal) so a later ``d1`` citation is never ambiguous.
+        delta_base = len(state.accepted_delta_refs)
+        edit_runtime = EditToolRuntime(
+            edit_session=edit_session,
+            id_factory=(lambda seq, base=delta_base: f"d{base + seq}"),
+        )
 
         def _failure_outcome(failure: BaseException) -> dict[str, Any]:
             """Wrap a loop failure with a graceful reply for budget hits (RC2).
@@ -760,12 +766,13 @@ def run_execute_turn(
             kind = action.get("action")
             if kind == "tool_call":
                 tool = str(action.get("tool") or "")
-                args = action.get("args") if isinstance(action.get("args"), dict) else {}
+                raw_args = action.get("args")
                 if tool in EDIT_TOOL_NAMES:
                     # Typed edit tool (Hermes-style): gate on the route
                     # allowlist + per-message apply/replacement CAS, dispatch
                     # through the atomic edit runtime, persist the accepted Δ /
-                    # rejection, and record the typed result in the transcript
+                    # rejection (transcript FIRST, then the sidecar cache), and
+                    # record the STRUCTURED result (never only a prose digest)
                     # so the next continuation can cite the Δ id.
                     try:
                         check_edit_tool_allowed(route, tool)
@@ -779,15 +786,18 @@ def run_execute_turn(
                             check_apply_batch(message_budget, budget_usage)
                     except BudgetExceeded as exc:
                         return _failure_outcome(exc)
-                    outcome = edit_runtime.dispatch(tool, args)
+                    outcome = edit_runtime.dispatch(tool, raw_args)
+                    call_id = f"call:{session_id}:{turn}:{tool}:{len(state.evidence_ledger) + 1}"
+                    structured = outcome.structured_result(call_id, tool)
                     session_store.append(
                         session_id,
                         "tool_call",
                         {
                             "tool": tool,
-                            "args": args,
+                            "args": raw_args,
                             "evidence_ids": [],
-                            "digest": edit_tool_digest(tool, args, outcome),
+                            "digest": edit_tool_digest(tool, raw_args if isinstance(raw_args, dict) else {}, outcome),
+                            "result": structured,
                             "route": route,
                         },
                         turn=turn,
@@ -805,14 +815,15 @@ def run_execute_turn(
                         except BudgetExceeded as exc:
                             return _failure_outcome(exc)
                         graph = outcome.graph
-                        if graph is not None:
-                            session_store.write_workflow(session_id, graph)
+                        # Transcript-authoritative durability: the accepted Δ is
+                        # appended BEFORE the sidecar is (re)written, so a crash
+                        # between the two leaves the transcript as truth.
                         session_store.append(
                             session_id,
                             "delta_accepted",
                             {
                                 "delta_ids": [outcome.delta_id] if outcome.delta_id else [],
-                                "ops": [outcome.op_dict] if outcome.op_dict else [],
+                                "ops": list(outcome.op_dicts),
                                 "workflow_hash": canonical_workflow_hash(graph),
                             },
                             turn=turn,
@@ -824,6 +835,8 @@ def run_execute_turn(
                                 {"fact_ids": list(outcome.lens_fact_ids), "route": route},
                                 turn=turn,
                             )
+                        if graph is not None:
+                            session_store.write_workflow(session_id, graph)
                         session_store.append(
                             session_id,
                             "apply_accepted",
@@ -847,6 +860,7 @@ def run_execute_turn(
                                 "diagnostics": list(outcome.diagnostics or ()),
                                 "replacement_allowed": bool(outcome.replacement_allowed),
                                 "no_candidate": bool(outcome.no_candidate),
+                                "error": outcome.error,
                                 "route": route,
                             },
                             turn=turn,
@@ -856,6 +870,7 @@ def run_execute_turn(
                     )
                     state = session_store.load(session_id)
                 else:
+                    args = raw_args if isinstance(raw_args, dict) else {}
                     try:
                         budget_usage, _digest, _eids = _run_tool_call(
                             store=session_store,

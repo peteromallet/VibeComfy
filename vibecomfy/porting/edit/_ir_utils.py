@@ -840,6 +840,8 @@ def apply_edit_cow(
             widgets=widgets,
             uid=uid,
         )
+        if op.title:
+            node.metadata["title"] = op.title
         source_nodes: list[Any] = []
         for input_name, source_ref in op.inputs.items():
             source_id, source_node = _root_node_for_uid(

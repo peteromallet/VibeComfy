@@ -123,6 +123,26 @@ class DoneResult:
     diagnostics: tuple[CompactDiagnostic, ...] = ()
 
 
+@dataclass(slots=True)
+class ApplyOpsResult:
+    """Outcome of :meth:`EditSession.apply_ops` (typed-op verified acceptance).
+
+    ``ok`` is true only when a non-empty, replay-verified, exit-guarded Δ
+    survived the schema/port check and every structural gate and was committed
+    to the retained IR.  ``workflow`` is the post-edit IR; ``graph`` is the
+    emit-door projection of that IR (the live emitted candidate graph).
+    """
+
+    ok: bool
+    reason: str = ""
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    workflow: Any = None
+    graph: dict[str, Any] | None = None
+    landed_ops: tuple[Any, ...] = ()
+    retryable: bool = True
+
+
+
 @dataclass(frozen=True, slots=True)
 class _ResolvedGraphName:
     name: str

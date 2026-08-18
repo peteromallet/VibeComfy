@@ -471,24 +471,32 @@ def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
 
     real_run_execute_turn = agent_backend_module.run_execute_turn
 
-    def scripted_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
-        # A fresh edit_node tool call → submit per message; the real loop +
-        # real session store accumulate apply_batches across the 13 messages.
-        actions = [
-            {
-                "action": "tool_call",
-                "tool": "edit_node",
-                "args": {"target": "lawnodec", "field": "prompt", "value": "after"},
-            },
-            {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
-        ]
+    # Shared across ALL 13 messages: the Hermes-style loop re-invokes the
+    # model after each tool result, so the fn alternates edit → submit within
+    # every message.  The counter lives OUTSIDE scripted_execute_turn (which
+    # runs once per message) so edits accumulate real Δs across messages.
+    call = {"n": 0}
 
+    def scripted_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
         def model_turn_fn(task: Any, messages: Any, **kw: Any) -> dict[str, Any]:
-            action = actions.pop(0) if actions else {
-                "action": "submit",
-                "reply": "done",
-                "claim_refs": {"delta_ids": []},
-            }
+            call["n"] += 1
+            n = call["n"]
+            if n % 2 == 1:  # odd call: the edit for message (n+1)//2
+                action = {
+                    "action": "tool_call",
+                    "tool": "edit_node",
+                    "args": {
+                        "target": "lawnodec",
+                        "field": "prompt",
+                        "value": f"after-{(n + 1) // 2}",
+                    },
+                }
+            else:  # even call: submit citing the edit's Δ
+                action = {
+                    "action": "submit",
+                    "reply": "edited",
+                    "claim_refs": {"delta_ids": [f"d{n // 2}"]},
+                }
             return {
                 "content": _json.dumps(action),
                 "model_attempts": [{"token_usage": {"completion_tokens": 10}}],

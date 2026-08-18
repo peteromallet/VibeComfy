@@ -98,6 +98,7 @@ if TYPE_CHECKING:
 
 
 from vibecomfy.porting.edit._session_types import (
+    ApplyOpsResult,
     BatchResult,
     CompactDiagnostic,
     DoneResult,
@@ -456,8 +457,123 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
     def _projection_op(self, op: Any) -> Any:
         return op
 
+    def apply_ops(self, ops: Any) -> "ApplyOpsResult":
+        """Apply typed edit ops through the FULL verified-acceptance gate.
+
+        This is the shared typed-op authority the edit tools dispatch through
+        (the old grammar path's ``apply_batch`` → ``verify_apply`` → ``done()``
+        gates, re-expressed for already-lowered typed ops):
+
+        1. schema/port + no-op validation (``validate_typed_ops``);
+        2. copy-on-write application (``apply_edits_cow`` — the pre-IR is never
+           mutated);
+        3. structural + replay + empty-Δ verification (``verify_apply``);
+        4. emit/exit guard (``guard_exit_ui`` over the emitted pre/post UI);
+        5. atomic commit of ONE durable Δ onto the retained IR.
+
+        Returns :class:`ApplyOpsResult`; it never raises for a typed rejection
+        (a rejection is a result with ``ok=False`` and a stable ``reason``).
+        """
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy, apply_edits_cow
+        from vibecomfy.porting.edit._op_validate import ApplyOpsError, validate_typed_ops
+        from vibecomfy.porting.edit._session_types import ApplyOpsResult, _diag
+        from vibecomfy.porting.edit.apply_gate import verify_apply
+        from vibecomfy.porting.emit.ui import guard_exit_ui
+
+        ops = tuple(ops or ())
+        if not ops:
+            return ApplyOpsResult(
+                ok=False,
+                reason="invalid_arguments",
+                diagnostics=(_diag("invalid_arguments", "no typed ops to apply", severity="error"),),
+            )
+
+        workflow = getattr(self, "workflow", None)
+        if workflow is None:
+            return ApplyOpsResult(
+                ok=False,
+                reason="no_edit_session",
+                diagnostics=(
+                    _diag("no_edit_session", "this route has no retained IR to edit.", severity="error"),
+                ),
+            )
+
+        snapshot = self._snapshot_mutable_state()
+        try:
+            pre = _cow_workflow_copy(workflow)
+
+            # 1. schema/port + no-op validation (typed, before any mutation).
+            try:
+                validate_typed_ops(workflow, ops, schema_provider=self.schema_provider)
+            except ApplyOpsError as exc:
+                return ApplyOpsResult(
+                    ok=False,
+                    reason=exc.code,
+                    diagnostics=(_diag(exc.code, exc.message, severity="error"),),
+                    retryable=exc.retryable,
+                )
+
+            # 2. copy-on-write application.
+            post = apply_edits_cow(workflow, ops, schema_provider=self.schema_provider)
+
+            # 3. structural (self-loop / orphaned output) + replay + empty-Δ gate.
+            gate = verify_apply(pre, post, landed_ops=ops, schema_provider=self.schema_provider)
+            if not gate.ok or not gate.apply_eligible:
+                return ApplyOpsResult(
+                    ok=False,
+                    reason=gate.reason or "verification_failed",
+                    diagnostics=gate.diagnostics,
+                )
+
+            # 4. emit/exit guard: the candidate may only change what the ops
+            # attribute.
+            baseline_ui = self._emit_working_snapshot(pre, ops=())
+            candidate_ui = self._emit_working_snapshot(post, ops=ops)
+            exit_guard = guard_exit_ui(baseline_ui, candidate_ui, ops)
+            if not exit_guard.ok:
+                diagnostics = tuple(
+                    _diag(
+                        getattr(issue, "code", "exit_guard"),
+                        getattr(issue, "message", str(issue)),
+                        severity=getattr(issue, "severity", "error") or "error",
+                    )
+                    for issue in exit_guard.diagnostics
+                ) or (
+                    _diag("exit_guard", "the emit-exit guard rejected the candidate.", severity="error"),
+                )
+                return ApplyOpsResult(
+                    ok=False,
+                    reason="verification_failed",
+                    diagnostics=diagnostics,
+                )
+
+            # 5. commit: the retained IR advances, ONE Δ is recorded.
+            pre_ir = _cow_workflow_copy(workflow)
+            self.workflow = post
+            if getattr(self, "history", None) is None:
+                self.history = []
+            self.history.append((pre_ir, ops, tuple(ops)))
+            self.landed_ops.extend(ops)
+            for op in ops:
+                touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
+                self.touched_uids.update(touched_uids)
+                self.touched_node_ids.update(touched_node_ids)
+            self.resolved_ops = []
+            return ApplyOpsResult(
+                ok=True,
+                reason="accepted",
+                workflow=post,
+                graph=candidate_ui,
+                landed_ops=ops,
+            )
+        except Exception:
+            self._restore_snapshot(snapshot)
+            raise
+
+
 
 __all__ = [
+    "ApplyOpsResult",
     "BatchResult",
     "CompactDiagnostic",
     "DoneResult",

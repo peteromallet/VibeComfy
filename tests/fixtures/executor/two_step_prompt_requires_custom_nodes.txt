@@ -22,7 +22,7 @@ Work in exactly this order:
 - `node_schema(node_class)` — read the runtime/local schema of one node class (availability, inputs, outputs)
    Edit tools (typed; apply the change by calling one of these):
    (none for this route)
-   Python editing on this route: NOT ALLOWED.
+   No Python editing is available: every graph change is a typed edit-tool call.
 
 3. SUBMIT — no tools.  Return the final JSON contract only.
 

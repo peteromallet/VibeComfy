@@ -3,25 +3,24 @@
 These replace the grammar-parse ``apply`` path.  Instead of the model emitting
 a Python batch that a grammar must parse and guess at, the agent calls a small,
 self-explanatory set of TYPED tools — ``edit_node`` / ``add_node`` /
-``remove_node`` / ``upsert_link`` — and the host validates the arguments,
-resolves the target by the NAME/UID the model saw in the render (names over
-indices, philosophy #9), applies the edit copy-on-write to the retained
-``VibeWorkflow`` IR, and returns a structured result (``ok``/``reason``/Δ id/
-post-edit lens facts) that the next continuation sees in the session transcript.
+``remove_node`` / ``upsert_link`` / ``remove_link`` / ``set_node_mode`` /
+``edit_batch`` — and the host validates the arguments against real per-tool
+JSON Schemas, resolves the target by the NAME/UID the model saw in the render
+(names over indices, philosophy #9), applies the edit through the shared
+:meth:`EditSession.apply_ops` authority (schema/port check, no-op rejection,
+structural checks, replay verification, emit/exit guard), and returns a stable
+structured result (``ok``/``reason``/Δ id/bindings/lens facts/typed error) that
+the next continuation sees in the session transcript.
 
 Design discipline (philosophy #2, #5, #6, #9, #10):
 
 * ONE authority — the retained IR (``EditSession.workflow``) is the only graph
-  representation the tools read or mutate.  ``apply_edit_cow`` is copy-on-write
-  (the pre-state IR is never mutated); the accepted Δ is re-emitted through the
-  emit door and persisted onto the durable session transcript.
+  representation the tools read or mutate.  ``EditSession.apply_ops`` is
+  copy-on-write (the pre-state IR is never mutated); the accepted Δ is
+  re-emitted through the emit door and persisted onto the durable session
+  transcript.
 * Names over indices — ``target`` is a binding/uid from the render; positional
   ``widget_N`` references are rejected before dispatch.
-* Boring over clever — the smallest tool set that covers the observed r3
-  scenarios (set a named widget field, add + wire a node, remove a node,
-  rewire an edge).  ``remove_link`` / ``set_node_mode`` are deliberately
-  dropped: no observed scenario needs them, and the emit/verify gate already
-  rejects orphaned wiring structurally.
 * Deny-on-allowlist before dispatch, schema-validated args, structured
   ok/error results — the same discipline the research/advisory tools follow.
 """
@@ -30,16 +29,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 # NOTE: the ``vibecomfy.porting.edit`` / ``vibecomfy.porting.render`` imports
 # are LAZY (inside the builders/runtime) — importing them at module scope here
 # re-enters ``porting.edit.ops`` during its own initialization (it imports
 # ``comfy_nodes.agent.provider``), which breaks the ComfyUI route registration.
 
-# The four typed edit tools.  ``remove_link`` / ``set_node_mode`` are NOT part
-# of the set (see module docstring).
-EDIT_TOOL_NAMES = frozenset({"edit_node", "add_node", "remove_node", "upsert_link"})
+# The seven typed edit tools.
+EDIT_TOOL_NAMES = frozenset(
+    {"edit_node", "add_node", "remove_node", "upsert_link", "remove_link", "set_node_mode", "edit_batch"}
+)
 
 # Routes whose policy admits the Python edit capability (B02 ``allows_python_edits``).
 EDIT_TOOL_ROUTES = frozenset({"revise", "adapt", "reorganise"})
@@ -47,87 +47,210 @@ EDIT_TOOL_ROUTES = frozenset({"revise", "adapt", "reorganise"})
 # Positional widget references (``widget_2``, ``widget_12``) are never names.
 _WIDGET_POSITIONAL_RE = re.compile(r"^widget_\d+$")
 
+# Closed semantic mode enum for set_node_mode → LiteGraph mode integers.
+_MODE_ENUM = frozenset({"enabled", "muted", "bypassed"})
+_MODE_TO_LITEGRAPH = {"enabled": 0, "muted": 2, "bypassed": 4}
+
+# Stable tool-loop error taxonomy (section 4).
+_INVALID_ARGUMENTS = "invalid_arguments"
+_UNKNOWN_TARGET = "unknown_target"
+_UNKNOWN_FIELD = "unknown_field"
+_UNKNOWN_PORT = "unknown_port"
+_STALE_REVISION = "stale_revision"
+_VERIFICATION_FAILED = "verification_failed"
+
+_RETRYABLE_ERRORS = frozenset({_INVALID_ARGUMENTS, _UNKNOWN_TARGET, _UNKNOWN_FIELD, _UNKNOWN_PORT})
+
 
 class EditToolError(ValueError):
     """A typed edit-tool rejection (argument/allowlist/target/CAS failure)."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, retryable: bool = True) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+        self.retryable = retryable
 
 
 @dataclass(frozen=True)
 class EditToolOutcome:
     """The host's verdict for one typed edit-tool call.
 
-    Mirrors the atomic-edit lifecycle: an accepted edit mints ONE Δ id and
-    carries the post-edit emitted graph + lens facts; a rejection carries a
-    stable ``reason`` and (once) a replacement permit.
+    An accepted edit mints ONE Δ id and carries the post-edit emitted graph,
+    lens facts, and any added-node bindings; a rejection carries a stable
+    ``reason`` plus a structured ``error`` (code/message/retryable).
     """
 
     ok: bool
     reason: str = ""
     delta_id: str | None = None
-    op_dict: dict[str, Any] | None = None
+    op_dicts: tuple[dict[str, Any], ...] = ()
     graph: Any = None
     lens_fact_ids: tuple[str, ...] = ()
+    bindings: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
     replacement_allowed: bool = False
     no_candidate: bool = False
+    retryable: bool = False
+    error: dict[str, Any] | None = None
+
+    def structured_result(self, call_id: str, tool: str) -> dict[str, Any]:
+        """The stable, durable structured result persisted to the transcript.
+
+        ``{call_id, tool, ok, delta_id, bindings, lens_fact_ids, error}`` —
+        never collapsed to a prose digest.
+        """
+        payload: dict[str, Any] = {
+            "call_id": call_id,
+            "tool": tool,
+            "ok": self.ok,
+            "delta_id": self.delta_id,
+            "bindings": list(self.bindings),
+            "lens_fact_ids": list(self.lens_fact_ids),
+        }
+        if self.ok:
+            payload["error"] = None
+        else:
+            payload["error"] = self.error or {
+                "code": self.reason or _VERIFICATION_FAILED,
+                "message": (self.diagnostics[0] if self.diagnostics else self.reason or "rejected"),
+                "retryable": self.retryable,
+            }
+        return payload
 
 
-# ── argument schemas (typed; validated before dispatch) ──────────────────────
+# ── per-tool JSON Schemas (discriminated union; validated before dispatch) ──
 
+_STRING = {"type": "string"}
+_OBJECT = {"type": "object"}
 
-_EDIT_TOOL_ARG_SCHEMAS: Mapping[str, tuple[frozenset[str], ...]] = {
-    "edit_node": (frozenset({"target", "field", "value"}),),
-    "add_node": (frozenset({"class_type", "name", "widget_values", "inputs"}),),
-    "remove_node": (frozenset({"target"}),),
-    "upsert_link": (frozenset({"source", "source_output", "target", "target_input"}),),
+_EDIT_TOOL_ARG_SCHEMAS: Mapping[str, dict[str, Any]] = {
+    "edit_node": {
+        "type": "object",
+        "required": ["target", "field", "value"],
+        "properties": {"target": _STRING, "field": _STRING, "value": {}},
+        "additionalProperties": False,
+    },
+    "add_node": {
+        "type": "object",
+        "required": ["class_type"],
+        "properties": {
+            "class_type": _STRING,
+            "name": _STRING,
+            "widget_values": _OBJECT,
+            "inputs": _OBJECT,
+        },
+        "additionalProperties": False,
+    },
+    "remove_node": {
+        "type": "object",
+        "required": ["target"],
+        "properties": {"target": _STRING},
+        "additionalProperties": False,
+    },
+    "upsert_link": {
+        "type": "object",
+        "required": ["source", "target", "target_input"],
+        "properties": {
+            "source": _STRING,
+            "source_output": {},
+            "target": _STRING,
+            "target_input": _STRING,
+        },
+        "additionalProperties": False,
+    },
+    "remove_link": {
+        "type": "object",
+        "required": ["target", "target_input"],
+        "properties": {"target": _STRING, "target_input": _STRING},
+        "additionalProperties": False,
+    },
+    "set_node_mode": {
+        "type": "object",
+        "required": ["target", "mode"],
+        "properties": {"target": _STRING, "mode": {"type": "string", "enum": sorted(_MODE_ENUM)}},
+        "additionalProperties": False,
+    },
+    "edit_batch": {
+        "type": "object",
+        "required": ["ops"],
+        "properties": {"ops": {"type": "array"}},
+        "additionalProperties": False,
+    },
 }
 
-_EDIT_TOOL_REQUIRED: Mapping[str, frozenset[str]] = {
-    "edit_node": frozenset({"target", "field"}),
-    "add_node": frozenset({"class_type"}),
-    "remove_node": frozenset({"target"}),
-    "upsert_link": frozenset({"source", "target", "target_input"}),
-}
+
+def _type_matches(spec: Mapping[str, Any] | None, value: Any) -> bool:
+    if spec is None:
+        return True
+    spec_type = spec.get("type")
+    if spec_type == "string":
+        return isinstance(value, str)
+    if spec_type == "object":
+        return isinstance(value, Mapping)
+    if spec_type == "array":
+        return isinstance(value, (list, tuple))
+    return True
 
 
 def validate_edit_tool_args(tool: str, args: Any) -> dict[str, Any]:
-    """Validate and normalize one edit-tool argument payload.
+    """Validate one edit-tool argument payload against its JSON Schema.
 
-    A missing/blank required argument, an unknown keyword, or a non-mapping
-    payload is a typed :class:`EditToolError` — never a handler KeyError and
-    never a dispatch.
+    A non-object payload, a missing required key, an unknown keyword, or a
+    wrong-typed value is a typed :class:`EditToolError` (``invalid_arguments``)
+    — never a handler KeyError and never a dispatch.  ``edit_node.value`` is
+    REQUIRED (it may legitimately be ``0`` / ``False`` / ``\"\"``).
     """
     if tool not in EDIT_TOOL_NAMES:
-        raise EditToolError("unknown_tool", f"unknown edit tool {tool!r}.")
+        raise EditToolError("unknown_tool", f"unknown edit tool {tool!r}.", retryable=False)
     if not isinstance(args, Mapping):
-        raise EditToolError("args_not_object", f"{tool} requires an args object.")
+        raise EditToolError(_INVALID_ARGUMENTS, f"{tool} requires an args object.")
     normalized = dict(args)
-    (allowed,) = _EDIT_TOOL_ARG_SCHEMAS[tool]
-    unknown = sorted(set(normalized) - allowed)
+    schema = _EDIT_TOOL_ARG_SCHEMAS[tool]
+    properties = schema.get("properties") or {}
+    unknown = sorted(set(normalized) - set(properties))
     if unknown:
         raise EditToolError(
-            "unknown_arg",
+            _INVALID_ARGUMENTS,
             f"{tool} does not accept argument(s): {', '.join(unknown)}.",
         )
-    for name in sorted(_EDIT_TOOL_REQUIRED[tool]):
-        value = normalized.get(name)
-        if value is None or (isinstance(value, str) and not value.strip()):
+    for name in schema.get("required", ()):
+        if name not in normalized:
+            raise EditToolError(_INVALID_ARGUMENTS, f"{tool} requires argument {name!r}.")
+    for name, spec in properties.items():
+        if name not in normalized:
+            continue
+        if not _type_matches(spec, normalized[name]):
             raise EditToolError(
-                "arg_required",
-                f"{tool} requires argument {name!r}.",
+                _INVALID_ARGUMENTS,
+                f"{tool} argument {name!r} must be a {spec.get('type')}.",
             )
+        enum = spec.get("enum")
+        if enum is not None and normalized[name] not in enum:
+            raise EditToolError(
+                _INVALID_ARGUMENTS,
+                f"{tool} argument {name!r} must be one of: {', '.join(map(str, enum))}.",
+            )
+    if tool == "edit_batch":
+        ops = normalized.get("ops")
+        if not isinstance(ops, (list, tuple)) or not ops:
+            raise EditToolError(_INVALID_ARGUMENTS, "edit_batch requires a non-empty `ops` list.")
+        for index, op in enumerate(ops):
+            if not isinstance(op, Mapping) or "op" not in op:
+                raise EditToolError(
+                    _INVALID_ARGUMENTS,
+                    f"edit_batch.ops[{index}] must be an op object with an `op` key.",
+                )
+            sub_tool = str(op.get("op") or "")
+            sub_args = {k: v for k, v in op.items() if k != "op"}
+            validate_edit_tool_args(sub_tool, sub_args)
     return normalized
 
 
 def _reject_positional(value: str, *, path: str) -> None:
     if _WIDGET_POSITIONAL_RE.match(value):
         raise EditToolError(
-            "positional_ref_rejected",
+            _INVALID_ARGUMENTS,
             f"{path} {value!r} is a positional widget ref — use the named "
             "field/binding shown in the render (names over indices).",
         )
@@ -147,7 +270,7 @@ def resolve_target(edit_session: Any, target: Any) -> str:
     """
     target = str(target or "").strip()
     if not target:
-        raise EditToolError("target_required", "target must be a non-empty name/uid.")
+        raise EditToolError(_INVALID_ARGUMENTS, "target must be a non-empty name/uid.")
     _reject_positional(target, path="target")
 
     workflow = getattr(edit_session, "workflow", None)
@@ -162,7 +285,7 @@ def resolve_target(edit_session: Any, target: Any) -> str:
             if str(node_id) == target:
                 return uid or str(node_id)
     raise EditToolError(
-        "unknown_target",
+        _UNKNOWN_TARGET,
         f"no node in the current render resolves to {target!r}.",
     )
 
@@ -170,7 +293,7 @@ def resolve_target(edit_session: Any, target: Any) -> str:
 # ── op builders ──────────────────────────────────────────────────────────────
 
 
-def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
+def build_single_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
     """Build one typed edit op from validated arguments (never applies it)."""
     from vibecomfy.porting.edit._ir_utils import _mint_ir_node_id, _mint_ir_uid  # noqa: PLC0415
     from vibecomfy.porting.edit.ops import (  # noqa: PLC0415
@@ -179,7 +302,9 @@ def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
         LinkTargetRef,
         NodeFieldTarget,
         NodeTarget,
+        RemoveLinkOp,
         RemoveNodeOp,
+        SetModeOp,
         SetNodeFieldOp,
         UpsertLinkOp,
     )
@@ -198,15 +323,31 @@ def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
         uid = resolve_target(edit_session, args["target"])
         return RemoveNodeOp(op="remove_node", target=NodeTarget(scope_path="", uid=uid))
 
+    if tool == "set_node_mode":
+        uid = resolve_target(edit_session, args["target"])
+        mode = _MODE_TO_LITEGRAPH[str(args["mode"]).strip()]
+        return SetModeOp(op="set_mode", target=NodeTarget(scope_path="", uid=uid), mode=mode)
+
     if tool == "upsert_link":
         source_uid = resolve_target(edit_session, args["source"])
         target_uid = resolve_target(edit_session, args["target"])
-        source_output = args.get("source_output") or 0
+        source_output = args.get("source_output")
+        if source_output is None or source_output == "":
+            source_output = 0
         target_input = str(args["target_input"]).strip()
         _reject_positional(target_input, path="target_input")
         return UpsertLinkOp(
             op="upsert_link",
             source=LinkSourceRef(scope_path="", uid=source_uid, output_slot=source_output),
+            target=LinkTargetRef(scope_path="", uid=target_uid, input_field=target_input),
+        )
+
+    if tool == "remove_link":
+        target_uid = resolve_target(edit_session, args["target"])
+        target_input = str(args["target_input"]).strip()
+        _reject_positional(target_input, path="target_input")
+        return RemoveLinkOp(
+            op="remove_link",
             target=LinkTargetRef(scope_path="", uid=target_uid, input_field=target_input),
         )
 
@@ -217,15 +358,13 @@ def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
         node_id = _mint_ir_node_id(workflow) if workflow is not None else "1"
         raw_widget_values = args.get("widget_values") or {}
         if not isinstance(raw_widget_values, Mapping):
-            raise EditToolError(
-                "bad_widget_values", "add_node widget_values must be an object."
-            )
+            raise EditToolError(_INVALID_ARGUMENTS, "add_node widget_values must be an object.")
         fields = dict(raw_widget_values)
         inputs: dict[str, LinkSourceRef] = {}
         raw_inputs = args.get("inputs")
         if raw_inputs is not None:
             if not isinstance(raw_inputs, dict):
-                raise EditToolError("bad_inputs", "add_node inputs must be an object.")
+                raise EditToolError(_INVALID_ARGUMENTS, "add_node inputs must be an object.")
             for input_name, ref in raw_inputs.items():
                 if isinstance(ref, (list, tuple)) and len(ref) >= 1:
                     source_name, output_slot = ref[0], (ref[1] if len(ref) > 1 else 0)
@@ -235,6 +374,7 @@ def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
                 inputs[str(input_name)] = LinkSourceRef(
                     scope_path="", uid=source_uid, output_slot=output_slot
                 )
+        name = args.get("name")
         return AddNodeOp(
             op="add_node",
             scope_path="",
@@ -243,9 +383,26 @@ def build_edit_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
             inputs=inputs,
             uid=uid,
             node_id=node_id,
+            title=str(name).strip() if name else None,
         )
 
-    raise EditToolError("unknown_tool", f"unknown edit tool {tool!r}.")
+    raise EditToolError("unknown_tool", f"unknown edit tool {tool!r}.", retryable=False)
+
+
+def build_edit_ops(edit_session: Any, tool: str, args: dict[str, Any]) -> tuple[Any, ...]:
+    """Build the typed op(s) for one validated tool call.
+
+    ``edit_batch`` lowers to a tuple of ops (one durable Δ); every other tool
+    lowers to a single-op tuple.
+    """
+    if tool == "edit_batch":
+        ops: list[Any] = []
+        for entry in args["ops"]:
+            sub_tool = str(entry.get("op") or "")
+            sub_args = {k: v for k, v in entry.items() if k != "op"}
+            ops.append(build_single_op(edit_session, sub_tool, sub_args))
+        return tuple(ops)
+    return (build_single_op(edit_session, tool, args),)
 
 
 # ── catalog docs (prompt CHANGE stage) ───────────────────────────────────────
@@ -259,13 +416,20 @@ def edit_tool_catalog_docs() -> str:
             "``target`` is the name/uid from the render, ``field`` is a named "
             "widget/input key (never ``widget_N``).",
             "- `add_node(class_type, name?, widget_values?, inputs?)` — add a node; "
-            "returns its binding. ``widget_values`` maps named widget/input keys to "
+            "returns its uid binding. ``widget_values`` maps named widget/input keys to "
             "values; ``inputs`` maps an input name to a source binding (or "
             "``[binding, output]``).",
             "- `remove_node(target)` — remove the node named by ``target``.",
             "- `upsert_link(source, source_output, target, target_input)` — wire "
             "``source``'s output into ``target``'s named input (replaces any "
             "existing link into that input).",
+            "- `remove_link(target, target_input)` — disconnect the named input "
+            "of ``target`` (intentional absence).",
+            "- `set_node_mode(target, mode)` — set the node mode to "
+            "``enabled`` | ``muted`` | ``bypassed``.",
+            "- `edit_batch(ops=[...])` — apply several typed edits atomically as "
+            "ONE accepted Δ; each ``ops`` entry is an op object like "
+            "``{\"op\": \"edit_node\", \"target\": ..., \"field\": ..., \"value\": ...}``.",
         ]
     )
 
@@ -277,10 +441,12 @@ class EditToolRuntime:
     """Per-message atomic edit authority over the retained IR.
 
     Holds the atomic lifecycle (one accepted edit, one replacement after a
-    rejection) and applies validated typed ops copy-on-write onto the retained
-    ``EditSession.workflow``.  Pure with respect to the session store: the
-    caller persists the returned outcome (Δ id, ops, lens facts) onto the
-    durable transcript.
+    semantic rejection) and applies validated typed ops through the shared
+    :meth:`EditSession.apply_ops` authority.  Malformed arguments are
+    corrected WITHOUT consuming the replacement (they never reach ``apply_ops``);
+    a semantic rejection (schema/port/no-op/structural/replay/exit-guard) does
+    consume it.  Pure with respect to the session store: the caller persists
+    the returned outcome (Δ id, ops, lens facts) onto the durable transcript.
     """
 
     def __init__(self, *, edit_session: Any, id_factory: Any | None = None) -> None:
@@ -292,6 +458,7 @@ class EditToolRuntime:
         self._seq = 0
         self._accepted_delta_ids: tuple[str, ...] = ()
         self._last_graph: Any = None
+        self._last_bindings: tuple[str, ...] = ()
 
     # -- queries -------------------------------------------------------------
 
@@ -310,6 +477,10 @@ class EditToolRuntime:
     @property
     def graph(self) -> Any:
         return self._last_graph
+
+    @property
+    def bindings(self) -> tuple[str, ...]:
+        return self._last_bindings
 
     def workflow(self) -> Any:
         return getattr(self.edit_session, "workflow", None) if self.edit_session else None
@@ -331,76 +502,91 @@ class EditToolRuntime:
         """Gate, validate, and apply one edit-tool call (atomic lifecycle).
 
         * a second edit after acceptance → ``edit_already_accepted``;
-        * a second rejection → ``second_rejection_no_candidate`` (no candidate);
-        * one rejection permits exactly one replacement.
+        * a second semantic rejection → ``second_rejection_no_candidate``;
+        * malformed arguments → ``invalid_arguments`` (retryable; the single
+          replacement permit is NOT consumed);
+        * one semantic rejection permits exactly one replacement.
         """
         if self._accepted:
-            return EditToolOutcome(ok=False, reason="edit_already_accepted")
+            return EditToolOutcome(ok=False, reason="edit_already_accepted", retryable=False)
         if self._rejections >= 2:
             return EditToolOutcome(
                 ok=False,
                 reason="second_rejection_no_candidate",
                 no_candidate=True,
+                retryable=False,
             )
+
+        try:
+            normalized = validate_edit_tool_args(tool, args)
+        except EditToolError as exc:
+            return self._reject_args(exc.code, exc.message, exc.retryable)
+        except Exception as exc:  # noqa: BLE001 - typed rejection, never a raise
+            return self._reject_args(_INVALID_ARGUMENTS, str(exc), True)
+
+        try:
+            ops = build_edit_ops(self.edit_session, tool, normalized)
+            from vibecomfy.porting.edit.ops import canonical_op_to_dict  # noqa: PLC0415
+
+            op_dicts = tuple(canonical_op_to_dict(op) for op in ops)
+        except EditToolError as exc:
+            # Semantic resolution failure (unknown target/field/port): this IS
+            # an edit attempt — it consumes the one replacement window.
+            return self._reject(exc.code, exc.message, retryable=exc.retryable)
+        except Exception as exc:  # noqa: BLE001 - typed rejection, never a raise
+            return self._reject(_INVALID_ARGUMENTS, str(exc), retryable=True)
+
+        if self.edit_session is None:
+            return self._reject("no_edit_session", "this route has no retained IR to edit.")
+
+        # This is a real semantic attempt: if we are inside the one-replacement
+        # window, it now counts as the replacement.
         is_replacement = self._rejections == 1
         if is_replacement:
             self._replacement_used = True
 
         try:
-            normalized = validate_edit_tool_args(tool, args)
-            op = build_edit_op(self.edit_session, tool, normalized)
-            from vibecomfy.porting.edit.ops import canonical_op_to_dict  # noqa: PLC0415
+            result = self.edit_session.apply_ops(ops)
+        except Exception as exc:  # noqa: BLE001 - infra failure, retryable
+            return self._reject("apply_failed", str(exc), retryable=True)
 
-            op_dict = canonical_op_to_dict(op)
-        except EditToolError as exc:
-            return self._reject(exc.code, exc.message)
-        except Exception as exc:  # noqa: BLE001 - typed rejection, never a raise
-            return self._reject("invalid_edit", str(exc))
-
-        if self.edit_session is None:
-            return self._reject("no_edit_session", "this route has no retained IR to edit.")
-
-        try:
-            from vibecomfy.porting.edit._ir_utils import apply_edit_cow  # noqa: PLC0415
-            from vibecomfy.porting.render import render_fact_pack  # noqa: PLC0415
-
-            workflow = self.edit_session.workflow
-            if workflow is None:
-                return self._reject("no_edit_session", "this route has no retained IR to edit.")
-            new_workflow = apply_edit_cow(
-                workflow, op, schema_provider=getattr(self.edit_session, "schema_provider", None)
-            )
-            # Emit through the session's working-graph projector WITH the op so
-            # pin_untouched_ui attributes the edited node (the old grammar path
-            # did this via landed_ops); without attribution every node is pinned
-            # to the ingest UI and the edit vanishes from the tool result.
-            graph = self.edit_session._emit_working_snapshot(new_workflow, ops=(op,))
-            fact_ids = tuple(
-                str(ref.fact_id)
-                for ref in render_fact_pack(new_workflow, lenses=("surface", "topology"))
-            )
-        except EditToolError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - zero Δ: the edit is never partially applied
-            return self._reject("apply_failed", str(exc))
+        if not result.ok:
+            diagnostics = tuple(str(d.message) if hasattr(d, "message") else str(d) for d in result.diagnostics)
+            return self._reject(result.reason, " | ".join(diagnostics) or result.reason, retryable=result.retryable)
 
         # Commit: the retained IR advances, one Δ is minted.
-        self.edit_session.workflow = new_workflow
         self._accepted = True
         self._seq += 1
         delta_id = self._id_factory(self._seq)
         self._accepted_delta_ids = (delta_id,)
-        self._last_graph = graph
+        self._last_graph = result.graph
+        fact_ids: tuple[str, ...] = ()
+        try:
+            from vibecomfy.porting.render import render_fact_pack  # noqa: PLC0415
+
+            fact_ids = tuple(
+                str(ref.fact_id)
+                for ref in render_fact_pack(result.workflow, lenses=("surface", "topology"))
+            )
+        except Exception:  # noqa: BLE001 - fact pack is best-effort context
+            fact_ids = ()
+        bindings = tuple(
+            str(getattr(op, "uid", "") or "")
+            for op in ops
+            if getattr(op, "uid", "") and getattr(op, "op", "") == "add_node"
+        )
+        self._last_bindings = bindings
         return EditToolOutcome(
             ok=True,
             reason="accepted",
             delta_id=delta_id,
-            op_dict=op_dict,
-            graph=graph,
+            op_dicts=op_dicts,
+            graph=result.graph,
             lens_fact_ids=fact_ids,
+            bindings=bindings,
         )
 
-    def _reject(self, reason: str, detail: str) -> EditToolOutcome:
+    def _reject(self, reason: str, detail: str, *, retryable: bool = False) -> EditToolOutcome:
         self._rejections += 1
         return EditToolOutcome(
             ok=False,
@@ -408,6 +594,20 @@ class EditToolRuntime:
             diagnostics=(detail,),
             replacement_allowed=(self._rejections == 1),
             no_candidate=(self._rejections >= 2),
+            retryable=retryable,
+            error={"code": reason, "message": detail, "retryable": retryable},
+        )
+
+    def _reject_args(self, reason: str, detail: str, retryable: bool) -> EditToolOutcome:
+        """Malformed-arguments rejection: never consumes the replacement."""
+        return EditToolOutcome(
+            ok=False,
+            reason=reason,
+            diagnostics=(detail,),
+            replacement_allowed=(self._rejections < 2),
+            no_candidate=(self._rejections >= 2),
+            retryable=retryable,
+            error={"code": reason, "message": detail, "retryable": retryable},
         )
 
 
@@ -430,7 +630,8 @@ __all__ = [
     "EditToolError",
     "EditToolOutcome",
     "EditToolRuntime",
-    "build_edit_op",
+    "build_edit_ops",
+    "build_single_op",
     "edit_tool_catalog_docs",
     "edit_tool_digest",
     "resolve_target",

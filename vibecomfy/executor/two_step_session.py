@@ -55,13 +55,6 @@ from vibecomfy.comfy_nodes.agent.session import (
 )
 from vibecomfy.executor.tool_specs import RESEARCH_PHASE_TOOLS
 from vibecomfy.executor.two_step import SessionBudget
-from vibecomfy.ingest.normalize import (  # Law 5 door helpers
-    door_get_links,
-    door_pop_links,
-    door_setdefault_links,
-    door_setdefault_nodes,
-)
-
 LOGGER = logging.getLogger(__name__)
 
 # ── Durable layout ───────────────────────────────────────────────────────────
@@ -406,272 +399,309 @@ class EditSessionCache:
 #
 # The retained workflow revision is never persisted as an in-memory dict of
 # record: it is re-derived by replaying the accepted canonical Δ ops over the
-# session's base graph.  ``set_node_field`` sets a widget field by (node_uid,
-# field_path); ``add_node`` appends a node; ``remove_node`` drops a node by id.
+# session's base graph.  Replay routes EVERY op through the IR + emit door
+# (Law 5): ``from_ui`` (the ingest door, ``use_comfy_converter=False``) builds
+# the retained :class:`~vibecomfy.workflow.VibeWorkflow` once, each canonical
+# op is parsed with ``parse_edit_op`` and applied copy-on-write by
+# ``apply_edit_cow``, and the emit door (``emit_ui_json`` + ``pin_untouched_ui``)
+# is the ONLY place ``widgets_values`` / ``links`` / ``nodes`` are written —
+# this module never touches raw UI JSON structure.  Untouched nodes and links
+# stay byte-identical to the base graph (Law 1): ``pin_untouched_ui`` restores
+# original JSON for anything the accepted ops did not attribute.
 
 
-def _apply_delta_ops(base_graph: Mapping[str, Any] | None, ops: Any) -> dict[str, Any] | None:
-    if not isinstance(base_graph, Mapping):
+def _replay_widgets_values_ops(
+    workflow: Any,
+    op: Mapping[str, Any],
+) -> tuple[Any, ...]:
+    """Translate a legacy whole-``widgets_values`` replace into per-widget ops.
+
+    The pre-IR replay vocabulary allowed ``set_node_field`` with
+    ``field_path == "widgets_values"`` and a list value to replace the node's
+    entire widget list.  The IR has no whole-list channel: each widget is a
+    named field, so the list is applied positionally to the target node's
+    current widget names (``widget_N`` under a schema-less ingest, the schema
+    widget names otherwise).  Returns the translated typed ops, or ``()`` when
+    the target cannot be resolved on the IR.
+    """
+    target = op.get("target")
+    if not (isinstance(target, (list, tuple)) and len(target) >= 3):
+        return ()
+    scope_path = str(target[0] or "")
+    uid = str(target[1])
+    from vibecomfy.porting.edit._ir_utils import _root_node_for_uid  # noqa: PLC0415
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp  # noqa: PLC0415
+
+    try:
+        _node_id, node = _root_node_for_uid(workflow, scope_path, uid)
+    except Exception:  # noqa: BLE001 - scoped targets are not IR-resolvable
+        node = None
+    if node is None and scope_path:
+        # Legacy Δ ops recorded scope_path="node" for root nodes; the IR root
+        # scope is "".  Retry the empty scope before giving up.
+        try:
+            _node_id, node = _root_node_for_uid(workflow, "", uid)
+        except Exception:  # noqa: BLE001
+            node = None
+    if node is None:
+        return ()
+    widget_names = list(getattr(node, "widgets", {}) or {})
+    if not widget_names:
+        # Schema-driven ingest stores widget-backed values in ``inputs`` (the
+        # STRING/INT/FLOAT scalar inputs that are widgets when unlinked) with
+        # the raw UI evidence preserved in ``raw_widgets``.  The legacy
+        # whole-list op replaces the node's widget VALUES positionally — map
+        # onto the input names in widgets_values order so the emit door
+        # projects them back into ``widgets_values`` under the schema names.
+        raw = getattr(node, "raw_widgets", None)
+        raw_values = getattr(raw, "values", None) if raw is not None else None
+        if not isinstance(raw_values, (list, tuple)):
+            raw_values = ()
+        input_names = [str(name) for name in (getattr(node, "inputs", {}) or {})]
+        widget_names = [
+            name
+            for index, name in enumerate(input_names)
+            if index < len(raw_values)
+        ]
+        if not widget_names:
+            # No schema / no matching inputs: fall back to positional names so
+            # the per-widget ops still land on a channel the emit can project.
+            widget_names = [f"widget_{i}" for i in range(len(raw_values))]
+        if not widget_names:
+            return ()
+    value = op.get("value")
+    if not isinstance(value, (list, tuple)):
+        value = (value,)
+    translated: list[Any] = []
+    for index, name in enumerate(widget_names):
+        translated.append(
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(
+                    # Legacy Δ ops recorded scope_path="node" for root nodes;
+                    # the IR root scope is "" and apply_edit_cow cannot
+                    # resolve a non-root scope it never created.
+                    scope_path="", uid=uid, field_path=str(name)
+                ),
+                value=value[index] if index < len(value) else None,
+            )
+        )
+    return tuple(translated)
+
+
+def _replay_named_field_op(
+    workflow: Any,
+    op: Mapping[str, Any],
+) -> Any | None:
+    """Map a schema-less named field onto the node's widget channel.
+
+    The live typed path records ``set_node_field`` with the SCHEMA field name
+    the model saw in the render (philosophy #9: names over indices — the
+    ``edit_node`` tool rejects positional ``widget_N`` fields).  A schema-less
+    ingest (the replay default) renames every widget positionally to
+    ``widget_N``, so the recorded name matches neither IR channel.  When the
+    node has exactly ONE widget the mapping is unambiguous: the named literal
+    field IS that widget, and replay stays faithful (the pre-IR replay applied
+    an unknown field to widget index 0).  Returns the translated typed op, or
+    ``None`` when the field resolves in an IR channel, the node has zero or
+    multiple widgets, or the value looks like canvas furniture (list/dict) —
+    in those cases the caller falls through to the canonical parse (the
+    ``unknown channel -> inputs`` policy).
+    """
+    target = op.get("target")
+    if not (isinstance(target, (list, tuple)) and len(target) >= 3):
         return None
+    scope_path = str(target[0] or "")
+    uid = str(target[1])
+    field = str(target[2])
+    value = op.get("value")
+    if isinstance(value, (list, tuple, dict)):
+        return None
+    from vibecomfy.porting.edit._ir_utils import _root_node_for_uid  # noqa: PLC0415
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp  # noqa: PLC0415
 
-    graph: dict[str, Any] = json.loads(json.dumps(dict(base_graph)))
-    nodes = door_setdefault_nodes(graph, [])
-    if not isinstance(nodes, list):
-        return graph
-    for op in ops or ():
-        if not isinstance(op, Mapping):
-            continue
-        kind = op.get("op")
-        if kind == "set_node_field":
-            target = op.get("target")
-            if isinstance(target, (list, tuple)) and len(target) >= 3:
-                _set_node_field(nodes, target[1], target[2], op.get("value"))
-        elif kind == "set_mode":
-            target = op.get("target")
-            if isinstance(target, (list, tuple)) and len(target) >= 2:
-                _set_node_mode(nodes, target[1], op.get("mode"))
-        elif kind == "add_node":
-            _add_node(nodes, op)
-        elif kind == "remove_node":
-            target = op.get("target")
-            if isinstance(target, (list, tuple)) and len(target) >= 2:
-                uid = target[1]
-                nodes[:] = [
-                    n for n in nodes
-                    if not (isinstance(n, Mapping) and str(n.get("id")) == str(uid))
-                ]
-        elif kind == "upsert_link":
-            _upsert_link(graph, nodes, op)
-        elif kind == "remove_link":
-            _remove_link(graph, nodes, op)
-        elif kind == "subgraph_interface":
-            _subgraph_interface(graph, op)
-    return graph
-
-
-def _node_by_uid(nodes: list[Any], uid: Any) -> tuple[int, dict[str, Any]] | None:
-    for index, node in enumerate(nodes):
-        if isinstance(node, dict) and str(node.get("id")) == str(uid):
-            return index, node
-    return None
+    try:
+        _node_id, node = _root_node_for_uid(workflow, scope_path, uid)
+    except Exception:  # noqa: BLE001 - scoped targets are not IR-resolvable
+        node = None
+    if node is None and scope_path:
+        try:
+            _node_id, node = _root_node_for_uid(workflow, "", uid)
+        except Exception:  # noqa: BLE001
+            node = None
+    if node is None:
+        return None
+    widgets = getattr(node, "widgets", {}) or {}
+    inputs = getattr(node, "inputs", {}) or {}
+    if field in widgets or field in inputs:
+        return None
+    widget_names = list(widgets)
+    if len(widget_names) != 1:
+        return None
+    return SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget(
+            # The recorded scope may be the legacy "node" marker; the IR root
+            # scope is "" and apply_edit_cow resolves only scopes it created.
+            scope_path="", uid=uid, field_path=str(widget_names[0])
+        ),
+        value=value,
+    )
 
 
-def _set_node_field(nodes: list[Any], uid: Any, field_path: Any, value: Any) -> None:
-    found = _node_by_uid(nodes, uid)
-    if found is None:
-        return
-    _index, node = found
-    field = str(field_path)
-    if field in ("class_type", "type"):
-        node["type"] = value
-        node["class_type"] = value
-        return
-    node[field] = value
+def _replay_legacy_add_node(op: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Translate the legacy raw-payload ``add_node`` shape to the canonical form.
 
-
-def _set_node_mode(nodes: list[Any], uid: Any, mode: Any) -> None:
-    found = _node_by_uid(nodes, uid)
-    if found is None:
-        return
-    _index, node = found
-    node["mode"] = mode
-
-
-def _add_node(nodes: list[Any], op: Mapping[str, Any]) -> None:
-    # Canonical add_node: {scope_path, uid, node_id, class_type, fields, inputs}
-    # Legacy add_node: {uid, fields}
+    Legacy: ``{uid, fields: {type, widgets_values, ...}}`` — the flattened raw
+    node payload the pre-IR vocabulary recorded.  The live typed path never
+    emits this shape (``canonical_op_to_dict`` always records ``class_type`` +
+    named ``fields`` + ``inputs``); the translation re-attaches the positional
+    widget list as ``widget_N`` fields so the emit door can project it back
+    into ``widgets_values``.  Returns ``None`` when the op is not the legacy
+    shape.
+    """
+    fields = op.get("fields")
+    if not isinstance(fields, Mapping):
+        return None
+    class_type = fields.get("type")
+    if not isinstance(class_type, str) or not class_type:
+        return None
     uid = op.get("uid")
     if uid is None:
-        return
-    fields = op.get("fields") if isinstance(op.get("fields"), Mapping) else {}
-    node: dict[str, Any] = {"id": uid, **{k: v for k, v in fields.items() if k != "id"}}
-    if op.get("class_type"):
-        node["type"] = op["class_type"]
-        node["class_type"] = op["class_type"]
-    nodes.append(node)
+        return None
+    cleaned: dict[str, Any] = {}
+    positional: Any = None
+    for key, value in fields.items():
+        if key == "widgets_values":
+            positional = value
+        elif key != "type":
+            cleaned[key] = value
+    if isinstance(positional, (list, tuple)):
+        for index, item in enumerate(positional):
+            cleaned[f"widget_{index}"] = item
+    elif positional is not None:
+        cleaned["widget_0"] = positional
+    raw_inputs = op.get("inputs")
+    return {
+        "op": "add_node",
+        "scope_path": str(op.get("scope_path") or ""),
+        "uid": str(uid),
+        "node_id": str(op.get("node_id") if op.get("node_id") is not None else uid),
+        "class_type": class_type,
+        "fields": cleaned,
+        "inputs": dict(raw_inputs) if isinstance(raw_inputs, Mapping) else {},
+    }
 
 
-def _input_slot_index(node: dict[str, Any], input_field: Any) -> int | None:
-    inputs = node.get("inputs")
-    if isinstance(inputs, list):
-        for index, entry in enumerate(inputs):
-            if isinstance(entry, dict) and str(entry.get("name")) == str(input_field):
-                return index
-        if str(input_field).isdigit():
-            return int(input_field)
-    return None
+def _replay_canonical_op(
+    workflow: Any,
+    op: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
+) -> tuple[Any, ...]:
+    """Translate one canonical Δ dict into typed op(s) for the IR apply engine.
+
+    Every canonical op kind the live typed path records is supported
+    (``set_node_field`` / ``add_node`` / ``remove_node`` / ``upsert_link`` /
+    ``remove_link`` / ``set_mode`` / ``subgraph_interface``); the legacy
+    pre-IR shapes (whole-``widgets_values`` replace, raw-payload ``add_node``)
+    and the schema-less named-field channel mapping are translated at the op
+    level before the IR apply.  Raises for ops that are neither canonical nor
+    translatable (the caller skips them).
+    """
+    from vibecomfy.porting.edit.ops import parse_edit_op  # noqa: PLC0415
+
+    kind = op.get("op")
+    if kind == "set_node_field":
+        target = op.get("target")
+        if (
+            isinstance(target, (list, tuple))
+            and len(target) >= 3
+            and str(target[2]) == "widgets_values"
+        ):
+            return _replay_widgets_values_ops(workflow, op)
+        named = _replay_named_field_op(workflow, op)
+        if named is not None:
+            return (named,)
+    if kind == "add_node" and op.get("class_type") is None:
+        legacy = _replay_legacy_add_node(op)
+        if legacy is not None:
+            op = legacy
+    return (parse_edit_op(op),)
 
 
-def _output_slot_index(node: dict[str, Any], output_slot: Any) -> int | None:
-    outputs = node.get("outputs")
-    if isinstance(outputs, list):
-        for index, entry in enumerate(outputs):
-            if isinstance(entry, dict) and str(entry.get("name")) == str(output_slot):
-                return index
-        if isinstance(output_slot, int):
-            return output_slot
-    return 0
+def _apply_delta_ops(
+    base_graph: Mapping[str, Any] | None,
+    ops: Any,
+    *,
+    schema_provider: Any = None,
+) -> dict[str, Any] | None:
+    """Replay canonical Δ ops over *base_graph* through the IR + emit door.
 
+    The raw graph is never patched in this module: ``from_ui`` ingests it into
+    the retained IR, every op is applied copy-on-write on the IR, and the emit
+    door projects the result back to UI JSON with ``pin_untouched_ui``
+    attribution (untouched nodes and links stay byte-identical to the base).
+    Ops the door cannot apply are skipped with a warning, never fatal: replay
+    must reconstruct a usable revision even for a stale/legacy Δ ledger.
+    """
+    if not isinstance(base_graph, Mapping):
+        return None
+    ops = tuple(ops or ())
+    if not ops:
+        return json.loads(json.dumps(dict(base_graph)))
 
-def _link_type_for(node: dict[str, Any], output_slot: Any) -> str:
-    outputs = node.get("outputs")
-    if isinstance(outputs, list):
-        for index, entry in enumerate(outputs):
-            if isinstance(entry, dict) and str(entry.get("name")) == str(output_slot):
-                return str(entry.get("type") or "*")
-    return "*"
+    from vibecomfy.ingest.normalize import from_ui  # noqa: PLC0415
+    from vibecomfy.porting.edit._ir_utils import apply_edit_cow  # noqa: PLC0415
+    from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui  # noqa: PLC0415
 
-
-def _next_link_id(graph: dict[str, Any]) -> int:
-    links = door_get_links(graph)
-    max_id = 0
-    if isinstance(links, list):
-        for link in links:
-            if isinstance(link, (list, tuple)) and link and isinstance(link[0], int):
-                max_id = max(max_id, link[0])
-            elif isinstance(link, Mapping) and isinstance(link.get("id"), int):
-                max_id = max(max_id, link["id"])
-    return max_id + 1
-
-
-def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any]) -> None:
-    source = op.get("from")
-    target = op.get("to")
-    if not (isinstance(source, (list, tuple)) and len(source) >= 3):
-        return
-    if not (isinstance(target, (list, tuple)) and len(target) >= 3):
-        return
-    suid, sslot, tuid, tfield = source[1], source[2], target[1], target[2]
-    src = _node_by_uid(nodes, suid)
-    dst = _node_by_uid(nodes, tuid)
-    if src is None or dst is None:
-        return
-    _src_index, src_node = src
-    _dst_index, dst_node = dst
-    to_slot = _input_slot_index(dst_node, tfield)
-    if to_slot is None:
-        to_slot = 0
-    from_slot = _output_slot_index(src_node, sslot)
-    link_type = _link_type_for(src_node, sslot)
-    links = door_setdefault_links(graph, [])
-    if not isinstance(links, list):
-        door_pop_links(graph, None)
-        links = door_setdefault_links(graph, [])
-    # Remove any existing link terminating at (tuid, to_slot).
-    removed_ids: set[int] = set()
-    kept: list[Any] = []
-    for link in links:
-        if isinstance(link, (list, tuple)) and len(link) >= 5:
-            if str(link[3]) == str(tuid) and link[4] == to_slot:
-                removed_ids.add(link[0])
-                continue
-        elif isinstance(link, Mapping):
-            if str(link.get("to_node", link.get("to"))) == str(tuid) and (
-                link.get("to_slot", link.get("to_input")) == to_slot
-            ):
-                if isinstance(link.get("id"), int):
-                    removed_ids.add(link["id"])
-                continue
-        kept.append(link)
-    new_id = _next_link_id(graph)
-    kept.append([new_id, suid, from_slot, tuid, to_slot, link_type])
-    links[:] = kept
-    # Patch the target node's input link reference.
-    inputs = dst_node.get("inputs")
-    if isinstance(inputs, list) and 0 <= to_slot < len(inputs):
-        entry = inputs[to_slot]
-        if isinstance(entry, dict):
-            entry["link"] = new_id
-    # Patch the source node's output link reference.
-    outputs = src_node.get("outputs")
-    if isinstance(outputs, list):
-        for entry in outputs:
-            if isinstance(entry, dict):
-                refs = door_get_links(entry)
-                if isinstance(refs, list):
-                    refs[:] = [r for r in refs if r not in removed_ids]
-                    if new_id not in refs:
-                        refs.append(new_id)
-
-
-def _remove_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any]) -> None:
-    links = door_get_links(graph)
-    if not isinstance(links, list):
-        return
-    remove_id = op.get("id")
-    to = op.get("to")
-    tuid = tfield = None
-    if isinstance(to, (list, tuple)) and len(to) >= 3:
-        tuid, tfield = to[1], to[2]
-    removed_ids: set[int] = set()
-    kept: list[Any] = []
-    for link in links:
-        drop = False
-        if isinstance(link, (list, tuple)) and len(link) >= 5:
-            if remove_id is not None and link[0] == remove_id:
-                drop = True
-            elif tuid is not None and str(link[3]) == str(tuid) and _input_slot_index(
-                _node_by_uid(nodes, tuid)[1] if _node_by_uid(nodes, tuid) else {}, tfield
-            ) == link[4]:
-                drop = True
-            if drop:
-                removed_ids.add(link[0])
-        elif isinstance(link, Mapping):
-            if remove_id is not None and link.get("id") == remove_id:
-                drop = True
-            elif tuid is not None and str(link.get("to_node", link.get("to"))) == str(tuid):
-                drop = True
-            if drop and isinstance(link.get("id"), int):
-                removed_ids.add(link["id"])
-        if not drop:
-            kept.append(link)
-    links[:] = kept
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        for entry in (node.get("inputs") or ()):
-            if isinstance(entry, dict) and entry.get("link") in removed_ids:
-                entry.pop("link", None)
-        for entry in (node.get("outputs") or ()):
-            if not isinstance(entry, dict):
-                continue
-            refs = door_get_links(entry)
-            if isinstance(refs, list):
-                refs[:] = [r for r in refs if r not in removed_ids]
-
-
-def _subgraph_interface(graph: dict[str, Any], op: Mapping[str, Any]) -> None:
-    action = op.get("action")
-    name = op.get("name")
-    definitions = graph.setdefault("definitions", {})
-    if not isinstance(definitions, dict):
-        definitions = {}
-        graph["definitions"] = definitions
-    subgraphs = definitions.setdefault("subgraphs", [])
-    if not isinstance(subgraphs, list):
-        subgraphs = []
-        definitions["subgraphs"] = subgraphs
-    identity = op.get("id") or name
-    if action == "add":
-        subgraphs.append(
-            {
-                "name": name,
-                "inputs": [list(p) for p in (op.get("inputs") or ())],
-                "outputs": [list(p) for p in (op.get("outputs") or ())],
-            }
+    raw = dict(base_graph)
+    try:
+        workflow = from_ui(
+            raw,
+            use_comfy_converter=False,
+            schema_provider=schema_provider,
         )
-    elif action == "remove":
-        subgraphs[:] = [
-            s for s in subgraphs
-            if not (isinstance(s, Mapping) and (s.get("name") == name or s.get("id") == identity))
-        ]
-    elif action == "change":
-        for sub in subgraphs:
-            if isinstance(sub, Mapping) and (sub.get("name") == name or sub.get("id") == identity):
-                if op.get("inputs") is not None:
-                    sub["inputs"] = [list(p) for p in op.get("inputs")]
-                if op.get("outputs") is not None:
-                    sub["outputs"] = [list(p) for p in op.get("outputs")]
+    except Exception:  # noqa: BLE001 - a base the ingest door rejects cannot be replayed
+        LOGGER.warning(
+            "two-step replay: ingest door rejected the base graph; returning it unchanged"
+        )
+        return json.loads(json.dumps(raw))
+
+    applied: list[Any] = []
+    for op in ops:
+        if not isinstance(op, Mapping):
+            continue
+        try:
+            typed_ops = _replay_canonical_op(workflow, op, schema_provider=schema_provider)
+        except Exception as exc:  # noqa: BLE001 - malformed ops are skipped, never fatal
+            LOGGER.warning(
+                "two-step replay: skipping unsupported op %r: %s", op.get("op"), exc
+            )
+            continue
+        for typed in typed_ops:
+            try:
+                workflow = apply_edit_cow(workflow, typed, schema_provider=schema_provider)
+            except Exception as exc:  # noqa: BLE001 - unresolvable targets are skipped
+                LOGGER.warning(
+                    "two-step replay: skipping unapplicable op %r: %s", typed.op, exc
+                )
+                continue
+            applied.append(typed)
+
+    try:
+        emitted = emit_ui_json(
+            workflow,
+            schema_provider=schema_provider,
+            include_virtual_wires=True,
+            prior_ui_payload=raw,
+        )
+        return pin_untouched_ui(raw, emitted, tuple(applied))
+    except Exception:  # noqa: BLE001 - a degenerate IR must not break reconstruction
+        LOGGER.warning(
+            "two-step replay: emit door rejected the replayed IR; returning base unchanged"
+        )
+        return json.loads(json.dumps(raw))
 
 
 def serialize_delta_ops(landed_ops: Any) -> tuple[dict[str, Any], ...]:
@@ -804,7 +834,7 @@ class TwoStepSessionStore:
         return state
 
     def replay_workflow(
-        self, state: TwoStepSessionState, *, base_graph: Mapping[str, Any] | None = None
+        self, state: TwoStepSessionState, *, base_graph: Mapping[str, Any] | None = None, schema_provider: Any = None
     ) -> dict[str, Any] | None:
         """Canonical Δ replay: re-derive the retained revision from the base
         graph plus the session's accepted Δ ops (in acceptance order)."""
@@ -812,38 +842,48 @@ class TwoStepSessionStore:
             base_graph = self._read_base_graph(state.session_id)
         graph = base_graph
         for ref in state.accepted_delta_refs:
-            graph = _apply_delta_ops(graph, ref.get("ops"))
+            graph = _apply_delta_ops(graph, ref.get("ops"), schema_provider=schema_provider)
         return graph
 
     def retained_workflow(self, session_id: str) -> dict[str, Any] | None:
-        """Return the retained revision, preferring the sidecar then replay."""
+        """Return the retained revision: canonical Δ replay is authoritative.
+
+        The sidecar is only a derived cache: it is used ONLY when its hash
+        matches the transcript-derived revision (replay).  A missing, corrupt,
+        stale, or hash-mismatched sidecar falls back to canonical replay.
+        """
         state = self.load(session_id)
         if state is None:
             return None
+        replayed = self.replay_workflow(state)
         sidecar = self.workflow_path(session_id)
         if sidecar.is_file():
             try:
-                return json.loads(sidecar.read_text(encoding="utf-8"))
+                cached = json.loads(sidecar.read_text(encoding="utf-8"))
+                if cached is not None and canonical_workflow_hash(cached) == canonical_workflow_hash(replayed):
+                    return dict(cached)
             except (OSError, json.JSONDecodeError):
                 pass
-        return self.replay_workflow(state)
+        return replayed
 
     def write_workflow(self, session_id: str, graph: Mapping[str, Any]) -> None:
-        """Persist the retained revision sidecar (durable candidate graph).
+        """Persist the retained revision sidecar (durable candidate graph cache).
 
-        Written under the reused process-safe lock so a concurrent reader never
-        observes a half-written revision.  Replay stays the authority when the
-        sidecar is absent; this is the durable candidate the execute phase
-        returns after an accepted edit.
+        Written ATOMICALLY (tmp + rename) under the reused process-safe lock so
+        a concurrent reader never observes a half-written revision.  Replay
+        stays the authority when the sidecar is absent or hash-mismatched.
         """
         safe_id = normalize_session_id(session_id)
         session_dir = self.session_dir(safe_id)
         with SessionStateLock(session_dir, timeout_seconds=self.lock_timeout_seconds):
             session_dir.mkdir(parents=True, exist_ok=True)
-            self.workflow_path(safe_id).write_text(
+            target = self.workflow_path(safe_id)
+            tmp = target.with_suffix(".json.tmp")
+            tmp.write_text(
                 json.dumps(dict(graph), sort_keys=True, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
+            tmp.replace(target)
 
     # -- mutation ------------------------------------------------------------
 

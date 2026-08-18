@@ -730,7 +730,7 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "__CHANGE_TOOLS__\n"
     "   Edit tools (typed; apply the change by calling one of these):\n"
     "__EDIT_TOOLS__\n"
-    "   Python editing on this route: __PYTHON_EDITING__.\n"
+    "   No Python editing is available: every graph change is a typed edit-tool call.\n"
     "\n"
     "3. SUBMIT — no tools.  Return the final JSON contract only.\n"
     "\n"
@@ -880,13 +880,11 @@ def _build_two_step_execute_system(
     research_text = research if research else "   (none for this route)"
     change_text = change if change else "   (none for this route)"
     edit_text = edit_tool_catalog_docs() if python_allowed else "   (none for this route)"
-    python_text = "ALLOWED" if python_allowed else "NOT ALLOWED"
     non_edit = route in _NON_EDIT_ROUTES
     system = _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE
     system = system.replace("__RESEARCH_TOOLS__", research_text)
     system = system.replace("__CHANGE_TOOLS__", change_text)
     system = system.replace("__EDIT_TOOLS__", edit_text)
-    system = system.replace("__PYTHON_EDITING__", python_text)
     system = system.replace(
         "__NON_EDIT_NOTE__", _TWO_STEP_NON_EDIT_NOTE if non_edit else ""
     )

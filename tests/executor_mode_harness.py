@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from vibecomfy.executor import agent_backend as agent_backend_module
 from vibecomfy.executor import core as executor_core
 from vibecomfy.executor import two_step as two_step_module
 from vibecomfy.executor.contracts import (
@@ -52,6 +53,13 @@ from tests.test_ir_laws import pi_edit  # noqa: E402
 # ``run_two_step`` calls (which share one monkeypatch across a scenario loop)
 # always wrap the genuine production function — never an already-wrapped copy.
 _REAL_TWO_STEP_OUTCOME = two_step_module._two_step_outcome
+
+# The REAL bounded-loop entrypoint, likewise captured ONCE at import time: a
+# scenario loop that shares ONE monkeypatch would otherwise chain each
+# scenario's scripted wrapper around the previous scenario's wrapper, and the
+# innermost (first) script would drive every later run.  Each run must drive
+# its OWN scripted model turn against the genuine loop.
+_REAL_RUN_EXECUTE_TURN = agent_backend_module.run_execute_turn
 
 
 class NullSchemaProvider:
@@ -82,7 +90,13 @@ def to_workflow(raw: dict[str, Any] | None) -> VibeWorkflow | None:
 
 
 def apply_delta(base_raw: dict[str, Any], ops: tuple[dict[str, Any], ...]) -> dict[str, Any]:
-    """Canonical Δ replay over a raw graph (the two-step retained-revision rule)."""
+    """Canonical Δ replay over a raw graph — the tests' ORACLE helper.
+
+    The measured two-step replay lives in the store
+    (``TwoStepSessionStore.replay_workflow``); this helper exists so the tests
+    can compute the quotient the FIXTURE ``scenario.delta_ops`` predicts and
+    compare it against the quotient of the ACTUAL accepted ops.
+    """
     from vibecomfy.executor.two_step_session import _apply_delta_ops
 
     return _apply_delta_ops(base_raw, ops)  # type: ignore[return-value]
@@ -104,12 +118,16 @@ def _completion_tokens(result: ExecutorResult) -> int:
 class Scenario:
     """One differential scenario: a locked decision + a canonical edit.
 
-    ``delta_ops`` uses the two-step canonical vocabulary
-    (``set_node_field`` / ``add_node`` / ``remove_node``).  ``post_raw`` is the
-    hand-authored FULL-mode post-edit graph (the graph ``handle_agent_edit``
-    would produce); the two-step side reconstructs the post graph by replaying
-    ``delta_ops`` over ``base_raw``.  The tests assert the two converge on the
-    same ``pi_edit`` quotient — never on raw-byte equality.
+    ``delta_ops`` is the CANONICAL ORACLE for the scenario's edit (the
+    two-step canonical vocabulary: ``set_node_field`` / ``add_node`` /
+    ``remove_node`` / ``upsert_link`` / ``remove_link`` / ``set_mode``).  It is
+    NEVER the measured Δ: the harness reads the ACTUAL accepted ops from the
+    durable transcript (``accepted_delta_refs[].ops``) and derives the two-step
+    post graph from the store's canonical replay; the tests use ``delta_ops``
+    only to assert the actual Δ produces the same ``pi_edit`` quotient.
+    ``post_raw`` is the hand-authored FULL-mode post-edit graph (the graph
+    ``handle_agent_edit`` would produce); the tests assert the two converge on
+    the same ``pi_edit`` quotient — never on raw-byte equality.
     """
 
     name: str
@@ -228,8 +246,9 @@ def _law_edit_session(graph: Any) -> Any:
 
 
 # Typed edit-tool actions per differential scenario — the canonical Δ translated
-# to the typed edit tools.  Each scenario is a SINGLE edit tool call (one edit
-# per message); the add and remove cases are separate single-op scenarios.
+# to the typed edit tools.  Most scenarios are a SINGLE edit tool call (one
+# edit per message); ``batch-edit`` proves ATOMIC multi-op expressiveness via
+# one ``edit_batch`` call lowering to TWO ops under ONE accepted Δ.
 _SCENARIO_EDIT_ACTIONS: dict[str, list[dict[str, Any]]] = {
     "named-field edit": [
         {"action": "tool_call", "tool": "edit_node",
@@ -242,10 +261,26 @@ _SCENARIO_EDIT_ACTIONS: dict[str, list[dict[str, Any]]] = {
     ],
     "add-node": [
         {"action": "tool_call", "tool": "add_node",
-         "args": {"class_type": "LawNodeD", "widget_values": {"value": 0.25}}},
+         "args": {"class_type": "LawNodeD", "widget_values": {"widget_0": 0.25}}},
     ],
     "remove-node": [
         {"action": "tool_call", "tool": "remove_node", "args": {"target": "lawnodeb"}},
+    ],
+    "remove-link": [
+        {"action": "tool_call", "tool": "remove_link",
+         "args": {"target": "lawnodec", "target_input": "image"}},
+    ],
+    "set-node-mode": [
+        {"action": "tool_call", "tool": "set_node_mode",
+         "args": {"target": "lawnodeb", "mode": "muted"}},
+    ],
+    "batch-edit": [
+        {"action": "tool_call", "tool": "edit_batch",
+         "args": {"ops": [
+             {"op": "edit_node", "target": "lawnodec", "field": "prompt",
+              "value": "batched"},
+             {"op": "set_node_mode", "target": "lawnodeb", "mode": "muted"},
+         ]}},
     ],
     "adapt": [
         {"action": "tool_call", "tool": "edit_node",
@@ -257,16 +292,17 @@ _SCENARIO_EDIT_ACTIONS: dict[str, list[dict[str, Any]]] = {
 }
 
 
-def _scripted_execute_turn(scenario: Scenario):
+def _scripted_execute_turn(scenario: Scenario, *, delta_id: str = "d1"):
     """Return a ``run_execute_turn`` wrapper that drives the REAL bounded loop.
 
     Only the model is scripted (typed edit tool call(s) → ``submit`` citing the
     landed Δ); the real :class:`EditSession`, the real ``_two_step_tool_executor``,
     the real :class:`EditToolRuntime` and the real session store all run.
+    ``delta_id`` is the Δ id the scripted submit cites — ``d1`` for a fresh
+    session, ``d2`` for a follow-up message on a session that already accepted
+    ``d1`` (session-wide Δ counter, see the concurrent-edits test).
     """
     import json as _json
-
-    from vibecomfy.executor import agent_backend as agent_backend_module
 
     edit_actions = _SCENARIO_EDIT_ACTIONS.get(scenario.name, [])
     actions: list[dict[str, Any]] = list(edit_actions)
@@ -274,7 +310,7 @@ def _scripted_execute_turn(scenario: Scenario):
         {
             "action": "submit",
             "reply": "deterministic two-step reply",
-            "claim_refs": {"delta_ids": ["d1"] if edit_actions else []},
+            "claim_refs": {"delta_ids": [delta_id] if edit_actions else []},
         }
     )
 
@@ -289,10 +325,8 @@ def _scripted_execute_turn(scenario: Scenario):
             "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
         }
 
-    real_run_execute_turn = agent_backend_module.run_execute_turn
-
     def execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
-        return real_run_execute_turn(request, model_turn_fn=model_turn_fn, **kwargs)
+        return _REAL_RUN_EXECUTE_TURN(request, model_turn_fn=model_turn_fn, **kwargs)
 
     return execute_turn
 
@@ -372,10 +406,25 @@ def run_full(scenario: Scenario, monkeypatch: Any) -> ModeRun:
     return _normalize_full(result, scenario, latency_s)
 
 
-def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRun:
+def run_two_step(
+    scenario: Scenario,
+    monkeypatch: Any,
+    tmp_path: Path,
+    *,
+    session_id: str | None = None,
+    delta_id: str = "d1",
+) -> ModeRun:
     """Run the two-step pipeline with the locked decision injected, driving the
     REAL bounded execute loop (real EditSession + real tool dispatcher +
-    scripted model emitting ``apply`` → ``submit``)."""
+    scripted model emitting ``apply`` → ``submit``).
+
+    Measurement is HONEST (Codex verdict §5): the accepted Δ ops and the post
+    graph come from the durable transcript / the store's canonical replay —
+    ``TwoStepSessionStore.load`` + ``accepted_delta_refs[].ops`` +
+    ``replay_workflow`` / ``retained_workflow`` — NEVER from the fixture
+    ``scenario.delta_ops`` or a local re-application of it.  The fixture Δ is
+    only an oracle the tests compare the actual Δ against (same quotient).
+    """
     decision = scenario.decision
     monkeypatch.setattr(executor_core, "_run_classify", lambda *a, **k: decision)
     # Inject the offline fixture schema into the REAL EditSession seam and
@@ -383,10 +432,11 @@ def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRu
     monkeypatch.setattr(two_step_module, "_two_step_edit_session", _law_edit_session)
     monkeypatch.setattr(
         "vibecomfy.executor.agent_backend.run_execute_turn",
-        _scripted_execute_turn(scenario),
+        _scripted_execute_turn(scenario, delta_id=delta_id),
     )
     # Isolate the REAL TwoStepSessionStore durable root per test so repeated
     # gate runs never accumulate the 12-apply-batch session ceiling (B06 Pro).
+    session_root = tmp_path / "editor_sessions"
     real_two_step_outcome = _REAL_TWO_STEP_OUTCOME
 
     def _isolated_outcome(
@@ -405,7 +455,7 @@ def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRu
             client_id=client_id,
             executor_id=executor_id,
             additive=additive,
-            session_root=tmp_path / "editor_sessions",
+            session_root=session_root,
         )
 
     monkeypatch.setattr(two_step_module, "_two_step_outcome", _isolated_outcome)
@@ -413,34 +463,44 @@ def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRu
     request = ExecutorRequest(
         query=scenario.query,
         graph=scenario.base_raw,
-        session_id=_session_id(scenario),
+        session_id=session_id if session_id is not None else _session_id(scenario),
         pipeline_mode="two_step",
     )
     t0 = time.monotonic()
     result = executor_core.run_executor(request)
     latency_s = time.monotonic() - t0
 
-    # The real loop is authoritative for the post graph when an edit landed;
-    # canonical Δ replay is the fallback for retained revisions the Python
-    # grammar cannot express (reorganise's positional furniture).
-    if result.graph is not None:
-        post_workflow = to_workflow(result.graph)
-    elif scenario.delta_ops:
-        post_workflow = to_workflow(apply_delta(scenario.base_raw, scenario.delta_ops))
+    # The durable transcript is the authority: reload the session through the
+    # SAME store root the outcome boundary wrote, then read the ACTUAL accepted
+    # ops and derive the post graph from the store's canonical replay.
+    store = TwoStepSessionStore(session_root)
+    sid = normalize_session_id(request.session_id)
+    state = store.load(sid)
+    assert state is not None, f"two-step run produced no durable session for {sid!r}"
+    accepted_delta_ops = tuple(
+        op for ref in state.accepted_delta_refs for op in (ref.get("ops") or ())
+    )
+    replayed_raw = store.replay_workflow(state)
+    replayed_quotient = _pi_edit_or_none(to_workflow(replayed_raw))
+
+    # The two-step post graph is the STORE's retained revision — the live
+    # emitted graph sidecar when its hash matches the Δ replay, else the replay
+    # itself (both come from the store; never a local ``apply_delta`` re-apply).
+    # A graph-producing route that landed NO edit (e.g. reorganise's positional
+    # furniture, which no typed tool expresses) retains the base revision.
+    if state.accepted_delta_refs:
+        post_workflow = to_workflow(store.retained_workflow(sid))
+    elif scenario.post_raw is not None:
+        post_workflow = to_workflow(replayed_raw)
     else:
         post_workflow = None
-
-    replayed_quotient = None
-    if scenario.delta_ops:
-        replayed_raw = apply_delta(scenario.base_raw, scenario.delta_ops)
-        replayed_quotient = _pi_edit_or_none(to_workflow(replayed_raw))
 
     return ModeRun(
         mode="two_step",
         ok=result.ok,
         post_workflow=post_workflow,
         pi_edit_quotient=_pi_edit_or_none(post_workflow),
-        accepted_delta_ops=scenario.delta_ops,
+        accepted_delta_ops=accepted_delta_ops,
         replayed_quotient=replayed_quotient,
         evidence_ids=scenario.evidence_ids,
         evidence_valid=True,
@@ -551,9 +611,9 @@ def rewire() -> Scenario:
         base_raw=base,
         delta_ops=(
             {
-                "op": "set_node_field",
-                "target": ["", "3", "inputs"],
-                "value": [{"name": "image", "type": "IMAGE", "link": 2}],
+                "op": "upsert_link",
+                "from": ["", "2", "IMAGE"],
+                "to": ["", "3", "image"],
             },
         ),
         post_raw=post,
@@ -611,6 +671,96 @@ def remove_node() -> Scenario:
         base_raw=base,
         delta_ops=(
             {"op": "remove_node", "target": ["", "2"]},
+        ),
+        post_raw=post,
+    )
+
+
+def remove_link() -> Scenario:
+    base = _base_raw()
+    # Removing the wire into node C's ``image`` input: BOTH links feed that one
+    # input slot, so the input socket ends up unlinked and the two wires drop.
+    post = {
+        "nodes": [
+            _node("1", "LawNodeA", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [1]}]),
+            _node("2", "LawNodeB", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [2]}]),
+            _node(
+                "3",
+                "LawNodeC",
+                inputs=[],
+                widgets_values=["before"],
+            ),
+        ],
+        "links": [],
+    }
+    return Scenario(
+        name="remove-link",
+        route="revise",
+        query="disconnect node C's image input",
+        decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
+        base_raw=base,
+        delta_ops=(
+            {"op": "remove_link", "to": ["", "3", "image"]},
+        ),
+        post_raw=post,
+    )
+
+
+def set_node_mode() -> Scenario:
+    base = _base_raw()
+    # Muting node B is editable: the quotient carries the LiteGraph mode int.
+    post = {
+        "nodes": [
+            _node("1", "LawNodeA", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [1]}]),
+            _node("2", "LawNodeB", mode=2, outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [2]}]),
+            _node(
+                "3",
+                "LawNodeC",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 1}],
+                widgets_values=["before"],
+            ),
+        ],
+        "links": base["links"],
+    }
+    return Scenario(
+        name="set-node-mode",
+        route="revise",
+        query="mute the LawNodeB node",
+        decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
+        base_raw=base,
+        delta_ops=(
+            {"op": "set_mode", "target": ["", "2"], "mode": 2},
+        ),
+        post_raw=post,
+    )
+
+
+def batch_edit() -> Scenario:
+    base = _base_raw()
+    # ONE ``edit_batch`` tool call lowers to TWO ops under ONE accepted Δ:
+    # edit_node (prompt → widget channel) + set_node_mode (mode → 2).
+    post = {
+        "nodes": [
+            _node("1", "LawNodeA", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [1]}]),
+            _node("2", "LawNodeB", mode=2, outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [2]}]),
+            _node(
+                "3",
+                "LawNodeC",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 1}],
+                widgets_values=["batched"],
+            ),
+        ],
+        "links": base["links"],
+    }
+    return Scenario(
+        name="batch-edit",
+        route="revise",
+        query="set the prompt to 'batched' and mute node B in one batch",
+        decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
+        base_raw=base,
+        delta_ops=(
+            {"op": "set_node_field", "target": ["", "3", "widgets_values"], "value": ["batched"]},
+            {"op": "set_mode", "target": ["", "2"], "mode": 2},
         ),
         post_raw=post,
     )
@@ -701,9 +851,11 @@ def reorganise() -> Scenario:
             route="reorganise", implement=True, intent="edit", task="layout_reorganise"
         ),
         base_raw=base,
-        delta_ops=(
-            {"op": "set_node_field", "target": ["", "3", "pos"], "value": [999.0, 111.0]},
-        ),
+        # No canonical Δ can express canvas position (there is no typed tool
+        # for furniture), so the two-step lands NO edit and the retained
+        # revision is the base.  The fixture ``post_raw`` keeps the moved pos
+        # for the FULL-mode side only; π_edit must be identical (furniture).
+        delta_ops=(),
         post_raw=post,
     )
 
@@ -713,6 +865,9 @@ SCENARIOS: tuple[Scenario, ...] = (
     rewire(),
     add_node(),
     remove_node(),
+    remove_link(),
+    set_node_mode(),
+    batch_edit(),
     inspect(),
     research(),
     adapt(),

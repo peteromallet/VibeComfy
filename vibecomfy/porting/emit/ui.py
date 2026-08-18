@@ -3653,7 +3653,17 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
 
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
-            allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs", "properties")
+            field = str(op.target.field_path or "")
+            if field in {"inputs", "outputs"}:
+                # A raw-list op targeting the input/output channel is allowed
+                # to rewrite that channel (legacy whole-channel edits).
+                allow_node_paths(op.target.scope_path, op.target.uid, field)
+            else:
+                # A named-field edit lands in widgets_values only: attributing
+                # "inputs" lets the emit's renumbered link ids leak into the
+                # merged node, silently dropping the base graph's edges on
+                # re-ingest (Law 3).  Pin the untouched link references.
+                allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values")
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")

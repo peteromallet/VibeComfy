@@ -111,11 +111,11 @@ class TestNonEditRoutes:
 
 
 class TestPythonEditingFlag:
-    def test_python_editing_flag_matches_policy(self) -> None:
+    def test_no_python_editing_is_advertised(self) -> None:
         for route, policy in TWO_STEP_ROUTE_POLICIES.items():
             system = _build(route)[0]["content"]
-            expected = "ALLOWED" if policy.allows_python_edits else "NOT ALLOWED"
-            assert f"Python editing on this route: {expected}." in system, route
+            assert "No Python editing is available" in system, route
+            assert "Python editing on this route" not in system, route
 
 
 class TestContinuityAndDenial:

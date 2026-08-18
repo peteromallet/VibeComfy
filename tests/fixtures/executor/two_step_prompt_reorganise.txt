@@ -22,10 +22,13 @@ Work in exactly this order:
 - `layout_hints(operation, anchors)` — suggest placement positions/groups for a node insertion (advisory)
    Edit tools (typed; apply the change by calling one of these):
 - `edit_node(target, field, value)` — set the named field on a node; ``target`` is the name/uid from the render, ``field`` is a named widget/input key (never ``widget_N``).
-- `add_node(class_type, name?, widget_values?, inputs?)` — add a node; returns its binding. ``widget_values`` maps named widget/input keys to values; ``inputs`` maps an input name to a source binding (or ``[binding, output]``).
+- `add_node(class_type, name?, widget_values?, inputs?)` — add a node; returns its uid binding. ``widget_values`` maps named widget/input keys to values; ``inputs`` maps an input name to a source binding (or ``[binding, output]``).
 - `remove_node(target)` — remove the node named by ``target``.
 - `upsert_link(source, source_output, target, target_input)` — wire ``source``'s output into ``target``'s named input (replaces any existing link into that input).
-   Python editing on this route: ALLOWED.
+- `remove_link(target, target_input)` — disconnect the named input of ``target`` (intentional absence).
+- `set_node_mode(target, mode)` — set the node mode to ``enabled`` | ``muted`` | ``bypassed``.
+- `edit_batch(ops=[...])` — apply several typed edits atomically as ONE accepted Δ; each ``ops`` entry is an op object like ``{"op": "edit_node", "target": ..., "field": ..., "value": ...}``.
+   No Python editing is available: every graph change is a typed edit-tool call.
 
 3. SUBMIT — no tools.  Return the final JSON contract only.
 

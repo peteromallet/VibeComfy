@@ -115,25 +115,33 @@ class TestArgSchema:
     def test_missing_required_arg_is_typed(self) -> None:
         with pytest.raises(EditToolError) as excinfo:
             validate_edit_tool_args("edit_node", {"target": "n"})  # missing field
-        assert excinfo.value.code == "arg_required"
+        assert excinfo.value.code == "invalid_arguments"
 
     def test_unknown_arg_is_typed(self) -> None:
         with pytest.raises(EditToolError) as excinfo:
             validate_edit_tool_args("edit_node", {"target": "n", "field": "f", "bogus": 1})
-        assert excinfo.value.code == "unknown_arg"
+        assert excinfo.value.code == "invalid_arguments"
 
     def test_non_mapping_args_is_typed(self) -> None:
         with pytest.raises(EditToolError) as excinfo:
             validate_edit_tool_args("edit_node", [1, 2, 3])
-        assert excinfo.value.code == "args_not_object"
+        assert excinfo.value.code == "invalid_arguments"
 
     def test_unknown_tool_is_typed(self) -> None:
         with pytest.raises(EditToolError) as excinfo:
             validate_edit_tool_args("frobnicate", {})
         assert excinfo.value.code == "unknown_tool"
 
-    def test_tool_set_is_exactly_the_four(self) -> None:
-        assert EDIT_TOOL_NAMES == {"edit_node", "add_node", "remove_node", "upsert_link"}
+    def test_tool_set_is_exactly_the_seven(self) -> None:
+        assert EDIT_TOOL_NAMES == {
+            "edit_node",
+            "add_node",
+            "remove_node",
+            "upsert_link",
+            "remove_link",
+            "set_node_mode",
+            "edit_batch",
+        }
 
 
 # ── edit_node happy path ─────────────────────────────────────────────────────
@@ -172,7 +180,8 @@ class TestEditNode:
             "edit_node", {"target": "cliptextencode", "field": "widget_2", "value": "x"}
         )
         assert outcome.ok is False
-        assert outcome.reason == "positional_ref_rejected"
+        assert outcome.reason == "invalid_arguments"
+        assert outcome.retryable is True
 
     def test_widget_N_target_is_rejected(self) -> None:
         runtime = _clip_runtime()
@@ -180,7 +189,8 @@ class TestEditNode:
             "edit_node", {"target": "widget_2", "field": "text", "value": "x"}
         )
         assert outcome.ok is False
-        assert outcome.reason == "positional_ref_rejected"
+        assert outcome.reason == "invalid_arguments"
+        assert outcome.retryable is True
 
 
 # ── add_node / remove_node / upsert_link happy paths ─────────────────────────
@@ -219,7 +229,8 @@ class TestAddRemoveUpsert:
             "add_node", {"class_type": "LawNodeD", "widget_values": [1, 2]}
         )
         assert outcome.ok is False
-        assert outcome.reason == "bad_widget_values"
+        assert outcome.reason == "invalid_arguments"
+        assert outcome.retryable is True
 
 
 # ── atomic lifecycle (CAS / one-edit / one-retry) ────────────────────────────

@@ -187,6 +187,8 @@ class AddNodeOp:
     anchor: AnchorRef | None = None
     uid: str | None = field(default=None, repr=False)
     node_id: str | None = field(default=None, repr=False)
+    # Optional node title (the ``name=`` surface on the typed add_node tool).
+    title: str | None = field(default=None, repr=False)
     # Explicit widget-channel classification for ``fields`` (batch 9 fix).
     # Set by ``diff`` for every add_node it emits so unknown-schema widget
     # fields survive the diff→interpret round-trip; the Python-surface path
@@ -520,6 +522,7 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             anchor=_parse_anchor(data["anchor"], path="anchor") if "anchor" in data else None,
             uid=_parse_optional_identity(data.get("uid"), path="uid"),
             node_id=_parse_optional_identity(data.get("node_id"), path="node_id"),
+            title=_parse_optional_identity(data.get("title"), path="title"),
             widget_field_names=parsed_widget_field_names,
         )
 
@@ -618,6 +621,8 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
     }
     if op.widget_field_names:
         payload["widget_field_names"] = list(op.widget_field_names)
+    if op.title:
+        payload["title"] = op.title
     if op.anchor is not None:
         anchor: dict[str, Any] = {"relation": op.anchor.relation}
         if op.anchor.group_title is not None:
