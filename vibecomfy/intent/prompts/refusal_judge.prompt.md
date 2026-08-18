@@ -41,3 +41,9 @@ Respond with a JSON object and nothing else:
 
 `pass_` must be true if and only if all four criteria are true.
 Do not add any text before or after the JSON object.
+
+You MUST include all four criterion keys in every response — never omit one.
+If the evidence for a criterion is ambiguous, still return an explicit
+boolean for it and explain the judgment in the rationale; an omitted key
+cannot be adjudicated and forces the caller to retry.  Emit exactly one JSON
+object — no trailing text and no second object after the closing brace.

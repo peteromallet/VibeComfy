@@ -21,8 +21,10 @@ from tests.live_agentic_harness.assessor import assess_live_output_dir
 from tests.live_agentic_harness.intent_judge import (
     _apply_parameter_identity_pregrade,
     _named_fields_for_delta,
+    _parse_refusal_verdict,
     _pregrade_parameter_identity,
     judge_edit_intent,
+    judge_grounded_refusal,
     judge_semantic_answer,
 )
 
@@ -897,3 +899,316 @@ def test_named_fields_map_uses_executor_surface() -> None:
     )
     assert named["12"]["motion_bucket_id"] == 200
     assert named["12"]["video_frames"] == 14
+
+
+# ── v5-batch-3 #4 (359848): no fail-close on a missing refusal criterion ─────
+
+
+def _refusal_359848_artifacts(tmp_path: Path) -> None:
+    """359848-shaped refusal artifacts: AnimateDiff absent from graph/schema."""
+    graph = {
+        "last_node_id": 2,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": ["input.png", "image"],
+            },
+            {
+                "id": 2,
+                "type": "ImageUpscaleWithModel",
+                "properties": {"vibecomfy_uid": "2"},
+                "widgets_values": ["upscale_model"],
+            },
+        ],
+        "links": [],
+    }
+    (tmp_path / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "outcome": {
+                    "kind": "clarify",
+                    "message": (
+                        "The AnimateDiff classes needed for the swap are not "
+                        "available in this session; no AnimateDiff nodes exist "
+                        "to wire into the graph."
+                    ),
+                },
+                "message": (
+                    "The AnimateDiff classes needed for the swap are not "
+                    "available in this session."
+                ),
+                "no_candidate_reason": "requires_custom_nodes",
+                "route": "adapt",
+                "graph_unchanged": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "implementation_payload.json").write_text(
+        json.dumps(
+            {
+                "graph": {
+                    "compiled_api": {
+                        "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": ["STRING"]}}},
+                        "LoadImage": {"input": {"required": {"image": ["STRING"]}}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _refusal_verdict_content(**overrides: object) -> dict:
+    content: dict = {
+        "pass_": True,
+        "criteria": {
+            "supported_blocker": True,
+            "no_representable_edit": True,
+            "specific_next_action": True,
+            "no_fabricated_inability": True,
+        },
+        "rationale": "AnimateDiff classes are absent from the schema and graph.",
+    }
+    content.update(overrides)
+    return content
+
+
+def test_parse_refusal_verdict_missing_criterion_is_undetermined_not_fail() -> None:
+    """Unit pin: a refusal criterion key absent from the response is
+    undetermined (``pass_`` None) with the missing key surfaced — never the
+    silent fail-close that flipped 359848 one criterion short of accept."""
+    criteria = _refusal_verdict_content()["criteria"]
+    del criteria["no_fabricated_inability"]
+    verdict = _parse_refusal_verdict(json.dumps(_refusal_verdict_content(criteria=criteria)))
+
+    assert verdict["pass_"] is None
+    assert verdict["missing_criteria"] == ["no_fabricated_inability"]
+    assert verdict["criteria"]["supported_blocker"] is True
+
+
+def test_359848_shaped_missing_refusal_criterion_retries_and_passes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """v5-batch-3 #4 (359848): a refusal response omitting a criterion is
+    retried once — the retry supplies the key and the grounded refusal is
+    accepted, instead of failing one criterion short of a flip."""
+    _refusal_359848_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        if len(calls) == 1:
+            criteria = {
+                "supported_blocker": True,
+                "no_representable_edit": True,
+                "specific_next_action": True,
+            }
+        else:
+            criteria = {
+                "supported_blocker": True,
+                "no_representable_edit": True,
+                "specific_next_action": True,
+                "no_fabricated_inability": True,
+            }
+        return {"content": json.dumps(_refusal_verdict_content(criteria=criteria))}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_grounded_refusal(tmp_path, {"query": "swap in AnimateDiff"})
+
+    assert len(calls) == 2  # retried once after the missing criterion
+    assert verdict["pass_"] is True
+    assert verdict["criteria"]["no_fabricated_inability"] is True
+
+
+def test_359848_shaped_missing_refusal_criterion_stays_undetermined_after_retry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A refusal response that STILL omits a criterion after the retry is
+    undetermined (``pass_`` None with an error), never a silent fail-close."""
+    _refusal_359848_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        criteria = {
+            "supported_blocker": True,
+            "no_representable_edit": True,
+            "specific_next_action": True,
+        }
+        return {"content": json.dumps(_refusal_verdict_content(criteria=criteria))}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_grounded_refusal(tmp_path, {"query": "swap in AnimateDiff"})
+
+    assert len(calls) == 2
+    assert verdict["pass_"] is None
+    assert "no_fabricated_inability" in verdict["missing_criteria"]
+    assert "after retry" in (verdict.get("error") or "")
+
+
+def test_refusal_criterion_explicit_false_still_fails_without_retry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """An explicitly returned False criterion must still fail the refusal —
+    only ABSENT criteria trigger the retry/undetermined path."""
+    _refusal_359848_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        criteria = {
+            "supported_blocker": True,
+            "no_representable_edit": True,
+            "specific_next_action": True,
+            "no_fabricated_inability": False,  # the refusal fabricates an inability
+        }
+        return {"content": json.dumps(_refusal_verdict_content(criteria=criteria))}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_grounded_refusal(tmp_path, {"query": "swap in AnimateDiff"})
+
+    assert len(calls) == 1  # explicit False decides without a retry
+    assert verdict["pass_"] is False
+    assert verdict["criteria"]["no_fabricated_inability"] is False
+
+
+# ── v5-batch-4 #7 (d1caec): harden the semantic judge JSON parse ────────────
+
+
+def _semantic_judge_artifacts(tmp_path: Path) -> None:
+    graph = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": ["input.png", "image"],
+            }
+        ],
+        "links": [],
+    }
+    (tmp_path / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (tmp_path / "response.json").write_text(
+        json.dumps({"ok": True, "reply": "LoadImage uid 1 reads input.png."}),
+        encoding="utf-8",
+    )
+
+
+_SEMANTIC_RUBRIC = {
+    "expected_criteria": ["Ground claims in the workflow."],
+    "fail_conditions": [],
+    "pass_condition": "grounded, relevant, correct",
+}
+
+
+def test_d1caec_shaped_trailing_json_semantic_judge_tolerated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """v5-batch-4 #7 (d1caec): the semantic judge emitted a second JSON
+    object ('Extra data: line 10 column 1'). The first object is recovered
+    and graded — parsed, never undetermined-by-parse-alone."""
+    _semantic_judge_artifacts(tmp_path)
+    calls: list[int] = []
+    verdict_content = {
+        "pass_": True,
+        "criteria": {"grounded": True, "relevant": True, "correct": True},
+        "rationale": "grounded in the LoadImage evidence",
+    }
+    trailing = {"duplicate": True, "criteria": {"grounded": False}}
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        return {"content": json.dumps(verdict_content) + "\n" + json.dumps(trailing)}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_semantic_answer(tmp_path, {"query": "What does LoadImage uid 1 do?", "answer_rubric": _SEMANTIC_RUBRIC})
+
+    assert len(calls) == 1  # tolerated, no retry needed
+    assert verdict["pass_"] is True
+    assert verdict["criteria"]["grounded"] is True
+    assert verdict["criteria"]["relevant"] is True
+    assert verdict["criteria"]["correct"] is True
+
+
+def test_d1caec_shaped_unparsable_semantic_judge_retries_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Genuinely unparsable judge output (not just trailing data) is retried
+    once; a clean retry yields a verdict instead of undetermined-by-parse."""
+    _semantic_judge_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return {"content": '{"pass_": true, "criteria": {'}  # truncated
+        return {
+            "content": json.dumps(
+                {
+                    "pass_": True,
+                    "criteria": {"grounded": True, "relevant": True, "correct": True},
+                    "rationale": "clean retry",
+                }
+            )
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_semantic_answer(tmp_path, {"query": "What does LoadImage uid 1 do?", "answer_rubric": _SEMANTIC_RUBRIC})
+
+    assert len(calls) == 2  # retried exactly once
+    assert verdict["pass_"] is True
+    assert verdict["criteria"]["correct"] is True
+
+
+def test_semantic_judge_retry_exhausted_is_undetermined_not_hard_fail(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Both attempts unparsable: undetermined with an error after one retry —
+    the scenario gets a retryable undetermined, not a parse-induced verdict."""
+    _semantic_judge_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        return {"content": "not json at all { "}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_semantic_answer(tmp_path, {"query": "What does LoadImage uid 1 do?", "answer_rubric": _SEMANTIC_RUBRIC})
+
+    assert len(calls) == 2
+    assert verdict["pass_"] is None
+    assert "after retry" in (verdict.get("error") or "")

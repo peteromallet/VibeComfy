@@ -43,3 +43,6 @@ Respond with a JSON object and nothing else:
 
 `pass_` must be true if and only if all three criteria are true.
 Do not add any text before or after the JSON object.
+Emit exactly one JSON object — no trailing text, no second object, and
+nothing after the closing brace.  Extra data after the first object makes
+the response unparsable and forces the caller to retry.

@@ -150,17 +150,31 @@ def _strict_boolean(value: Any) -> bool | None:
     return None
 
 
-def _derive_verdict(parsed: Any, criterion_keys: tuple[str, ...]) -> dict[str, Any]:
+def _derive_verdict(
+    parsed: Any,
+    criterion_keys: tuple[str, ...],
+    *,
+    missing_policy: str = "fail",
+) -> dict[str, Any]:
     """Normalize a parsed judge response, deriving ``pass_`` from the criteria.
 
     The model's self-declared ``pass_`` is never trusted: the verdict is True
     only when the response is a JSON object whose ``pass_`` is an explicit
     boolean and every required criterion is an explicit ``true`` boolean.  Any
-    criterion that is false, missing, or not a strict boolean (including the
-    strings ``"false"``/``"true"``), any non-boolean or absent ``pass_``, and
-    any non-object response fail the verdict closed — malformed output is a
-    fail, never a pass.  Only genuinely unparsable JSON (json.loads raising
-    in the caller) stays undetermined (``pass_`` None).
+    criterion that is false or not a strict boolean (including the strings
+    ``"false"``/``"true"``), any non-boolean or absent ``pass_``, and any
+    non-object response fail the verdict closed — malformed output is a fail,
+    never a pass.  Only genuinely unparsable JSON (json.loads raising in the
+    caller) stays undetermined (``pass_`` None).
+
+    ``missing_policy`` selects how an ABSENT (or non-strict-typed) criterion
+    is treated.  The grounded-refusal judge uses ``"undetermined"`` (v5-batch-3
+    #4 359848: a refusal response that omitted ``no_fabricated_inability``
+    fail-closed one criterion short of a flip):
+    - ``"fail"`` (default): a missing criterion fails the verdict closed.
+    - ``"undetermined"``: a missing criterion yields ``pass_`` None plus a
+      ``missing_criteria`` list so the caller can retry; an explicitly
+      returned ``False`` still fails.  Missing criteria never pass.
     """
     if not isinstance(parsed, dict):
         return {"pass_": False, "criteria": {}, "rationale": ""}
@@ -172,6 +186,14 @@ def _derive_verdict(parsed: Any, criterion_keys: tuple[str, ...]) -> dict[str, A
             value = _strict_boolean(criteria_raw.get(key))
             if value is not None:
                 criteria[key] = value
+    missing = [key for key in criterion_keys if key not in criteria]
+    if missing_policy == "undetermined" and missing:
+        return {
+            "pass_": None,
+            "criteria": criteria,
+            "rationale": str(parsed.get("rationale", "")),
+            "missing_criteria": missing,
+        }
     all_criteria_pass = all(criteria.get(key) is True for key in criterion_keys)
     return {
         "pass_": self_declared is not None and all_criteria_pass,
@@ -196,13 +218,29 @@ def _parse_verdict(raw: str) -> dict[str, Any]:
 def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
     """Parse the grounded-refusal judge's JSON response into a normalized dict.
 
-    Same fail-closed contract as :func:`_parse_verdict`: the verdict is
-    derived from the four refusal criteria (supported blocker, no
-    representable edit, specific next action, no fabricated inability), not
-    from the model's self-declared ``pass_``.
+    The verdict is derived from the four refusal criteria (supported blocker,
+    no representable edit, specific next action, no fabricated inability), not
+    from the model's self-declared ``pass_``.  Unlike the edit/semantic
+    judges, a MISSING criterion does not fail-closed: it returns ``pass_``
+    None with ``missing_criteria`` so the caller can retry once (v5-batch-3
+    #4 359848).  An explicitly returned ``False`` still fails.
     """
     parsed = json.loads(_strip_code_fences(raw))
-    return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS)
+    return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS, missing_policy="undetermined")
+
+
+def _parse_single_json_object(raw: str) -> Any:
+    """Parse *raw* as one JSON value, tolerating trailing data.
+
+    Some models append a second JSON object (or trailing prose) after the
+    verdict; ``json.loads`` then raises ``JSONDecodeError: Extra data``
+    (v5-batch-4 #7 d1caec).  ``raw_decode`` recovers the FIRST complete value
+    and ignores everything after it.  Raises ``json.JSONDecodeError`` only
+    when no complete value exists (truncated output).
+    """
+    text = _strip_code_fences(raw)
+    value, _ = json.JSONDecoder().raw_decode(text)
+    return value
 
 
 def _parse_semantic_verdict(raw: str) -> dict[str, Any]:
@@ -210,10 +248,11 @@ def _parse_semantic_verdict(raw: str) -> dict[str, Any]:
 
     Same fail-closed contract as :func:`_parse_verdict`: the verdict is
     derived from grounded/relevant/correct, not from the model's
-    self-declared ``pass_``. Malformed parsed objects fail; only
-    ``json.loads`` raising stays undetermined in the caller.
+    self-declared ``pass_``.  The parse tolerates trailing data after the
+    first JSON object; only genuinely unparsable output stays undetermined
+    in the caller (retried once there).
     """
-    parsed = json.loads(_strip_code_fences(raw))
+    parsed = _parse_single_json_object(raw)
     return _derive_verdict(parsed, _SEMANTIC_CRITERION_KEYS)
 
 
@@ -749,6 +788,39 @@ def _render_judge_lens_payload(
     }
 
 
+def _run_judge_model_turn(
+    task: str,
+    *,
+    messages: list[dict[str, str]],
+    route: str,
+    model: str,
+) -> tuple[str | None, str | None, float | None]:
+    """Run one judge model turn; return ``(raw, error, elapsed_ms)``.
+
+    ``raw`` is the response content, or None (with ``error`` describing why)
+    when the model call failed or returned empty content.  ``elapsed_ms`` is
+    the call's profiling elapsed time when the provider reported one.  Judge
+    runners use this for their one-retry loop on retryable outcomes (missing
+    refusal criterion, unparsable semantic JSON).
+    """
+    try:
+        response = run_model_turn(
+            task,
+            messages=messages,
+            route=route,
+            model=model,
+            response_contract="json",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"model call failed: {exc}", None
+    raw = response.get("content") or ""
+    if not raw:
+        return None, "model returned empty content", None
+    profiling = response.get("_profiling")
+    elapsed = profiling.get("elapsed_ms") if isinstance(profiling, Mapping) else None
+    return raw, None, elapsed
+
+
 def judge_edit_intent(
     output_dir: Path | str,
     scenario: Mapping[str, Any],
@@ -1117,24 +1189,22 @@ def judge_grounded_refusal(
     if node_inventory:
         payload["node_inventory"] = node_inventory
     user_content = json.dumps(payload, indent=2)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
-    try:
-        response = run_model_turn(
+    def _call() -> tuple[str | None, str | None, float | None]:
+        return _run_judge_model_turn(
             "evaluate whether a workflow-edit refusal is grounded",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             route=route,
             model=model,
-            response_contract="json",
         )
-    except Exception as exc:  # noqa: BLE001
-        return {"pass_": None, "error": f"model call failed: {exc}"}
 
-    raw = response.get("content") or ""
-    if not raw:
-        return {"pass_": None, "error": "model returned empty content"}
+    raw, error, elapsed_ms = _call()
+    if error:
+        return {"pass_": None, "error": error}
 
     try:
         verdict = _parse_refusal_verdict(raw)
@@ -1145,10 +1215,34 @@ def judge_grounded_refusal(
             "raw": raw[:500],
         }
 
+    # v5-batch-3 #4 (359848): the refusal response omitted a criterion
+    # (no_fabricated_inability) and _derive_verdict fail-closed to pass_=False,
+    # one criterion short of an accepted grounded refusal.  A MISSING
+    # criterion is retried once — it must never silently fail the verdict;
+    # only an explicitly returned False (or a complete response) decides.
+    if verdict["pass_"] is None and verdict.get("missing_criteria"):
+        raw, error, retry_elapsed = _call()
+        if error:
+            return {"pass_": None, "error": error}
+        elapsed_ms = retry_elapsed
+        try:
+            verdict = _parse_refusal_verdict(raw)
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            return {
+                "pass_": None,
+                "error": f"could not parse judge response on retry: {exc}",
+                "raw": raw[:500],
+            }
+        if verdict.get("missing_criteria"):
+            verdict["error"] = (
+                "refusal criteria incomplete after retry: missing "
+                + ", ".join(sorted(verdict["missing_criteria"]))
+            )
+
     verdict["metadata"] = {
         "route": route,
         "model": model,
-        "elapsed_ms": response.get("_profiling", {}).get("elapsed_ms"),
+        "elapsed_ms": elapsed_ms,
     }
     return verdict
 
@@ -1215,37 +1309,47 @@ def judge_semantic_answer(
         payload["schema_context"] = schema_context
     payload["mode_labels"] = _mode_labels_payload()
     user_content = json.dumps(payload, indent=2)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
-    try:
-        model_response = run_model_turn(
+    def _call() -> tuple[str | None, str | None, float | None]:
+        return _run_judge_model_turn(
             "evaluate whether a workflow answer is grounded, relevant, and correct",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             route=route,
             model=model,
-            response_contract="json",
         )
-    except Exception as exc:  # noqa: BLE001
-        return {"pass_": None, "error": f"model call failed: {exc}"}
 
-    raw = model_response.get("content") or ""
-    if not raw:
-        return {"pass_": None, "error": "model returned empty content"}
+    raw, error, elapsed_ms = _call()
+    if error:
+        return {"pass_": None, "error": error}
 
     try:
         verdict = _parse_semantic_verdict(raw)
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        return {
-            "pass_": None,
-            "error": f"could not parse judge response: {exc}",
-            "raw": raw[:500],
-        }
+        # v5-batch-4 #7 (d1caec): the semantic judge emitted a second JSON
+        # object ('Extra data: line 10 column 1') and the scenario went
+        # undetermined on a parse alone.  The tolerant first-object parse
+        # already ran; output that still will not parse is retried once —
+        # never hard-fail the scenario on a judge parse.
+        raw, error, retry_elapsed = _call()
+        if error:
+            return {"pass_": None, "error": error}
+        elapsed_ms = retry_elapsed
+        try:
+            verdict = _parse_semantic_verdict(raw)
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            return {
+                "pass_": None,
+                "error": f"could not parse judge response after retry: {exc}",
+                "raw": raw[:500],
+            }
 
     verdict["metadata"] = {
         "route": route,
         "model": model,
-        "elapsed_ms": model_response.get("_profiling", {}).get("elapsed_ms"),
+        "elapsed_ms": elapsed_ms,
     }
     return verdict
