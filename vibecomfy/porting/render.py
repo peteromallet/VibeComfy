@@ -378,6 +378,79 @@ def _degree_index(workflow: VibeWorkflow) -> tuple[dict[str, int], dict[str, int
     return out_degree, in_degree
 
 
+def _broadcast_name(node: Any) -> str | None:
+    """Return a SetNode/GetNode channel name from the canonical IR node."""
+    widgets = getattr(node, "widgets", None)
+    if isinstance(widgets, Mapping):
+        for key in ("name", "widget_0"):
+            value = widgets.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    raw = getattr(node, "raw_widgets", None)
+    values = getattr(raw, "values", None)
+    if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+        if values and isinstance(values[0], str) and values[0].strip():
+            return values[0].strip()
+    return None
+
+
+def _virtual_binding_paths(workflow: VibeWorkflow) -> tuple[str, ...]:
+    """Render deterministic SetNode/GetNode semantic paths from the IR.
+
+    ComfyUI broadcast helpers have no physical Set→Get edge, so a physical
+    adjacency-only topology falsely makes the model path look disconnected.
+    The shared channel name is the real semantic edge.  This derives that
+    edge from the same IR used by every other lens; it is not a second graph
+    authority.
+    """
+    refs = {
+        str(nid): _node_ref(node, str(nid))
+        for nid, node in workflow.nodes.items()
+    }
+    setters: dict[str, list[str]] = {}
+    getters: dict[str, list[str]] = {}
+    for nid, node in _sorted_nodes(workflow):
+        channel = _broadcast_name(node)
+        if not channel:
+            continue
+        if node.class_type == "SetNode":
+            setters.setdefault(channel, []).append(str(nid))
+        elif node.class_type == "GetNode":
+            getters.setdefault(channel, []).append(str(nid))
+
+    inbound: dict[str, list[Any]] = {}
+    outbound: dict[str, list[Any]] = {}
+    for edge in _sorted_edges(workflow):
+        inbound.setdefault(str(edge.to_node), []).append(edge)
+        outbound.setdefault(str(edge.from_node), []).append(edge)
+
+    paths: list[str] = []
+    for channel in sorted(set(setters) & set(getters)):
+        for set_id in setters[channel]:
+            sources = inbound.get(set_id) or (None,)
+            for get_id in getters[channel]:
+                targets = outbound.get(get_id) or (None,)
+                for source in sources:
+                    for target in targets:
+                        left = (
+                            f"{refs.get(str(source.from_node), str(source.from_node))}."
+                            f"{source.from_output} -> "
+                            if source is not None
+                            else ""
+                        )
+                        right = (
+                            f" -> {refs.get(str(target.to_node), str(target.to_node))}."
+                            f"{target.to_input}"
+                            if target is not None
+                            else ""
+                        )
+                        paths.append(
+                            f"{left}{refs.get(set_id, set_id)}[SetNode name={channel!r}] "
+                            f"=> {refs.get(get_id, get_id)}[GetNode name={channel!r}]{right}"
+                        )
+    return tuple(paths)
+
+
 def _render_topology_text(workflow: VibeWorkflow) -> str:
     """Complete computed topology view: orphans, degrees, class index, edges.
 
@@ -437,6 +510,12 @@ def _render_topology_text(workflow: VibeWorkflow) -> str:
                 f"  {origin} -> {target} ({origin}.{origin_socket} -> "
                 f"{target}.{target_input})"
             )
+    else:
+        lines.append("  <none>")
+    lines.append("virtual_binding_paths:")
+    virtual_paths = _virtual_binding_paths(workflow)
+    if virtual_paths:
+        lines.extend(f"  {path}" for path in virtual_paths)
     else:
         lines.append("  <none>")
     return "\n".join(lines)

@@ -16,7 +16,7 @@ from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.porting.emit.emit_prepare import _AGENT_EDIT_MODE_LABELS
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.provider import InputSpec, NodeSchema
-from vibecomfy.workflow import RawWidgetPayload, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from tests.live_agentic_harness.assessor import assess_live_output_dir
 from tests.live_agentic_harness.intent_judge import (
     _apply_parameter_identity_pregrade,
@@ -1837,3 +1837,83 @@ def test_reply_grounding_facts_are_injected_into_the_prompt(monkeypatch) -> None
     assert "43" in content
     assert "90" in content
     assert "Never cite a node id/uid outside this set" in content
+
+
+def test_reply_phase_replaces_stale_no_change_answer_with_accepted_delta(monkeypatch) -> None:
+    """374aa9 live path: narration cannot contradict its own landed edit."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorRequest,
+        ImplementationResult,
+    )
+    from vibecomfy.executor.core import _run_reply
+
+    graph = {
+        "nodes": [{"id": 73, "type": "TrimVideo", "properties": {"vibecomfy_uid": "73"}}],
+        "links": [],
+    }
+    monkeypatch.setattr(
+        "vibecomfy.executor.core.run_reply_turn",
+        lambda query, **kwargs: (
+            "Validation failed, so the workflow remains exactly unchanged."
+        ),
+    )
+    implementation = ImplementationResult(
+        graph=graph,
+        message="Trimmed the sequence to 20 frames.",
+        durable_response={
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {"kind": "candidate"},
+            "accepted_batch": [
+                {
+                    "op": {
+                        "op": "set_node_field",
+                        "target": ["", "73", "video_frames"],
+                        "value": 20,
+                    }
+                }
+            ],
+        },
+    )
+
+    reply = _run_reply(
+        ExecutorRequest(query="trim this to 20 frames"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        plan=ClassifyDecision(route="revise"),
+        effective_graph=graph,
+        implementation_result=implementation,
+    )
+
+    assert "workflow edit landed" in reply
+    assert "set_node_field 73.video_frames = 20" in reply
+    assert "unchanged" not in reply
+    assert "Validation failed" not in reply
+
+
+def test_inspect_topology_renders_set_get_semantic_model_path() -> None:
+    """d1caec live renderer path: virtual MODEL wiring is explicit to reply."""
+    from vibecomfy.porting.render import render_text
+
+    wf = VibeWorkflow(id="semantic-path", source=WorkflowSource(id="semantic-path"))
+    wf.nodes = {
+        "54": VibeNode("54", "Power Lora Loader", uid="power-lora"),
+        "115": VibeNode("115", "SetNode", uid="set-model", widgets={"name": "MODEL"}),
+        "118": VibeNode("118", "GetNode", uid="get-model", widgets={"name": "MODEL"}),
+        "52": VibeNode("52", "ModelSamplingSD3", uid="model-sampling"),
+        "53": VibeNode("53", "KSampler", uid="sampler"),
+    }
+    wf.edges = [
+        VibeEdge("54", "MODEL", "115", "value"),
+        VibeEdge("118", "MODEL", "52", "model"),
+        VibeEdge("52", "MODEL", "53", "model"),
+    ]
+
+    rendered = render_text(wf, lenses=("surface", "topology"))
+    assert rendered is not None
+    assert "virtual_binding_paths:" in rendered
+    assert "power-lora.MODEL -> set-model[SetNode name='MODEL']" in rendered
+    assert "=> get-model[GetNode name='MODEL'] -> model-sampling.model" in rendered
+    assert "model-sampling -> sampler" in rendered
