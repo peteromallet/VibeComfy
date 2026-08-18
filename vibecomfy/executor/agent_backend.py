@@ -89,6 +89,12 @@ def _attach_model_turn_evidence(
 
 
 def _downstream_failure_type(raw: str | None) -> str:
+    """Classify failures that remain after tolerant sidecar normalization.
+
+    Valid revise/adapt envelopes with a malformed ``needs_input`` sidecar are
+    accepted by ``parse_classify_response`` and therefore never arrive here as
+    misleading ``missing_required_fields`` failures.
+    """
     if not isinstance(raw, str) or not raw.strip():
         return "empty_response"
     stripped = raw.strip()

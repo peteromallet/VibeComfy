@@ -235,6 +235,22 @@ def test_needs_input_is_a_typed_decision_critical_package() -> None:
     assert parsed.decision == "clarify"
 
 
+def test_needs_input_coerces_string_missing_information_and_ignores_extras() -> None:
+    parsed = NeedsInput.from_dict(
+        {
+            "decision": "assumed",
+            "question": "Which frame count should be used?",
+            "missing_information": "target frame count",
+            "options": ["49", "81"],
+            "bounded_assumption": "Use 49 frames.",
+            "classifier_note": "non-authoritative sidecar field",
+        }
+    )
+
+    assert parsed.missing_information == ("target frame count",)
+    assert parsed.options == ("49", "81")
+
+
 @pytest.mark.parametrize("status", sorted(TOOL_STATUSES))
 def test_tool_statuses_round_trip_without_collapsing_failures(status: str) -> None:
     result = ToolResult(

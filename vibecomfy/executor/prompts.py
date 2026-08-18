@@ -13,6 +13,7 @@ output is classifiable and tests are deterministic.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -24,6 +25,8 @@ from .contracts import (
     parse_target_node_type,
 )
 from .stage_contracts import NeedsInput
+
+LOGGER = logging.getLogger(__name__)
 
 # ── classify prompt ──────────────────────────────────────────────────────────
 
@@ -511,6 +514,9 @@ _REPLY_SYSTEM = (
     "[weight=0.7]\". Never invent parameters, modes, or settings that are "
     "absent from the IR; if the IR does not show a parameter, say it is not "
     "present rather than guessing.\n"
+    "- If the inspection lens marks a widget `unlabeled`, say it is unlabeled "
+    "and do not name it. Do not infer codec families, bit depths, or compositing "
+    "behavior from the string `auto` or from a `switch` widget.\n"
     "- Do NOT reply with \"semantics unknowable\", \"cannot be determined\", "
     "or similar refusals when the workflow IR provides labeled inputs, a node "
     "inventory, widget values, or link ids: reason from those provided graph "
@@ -879,12 +885,27 @@ def parse_classify_response(raw: str) -> ClassifyDecision:
         clarification_options=clarification_options,
     )
     if isinstance(needs_input_payload, dict):
-        needs_input = NeedsInput.from_dict(needs_input_payload)
-        if decision.effective_route == "clarify" and needs_input.bounded_assumption:
-            raise ValueError(
-                "A clarify decision cannot also record a bounded assumption."
+        try:
+            needs_input = NeedsInput.from_dict(needs_input_payload)
+        except (TypeError, ValueError):
+            valid_apply_decision = (
+                decision.effective_route in {"revise", "adapt"}
+                and decision.implement is True
+                and decision.intent == "edit"
             )
-        object.__setattr__(decision, "needs_input", needs_input)
+            if not valid_apply_decision:
+                raise
+            LOGGER.warning(
+                "Dropping malformed needs_input sidecar from valid %s classification.",
+                decision.effective_route,
+                exc_info=True,
+            )
+        else:
+            if decision.effective_route == "clarify" and needs_input.bounded_assumption:
+                raise ValueError(
+                    "A clarify decision cannot also record a bounded assumption."
+                )
+            object.__setattr__(decision, "needs_input", needs_input)
     return decision
 
 

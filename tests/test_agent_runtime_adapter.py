@@ -876,6 +876,41 @@ def test_successful_classify_and_reply_attempts_reach_executor_capture(
     assert all(item["outcome"] == "success" for item in attempts)
 
 
+def test_revise_classification_with_malformed_needs_input_reaches_implement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = json.dumps(
+        {
+            "research": False,
+            "implement": True,
+            "reply": True,
+            "intent": "edit",
+            "route": "revise",
+            "task": "edit_graph",
+            "needs_input": {"question": "Which count?", "options": 49},
+        }
+    )
+    monkeypatch.setattr(
+        agent_provider,
+        "run_model_turn",
+        lambda *_args, **_kwargs: {
+            "content": content,
+            "json": json.loads(content),
+            "model_attempts": [],
+        },
+    )
+
+    decision = run_classify_turn(
+        "set the frame count",
+        route="openrouter",
+        model="requested/model",
+    )
+
+    assert decision.effective_route == "revise"
+    assert decision.implement is True
+    assert getattr(decision, "needs_input", None) is None
+
+
 # ── B07-lite: explicit transport pinning beats ambient credentials ───────────
 
 

@@ -131,20 +131,12 @@ class NeedsInput:
     def from_dict(cls, payload: Mapping[str, Any]) -> "NeedsInput":
         if not isinstance(payload, Mapping):
             raise ValueError("NeedsInput must be an object.")
-        _check_keys(
-            payload,
-            required=frozenset({"question"}),
-            optional=frozenset({
-                "decision",
-                "missing_information",
-                "evidence_ids",
-                "options",
-                "bounded_assumption",
-            }),
-            contract="NeedsInput",
-        )
+        if "question" not in payload:
+            raise ValueError("NeedsInput is missing required keys: ['question'].")
         question = payload["question"]
         missing = payload.get("missing_information")
+        if isinstance(missing, str):
+            missing = (missing,)
         if not missing:
             missing = (str(question),)
         return cls(
