@@ -889,6 +889,93 @@ def test_rc14_classify_missing_fields_retries_at_most_once(monkeypatch) -> None:
     assert calls["n"] == 2
 
 
+def test_rc14_classify_retry_keeps_edit_routing_for_expected_edit(monkeypatch) -> None:
+    """RC14: a retry that routes an expected-edit scenario to respond is re-asked
+    until it returns an edit/inspect route — never returned as a respond no-op."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import (
+        _CLASSIFY_EDIT_ROUTING_NUDGE,
+        _CLASSIFY_JSON_NUDGE,
+        _run_classify,
+    )
+
+    calls: list[dict[str, object]] = []
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202
+        calls.append(kwargs)
+        if len(calls) == 1:
+            exc = ValueError("not valid JSON")
+            exc.raw_response_preview = "sure, I can help {not json"
+            raise exc
+        if len(calls) == 2:
+            # The RC14 retry corrects the JSON but misroutes the expected-edit
+            # scenario to respond (the v5-batch-2 #2 / v5-batch-4 #6 bug).
+            return ClassifyDecision(intent="respond", route="respond", reply=True)
+        # The edit-routing re-ask honors the hard rule: edit/inspect, never respond.
+        return ClassifyDecision(intent="edit", route="revise", implement=True, reply=True)
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    decision = _run_classify(
+        ExecutorRequest(query="change the webp quality to lossless"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        expect_graph_changed=True,
+    )
+    assert len(calls) == 3
+    retry_content = "\n".join(
+        str(msg.get("content"))
+        for msg in (calls[1].get("messages") or [])
+        if isinstance(msg, dict)
+    )
+    assert _CLASSIFY_JSON_NUDGE in retry_content
+    assert _CLASSIFY_EDIT_ROUTING_NUDGE in retry_content
+    reroute_content = "\n".join(
+        str(msg.get("content"))
+        for msg in (calls[2].get("messages") or [])
+        if isinstance(msg, dict)
+    )
+    assert _CLASSIFY_EDIT_ROUTING_NUDGE in reroute_content
+    assert decision.effective_route == "revise"
+    assert decision.intent == "edit"
+
+
+def test_rc14_classify_retry_respond_on_expected_edit_is_rejected(monkeypatch) -> None:
+    """RC14: when the retry AND the edit-routing re-ask both return respond for
+    an expected-edit scenario, the classify phase fails loudly with a clear
+    error instead of proceeding to a no-op respond."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
+
+    calls = {"n": 0}
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            exc = ValueError("not valid JSON")
+            exc.raw_response_preview = "sure, I can help {not json"
+            raise exc
+        return ClassifyDecision(intent="respond", route="respond", reply=True)
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    try:
+        _run_classify(
+            ExecutorRequest(query="change the webp quality to lossless"),
+            SimpleNamespace(agent="openrouter", model="x", effort="low"),
+            expect_graph_changed=True,
+        )
+    except _ExecutorPhaseError as exc:
+        assert exc.stage == "classify"
+        assert exc.failure_kind == "MissingRequiredField"
+        assert "expect_graph_changed" in str(exc)
+        assert "respond" in str(exc)
+    else:
+        raise AssertionError("expected classify phase error for respond misroute")
+    assert calls["n"] == 3
+
+
 def test_named_fields_map_uses_executor_surface() -> None:
     original, post, ops = _fc240f_ui_pair()
     named = _named_fields_for_delta(

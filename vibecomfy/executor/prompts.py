@@ -149,6 +149,11 @@ _CLASSIFY_SYSTEM = (
     "- No implement=true for non-applyable routes: clarify, respond, inspect, "
     "and research must all set implement=false.\n"
     "- No research=true for respond, inspect, or revise.\n"
+    "- Hard rule: when the interaction expects a graph change "
+    "(expect_graph_changed=true is declared), route MUST be an edit route "
+    "(\"revise\", \"adapt\", \"reorganise\") or \"inspect\" — never "
+    "\"respond\". Routing an expected-edit scenario to respond is a no-op and "
+    "is rejected.\n"
     "- Be conservative only when the user request is ambiguous, underspecified, "
     "or references nodes/options/attachments without enough detail to safely "
     "edit; then prefer route=\"clarify\" with a concise clarification_question "
@@ -316,12 +321,21 @@ _CLASSIFY_SYSTEM = (
 )
 
 
+_CLASSIFY_EXPECT_GRAPH_CHANGED = (
+    "This interaction expects a graph change (expect_graph_changed=true). "
+    "Classify route MUST be an edit route (\"revise\", \"adapt\", "
+    "\"reorganise\") or \"inspect\" — never \"respond\". A respond route on an "
+    "expected-edit scenario is a no-op and will be rejected."
+)
+
+
 def build_classify_messages(
     query: str,
     *,
     has_graph: bool = False,
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
+    expect_graph_changed: bool | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
@@ -335,12 +349,19 @@ def build_classify_messages(
     *session_context* provides access to recent conversation history and prior
     clarification artifacts so the classifier can resolve follow-up references
     (e.g. "option 2", "that node") against prior turn context.
+
+    *expect_graph_changed* declares the interaction's edit contract: when
+    True the scenario expects a graph change, and the classifier is told its
+    route MUST be an edit route or ``inspect`` — never ``respond`` (RC14:
+    a respond route on an expected-edit scenario is a no-op).
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
         parts.append(f"\nGraph census (the attached workflow's node/class census):\n{graph_summary}")
+    if expect_graph_changed:
+        parts.append(f"\n{_CLASSIFY_EXPECT_GRAPH_CHANGED}")
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):

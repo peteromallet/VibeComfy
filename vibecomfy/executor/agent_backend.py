@@ -137,6 +137,7 @@ def run_classify_turn(
     has_graph: bool = False,
     graph_summary: str | None = None,
     messages: list[dict[str, str]] | None = None,
+    expect_graph_changed: bool | None = None,
 ) -> ClassifyDecision:
     """Run a single classify model turn through the provider seam.
 
@@ -148,6 +149,11 @@ def run_classify_turn(
     messages from *query* / *has_graph* / *graph_summary*.  This allows
     callers to pre-enrich messages with session context and graph reference
     maps without changing the classify route signature.
+
+    *expect_graph_changed* declares the interaction's edit contract (RC14):
+    when True, the built messages instruct the classifier that the route MUST
+    be an edit route or ``inspect`` — never ``respond`` — so a malformed-JSON
+    retry cannot re-route an expected-edit scenario into a no-op respond.
 
     Parameters
     ----------
@@ -164,12 +170,16 @@ def run_classify_turn(
     messages:
         Optional pre-built messages list.  When provided, skips the default
         message building and uses this list directly.
+    expect_graph_changed:
+        Optional edit-contract declaration forwarded to
+        :func:`build_classify_messages` when messages are built here.
     """
     if messages is None:
         messages = build_classify_messages(
             query,
             has_graph=has_graph,
             graph_summary=graph_summary,
+            expect_graph_changed=expect_graph_changed,
         )
     model_turn_id = new_profile_id("model")
     with profiler_span(
