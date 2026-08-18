@@ -1,0 +1,41 @@
+{
+  "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
+  "query": "Replace the Tripo texture node with a procedural PBR material generator and ensure the rigged model's materials are correctly applied in the final preview.",
+  "workflow_path": "external_workflows/corpus/f657743bc2a3db17.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "Texturing is handled by the new procedural node, and the final rigged output displays correct PBR materials in the 3D preview.",
+    "quality": "All nodes upstream and downstream remain properly connected; conversion, refinement, rigging, and retargeting stages still function without errors.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "3d",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 4,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d-modeling",
+      "image-to-3d",
+      "tripo",
+      "rigging",
+      "retargeting",
+      "texturing",
+      "refinement",
+      "multiview",
+      "preview-3d"
+    ],
+    "source_workflow_id": "f657743bc2a3db17",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This forces a substantive structural change (swapping a core texturing component) while preserving complex rigging and preview behavior, testing genuine workflow knowledge."
+  }
+}

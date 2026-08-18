@@ -1,0 +1,39 @@
+{
+  "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
+  "query": "Replace the SVD img2vid conditioning with AnimateDiff motion module to enable longer, more controllable video generation while preserving the existing upscaling and color matching stages.",
+  "workflow_path": "external_workflows/corpus/3598486eb6eb45d1.json",
+  "network": true,
+  "timeout": 420,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The workflow generates videos using AnimateDiff instead of SVD, with full control over motion settings, while retaining upscaling, color matching, and frame output.",
+    "quality": "The new conditioning path is fully wired, AnimateDiff nodes are correctly initialized, all downstream nodes (color match, upscale, encode) remain functional, and no orphaned connections.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-video",
+      "svd",
+      "upscaling",
+      "color-matching",
+      "animation",
+      "webp",
+      "film-interpolation"
+    ],
+    "source_workflow_id": "3598486eb6eb45d1",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This query forces a major model swap that tests understanding of both SVD and AnimateDiff conditioning, while requiring preservation of the entire post-processing pipeline."
+  }
+}

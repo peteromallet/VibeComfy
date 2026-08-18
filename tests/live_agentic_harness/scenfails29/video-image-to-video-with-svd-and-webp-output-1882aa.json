@@ -1,0 +1,62 @@
+{
+  "id": "video-image-to-video-with-svd-and-webp-output-1882aa",
+  "query": "Walk me through this workflow: how does it turn a static image into a moving video and save it as WebP? I'm especially curious how the Stable Video Diffusion conditioning and linear CFG guidance are set up.",
+  "workflow_path": "external_workflows/corpus/1882aa21429372a8.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "explain",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-video",
+      "svd",
+      "animated-webp",
+      "video-generation",
+      "image-conditioning"
+    ],
+    "source_workflow_id": "1882aa21429372a8",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Asks for a complete end-to-end walkthrough with focus on SVD conditioning and linear CFG, matching medium ambition for an explain task."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/1882aa21429372a8.json",
+    "required_node_evidence": [
+      "LoadImage",
+      "ImageOnlyCheckpointLoader",
+      "SVD_img2vid_Conditioning",
+      "VideoLinearCFGGuidance",
+      "KSampler",
+      "VAEDecode",
+      "SaveAnimatedWEBP"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Trace the static image through SVD conditioning, CFG-guided sampling, decode, and WebP save, explaining the distinct roles and the motion-related SVD controls.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}
