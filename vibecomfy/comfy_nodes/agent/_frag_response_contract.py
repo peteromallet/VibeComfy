@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from typing import Any, Mapping
 
 
@@ -486,7 +487,7 @@ def _sync_narrated_clarify_outcome(
     internal_outcome: TurnOutcome,
     public_outcome: Mapping[str, Any],
 ) -> tuple[TurnOutcome, dict[str, Any]]:
-    from vibecomfy.comfy_nodes.agent.edit import (TurnOutcome, _clarification_payload, _format_clarify_markdown_message)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (TurnOutcome, _clarification_payload, _ensure_specific_clarify_action, _format_clarify_markdown_message)  # T-039 late import: host namespace lookup; resolved at call time
     if internal_outcome.kind not in {"clarify", "edit+clarify"}:
         return internal_outcome, dict(public_outcome)
     if internal_outcome.kind == "edit+clarify":
@@ -499,7 +500,9 @@ def _sync_narrated_clarify_outcome(
             else message
         )
     else:
-        question = _format_clarify_markdown_message(message)
+        question = _format_clarify_markdown_message(
+            _ensure_specific_clarify_action(message)
+        )
     if internal_outcome.kind == "clarify":
         synced_internal = TurnOutcome.clarify(question=question)
     else:
@@ -510,6 +513,46 @@ def _sync_narrated_clarify_outcome(
     synced_public = dict(public_outcome)
     synced_public.update(_clarification_payload(question))
     return synced_internal, synced_public
+
+
+_SPECIFIC_CLARIFY_ACTION_RE = re.compile(
+    r"\b(?:install|provide|choose|select|specify|confirm|share|name|tell me|"
+    r"connect|add|remove|enable|disable|retry)\b|\bwhich\s+[a-z0-9_]",
+    re.IGNORECASE,
+)
+_VAGUE_CLARIFY_TAIL_RE = re.compile(
+    r"(?:\s*[-—,:;]\s*)?(?:how|what)\s+would\s+you\s+like\s+(?:me\s+)?to\s+"
+    r"(?:proceed|continue|do)(?:\s+next)?\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _ensure_specific_clarify_action(message: Any) -> str:
+    """Keep a pure refusal actionable even when narration becomes generic.
+
+    The grounded-refusal contract requires a concrete unblocking action.  The
+    narrator is presentation-only, so it must not be able to erase that
+    product fact by replacing a blocker with only "how would you like to
+    proceed?".  Named actions produced by the narrator are preserved; vague
+    clarifications receive a bounded deterministic action request.
+    """
+    text = message.strip() if isinstance(message, str) else ""
+    vague_tail = _VAGUE_CLARIFY_TAIL_RE.search(text)
+    if not text or _SPECIFIC_CLARIFY_ACTION_RE.search(text) or vague_tail is None:
+        return text
+    base = _VAGUE_CLARIFY_TAIL_RE.sub("", text).rstrip(" -—,:;?.!")
+    action = (
+        "Please provide the missing dependency or answer the unresolved choice "
+        "named above so I can continue."
+    )
+    if not base:
+        return action
+    # Narrator messages are capped at 300 characters. Preserve the leading
+    # blocker/name evidence and leave enough room for the required next action.
+    max_base = max(1, 298 - len(action) - 1)
+    if len(base) > max_base:
+        base = base[:max_base].rsplit(" ", 1)[0].rstrip(" -—,:;?.!")
+    return f"{base}. {action}"
 
 
 def _execution_plan_task_satisfaction_entries(state: AgentEditState) -> list[dict[str, Any]]:
@@ -1154,6 +1197,12 @@ def _build_batch_repl_response(
         internal_outcome=internal_outcome,
         public_outcome=public_outcome,
     )
+    if (
+        internal_outcome.kind == "clarify"
+        and isinstance(internal_outcome.question, str)
+        and internal_outcome.question.strip()
+    ):
+        message = internal_outcome.question
     from vibecomfy.comfy_nodes.agent.contracts import (
         missing_runtime_classes_from_report,
         promote_requires_custom_nodes_outcome,
@@ -1402,6 +1451,12 @@ def _build_dev_success_response(
         internal_outcome=internal_outcome,
         public_outcome=public_outcome,
     )
+    if (
+        internal_outcome.kind == "clarify"
+        and isinstance(internal_outcome.question, str)
+        and internal_outcome.question.strip()
+    ):
+        message = internal_outcome.question
     response = success_envelope(
         context,
         message=message,
@@ -1495,6 +1550,7 @@ __all__ = (
     "_execution_plan_debug_fields",
     "_execution_plan_response_fields",
     "_execution_plan_task_satisfaction_entries",
+    "_ensure_specific_clarify_action",
     "_failure_response",
     "_format_clarify_markdown_message",
     "_has_enough_grounded_facts_for_dev_narrative",
