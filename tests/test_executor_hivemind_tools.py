@@ -1246,14 +1246,66 @@ class TestStatementTimeoutRetry:
         assert any("ilike." in url and "ilike.*" not in url for url in calls)
 
     def test_persistent_57014_is_soft_miss_not_hard_failure(self) -> None:
+        calls: list[str] = []
+
+        def _persistent(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(unquote_plus(req.full_url))
+            return _statement_timeout_error(req, *args, **kwargs)
+
         with patch(
             "vibecomfy.executor.hivemind_clients.time.sleep",
-        ), patch("urllib.request.urlopen", side_effect=_statement_timeout_error):
+        ), patch("urllib.request.urlopen", side_effect=_persistent):
             result = hivemind_search("ltx", filters={"source_type": "workflow"})
         assert result.status is ToolStatus.UNAVAILABLE
         assert result.diagnostics[0].code == "hivemind_statement_timeout"
         assert result.evidence_ids == ()
         assert result.result is None
+        assert len(calls) == 3  # two fat attempts, then exactly one degraded attempt
+        degraded = [url for url in calls if "ilike." in url and "ilike.*" not in url]
+        assert len(degraded) == 1
+
+    def test_shared_deadline_stops_later_scopes(self) -> None:
+        clock = {"t": 0.0}
+        calls: list[float] = []
+
+        def _timeout(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(float(kwargs["timeout"]))
+            clock["t"] = 5.0
+            raise TimeoutError("spent the operation budget")
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.monotonic",
+            side_effect=lambda: clock["t"],
+        ), patch("urllib.request.urlopen", side_effect=_timeout):
+            result = hivemind_search("ltx", timeout=5.0)
+        assert result.status is ToolStatus.TIMEOUT
+        assert result.diagnostics[0].code == "hivemind_timeout"
+        assert calls == [5.0]
+
+    def test_partial_rows_survive_later_scope_deadline(self) -> None:
+        clock = {"t": 0.0}
+        seen: list[str] = []
+
+        def _partial(req: Any, *args: Any, **kwargs: Any) -> Any:
+            url = unquote_plus(req.full_url)
+            seen.append(url)
+            if "/external_resources?" in url:
+                clock["t"] = 1.0
+                return _json_response([_workflow_row("wf-before-timeout")])
+            clock["t"] = 5.0
+            raise TimeoutError("later scope spent the remaining budget")
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.monotonic",
+            side_effect=lambda: clock["t"],
+        ), patch("urllib.request.urlopen", side_effect=_partial):
+            result = hivemind_search("ltx", timeout=5.0)
+        assert result.status is ToolStatus.OK
+        assert result.evidence_ids == (
+            "hivemind:external_resources:wf-before-timeout",
+        )
+        assert len(seen) == 2
+        assert not any("kind=eq.distillation" in url for url in seen)
 
     def test_57014_on_get_also_soft_miss(self) -> None:
         with patch(

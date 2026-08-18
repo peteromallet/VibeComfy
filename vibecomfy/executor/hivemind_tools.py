@@ -464,7 +464,7 @@ def hivemind_search(
     limit:
         Page size, 1..20.
     timeout:
-        Per-request transport timeout in seconds.
+        Total transport wall-clock budget in seconds, shared by all scopes and retries.
     cache_root:
         R2-B2 cooldown-sentinel root (tests inject a temp dir).
 

@@ -886,6 +886,30 @@ def _default_tool_fn(
     return invoke_tool(spec, session, args, None)
 
 
+def _deadline_bounded_hivemind_args(
+    tool: str,
+    args: Mapping[str, Any],
+    *,
+    seconds_remaining: float,
+) -> dict[str, Any]:
+    """Clamp a valid Hivemind timeout to the research-stage time remaining.
+
+    Malformed declared values pass through unchanged so the tool registry
+    continues to return its typed ``invalid_request`` diagnostic.
+    """
+    effective = dict(args)
+    if tool not in {HIVE_MIND_SEARCH_TOOL, HIVE_MIND_GET_TOOL}:
+        return effective
+    declared = effective.get("timeout", 5.0)
+    if (
+        not isinstance(declared, bool)
+        and isinstance(declared, (int, float))
+        and declared > 0
+    ):
+        effective["timeout"] = min(declared, seconds_remaining)
+    return effective
+
+
 def run_agent_research_stage(
     *,
     route: str,
@@ -1251,6 +1275,18 @@ def run_agent_research_stage(
                     continue
                 registry_left -= 1
 
+            seconds_remaining = deadline - now()
+            if seconds_remaining <= 0:
+                warnings.append(
+                    "research stage phase deadline exhausted immediately before "
+                    "the tool call; stopped early"
+                )
+                break
+            args = _deadline_bounded_hivemind_args(
+                tool,
+                args,
+                seconds_remaining=seconds_remaining,
+            )
             result = tool_fn(tool, args)
             # Evidence projection is the registry's job: artifacts (full hit /
             # fetched-row bodies, correctly extracted from frozen results),
@@ -1357,32 +1393,43 @@ def run_agent_research_stage(
             # a tool. One deterministic hivemind_search so the attempt is
             # empty/thin instead of never.
             searches_left -= 1
-            fallback_args = {"query": current_question, "limit": 20}
-            fallback_result = tool_fn(HIVE_MIND_SEARCH_TOOL, fallback_args)
-            spec = TOOL_SPEC_BY_NAME[HIVE_MIND_SEARCH_TOOL]
-            artifacts_map, entry, _ = project_tool_evidence(
-                spec,
-                fallback_args,
-                fallback_result,
-                _StageToolSession(
-                    search_fn=search_fn,
-                    get_fn=get_fn,
-                    cache_root=cache_root,
-                ),
-            )
-            _record_call(
-                tool=HIVE_MIND_SEARCH_TOOL,
-                result=fallback_result,
-                query=current_question,
-                decision=DECISION_SEARCH,
-                conclusion=entry["conclusion"],
-                artifacts_to_add=tuple(artifacts_map.values()),
-                evidence_ids=tuple(entry["evidence_ids"]),
-            )
-            warnings.append(
-                "research stage executed a fallback hivemind_search because "
-                "the agent finished with zero evidence tool calls"
-            )
+            fallback_seconds_remaining = deadline - now()
+            if fallback_seconds_remaining <= 0:
+                warnings.append(
+                    "research stage skipped fallback hivemind_search because "
+                    "the phase deadline was exhausted"
+                )
+            else:
+                fallback_args = _deadline_bounded_hivemind_args(
+                    HIVE_MIND_SEARCH_TOOL,
+                    {"query": current_question, "limit": 20},
+                    seconds_remaining=fallback_seconds_remaining,
+                )
+                fallback_result = tool_fn(HIVE_MIND_SEARCH_TOOL, fallback_args)
+                spec = TOOL_SPEC_BY_NAME[HIVE_MIND_SEARCH_TOOL]
+                artifacts_map, entry, _ = project_tool_evidence(
+                    spec,
+                    fallback_args,
+                    fallback_result,
+                    _StageToolSession(
+                        search_fn=search_fn,
+                        get_fn=get_fn,
+                        cache_root=cache_root,
+                    ),
+                )
+                _record_call(
+                    tool=HIVE_MIND_SEARCH_TOOL,
+                    result=fallback_result,
+                    query=current_question,
+                    decision=DECISION_SEARCH,
+                    conclusion=entry["conclusion"],
+                    artifacts_to_add=tuple(artifacts_map.values()),
+                    evidence_ids=tuple(entry["evidence_ids"]),
+                )
+                warnings.append(
+                    "research stage executed a fallback hivemind_search because "
+                    "the agent finished with zero evidence tool calls"
+                )
 
         if not agent_finished:
             # P1-a: the loop stopped WITHOUT an agent finish — deadline

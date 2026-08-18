@@ -159,12 +159,11 @@ _HIVEMIND_SEMANTIC_TASK_TERMS: dict[str, tuple[str, ...]] = {
 # a body like ``{"code":"57014",...,"message":"canceling statement due to
 # statement timeout"}``.  These queries are valid — the backend just hit its
 # per-statement time budget — so retry ONCE with a short backoff, then RC1
-# retries the *degraded* query 2–3 times before typing the failure as a
-# soft miss.  A persistent 57014 is still a soft miss
+# tries one degraded query before typing the failure as a soft miss.  A
+# persistent 57014 is still a soft miss
 # (UNAVAILABLE / ``hivemind_statement_timeout``), never a hard error.
 _HIVEMIND_STATEMENT_TIMEOUT_RETRIES = 1
 _HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS = 0.5
-_HIVEMIND_DEGRADED_TIMEOUT_RETRIES = 3
 _HIVEMIND_DEGRADED_LIMIT = 20
 
 # REC-A: off-family demotion vocabulary for relevance ranking.  Beyond the
@@ -251,12 +250,17 @@ def _hivemind_get_table(
     params: Mapping[str, str],
     *,
     timeout: float,
+    deadline: float | None = None,
+    statement_timeout_retries: int = _HIVEMIND_STATEMENT_TIMEOUT_RETRIES,
 ) -> Any:
     """GET {REST_ROOT}/{table}?{urlencode(params)} with the publishable anon key.
 
     ``table`` is one of: external_resources, unified_feed, message_feed.
     Raises :class:`HivemindError` on HTTP / timeout / invalid JSON. Never
     logs the key.
+
+    ``timeout`` is the total operation wall-clock budget when ``deadline`` is
+    omitted.  Search passes one shared deadline across every scope and retry.
 
     REC-A resilience: a Postgres statement-timeout (HTTP 500 + SQLSTATE
     57014) is retried ONCE with a short backoff — the query is valid, the
@@ -274,18 +278,35 @@ def _hivemind_get_table(
         },
         method="GET",
     )
-    attempts = 1 + _HIVEMIND_STATEMENT_TIMEOUT_RETRIES
+    operation_deadline = (
+        time.monotonic() + timeout if deadline is None else float(deadline)
+    )
+    attempts = 1 + max(0, int(statement_timeout_retries))
     for attempt in range(attempts):
+        remaining = operation_deadline - time.monotonic()
+        if remaining <= 0:
+            raise HivemindError(
+                f"Hivemind operation timed out after {timeout}s",
+                reason="timeout",
+            )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=min(timeout, remaining)) as resp:
                 body = resp.read().decode("utf-8")
                 return _parse_json_response(body)
         except urllib.error.HTTPError as exc:
             body = exc.read(800).decode("utf-8", errors="replace")
             retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
             statement_timeout = _is_statement_timeout(body, exc.code)
-            if statement_timeout and attempt < _HIVEMIND_STATEMENT_TIMEOUT_RETRIES:
-                time.sleep(_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS)
+            if statement_timeout and attempt < statement_timeout_retries:
+                remaining = operation_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise HivemindError(
+                        f"Hivemind operation timed out after {timeout}s",
+                        reason="timeout",
+                    ) from exc
+                time.sleep(
+                    min(_HIVEMIND_STATEMENT_TIMEOUT_BACKOFF_SECONDS, remaining)
+                )
                 continue
             raise HivemindError(
                 f"Hivemind HTTP error {exc.code}: {exc.reason} ({body})",
@@ -997,11 +1018,22 @@ def _hivemind_search_transport(
     :class:`HivemindError` is re-raised so the tool can type it.
     """
     scopes = _SOURCE_TYPE_SCOPES.get(source_type, ())
+    deadline = time.monotonic() + timeout
     rows: list[dict[str, Any]] = []
     diagnostics: list[dict[str, str]] = []
     first_error: HivemindError | None = None
 
     for table, kind in scopes:
+        if time.monotonic() >= deadline:
+            exhausted = HivemindError(
+                f"Hivemind operation timed out after {timeout}s",
+                reason="timeout",
+            )
+            first_error = first_error or exhausted
+            diagnostics.append(
+                {"scope": f"{table}:{kind}", "message": str(exhausted)}
+            )
+            break
         params = _hivemind_scope_params(
             table=table,
             kind=kind,
@@ -1019,7 +1051,9 @@ def _hivemind_search_transport(
         if params is None:
             continue
         try:
-            parsed = _hivemind_get_table(table, params, timeout=timeout)
+            parsed = _hivemind_get_table(
+                table, params, timeout=timeout, deadline=deadline
+            )
         except HivemindError as exc:
             parsed = None
             last_error = exc
@@ -1039,28 +1073,32 @@ def _hivemind_search_transport(
                     limit=_HIVEMIND_DEGRADED_LIMIT,
                     degraded=True,
                 )
-                if degraded_params is not None:
-                    for _attempt in range(_HIVEMIND_DEGRADED_TIMEOUT_RETRIES):
-                        try:
-                            parsed = _hivemind_get_table(
-                                table, degraded_params, timeout=timeout
-                            )
-                            diagnostics.append(
-                                {
-                                    "scope": f"{table}:{kind}",
-                                    "message": "hivemind_query_degraded_after_57014",
-                                }
-                            )
-                            break
-                        except HivemindError as retry_exc:
-                            last_error = retry_exc
-                            if not retry_exc.statement_timeout:
-                                break
+                if degraded_params is not None and time.monotonic() < deadline:
+                    try:
+                        # Literal degrade-then-stop: one degraded HTTP attempt,
+                        # without re-entering the generic 57014 retry loop.
+                        parsed = _hivemind_get_table(
+                            table,
+                            degraded_params,
+                            timeout=timeout,
+                            deadline=deadline,
+                            statement_timeout_retries=0,
+                        )
+                        diagnostics.append(
+                            {
+                                "scope": f"{table}:{kind}",
+                                "message": "hivemind_query_degraded_after_57014",
+                            }
+                        )
+                    except HivemindError as retry_exc:
+                        last_error = retry_exc
             if parsed is None:
                 first_error = first_error or last_error
                 diagnostics.append(
                     {"scope": f"{table}:{kind}", "message": str(last_error)}
                 )
+                if last_error.reason == "timeout" or time.monotonic() >= deadline:
+                    break
                 continue
         for row in parsed if isinstance(parsed, list) else []:
             if not isinstance(row, dict):
@@ -1107,7 +1145,12 @@ def _hivemind_get_row(
     """Fetch one full Hivemind row by its natural id column; None when absent."""
     column = _HIVEMIND_TABLE_ID_COLUMNS[table]
     params = {"select": "*", column: f"eq.{row_id}", "limit": "1"}
-    parsed = _hivemind_get_table(table, params, timeout=timeout)
+    parsed = _hivemind_get_table(
+        table,
+        params,
+        timeout=timeout,
+        deadline=time.monotonic() + timeout,
+    )
     for row in parsed if isinstance(parsed, list) else []:
         if isinstance(row, dict):
             return row

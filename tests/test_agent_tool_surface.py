@@ -1069,6 +1069,107 @@ class TestR2AgentTrustPromptSurface:
         # The executed call is preserved in the trace even though the loop stopped.
         assert len(trace.iterations) == 1
 
+    @pytest.mark.parametrize("declared", [None, 99.0])
+    def test_hivemind_timeout_is_clamped_to_stage_time_remaining(
+        self, declared: float | None
+    ) -> None:
+        from vibecomfy.executor import agent_research_stage as stage
+
+        clock = {"t": 100.0}
+        seen: list[dict[str, Any]] = []
+
+        def fake_judge(
+            question: str, digest: str, messages: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+            clock["t"] = 108.0
+            args: dict[str, Any] = {"query": question}
+            if declared is not None:
+                args["timeout"] = declared
+            return {"action": "call", "tool": "hivemind_search", "args": args}
+
+        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
+            seen.append(dict(args))
+            clock["t"] = 111.0
+            return _search_hits("hivemind:external_resources:1")
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question="q",
+            judge_fn=fake_judge,
+            tool_fn=fake_tool,
+            now_fn=lambda: clock["t"],
+            deadline_seconds=10.0,
+            max_turns=2,
+        )
+        assert 0 < seen[0]["timeout"] <= 2.0
+        assert trace.status == "exhausted"
+        assert len(trace.iterations) == 1
+        assert trace.iterations[0].tool_calls[0]["status"] == "ok"
+
+    def test_declared_hivemind_timeout_is_unchanged_with_ample_budget(self) -> None:
+        from vibecomfy.executor import agent_research_stage as stage
+
+        clock = {"t": 100.0}
+        seen: list[dict[str, Any]] = []
+
+        def fake_judge(
+            question: str, digest: str, messages: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+            return {
+                "action": "call",
+                "tool": "hivemind_search",
+                "args": {"query": question, "timeout": 3},
+            }
+
+        def fake_tool(tool: str, args: Mapping[str, Any], **kwargs: Any) -> ToolResult:
+            seen.append(dict(args))
+            clock["t"] = 200.0
+            return _ok_result("hivemind_search", {"count": 0, "hits": []}, ())
+
+        stage.run_agent_research_stage(
+            route="research",
+            question="q",
+            judge_fn=fake_judge,
+            tool_fn=fake_tool,
+            now_fn=lambda: clock["t"],
+            deadline_seconds=50.0,
+            max_turns=2,
+        )
+        assert seen[0]["timeout"] == 3
+
+    def test_malformed_hivemind_timeout_reaches_typed_validation(self) -> None:
+        from vibecomfy.executor import agent_research_stage as stage
+
+        calls = {"n": 0}
+
+        def fake_judge(
+            question: str, digest: str, messages: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {
+                    "action": "call",
+                    "tool": "hivemind_search",
+                    "args": {"query": question, "timeout": "bad"},
+                }
+            return {
+                "action": "finish",
+                "conclusion": "typed invalid request observed",
+                "evidence_ids": [],
+                "uncertainty": "invalid timeout",
+            }
+
+        trace, _pack = stage.run_agent_research_stage(
+            route="research",
+            question="q",
+            judge_fn=fake_judge,
+            deadline_seconds=30.0,
+            max_turns=2,
+        )
+        call = trace.iterations[0].tool_calls[0]
+        assert call["status"] == "invalid_request"
+        assert "timeout" in call["conclusion"]
+
 
 # ── End-to-end batch-REPL interleave ─────────────────────────────────────────
 
