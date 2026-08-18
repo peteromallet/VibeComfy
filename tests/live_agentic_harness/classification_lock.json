@@ -3,62 +3,62 @@
   "scenario_count": 100,
   "selected_count": 50,
   "selected_ids": [
-    "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
     "3d-3d-model-generation-and-preview-workflow-cc0df7",
-    "3d-3d-model-generation-and-retargeting-workflow-f65774",
-    "3d-3d-model-load-edit-and-export-workflow-d66a66",
+    "3d-3d-shape-generation-and-export-workflow-8800a9",
     "3d-converts-image-to-3d-model",
     "3d-generates-a-3d-mesh-from",
+    "audio-acestep-audio-generation-and-processing-workfl-1b1360",
     "audio-acestep-audio-generation-with-detail-daemon-f0859f",
-    "audio-acestep-audio-generation-with-ksampler-e8c20a",
-    "audio-acestep-audio-generation-workflow-2a31ec",
     "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
-    "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
     "audio-transcribes-audio-appends-text-regenerates",
     "audio-tts-narration-using-indextts-2",
-    "hotshot-16-frames-agent-edit",
     "image-animatediff-image-to-video-with-latent-composi-17dc9b",
-    "image-background-removal-and-grid-composition-54a681",
-    "image-face-detection-and-cropping-workflow-949658",
+    "image-animatediff-video-generation-with-vae-d20410",
+    "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
     "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
-    "image-generates-a-2x2-seed-variation",
     "image-image-comparison-and-enhancement-with-florence-007018",
-    "image-kolors-image-generation-with-segs-detailer-and-d813fe",
-    "image-llava-image-captioning-and-keyword-extraction-d38dc8",
-    "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+    "image-image-editing-with-qwen-image",
+    "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
+    "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
+    "image-qwen-image-inpainting-with-controlnet-09fc64",
+    "image-style-transfer-using-ip-adapter",
+    "image-two-stage-qwen-image-generation",
     "live-graph-explanation-smoke",
     "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+    "multi-3d-preview-and-image-output-workflow-d93baf",
+    "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
     "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
+    "multi-animatediff-video-generation-with-controlnet-a7e2af",
     "multi-audio-to-image-mel-band-roformer-workflow-b22937",
+    "multi-crops-face-previews-it-sets",
+    "multi-flux2-image-and-video-generation-with-outpaint-435de2",
+    "multi-image-to-3d-object-generation-with-background-1a7f84",
+    "multi-image-to-video-generation-with",
+    "multi-image-to-video-with-llm",
+    "multi-svd-image-to-video-with-animation-builder-99e2a9",
     "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
+    "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
+    "multi-video-based-character-replacement-using",
     "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
-    "speed-distillation-research",
-    "video-animatediff-video-to-video-with-controlnet-and-3c978e",
+    "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
     "video-animatediff-video-with-controlnet-and-depth-89b02a",
     "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
-    "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
-    "video-generates-a-video-from-a",
     "video-hunyuan-video-text-to-video-generation-265847",
-    "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
-    "video-image-to-video-conversion-with-moonvalley-d7853c",
     "video-image-to-video-with-svd-and-webp-output-1882aa",
-    "video-inpaint-and-video-composition-with-spline-path-0c2716",
     "video-ltx-video-upscaling-and-enhancement",
-    "video-ltx-video-with-audio-and-inpainting-b3ba8a",
-    "video-seedvr2-video-upscaling-workflow-052e59",
-    "video-video-loading-and-saving-workflow-1c7ad8",
+    "video-svd-image-to-video-generation-fc240f",
+    "video-video-combine-with-image-loading-5b31ce",
+    "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
     "video-video-output-workflow-f855de",
-    "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
-    "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+    "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
     "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
-    "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
-    "video-wanvideo-text-to-video-generation-71f825"
+    "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a"
   ],
   "provenance": {
-    "capture": "provisional_heuristic",
-    "bootstrap_pending": true,
+    "capture": "real_classifier",
+    "bootstrap_pending": false,
     "classifier_target": "vibecomfy.executor.core._run_classify",
-    "note": "Provisional freeze: routes derive from descriptor heuristics, not live classifier calls.  Run `python -m tests.live_agentic_harness.compare_pipeline_modes --bootstrap --capture-classifications` to capture the 100 real classifier decisions."
+    "note": ""
   },
   "quota_table": {
     "routes": {
@@ -94,14 +94,14 @@
     },
     "actual": {
       "routes": {
-        "clarify": 2,
-        "respond": 8,
-        "inspect": 8,
+        "clarify": 0,
+        "respond": 4,
+        "inspect": 14,
         "research": 8,
-        "requires_custom_nodes": 2,
+        "requires_custom_nodes": 0,
         "revise": 12,
-        "adapt": 8,
-        "reorganise": 2
+        "adapt": 12,
+        "reorganise": 0
       },
       "behavior": {
         "edit": 24,
@@ -112,23 +112,28 @@
         "out": 25
       },
       "media": {
-        "image": 11,
-        "video": 20,
-        "multimodal": 5,
-        "audio": 7,
-        "3d": 6,
-        "special": 1
+        "image": 12,
+        "video": 12,
+        "multimodal": 17,
+        "audio": 5,
+        "3d": 4,
+        "special": 0
       },
       "graph_size": {
-        "small": 28,
-        "medium": 17,
-        "large": 5
+        "small": 26,
+        "medium": 20,
+        "large": 4
       },
       "in_57_allocation": {
-        "inspect": 4,
-        "research": 4,
-        "revise": 0,
-        "adapt": 8
+        "respond": 2,
+        "inspect": 6,
+        "research": 8,
+        "revise": 8,
+        "adapt": 1
+      },
+      "route_transfers": {
+        "inspect": 6,
+        "adapt": 4
       }
     }
   },
@@ -159,14 +164,17 @@
       "video-seedvr2-video-upscaling-workflow-052e59": "respond",
       "video-video-loading-and-saving-workflow-1c7ad8": "respond"
     },
-    "effective_route": "executor-canonical route after _normalize_explicit_route; requires_custom_nodes -> adapt (edit intent) is recorded, not hidden."
+    "effective_route": "executor-canonical route after _normalize_explicit_route; requires_custom_nodes -> adapt (edit intent) is recorded, not hidden.",
+    "classification_failure_fallback": "real capture only: a retry-exhausted classifier reply records classification_failed=true + classification_failure (failure_type/attempts/raw_text_preview), the heuristic route as route, and route_source='heuristic_fallback' \u2014 never an abort.",
+    "route_quota_fallback": "route quotas are HARD when the pool is sufficient; when the real pool is smaller than the quota the deficit is transferred within the same edit/non-edit bucket (stable-hash tie-break), behavior stays exact (24/26), ledger stays exact when feasible (25/25), and the resulting route table is committed under quota_table.actual."
   },
   "entries": [
     {
       "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -176,39 +184,56 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Replace back-projection inpainting with SDXL inpainting model directly on masked areas, using ControlNet as post-guidance, by researching workflow patterns and adapting the existing Hy3D graph.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "research_precedent",
+        "research_goal": "Investigate workflow patterns for using SDXL inpainting model directly on masked areas with ControlNet applied as post-guidance (not initial conditioning), and how to integrate this with the existing easy nodes and Hy3D graph structure.",
+        "search_directions": [
+          "SDXL inpainting model ComfyUI workflow",
+          "easy kSamplerInpainting wiring with SDXL inpainting checkpoint",
+          "ControlNet post-guidance inpainting (after initial inpainting pass)",
+          "Hy3DTools_BackProjectInpaint alternative using SDXL inpainting model",
+          "easy controlnetLoader++ ControlNet as conditioning after KSampler",
+          "easy pipeIn and easy preSamplingCustom with SDXL inpainting"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses Hy3DTools_BackProjectInpaint to produce mask and inpainted image via back-projection. easy kSamplerInpainting likely handles the inpainting process with the pipe. User wants to skip back-projection and use SDXL inpainting model directly on masked areas, with ControlNet applied after the initial inpainting to guide the result."
       }
     },
     {
       "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
-      "route": "adapt",
-      "effective_route": "adapt",
-      "route_source": "query_type",
+      "route": "revise",
+      "effective_route": "revise",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "3d",
       "node_count": 18,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Change the model widget on the Rodin3D_Regular node from 'rodin large' to 'rodin fusion', preserving all existing downstream edges to detailing, smoothing, and preview nodes.",
         "intent": "edit",
-        "route": "adapt",
-        "task": "research_precedent"
+        "route": "revise",
+        "task": "edit_graph",
+        "target_node_type": "Rodin3D_Regular"
       }
     },
     {
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -218,60 +243,101 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Research procedural PBR material generator nodes compatible with Tripo rigged model pipeline, then replace TripoTextureNode with a PBR generator and verify material application in Preview3D.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "research_precedent",
+        "research_goal": "Find ComfyUI node combinations or workflows that replace a TripoTextureNode with a procedural PBR material generator (e.g., MaterialMaker, PBR nodes) and wire it into a TripoRigNode / Preview3D setup for correct material rendering.",
+        "search_directions": [
+          "Procedural PBR material generator node ComfyUI",
+          "TripoRigNode material input wiring Preview3D",
+          "MaterialMaker node integration with Tripo rigged model",
+          "ComfyUI PBR workflow replacing TripoTexture"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph has TripoTextureNode (id26) which likely outputs a texture to TripoRigNode (id23) and/or Preview3D nodes (ids 32-36). The goal is to replace TripoTextureNode with a procedural PBR material generator while preserving the rigged model and preview pipeline."
       }
     },
     {
       "id": "3d-3d-model-generation-and-rigging-from-image-352066",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "3d",
       "node_count": 11,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research Tripo rigging and retargeting node parameters for joint orientation correction, then adjust the TripoRetargetNode or TripoRigNode to ensure knees bend forward naturally.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find the correct parameter or setting on TripoRetargetNode or TripoRigNode to fix knee joint orientation (forward vs backward bending) in the generated rig.",
+        "search_directions": [
+          "TripoRetargetNode joint orientation settings",
+          "TripoRigNode knee forward direction parameter",
+          "Tripo rigging forward axis correction workflow examples",
+          "Tripo model joint orientation fix community tips"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "The graph contains TripoImageToModelNode (35), TripoRetargetNode (42), TripoRigNode (41), TripoTextureNode (40), and Preview3D nodes. The rig is output by TripoRigNode after processing via TripoRetargetNode.",
+        "target_node_type": "TripoRigNode"
       }
     },
     {
       "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "3d",
       "node_count": 15,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Research TripoRefineNode parameters for geometric detail without polygon count, then adjust the relevant widget on node 10.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Identify the specific widget on TripoRefineNode (node 10) that controls geometric surface detail (e.g., detail strength, subdivision level, normal strength) while preserving polygon count, along with its range and effect on wrinkles/folds.",
+        "search_directions": [
+          "TripoRefineNode detail parameter surface detail wrinkles folds",
+          "TripoConversionNode to TripoRefineNode refine detail settings workflow",
+          "TripoTextureNode after TripoRefineNode detail level adjustment",
+          "TripoRefineNode geometry detail without increasing polygon count"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Graph contains TripoRefineNode (node 10) as the refinement step between TripoConversionNode (node 8) and TripoTextureNode (node 9). The user wants to capture surface details like wrinkles and folds on the 3D model without raising polygon count.",
+        "target_node_type": "TripoRefineNode"
       }
     },
     {
       "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -282,7 +348,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set Tencent3DTextureEditNode prompt to 'aged bronze statue with verdigris patina' and configure SaveGLB for embedded textures export.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -292,7 +358,8 @@
       "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -303,7 +370,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set UltraShapeRefine strength widget to 0.4.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -311,51 +378,80 @@
     },
     {
       "id": "3d-converts-image-to-3d-model",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "3d",
       "node_count": 3,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research Rodin3D_Regular settings for enhancing surface detail, then adjust parameters to reduce smoothness and add sharpness.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Find workflow examples and community knowledge about controlling surface detail, resolution, or smoothness on the Rodin3D_Regular node in ComfyUI.",
+        "search_directions": [
+          "Rodin3D_Regular detail_resolution parameter",
+          "Rodin3D_Regular surface_detail control",
+          "Rodin3D_Regular smoothness reduction",
+          "Rodin3D_Regular sharpness workflow"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph has LoadImage (49) -> Rodin3D_Regular (28) -> Preview3D (56). Rodin3D_Regular is the generation node producing a 3D model from an input image.",
+        "target_node_type": "Rodin3D_Regular"
       }
     },
     {
       "id": "3d-generates-a-3d-mesh-from",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "3d",
       "node_count": 10,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research common causes of mesh noise/floating bits in Hunyuan3Dv2, then adjust KSampler and ModelSamplingAuraFlow settings to improve quality.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Investigate typical KSampler and ModelSamplingAuraFlow settings (steps, cfg, sampler, scheduler, discretization) that reduce floating artifacts and noise in Hunyuan3Dv2 mesh generation.",
+        "search_directions": [
+          "Hunyuan3Dv2 KSampler steps cfg noise",
+          "ModelSamplingAuraFlow discretization settings quality",
+          "Hunyuan3Dv2 mesh floating debris suppression",
+          "Hunyuan3Dv2 conditioning multiview parameters"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses Hunyuan3Dv2 with KSampler (custom), ModelSamplingAuraFlow, EmptyLatentHunyuan3Dv2, Hunyuan3Dv2ConditioningMultiView. User reports mesh output has floating bits and noise.",
+        "target_node_type": "KSampler"
       }
     },
     {
       "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
@@ -365,18 +461,31 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research spectral-gating noise reduction nodes and workflows, then insert one before the audio separation and vocal removal branches, routing cleaned audio into both.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Identify ComfyUI audio nodes capable of spectral-gating noise reduction, and determine how to wire such a node between the audio source and the existing AudioSeparation/VocalAndSoundRemoverNode branches.",
+        "search_directions": [
+          "AudioSeparation VocalAndSoundRemoverNode spectral gating noise reduction",
+          "ComfyUI audio spectral gate noise reduction node",
+          "AudioFilter FrequencyFilterPreset noise gate alternative ComfyUI",
+          "ComfyUI audio workflow noise reduction before vocal removal"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Workflow has AudioSeparation (node 146) and VocalAndSoundRemoverNode (node 155) receiving audio from VAE decode branches and outputting to separate SaveAudio nodes. AudioFilter (214) and FrequencyFilterPreset nodes are also present elsewhere."
       }
     },
     {
       "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -386,18 +495,32 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research how the DetailDaemonSamplerNode works within AceStep audio workflows and gather recommended settings for cinematic soundscape generation.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "research_goal": "Understand the mechanism of DetailDaemonSamplerNode compared to standard audio diffusion samplers, and find community-recommended parameter settings for cinematic soundscape tasks.",
+        "search_directions": [
+          "DetailDaemonSamplerNode AceStep audio detail enhancement mechanism",
+          "cinematic soundscape settings for DetailDaemonSamplerNode in ComfyUI",
+          "typical DetailDaemonSamplerNode parameter ranges (freq_range, amplitude_scale, etc.)",
+          "Example AceStep audio workflows with DetailDaemonSamplerNode for ambiance",
+          "Comparison of DetailDaemonSamplerNode to standard sampler nodes (KSampler, SamplerCustom)"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "The attached graph uses DetailDaemonSamplerNode (id 20) connected to SamplerCustom and ModelSamplingSD3, with EmptyAceStepLatentAudio and TextEncodeAceStepAudio\u2014standard AceStep audio diffusion setup.",
+        "target_node_type": "DetailDaemonSamplerNode"
       }
     },
     {
       "id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -408,59 +531,63 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set steps=30 and scheduler='karras' on the KSampler node.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "target_node_type": "KSampler"
       }
     },
     {
       "id": "audio-acestep-audio-generation-workflow-2a31ec",
-      "route": "requires_custom_nodes",
-      "effective_route": "adapt",
-      "route_source": "explicit",
+      "route": "revise",
+      "effective_route": "revise",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
       "node_count": 7,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Change the checkpoint name on the UNETLoader node from its current value to 'acestep-sft-v2.safetensors'.",
         "intent": "edit",
-        "route": "adapt",
-        "task": "edit_graph"
+        "route": "revise",
+        "task": "edit_graph",
+        "target_node_type": "UNETLoader"
       }
     },
     {
       "id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
-      "route": "adapt",
-      "effective_route": "adapt",
-      "route_source": "query_type",
+      "route": "revise",
+      "effective_route": "revise",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
       "media": "audio",
       "node_count": 85,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Restructure the audio workflow: decouple the vocals and background from the AudioSeparation/VocalAndSoundRemoverNode, decode each through a separate VAEEncode\u2192KSampler\u2192VAEDecode chain, then combine the decoded audios with an AudioCombine node, and save the vocals, background, and optionally the combined mix as separate files.",
         "intent": "edit",
-        "route": "adapt",
-        "task": "research_precedent"
+        "route": "revise",
+        "task": "edit_graph"
       }
     },
     {
       "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -471,38 +598,55 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Replace the SaveAudioMP3 node (id 428) with a SaveAudioWAV node (or equivalent format change) to output WAV audio.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "known_graph_context": "Graph has a terminal SaveAudioMP3 node (id 428) from FL pack. User requests WAV output.",
+        "target_node_type": "SaveAudioMP3"
       }
     },
     {
       "id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "audio",
       "node_count": 7,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research common causes and fixes for robotic buzz in VibeVoiceTTS outputs, then adjust the workflow to reduce artifacts.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Investigate how to reduce robotic buzz artifacts in VibeVoiceTTS generated audio, including UVR5 node settings, post-processing filters, or TTS parameter adjustments.",
+        "search_directions": [
+          "VibeVoiceTTS robotic artifact fix",
+          "UVR5_Node denoise settings for TTS cleanup",
+          "TTS post-processing de-buzz filter",
+          "VibeVoiceTTS parameters naturalness"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Current workflow: LoadAudio path input -> UVR5_Node -> VibeVoiceTTS -> PreViewAudio/SaveAudio. Likely the TTS output has a robotic buzz that needs cleaning.",
+        "target_node_type": "VibeVoiceTTS"
       }
     },
     {
       "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -512,60 +656,101 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Replace MelBand RoFormer with AudioLDM2 for audio generation in the LTX video workflow by researching AudioLDM2 node patterns and wiring, then editing the graph to integrate audio generation while preserving LoRA and audio-video synchronization.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Investigate how AudioLDM2 nodes are typically used in ComfyUI workflows, especially for audio-video sync with LTX latent spaces, and how to connect them to the existing LTX pipeline (LTXVEmptyLatentAudio, LTXVAudioVAEDecode, LTXVConditioning, LoraLoaderModelOnly) as replacements for the MelBand RoFormer nodes.",
+        "search_directions": [
+          "AudioLDM2 ComfyUI node wiring and inputs/outputs",
+          "LTX audio latent conditioning with AudioLDM2",
+          "AudioLDM2 model loader and sampler class types in ComfyUI",
+          "replacing MelBand RoFormer with AudioLDM2 in ComfyUI LTX workflow",
+          "audio-video sync using LTX latent space with external audio generation"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses MelBandRoFormerModelLoader (610) and MelBandRoFormerSampler (562) for audio generation, connected to LTX audio latent components (LTXVEmptyLatentAudio 599, LTXVAudioVAEDecode 590, LTXVConcatAVLatent 588, LTXVSeparateAVLatent 589) and conditioning (LTXVConditioning 558). LoRA is loaded via LoraLoaderModelOnly (609). The audio output is saved via SaveAudioMP3 (560) and previewed via PreviewAudio (569, 594)."
       }
     },
     {
       "id": "audio-transcribes-audio-appends-text-regenerates",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
       "node_count": 11,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research community precedent on getting accurate Whisper transcripts in ComfyUI (model size, language forcing, beam search, audio preprocessing around VHS_LoadAudio/vhs_audio_to_audio_tensor), then apply the best-supported settings to the Apply Whisper stage.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find community-reported settings and wiring patterns that materially improve Whisper transcription accuracy in a ComfyUI pipeline using Apply Whisper fed by VHS_LoadAudio/vhs_audio_to_audio_tensor, so the graph edit can pick concrete, context-appropriate improvements rather than guesses.",
+        "search_directions": [
+          "\"Apply Whisper\" node settings and behavior: model size, language, beam_size, temperature, timestamp options for reducing transcription errors",
+          "ComfyUI workflow wiring patterns: VHS_LoadAudio \u2192 vhs_audio_to_audio_tensor \u2192 Apply Whisper, including resample to 16 kHz mono or other audio preprocessing that improves Whisper accuracy",
+          "Whisper accuracy levers: larger model variants, forced language, initial prompt / hallucination suppression, VAD filtering in audio-to-text pipelines",
+          "ShowText|pysssss transcript output handling and post-processing that catches Whisper errors"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Audio enters via VHS_LoadAudio (25/52); vhs_audio_to_audio_tensor (51) feeds Apply Whisper (71), whose transcript goes to ShowText (72) and onward toward Text Multiline (76)/Text Concatenate (77)/ShowText (88); the same audio tensor path also reaches voicecraft_process (49). Reported failure point is transcription accuracy in the Apply Whisper stage.",
+        "target_node_type": "Apply Whisper"
       }
     },
     {
       "id": "audio-tts-narration-using-indextts-2",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "audio",
       "node_count": 21,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research how to use the existing TTS custom nodes (CharacterVoicesNode, IndexTTSEmotionOptionsNode, QwenEmotionNode) to produce more engaging narration, then adjust the graph settings accordingly.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find workflow patterns and community knowledge on using CharacterVoicesNode, IndexTTSEmotionOptionsNode, and QwenEmotionNode to generate varied, expressive, and engaging TTS output from a text prompt.",
+        "search_directions": [
+          "CharacterVoicesNode emotion/expressiveness settings",
+          "IndexTTSEmotionOptionsNode usage for dynamic narration",
+          "QwenEmotionNode tuning for lively speech",
+          "TTS narration variety techniques with these nodes"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph contains UnifiedTTSTextNode, CharacterVoicesNode (x2), IndexTTSEmotionOptionsNode, IndexTTSEngineNode, QwenEmotionNode, LoadAudio, and SaveAudioMP3. Narration text via PrimitiveStringMultiline to UnifiedTTSTextNode."
       }
     },
     {
       "id": "hotshot-16-frames-agent-edit",
-      "route": "requires_custom_nodes",
+      "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "explicit",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -575,60 +760,89 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Research Hotshot text-to-video workflow wiring precedents (custom conditioning node, guidance wrapper, 16-frame latent), then adapt the attached SDXL image graph into a Hotshot 16-frame generation graph.",
         "intent": "edit",
         "route": "adapt",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "research_goal": "Find workflow precedents and community wiring patterns for generating 16 frames with Hotshot in ComfyUI: which custom node classes and checkpoint/images are used, how the 16-frame latent is created and shaped, and how conditioning/outputs connect to the existing CheckpointLoaderSimple, CLIPTextEncodeSDXL, and VAE nodes.",
+        "search_directions": [
+          "Hotshot ComfyUI text-to-video workflow node combination (HotshotClipTextEncode, VideoLinearCFGGuidance, empty image latent 16 frames, KSampler)",
+          "Hotshot-XL 16-frame latent resolution and frame-count configuration in ComfyUI",
+          "HotshotClipTextEncode conditioning wiring with CheckpointLoaderSimple CLIP/VisionEncoder inputs",
+          "VideoLinearCFGGuidance strength wiring between KSampler model and positive/negative conditioning",
+          "KSampler latent rewire from VAEEncode/ImageLatent to VAEDecode for 16-frame video output"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "8-node SDXL text-to-image graph: CheckpointLoaderSimple(n1), LoadImage(n10)->VAEEncode(n11) as image latent, 2x CLIPTextEncodeSDXL(n8,n9)->KSampler(n5), KSampler->VAEDecode(n6)->PreviewImage(n7). No video/custom nodes present; Hotshot absent from graph."
       }
     },
     {
       "id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
-      "route": "research",
-      "effective_route": "research",
-      "route_source": "query_type",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "image",
       "node_count": 16,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "research",
-        "route": "research",
-        "task": "research_nodes"
+        "plan_summary": "Explain how the current graph's latent compositing approach compares to using an init image directly in video latent space, focusing on temporal coherence.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "image-animatediff-video-from-images-with",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
       "node_count": 20,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research ControlNet/AnimateDiff wiring precedents for strong input-image adherence, then apply the most reasonable local edits to the visible graph.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "research_goal": "Find workflow precedents and community patterns for improving how an AnimateDiff image-to-video chain follows its input images, anchored on the visible custom classes; collect concrete wiring/strength/resolution fixes rather than generic advice.",
+        "search_directions": [
+          "ADE_AnimateDiffLoaderV1Advanced ControlNetApplyAdvanced strength start_percent end_percent conditioning wiring",
+          "ControlNetApplyAdvanced lineart controlnet strength animation follows input images",
+          "LoadImagesFromDirectory ImageScale resize input images to EmptyLatentImage latent dimensions controlnet AnimateDiff",
+          "LineArtPreprocessor ControlNet conditioning resolution mismatch latent size adherence",
+          "KSampler noise_seed control_after_generate frames AnimateDiff stable adherence"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "I2V-style graph: LoadImagesFromDirectory \u2192 ImageScale \u2192 LineArtPreprocessor \u2192 ControlNetLoaderAdvanced/ControlNetApplyAdvanced (lineart wired to positive/negative conditioning); ADE_AnimateDiffLoaderV1Advanced (motion), KSampler \u2192 VAEDecode \u2192 ADE_AnimateDiffCombine \u2192 SaveImage/PreviewImage; frame count/seed driven by Integer/PrimitiveNode inputs.",
+        "target_node_type": "ControlNetApplyAdvanced"
       }
     },
     {
       "id": "image-animatediff-video-generation-with-vae-d20410",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -639,17 +853,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the frame count widget on ADE_AnimateDiffCombine from 16 to 8.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "target_node_type": "ADE_AnimateDiffCombine"
       }
     },
     {
       "id": "image-auraflow-image-generation-with-qwen-clip-9a3109",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -660,7 +876,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Update the steps widget on KSampler node (id 69) from 20 to 30.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -668,9 +884,10 @@
     },
     {
       "id": "image-background-removal-and-grid-composition-54a681",
-      "route": "reorganise",
-      "effective_route": "reorganise",
-      "route_source": "explicit",
+      "route": "revise",
+      "effective_route": "revise",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -681,17 +898,18 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set each ImageResizeKJv2 node's width and height to 512 to resize input images before the 2x2 grid composite.",
         "intent": "edit",
-        "route": "reorganise",
-        "task": "layout_reorganise"
+        "route": "revise",
+        "task": "edit_graph"
       }
     },
     {
       "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -701,18 +919,28 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research newer SDXL refiner model options, compare tradeoffs between dedicated refiner vs single high-quality XL checkpoint, and investigate how LoRA timing (before/after refiner) affects flexibility.",
         "intent": "research",
-        "route": "research",
-        "task": "research_nodes"
+        "research_goal": "Find current SDXL refiner models recommended over sd_xl_refiner, gather community knowledge on single-checkpoint vs two-stage refinement tradeoffs, and collect insights on LoRA placement relative to the refiner step.",
+        "search_directions": [
+          "SDXL refiner model alternatives 2024-2025 community recommendations",
+          "single SDXL checkpoint vs refiner workflow pros cons",
+          "LoRA placement before or after SDXL refiner effects on quality flexibility"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "User workflow uses juggernautXL base and sd_xl_refiner as refiner, with a Power Lora Loader (rgthree) and two KSamplerAdvanced nodes. Two CLIPTextEncode nodes per checkpoint suggest separate conditioning."
       }
     },
     {
       "id": "image-face-detection-and-cropping-workflow-949658",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -722,18 +950,31 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research available ComfyUI face detection nodes that support MTCNN or RetinaFace, then replace the UltralyticsDetectorProvider and update cropping logic accordingly.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Find ComfyUI custom nodes providing MTCNN or RetinaFace face detection, determine their output structure (segs/bbox/mask), and how to wire them into the existing BboxDetectorSEGS, ImageCropByMask, and Uncrop (mtb) workflow.",
+        "search_directions": [
+          "ComfyUI MTCNN face detection node",
+          "ComfyUI RetinaFace face detection node",
+          "ComfyUI face detection segs output format",
+          "Replace UltralyticsDetectorProvider with FaceAnalysis or mtb face detector"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph uses UltralyticsDetectorProvider (YOLOv8) -> BboxDetectorSEGS -> ImpactSEGSOrderedFilter -> SegsToCombinedMask -> ImageCropByMask and Uncrop (mtb) for face detection & cropping."
       }
     },
     {
       "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -743,18 +984,37 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Restructure the pipeline by first generating a base image with Flux, then using the inpainted region as a conditioning input for ControlNet to apply style transfer across the full image, merging the inpainting and generation branches.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Find workflow examples or patterns where an inpainted region's content is used as a conditioning input (e.g., via ControlNet or IPAdapter) to transfer style to the entire image after an initial base generation, especially with Flux models.",
+        "search_directions": [
+          "inpaint region conditioning controlnet flux workflow",
+          "image composition controlnet inpaint to full image transfer",
+          "flux base image then controlnet style transfer",
+          "Cut By Mask Paste By Mask ControlNetApplyAdvanced conditioning",
+          "FluxGuidance DualCLIPLoader inpainting conditioning wiring",
+          "StyleModelApply ControlNet combine inpaint region"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "avoid": [
+          "generic flux workflow",
+          "flux tutorial"
+        ],
+        "known_graph_context": "Graph contains Flux generation (FluxGuidance, DualCLIPLoader, UNETLoader), inpainting with Cut By Mask/Paste By Mask, multiple ControlNetApplyAdvanced nodes, StyleModelApply, CannyEdgePreprocessor, DepthAnythingPreprocessor, and LoraLoaders. Two branches exist: one for Flux base, one for inpainting/ControlNet style. Goal is to merge them by using the inpainted region as ControlNet condition on the full image."
       }
     },
     {
       "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -764,81 +1024,124 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research trade-offs between Gemini and Claude for generating complex multi-part image prompts in terms of quality, structure, rate limits, and cost.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Find information comparing Gemini and Claude for generating complex multi-part image prompts, specifically regarding output quality, prompt structure, rate limits, and cost.",
+        "search_directions": [
+          "Gemini vs Claude prompt quality comparison for image prompts",
+          "Gemini vs Claude rate limits API",
+          "Gemini vs Claude cost comparison",
+          "Prompt structure differences Gemini Claude",
+          "Claude for multi-part image prompts"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Graph uses GeminiNode and VRGDG_PromptSplitter_General for prompt processing and splitting."
       }
     },
     {
       "id": "image-generates-a-2x2-seed-variation",
-      "route": "reorganise",
-      "effective_route": "reorganise",
-      "route_source": "explicit",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
       "node_count": 25,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Replace the ImageGridComposite2x2 node with a node that composites 4 images in a single horizontal row.",
         "intent": "edit",
-        "route": "reorganise",
-        "task": "layout_reorganise"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find a ComfyUI node or workflow pattern that composites 4 images into a horizontal row (1 row, 4 columns) to replace the current 2x2 grid.",
+        "search_directions": [
+          "ImageGridComposite configurable rows/columns",
+          "horizontal image row ComfyUI node",
+          "compositing 4 images in a row ComfyUI workflow"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses ImageGridComposite2x2 to composite 4 variations from ImageBatch. Need to change to horizontal row layout.",
+        "target_node_type": "ImageGridComposite"
       }
     },
     {
       "id": "image-image-comparison-and-enhancement-with-florence-007018",
-      "route": "adapt",
-      "effective_route": "adapt",
-      "route_source": "query_type",
+      "route": "revise",
+      "effective_route": "revise",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "image",
       "node_count": 43,
       "decision": {
-        "research": true,
-        "implement": true,
-        "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "edit",
-        "route": "adapt",
-        "task": "research_precedent"
-      }
-    },
-    {
-      "id": "image-image-editing-with-qwen-image",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
-      "behavior": "edit",
-      "ledger": "out",
-      "graph_size": "small",
-      "media": "image",
-      "node_count": 15,
-      "decision": {
         "research": false,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Replace the single ImageBlend chain with independent float sliders controlling the contribution of each filter (saturation, invert, high-pass, sharpen, normal map) and blend them into the final image.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
       }
     },
     {
+      "id": "image-image-editing-with-qwen-image",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "small",
+      "media": "image",
+      "node_count": 15,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "medium",
+        "plan_summary": "Research workflow patterns for lighting-consistent compositing with TextEncodeQwenImageEditPlus and AuraFlow, then edit prompts or conditioning to blend the soldier into the scene lighting.",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find workflow examples or community tips for adjusting lighting consistency when compositing via TextEncodeQwenImageEditPlus, especially with AuraFlow/GGUF models \u2013 e.g., adding lighting descriptions to the soldier's prompt, using negative prompts, or conditioning edits.",
+        "search_directions": [
+          "TextEncodeQwenImageEditPlus lighting prompt patterns",
+          "AuraFlow image compositing lighting correction workflow",
+          "ModelSamplingAuraFlow conditioning for scene lighting",
+          "CFGNorm lighting matching in ComfyUI image editing",
+          "KSampler + Qwen image edit lighting blending"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "The graph has two TextEncodeQwenImageEditPlus nodes (scene and soldier prompts), LoaderGGUF (AuraFlow model), ModelSamplingAuraFlow, CFGNorm, and a KSampler. Lighting mismatch likely stems from the soldier's prompt lacking scene-consistent lighting cues.",
+        "target_node_type": "TextEncodeQwenImageEditPlus"
+      }
+    },
+    {
       "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -848,18 +1151,32 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research alternative sharpening methods to replace the Image High Pass Filter, comparing edge halo behavior vs natural detail enhancement.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_nodes",
+        "research_goal": "Identify alternative sharpening nodes or node combinations available in ComfyUI, and summarize their tradeoffs for edge halos vs natural detail enhancement.",
+        "search_directions": [
+          "Unsharp Mask node tradeoffs edge halos vs detail",
+          "Smart Sharpen or adaptive sharpening ComfyUI",
+          "Frequency separation sharpening technique",
+          "Contrast aware sharpening nodes",
+          "Box blur / Difference of Gaussians sharpening"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Current graph uses Image High Pass Filter, ImageBlend, VividSharpenV2, BetterFilmGrain for post-processing sharpening and effect."
       }
     },
     {
       "id": "image-image-to-image-with-controlnet-and-dwpreproces-49d057",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -870,7 +1187,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the strength widget on the ControlNetApply node to 0.8 to make pose guidance more subtle.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -878,30 +1195,31 @@
     },
     {
       "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
-      "route": "research",
-      "effective_route": "research",
-      "route_source": "query_type",
+      "route": "respond",
+      "effective_route": "respond",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
       "node_count": 17,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "research",
-        "route": "research",
-        "task": "research_nodes"
+        "plan_summary": "Explain how to balance IPAdapter style strength and Canny ControlNet influence parameters in the current workflow.",
+        "intent": "respond",
+        "route": "respond"
       }
     },
     {
       "id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -912,17 +1230,18 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the steps widget on the BasicScheduler node to 4 to speed up generation.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "target_node_type": "BasicScheduler"
       }
     },
     {
       "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -933,7 +1252,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set InpaintModelConditioning mask_blur to 16 and ImagePadForOutpaint padding to 32.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -943,7 +1262,8 @@
       "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -953,18 +1273,33 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Replace UltralyticsDetectorProvider with GroundingDINO in the SAM-based mask generation pipeline, and rewire the SEGS input path to maintain compatibility with ImpactSimpleDetectorSEGS_for_AD or adapt the pipeline to use GroundingDINO/SAM output directly.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Investigate how to replace UltralyticsDetectorProvider with GroundingDINO in a SAM-based mask generation pipeline in ComfyUI, ensuring that SEGS detailer input format is maintained. Find common wiring patterns for GroundingDINO + SAM + SEGSDetailer for AnimateDiff.",
+        "search_directions": [
+          "GroundingDINO node output format and how to feed into SAM or SEGS pipeline",
+          "ImpactSimpleDetectorSEGS_for_AD alternative using GroundingDINO instead of Ultralytics",
+          "SEGSDetailerForAnimateDiff with GroundingDINO wiring example",
+          "Replace UltralyticsDetectorProvider with GroundingDINO in AnimateDiff workflow",
+          "GroundingDINO bbox to SEGS conversion if needed"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses UltralyticsDetectorProvider feeding ImpactSimpleDetectorSEGS_for_AD to produce SEGS, which goes to SAMLoader and SEGSDetailerForAnimateDiff. GroundingDINO nodes produce bounding boxes and masks; need to convert to SEGS format or use a different detector wrapper.",
+        "target_node_type": "GroundingDINO"
       }
     },
     {
       "id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -975,17 +1310,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set temperature to 0.8 and max tokens to 512 on the llama_cpp_parameters node.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "target_node_type": "llama_cpp_parameters"
       }
     },
     {
       "id": "image-llava-image-captioning-and-keyword-extraction-d38dc8",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
@@ -995,18 +1332,33 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research alternative image captioning models that can replace LLaVA in the workflow for longer, more detailed prompts, and investigate whether any also perform keyword extraction directly.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_nodes",
+        "research_goal": "Find alternative image captioning models available in ComfyUI that can produce longer, more detailed prompts than LLaVA, and determine if any of those models also offer built-in keyword extraction, or if separate steps remain necessary.",
+        "search_directions": [
+          "LLavaPromptGenerator alternative ComfyUI node",
+          "Bunny caption node detailed prompts ComfyUI",
+          "Florence-2 ComfyUI captioning longer prompts",
+          "Moondream ComfyUI keyword extraction built-in",
+          "CogVLM ComfyUI captioning prompt generation",
+          "separate caption and keyword extraction vs combined model workflow patterns ComfyUI"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current workflow uses LLava Loader Simple, LlavaClipLoader, LLavaSamplerSimple, LLavaPromptGenerator for captioning, and a separate KeywordExtraction node. User wants longer, more detailed prompts from a replacement model, and ideally built-in keyword extraction."
       }
     },
     {
       "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1016,18 +1368,31 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research techniques for improving color consistency in Qwen Image inpainting with ControlNet, including mask feathering and blending methods.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Investigate best practices for color consistency in ControlNet-based Qwen-Image-Lightning inpainting, focusing on blending, mask feathering, and post-processing techniques.",
+        "search_directions": [
+          "Qwen-Image-Lightning inpainting color consistency",
+          "ControlNet inpainting mask feathering blending",
+          "color mismatch fix inpainting ComfyUI",
+          "post-processing color correction inpainting"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "The attached graph uses ControlNetInpaintingAliMamaApply, VAEEncode, KSampler, ModelSamplingAuraFlow, UnetLoaderGGUF, LoraLoaderModelOnly, and related nodes for Qwen-Image-Lightning inpainting."
       }
     },
     {
       "id": "image-sd3-image-generation-with-controlnet-19d221",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1038,17 +1403,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the strength widget on the ACN_AdvancedControlNetApply node to 0.5.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "target_node_type": "ACN_AdvancedControlNetApply"
       }
     },
     {
       "id": "image-sdxl-txt2img-cat-in-spacesuit",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1059,7 +1426,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Edit the positive prompt to include fabric realism details and adjust negative prompt to reduce plastic/sheen look.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -1067,51 +1434,67 @@
     },
     {
       "id": "image-style-transfer-using-ip-adapter",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
-      "behavior": "edit",
+      "route": "respond",
+      "effective_route": "respond",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
       "node_count": 13,
       "decision": {
         "research": false,
-        "implement": true,
+        "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "plan_summary": "Respond to correction by outputting valid classify JSON.",
+        "intent": "respond",
+        "route": "respond",
+        "task": "respond"
       }
     },
     {
       "id": "image-two-stage-qwen-image-generation",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "image",
       "node_count": 24,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research workflow precedents for fixing face distortion in the upscale/refinement stage of a workflow using ClownSampler_Beta and BetaSamplingScheduler, then edit the graph to improve face quality.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Investigate common causes of face distortion in upscale/refinement stages with ClownSampler_Beta and BetaSamplingScheduler, and identify settings or wiring that can improve face quality.",
+        "search_directions": [
+          "ClownSampler_Beta face quality settings",
+          "BetaSamplingScheduler refinement distortion",
+          "LatentUpscaleBy face distortion workaround",
+          "SamplerCustom two-stage refinement face artifacts",
+          "ClownSampler_Beta CFG or denoise settings for upscale refinement"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "The workflow has two-stage sampling: first ClownSampler_Beta/SamplerCustom with BetaSamplingScheduler, then upscale via LatentUpscaleBy, then second ClownSampler_Beta/SamplerCustom for refinement. The user reports distortion and face issues after the refinement stage."
       }
     },
     {
       "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1121,18 +1504,33 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Convert text-to-video to image-to-video for Wan2.2 by replacing EmptySD3LatentImage with VAEEncode of an input image and adjusting SwarmKSampler conditioning to accept image as first frame while preserving LUT and film grain post-processing.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Find Wan2.2 image-to-video workflow patterns in ComfyUI that show how to feed an input image as the first frame and wire it into the SwarmKSampler latent/conditioning inputs.",
+        "search_directions": [
+          "Wan2.2 I2V latent encoding VAEEncode",
+          "SwarmKSampler image conditioning first frame",
+          "ComfyUI Wan2.2 image to video workflow",
+          "EmptySD3LatentImage replace with VAEEnce",
+          "Wan2.2 CLIPTextEncode positive negative I2V"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph has two parallel streams: one with EmptySD3LatentImage feeding SwarmKSampler, and another with VAEEncode from ImageScale? (node 26) feeding something. Graph uses SwarmKSampler, CLIPTextEncode, UNETLoader (presumably Wan models), ProPostApplyLUT, ProPostFilmGrain, VAEDecode, SwarmSaveAnimationWS.",
+        "target_node_type": "SwarmKSampler"
       }
     },
     {
       "id": "live-graph-explanation-smoke",
-      "route": "clarify",
-      "effective_route": "clarify",
-      "route_source": "explicit",
+      "route": "respond",
+      "effective_route": "respond",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1143,16 +1541,17 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Acknowledge the format feedback and produce a valid classification JSON.",
         "intent": "respond",
-        "route": "clarify"
+        "route": "respond"
       }
     },
     {
       "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1162,18 +1561,32 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research evidence on reducing temporal depth jitter in the HunyuanWorld-Mirror video-to-3DGS pipeline (stabilization techniques plus alternative depth estimators) and answer with concrete suggestions; no graph edit.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Collect community/workflow evidence on why per-frame monocular depth causes geometry flicker in video-to-3DGS assembly, which stabilization techniques (temporal smoothing, optical-flow-guided refinement, keyframe-based depth propagation, spatiotemporal depth models) people actually use, and which alternative depth estimation models/nodes give temporally consistent video depth.",
+        "search_directions": [
+          "HWMInference / HunyuanWorld Mirror per-frame depth temporal consistency settings for video 3D reconstruction",
+          "temporal smoothing and optical-flow-guided depth stabilization for monocular video depth",
+          "spatiotemporal video depth estimation alternatives: Depth Anything V2, Depth Pro, UniDepth, Marigold, Metric3D, MASt3R/DUSt3R",
+          "depth-consistent 3D Gaussian Splatting from video: keyframe depth refinement and point-cloud temporal jitter reduction",
+          "SavePointCloud / Save3DGaussians workflow wiring patterns combining per-frame depth, normals, and camera params"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Video enters via VHS_LoadVideo -> PreprocessImagesForHWM -> LoadHunyuanWorldMirrorModel -> HWMInference, which emits per-frame depth and normals (VisualizeDepth/VisualizeNormals). Outputs feed Save3DGaussians, SavePointCloud, SaveCameraParams, and View3DInBrowser. Flicker likely stems from per-frame HWM depth inconsistency feeding the 3DGS/point-cloud assembly."
       }
     },
     {
       "id": "multi-3d-preview-and-image-output-workflow-d93baf",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1184,17 +1597,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Change SaveGLB filename prefix widget from '3d/ComfyUI' to '3d/moge-top-down' while preserving mesh input and normal-map preview connections.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "known_graph_context": "Node 21 is SaveGLB; current prefix is '3d/ComfyUI'.",
+        "target_node_type": "SaveGLB"
       }
     },
     {
       "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1204,8 +1619,8 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached workflow to identify potential causes of color shifting and smearing in the Detail Daemon + SeedVR2 video upscaling pipeline.",
         "intent": "explain_graph",
         "route": "inspect",
         "task": "inspect_graph"
@@ -1213,9 +1628,10 @@
     },
     {
       "id": "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1225,17 +1641,18 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "effort": "medium",
+        "plan_summary": "Explain the two-stage SVD video pipeline, conditioning, and LoRA augmentation from the attached graph.",
+        "intent": "explain_graph",
+        "route": "inspect"
       }
     },
     {
       "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1245,18 +1662,32 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Upgrade AnimateDiff to v3 motion module and introduce a pose-guided ControlNet conditioning stage while preserving face swapping, deflicker, and ICLight modules.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Find workflow precedents and wiring patterns for integrating a pose-guided ControlNet stage into an AnimateDiff v3 pipeline, specifically as an alternative to the base temporal module for conditioning.",
+        "search_directions": [
+          "ADE_LoadAnimateDiffModel ADE_ApplyAnimateDiffModel ControlNet pose workflow",
+          "AnimateDiff v3 pose-guided ControlNet conditioning alternative temporal",
+          "ACN_AdvancedControlNetApply AnimateDiff v3 integration",
+          "ControlNetLoaderAdvanced AnimateDiff v3 pipeline wiring",
+          "AnimateDiff v3 ControlNet multipipeline"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses ADE_* nodes for AnimateDiff v2 temporal module. ControlNetLoaderAdvanced and ACN_AdvancedControlNetApply already present with CannyEdgePreprocessor (pre-Canny edge ControlNet). Need to add pose-guided ControlNet stage as conditioning input for AnimateDiff."
       }
     },
     {
       "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1266,18 +1697,32 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research community precedent and ComfyUI workflow evidence comparing UNet+AnimateDiff versus DiT-based models (SD3/PixArt) for motion consistency and temporal coherence, including ControlNet integration differences and performance/quality trade-offs, then answer the user without editing the graph.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Gather community knowledge and workflow precedent on the trade-offs of moving a ComfyUI image-animation pipeline from a UNet checkpoint + AnimateDiff to a DiT-based model (SD3 or PixArt): how ControlNet conditioning integration differs (adapter types, conditioning channels, node requirements), whether/how motion modules like AnimateDiff work on these DiT architectures or whether motion must come from elsewhere, and the expected performance and output-quality changes.",
+        "search_directions": [
+          "ComfyUI SD3 / SD3.5 minimal workflow node requirements sampler scheduler guidance cfg settings",
+          "ComfyUI PixArt Sigma workflow node requirements",
+          "ControlNet integration differences for DiT checkpoints (SD3, SD3.5, PixArt): adapter block design, conditioning channels, ControlNetApplyAdvanced wiring vs UNet ControlNets",
+          "AnimateDiff motion module compatibility with SD3/PixArt and DiT-class alternatives for temporal coherence in ComfyUI",
+          "Community experience comparing UNet+AnimateDiff image animation vs DiT-based generation for motion consistency and quality"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Attached graph is a ComfyUI image-animation pipeline built around a standard UNet checkpoint: CheckpointLoaderSimple, ADE_AnimateDiffLoaderWithContext with ADE_AnimateDiffUniformContextOptions, KSampler, EmptyLatentImage, two CLIPTextEncode prompts, ControlNetLoaderAdvanced -> ControlNetApplyAdvanced driven by LoadImagesFromDirectory, then VAEDecode -> PreviewImage / VHS_VideoCombine."
       }
     },
     {
       "id": "multi-audio-to-image-mel-band-roformer-workflow-b22937",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1288,37 +1733,53 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "plan_summary": "Explain the audio-to-image workflow step by step, focusing on the MelBandRoFormer model's role and the dual MP3 save and preview image outputs.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "multi-crops-face-previews-it-sets",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "multimodal",
       "node_count": 5,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Investigate ReActorFaceSwap identity preservation techniques, then adjust the workflow to improve source face similarity.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Find community knowledge and workflows for improving ReActorFaceSwap identity fidelity: which models, strength, or preprocessing steps (e.g., face alignment, crop, restore) best preserve source identity.",
+        "search_directions": [
+          "ReActorFaceSwap identity preservation settings",
+          "ReActorFaceSwap face_model swap_model strength",
+          "CropFace alignment preprocessing ReActorFaceSwap",
+          "ReActorFaceSwap source face not looking like source fix"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Graph contains: LoadImage (397), ReActorFaceSwap (528), PreviewImage (529), CropFace (530), VHS_VideoCombine (532). The face swap output does not resemble the source person.",
+        "target_node_type": "ReActorFaceSwap"
       }
     },
     {
       "id": "multi-deforum-stable-diffusion-animation-with-ip-ada-78afac",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1328,18 +1789,33 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Replace the IP-Adapter conditioning with a ControlNet depth estimator, wiring the depth output into the DeforumConditioningBlendNode while preserving the existing Deforum animation schedule.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "research_precedent",
+        "research_goal": "Find how to wire a ControlNet depth estimator (e.g., ControlNetLoader + DepthAnything preprocessor) into the DeforumConditioningBlendNode, replacing the IP-Adapter image prompt conditioning input.",
+        "search_directions": [
+          "DeforumConditioningBlendNode ControlNet depth conditioning",
+          "ControlNet depth preprocessor wiring to Deforum KSampler",
+          "Deforum conditioning blend input types and sockets",
+          "IPAdapterApply replacement with ControlNet in Deforum workflow",
+          "Deforum depth map conditioning workflow examples"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph has IPAdapterApply (node 173) feeding conditioning into DeforumConditioningBlendNode (node 133). Additional Deforum nodes present: DeforumKSampler, DeforumPromptNode, DeforumFrameWarpNode, etc. ControlNet nodes are absent.",
+        "target_node_type": "ControlNetLoader"
       }
     },
     {
       "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1349,18 +1825,21 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Trace the outpainting and color-match data flow in the attached workflow to explain why ColorMatch's luminance transfer fails and identify the responsible node/setting (reference vs target wiring, method/mode, resize/pad ordering, or preview/compare placement).",
         "intent": "explain_graph",
         "route": "inspect",
-        "task": "inspect_graph"
+        "task": "diagnose",
+        "known_graph_context": "Workflow has two ColorMatch nodes (167, 5466). Outpainting path: LoadImage (159) -> ImagePadForOutpaint (164) -> sampling -> VAEDecode, with ImageScaleToTotalPixels (147, 165), ImageResizeKJv2 (5464, 5465), DrawMaskOnImage (166), ImageCompare (303), and a PainterImageFromBatch subgraph (5461) plus VHS_LoadVideo (5468) feeding reference/compare branches.",
+        "target_node_type": "ColorMatch"
       }
     },
     {
       "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1371,7 +1850,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the alpha/transparency-related widget values on the existing Rembg node and VHS_VideoCombine node to produce a transparent background in the final video output.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -1381,7 +1860,8 @@
       "id": "multi-image-to-video-generation-with",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -1392,7 +1872,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Reduce KSampler steps to 30 and switch sampler to dpmpp_2m.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -1400,51 +1880,10 @@
     },
     {
       "id": "multi-image-to-video-generation-with-2",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
-      "behavior": "edit",
-      "ledger": "in",
-      "graph_size": "large",
-      "media": "multimodal",
-      "node_count": 56,
-      "decision": {
-        "research": false,
-        "implement": true,
-        "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
-      }
-    },
-    {
-      "id": "multi-image-to-video-with-llm",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
-      "behavior": "edit",
-      "ledger": "out",
-      "graph_size": "medium",
-      "media": "multimodal",
-      "node_count": 38,
-      "decision": {
-        "research": false,
-        "implement": true,
-        "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
-      }
-    },
-    {
-      "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1454,18 +1893,103 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research MMAudio pipeline patterns to fix audio-video mismatch, then edit the graph accordingly.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "research_precedent",
+        "research_goal": "Investigate common MMAudio workflow patterns and community knowledge for ensuring audio matches video in terms of sync, content, and conditioning, especially when combined with LTXV video generation and VHS_VideoCombine.",
+        "search_directions": [
+          "MMAudioSampler conditioning and output wiring",
+          "MMAudioFeatureUtilsLoader usage and feature extraction",
+          "VHS_VideoCombine audio input integration with MMAudio",
+          "LTXV and MMAudio sync best practices",
+          "MMAudioModelLoader model selection for video-to-audio alignment"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "The graph has LTXVLoader for video generation, MMAudioSampler and MMAudioFeatureUtilsLoader for audio generation, VHS_VideoCombine for final assembly. The user reports the audio doesn't match the video, likely a sync or content mismatch.",
+        "target_node_type": "MMAudioSampler"
+      }
+    },
+    {
+      "id": "multi-image-to-video-with-llm",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "edit",
+      "ledger": "out",
+      "graph_size": "medium",
+      "media": "multimodal",
+      "node_count": 38,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "medium",
+        "plan_summary": "Investigate and adjust the Florence2+Groq LLM caption pipeline to generate prompts that better describe the input image for LTX video generation.",
+        "intent": "edit",
+        "route": "adapt",
+        "research_goal": "Find workflow patterns and community advice on improving Florence2 caption quality or replacing it with better captioning nodes (e.g., Janus, Qwen) for LTX image-to-video, including prompt template adjustments for the Groq LLM API.",
+        "search_directions": [
+          "Florence2 captioning prompt refinement for LTX image-to-video",
+          "Groq LLM API prompt engineering for accurate image captions in ComfyUI",
+          "LTX I2V caption quality improvement workflow patterns",
+          "Florence2 output to CLIP text encode conditioning tips",
+          "Alternative captioning nodes (Janus, CogVLM) for ComfyUI LTX workflows"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph: LoadImage \u2192 Florence2Run \u2192 Groq LLM API \u2192 multiple String Replace (mtb) nodes \u2192 two CLIPTextEncode nodes (positive/negative) \u2192 LTXVConditioning. The complaint is that the generated prompt does not accurately describe the input image.",
+        "target_node_type": "Florence2Run"
+      }
+    },
+    {
+      "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "large",
+      "media": "multimodal",
+      "node_count": 56,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "high",
+        "plan_summary": "Replace the four SVD_img2vid_Conditioning nodes with AnimateDiff motion module wiring while preserving the existing upscaling and color matching stages.",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find ComfyUI workflow patterns and community knowledge for replacing SVD img2vid conditioning with AnimateDiff motion module, specifically how to integrate AnimateDiff into a multi-branch workflow that has ImageOnlyCheckpointLoader, KSamplers, VHS_SplitImages, CR Upscale Image, and ColorMatch nodes.",
+        "search_directions": [
+          "AnimateDiff integration with ImageOnlyCheckpointLoader and SVD-style multi-branch sampling",
+          "AnimateDiff motion module node wiring with VHS video splitting and frame batching",
+          "Preserving upscaling and color match post-processing when switching from SVD to AnimateDiff",
+          "AnimateDiff context options (ADEConditioning, ADE_Upscale) for controllable multi-frame generation",
+          "Example workflows combining AnimateDiff motion module with CR Upscale Image and ColorMatch"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph has 4 parallel branches each with SVD_img2vid_Conditioning + VideoLinearCFGGuidance + KSampler, followed by VAEDecode, then upscaling via CR Upscale Image and color matching via ColorMatch nodes. Input is a single LoadImage feeding through ImageOnlyCheckpointLoader. Outputs include SaveAnimatedWEBP."
       }
     },
     {
       "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1475,8 +1999,8 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached SVD-based workflow for potential causes of severe flickering, jittery motion, and black frames by examining node settings and wiring patterns.",
         "intent": "explain_graph",
         "route": "inspect",
         "task": "inspect_graph"
@@ -1484,93 +2008,139 @@
     },
     {
       "id": "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
-      "route": "research",
-      "effective_route": "research",
-      "route_source": "query_type",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
       "node_count": 13,
       "decision": {
-        "research": true,
+        "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "research",
-        "route": "research",
-        "task": "research_nodes"
+        "effort": "medium",
+        "plan_summary": "Analyze the attached graph to explain how each stage contributes to generating the final WEBP video, focusing on CLIP text conditioning and SVD model usage.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
       "node_count": 4,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research how to extract the first frame from the SVDSimpleImg2Vid video output and connect it to SaveImage to save the first frame instead of the current placeholder image.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find workflow patterns for extracting the first frame from a video output (particularly from SVD/AnimateDiff style generators) and feeding it to a standard SaveImage node in ComfyUI.",
+        "search_directions": [
+          "SVDSimpleImg2Vid video output wiring",
+          "extract first frame from video tensor ComfyUI",
+          "SaveImage connected to SVD frame extractor workflow",
+          "frame extraction node ComfyUI",
+          "VHS_VideoCombine or VideoCombine frame output"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph has TestLoader feeding SVDSimpleImg2Vid, which outputs to SaveAnimatedWEBP. A separate SaveImage node exists (node 10) presumably for a static placeholder image. The user wants SaveImage to save the first frame of the video instead of the placeholder."
       }
     },
     {
       "id": "multi-video-based-character-replacement-using",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
       "media": "multimodal",
       "node_count": 41,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research community techniques for improving foreground segmentation quality (avoiding background leakage) and then adjust the segmentation nodes' settings or wiring in the current workflow.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find community workflows and techniques for improving foreground-only segmentation using InspyrenetRembg (or alternative) and LayerMask: SegmentAnythingUltra V3, focusing on parameter tuning and mask refinement to avoid background leakage.",
+        "search_directions": [
+          "InspyrenetRembg",
+          "LayerMask: SegmentAnythingUltra V3",
+          "GrowMaskWithBlur",
+          "InpaintPreprocessor",
+          "foreground mask separation threshold expand blur",
+          "Rembg vs SAM combined mask quality"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current segmentation chain: VHS_LoadVideo \u2192 GetImageSizeAndCount \u2192 ImageResizeKJ \u2192 InspyrenetRembg \u2192 LayerUtility: ImageRemoveAlpha \u2192 ImageResizeKJ \u2192 WanVideoVACEEncode. Also a separate branch with LoadImage \u2192 ImageScaleByAspectRatio V2 \u2192 ImageFromBatch+ \u2192 AIO_Preprocessor \u2192 SegmentAnythingUltra V3 \u2192 GrowMaskWithBlur \u2192 LayerUtility: ImageBlend. User reports background still being selected alongside person."
       }
     },
     {
       "id": "multi-wan-vace-video-retargeting-driven",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
       "node_count": 75,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Research identity-preservation techniques for Wan VACE I2V workflows, then apply targeted edits to the reference conditioning, LoRA strength, and prompt nodes in this graph to stop the identity drift from the loaded reference.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find workflow precedents and community knowledge on preventing identity loss in Wan VACE I2V generation: which strength/conditioning controls, LoRA weights, prompt patterns, and wiring patterns are used with the visible WanVaceToVideo reference pipeline.",
+        "search_directions": [
+          "WanVaceToVideo strength / VACE conditioning controls for keeping reference identity",
+          "Power Lora Loader (rgthree) LoRA strength_model identity preservation in Wan workflows",
+          "Florence2Run reference image captioning and CLIPTextEncode identity prompt patterns",
+          "Wan VACE identity drift: wiring of reference latent, mask, and VACE concat strength into KSampler",
+          "VideoContinuationGenerator + WanVideoBlender continuation identity drift workflow examples"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Wan VACE I2V workflow: VHS_LoadVideo loads the source video/reference; two WanVaceToVideo nodes; Florence2Run + CLIPTextEncode prompt chain; DWPreprocessor pose inputs; Power Lora Loader (rgthree); dual KSampler with ModelSamplingSD3; VideoContinuationGenerator + WanVideoBlender continuation; ColorMatchToReference for color matching; UnetLoaderGGUF model.",
+        "target_node_type": "WanVaceToVideo"
       }
     },
     {
       "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1580,18 +2150,32 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Swap the Wan2.2 core animation pipeline for an SVD image-to-video workflow, replace SAM2 segmentation with a mask from pose keypoints, and reconnect the existing relighting LoRA stage.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "research_precedent",
+        "research_goal": "Find ComfyUI SVD image-to-video workflow patterns and node configurations compatible with the existing pose keypoint and LoRA relighting subgraph.",
+        "search_directions": [
+          "SVD image-to-video workflow node wiring ComfyUI",
+          "Stable Video Diffusion model loader settings inference steps",
+          "SVD conditioning image CLIP vision encode frame generation",
+          "ComfyUI SVD XT model nodes",
+          "Wan2.2 to SVD migration workflow pattern"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Current graph uses WanAnimateToVideo, UNETLoader, LoraLoaderModelOnly, CLIPVisionEncode, DrawViTPose, PoseAndFaceDetection, DownloadAndLoadSAM2Model, Sam2Segmentation. The relighting LoRA stage uses LoraLoaderModelOnly and KSampler. Output uses CreateVideo and SaveVideo."
       }
     },
     {
       "id": "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -1602,16 +2186,18 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "plan_summary": "Explain how Wan2.2 Lightning model and LoRA adapters work together in this workflow and the purpose of two LoRA strength settings based on the current graph structure.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1622,17 +2208,19 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Analyze the current graph to identify the source of temporal flicker in the film grain overlay.",
         "intent": "explain_graph",
         "route": "inspect",
-        "task": "inspect_graph"
+        "task": "diagnose",
+        "known_graph_context": "Post-processing chain: VAEDecode(8) -> FastUnsharpSharpen(3024) -> FastFilmGrain(3025) -> SaveImage(3023). The FastFilmGrain node applies grain per-frame; two Seed (rgthree) nodes (3029, 3030) control the KSamplerAdvanced seeds but there is no visible temporal seed or frame-sequence input to the grain node."
       }
     },
     {
       "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
       "route": "adapt",
       "effective_route": "adapt",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1642,18 +2230,32 @@
         "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "high",
+        "plan_summary": "Research precedent wiring for SAM2-before-Florence2 video inpainting, then rewire the graph so Sam2Segmentation runs per-frame first, its masks flow into Florence2 detection and forward to constrain the WanVideo VACE inpainting pass.",
         "intent": "edit",
         "route": "adapt",
-        "task": "research_precedent"
+        "task": "edit_graph",
+        "research_goal": "Find workflow/community precedents showing how SAM2 per-frame segmentation outputs should feed Florence2 object detection and how those masks then constrain a WanVideo inpainting/VACE encode pass, including what mask preprocessing (resize, grow/blur, batch handling) and crop/stitch flow are needed to preserve the current inpaint region semantics.",
+        "search_directions": [
+          "Sam2Segmentation per-frame masks feeding Florence2Run detection input",
+          "Florence2Run object detection constrained by segmentation masks before inpaint pass",
+          "WanVideoVACEEncode mask conditioning from Sam2Segmentation with Segment/GrowMaskWithBlur",
+          "BatchCropFromMaskAdvanced plus InpaintCrop/InpaintStitch fed by SAM2 mask flow in ComfyUI",
+          "Florence2toCoordinates and BboxDetectorCombined_v2 combined with SAM2 masks in video inpainting workflows"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "178-node WanVideo inpainting graph: WanVideoSampler 412, WanVideoVACEEncode x5 (235/345/59/66/96), InpaintCrop 112, InpaintStitch 368, VHS_LoadVideo 26, 7x VHS_VideoCombine. Perception chain contains Florence2Run 300 / Florence2ModelLoader 134 / Florence2toCoordinates 128/195 / BboxDetectorCombined_v2 107/176, plus Sam2Segmentation 347 / DownloadAndLoadSAM2Model 126, Segment 313/402, GrowMaskWithBlur 137/318, BatchCropFromMaskAdvanced 101/289, ImpactImageBatchToImageList 403 / ImageListToImageBatch 404, JWMaskResize, ImageResizeKJ, and MaskPreview+ nodes."
       }
     },
     {
       "id": "speed-distillation-research",
       "route": "research",
       "effective_route": "research",
-      "route_source": "health_control",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1663,18 +2265,34 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research distilled video models and faster inference techniques that preserve creative intent for the current video workflow.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Find community workflows, techniques, or distilled models that speed up video generation in ComfyUI without altering the creative output style or subject.",
+        "search_directions": [
+          "distilled video diffusion models for ComfyUI",
+          "fast inference workflow patterns for AnimateDiff / LTX / video nodes",
+          "step distillation or model merging for faster video generation",
+          "community examples of speed-optimized video workflows preserving style"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "avoid": [
+          "speculative model names without workflow evidence",
+          "generic performance tips unrelated to video generation"
+        ]
       }
     },
     {
       "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -1684,17 +2302,19 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "effort": "medium",
+        "plan_summary": "Walk through the AnimateDiff video-to-video pipeline, explaining how ControlNets, LoRAs, and KSampler work together to preserve temporal coherence across frames.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "video-animatediff-video-with-controlnet-and-depth-89b02a",
       "route": "research",
       "effective_route": "research",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1704,18 +2324,33 @@
         "research": true,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research community-preferred depth estimator alternatives to DepthAnything_V2 for AnimateDiff pipelines and summarize how swapping the depth estimator would affect ControlNet guidance wiring.",
         "intent": "research",
         "route": "research",
-        "task": "research_nodes"
+        "task": "research_precedent",
+        "research_goal": "Identify concrete alternative depth estimators for temporal-consistency AnimateDiff pipelines and characterize how replacing DepthAnything_V2 would affect the accompanying ControlNet guidance chain (preprocessor, weight scaling, advanced apply).",
+        "search_directions": [
+          "temporal consistency depth estimator alternatives DepthAnything_V2 AnimateDiff video",
+          "DepthAnything_V2 vs Metric3D vs Marigold vs depth estimators ControlNet temporal stability",
+          "ACN_AdvancedControlNetApply_v2 control_net wiring with different depth preprocessors",
+          "ACN_ScaledSoftControlNetWeights strength scaling effect on depth guidance in video",
+          "AIO_Preprocessor depth map preprocessing choice for ControlNet depth-to-image AnimateDiff"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Workflow uses DepthAnything_V2 (node 27) fed by DownloadAndLoadDepthAnythingV2Model (28), with two ACN_AdvancedControlNetApply_v2 chains (nodes 25, 81, 85), ACN_ControlNetLoaderAdvanced, ACN_ScaledSoftControlNetWeights, AIO_Preprocessor (83, 84), and AnimateDiff/ADE nodes.",
+        "target_node_type": "DepthAnything_V2"
       }
     },
     {
       "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -1726,17 +2361,20 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Explain that the IPAdapterTiled node is the likely culprit, with its tile size and overlap settings causing visible tiling.",
         "intent": "explain_graph",
         "route": "inspect",
-        "task": "inspect_graph"
+        "task": "inspect_graph",
+        "known_graph_context": "The graph contains an IPAdapterTiled node (binding: ipadaptertiled) which applies style in tiles; tiling artifacts in uniform areas are a known symptom of small tile size or insufficient overlap.",
+        "target_node_type": "IPAdapterTiled"
       }
     },
     {
       "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1747,17 +2385,17 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Increase the strength widget on the ACN_AdvancedControlNetApply node (node 56) to strengthen ControlNet conditioning.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "revise"
       }
     },
     {
       "id": "video-generates-a-video-from-a",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1768,17 +2406,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the frame_rate widget on VHS_VideoCombine to 24 fps.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "target_node_type": "VHS_VideoCombine"
       }
     },
     {
       "id": "video-hunyuan-video-text-to-video-generation-265847",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -1788,39 +2428,54 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached Hunyuan video generation workflow to identify potential causes of temporal flickering between frames.",
         "intent": "explain_graph",
-        "route": "inspect",
-        "task": "inspect_graph"
+        "route": "inspect"
       }
     },
     {
       "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
-      "route": "inspect",
-      "effective_route": "inspect",
-      "route_source": "query_type",
-      "behavior": "non-edit",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
       "node_count": 27,
       "decision": {
-        "research": false,
-        "implement": false,
+        "research": true,
+        "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "explain_graph",
-        "route": "inspect",
-        "task": "inspect_graph"
+        "effort": "high",
+        "plan_summary": "Research HyVideo image-to-video conditioning precedents, then repair the image/VAE conditioning path and sampler step settings so the first frame matches the input image and output is no longer noise-like.",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find workflow precedents and community knowledge on HyVideo I2V conditioning: correct connect-and-shape evidence for HyVideoI2VEncode with HyVideoVAELoader/HyVideoEncode and HyVideoSampler conditioning-step settings that keep the first frame faithful to the input and avoid noise; return the evidence without prescribing the fix.",
+        "search_directions": [
+          "HyVideoI2VEncode + HyVideoVAELoader conditioning wiring (which inputs/outputs carry the image latent to HyVideoSampler)",
+          "HyVideoSampler start_step/end_step and conditioning settings for image-to-video first-frame fidelity",
+          "HyVideoEncode + HyVideoI2VEncode node combination in working I2V workflows (concrete wiring patterns)",
+          "HyVideo I2V random-noise / first-frame-mismatch failure causes in community messages",
+          "SetLatentNoiseMask + HyVideoGetClosestBucketSize + ImageResizeKJ/ImagePadForOutpaint pipeline feeding HyVideoI2VEncode"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "HyVideo I2V workflow: LoadImageFromUrl(116) -> ImageResizeKJ(109) -> ImagePadForOutpaint(113)/ImageScale(89); HyVideoI2VEncode(77); HyVideoVAELoader(7); HyVideoEncode x2 (120, 43); HyVideoSampler(90); SetLatentNoiseMask(119); GetImageSizeAndCount(117) + HyVideoGetClosestBucketSize(110); HyVideoDecode(5); VHS_VideoCombine(84).",
+        "target_node_type": "HyVideoI2VEncode"
       }
     },
     {
       "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -1831,17 +2486,17 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the steps widget on MoonvalleyImg2VideoNode (binding: moonvalleyimg2videonode) from 100 to 80.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "revise"
       }
     },
     {
       "id": "video-image-to-video-with-svd-and-webp-output-1882aa",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1852,16 +2507,17 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "plan_summary": "Explain the workflow from static image to animated WebP, detailing SVD conditioning and linear CFG guidance.",
+        "intent": "explain_graph",
+        "route": "inspect"
       }
     },
     {
       "id": "video-inpaint-and-video-composition-with-spline-path-0c2716",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1872,37 +2528,53 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "plan_summary": "Explain the role of the SplineEditor nodes in controlling the inpainting mask path over time and how VHS_MergeImages and VHS_VideoCombine assemble the final video from two CutAndDragOnPath inpainted sequences.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "video-ltx-video-upscaling-and-enhancement",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
       "node_count": 19,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research LTX Video workflow patterns for improving video sharpness and detail, then edit the graph to apply those improvements.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Find community workflow precedents and techniques for enhancing output sharpness and detail in LTX Video pipelines, including upscaler settings, conditioning adjustments, and post-processing steps.",
+        "search_directions": [
+          "LTXVConditioning sharpness detail settings",
+          "LatentUpscaleModelLoader best upscaler for LTX",
+          "CreateVideo resolution quality tuning",
+          "VHS_LoadVideo input sharpening preprocessing",
+          "LTX Video workflow clarity enhancement community examples"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "Graph uses LTX Video pipeline with latent upscale, VHS video loading, and two CLIP text encoders."
       }
     },
     {
       "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
@@ -1912,18 +2584,18 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached graph to identify likely causes of sharp-edged inpainted regions and color mismatch.",
         "intent": "explain_graph",
-        "route": "inspect",
-        "task": "inspect_graph"
+        "route": "inspect"
       }
     },
     {
       "id": "video-seedvr2-video-upscaling-workflow-052e59",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1933,17 +2605,19 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "effort": "medium",
+        "plan_summary": "Explain the full pipeline of the attached SeedVR2-based video upscaling workflow, covering video loading, VAE/DiT model roles, and final upscaled video assembly.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
       }
     },
     {
       "id": "video-svd-image-to-video-generation-fc240f",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1954,17 +2628,18 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Increase motion_bucket_id on the SVD_img2vid_Conditioning node to add more visible motion.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "target_node_type": "SVD_img2vid_Conditioning"
       }
     },
     {
       "id": "video-video-combine-with-image-loading-5b31ce",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -1975,7 +2650,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set VHS_VideoCombine frame_rate and frame_load_cap (or adjust subgraph node settings) so the video is exactly 10 seconds long with each of the two images shown for 5 seconds.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -1983,51 +2658,80 @@
     },
     {
       "id": "video-video-frame-by-frame-style",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
       "node_count": 14,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research wiring patterns for VHS video workflows to add motion variation, then edit the graph accordingly.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Investigate how to configure VHS_BatchManager and KSampler to produce non-static video frames, considering denoising strength, latent batch processing, and frame interpolation settings in VHS_VideoCombine.",
+        "search_directions": [
+          "VHS_BatchManager frame variation KSampler latent batch",
+          "VHS_VideoCombine frame interpolation settings",
+          "VHS_LoadVideoPath KSampler denoising strength for video",
+          "VHS video workflow static fix denoising strength latent batch"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "The graph contains two VHS_LoadVideoPath, two VHS_VideoCombine, one VHS_BatchManager, one KSampler, two CLIPTextEncode, VAEEncode/VAEDecode. The KSampler likely denoises a single latent, causing no variation across frames.",
+        "target_node_type": "VHS_BatchManager"
       }
     },
     {
       "id": "video-video-generation-from-resized-image",
-      "route": "revise",
-      "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
       "node_count": 22,
       "decision": {
-        "research": false,
+        "research": true,
         "implement": true,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Research community LTX-Video temporal-smoothing settings and workflow precedents, then adjust the scheduler/guider/sampler parameters in this graph to reduce flicker and make motion more natural.",
         "intent": "edit",
-        "route": "revise",
-        "task": "edit_graph"
+        "route": "adapt",
+        "task": "research_precedent",
+        "research_goal": "Find LTX-Video workflow precedents and community guidance for reducing temporal flicker and unnatural motion, focused on how LTXVScheduler, LTXVModelConfigurator, CFGGuider, and SamplerCustomAdvanced settings are typically combined in image-to-video graphs.",
+        "search_directions": [
+          "LTXVScheduler LTXVModelConfigurator flicker temporal smoothing steps frame_rate wiring patterns",
+          "CFGGuider SamplerCustomAdvanced cfg scale LTX-Video natural motion stability",
+          "RandomNoise noise_seed noise_type LTX-Video frame consistency flicker reduction",
+          "ImageResizeKJ LTXVLoader input resolution 768x512 motion quality",
+          "VHS_VideoCombine frame interpolation LTX-Video output smoothing"
+        ],
+        "source_preferences": [
+          "messages",
+          "workflows"
+        ],
+        "known_graph_context": "LTX-Video image-to-video graph: LTXVLoader(102) -> LTXVModelConfigurator(103), LTXVScheduler(113) feeding SamplerCustomAdvanced(36) with CFGGuider(42) and RandomNoise(37), KSamplerSelect(14), VAEDecode(8) -> VHS_VideoCombine(60); CFGGuider has DF_Text_Box(120)/DF_Float(157) inputs."
       }
     },
     {
       "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -2038,17 +2742,19 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the seed widget of INPAINT_InpaintWithModel to 42 and ensure seed control is fixed, without modifying other nodes.",
         "intent": "edit",
         "route": "revise",
-        "task": "edit_graph"
+        "task": "edit_graph",
+        "target_node_type": "INPAINT_InpaintWithModel"
       }
     },
     {
       "id": "video-video-loading-and-saving-workflow-1c7ad8",
-      "route": "respond",
-      "effective_route": "respond",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -2058,17 +2764,20 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "respond"
+        "effort": "medium",
+        "plan_summary": "Explain the boolean operations in the workflow and how the three video outputs differ.",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph",
+        "known_graph_context": "Three subgraph nodes (UUIDs: 2dc75cab, b83ac947, 3ad0b41c) are applied to video and image inputs, each producing a video saved by separate SaveVideo nodes."
       }
     },
     {
       "id": "video-video-output-workflow-f855de",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -2078,18 +2787,19 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached workflow's custom nodes (subgraph bindings) and connections to identify likely causes of output blur and banding.",
         "intent": "explain_graph",
         "route": "inspect",
-        "task": "inspect_graph"
+        "task": "diagnose"
       }
     },
     {
       "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
@@ -2100,7 +2810,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set both LoraLoaderModelOnly nodes' strength_model widget to 0.5.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -2108,9 +2818,10 @@
     },
     {
       "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
-      "route": "clarify",
-      "effective_route": "clarify",
-      "route_source": "explicit",
+      "route": "inspect",
+      "effective_route": "inspect",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
@@ -2120,38 +2831,55 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
-        "intent": "respond",
-        "route": "clarify"
-      }
-    },
-    {
-      "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
-      "route": "inspect",
-      "effective_route": "inspect",
-      "route_source": "query_type",
-      "behavior": "non-edit",
-      "ledger": "in",
-      "graph_size": "medium",
-      "media": "video",
-      "node_count": 28,
-      "decision": {
-        "research": false,
-        "implement": false,
-        "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached WanVideo multi-sampler workflow to identify likely causes of temporal flickering and batch noise, focusing on latent handling, sampler settings, and batch management.",
         "intent": "explain_graph",
         "route": "inspect",
         "task": "inspect_graph"
       }
     },
     {
+      "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+      "route": "adapt",
+      "effective_route": "adapt",
+      "route_source": "classifier",
+      "classification_failed": false,
+      "behavior": "edit",
+      "ledger": "in",
+      "graph_size": "medium",
+      "media": "video",
+      "node_count": 28,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "medium",
+        "plan_summary": "Investigate and fix the LoRA variant identity issue (identical outputs) and the brightness/contrast scaling problem by adjusting LoRA strength_model, KSampler settings, and VAE latent scaling based on common Hunyuan video workflows.",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph",
+        "research_goal": "Find common Hunyuan video workflow patterns for LoraLoaderModelOnly strength_model settings that produce noticeable variation, and typical latent scaling/VAE decoding configurations for correct brightness/contrast.",
+        "search_directions": [
+          "LoraLoaderModelOnly strength_model effective range for Hunyuan video",
+          "EmptyHunyuanLatentVideo latent scaling factor",
+          "VAEDecode Hunyuan video brightness contrast fix",
+          "KSamplerAdvanced Hunyuan video sigma schedule",
+          "Hunyuan video LoRA variation troubleshooting"
+        ],
+        "source_preferences": [
+          "workflows",
+          "messages"
+        ],
+        "known_graph_context": "Graph has 4 LoraLoaderModelOnly nodes, 2 UnetLoaderGGUF models, 2 KSamplerAdvanced, VAEDecode, EmptyHunyuanLatentVideo. LoRA variants are supposed to differ in motion/texture. Video brightness/contrast is off, suggesting latent scaling issue.",
+        "target_node_type": "LoraLoaderModelOnly"
+      }
+    },
+    {
       "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
       "route": "revise",
       "effective_route": "revise",
-      "route_source": "query_type_default",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
@@ -2162,7 +2890,7 @@
         "implement": true,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
+        "plan_summary": "Set the steps widget on both KSamplerAdvanced nodes to 25.",
         "intent": "edit",
         "route": "revise",
         "task": "edit_graph"
@@ -2170,9 +2898,10 @@
     },
     {
       "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
-      "route": "inspect",
-      "effective_route": "inspect",
-      "route_source": "query_type",
+      "route": "respond",
+      "effective_route": "respond",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -2183,17 +2912,16 @@
         "implement": false,
         "reply": true,
         "effort": "low",
-        "plan_summary": "",
-        "intent": "explain_graph",
-        "route": "inspect",
-        "task": "inspect_graph"
+        "plan_summary": "Analyze the dual KSamplerAdvanced generation paths in the attached Wan2.2 workflow to explain how high and low noise variants are produced, why two separate paths exist, and how their outputs diverge into different export formats.",
+        "intent": "respond"
       }
     },
     {
       "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
@@ -2203,18 +2931,20 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Explain how the dual-UNet staging splits high-noise and low-noise sampling in this Wan2.2 workflow, and where the LoRAs are applied via LoraLoaderModelOnly nodes.",
         "intent": "explain_graph",
         "route": "inspect",
-        "task": "inspect_graph"
+        "task": "inspect_graph",
+        "known_graph_context": "The graph contains two UNETLoader nodes (37 and 56) feeding into separate ModelSamplingSD3 nodes (54 and 55), then into separate KSamplerAdvanced nodes (57 and 58). Two LoraLoaderModelOnly nodes (63 and 64) each load a LoRA onto the model output, one before the first KSampler and one before the second."
       }
     },
     {
       "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
@@ -2224,18 +2954,18 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Analyze the attached Hunyuan video workflow to identify possible causes of degradation after 16 frames, focusing on SwarmTrimFrames, SwarmKSampler settings, and latent video configuration.",
         "intent": "explain_graph",
-        "route": "inspect",
-        "task": "inspect_graph"
+        "route": "inspect"
       }
     },
     {
       "id": "video-wanvideo-text-to-video-generation-71f825",
       "route": "inspect",
       "effective_route": "inspect",
-      "route_source": "query_type",
+      "route_source": "classifier",
+      "classification_failed": false,
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
@@ -2245,8 +2975,8 @@
         "research": false,
         "implement": false,
         "reply": true,
-        "effort": "low",
-        "plan_summary": "",
+        "effort": "medium",
+        "plan_summary": "Explain the WanVideo text-to-video pipeline flow from text encoding through sampling to final video output, as shown in the attached graph.",
         "intent": "explain_graph",
         "route": "inspect",
         "task": "inspect_graph"

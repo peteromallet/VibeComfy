@@ -63,11 +63,18 @@ Classification dimensions
 
 Selection
 ---------
-The 50-case selection is exact on the HARD quotas (route / behavior / ledger)
-and best-fit on media/size with a documented stable-hash fallback (see the
-module body).  The committed actual media/size table is recorded under
-``quota_table.actual`` so soft-target deviation is auditable without re-running
-the selection.
+The 50-case selection is exact on the HARD quotas (behavior / ledger) and on
+each route quota whenever its pool is sufficient.  Media and graph-size are
+best-fit with a documented stable-hash fallback.  When a route's real pool is
+smaller than its quota — the live classifier never emits ``clarify`` /
+``requires_custom_nodes`` / ``reorganise`` for the 100 canonical scenarios —
+the route deficit is TRANSFERRED within the same edit/non-edit bucket using
+the documented stable-hash order (``sha256(scenario_id)``).  The committed
+actual route table is recorded under ``quota_table.actual.routes`` so the
+transfer is auditable without re-running the selection.  Behavior
+(24 edit / 26 non-edit) and ledger (25 in / 25 out) stay HARD; if the
+within-bucket transfer cannot hold both, behavior stays exact and ledger is
+best-fit.
 """
 
 from __future__ import annotations
@@ -625,37 +632,85 @@ def _deviation(actual: Mapping[str, int], target: Mapping[str, int]) -> int:
     return sum(abs(int(actual.get(k, 0)) - int(t)) for k, t in target.items())
 
 
+def _extra_allocations(
+    routes: list[str],
+    caps: Mapping[str, int],
+    total: int,
+) -> list[dict[str, int]]:
+    """Enumerate every ``{route: extra}`` with ``sum(extra) == total``.
+
+    Each ``extra[route]`` is in ``0..caps[route]``.  The list is built
+    depth-first in the given route order, so it is deterministic.
+    """
+    if not routes:
+        return [{}] if total == 0 else []
+    first, rest = routes[0], routes[1:]
+    results: list[dict[str, int]] = []
+    for take in range(0, min(caps.get(first, 0), total) + 1):
+        for tail in _extra_allocations(rest, caps, total - take):
+            results.append({first: take, **tail})
+    return results
+
+
 def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, Any]]:
-    """Select the 50 cases (hard quotas exact, media/size best-fit).
+    """Select exactly 50 cases (behavior/ledger HARD, routes best-fit fallback).
+
+    Route quotas are HARD whenever the real pool is sufficient.  When a pool is
+    smaller than its quota (the real classifier never emits ``clarify`` /
+    ``requires_custom_nodes`` / ``reorganise`` for these 100 scenarios), the
+    route deficit is transferred within the SAME edit/non-edit bucket so the
+    bucket totals stay exactly at the behavior quotas (24 edit / 26 non-edit).
+    Ledger (25 in / 25 out) is held exactly when the transfer permits it, else
+    best-fit; media/size are always best-fit and tie-broken by the documented
+    stable hash order.
 
     Returns ``(selected_ids, actual_quota_table)``.
     """
     by_id = {e["id"]: e for e in lock_entries}
     pools = _route_pools(lock_entries)
 
-    # 1. Routes whose pool exactly matches their quota are forced in.
-    forced: set[str] = set()
-    for route in ROUTES:
-        if len(pools[route]) == ROUTE_QUOTA[route]:
-            forced.update(pools[route])
+    # 1. Base fill: satisfy each route's quota up to its pool size.
+    base_count = {r: min(ROUTE_QUOTA[r], len(pools[r])) for r in ROUTES}
 
-    remaining_routes = ["inspect", "research", "revise", "adapt"]
+    in_avail: dict[str, int] = {}
+    out_avail: dict[str, int] = {}
+    for r in ROUTES:
+        in_avail[r] = sum(1 for s in pools[r] if by_id[s]["ledger"] == "in")
+        out_avail[r] = len(pools[r]) - in_avail[r]
 
-    forced_in = sum(1 for s in forced if by_id[s]["ledger"] == "in")
-    forced_out = len(forced) - forced_in
-    need_in = LEDGER_QUOTA["in"] - forced_in
-    need_out = LEDGER_QUOTA["out"] - forced_out
+    def _bucket_deficit(bucket: frozenset[str]) -> int:
+        return sum(ROUTE_QUOTA[r] - base_count[r] for r in bucket)
 
-    avail: dict[str, tuple[list[str], list[str]]] = {}
-    for route in remaining_routes:
-        ins = [s for s in pools[route] if s not in forced and by_id[s]["ledger"] == "in"]
-        outs = [s for s in pools[route] if s not in forced and by_id[s]["ledger"] == "out"]
-        avail[route] = (ins, outs)
+    edit_deficit = _bucket_deficit(EDIT_ROUTES)
+    non_edit_deficit = _bucket_deficit(NON_EDIT_ROUTES)
 
-    def pick_for_allocation(alloc: dict[str, int]) -> tuple[set[str], int]:
-        selected = set(forced)
-        media_counts: Counter[str] = Counter(by_id[s]["media"] for s in selected)
-        size_counts: Counter[str] = Counter(by_id[s]["graph_size"] for s in selected)
+    # 2. Headroom routes absorb the same-bucket deficit (the transfer).
+    edit_headroom_routes = [
+        r for r in ROUTES if r in EDIT_ROUTES and len(pools[r]) > base_count[r]
+    ]
+    non_edit_headroom_routes = [
+        r for r in ROUTES if r in NON_EDIT_ROUTES and len(pools[r]) > base_count[r]
+    ]
+    edit_caps = {r: len(pools[r]) - base_count[r] for r in edit_headroom_routes}
+    non_edit_caps = {r: len(pools[r]) - base_count[r] for r in non_edit_headroom_routes}
+
+    # The transfer must be able to hold the behavior quotas exactly.
+    if sum(edit_caps.values()) < edit_deficit or sum(non_edit_caps.values()) < non_edit_deficit:
+        raise ClassificationError(
+            "route-pool fallback cannot hold behavior quotas: "
+            f"edit deficit {edit_deficit} vs headroom {sum(edit_caps.values())}, "
+            f"non-edit deficit {non_edit_deficit} vs headroom {sum(non_edit_caps.values())}"
+        )
+
+    edit_extras = _extra_allocations(edit_headroom_routes, edit_caps, edit_deficit)
+    non_edit_extras = _extra_allocations(
+        non_edit_headroom_routes, non_edit_caps, non_edit_deficit
+    )
+
+    def _pick(final: Mapping[str, int], in_counts: Mapping[str, int]) -> tuple[set[str], int]:
+        selected: set[str] = set()
+        media_counts: Counter[str] = Counter()
+        size_counts: Counter[str] = Counter()
 
         def rank(scenario_id: str) -> tuple[int, int, str]:
             media = by_id[scenario_id]["media"]
@@ -664,60 +719,81 @@ def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, 
             size_need = SIZE_TARGET.get(size, 0) - size_counts.get(size, 0)
             return (media_need, size_need, _stable_key(scenario_id))
 
-        for route in remaining_routes:
-            ins, outs = avail[route]
-            take_in = alloc[route]
-            take_out = ROUTE_QUOTA[route] - take_in
-            ins_sorted = sorted(ins, key=rank)
-            outs_sorted = sorted(outs, key=rank)
-            for scenario_id in ins_sorted[:take_in] + outs_sorted[:take_out]:
+        for route in ROUTES:
+            pool = pools[route]
+            take = final[route]
+            take_in = in_counts[route]
+            ins = sorted((s for s in pool if by_id[s]["ledger"] == "in"), key=rank)
+            outs = sorted((s for s in pool if by_id[s]["ledger"] == "out"), key=rank)
+            for scenario_id in ins[:take_in] + outs[:take - take_in]:
                 selected.add(scenario_id)
                 media_counts[by_id[scenario_id]["media"]] += 1
                 size_counts[by_id[scenario_id]["graph_size"]] += 1
-        return selected, _deviation(media_counts, MEDIA_TARGET) + _deviation(
+        deviation = _deviation(media_counts, MEDIA_TARGET) + _deviation(
             size_counts, SIZE_TARGET
         )
+        return selected, deviation
 
-    best: tuple[tuple[int, ...], set[str], dict[str, int]] | None = None
-    for insp_in in range(4, 9):
-        for res_in in range(4, 9):
-            for rev_in in range(0, 13):
-                for adapt_in in range(6, 9):
-                    if insp_in + res_in + rev_in + adapt_in != need_in:
-                        continue
-                    alloc = {
-                        "inspect": insp_in,
-                        "research": res_in,
-                        "revise": rev_in,
-                        "adapt": adapt_in,
-                    }
-                    feasible = True
-                    for route in remaining_routes:
-                        ins, outs = avail[route]
-                        take_in = alloc[route]
-                        take_out = ROUTE_QUOTA[route] - take_in
-                        if take_in > len(ins) or take_out > len(outs):
-                            feasible = False
-                            break
-                    if not feasible:
-                        continue
-                    selected, deviation = pick_for_allocation(alloc)
-                    key = (deviation, insp_in, res_in, rev_in, adapt_in)
-                    if best is None or key < best[0]:
-                        best = (key, selected, alloc)
+    def _in_enumerations(
+        final: Mapping[str, int],
+        free_routes: list[str],
+        prefix: dict[str, int],
+    ):
+        if not free_routes:
+            yield dict(prefix)
+            return
+        route = free_routes[0]
+        rest = free_routes[1:]
+        lo = max(0, final[route] - out_avail[route])
+        hi = min(in_avail[route], final[route])
+        for take in range(lo, hi + 1):
+            next_prefix = dict(prefix)
+            next_prefix[route] = take
+            yield from _in_enumerations(final, rest, next_prefix)
+
+    best_key: tuple[Any, ...] | None = None
+    best: tuple[set[str], dict[str, int], dict[str, int], dict[str, int]] | None = None
+    for non_edit_extra in non_edit_extras:
+        for edit_extra in edit_extras:
+            extra = {**non_edit_extra, **edit_extra}
+            final = {r: base_count[r] + extra.get(r, 0) for r in ROUTES}
+
+            free_routes = [r for r in ROUTES if 0 < final[r] < len(pools[r])]
+            fixed: dict[str, int] = {}
+            for r in ROUTES:
+                if final[r] == len(pools[r]):
+                    fixed[r] = in_avail[r]  # all pool scenarios selected
+                elif final[r] == 0:
+                    fixed[r] = 0
+
+            for in_counts in _in_enumerations(final, free_routes, fixed):
+                total_in = sum(in_counts.values())
+                ledger_penalty = abs(total_in - LEDGER_QUOTA["in"])
+                selected, deviation = _pick(final, in_counts)
+                key = (
+                    ledger_penalty,
+                    deviation,
+                    tuple((r, extra.get(r, 0)) for r in ROUTES),
+                    tuple(in_counts.get(r, 0) for r in ROUTES),
+                    tuple(sorted(selected)),
+                )
+                if best_key is None or key < best_key:
+                    best_key = key
+                    best = (selected, final, in_counts, extra)
 
     assert best is not None, "no feasible 50-case selection"
-    _, selected, alloc = best
+    selected, _final, in_counts, extra = best
 
     selected_ids = sorted(selected)
-    actual_quota = _actual_quota_table(by_id, selected_ids, alloc)
+    actual_quota = _actual_quota_table(by_id, selected_ids, in_counts, extra)
     return selected_ids, actual_quota
 
 
 def _actual_quota_table(
     by_id: Mapping[str, dict[str, Any]],
     selected_ids: list[str],
-    alloc: Mapping[str, int],
+    in_counts: Mapping[str, int],
+    extra: Mapping[str, int],
 ) -> dict[str, Any]:
     route_counts = Counter(by_id[s]["route"] for s in selected_ids)
     behavior_counts = Counter(by_id[s]["behavior"] for s in selected_ids)
@@ -730,7 +806,8 @@ def _actual_quota_table(
         "ledger": {k: ledger_counts.get(k, 0) for k in ("in", "out")},
         "media": {k: media_counts.get(k, 0) for k in MEDIA_TARGET},
         "graph_size": {k: size_counts.get(k, 0) for k in SIZE_TARGET},
-        "in_57_allocation": {k: int(v) for k, v in alloc.items()},
+        "in_57_allocation": {r: int(in_counts.get(r, 0)) for r in ROUTES if in_counts.get(r, 0)},
+        "route_transfers": {r: int(extra.get(r, 0)) for r in ROUTES if extra.get(r, 0)},
     }
 
 
@@ -775,6 +852,13 @@ def _assemble_lock(
             },
             "media": "modality tag -> id prefix -> special (graph-less) / image fallback",
             "stable_hash_fallback": "sha256(scenario_id) breaks selection ties",
+            "route_quota_fallback": (
+                "route quotas are HARD when the pool is sufficient; when the real "
+                "pool is smaller than the quota the deficit is transferred within "
+                "the same edit/non-edit bucket (stable-hash tie-break), behavior "
+                "stays exact (24/26), ledger stays exact when feasible (25/25), "
+                "and the resulting route table is committed under quota_table.actual."
+            ),
             "explicit_route_overrides": dict(EXPLICIT_ROUTES),
             "effective_route": (
                 "executor-canonical route after _normalize_explicit_route; "
@@ -920,17 +1004,37 @@ def validate_lock(
 
 
 def validate_manifest_quotas(manifest: Mapping[str, Any], lock: Mapping[str, Any]) -> None:
-    """Validate the 50-manifest selection against the lock's hard quotas."""
+    """Validate the 50-manifest selection against the lock's hard quotas.
+
+    Behavior (24 edit / 26 non-edit) and ledger (25 in / 25 out) are HARD and
+    must match exactly.  Route quotas are HARD when the real pool is
+    sufficient; when a pool is insufficient the selection transfers the route
+    deficit within the same edit/non-edit bucket and commits the resulting
+    table under ``quota_table.actual.routes`` — so route counts are validated
+    against that committed actual table (which must be feasible against the
+    lock pools and total 50).
+    """
     lock_by_id = {e["id"]: e for e in lock["entries"]}
     included = [e["id"] for e in manifest["entries"] if e["inclusion_status"] == "included"]
     if len(included) != 50:
         raise ClassificationError(f"manifest must include 50 scenarios, got {len(included)}")
 
     route_counts = Counter(lock_by_id[s]["route"] for s in included)
-    for route, quota in ROUTE_QUOTA.items():
-        if route_counts.get(route, 0) != quota:
+    actual = (lock.get("quota_table") or {}).get("actual") or {}
+    actual_routes = actual.get("routes")
+    if not isinstance(actual_routes, Mapping):
+        raise ClassificationError("lock quota_table.actual.routes is missing")
+    if sum(int(actual_routes.get(r, 0)) for r in ROUTES) != 50:
+        raise ClassificationError("committed actual route table must total 50")
+    pool_sizes = Counter(e["route"] for e in lock["entries"])
+    for route in ROUTES:
+        committed = int(actual_routes.get(route, 0))
+        if committed > pool_sizes.get(route, 0):
+            raise ClassificationError(f"committed actual route table exceeds pool for {route}")
+        if route_counts.get(route, 0) != committed:
             raise ClassificationError(
-                f"route quota {route}: expected {quota}, got {route_counts.get(route, 0)}"
+                f"route count {route}: expected {committed} (committed actual), "
+                f"got {route_counts.get(route, 0)}"
             )
     behavior_counts = Counter(lock_by_id[s]["behavior"] for s in included)
     for behavior, quota in BEHAVIOR_QUOTA.items():

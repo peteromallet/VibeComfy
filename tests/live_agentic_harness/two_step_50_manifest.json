@@ -7,7 +7,7 @@
       "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2.json",
       "descriptor_sha256": "f2d7ac44c1d69ddbc3da300e0700868a9107e64c2ce5b75a405d92080b761f46",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -18,7 +18,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -38,9 +38,9 @@
         "sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583"
       },
       "classification": {
-        "route": "adapt",
-        "effective_route": "adapt",
-        "route_source": "query_type",
+        "route": "revise",
+        "effective_route": "revise",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -51,7 +51,7 @@
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-generation-and-retargeting-workflow-f65774.json",
       "descriptor_sha256": "56ec24c8f324bb7d0f94befd5e3392d6f90d850e3556a25e970f54754adff64d",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -62,7 +62,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -82,9 +82,9 @@
         "sha256": "cb759b44eeef9b28df2ed3f0d0e835ce3d2d35770930a7d0a95cbaccb80b68f3"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -104,9 +104,9 @@
         "sha256": "3f7fe8c665328f4ffa8db8f851da2081f288c9e2d107fd697c89de8655cf5f63"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -117,7 +117,7 @@
       "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-model-load-edit-and-export-workflow-d66a66.json",
       "descriptor_sha256": "5fe9bba69049a4849346c505321eac3e7a4c44b212b67d8e940de12f92874bbe",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -128,7 +128,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -139,7 +139,7 @@
       "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
       "path": "tests/live_agentic_harness/scenarios/3d-3d-shape-generation-and-export-workflow-8800a9.json",
       "descriptor_sha256": "4c8dfefcdd372108a83b88fd5b855c557f3fc3ef436e40cb92418e02a4b3a6c0",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -150,7 +150,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -170,9 +170,9 @@
         "sha256": "d587fb6ac78718887c0a77b00a778ba43e662ccf69d024e54dcb1b12ca4c0aa0"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -192,9 +192,9 @@
         "sha256": "a44f0b8c613d8b7355c2969b284e1daa2ad0b105fa6c7479ad60f784714e47d3"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -205,7 +205,7 @@
       "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
       "path": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-and-processing-workfl-1b1360.json",
       "descriptor_sha256": "d25924f826c59d4fd1a41191ef495638dc2d2d80f2456ed41bd9648213b916ba",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -216,7 +216,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "large",
@@ -238,7 +238,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -249,7 +249,7 @@
       "id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
       "path": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-with-ksampler-e8c20a.json",
       "descriptor_sha256": "77838383270cd869d9f8f74e29e9778e7022b10a7fdd6d094f54a5848e127b01",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -260,7 +260,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -271,7 +271,7 @@
       "id": "audio-acestep-audio-generation-workflow-2a31ec",
       "path": "tests/live_agentic_harness/scenarios/audio-acestep-audio-generation-workflow-2a31ec.json",
       "descriptor_sha256": "f48a0350bc94e328d3aaf0d81cd8eb67fa0a95c458c61b215ea844b4e802b248",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -280,9 +280,9 @@
         "sha256": "3902cecc195ce146f556f168b80847d57b4b87b81e9055cda2edafb2411e5f62"
       },
       "classification": {
-        "route": "requires_custom_nodes",
-        "effective_route": "adapt",
-        "route_source": "explicit",
+        "route": "revise",
+        "effective_route": "revise",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -302,9 +302,9 @@
         "sha256": "bda4c6f02ff8c802b82a2e3abe79b631a5f4beccf2905bfb71a3824152cb319f"
       },
       "classification": {
-        "route": "adapt",
-        "effective_route": "adapt",
-        "route_source": "query_type",
+        "route": "revise",
+        "effective_route": "revise",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "large",
@@ -326,7 +326,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -346,9 +346,9 @@
         "sha256": "b9d457b89bb7353cd60e0687d9f30edbc60c640001f10a99983915de45dca5f8"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -359,7 +359,7 @@
       "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
       "path": "tests/live_agentic_harness/scenarios/audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf.json",
       "descriptor_sha256": "c10b4644cd9431a288e5d3726eecc1032a25da914c1c7b640cf4ee4a39d82a45",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -370,7 +370,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -390,9 +390,9 @@
         "sha256": "bb636c1f03add5825296d4177008d96493454bff45a0d933c7da2778fc875e5b"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -412,9 +412,9 @@
         "sha256": "c77073490f3892e5b847588c734ae3ba2565b3e1de9326f927170496f28b7727"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -425,7 +425,7 @@
       "id": "hotshot-16-frames-agent-edit",
       "path": "tests/live_agentic_harness/scenarios/hotshot-16-frames-agent-edit.json",
       "descriptor_sha256": "f2a78c2f6c5a1ec022488456b98de9aca73006152f682dfb8db0a83d045a1b9e",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -434,9 +434,9 @@
         "sha256": "13ed4f77db40b41c6378c596c24f6c0ad29e24aaa661e6ca04f6712a57baf7b6"
       },
       "classification": {
-        "route": "requires_custom_nodes",
+        "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "explicit",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -456,9 +456,9 @@
         "sha256": "3e00229733baeaeeec5239e71beeeda731bb154a3b1289512fa6778898efed31"
       },
       "classification": {
-        "route": "research",
-        "effective_route": "research",
-        "route_source": "query_type",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -478,9 +478,9 @@
         "sha256": "c3a41c3b5599276a4c8670a00454fda9772f9e48480461a2e6668cfeb3332912"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -491,7 +491,7 @@
       "id": "image-animatediff-video-generation-with-vae-d20410",
       "path": "tests/live_agentic_harness/scenarios/image-animatediff-video-generation-with-vae-d20410.json",
       "descriptor_sha256": "e18c6090e4b86904a4bbbbfe85bdbf6a46c0595f11f464306cea7c46ac8d2a5c",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -502,7 +502,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -524,7 +524,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -535,7 +535,7 @@
       "id": "image-background-removal-and-grid-composition-54a681",
       "path": "tests/live_agentic_harness/scenarios/image-background-removal-and-grid-composition-54a681.json",
       "descriptor_sha256": "1efa9c89b3d53db3020ec47f3fef9885366686ab7c7bd3151917b48b842c4e52",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -544,9 +544,9 @@
         "sha256": "3b207e76498cf7c34deec6479600832ecee7432143484bf7584db02c8daeb6ee"
       },
       "classification": {
-        "route": "reorganise",
-        "effective_route": "reorganise",
-        "route_source": "explicit",
+        "route": "revise",
+        "effective_route": "revise",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -557,7 +557,7 @@
       "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
       "path": "tests/live_agentic_harness/scenarios/image-dual-checkpoint-xl-image-generation-with-refin-c9df19.json",
       "descriptor_sha256": "1e7062329f4613d39cf741a8a7110116ebdcea839c524fac15fb8212af79583b",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -568,7 +568,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -579,7 +579,7 @@
       "id": "image-face-detection-and-cropping-workflow-949658",
       "path": "tests/live_agentic_harness/scenarios/image-face-detection-and-cropping-workflow-949658.json",
       "descriptor_sha256": "44591849becb2e16c6ade497c6e9af3cac3e293782c77be5468d779b92e02fbb",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -590,7 +590,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -612,7 +612,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -634,7 +634,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -645,7 +645,7 @@
       "id": "image-generates-a-2x2-seed-variation",
       "path": "tests/live_agentic_harness/scenarios/image-generates-a-2x2-seed-variation.json",
       "descriptor_sha256": "97355c316f3b9f6285bf4f2866c93b361dacfc956eeff6c9ea87a24cada79b01",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -654,9 +654,9 @@
         "sha256": "fe550572488ea0190a95021290f93630055c0c1ebde95963bc4c15e9f4b83b01"
       },
       "classification": {
-        "route": "reorganise",
-        "effective_route": "reorganise",
-        "route_source": "explicit",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -676,9 +676,9 @@
         "sha256": "11e3fb489c3cc8aee26f3d86e9d34cd6c59ad6affe650eb68a5389015104b2d4"
       },
       "classification": {
-        "route": "adapt",
-        "effective_route": "adapt",
-        "route_source": "query_type",
+        "route": "revise",
+        "effective_route": "revise",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -689,7 +689,7 @@
       "id": "image-image-editing-with-qwen-image",
       "path": "tests/live_agentic_harness/scenarios/image-image-editing-with-qwen-image.json",
       "descriptor_sha256": "84fd815360181be85daa88df0078b17bf9e25791ffd71f1318458c5b6b3cb9be",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -698,9 +698,9 @@
         "sha256": "e639739cd84018810243c609441cb8e8f56f7735be2682578d14fdda7c49fff2"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -711,7 +711,7 @@
       "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
       "path": "tests/live_agentic_harness/scenarios/image-image-processing-with-sharpening-film-grain-an-9aa0f1.json",
       "descriptor_sha256": "7a01b9c36e189b5ef424344a0ca90eafc832022f71a14091a6e84a5f46d8bb91",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -722,7 +722,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -744,7 +744,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -755,7 +755,7 @@
       "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
       "path": "tests/live_agentic_harness/scenarios/image-image-to-image-with-ipadapter-and-controlnet-1999a9.json",
       "descriptor_sha256": "12229915b1fc6a91fa40dbd8217de299577e02974cae4550af8f090cfa52797c",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -764,9 +764,9 @@
         "sha256": "ca001814c33a186bc189891e96aa2dda45182b6c1405e02a0d803c0fbd5c1d63"
       },
       "classification": {
-        "route": "research",
-        "effective_route": "research",
-        "route_source": "query_type",
+        "route": "respond",
+        "effective_route": "respond",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -788,7 +788,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -810,7 +810,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -821,7 +821,7 @@
       "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
       "path": "tests/live_agentic_harness/scenarios/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
       "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -832,7 +832,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -854,7 +854,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -865,7 +865,7 @@
       "id": "image-llava-image-captioning-and-keyword-extraction-d38dc8",
       "path": "tests/live_agentic_harness/scenarios/image-llava-image-captioning-and-keyword-extraction-d38dc8.json",
       "descriptor_sha256": "0f5a115a9b5f97f8adfe889ff74d0d6eabb966acd979b9fb7e86484c40df2417",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -876,7 +876,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
@@ -887,7 +887,7 @@
       "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
       "path": "tests/live_agentic_harness/scenarios/image-qwen-image-inpainting-with-controlnet-09fc64.json",
       "descriptor_sha256": "1ae164bed94f42061305b46b445b5f90c046a47d7e468dda8b572ae93e871d52",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -898,7 +898,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -920,7 +920,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -942,7 +942,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -953,7 +953,7 @@
       "id": "image-style-transfer-using-ip-adapter",
       "path": "tests/live_agentic_harness/scenarios/image-style-transfer-using-ip-adapter.json",
       "descriptor_sha256": "ecc29b99ec087d1e184b2215948b1762c7b6c2adf161bb36a4269852acce999e",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -962,10 +962,10 @@
         "sha256": "dc78f9218fa2e40166ed62cd6a266bcf33b05e5f5a19423b242de724ab6d14d0"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
-        "behavior": "edit",
+        "route": "respond",
+        "effective_route": "respond",
+        "route_source": "classifier",
+        "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
         "media": "image"
@@ -975,7 +975,7 @@
       "id": "image-two-stage-qwen-image-generation",
       "path": "tests/live_agentic_harness/scenarios/image-two-stage-qwen-image-generation.json",
       "descriptor_sha256": "0a2e921da3a8268c66a9459fd6c8374d823a890c34318fdac439bb12dad14635",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -984,9 +984,9 @@
         "sha256": "f8c0e7b8e9247725c51b6e804a579be8c0a24ead7912c32863e45cc12986d8cc"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -997,7 +997,7 @@
       "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
       "path": "tests/live_agentic_harness/scenarios/image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5.json",
       "descriptor_sha256": "b9c51894e6c3889a7beef0a58a0fc44f1ac9c59ad2fe4844e5666d10549ace2c",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1008,7 +1008,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1024,9 +1024,9 @@
       "scenario_kind": "health_control",
       "source_workflow": null,
       "classification": {
-        "route": "clarify",
-        "effective_route": "clarify",
-        "route_source": "explicit",
+        "route": "respond",
+        "effective_route": "respond",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1048,7 +1048,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1059,7 +1059,7 @@
       "id": "multi-3d-preview-and-image-output-workflow-d93baf",
       "path": "tests/live_agentic_harness/scenarios/multi-3d-preview-and-image-output-workflow-d93baf.json",
       "descriptor_sha256": "95517c4f76820fb5afc914d92fff2820f00b156f70f7a338baf1cdad93ea43dc",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1070,7 +1070,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1081,7 +1081,7 @@
       "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
       "path": "tests/live_agentic_harness/scenarios/multi-ai-video-upscaling-with-detail-daemon-sampler-673197.json",
       "descriptor_sha256": "2ca7950b93535364cb63947b4d658ec35eb0fbd9d3113da74e480be28c40b457",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1092,7 +1092,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1112,9 +1112,9 @@
         "sha256": "c148b3b74fb11eb408e6cfb2150189075d1b122b64eb6a341775267404c62af9"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1136,7 +1136,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1147,7 +1147,7 @@
       "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
       "path": "tests/live_agentic_harness/scenarios/multi-animatediff-video-generation-with-controlnet-a7e2af.json",
       "descriptor_sha256": "720ee6a201b2f55a3ce04ae187ab106f1696cbcfd00a07f22618e83c6440e7e6",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1158,7 +1158,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1178,9 +1178,9 @@
         "sha256": "077292868e97a8d989ebd160f63586ff25d4007fa0b2a6a40bdc3dc4b4af6cf8"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1191,7 +1191,7 @@
       "id": "multi-crops-face-previews-it-sets",
       "path": "tests/live_agentic_harness/scenarios/multi-crops-face-previews-it-sets.json",
       "descriptor_sha256": "a6a7002d7be035bd14f35adcb6baa5e7d17547caf78e5e30a5c0ff6b0138e1e7",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1200,9 +1200,9 @@
         "sha256": "7730940ab01727f13901b82d57ac190c937aed3bdf4f768714beab76fa97fc97"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1224,7 +1224,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1235,7 +1235,7 @@
       "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
       "path": "tests/live_agentic_harness/scenarios/multi-flux2-image-and-video-generation-with-outpaint-435de2.json",
       "descriptor_sha256": "b62397aca092f6d35537e0b4f3cc08ea4a2d8c15c776f0ce1da6c83464194d8b",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1246,7 +1246,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1257,7 +1257,7 @@
       "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
       "path": "tests/live_agentic_harness/scenarios/multi-image-to-3d-object-generation-with-background-1a7f84.json",
       "descriptor_sha256": "42d2adb6af5e3676ad23a1606ec6b09927814d69629056fa3702619daec8d11c",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1268,7 +1268,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1288,9 +1288,9 @@
         "sha256": "a9d8ce67507977b3ceaeef81373cee4d77eb1f74693c1a1f15ee24a0e8591797"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1301,7 +1301,7 @@
       "id": "multi-image-to-video-generation-with",
       "path": "tests/live_agentic_harness/scenarios/multi-image-to-video-generation-with.json",
       "descriptor_sha256": "658d689c909d45897c853f0f9007b1cd03798e75d8dfd7165ca4c991b7681332",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1312,7 +1312,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1323,7 +1323,7 @@
       "id": "multi-image-to-video-with-llm",
       "path": "tests/live_agentic_harness/scenarios/multi-image-to-video-with-llm.json",
       "descriptor_sha256": "0ffb8c2943a475ba80c8328db6b85bb6081a1f9936cea3c6acbed561263de8e1",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1332,9 +1332,9 @@
         "sha256": "287ee5ba6b895449763a1f6589d6d5b66fa225844ace8892e957c62d07504d22"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1356,7 +1356,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1367,7 +1367,7 @@
       "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
       "path": "tests/live_agentic_harness/scenarios/multi-svd-image-to-video-with-animation-builder-99e2a9.json",
       "descriptor_sha256": "7f7753d1f23a9a376d1926a1110a5d7673bf44f9698d6cf453b4de3f9ff2b531",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1378,7 +1378,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1398,9 +1398,9 @@
         "sha256": "b3356f4640f638998d1eae50dd2ac775342c649d6d3a77940b93d6c72b762189"
       },
       "classification": {
-        "route": "research",
-        "effective_route": "research",
-        "route_source": "query_type",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1411,7 +1411,7 @@
       "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
       "path": "tests/live_agentic_harness/scenarios/multi-svd-image-to-video-with-webp-and-png-output-bd3afb.json",
       "descriptor_sha256": "e014838aa1dca64cd50ac288895928d490e197d5902c6dd37176981bb8e4466d",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1420,9 +1420,9 @@
         "sha256": "2cb7a617786580e0e57ff0c1e8c96177ca558b20b79a8cd1db04c70cf3b48065"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1433,7 +1433,7 @@
       "id": "multi-video-based-character-replacement-using",
       "path": "tests/live_agentic_harness/scenarios/multi-video-based-character-replacement-using.json",
       "descriptor_sha256": "f096cd3491a6d5b5c33ed81dff425360cde4b11a297c2f0c1220dde7f55291f6",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1442,9 +1442,9 @@
         "sha256": "4b91ba865e85eec812ff4e57248460d6d71ac9a588e96603a66305d2b93e4c27"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "large",
@@ -1464,9 +1464,9 @@
         "sha256": "13c890a1184ac5e7782deec1889f95dd053c1d549a8f57977759afac376adc95"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1488,7 +1488,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1508,9 +1508,9 @@
         "sha256": "ad33e9fc8b7bab56a1878c013729b2e5d92e772a048d9433d9cb9dfac8981ca5"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1521,7 +1521,7 @@
       "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
       "path": "tests/live_agentic_harness/scenarios/multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6.json",
       "descriptor_sha256": "2b1e2b29560a0e53dc3eab6fcb1483bcd62906ef0eaba90d84fe82295f28b174",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1532,7 +1532,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1554,7 +1554,7 @@
       "classification": {
         "route": "adapt",
         "effective_route": "adapt",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1565,14 +1565,14 @@
       "id": "speed-distillation-research",
       "path": "tests/live_agentic_harness/scenarios/speed-distillation-research.json",
       "descriptor_sha256": "5cd0755b3e83818619ba7e8dd40d360a2e419254b6f5394fd50eaca0de4dca80",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "health_control",
       "source_workflow": null,
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "health_control",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1583,7 +1583,7 @@
       "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
       "path": "tests/live_agentic_harness/scenarios/video-animatediff-video-to-video-with-controlnet-and-3c978e.json",
       "descriptor_sha256": "567db58ecb1414b915beff36fa23e85beb2cbc8e1d1df94f86b681cb230f0813",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1592,9 +1592,9 @@
         "sha256": "ca8d60a2764fd409f80e7abe72b537618ee86e51921e1038f201ae5fb162d262"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1616,7 +1616,7 @@
       "classification": {
         "route": "research",
         "effective_route": "research",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1638,7 +1638,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1649,7 +1649,7 @@
       "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
       "path": "tests/live_agentic_harness/scenarios/video-anime-video-to-video-with-controlnet-and-openp-cb5cd2.json",
       "descriptor_sha256": "be6ab379599005b2da5f78953b2829e93801086b24082f6af662375ac24fc3fd",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1660,7 +1660,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1671,7 +1671,7 @@
       "id": "video-generates-a-video-from-a",
       "path": "tests/live_agentic_harness/scenarios/video-generates-a-video-from-a.json",
       "descriptor_sha256": "521376ee3a0b3c568644df355f791036ca6a034c6e9b0f4f4e78450c1953928d",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1682,7 +1682,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1704,7 +1704,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1715,7 +1715,7 @@
       "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
       "path": "tests/live_agentic_harness/scenarios/video-hunyuanvideo-image-to-video-generation-with-en-ff076a.json",
       "descriptor_sha256": "60a19bcef50943ef4134e0282d1d14a312df987354e5e3a03c0f380854d942e0",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1724,10 +1724,10 @@
         "sha256": "8bebcee908a9c9ba17f883e208abd93375e7d954121dd2c80db2d186767cd2b5"
       },
       "classification": {
-        "route": "inspect",
-        "effective_route": "inspect",
-        "route_source": "query_type",
-        "behavior": "non-edit",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
+        "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
         "media": "video"
@@ -1737,7 +1737,7 @@
       "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
       "path": "tests/live_agentic_harness/scenarios/video-image-to-video-conversion-with-moonvalley-d7853c.json",
       "descriptor_sha256": "e901dc35c34ce1df20e25c447b229d7cec14db7d4c4a6104d78066985a5c0ff7",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1748,7 +1748,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -1768,9 +1768,9 @@
         "sha256": "41597117a2186ca9c6dc92be42dd774a00fca05238789db69c366dd15ab022dd"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1781,7 +1781,7 @@
       "id": "video-inpaint-and-video-composition-with-spline-path-0c2716",
       "path": "tests/live_agentic_harness/scenarios/video-inpaint-and-video-composition-with-spline-path-0c2716.json",
       "descriptor_sha256": "70016371de512ecb19b82abb1e91a6b6c3ad1fbf9bd9ea77173b0e3f5f0cc28c",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1790,9 +1790,9 @@
         "sha256": "b2a1d82c6e8dc46725591797da6c683afb3e7a77dea44bec2d9a38ff44eab6c7"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1812,9 +1812,9 @@
         "sha256": "7e21e6095614576595e0fead1353f7768d96f69044822a47677728422ac494c7"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -1825,7 +1825,7 @@
       "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
       "path": "tests/live_agentic_harness/scenarios/video-ltx-video-with-audio-and-inpainting-b3ba8a.json",
       "descriptor_sha256": "278356fa8368436777bcce434c3ae07926a149051633f32910e6cd76d10fa829",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1836,7 +1836,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "large",
@@ -1847,7 +1847,7 @@
       "id": "video-seedvr2-video-upscaling-workflow-052e59",
       "path": "tests/live_agentic_harness/scenarios/video-seedvr2-video-upscaling-workflow-052e59.json",
       "descriptor_sha256": "6a6ef6f9f992f2bdbebf847bbf0be5cb00cefc37475c80e79db36424cb33d4ce",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1856,9 +1856,9 @@
         "sha256": "ffa4b51b3a241cf0b1a5902b2edfa494c342034f827affe0ec0e63aa8dc648bd"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1869,7 +1869,7 @@
       "id": "video-svd-image-to-video-generation-fc240f",
       "path": "tests/live_agentic_harness/scenarios/video-svd-image-to-video-generation-fc240f.json",
       "descriptor_sha256": "9db971822b1d3773a0c8957b2dfdc4b90ed4b00a326ea367179caee972564711",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1880,7 +1880,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1891,7 +1891,7 @@
       "id": "video-video-combine-with-image-loading-5b31ce",
       "path": "tests/live_agentic_harness/scenarios/video-video-combine-with-image-loading-5b31ce.json",
       "descriptor_sha256": "e89b10b77c36bb0626e1b6b7469301d0adbb8ba5ab62ee0c274aadc89b5d284d",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1902,7 +1902,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1922,9 +1922,9 @@
         "sha256": "0777c7617c560f47c5ff458ceb4d8a6523e2ce68e63b7ed8fcc85378edb97a70"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1944,9 +1944,9 @@
         "sha256": "3eabc55f313419534e77269a79b036c8db8f44d0946b5400e5dc2c8aba553cfc"
       },
       "classification": {
-        "route": "revise",
-        "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -1957,7 +1957,7 @@
       "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
       "path": "tests/live_agentic_harness/scenarios/video-video-inpainting-with-spline-based-cut-and-dra-485ff2.json",
       "descriptor_sha256": "7dac91561e39270ea35e71c8eb1e7e4335dda4bc70f5efe8e271bd7ee841beb1",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -1968,7 +1968,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -1979,7 +1979,7 @@
       "id": "video-video-loading-and-saving-workflow-1c7ad8",
       "path": "tests/live_agentic_harness/scenarios/video-video-loading-and-saving-workflow-1c7ad8.json",
       "descriptor_sha256": "4a42efa6c4cd9a67e3e627741da499170930bda6be1368618aed1fefa1edd01c",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -1988,9 +1988,9 @@
         "sha256": "5106b5b32b6866c2c45e61f1c9f9b99ac09763d2a907fc480ad47fb43763a8c3"
       },
       "classification": {
-        "route": "respond",
-        "effective_route": "respond",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -2012,7 +2012,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -2023,7 +2023,7 @@
       "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
       "path": "tests/live_agentic_harness/scenarios/video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20.json",
       "descriptor_sha256": "85f39a731f432c554bcfcc0902c370c71a5b045c17065bcbb4cf295bda23a745",
-      "inclusion_status": "excluded",
+      "inclusion_status": "included",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -2034,7 +2034,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "in",
         "graph_size": "small",
@@ -2045,7 +2045,7 @@
       "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
       "path": "tests/live_agentic_harness/scenarios/video-wan-video-generation-with-vace-and-multi-outpu-d1caec.json",
       "descriptor_sha256": "62406a5ae130e9242079b6d1dded955736e273d0c86f842dee3975ea0659172e",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -2054,9 +2054,9 @@
         "sha256": "7c52a085b58a386cb83ceecf183886197e90100d9ecd76f72b90eda1302d5db9"
       },
       "classification": {
-        "route": "clarify",
-        "effective_route": "clarify",
-        "route_source": "explicit",
+        "route": "inspect",
+        "effective_route": "inspect",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "large",
@@ -2076,10 +2076,10 @@
         "sha256": "9c5506586ffe421d7036c393ece06f5d54136505115187a259bc9d64f1c6f49c"
       },
       "classification": {
-        "route": "inspect",
-        "effective_route": "inspect",
-        "route_source": "query_type",
-        "behavior": "non-edit",
+        "route": "adapt",
+        "effective_route": "adapt",
+        "route_source": "classifier",
+        "behavior": "edit",
         "ledger": "in",
         "graph_size": "medium",
         "media": "video"
@@ -2089,7 +2089,7 @@
       "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
       "path": "tests/live_agentic_harness/scenarios/video-wan2-2-text-to-video-with-dual-unet-and-model-03fced.json",
       "descriptor_sha256": "f4b4d6aadc320f1e02d88c0c33fdaf05ba3f146e63ebf9c13780569d081cca87",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "edit",
       "source_workflow": {
@@ -2100,7 +2100,7 @@
       "classification": {
         "route": "revise",
         "effective_route": "revise",
-        "route_source": "query_type_default",
+        "route_source": "classifier",
         "behavior": "edit",
         "ledger": "out",
         "graph_size": "small",
@@ -2120,9 +2120,9 @@
         "sha256": "93eb79de70cc379a83d40bcb131b6e9d8c9b1133de89e961b325ab5c7078ee83"
       },
       "classification": {
-        "route": "inspect",
-        "effective_route": "inspect",
-        "route_source": "query_type",
+        "route": "respond",
+        "effective_route": "respond",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -2144,7 +2144,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "out",
         "graph_size": "medium",
@@ -2166,7 +2166,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "medium",
@@ -2177,7 +2177,7 @@
       "id": "video-wanvideo-text-to-video-generation-71f825",
       "path": "tests/live_agentic_harness/scenarios/video-wanvideo-text-to-video-generation-71f825.json",
       "descriptor_sha256": "df4959641e24bfcd7b62ad558dc4cede081febf7e14f44475fd3a70855f60d31",
-      "inclusion_status": "included",
+      "inclusion_status": "excluded",
       "revision_status": "matched",
       "scenario_kind": "semantic_product",
       "source_workflow": {
@@ -2188,7 +2188,7 @@
       "classification": {
         "route": "inspect",
         "effective_route": "inspect",
-        "route_source": "query_type",
+        "route_source": "classifier",
         "behavior": "non-edit",
         "ledger": "in",
         "graph_size": "small",
@@ -2233,14 +2233,14 @@
       },
       "actual": {
         "routes": {
-          "clarify": 2,
-          "respond": 8,
-          "inspect": 8,
+          "clarify": 0,
+          "respond": 4,
+          "inspect": 14,
           "research": 8,
-          "requires_custom_nodes": 2,
+          "requires_custom_nodes": 0,
           "revise": 12,
-          "adapt": 8,
-          "reorganise": 2
+          "adapt": 12,
+          "reorganise": 0
         },
         "behavior": {
           "edit": 24,
@@ -2251,23 +2251,28 @@
           "out": 25
         },
         "media": {
-          "image": 11,
-          "video": 20,
-          "multimodal": 5,
-          "audio": 7,
-          "3d": 6,
-          "special": 1
+          "image": 12,
+          "video": 12,
+          "multimodal": 17,
+          "audio": 5,
+          "3d": 4,
+          "special": 0
         },
         "graph_size": {
-          "small": 28,
-          "medium": 17,
-          "large": 5
+          "small": 26,
+          "medium": 20,
+          "large": 4
         },
         "in_57_allocation": {
-          "inspect": 4,
-          "research": 4,
-          "revise": 0,
-          "adapt": 8
+          "respond": 2,
+          "inspect": 6,
+          "research": 8,
+          "revise": 8,
+          "adapt": 1
+        },
+        "route_transfers": {
+          "inspect": 6,
+          "adapt": 4
         }
       }
     }
