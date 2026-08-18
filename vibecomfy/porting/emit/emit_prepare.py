@@ -425,6 +425,7 @@ def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -
 
 def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
     from vibecomfy.identity.codec import encode_slot_names, to_python_identifier
+    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
     workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
@@ -444,12 +445,31 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         node = workflow_nodes[nid]
         var = var_names[nid]
         edge_fields = {str(edge.to_input) for edge in edges_in.get(nid, [])}
+        primitive_aliases: dict[str, str] = {}
+        if str(node.class_type) in {"Float", "Int"} or str(node.class_type).startswith("Primitive"):
+            resolution = compact_widget_names_for_node(node)
+            for index, name in enumerate(resolution.names):
+                positional = f"widget_{index}"
+                if (
+                    isinstance(name, str)
+                    and not name.startswith("widget_")
+                    and (name in node.inputs or name in node.widgets)
+                ):
+                    primitive_aliases[positional] = name
         raw_fields = [
             str(edge.to_input)
             for edge in edges_in.get(nid, [])
         ]
         raw_fields.extend(str(key) for key in node.inputs if str(key) not in edge_fields)
-        raw_fields.extend(str(key) for key in node.widgets if str(key) not in edge_fields and str(key) not in node.inputs)
+        raw_fields.extend(
+            str(key)
+            for key in node.widgets
+            if (
+                str(key) not in edge_fields
+                and str(key) not in node.inputs
+                and str(key) not in primitive_aliases
+            )
+        )
         input_aliases = encode_slot_names(raw_fields)
 
         kwargs: list[tuple[str, str, str]] = []
@@ -475,7 +495,7 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
         widget_channel_names: list[str] = []
         for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
             raw_key = str(raw_name)
-            if raw_key in edge_fields:
+            if raw_key in edge_fields or raw_key in primitive_aliases:
                 continue
             # Emit the IR field name as stored.  Positional widget_N keys are
             # the actual envelope payload, not aliases — rewriting them to a

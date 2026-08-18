@@ -16,13 +16,64 @@ from vibecomfy.porting.edit.ops import (
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
+    compact_widget_names_for_node,
     missing_widget_value_sentinel,
+    widget_index_for_field,
     widget_value_for_field,
 )
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
+
+
+def _is_primitive_widget_alias_class(class_type: str) -> bool:
+    """Return whether ``value`` and compact widget zero are one field."""
+    return class_type in {"Float", "Int"} or class_type.startswith("Primitive")
+
+
+def _apply_primitive_widget_alias_write(
+    node: Any,
+    field: str,
+    value: Any,
+    *,
+    schema_provider: Any,
+) -> bool:
+    """Write every retained carrier for a primitive serialized widget.
+
+    Primitive nodes commonly retain the same value as a named schema input,
+    a positional widget, and a raw ``widgets_values`` row.  They are aliases,
+    not independent fields, so an edit to either surface must update all of
+    them atomically.
+    """
+    if not _is_primitive_widget_alias_class(str(node.class_type)):
+        return False
+    index = widget_index_for_field(node, field, schema_provider=schema_provider)
+    if index is None:
+        return False
+    resolution = compact_widget_names_for_node(
+        node,
+        schema_provider=schema_provider,
+    )
+    named_field = resolution.names[index] if index < len(resolution.names) else None
+    if not isinstance(named_field, str) or named_field.startswith("widget_"):
+        return False
+
+    node.inputs[named_field] = value
+    node.widgets[f"widget_{index}"] = value
+    if named_field in node.widgets:
+        node.widgets[named_field] = value
+
+    raw_widgets = getattr(node, "raw_widgets", None)
+    raw_values = getattr(raw_widgets, "values", None)
+    if isinstance(raw_values, list) and 0 <= index < len(raw_values):
+        raw_values[index] = value
+    metadata = getattr(node, "metadata", None)
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    ui_values = raw_ui.get("widgets_values") if isinstance(raw_ui, Mapping) else None
+    if isinstance(ui_values, list) and 0 <= index < len(ui_values):
+        ui_values[index] = value
+    return True
 
 
 def _resolve_class_type_from_alias(
@@ -662,7 +713,14 @@ def apply_edit_cow(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         field = op.target.field_path
-        if field in node.widgets:
+        if _apply_primitive_widget_alias_write(
+            node,
+            field,
+            op.value,
+            schema_provider=schema_provider,
+        ):
+            pass
+        elif field in node.widgets:
             node.widgets[field] = op.value
         elif field in node.inputs:
             node.inputs[field] = op.value
