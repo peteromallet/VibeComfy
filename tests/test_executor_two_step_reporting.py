@@ -462,7 +462,6 @@ def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
     from tests.executor_mode_harness import _law_edit_session, named_field_edit
 
     scenario = named_field_edit()
-    code = 'lawnodec.prompt = "after"'
 
     monkeypatch.setattr(
         "vibecomfy.executor.core._run_classify",
@@ -473,10 +472,14 @@ def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
     real_run_execute_turn = agent_backend_module.run_execute_turn
 
     def scripted_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
-        # A fresh apply → submit per message; the real loop + real session
-        # store accumulate apply_batches across the 13 messages.
+        # A fresh edit_node tool call → submit per message; the real loop +
+        # real session store accumulate apply_batches across the 13 messages.
         actions = [
-            {"action": "apply", "python": code},
+            {
+                "action": "tool_call",
+                "tool": "edit_node",
+                "args": {"target": "lawnodec", "field": "prompt", "value": "after"},
+            },
             {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
         ]
 

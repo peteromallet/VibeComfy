@@ -203,17 +203,9 @@ class TestKnownGraphContextFallback:
 class TestHostActionParseFirstWins:
     """P0 PARSE-MULTI-JSON: the parser is balanced and FIRST-WINS.
 
-    A ``{apply}{submit}`` concatenation must yield only the apply; the
+    A ``{tool_call}{submit}`` concatenation must yield only the tool_call; the
     trailing submit is quarantined, never silently executed.
     """
-
-    def test_apply_submit_concatenation_yields_apply_only(self) -> None:
-        action = _parse_host_action(
-            '{"action": "apply", "python": "rodin3d_regular.widget_2 = \'1M-Triangle\'"}'
-            '{"action": "submit", "reply": "done"}'
-        )
-        assert action["action"] == "apply"
-        assert "python" in action
 
     def test_tool_call_plus_submit_yields_tool_call(self) -> None:
         action = _parse_host_action(
@@ -223,27 +215,36 @@ class TestHostActionParseFirstWins:
         assert action["action"] == "tool_call"
         assert action["tool"] == "node_schema"
 
-    def test_fenced_json_object(self) -> None:
-        parsed = _extract_json_object(
-            '```json\n{"action": "apply", "python": "x = 1"}\n```'
-        )
-        assert parsed["action"] == "apply"
-
-    def test_braces_inside_strings_are_balanced(self) -> None:
-        # The greedy ``\{.*\}`` regex used to span braces inside strings; the
-        # balanced raw_decode scan must not.
-        parsed = _extract_json_object(
-            '{"action": "apply", "python": "s = \\"{not json} and {more}\\""}'
+    def test_edit_tool_call_plus_submit_yields_tool_call(self) -> None:
+        action = _parse_host_action(
+            '{"action": "tool_call", "tool": "edit_node", '
+            '"args": {"target": "rodin3d_regular", "field": "mesh_detail", "value": "1M-Triangle"}}'
             '{"action": "submit", "reply": "done"}'
         )
-        assert parsed["action"] == "apply"
-        assert "{not json} and {more}" in parsed["python"]
+        assert action["action"] == "tool_call"
+        assert action["tool"] == "edit_node"
+
+    def test_fenced_json_object(self) -> None:
+        parsed = _extract_json_object(
+            '```json\n{"action": "tool_call", "tool": "edit_node", "args": {"target": "n"}}\n```'
+        )
+        assert parsed["action"] == "tool_call"
+
+    def test_braces_inside_strings_are_balanced(self) -> None:
+        # The greedy ``\\{.*\\}`` regex used to span braces inside strings; the
+        # balanced raw_decode scan must not.
+        parsed = _extract_json_object(
+            '{"action": "edit_node", "args": {"value": "{not json} and {more}"}}'
+            '{"action": "submit", "reply": "done"}'
+        )
+        assert parsed["action"] == "edit_node"
+        assert "{not json} and {more}" in parsed["args"]["value"]
 
     def test_trailing_prose_is_ignored(self) -> None:
         parsed = _extract_json_object(
-            '{"action": "apply", "python": "x = 1"} trailing prose after the object'
+            '{"action": "tool_call", "tool": "edit_node", "args": {}} trailing prose after the object'
         )
-        assert parsed["action"] == "apply"
+        assert parsed["action"] == "tool_call"
 
     def test_no_json_object_raises(self) -> None:
         import pytest
@@ -275,7 +276,7 @@ class TestEditDeliveryRefusalPrompt:
     def test_copy_exact_rendered_binding(self) -> None:
         for route in ROUTES:
             system = _build(route)[0]["content"]
-            assert "Copy the EXACT rendered" in system, route
+            assert "Use the EXACT rendered" in system, route
 
     def test_refusal_only_after_proven_absence(self) -> None:
         for route in ROUTES:
@@ -295,4 +296,4 @@ class TestSingleObjectPerMessagePrompt:
             system = _build(route)[0]["content"]
             assert "Return EXACTLY ONE object per message" in system, route
             assert "Never emit two objects back-to-back" in system, route
-            assert "after an apply, STOP and wait for host feedback" in system, route
+            assert "after a tool call, STOP and wait for host" in system, route

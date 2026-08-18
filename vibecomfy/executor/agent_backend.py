@@ -360,21 +360,24 @@ def run_reply_turn(
 # used: continuity is host-owned via the durable session transcript.
 
 from vibecomfy.executor.two_step import (  # noqa: E402
-    ApplyBatchOutcome,
     BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
     BudgetExceeded,
     BudgetUsage,
     MessageBudget,
-    TwoStepEditStateMachine,
-    apply_python_batch,
     check_apply_batch,
     check_before_model_call,
     check_before_tool_call,
+    check_edit_tool_allowed,
     check_replacement_attempt,
     consume_apply_batch,
     consume_output_tokens,
     consume_replacement_attempt,
     consume_tool_call,
+)
+from vibecomfy.executor.edit_tools import (  # noqa: E402
+    EDIT_TOOL_NAMES,
+    EditToolRuntime,
+    edit_tool_digest,
 )
 from vibecomfy.executor.two_step_session import (  # noqa: E402
     DEFAULT_TWO_STEP_SESSION_ROOT,
@@ -385,10 +388,9 @@ from vibecomfy.executor.two_step_session import (  # noqa: E402
     canonical_workflow_hash,
     derive_research_attempt,
     mint_lease_token,
-    serialize_delta_ops,
 )
 
-_HOST_ACTIONS = frozenset({"tool_call", "apply", "submit"})
+_HOST_ACTIONS = frozenset({"tool_call", "submit"})
 
 
 def _completion_tokens(result: dict[str, Any], raw: str | None) -> int:
@@ -406,7 +408,7 @@ def _completion_tokens(result: dict[str, Any], raw: str | None) -> int:
 def _parse_host_action(raw: str) -> dict[str, Any]:
     """Parse one host action JSON object from model output.
 
-    Accepts exactly ``tool_call`` / ``apply`` / ``submit``.  Returns a dict with
+    Accepts exactly ``tool_call`` / ``submit``.  Returns a dict with
     an ``action`` key; malformed output raises ``ValueError`` (the caller maps
     it to a typed parse failure without mutating the session).
     """
@@ -416,7 +418,7 @@ def _parse_host_action(raw: str) -> dict[str, Any]:
     action = payload.get("action")
     if action not in _HOST_ACTIONS:
         raise ValueError(
-            f"unknown host action {action!r} (expected tool_call, apply, or submit)"
+            f"unknown host action {action!r} (expected tool_call or submit)"
         )
     return payload
 
@@ -513,15 +515,6 @@ def _fact_pack_ids(graph: Any) -> tuple[str, ...]:
         return ()
 
 
-def _no_edit_session_outcome(code: str) -> ApplyBatchOutcome:
-    del code
-    return ApplyBatchOutcome(
-        ok=False,
-        reason="no_edit_session",
-        diagnostics=("this route has no edit session configured; edits are denied",),
-    )
-
-
 def _finish_reason(result: dict[str, Any]) -> str | None:
     """Return the provider finish reason for the last model turn, if present.
 
@@ -553,7 +546,7 @@ def _plan_known_graph_context(plan: Any) -> str | None:
     return None
 
 
-def _graceful_degradation_reply(state: Any, edit_machine: Any, route: str) -> str:
+def _graceful_degradation_reply(state: Any, edit_runtime: Any, route: str) -> str:
     """Build a user-facing partial-product reply for a mid-turn budget hit.
 
     Never echoes the budget diagnostic (RC2): the returned prose is a concrete
@@ -564,7 +557,7 @@ def _graceful_degradation_reply(state: Any, edit_machine: Any, route: str) -> st
     del route
     deltas = list(state.accepted_delta_ids())
     evidence = list(state.evidence_ids())
-    graph = getattr(edit_machine, "graph", None)
+    graph = getattr(edit_runtime, "graph", None) if edit_runtime is not None else None
     if deltas or graph is not None:
         product = "a partial edit was applied"
     elif evidence:
@@ -601,9 +594,10 @@ def run_execute_turn(
     ``lens_fact_ids``, ``budget``, ``graph``, ``claim_validation``,
     ``self_assessment``, ``replacement_used``, ``durable_response``, or
     ``failure``).  Every tool call is dispatched through a REAL route-gated
-    ``tool_executor``; every ``apply`` runs through ONE per-turn
-    :class:`TwoStepEditStateMachine` over the retained ``edit_session``; the
-    final ``submit`` is parsed into the authoritative :class:`TwoStepFinal` and
+    ``tool_executor``; editing is NORMAL TOOL USE via the typed edit tools
+    (``edit_node`` / ``add_node`` / ``remove_node`` / ``upsert_link``) gated by
+    ONE per-turn :class:`EditToolRuntime` over the retained IR; the final
+    ``submit`` is parsed into the authoritative :class:`TwoStepFinal` and
     fail-closed validated before the reply is persisted.
     """
     from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
@@ -629,6 +623,7 @@ def run_execute_turn(
     lease_acquired = False
 
     def _run(initial_state: TwoStepSessionState) -> dict[str, Any]:
+        nonlocal graph_render
         state = initial_state
         message_budget = MessageBudget.for_route(route)
         budget_usage = BudgetUsage(route=route)
@@ -650,19 +645,9 @@ def run_execute_turn(
                 )
                 state = session_store.load(session_id)
 
-        # ONE per-turn atomic edit state machine (B04).
-        last_apply: dict[str, ApplyBatchOutcome] = {}
-
-        def apply_fn(code: str) -> ApplyBatchOutcome:
-            outcome = (
-                apply_python_batch(edit_session, code)
-                if edit_session is not None
-                else _no_edit_session_outcome(code)
-            )
-            last_apply["outcome"] = outcome
-            return outcome
-
-        edit_machine = TwoStepEditStateMachine(apply_fn=apply_fn)
+        # ONE per-turn atomic edit runtime (B04): typed edit tools apply
+        # copy-on-write to the retained IR (``edit_session.workflow``).
+        edit_runtime = EditToolRuntime(edit_session=edit_session)
 
         def _failure_outcome(failure: BaseException) -> dict[str, Any]:
             """Wrap a loop failure with a graceful reply for budget hits (RC2).
@@ -678,7 +663,7 @@ def run_execute_turn(
                 and getattr(failure, "kind", None) == "stale_message"
             )
             reply = (
-                _graceful_degradation_reply(state, edit_machine, route)
+                _graceful_degradation_reply(state, edit_runtime, route)
                 if graceful
                 else None
             )
@@ -776,100 +761,123 @@ def run_execute_turn(
             if kind == "tool_call":
                 tool = str(action.get("tool") or "")
                 args = action.get("args") if isinstance(action.get("args"), dict) else {}
-                try:
-                    budget_usage, _digest, _eids = _run_tool_call(
-                        store=session_store,
-                        session_id=session_id,
-                        turn=turn,
-                        route=route,
-                        tool=tool,
-                        args=args,
-                        message_budget=message_budget,
-                        budget_usage=budget_usage,
-                        tool_executor=tool_executor,
-                        web_search_enabled=web_search_enabled,
-                    )
-                    session_budget = session_budget.record_tool_call()
-                except BudgetExceeded as exc:
-                    # Route-allowlist denial or call-cap breach: a typed budget
-                    # failure carrying the canonical B02 ``family``.
-                    return _failure_outcome(exc)
-                state = session_store.append(
-                    session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
-                )
-                state = session_store.load(session_id)
-            elif kind == "apply":
-                code = str(action.get("python") or "")
-                was_replacement = edit_machine.replacement_used
-                try:
-                    if was_replacement:
-                        check_replacement_attempt(message_budget, budget_usage)
-                    else:
-                        check_apply_batch(message_budget, budget_usage)
-                except BudgetExceeded as exc:
-                    return _failure_outcome(exc)
-                submit = edit_machine.submit(code)
-                if edit_machine.replacement_used and not was_replacement:
-                    budget_usage = consume_replacement_attempt(message_budget, budget_usage)
+                if tool in EDIT_TOOL_NAMES:
+                    # Typed edit tool (Hermes-style): gate on the route
+                    # allowlist + per-message apply/replacement CAS, dispatch
+                    # through the atomic edit runtime, persist the accepted Δ /
+                    # rejection, and record the typed result in the transcript
+                    # so the next continuation can cite the Δ id.
                     try:
-                        session_budget = session_budget.record_replacement_attempt()
+                        check_edit_tool_allowed(route, tool)
                     except BudgetExceeded as exc:
                         return _failure_outcome(exc)
-                if submit.accepted:
-                    budget_usage = consume_apply_batch(message_budget, budget_usage)
+                    was_replacement = edit_runtime.replacement_used
                     try:
-                        session_budget = session_budget.record_apply_batch()
+                        if was_replacement:
+                            check_replacement_attempt(message_budget, budget_usage)
+                        else:
+                            check_apply_batch(message_budget, budget_usage)
                     except BudgetExceeded as exc:
                         return _failure_outcome(exc)
-                    landed = last_apply.get("outcome")
-                    ops = serialize_delta_ops(getattr(landed, "landed_ops", ()) if landed else ())
-                    graph = submit.graph
-                    if graph is not None:
-                        session_store.write_workflow(session_id, graph)
+                    outcome = edit_runtime.dispatch(tool, args)
                     session_store.append(
                         session_id,
-                        "delta_accepted",
+                        "tool_call",
                         {
-                            "delta_ids": list(submit.delta_ids),
-                            "ops": list(ops),
-                            "workflow_hash": canonical_workflow_hash(graph),
-                        },
-                        turn=turn,
-                    )
-                    if graph is not None:
-                        new_facts = _fact_pack_ids(graph)
-                        if new_facts:
-                            session_store.append(
-                                session_id,
-                                "lens_fact",
-                                {"fact_ids": list(new_facts), "route": route},
-                                turn=turn,
-                            )
-                    session_store.append(
-                        session_id,
-                        "apply_accepted",
-                        {"delta_ids": list(submit.delta_ids), "route": route},
-                        turn=turn,
-                    )
-                else:
-                    # Feed the rejection diagnostics back so the single allowed
-                    # replacement continuation sees why the batch was refused.
-                    session_store.append(
-                        session_id,
-                        "apply_rejected",
-                        {
-                            "reason": str(submit.reason or "rejected"),
-                            "diagnostics": list(submit.diagnostics or ()),
-                            "replacement_allowed": bool(submit.replacement_allowed),
-                            "no_candidate": bool(submit.no_candidate),
+                            "tool": tool,
+                            "args": args,
+                            "evidence_ids": [],
+                            "digest": edit_tool_digest(tool, args, outcome),
                             "route": route,
                         },
                         turn=turn,
                     )
-                state = session_store.append(
-                    session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
-                )
-                state = session_store.load(session_id)
+                    if edit_runtime.replacement_used and not was_replacement:
+                        budget_usage = consume_replacement_attempt(message_budget, budget_usage)
+                        try:
+                            session_budget = session_budget.record_replacement_attempt()
+                        except BudgetExceeded as exc:
+                            return _failure_outcome(exc)
+                    if outcome.ok:
+                        budget_usage = consume_apply_batch(message_budget, budget_usage)
+                        try:
+                            session_budget = session_budget.record_apply_batch()
+                        except BudgetExceeded as exc:
+                            return _failure_outcome(exc)
+                        graph = outcome.graph
+                        if graph is not None:
+                            session_store.write_workflow(session_id, graph)
+                        session_store.append(
+                            session_id,
+                            "delta_accepted",
+                            {
+                                "delta_ids": [outcome.delta_id] if outcome.delta_id else [],
+                                "ops": [outcome.op_dict] if outcome.op_dict else [],
+                                "workflow_hash": canonical_workflow_hash(graph),
+                            },
+                            turn=turn,
+                        )
+                        if outcome.lens_fact_ids:
+                            session_store.append(
+                                session_id,
+                                "lens_fact",
+                                {"fact_ids": list(outcome.lens_fact_ids), "route": route},
+                                turn=turn,
+                            )
+                        session_store.append(
+                            session_id,
+                            "apply_accepted",
+                            {
+                                "delta_ids": [outcome.delta_id] if outcome.delta_id else [],
+                                "route": route,
+                            },
+                            turn=turn,
+                        )
+                        # Same-history semantics: the next continuation's render
+                        # reflects the accepted edit.
+                        graph_render = edit_runtime.render_text()
+                    else:
+                        # Feed the rejection back so the single allowed
+                        # replacement continuation sees why the edit was refused.
+                        session_store.append(
+                            session_id,
+                            "apply_rejected",
+                            {
+                                "reason": str(outcome.reason or "rejected"),
+                                "diagnostics": list(outcome.diagnostics or ()),
+                                "replacement_allowed": bool(outcome.replacement_allowed),
+                                "no_candidate": bool(outcome.no_candidate),
+                                "route": route,
+                            },
+                            turn=turn,
+                        )
+                    state = session_store.append(
+                        session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
+                    )
+                    state = session_store.load(session_id)
+                else:
+                    try:
+                        budget_usage, _digest, _eids = _run_tool_call(
+                            store=session_store,
+                            session_id=session_id,
+                            turn=turn,
+                            route=route,
+                            tool=tool,
+                            args=args,
+                            message_budget=message_budget,
+                            budget_usage=budget_usage,
+                            tool_executor=tool_executor,
+                            web_search_enabled=web_search_enabled,
+                        )
+                        session_budget = session_budget.record_tool_call()
+                    except BudgetExceeded as exc:
+                        # Route-allowlist denial or call-cap breach: a typed budget
+                        # failure carrying the canonical B02 ``family``.
+                        return _failure_outcome(exc)
+                    state = session_store.append(
+                        session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
+                    )
+                    state = session_store.load(session_id)
             elif kind == "submit":
                 state = session_store.load(session_id)
                 final = parse_two_step_submit(action)
@@ -935,14 +943,14 @@ def run_execute_turn(
                     "tool_call_ids": list(state.evidence_ids()),
                     "lens_fact_ids": list(state.lens_fact_ids()),
                     "budget": state.budget,
-                    "graph": edit_machine.graph,
+                    "graph": edit_runtime.graph,
                     "claim_validation": {"status": "ok", "violations": []},
                     "self_assessment": (
                         final.self_assessment.to_dict()
                         if final.self_assessment is not None
                         else None
                     ),
-                    "replacement_used": edit_machine.replacement_used,
+                    "replacement_used": edit_runtime.replacement_used,
                     "durable_response": {
                         "reply": reply_text,
                         "session_id": session_id,

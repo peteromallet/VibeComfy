@@ -711,10 +711,10 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "The classifier has already locked the route.  Run ONE bounded execute turn\n"
     "for the current message; the turn may span several model continuations.\n"
     "Each continuation returns exactly one host action JSON object (a tool call,\n"
-    "a Python edit batch, or the final SUBMIT contract).  Return ONLY that JSON\n"
+    "or the final SUBMIT contract).  Return ONLY that JSON\n"
     "object — no markdown fences, no commentary, and NEVER raw workflow JSON: the\n"
-    "host rejects any raw graph payload; every change is a Python edit batch\n"
-    "interpreted against the current retained revision.\n"
+    "host rejects any raw graph payload; every change is a typed edit-tool call\n"
+    "applied to the current retained revision.\n"
     "\n"
     "STAGES AND AVAILABLE TOOLS\n"
     "==========================\n"
@@ -724,9 +724,12 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "   Available research tools:\n"
     "__RESEARCH_TOOLS__\n"
     "\n"
-    "2. CHANGE — prepare the edit with advisory/schema/layout tools.\n"
+    "2. CHANGE — prepare the edit with advisory/schema/layout tools, then apply\n"
+    "   it with the typed edit tools below.\n"
     "   Available change tools:\n"
     "__CHANGE_TOOLS__\n"
+    "   Edit tools (typed; apply the change by calling one of these):\n"
+    "__EDIT_TOOLS__\n"
     "   Python editing on this route: __PYTHON_EDITING__.\n"
     "\n"
     "3. SUBMIT — no tools.  Return the final JSON contract only.\n"
@@ -737,22 +740,22 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "\n"
     "BASELINE / CAS\n"
     "==============\n"
-    "The host enforces compare-and-swap: a Python batch is interpreted against the\n"
-    "current retained revision ONLY.  You never supply per-op old-values — the\n"
-    "host derives them from the revision.  A batch whose baseline no longer\n"
-    "matches the retained revision is rejected as stale_baseline and is never\n"
-    "partially applied.\n"
+    "The host enforces compare-and-swap: an edit tool resolves its target\n"
+    "against the current retained revision ONLY.  You never supply per-op\n"
+    "old-values — the host derives them from the revision.  An edit whose\n"
+    "target no longer matches the retained revision is rejected as\n"
+    "unknown_target and is never partially applied.\n"
     "\n"
     "PRECEDENT\n"
     "=========\n"
     "Precedent (templates, community workflows) is IMMUTABLE evidence you cite by\n"
     "id — never a payload you mutate or splice into the user's graph by value.\n"
     "\n"
-    "ATOMIC EDIT BATCHES\n"
-    "===================\n"
-    "Exactly ONE complete Python batch may be accepted per message.  A rejected\n"
-    "batch may be followed by ONE replacement attempt; a second rejection returns\n"
-    "no candidate.  After an accepted batch, further edit submissions are denied.\n"
+    "ATOMIC EDITS\n"
+    "============\n"
+    "Exactly ONE edit tool call may be accepted per message.  A rejected edit\n"
+    "may be followed by ONE replacement attempt; a second rejection returns no\n"
+    "candidate.  After an accepted edit, further edit submissions are denied.\n"
     "Never claim an edit (self_assessment.outcome=edited) before the host has\n"
     "accepted a Δ AND produced the post-edit lens.\n"
     "\n"
@@ -760,9 +763,10 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "=========================\n"
     "Before claiming a node class is missing or cannot be added, inspect the\n"
     "CURRENT WORKFLOW render: any class_type already present in the graph is\n"
-    "registered and may be reused or re-instantiated.  Copy the EXACT rendered\n"
-    "binding (the variable name shown beside each node) into your Python batch —\n"
-    "never invent a class-derived name.  Reuse an existing node where possible,\n"
+    "registered and may be reused or re-instantiated.  Use the EXACT rendered\n"
+    "binding (the name/uid shown beside each node) as the edit tool's target —\n"
+    "never invent a class-derived name and never a positional widget_N\n"
+    "reference.  Reuse an existing node where possible,\n"
     "and call `node_schema` or attempt the edit BEFORE claiming a node is\n"
     "absent.  Emit the `requires_custom_nodes` refusal ONLY after a named class\n"
     "is proven absent by a failed `node_schema` lookup or a rejected edit —\n"
@@ -802,11 +806,10 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "===================================================\n"
     "Return exactly one of:\n"
     "  - Tool call:     {\"action\": \"tool_call\", \"tool\": \"<name>\", \"args\": {...}}\n"
-    "  - Python batch:  {\"action\": \"apply\", \"python\": \"<edit statements>\"}\n"
     "  - Final:         the SUBMIT contract above.\n"
     "Return EXACTLY ONE object per message.  Never emit two objects back-to-back\n"
-    "(e.g. `{apply}{submit}`); after an apply, STOP and wait for host feedback\n"
-    "before emitting anything else.\n"
+    "(e.g. `{tool_call}{submit}`); after a tool call, STOP and wait for host\n"
+    "feedback before emitting anything else.\n"
 )
 
 _TWO_STEP_NON_EDIT_NOTE = (
@@ -814,8 +817,8 @@ _TWO_STEP_NON_EDIT_NOTE = (
     "NON-EDIT ROUTE\n"
     "==============\n"
     "This route may not submit any change: claim_refs.delta_ids must be [] and\n"
-    "the self_assessment outcome must not claim an edit.  Do not emit a Python\n"
-    "batch or an apply action.\n"
+    "the self_assessment outcome must not claim an edit.  Do not emit an edit\n"
+    "tool call or a Python batch.\n"
 )
 
 _TWO_STEP_NON_EDIT_CONTRACT = (
@@ -869,16 +872,20 @@ def _two_step_stage_catalogs(route: str, *, web_search_enabled: bool) -> tuple[s
 def _build_two_step_execute_system(
     route: str, *, web_search_enabled: bool = False
 ) -> str:
+    from vibecomfy.executor.edit_tools import edit_tool_catalog_docs  # noqa: PLC0415
+
     research, change, python_allowed = _two_step_stage_catalogs(
         route, web_search_enabled=web_search_enabled
     )
     research_text = research if research else "   (none for this route)"
     change_text = change if change else "   (none for this route)"
+    edit_text = edit_tool_catalog_docs() if python_allowed else "   (none for this route)"
     python_text = "ALLOWED" if python_allowed else "NOT ALLOWED"
     non_edit = route in _NON_EDIT_ROUTES
     system = _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE
     system = system.replace("__RESEARCH_TOOLS__", research_text)
     system = system.replace("__CHANGE_TOOLS__", change_text)
+    system = system.replace("__EDIT_TOOLS__", edit_text)
     system = system.replace("__PYTHON_EDITING__", python_text)
     system = system.replace(
         "__NON_EDIT_NOTE__", _TWO_STEP_NON_EDIT_NOTE if non_edit else ""

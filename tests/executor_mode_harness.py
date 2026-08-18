@@ -227,40 +227,54 @@ def _law_edit_session(graph: Any) -> Any:
     return EditSession(dict(graph), schema_provider=_LAW_FIXTURE_PROVIDER)
 
 
-# Python (grammar) code per differential scenario — the canonical Δ translated
-# to the REAL edit surface.  ``None`` means "no edit" (or, for reorganise,
-# positional furniture the grammar deliberately rejects).
-_SCENARIO_PYTHON: dict[str, str | None] = {
-    "named-field edit": 'lawnodec.prompt = "after"',
-    "rewire": "lawnodec.image = lawnodeb",
-    "add/remove": "lawnoded = LawNodeD(value=0.25)\ndel lawnodeb\n",
-    "adapt": 'lawnodec.prompt = "adapted"',
-    "reorganise": None,
-    "inspect": None,
-    "research": None,
+# Typed edit-tool actions per differential scenario — the canonical Δ translated
+# to the typed edit tools.  Each scenario is a SINGLE edit tool call (one edit
+# per message); the add and remove cases are separate single-op scenarios.
+_SCENARIO_EDIT_ACTIONS: dict[str, list[dict[str, Any]]] = {
+    "named-field edit": [
+        {"action": "tool_call", "tool": "edit_node",
+         "args": {"target": "lawnodec", "field": "prompt", "value": "after"}},
+    ],
+    "rewire": [
+        {"action": "tool_call", "tool": "upsert_link",
+         "args": {"source": "lawnodeb", "source_output": "IMAGE",
+                  "target": "lawnodec", "target_input": "image"}},
+    ],
+    "add-node": [
+        {"action": "tool_call", "tool": "add_node",
+         "args": {"class_type": "LawNodeD", "widget_values": {"value": 0.25}}},
+    ],
+    "remove-node": [
+        {"action": "tool_call", "tool": "remove_node", "args": {"target": "lawnodeb"}},
+    ],
+    "adapt": [
+        {"action": "tool_call", "tool": "edit_node",
+         "args": {"target": "lawnodec", "field": "prompt", "value": "adapted"}},
+    ],
+    "reorganise": [],
+    "inspect": [],
+    "research": [],
 }
 
 
 def _scripted_execute_turn(scenario: Scenario):
     """Return a ``run_execute_turn`` wrapper that drives the REAL bounded loop.
 
-    Only the model is scripted (``apply`` → ``submit`` citing the landed Δ);
-    the real :class:`EditSession`, the real ``_two_step_tool_executor``, the
-    real ``TwoStepEditStateMachine`` and the real session store all run.
+    Only the model is scripted (typed edit tool call(s) → ``submit`` citing the
+    landed Δ); the real :class:`EditSession`, the real ``_two_step_tool_executor``,
+    the real :class:`EditToolRuntime` and the real session store all run.
     """
     import json as _json
 
     from vibecomfy.executor import agent_backend as agent_backend_module
 
-    code = _SCENARIO_PYTHON.get(scenario.name)
-    actions: list[dict[str, Any]] = []
-    if code:
-        actions.append({"action": "apply", "python": code})
+    edit_actions = _SCENARIO_EDIT_ACTIONS.get(scenario.name, [])
+    actions: list[dict[str, Any]] = list(edit_actions)
     actions.append(
         {
             "action": "submit",
             "reply": "deterministic two-step reply",
-            "claim_refs": {"delta_ids": ["d1"] if code else []},
+            "claim_refs": {"delta_ids": ["d1"] if edit_actions else []},
         }
     )
 
@@ -546,9 +560,37 @@ def rewire() -> Scenario:
     )
 
 
-def add_remove() -> Scenario:
+def add_node() -> Scenario:
     base = _base_raw()
-    # Add node 4 (LawNodeD) and remove node 2 (LawNodeB).
+    post = {
+        "nodes": [
+            _node("1", "LawNodeA", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [1]}]),
+            _node("2", "LawNodeB", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [2]}]),
+            _node(
+                "3",
+                "LawNodeC",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 1}],
+                widgets_values=["before"],
+            ),
+            _node("n1", "LawNodeD", widgets_values=[0.25]),
+        ],
+        "links": base["links"],
+    }
+    return Scenario(
+        name="add-node",
+        route="revise",
+        query="add a LawNodeD node",
+        decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
+        base_raw=base,
+        delta_ops=(
+            {"op": "add_node", "uid": "n1", "fields": {"type": "LawNodeD", "widgets_values": [0.25]}},
+        ),
+        post_raw=post,
+    )
+
+
+def remove_node() -> Scenario:
+    base = _base_raw()
     post = {
         "nodes": [
             _node("1", "LawNodeA", outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [1]}]),
@@ -558,18 +600,16 @@ def add_remove() -> Scenario:
                 inputs=[{"name": "image", "type": "IMAGE", "link": 1}],
                 widgets_values=["before"],
             ),
-            _node("n1", "LawNodeD", widgets_values=[0.25]),
         ],
         "links": [[1, "1", 0, "3", 0, "IMAGE"]],
     }
     return Scenario(
-        name="add/remove",
+        name="remove-node",
         route="revise",
-        query="add a LawNodeD and remove LawNodeB",
+        query="remove the LawNodeB node",
         decision=ClassifyDecision(route="revise", implement=True, intent="edit", task="edit_graph"),
         base_raw=base,
         delta_ops=(
-            {"op": "add_node", "uid": "n1", "fields": {"type": "LawNodeD", "widgets_values": [0.25]}},
             {"op": "remove_node", "target": ["", "2"]},
         ),
         post_raw=post,
@@ -671,7 +711,8 @@ def reorganise() -> Scenario:
 SCENARIOS: tuple[Scenario, ...] = (
     named_field_edit(),
     rewire(),
-    add_remove(),
+    add_node(),
+    remove_node(),
     inspect(),
     research(),
     adapt(),

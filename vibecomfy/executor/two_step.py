@@ -1091,9 +1091,15 @@ def _two_step_outcome(
         from vibecomfy.executor.core import _resolve_spec  # noqa: PLC0415
 
         spec = _resolve_spec(request.profile, "execute")
-        graph_render = _two_step_graph_render(request.graph)
-        edit_session = _two_step_edit_session(request.graph)
-        fact_pack = _two_step_fact_pack(request.graph)
+        # Retained IR authority (#2): the retained revision is the base graph +
+        # canonical Δ replay, never a fresh ``EditSession(dict(request.graph))``
+        # rebuild that would drop prior-turn edits.  A fresh session has no
+        # retained revision yet, so it falls back to the request graph.
+        retained_graph = store.retained_workflow(session_id)
+        base_graph = retained_graph if retained_graph is not None else request.graph
+        graph_render = _two_step_graph_render(base_graph)
+        edit_session = _two_step_edit_session(base_graph)
+        fact_pack = _two_step_fact_pack(base_graph)
         tool_executor = _two_step_tool_executor(
             route=route,
             edit_session=edit_session,
@@ -1405,184 +1411,52 @@ def _two_step_tool_executor(
     return executor
 
 
-# ── B04: atomic edit state machine ───────────────────────────────────────────
+
+# ── B04: typed edit-tool gate (Hermes-style tool loop) ──────────────────────
 #
-# The two-step execute phase may run several model continuations; research /
-# tool continuations may precede editing.  Editing itself is ATOMIC:
-#
-#   * exactly ONE complete Python batch may be accepted per message;
-#   * one complete replacement is allowed ONLY after a rejection;
-#   * after acceptance, further edit submissions are denied;
-#   * a second rejection returns no candidate.
-#
-# Parse, resolution, CAS, channel, bounds, or done-gate failure returns ZERO Δ
-# (``EditSession.apply_batch`` is the parse/interpret/gate/commit authority —
-# its all-or-nothing interpreter already rolls a failed batch back, and the
-# done-gate failure below rolls the just-applied batch back too).
-#
-# CAS is the request baseline + the current session revision ONLY — never
-# model-supplied per-op old-values (the grammar/op schemas are NOT extended).
-# The stale-baseline diagnostic surfaces on the one replacement continuation.
+# The grammar-parse ``apply`` path is gone from the one-step loop.  Editing is
+# now NORMAL TOOL USE: the agent calls a typed edit tool (``edit_node`` /
+# ``add_node`` / ``remove_node`` / ``upsert_link``), the host validates the
+# args, resolves the target by the name/uid from the render, applies the edit
+# copy-on-write to the retained IR, and persists the accepted Δ.  Atomicity
+# (one edit per message, one replacement after a rejection) and CAS on the
+# retained revision are enforced on the typed tools in ``run_execute_turn``
+# via the per-message apply/replacement counters (B02).
 
 
-@dataclass(frozen=True)
-class ApplyBatchOutcome:
-    """The apply authority's verdict for one Python batch (B04)."""
-
-    ok: bool
-    landed_ops: tuple[Any, ...] = ()
-    graph: Any = None
-    reason: str = ""
-    diagnostics: tuple[str, ...] = ()
+def edit_tool_routes_allow(route: str) -> bool:
+    """True when *route* admits the typed edit tools (B02 ``allows_python_edits``)."""
+    try:
+        return bool(TWO_STEP_ROUTE_POLICIES[route].allows_python_edits)
+    except KeyError:
+        raise ValueError(f"Unknown two-step route {route!r}.") from None
 
 
-@dataclass(frozen=True)
-class TwoStepApplyResult:
-    """The state machine's verdict for one edit submission (B04)."""
+def check_edit_tool_allowed(route: str, tool: str) -> None:
+    """Route-allowlist gate for typed edit tools — denial BEFORE dispatch.
 
-    accepted: bool
-    delta_ids: tuple[str, ...] = ()
-    graph: Any = None
-    reason: str = ""
-    diagnostics: tuple[str, ...] = ()
-    replacement_allowed: bool = False
-    no_candidate: bool = False
-
-
-def _batch_reject_reason(result: Any) -> str:
-    """Derive a stable rejection reason from an ``apply_batch`` result."""
-    for diagnostic in (getattr(result, "diagnostics", ()) or ()):
-        code = getattr(diagnostic, "code", "")
-        if code:
-            return str(code)
-    if not getattr(result, "ok", False):
-        return "batch_failed"
-    if not getattr(result, "landed_ops", ()):
-        return "no_landed_ops"
-    if not getattr(result, "apply_eligible", False):
-        return "apply_gate_rejected"
-    return "rejected"
-
-
-def apply_python_batch(
-    edit_session: Any,
-    code: str,
-    *,
-    done_fn: Any | None = None,
-    emit_graph: bool = True,
-) -> ApplyBatchOutcome:
-    """Apply ONE Python batch through ``EditSession.apply_batch()`` (B04).
-
-    ``apply_batch`` is the parse/interpret/gate/commit authority: this helper
-    never independently calls parse / interpret / verify_apply.  After a
-    successful apply the done-gate runs (``EditSession.done()``); a done-gate
-    failure rolls the just-applied batch back so zero Δ is retained.
+    An edit tool on a non-edit route (or an unknown edit-tool name) raises the
+    same typed :class:`BudgetExceeded` family the research-tool allowlist uses,
+    so the loop surfaces one canonical denial shape for every tool.
     """
-    result = edit_session.apply_batch(code)
-    if not (
-        getattr(result, "ok", False)
-        and getattr(result, "landed_ops", ())
-        and getattr(result, "apply_eligible", False)
-    ):
-        diagnostics = tuple(
-            str(getattr(d, "message", "") or getattr(d, "code", ""))
-            for d in (getattr(result, "diagnostics", ()) or ())
+    from vibecomfy.executor.edit_tools import EDIT_TOOL_NAMES  # noqa: PLC0415
+
+    if tool not in EDIT_TOOL_NAMES:
+        raise BudgetExceeded(
+            family=BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
+            limit=0,
+            used=0,
+            route=route,
+            detail=f"unknown edit tool {tool!r}.",
         )
-        return ApplyBatchOutcome(
-            ok=False,
-            reason=_batch_reject_reason(result),
-            diagnostics=diagnostics,
-        )
-    done = done_fn() if done_fn is not None else edit_session.done()
-    if not getattr(done, "ok", False):
-        try:
-            edit_session.rollback(1)
-        except Exception:  # noqa: BLE001 - best-effort rollback
-            pass
-        return ApplyBatchOutcome(
-            ok=False,
-            reason="done_gate_failed",
-            diagnostics=(str(getattr(done, "summary", "") or "done_gate_failed"),),
-        )
-    graph: Any = None
-    if emit_graph:
-        try:
-            graph = edit_session.working_ui
-        except Exception:  # noqa: BLE001 - graph emission is best-effort
-            graph = None
-    return ApplyBatchOutcome(ok=True, landed_ops=tuple(result.landed_ops), graph=graph)
-
-
-class TwoStepEditStateMachine:
-    """Atomic edit lifecycle for ONE two-step message turn (B04)."""
-
-    def __init__(
-        self,
-        *,
-        apply_fn: Any,
-        id_factory: Any | None = None,
-    ) -> None:
-        self._apply_fn = apply_fn
-        self._id_factory = id_factory or (lambda seq: f"d{seq}")
-        self._accepted = False
-        self._rejections = 0
-        self._seq = 0
-        self._accepted_delta_ids: tuple[str, ...] = ()
-        self._graph: Any = None
-        self._replacement_used = False
-
-    # -- queries -------------------------------------------------------------
-
-    @property
-    def accepted(self) -> bool:
-        return self._accepted
-
-    @property
-    def accepted_delta_ids(self) -> tuple[str, ...]:
-        return self._accepted_delta_ids
-
-    @property
-    def graph(self) -> Any:
-        return self._graph
-
-    @property
-    def replacement_used(self) -> bool:
-        return self._replacement_used
-
-    # -- mutation ------------------------------------------------------------
-
-    def submit(self, code: str) -> TwoStepApplyResult:
-        """Submit one Python batch; enforce the atomic lifecycle."""
-        if self._accepted:
-            return TwoStepApplyResult(
-                accepted=False,
-                reason="edit_already_accepted",
-            )
-        if self._rejections >= 2:
-            return TwoStepApplyResult(
-                accepted=False,
-                reason="second_rejection_no_candidate",
-                no_candidate=True,
-            )
-        if self._rejections == 1:
-            self._replacement_used = True
-        outcome = self._apply_fn(code)
-        if getattr(outcome, "ok", False):
-            self._accepted = True
-            self._seq += 1
-            self._accepted_delta_ids = (self._id_factory(self._seq),)
-            self._graph = getattr(outcome, "graph", None)
-            return TwoStepApplyResult(
-                accepted=True,
-                delta_ids=self._accepted_delta_ids,
-                graph=self._graph,
-                reason="accepted",
-            )
-        self._rejections += 1
-        return TwoStepApplyResult(
-            accepted=False,
-            reason=str(getattr(outcome, "reason", "") or "rejected"),
-            diagnostics=tuple(getattr(outcome, "diagnostics", ()) or ()),
-            replacement_allowed=(self._rejections == 1),
-            no_candidate=(self._rejections >= 2),
+    if not edit_tool_routes_allow(route):
+        raise BudgetExceeded(
+            family=BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
+            limit=0,
+            used=0,
+            route=route,
+            detail=(
+                f"edit tool {tool!r} is not on the {route!r} route allowlist "
+                f"(edit tools: {sorted(EDIT_TOOL_NAMES)})."
+            ),
         )

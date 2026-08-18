@@ -2050,7 +2050,11 @@ class _ModeExecutorAdapter:
                 return EditSession(dict(graph), schema_provider=_LawNodeProvider())
 
             _law_actions = [
-                {"action": "apply", "python": 'lawnode.value = "edited"'},
+                {
+                    "action": "tool_call",
+                    "tool": "edit_node",
+                    "args": {"target": "lawnode", "field": "value", "value": "edited"},
+                },
                 {
                     "action": "submit",
                     "reply": "law edit applied",

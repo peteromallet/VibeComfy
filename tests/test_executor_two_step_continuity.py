@@ -350,7 +350,14 @@ def test_server_restart_reconstructs_retained_state_via_ingest_and_replay(
 
     replayed = store_b.replay_workflow(state)
     assert replayed is not None
-    assert replayed["nodes"][0]["widgets_values"] == ["after"]
+    # The edited value must appear in the replayed node under whichever channel
+    # the converter-less ingest used (widgets_values for widget-backed fields,
+    # inputs for link/input-backed fields).
+    node = replayed["nodes"][0]
+    assert (
+        node.get("widgets_values") == ["after"]
+        or "after" in (node.get("inputs") or {}).values()
+    )
 
 
 def test_changed_canvas_does_not_match_retained_revision_fails_cas(tmp_path) -> None:
@@ -752,9 +759,9 @@ def _flat_ui() -> dict[str, Any]:
 
 
 def test_run_execute_turn_real_edit_session_apply_then_submit(tmp_path) -> None:
-    """A scripted ``apply`` → ``submit`` runs through the REAL EditSession and
-    tool dispatcher: the accepted Δ, post-edit lens facts, durable candidate
-    graph, and claim_refs are all produced by the bounded loop."""
+    """A scripted ``edit_node`` tool call → ``submit`` runs through the REAL
+    EditSession and tool dispatcher: the accepted Δ, post-edit lens facts,
+    durable candidate graph, and claim_refs are all produced by the bounded loop."""
     from vibecomfy.executor.two_step import _two_step_tool_executor
     from vibecomfy.porting.edit.session import EditSession
 
@@ -763,7 +770,11 @@ def test_run_execute_turn_real_edit_session_apply_then_submit(tmp_path) -> None:
     tool_executor = _two_step_tool_executor(route="revise", edit_session=edit_session)
 
     actions: list[dict[str, Any]] = [
-        {"action": "apply", "python": 'cliptextencode.text = "a faithful edited prompt"'},
+        {
+            "action": "tool_call",
+            "tool": "edit_node",
+            "args": {"target": "cliptextencode", "field": "text", "value": "a faithful edited prompt"},
+        },
         {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
     ]
 
@@ -794,7 +805,7 @@ def test_run_execute_turn_real_edit_session_apply_then_submit(tmp_path) -> None:
         edit_session=edit_session,
     )
 
-    # The apply was accepted through the real state machine.
+    # The edit tool call was accepted through the real atomic runtime.
     assert outcome["ok"] is True
     assert outcome["accepted_delta_ids"] == ["d1"]
     assert outcome["claim_validation"] == {"status": "ok", "violations": []}
