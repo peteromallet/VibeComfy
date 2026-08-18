@@ -114,16 +114,19 @@ class BudgetExceeded(Exception):
 
 PER_TOOL_CALL_CAPS: Mapping[str, int] = MappingProxyType(
     {
-        "hivemind_search": 3,
-        "hivemind_get": 4,
-        "registry_lookup": 2,
-        "node_schema": 4,
-        "ready_template_list": 2,
-        "ready_template_load": 2,
-        "rank_edit_targets": 2,
-        "suggest_seed_nodes": 2,
-        "layout_hints": 2,
-        "web_search": 1,
+        # No effective per-tool call caps (user ruling 2026-08-18): the route
+        # aggregate ``max_tool_calls`` is the only tool-count gate.  Values are
+        # high ceilings, not realistic quotas.
+        "hivemind_search": 1_000,
+        "hivemind_get": 1_000,
+        "registry_lookup": 1_000,
+        "node_schema": 1_000,
+        "ready_template_list": 1_000,
+        "ready_template_load": 1_000,
+        "rank_edit_targets": 1_000,
+        "suggest_seed_nodes": 1_000,
+        "layout_hints": 1_000,
+        "web_search": 1_000,
     }
 )
 
@@ -225,25 +228,25 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
         "clarify": _policy(
             route="clarify",
             allowed_tools=frozenset(),
-            max_output_tokens=2_000,
-            max_tool_calls=0,
-            max_wall_clock_seconds=30.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             effort="low",
         ),
         "respond": _policy(
             route="respond",
             allowed_tools=frozenset(),
-            max_output_tokens=2_000,
-            max_tool_calls=0,
-            max_wall_clock_seconds=30.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             effort="low",
         ),
         "inspect": _policy(
             route="inspect",
             allowed_tools=frozenset({"node_schema"}),
-            max_output_tokens=4_000,
-            max_tool_calls=2,
-            max_wall_clock_seconds=60.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             effort="low",
         ),
         "research": _policy(
@@ -259,17 +262,17 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
                     "web_search",
                 }
             ),
-            max_output_tokens=8_000,
-            max_tool_calls=8,
-            max_wall_clock_seconds=180.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             effort="medium",
         ),
         "requires_custom_nodes": _policy(
             route="requires_custom_nodes",
             allowed_tools=frozenset({"registry_lookup", "node_schema"}),
-            max_output_tokens=4_000,
-            max_tool_calls=3,
-            max_wall_clock_seconds=90.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             effort="medium",
         ),
         "revise": _policy(
@@ -284,9 +287,9 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
                     "layout_hints",
                 }
             ),
-            max_output_tokens=8_000,
-            max_tool_calls=6,
-            max_wall_clock_seconds=180.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
@@ -308,9 +311,9 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
                     "layout_hints",
                 }
             ),
-            max_output_tokens=12_000,
-            max_tool_calls=8,
-            max_wall_clock_seconds=240.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
@@ -319,9 +322,9 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
         "reorganise": _policy(
             route="reorganise",
             allowed_tools=frozenset({"layout_hints"}),
-            max_output_tokens=6_000,
-            max_tool_calls=2,
-            max_wall_clock_seconds=120.0,
+            max_output_tokens=1_000_000,
+            max_tool_calls=200,
+            max_wall_clock_seconds=1200.0,
             allows_python_edits=True,
             max_apply_batches=1,
             max_replacements=1,
@@ -666,10 +669,10 @@ def consume_replacement_attempt(
 
 SESSION_BUDGET_CEILINGS: Mapping[str, int | float] = MappingProxyType(
     {
-        "max_output_tokens": 48_000,
+        "max_output_tokens": 1_000_000,
         "max_model_continuations": 64,
-        "max_tool_calls": 64,
-        "max_wall_clock_seconds": 1_800.0,
+        "max_tool_calls": 500,
+        "max_wall_clock_seconds": 7_200.0,
         "max_apply_batches": 12,
         "max_replacement_attempts": 12,
         "max_user_messages": 32,
@@ -692,10 +695,10 @@ class SessionBudget:
     """
 
     # Fixed ceilings.
-    max_output_tokens: int = 48_000
+    max_output_tokens: int = 1_000_000
     max_model_continuations: int = 64
-    max_tool_calls: int = 64
-    max_wall_clock_seconds: float = 1_800.0
+    max_tool_calls: int = 500
+    max_wall_clock_seconds: float = 7_200.0
     max_apply_batches: int = 12
     max_replacement_attempts: int = 12
     max_user_messages: int = 32

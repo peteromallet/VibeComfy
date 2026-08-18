@@ -70,9 +70,9 @@ ALL_TEN_TOOLS = frozenset(
 EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     "clarify": {
         "allowed_tools": frozenset(),
-        "max_output_tokens": 2_000,
-        "max_tool_calls": 0,
-        "max_wall_clock_seconds": 30.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
@@ -80,9 +80,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     },
     "respond": {
         "allowed_tools": frozenset(),
-        "max_output_tokens": 2_000,
-        "max_tool_calls": 0,
-        "max_wall_clock_seconds": 30.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
@@ -90,9 +90,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     },
     "inspect": {
         "allowed_tools": frozenset({"node_schema"}),
-        "max_output_tokens": 4_000,
-        "max_tool_calls": 2,
-        "max_wall_clock_seconds": 60.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
@@ -110,9 +110,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
                 "web_search",
             }
         ),
-        "max_output_tokens": 8_000,
-        "max_tool_calls": 8,
-        "max_wall_clock_seconds": 180.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
@@ -120,9 +120,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     },
     "requires_custom_nodes": {
         "allowed_tools": frozenset({"registry_lookup", "node_schema"}),
-        "max_output_tokens": 4_000,
-        "max_tool_calls": 3,
-        "max_wall_clock_seconds": 90.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": False,
         "max_apply_batches": 0,
         "max_replacements": 0,
@@ -139,9 +139,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
                 "layout_hints",
             }
         ),
-        "max_output_tokens": 8_000,
-        "max_tool_calls": 6,
-        "max_wall_clock_seconds": 180.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
@@ -149,9 +149,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     },
     "adapt": {
         "allowed_tools": ALL_TEN_TOOLS,
-        "max_output_tokens": 12_000,
-        "max_tool_calls": 8,
-        "max_wall_clock_seconds": 240.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
@@ -159,9 +159,9 @@ EXPECTED_ROUTE_TABLE: dict[str, dict[str, object]] = {
     },
     "reorganise": {
         "allowed_tools": frozenset({"layout_hints"}),
-        "max_output_tokens": 6_000,
-        "max_tool_calls": 2,
-        "max_wall_clock_seconds": 120.0,
+        "max_output_tokens": 1_000_000,
+        "max_tool_calls": 200,
+        "max_wall_clock_seconds": 1200.0,
         "allows_python_edits": True,
         "max_apply_batches": 1,
         "max_replacements": 1,
@@ -229,16 +229,16 @@ class TestRouteCoverage:
 class TestPerToolCaps:
     def test_exact_frozen_table(self) -> None:
         assert dict(ts.PER_TOOL_CALL_CAPS) == {
-            "hivemind_search": 3,
-            "hivemind_get": 4,
-            "registry_lookup": 2,
-            "node_schema": 4,
-            "ready_template_list": 2,
-            "ready_template_load": 2,
-            "rank_edit_targets": 2,
-            "suggest_seed_nodes": 2,
-            "layout_hints": 2,
-            "web_search": 1,
+            "hivemind_search": 1000,
+            "hivemind_get": 1000,
+            "registry_lookup": 1000,
+            "node_schema": 1000,
+            "ready_template_list": 1000,
+            "ready_template_load": 1000,
+            "rank_edit_targets": 1000,
+            "suggest_seed_nodes": 1000,
+            "layout_hints": 1000,
+            "web_search": 1000,
         }
 
     def test_covers_every_registered_agent_tool(self) -> None:
@@ -348,89 +348,80 @@ class TestDenialBeforeDispatch:
 
 
 class TestToolCallCaps:
-    def test_per_tool_cap_exhaustion(self) -> None:
+    def test_per_tool_cap_is_effectively_unbounded(self) -> None:
+        # Per-tool caps (1000) exceed every route's aggregate gate (200), so
+        # the aggregate cap always fires first: per-tool exhaustion is
+        # dominated, not a separate failure mode (user ruling 2026-08-18).
         budget = MessageBudget.for_route("research")
+        assert budget.per_tool_caps["hivemind_search"] == 1000
         usage = BudgetUsage(route="research")
-        for _ in range(3):
+        for _ in range(200):
             usage = consume_tool_call(budget, usage, "hivemind_search")
-        assert usage.tool_call_counts["hivemind_search"] == 3
+        assert usage.tool_call_counts["hivemind_search"] == 200
         with pytest.raises(BudgetExceeded) as excinfo:
             consume_tool_call(budget, usage, "hivemind_search")
-        assert excinfo.value.family == BUDGET_FAMILY_PER_TOOL_CALLS
-        assert excinfo.value.limit == 3
-        assert excinfo.value.used == 3
-        assert excinfo.value.route == "research"
-        # The denied call consumed nothing.
-        assert usage.total_tool_calls == 3
+        assert excinfo.value.family == BUDGET_FAMILY_ROUTE_TOOL_CALLS
+        assert excinfo.value.limit == 200
 
     def test_aggregate_route_cap_exhaustion(self) -> None:
-        budget = MessageBudget.for_route("research")  # 8 aggregate calls
+        budget = MessageBudget.for_route("research")  # 200 aggregate calls
         usage = BudgetUsage(route="research")
-        # 3 + 4 + 1 = 8 calls: hits the aggregate cap exactly.
-        for _ in range(3):
+        # Hit the aggregate cap exactly (200 calls across tools).
+        for _ in range(200):
             usage = consume_tool_call(budget, usage, "hivemind_search")
-        for _ in range(4):
-            usage = consume_tool_call(budget, usage, "hivemind_get")
-        usage = consume_tool_call(budget, usage, "registry_lookup")
-        assert usage.total_tool_calls == 8
-        # registry_lookup still has per-tool headroom (1 of 2 used) — the
-        # aggregate cap is what fires.
+        assert usage.total_tool_calls == 200
         with pytest.raises(BudgetExceeded) as excinfo:
             consume_tool_call(budget, usage, "registry_lookup")
         assert excinfo.value.family == BUDGET_FAMILY_ROUTE_TOOL_CALLS
-        assert excinfo.value.limit == 8
-        assert excinfo.value.used == 8
+        assert excinfo.value.limit == 200
+        assert excinfo.value.used == 200
 
-    def test_clarify_aggregate_cap_is_zero(self) -> None:
+    def test_clarify_denies_all_tools(self) -> None:
         budget = MessageBudget.for_route("clarify")
         usage = BudgetUsage(route="clarify")
-        # Allowlist gate fires first, but the aggregate zero-cap is equally
-        # fatal for any (hypothetically admitted) tool.
+        # The allowlist gate fires first: clarify admits no tools.
         with pytest.raises(BudgetExceeded) as excinfo:
             check_before_tool_call(budget, usage, "node_schema")
         assert excinfo.value.family == BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
-        with pytest.raises(BudgetExceeded) as excinfo:
-            ts.check_tool_call_caps(budget, usage, "node_schema")
-        assert excinfo.value.family == BUDGET_FAMILY_ROUTE_TOOL_CALLS
 
 
 class TestAggregateOutputTokens:
     @pytest.mark.parametrize(
         "route, ceiling",
         [
-            ("clarify", 2_000),
-            ("respond", 2_000),
-            ("inspect", 4_000),
-            ("research", 8_000),
-            ("requires_custom_nodes", 4_000),
-            ("revise", 8_000),
-            ("adapt", 12_000),
-            ("reorganise", 6_000),
+            ("clarify", 1_000_000),
+            ("respond", 1_000_000),
+            ("inspect", 1_000_000),
+            ("research", 1_000_000),
+            ("requires_custom_nodes", 1_000_000),
+            ("revise", 1_000_000),
+            ("adapt", 1_000_000),
+            ("reorganise", 1_000_000),
         ],
     )
     def test_exact_route_slices(self, route: str, ceiling: int) -> None:
         assert MessageBudget.for_route(route).max_output_tokens == ceiling
 
     def test_exhaustion_at_slice_boundary(self) -> None:
-        budget = MessageBudget.for_route("research")  # 8_000
+        budget = MessageBudget.for_route("research")  # 1_000_000
         usage = BudgetUsage(route="research")
-        usage = consume_output_tokens(budget, usage, 7_999)
-        usage = consume_output_tokens(budget, usage, 1)  # exactly 8_000: allowed
-        assert usage.output_tokens == 8_000
+        usage = consume_output_tokens(budget, usage, 999_999)
+        usage = consume_output_tokens(budget, usage, 1)  # exactly 1_000_000: allowed
+        assert usage.output_tokens == 1_000_000
         with pytest.raises(BudgetExceeded) as excinfo:
             consume_output_tokens(budget, usage, 1)
         assert excinfo.value.family == BUDGET_FAMILY_OUTPUT_TOKENS
-        assert excinfo.value.limit == 8_000
-        assert excinfo.value.used == 8_001
+        assert excinfo.value.limit == 1_000_000
+        assert excinfo.value.used == 1_000_001
         assert excinfo.value.route == "research"
 
     def test_single_call_cannot_overshoot_slice(self) -> None:
-        budget = MessageBudget.for_route("inspect")  # 4_000
+        budget = MessageBudget.for_route("inspect")  # 1_000_000
         usage = BudgetUsage(route="inspect")
         with pytest.raises(BudgetExceeded) as excinfo:
-            consume_output_tokens(budget, usage, 4_001)
+            consume_output_tokens(budget, usage, 1_000_001)
         assert excinfo.value.family == BUDGET_FAMILY_OUTPUT_TOKENS
-        assert excinfo.value.used == 4_001
+        assert excinfo.value.used == 1_000_001
 
     def test_negative_tokens_rejected(self) -> None:
         budget = MessageBudget.for_route("research")
@@ -441,24 +432,24 @@ class TestAggregateOutputTokens:
 
 class TestWallClock:
     def test_within_slice_passes(self) -> None:
-        budget = MessageBudget.for_route("inspect")  # 60 s
+        budget = MessageBudget.for_route("inspect")  # 1200 s
         usage = replace(BudgetUsage(route="inspect"), started_at=1_000.0)
-        check_wall_clock(budget, usage, now=1_060.0)  # exactly 60 s: allowed
+        check_wall_clock(budget, usage, now=2_200.0)  # exactly 1200 s: allowed
 
     def test_exhaustion(self) -> None:
         budget = MessageBudget.for_route("inspect")
         usage = replace(BudgetUsage(route="inspect"), started_at=1_000.0)
         with pytest.raises(BudgetExceeded) as excinfo:
-            check_wall_clock(budget, usage, now=1_060.01)
+            check_wall_clock(budget, usage, now=2_200.01)
         assert excinfo.value.family == BUDGET_FAMILY_WALL_CLOCK
-        assert excinfo.value.limit == 60.0
+        assert excinfo.value.limit == 1200.0
         assert excinfo.value.route == "inspect"
 
     def test_before_tool_call_includes_wall_clock(self) -> None:
         budget = MessageBudget.for_route("inspect")
         usage = replace(BudgetUsage(route="inspect"), started_at=1_000.0)
         with pytest.raises(BudgetExceeded) as excinfo:
-            check_before_tool_call(budget, usage, "node_schema", now=2_000.0)
+            check_before_tool_call(budget, usage, "node_schema", now=2_200.01)
         assert excinfo.value.family == BUDGET_FAMILY_WALL_CLOCK
 
 
@@ -542,10 +533,10 @@ class TestMessageBudgetFactory:
 class TestSessionBudgetType:
     def test_exact_frozen_ceilings(self) -> None:
         assert dict(ts.SESSION_BUDGET_CEILINGS) == {
-            "max_output_tokens": 48_000,
+            "max_output_tokens": 1_000_000,
             "max_model_continuations": 64,
-            "max_tool_calls": 64,
-            "max_wall_clock_seconds": 1_800.0,
+            "max_tool_calls": 500,
+            "max_wall_clock_seconds": 7_200.0,
             "max_apply_batches": 12,
             "max_replacement_attempts": 12,
             "max_user_messages": 32,
@@ -563,19 +554,19 @@ class TestSessionBudgetType:
     def test_fresh_budget_has_zero_usage_and_full_remaining_cap(self) -> None:
         budget = SessionBudget()
         assert budget.output_tokens == 0
-        assert budget.remaining_output_tokens() == 48_000
+        assert budget.remaining_output_tokens() == 1_000_000
 
     def test_output_tokens_exhaustion(self) -> None:
         budget = SessionBudget()
-        budget = budget.record_output_tokens(48_000)  # exactly at ceiling: allowed
+        budget = budget.record_output_tokens(1_000_000)  # exactly at ceiling: allowed
         assert budget.remaining_output_tokens() == 0
         with pytest.raises(BudgetExceeded) as excinfo:
             budget.record_output_tokens(1)
         assert excinfo.value.family == BUDGET_FAMILY_SESSION_OUTPUT_TOKENS
-        assert excinfo.value.limit == 48_000
-        assert excinfo.value.used == 48_001
+        assert excinfo.value.limit == 1_000_000
+        assert excinfo.value.used == 1_000_001
         # Exhaustion never resets the session.
-        assert budget.output_tokens == 48_000
+        assert budget.output_tokens == 1_000_000
 
     def test_model_continuation_exhaustion(self) -> None:
         budget = SessionBudget()
@@ -588,21 +579,21 @@ class TestSessionBudgetType:
 
     def test_tool_call_exhaustion(self) -> None:
         budget = SessionBudget()
-        for _ in range(64):
+        for _ in range(500):
             budget = budget.record_tool_call()
         with pytest.raises(BudgetExceeded) as excinfo:
             budget.record_tool_call()
         assert excinfo.value.family == BUDGET_FAMILY_SESSION_TOOL_CALLS
-        assert excinfo.value.limit == 64
+        assert excinfo.value.limit == 500
 
     def test_wall_clock_exhaustion(self) -> None:
         budget = SessionBudget()
-        budget = budget.record_active_seconds(1_799.5)
-        budget = budget.record_active_seconds(0.5)  # exactly 1_800: allowed
+        budget = budget.record_active_seconds(7_199.5)
+        budget = budget.record_active_seconds(0.5)  # exactly 7_200: allowed
         with pytest.raises(BudgetExceeded) as excinfo:
             budget.record_active_seconds(0.1)
         assert excinfo.value.family == BUDGET_FAMILY_SESSION_WALL_CLOCK
-        assert excinfo.value.limit == 1_800.0
+        assert excinfo.value.limit == 7_200.0
 
     def test_apply_batch_exhaustion(self) -> None:
         budget = SessionBudget()
@@ -642,7 +633,7 @@ class TestSessionBudgetType:
         budget = budget.record_user_message()
         payload = budget.to_dict()
         assert payload["output_tokens"] == 1_000
-        assert payload["max_output_tokens"] == 48_000
+        assert payload["max_output_tokens"] == 1_000_000
         assert SessionBudget.from_dict(payload) == budget
         # Unknown keys in the payload are ignored, missing keys use defaults.
         assert SessionBudget.from_dict({"output_tokens": 7, "bogus": 1}).output_tokens == 7
@@ -679,26 +670,26 @@ class TestSessionBudgetType:
 class TestCumulativeSessionEnforcement:
     def test_output_tokens_accrue_across_messages_until_exhausted(self) -> None:
         budget = SessionBudget()
-        # Six 8k-output messages exactly reach the 48k ceiling.
-        for _ in range(6):
-            budget = budget.record_output_tokens(8_000)
-        assert budget.output_tokens == 48_000
+        # Ten 100k-output messages exactly reach the 1M ceiling.
+        for _ in range(10):
+            budget = budget.record_output_tokens(100_000)
+        assert budget.output_tokens == 1_000_000
         assert budget.remaining_output_tokens() == 0
         with pytest.raises(BudgetExceeded) as excinfo:
             budget.record_output_tokens(1)
         assert excinfo.value.family == BUDGET_FAMILY_SESSION_OUTPUT_TOKENS
-        assert excinfo.value.limit == 48_000
-        assert excinfo.value.used == 48_001
+        assert excinfo.value.limit == 1_000_000
+        assert excinfo.value.used == 1_000_001
         # Exhaustion must NOT silently reset the session.
-        assert budget.output_tokens == 48_000
+        assert budget.output_tokens == 1_000_000
         assert budget.remaining_output_tokens() == 0
 
     def test_remaining_output_tokens_tracks_cumulative_usage(self) -> None:
         budget = SessionBudget()
-        assert budget.remaining_output_tokens() == 48_000
-        budget = budget.record_output_tokens(30_000)
-        assert budget.remaining_output_tokens() == 18_000
-        budget = budget.record_output_tokens(18_000)
+        assert budget.remaining_output_tokens() == 1_000_000
+        budget = budget.record_output_tokens(300_000)
+        assert budget.remaining_output_tokens() == 700_000
+        budget = budget.record_output_tokens(700_000)
         assert budget.remaining_output_tokens() == 0
 
     def test_exhausting_one_family_never_resets_others(self) -> None:

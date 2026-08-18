@@ -390,8 +390,8 @@ def test_budget_exhaustion_failure_preserves_execute_telemetry(
             "route": "adapt",
             "failure": BudgetExceeded(
                 family=BUDGET_FAMILY_OUTPUT_TOKENS,
-                limit=12_000,
-                used=12_001,
+                limit=1_000_000,
+                used=1_000_001,
                 route="adapt",
             ),
         },

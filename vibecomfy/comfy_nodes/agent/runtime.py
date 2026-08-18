@@ -65,15 +65,15 @@ from vibecomfy.executor.two_step import (
 )
 
 # How long to wait for a single agent turn (subprocess) before giving up.
-_TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "240"))
+_TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "1200"))
 # RC3: large implement graphs (serialized > 50KB) get a raised turn budget.
 # Hard cap keeps a scenario from running unbounded even if both fire.
 _LARGE_GRAPH_TURN_TIMEOUT_SECONDS = float(
-    os.getenv("VIBECOMFY_AGENT_LARGE_TURN_TIMEOUT", "480")
+    os.getenv("VIBECOMFY_AGENT_LARGE_TURN_TIMEOUT", "1800")
 )
 _LARGE_GRAPH_BYTES = 50_000
 _TURN_TIMEOUT_HARD_CAP_SECONDS = float(
-    os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT_CAP", "600")
+    os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT_CAP", "3600")
 )
 # Grace granted after SIGTERM before a timed-out worker's process GROUP is
 # SIGKILLed. Short by design: a hung grandchild (the cluster-A pipe hang) must

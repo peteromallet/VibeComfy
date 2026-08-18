@@ -153,14 +153,19 @@ class TestWebSearchPolicy:
             catalog = route_catalog_docs(route, web_search_enabled=True)
             assert "web_search" not in catalog, route
 
-    def test_web_search_capped_at_one_when_enabled(self) -> None:
-        assert ts.PER_TOOL_CALL_CAPS["web_search"] == 1
+    def test_web_search_has_no_special_cap_when_enabled(self) -> None:
+        # No per-tool cap (user ruling 2026-08-18): web_search is still denied
+        # unless policy explicitly enables it, but once enabled it is not
+        # capped below the route aggregate gate.
+        assert ts.PER_TOOL_CALL_CAPS["web_search"] == 1000
         budget = MessageBudget.for_route("research")
         usage = BudgetUsage(route="research")
-        usage = ts.consume_tool_call(budget, usage, "web_search")
+        for _ in range(200):
+            usage = ts.consume_tool_call(budget, usage, "web_search")
+        assert usage.tool_call_counts["web_search"] == 200
         with pytest.raises(BudgetExceeded) as excinfo:
             ts.consume_tool_call(budget, usage, "web_search")
-        assert excinfo.value.family == "per_tool_calls"
+        assert excinfo.value.family == "route_tool_calls"
 
 
 # ── denial-before-dispatch ───────────────────────────────────────────────────
@@ -217,17 +222,14 @@ class TestDenialBeforeDispatch:
             assert excinfo.value.family == BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
 
     def test_aggregate_cap_matches_route_table(self) -> None:
-        # research: 8 aggregate calls across its six-tool catalog.
+        # research: 200 aggregate calls across its six-tool catalog.
         budget = MessageBudget.for_route("research")
         usage = BudgetUsage(route="research")
-        assert budget.max_tool_calls == 8
-        # 3 hivemind_search + 4 hivemind_get + 1 registry_lookup = 8.
-        for _ in range(3):
+        assert budget.max_tool_calls == 200
+        # Hit the aggregate cap exactly.
+        for _ in range(200):
             usage = ts.consume_tool_call(budget, usage, "hivemind_search")
-        for _ in range(4):
-            usage = ts.consume_tool_call(budget, usage, "hivemind_get")
-        usage = ts.consume_tool_call(budget, usage, "registry_lookup")
         with pytest.raises(BudgetExceeded) as excinfo:
-            ts.consume_tool_call(budget, usage, "registry_lookup")
+            ts.consume_tool_call(budget, usage, "hivemind_search")
         assert excinfo.value.family == "route_tool_calls"
-        assert excinfo.value.limit == 8
+        assert excinfo.value.limit == 200
