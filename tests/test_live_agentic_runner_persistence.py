@@ -91,6 +91,62 @@ def test_final_summary_replaces_partial_summary(tmp_path: Path) -> None:
     assert not (tmp_path / "tag" / "run_summary.partial.json").exists()
 
 
+def test_runner_persists_dispatch_liveness_before_child_returns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """A dispatched child is visible before its potentially long work ends."""
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_path = scenarios_dir / "slow-start.json"
+    scenario_path.write_text(
+        json.dumps({"id": "slow-start", "query": "do it"}),
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        attempt_dir = (
+            tmp_path
+            / "out"
+            / "tag"
+            / "attempts"
+            / "slow-start"
+            / "attempt_1"
+            / "slow-start"
+        )
+        assert attempt_dir.is_dir()
+        partial_path = tmp_path / "out" / "tag" / "run_summary.partial.json"
+        partial = json.loads(partial_path.read_text(encoding="utf-8"))
+        assert partial["completed"] == 0
+        assert partial["pending"] == 1
+
+        out_file = Path(cmd[cmd.index("--single-out") + 1])
+        attempt_tag = cmd[cmd.index("--tag") + 1]
+        payload = _summary(tmp_path / "out" / attempt_tag, "slow-start", ok=True)
+        payload["output_dir"] = str(attempt_dir)
+        out_file.write_text(json.dumps(payload), encoding="utf-8")
+        return (0, "", "")
+
+    write_manifest(scenarios_dir)
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner._run_scenario_subprocess",
+        fake_run,
+    )
+
+    summary = run_tag(
+        "tag",
+        scenarios_dir=scenarios_dir,
+        output_base=tmp_path / "out",
+        max_workers=1,
+        infra_retries=0,
+        progress_every=0,
+    )
+
+    assert summary["passed"] == 1
+    assert (tmp_path / "out" / "tag" / "run_summary.json").is_file()
+    assert not (tmp_path / "out" / "tag" / "run_summary.partial.json").exists()
+
+
 def test_runner_retries_outer_timeout_with_empty_attempts_once(
     tmp_path: Path,
     monkeypatch,
@@ -828,7 +884,10 @@ def test_run_single_forwards_transport_selector_to_adapter(
     monkeypatch.setattr(
         "tests.live_agentic_harness.adapter.run_headless_scenario", fake_headless
     )
-    monkeypatch.setattr("tests.live_agentic_harness.guard.guard_output_dir", fake_guard)
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.runner._guard_scenario_output",
+        fake_guard,
+    )
 
     summary = run_single(
         str(scenario_path), "tag", tmp_path / "out", None, transport="openrouter"

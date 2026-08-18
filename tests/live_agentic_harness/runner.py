@@ -721,6 +721,17 @@ def _run_failure_analysis_from_summary(
     return result
 
 
+def _guard_scenario_output(
+    output_dir: str | Path,
+    *,
+    scenario: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Load the heavyweight assessment stack only after agent execution."""
+    from .guard import guard_output_dir
+
+    return guard_output_dir(output_dir, scenario=scenario)
+
+
 def run_single(
     scenario_path: str,
     tag: str,
@@ -736,7 +747,6 @@ def run_single(
     """
     transport = transport or _HARNESS_DEFAULT_TRANSPORT
     from .adapter import run_headless_scenario
-    from .guard import guard_output_dir
 
     path = Path(scenario_path)
     scenario = _load_scenario(path)
@@ -745,7 +755,10 @@ def run_single(
         scenario, output_base=output_base, tag=tag, transport=transport
     )
     summary.setdefault("transport", transport)
-    summary["guard"] = guard_output_dir(summary["output_dir"], scenario=scenario)
+    summary["guard"] = _guard_scenario_output(
+        summary["output_dir"],
+        scenario=scenario,
+    )
     _classify_retryable_infra_summary(summary)
     _persist_scenario_summary(summary, output_base, tag)
     if out_file is not None:
@@ -783,6 +796,17 @@ def run_tag(
         scenarios_dir = Path(__file__).with_name("scenarios")
     paths = _scenario_paths(scenarios_dir, manifest_path=manifest_path)
     results: list[dict[str, Any] | None] = [None] * len(paths)
+    # Persist liveness before any child can block in imports, research, or a
+    # model call.  Previously the first partial summary appeared only after a
+    # scenario completed, making a healthy long-running dispatch look wedged.
+    _persist_run_summary(
+        tag,
+        results,
+        output_base,
+        total_scenarios=len(paths),
+        complete=False,
+        transport=transport,
+    )
     sem = threading.Semaphore(max(1, max_workers))
     lock = threading.Lock()
     tmpdir = Path(tempfile.mkdtemp(prefix="vibecomfy-runner-"))
@@ -842,6 +866,14 @@ def run_tag(
                     # hard-bounded (GitHub tier off, tiny registry sub-budget).
                     if attempt > 1 and _research_hang_kill_summary(final_summary):
                         child_env = _bound_research_child_env(child_env)
+                    # Reserve the durable attempt path before Popen.  The
+                    # headless artifact writer creates it only after executor
+                    # completion, which left no on-disk proof that dispatch
+                    # had happened during a long child startup/model phase.
+                    _output_dir_for(output_base, attempt_run_tag, sid).mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
                     started = time.monotonic()
 
                     def persist_outer_timeout_marker() -> None:

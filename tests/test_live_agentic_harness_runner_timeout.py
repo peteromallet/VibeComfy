@@ -49,7 +49,35 @@ def _run_with_fixture(
     )
     real_run = _run_scenario_subprocess
 
-    def run_fixture(cmd, *, cwd, env, timeout, stdout_path, stderr_path):  # noqa: ANN001, ANN202
+    def run_fixture(
+        cmd,
+        *,
+        cwd,
+        env,
+        timeout,
+        stdout_path,
+        stderr_path,
+        before_terminate=None,
+    ):  # noqa: ANN001, ANN202
+        # ``run_tag`` must leave durable evidence before entering the real
+        # Popen/wait path, even if the child then hangs.
+        attempt_dir = (
+            tmp_path
+            / "out"
+            / "tag"
+            / "attempts"
+            / scenario_id
+            / "attempt_1"
+            / scenario_id
+        )
+        assert attempt_dir.is_dir()
+        partial = json.loads(
+            (tmp_path / "out" / "tag" / "run_summary.partial.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert partial["completed"] == 0
+        assert partial["pending"] == 1
         out_file = Path(cmd[cmd.index("--single-out") + 1])
         child_cmd = [
             sys.executable,
@@ -67,6 +95,7 @@ def _run_with_fixture(
             timeout=timeout,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            before_terminate=before_terminate,
         )
 
     monkeypatch.setattr(
