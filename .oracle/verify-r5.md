@@ -1,83 +1,101 @@
 # Verify-r5 — strategy-r5 implementation verification (DeepSeek Flash, read-only verifier)
 
 - **Branch:** `two-step-megado` · **Worktree:** `/private/tmp/vc-twostep`
-- **Implementer:** DeepSeek Pro XHARD (RC-P0) · **Verifier:** DeepSeek Flash (read-only — no code edits; scratch scripts under `/tmp`)
-- **Run under verification:** `one-step-30-r5` (30-scenario live agentic harness, commit `bcf92497` at freeze)
-- **Status:** freeze + flip ledger COMPLETE · diff review / tests / replay check PENDING (awaiting RC-P0 commit)
+- **Run under verification:** `one-step-30-r5` (30-scenario harness) · **RC under review:** `b39b9029` "RC-P0: one ingest dispatch authority + accepted-delta guard + typed non-empty guard" (parent `bcf92497`)
+- **Status:** COMPLETE — matrix frozen BEFORE implementation; diff reviewed; tests run (incl. baseline comparison); replay check run.
 
 ---
 
-## 1. Reproduction matrix — frozen BEFORE implementation (HEAD `bcf92497`)
+## 1. Reproduction matrix — frozen at HEAD `bcf92497` (BEFORE RC-P0), reproduced via `/tmp/vc_r5_freeze.py` (exact executor doors: `render_text`/`_coerce_workflow`, `EditSession(dict(graph))`, `resolve_target`)
 
-Reproduction harness: `/tmp/vc_r5_freeze.py` (read-only; calls the exact executor doors — `render_text(graph, lenses=("surface","topology"))`/`_coerce_workflow` for the render side, `EditSession(dict(graph))` for the edit side, `resolve_target` from `edit_tools.py:262-290` for the rejection surface).
+| # | Input shape | Fixture | Source nodes | Render IR uid/name set | EditSession IR uid/name set | Current failure | render==edit |
+|---|-------------|---------|--------------|------------------------|-----------------------------|-----------------|--------------|
+| 1 | Vibe envelope | `audio-acestep-audio-generation-and-processing-workfl-1b1360` request.graph | **46** | **46** (`115=VAEDecodeAudio`, `146=AudioSeparation`, `155=VocalAndSoundRemoverNode`, `216=FrequencyFilterPreset`, …) | **0** | `unknown_target: no node in the current render resolves to 'vaedecodeaudio'` (uid `115` same) | FALSE |
+| 2 | LiteGraph UI list | `tests/fixtures/agent_edit/flat.json` | **7** | **7** | **7** (identical) | none — works today | TRUE |
+| 3 | Bare API | `audio-transcribes-audio-appends-text-regenerates` request.graph | **11** | **11** (`71=Apply Whisper`, …) | **0** | `unknown_target: no node in the current render resolves to 'apply_whisper'` (uid `71` same) | FALSE |
 
-| # | Input shape | Fixture source | Source node count | Render uid/name set (IR) | EditSession uid/name set (IR) | Current failure | render==edit? |
-|---|-------------|----------------|-------------------|--------------------------|-------------------------------|-----------------|---------------|
-| 1 | **Vibe envelope** (`nodes` dict + version) | `out/agentic/one-step-30-r5/attempts/audio-acestep-audio-generation-and-processing-workfl-1b1360/attempt_1/<same>/request.json` → `graph` | **46** | **46** (uids `10,115,116,13,132,137,138,139,…`; incl. `115=VAEDecodeAudio`, `146=AudioSeparation`, `155=VocalAndSoundRemoverNode`, `216=FrequencyFilterPreset`) | **0** | `EditSession` IR empty → `resolve_target('vaedecodeaudio')` → `unknown_target: no node in the current render resolves to 'vaedecodeaudio'.` (uid `115` rejected the same way) | **FALSE** |
-| 2 | **LiteGraph UI list** (`nodes` list) | `tests/fixtures/agent_edit/flat.json` | **7** | **7** (`1=CheckpointLoaderSimple … 7=SaveImage`) | **7** (identical set) | none — UI-list path works today | **TRUE** |
-| 3 | **Bare API** (numeric top-level node ids, `class_type` entries) | `out/agentic/one-step-30-r5/attempts/audio-transcribes-audio-appends-text-regenerates/attempt_1/<same>/request.json` → `graph` | **11** | **11** (uids `25,48,49,50,51,52,71,72,…`; incl. `71=Apply Whisper`) | **0** | `EditSession` IR empty → `resolve_target('apply_whisper')` → `unknown_target: no node in the current render resolves to 'apply_whisper'.` (uid `71` same) | **FALSE** |
+**Dominant failure confirmed:** EditSession yields 0 nodes for envelope/API while render sees the full set — two ingest authorities (`_gates.py:300-307` `from_ui(use_comfy_converter=False)` vs `render.py:110-144` shape dispatch).
 
-**Dominant failure (confirmed at freeze):** `EditSession` yields **0 nodes** for envelope and bare-API graphs while the render path sees the full set (46/11). Both doors ingest the same raw dict; `vibecomfy/porting/edit/_gates.py:300-307` (`_workflow_from_ui` → `from_ui(use_comfy_converter=False)`) silently empties non-UI graphs, while `render._coerce_workflow` (`render.py:110-144`) dispatches by shape. Every edit op on those shapes fails `unknown_target`/`unknown_graph_name`; the agent misattributes to stale bindings; no Δ lands; the judge grades the empty Δ. Two ingest authorities (philosophy #2 violation), product evidence cannot land (#1), correct actions are prevented (#5).
-
-Relevant code doors at freeze (all as described in strategy-r5):
-- `vibecomfy/porting/edit/_gates.py:300-307` — broken door (`from_ui(..., use_comfy_converter=False)`)
-- `vibecomfy/porting/render.py:110-144` — correct door (shape dispatch)
-- `vibecomfy/ingest/normalize.py:1260-1292` — `_named_import` (candidate single authority)
-- `vibecomfy/executor/two_step.py:1359-1368` — `_two_step_edit_session` (`except Exception: return None` swallows ingest errors)
-- `vibecomfy/agent/artifacts.py:336-397` — `_route_projects_final_from_original` (P1: `graph_unchanged=true` outranks non-empty `accepted_delta_ids`)
-- `vibecomfy/executor/edit_tools.py:262-290` — `resolve_target` rejection surface
+**After RC-P0 (`b39b9029`), re-measured:** envelope → **12** nodes retained (`image-animatediff-video-generation-with-vae-d20410`), bare API → **11** (`audio-transcribes…`) and **15** (`image-image-editing-with-qwen-image`). The zero-node IR is eliminated for all shapes; render/edit node sets now match. **The remaining blocker moved downstream** (see §4): typed-tool edits on real graphs fail `unknown_field`, and the API emit-exit guard fails `verification_failed` — both reproducible with the exact executor construction.
 
 ---
 
 ## 2. Flip ledger — 9 expected-pass candidates (P0+P1) with residual risk
 
-Terminal artifact path (all verified present at freeze, verdict = terminal `assessment.json` truth):
+Terminal artifact path (all present; verdict = `assessment.json` truth): `out/agentic/one-step-30-r5/attempts/<scenario>/attempt_1/<scenario>/assessment.json`
 
-`out/agentic/one-step-30-r5/attempts/<scenario>/attempt_1/<scenario>/assessment.json`
+| # | Scenario | Confidence | Verdict @ freeze | Residual risk (strategy §1) | Flip status after RC-P0 code review |
+|---|----------|-----------|------------------|------------------------------|--------------------------------------|
+| 1 | `3d-3d-shape-generation-and-export-workflow-8800a9` | high | FAIL (`correct_node_targeted=true`, 64/64 budget) | none named | **BLOCKED** — `shape_refine_strength` named-field edit → `unknown_field` (no schema provider wired into `_two_step_edit_session`) |
+| 2 | `3d-converts-image-to-3d-model` | high | FAIL | value enum needs schema validation | **BLOCKED** — `Polygon_count` → `unknown_field` |
+| 3 | `audio-acestep-audio-generation-and-processing-workfl-1b1360` | high | FAIL | none named | **BLOCKED** — multi-op wiring edit → `unknown_field`/`unknown_target` on real IR |
+| 4 | `audio-transcribes-audio-appends-text-regenerates` | high | FAIL | none named | **BLOCKED** — `model` on `Apply Whisper` → `unknown_field` (verified) |
+| 5 | `image-animatediff-video-generation-with-vae-d20410` | high | FAIL | none named | **BLOCKED** — `batch_size` on `EmptyLatentImage` → `unknown_field` (verified) |
+| 6 | `image-image-editing-with-qwen-image` | high | FAIL | none named | **BLOCKED** — `prompt` on `TextEncodeQwenImageEditPlus` → `unknown_field` (verified) |
+| 7 | `3d-generates-a-3d-mesh-from` | contingent | FAIL (`unknown host action None`) | terminal parse error independent | **BLOCKED** — same `unknown_field` chain + independent parse risk |
+| 8 | `audio-audio-processing-with-chatterbox-tts-and-vc-b55994` | contingent | FAIL (`no_orphaned_wiring=false`) | add+remove syntax degraded | **BLOCKED** — `add_node`/`remove_node` may pass validation but API emit-exit slot loss blocks acceptance |
+| 9 | `audio-tts-narration-using-indextts-2` | contingent | FAIL (d1 projected away) | needs P1 guard | **BLOCKED** — same chain; P1 guard itself is correctly implemented and unit-tested |
 
-| # | Scenario | Confidence | Terminal verdict @ freeze | Residual risk (strategy §1, verbatim intent) |
-|---|----------|-----------|---------------------------|-----------------------------------------------|
-| 1 | `3d-3d-shape-generation-and-export-workflow-8800a9` | high | FAIL — `correct_node_targeted=true`, `correct_parameter_changed=false`, `value_semantically_matches_intent=false`, `response_ok=false` (64/64 budget) | None named; exact target+value (`UltraShapeRefine.shape_refine_strength=0.4`) already attempted; budget exhaustion is downstream of empty IR |
-| 2 | `3d-converts-image-to-3d-model` | high | FAIL — all four criteria false | Value enum still needs schema validation before acceptance (`Polygon_count` `"800K-Triangle"` unverified against schema) |
-| 3 | `audio-acestep-audio-generation-and-processing-workfl-1b1360` | high | FAIL — `correct_node_targeted=false` (agent used exact render names/uids) | None named; exact render names/uids + existing `remove_hiss` building block (AudioFilter uid 214, FrequencyFilterPreset uid 216) were used |
-| 4 | `audio-transcribes-audio-appends-text-regenerates` | high | FAIL — `correct_node_targeted=false` | None named; simple named widget edit `Apply Whisper` `tiny→base` (bare-API shape — mandatory per strategy test #2) |
-| 5 | `image-animatediff-video-generation-with-vae-d20410` | high | FAIL — `correct_node_targeted=false` | None named; simple named widget edit `EmptyLatentImage.batch_size 16→8` |
-| 6 | `image-image-editing-with-qwen-image` | high | FAIL — `correct_node_targeted=false` | None named; correct prompt node/field (`TextEncodeQwenImageEditPlus` uid 133) + concrete lighting-continuity edit attempted (bare-API shape) |
-| 7 | `3d-generates-a-3d-mesh-from` | **contingent** | FAIL — `response_ok=false` (`unknown host action None`), `correct_node_targeted=false` | **Independent residual risk:** terminal `_parse_host_action` failure (`agent_backend.py:408-423`) — expected to flip only if the accepted edit prevents the downstream malformed final action; parse error is not fixed by this RC |
-| 8 | `audio-audio-processing-with-chatterbox-tts-and-vc-b55994` | **contingent** | FAIL — `correct_node_targeted=false`, `no_orphaned_wiring=false` | MP3→WAV replacement (`SaveAudioMP3`→`SaveAudio`) is correct, but deletion-call syntax degraded after rejection; a resolved base helps, **not guarantees**, acceptance |
-| 9 | `audio-tts-narration-using-indextts-2` | **contingent** | FAIL — `correct_node_targeted=false` (d1 accepted but projected away) | **Also needs P1** accepted-delta/final-artifact consistency guard (bundled in this RC); rewire `QwenEmotionNode → IndexTTSEngineNode.emotion_control` correct |
+**Explicit non-flip:** `3d-3d-model-generation-and-preview-workflow-cc0df7` — `Rodin3D_Fusion` absent from the 922-class cache; correct product is a grounded `requires_custom_nodes` refusal (P2, out of scope). Unchanged.
 
-**Explicit non-flip (do not credit to P0):** `3d-3d-model-generation-and-preview-workflow-cc0df7` — shares the empty-IR symptom but `Rodin3D_Fusion` is absent from the 922-class object_info cache and the request is not representable; the correct product is a grounded `requires_custom_nodes` outcome (P2, not in this RC).
-
-**Scoring rule (strategy §6.5):** RC is score-moving at **≥7 of 9 flips** with no regression among existing passes; record terminal verdict + mechanism per flip; below 7 → new evidence analysis, not bar-softening. Strategy projection: point estimate 8 flips (10–12/30); do **not** claim all 9 from unit tests — #7–#9 carry explicit residual risk.
+**Projection:** as committed, **0 of 9 flips can be credited from RC-P0** — the ingest door is fixed (necessary), but no real-graph edit can land yet (see §4). This is **below the ≥7 acceptance gate** → triggers a new evidence analysis per strategy §6.5, not bar-softening. The live rerun has NOT been executed; this verdict is from code-level reproduction with the exact executor construction, not from terminal `assessment.json` of a rerun.
 
 ---
 
-## 3. Diff review — RC-P0 (PENDING — no RC-P0 commit at last check; HEAD `bcf92497`)
+## 3. Diff verdict — RC-P0 `b39b9029` (12 files, +907/−27; .oracle + code + tests only)
 
-Criteria checklist (filled on implementer commit):
+| Criterion | Evidence | Verdict |
+|-----------|----------|---------|
+| **Single dispatch authority** | `_gates.py:300-307` `_workflow_from_ui` now calls `_named_import(..., schema_provider=self.schema_provider, use_comfy_converter=False)` + guard; `render._coerce_workflow` (render.py:110-144) dropped its copied branch table and calls the same `_named_import` + guard. Three named decoders (`from_envelope`/`from_ui`/`from_api`) remain the doors (normalize.py `_named_import`). | **PASS** |
+| **No raw-graph resolver fallback** | `resolve_target` (edit_tools.py:262-290) unchanged — retained IR only; no new fallback to raw graph/UI snapshot added anywhere in the diff. | **PASS** |
+| **No judge/rubric/assessor edits** | Commit touches only ingest/render/two_step/artifacts + 3 test files; zero changes under `tests/live_agentic_harness/`, `prompts.py`, `contracts.py`, budgets, scenarios. | **PASS** |
+| **No swallowed ingest error** | `_two_step_edit_session` (two_step.py:1359-1373): `except Exception: return None` removed; `WorkflowIngestError(kind="workflow_ingest")` propagates to the typed `ExecutorResult.failure` boundary (generic handler maps `exc.kind`). | **PASS** |
+| **Non-empty guard** | `_assert_nonempty_ingest_preserved` (normalize.py): shape-aware `_source_node_count` (envelope mapping / UI list / API `class_type` entries); unknown shape raises; `source>0 and decoded==0` raises `WorkflowIngestError`; legitimately empty graphs allowed (unit-tested). | **PASS** |
 
-| Criterion | Expected change | Verdict |
-|-----------|-----------------|---------|
-| **Single dispatch authority** | Render (`render._coerce_workflow`) and EditSession (`_gates._workflow_from_ui`) call the SAME internal dispatcher (`_named_import` or equivalent centralized helper); envelope→`from_envelope`, UI→`from_ui(use_comfy_converter=False)`, API→`from_api`; `schema_provider` preserved on UI/API | PENDING |
-| **No raw-graph resolver fallback** | Resolution uses retained IR only; no fallback to render raw graph / parallel UI snapshot (strategy §5) | PENDING |
-| **No judge/rubric/assessor edits** | No changes under `tests/live_agentic_harness/` (assessor.py, intent_judge.py, scenarios), no prompts/budgets/grounding policy changes | PENDING |
-| **No swallowed ingest error** | `_two_step_edit_session` (`two_step.py:1359-1368`) propagates typed ingest failure to a typed execute/request failure; broad `except Exception: return None` removed | PENDING |
-| **Non-empty guard** | `_assert_nonempty_ingest_preserved`: compare source node cardinality by detected shape (envelope mapping / UI list / API mapping); unknown shape raises; positive source count → 0 decoded nodes raises | PENDING |
+**P1 accepted-delta guard (bundled):** `artifacts.py` — non-empty `accepted_delta_ids` outranks `graph_unchanged=true`/unchanged routes; `final==original` with accepted ids raises typed `ArtifactConsistencyError(kind="artifact_consistency")` and never writes. Correct as far as it goes (the strategy also asked for a replay-equality verification inside the guard; implemented as a final==original equality check instead — the replay equality is independently verified here in §5 and by the continuity test).
+
+**Overall diff verdict: 5/5 PASS on the stated criteria** — the diff is faithful, minimal, and well-scoped. **However, the acceptance gate is NOT met** (see §4): the strategy's own test #5 fails, and real-graph edits cannot land.
 
 ---
 
-## 4. Targeted tests (PENDING — run after RC-P0)
+## 4. Targeted test results (RC-P0 `b39b9029` vs baseline `bcf92497`, same 3 files)
 
-Strategy §3 lists (to run/inspect):
-1. `tests/test_porting_edit_session.py` — envelope fixture full IR + named/uid resolution + widget edit
-2. `tests/test_porting_edit_session.py` — bare-API fixture (mandatory)
-3. UI fixture stays on offline `from_ui` round-trip
-4. Unknown shape / positive-count-to-zero fail closed with specific diagnostic
-5. `tests/test_executor_two_step_continuity.py` — real typed tool runtime, one edit accepted (envelope + API), full graph retained
-6. `tests/test_headless_agent_artifacts.py` — `accepted_delta_ids=['d1']` + erroneous `graph_unchanged=true` never writes `final=original`
-7. Parity assertion: render uid/node set == EditSession uid/node set for all three shapes
+| | bcf92497 (baseline, separate worktree) | b39b9029 (RC-P0) |
+|---|---|---|
+| `test_porting_edit_session.py` + `test_executor_two_step_continuity.py` + `test_headless_agent_artifacts.py` | **13 failed / 298 passed / 2 skipped** | **14 failed / 311 passed / 2 skipped** |
 
-## 5. Independent replay-equality check (PENDING)
+- **+13 passes = the new RC-P0 tests** (format-aware ingest dispatch, parity, unknown-shape/zero-decode fail-closed, artifacts accepted-delta tests) — all green.
+- **The 13 pre-existing failures are IDENTICAL at baseline** (gate/primitive class tests, `_DescribeMixin._find_link_to_target_in_ledger` missing, etc.) → **not RC-P0 regressions.**
+- **The single new failure is RC-P0-scoped and blocks the acceptance gate:**
+  `test_executor_two_step_continuity.py::test_two_step_edit_session_typed_runtime_accepts_edit_for_envelope_and_api` — **API leg fails** `verification_failed: Candidate changed an out-of-delta node`. Root cause (reproduced): the API fixture's COW re-emit loses slot metadata on schema-less emit (`inputs[0].type CLIP→UNKNOWN`, `outputs[0].name CONDITIONING→output_0`, `outputs[0].type CONDITIONING→''` for uid 2), so the emit-exit guard sees untouched-node changes. Envelope leg of the same test passes.
 
-Plan (executed after RC-P0): take envelope fixture `image-animatediff-video-generation-with-vae-d20410` (12 nodes) and bare-API fixture `audio-transcribes-audio-appends-text-regenerates` (11 nodes); ingest through the new EditSession door; apply one named edit; replay the accepted delta over the original via the same replay authority; assert the emitted final graph equals the replayed projection (uid/node set + values), and assert `final.ui.json`-equivalent output is not projected from original when `accepted_delta_ids` is non-empty.
+**Independent real-graph checks through the exact executor construction (`_two_step_edit_session` + `EditToolRuntime.dispatch`):**
+- Ingest: 12/11/15 nodes retained (envelope/API/API) — **the core fix works.**
+- `edit_node emptylatentimage.batch_size=8`, `apply_whisper.model='base'`, `textencodeqwenimageeditplus.prompt=…` → **all fail `unknown_field`** ("field 'batch_size' is not a schema input/widget of node 'EmptyLatentImage' (uid '9')").
+- Why: real graphs store widgets positionally (`widget_0..N`, `raw_widgets` list); the validator (`_op_validate._validate_set_node_field`) accepts only schema-declared or literally-present named fields; `_two_step_edit_session` constructs `EditSession(dict(graph))` with **no schema_provider** (grep: only construction site, two_step.py:1373). Wiring `get_schema_provider("auto")` did NOT fix it in this environment — the offline provider serves 0 classes (though the live loop's `node_schema` tool demonstrably served `batch_size, height, width` in the transcript, so schema exists in the live environment but never reaches `EditSession`). The render shows `widget_N` for these graphs and `widget_N` refs are rejected by philosophy #9 → **no typed edit can land on real graphs through the executor path as committed.**
+
+---
+
+## 5. Independent replay-equality check
+
+**Method:** envelope fixture (the RC-P0 continuity test's synthetic envelope — the only fixture where an edit can currently land), real typed runtime, then: accepted Δ replay (`apply_edits_cow(original, landed_ops)`) vs the session's post-edit state and emitted UI.
+
+**Result: PASS.**
+- `edit_node ksampler.seed=99` → accepted, `delta_id=d1`.
+- Replay node set == final node set: **True**; node 2 widgets `{'seed': 99, …}` identical in replay and final.
+- `final_ui == replay_ui` (JSON byte-equal): **True**.
+- Untouched nodes preserved (node 1 `width==512`, node 3 present): **True**.
+
+**Limitation (recorded, not glossed):** real request graphs cannot yet reach an accepted Δ (unknown_field chain, §4), so replay equality could only be proven on the synthetic envelope. The check will need to be re-run on a real fixture after the executor wires a schema provider into `_two_step_edit_session` (and the API emit-exit slot-loss is addressed).
+
+---
+
+## 6. Verdict summary
+
+1. **Matrix:** frozen before implementation; zero-node IR for envelope/API confirmed and eliminated by RC-P0 (render/edit sets now match).
+2. **Flip ledger:** all 9 candidates still FAIL; as committed, **0 flips creditable** (below the ≥7 gate) → per strategy §6.5, this triggers another evidence analysis, not bar-softening.
+3. **Diff:** 5/5 criteria PASS (single authority, no raw-graph fallback, no judge/rubric edits, typed failure propagation, non-empty guard) + P1 guard correctly implemented.
+4. **Tests:** +13 new passes, 0 regressions (13 pre-existing failures identical at baseline); **one new RC-P0 failure** — continuity test API leg (`verification_failed`, emit-exit slot loss).
+5. **Replay equality:** PASS on the synthetic envelope; not yet provable on real fixtures.
+
+**Root gap to close for the next RC (evidence-backed):** wire a schema provider (or a `raw_widgets`-based named-field mapping) into `_two_step_edit_session`/`EditSession` so named fields resolve on real positional-widget IRs; and make the API emit path retain slot metadata across COW so the emit-exit guard passes for bare-API graphs. Without both, no candidate in the flip ledger can move.
