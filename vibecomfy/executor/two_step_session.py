@@ -1148,6 +1148,26 @@ class TwoStepSessionStore:
                 replies=state.replies + ({"turn": turn, "reply": reply_text, "at": event.get("ts") or _now_iso()},),
                 messages=state.messages + ({"turn": turn, "role": "assistant_reply", "content": reply_text, "route": route},),
             )
+        elif kind == "apply_accepted":
+            ids = list(event.get("delta_ids") or ())
+            text = f"edit accepted: delta_ids={ids}"
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_edit", "content": text, "route": route},),
+            )
+        elif kind == "apply_rejected":
+            diagnostics = " | ".join(str(d) for d in (event.get("diagnostics") or ()))
+            text = f"edit rejected: {event.get('reason') or 'rejected'}" + (
+                f" — {diagnostics}" if diagnostics else ""
+            )
+            if event.get("replacement_allowed"):
+                text += " (one replacement allowed)"
+            if event.get("no_candidate"):
+                text += " (no candidate — do not submit another edit)"
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
+            )
         elif kind == "budget":
             state = replace(state, budget=SessionBudget.from_dict(event.get("budget") or {}))
         elif kind == "closed":

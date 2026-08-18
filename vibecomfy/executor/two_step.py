@@ -1010,6 +1010,14 @@ def _two_step_outcome(
         from vibecomfy.executor.core import _resolve_spec  # noqa: PLC0415
 
         spec = _resolve_spec(request.profile, "execute")
+        graph_render = _two_step_graph_render(request.graph)
+        edit_session = _two_step_edit_session(request.graph)
+        fact_pack = _two_step_fact_pack(request.graph)
+        tool_executor = _two_step_tool_executor(
+            route=route,
+            edit_session=edit_session,
+            web_search_enabled=False,
+        )
         outcome = run_execute_turn(
             request,
             plan=plan,
@@ -1017,21 +1025,15 @@ def _two_step_outcome(
             spec=spec,
             session_store=store,
             session_id=session_id,
+            graph_render=graph_render,
+            tool_executor=tool_executor,
+            edit_session=edit_session,
+            fact_pack=fact_pack,
         )
     except TwoStepSessionError as exc:
-        return ExecutorResult.failure(
-            kind=exc.kind,
-            stage="request",
-            message=str(exc),
-            report=Report(plan=plan, pipeline_mode=pipeline_mode),
-        )
+        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
     except Exception as exc:  # noqa: BLE001 - typed failure envelope
-        return ExecutorResult.failure(
-            kind="ExecuteError",
-            stage="execute",
-            message=str(exc),
-            report=Report(plan=plan, pipeline_mode=pipeline_mode),
-        )
+        return ExecutorResult.failure(kind="ExecuteError", stage="execute", message=str(exc))
 
     if not outcome.get("ok"):
         failure = outcome.get("failure")
@@ -1129,6 +1131,106 @@ def _fallback_route(plan: ClassifyDecision) -> str:
     if plan.research:
         return "research"
     return "respond"
+
+
+class _TwoStepToolSession:
+    """Per-turn session namespace handed to the registered tool handlers.
+
+    Bridges the retained :class:`~vibecomfy.porting.edit.session.EditSession`
+    (``schema_provider`` / IR / emit snapshot) with the injected research fakes
+    and the disabled-by-default web flag, so the two-step execute phase shares
+    ONE dispatch path with the full-mode tool registry.
+    """
+
+    __slots__ = ("edit_session", "search_fn", "get_fn", "cache_root", "web_search_enabled")
+
+    def __init__(self, edit_session: Any, *, web_search_enabled: bool = False) -> None:
+        self.edit_session = edit_session
+        self.search_fn = None
+        self.get_fn = None
+        self.cache_root = None
+        self.web_search_enabled = web_search_enabled
+
+    @property
+    def schema_provider(self) -> Any:
+        return getattr(self.edit_session, "schema_provider", None)
+
+    @property
+    def workflow(self) -> Any:
+        return getattr(self.edit_session, "workflow", None)
+
+    def _emit_working_snapshot(self) -> Any:
+        emit = getattr(self.edit_session, "_emit_working_snapshot", None)
+        if callable(emit):
+            return emit()
+        return None
+
+
+def _two_step_graph_render(graph: Any) -> str | None:
+    """Render the current workflow's reply lenses for the execute prompt."""
+    if not graph:
+        return None
+    try:
+        from vibecomfy.porting.render import render_text  # noqa: PLC0415
+
+        return render_text(graph, lenses=("surface", "topology"))
+    except Exception:  # noqa: BLE001 - render is best-effort prompt context
+        return None
+
+
+def _two_step_edit_session(graph: Any) -> Any:
+    """Construct the retained :class:`EditSession` from the request graph."""
+    if not graph:
+        return None
+    try:
+        from vibecomfy.porting.edit.session import EditSession  # noqa: PLC0415
+
+        return EditSession(dict(graph))
+    except Exception:  # noqa: BLE001 - a graph that cannot be ingested yields no edits
+        return None
+
+
+def _two_step_fact_pack(graph: Any) -> tuple[str, ...]:
+    """Stable reply-lens fact IDs for *graph* (the current fact pack)."""
+    if not graph:
+        return ()
+    try:
+        from vibecomfy.porting.render import render_fact_pack  # noqa: PLC0415
+
+        return tuple(str(ref.fact_id) for ref in render_fact_pack(graph, lenses=("surface", "topology")))
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+def _two_step_tool_executor(
+    *,
+    route: str,
+    edit_session: Any,
+    web_search_enabled: bool = False,
+) -> Any:
+    """Return a REAL route-gated tool dispatcher for the execute phase.
+
+    The route allowlist/caps are enforced by ``check_before_tool_call`` in the
+    loop; this dispatcher invokes the registered handler and projects the
+    result through the registered ledger projector (``invoke_tool`` /
+    ``project_tool_evidence``) so evidence artifacts + ledger entry + digest
+    flow into the session transcript exactly like the full-mode research stage.
+    """
+    from vibecomfy.executor.tool_specs import (  # noqa: PLC0415
+        TOOL_SPEC_BY_NAME,
+        invoke_tool,
+        project_tool_evidence,
+    )
+
+    def executor(tool: str, args: dict[str, Any]) -> Any:
+        spec = TOOL_SPEC_BY_NAME.get(tool)
+        if spec is None:
+            return None
+        session = _TwoStepToolSession(edit_session, web_search_enabled=web_search_enabled)
+        result = invoke_tool(spec, session, args, None)
+        return project_tool_evidence(spec, args, result, session)
+
+    return executor
 
 
 # ── B04: atomic edit state machine ───────────────────────────────────────────

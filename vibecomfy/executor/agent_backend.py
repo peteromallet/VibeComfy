@@ -360,19 +360,30 @@ def run_reply_turn(
 # used: continuity is host-owned via the durable session transcript.
 
 from vibecomfy.executor.two_step import (  # noqa: E402
+    ApplyBatchOutcome,
+    BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
     BudgetExceeded,
     BudgetUsage,
     MessageBudget,
+    TwoStepEditStateMachine,
+    apply_python_batch,
+    check_apply_batch,
     check_before_model_call,
     check_before_tool_call,
+    check_replacement_attempt,
+    consume_apply_batch,
     consume_output_tokens,
+    consume_replacement_attempt,
     consume_tool_call,
 )
 from vibecomfy.executor.two_step_session import (  # noqa: E402
     TwoStepSessionError,
     TwoStepSessionState,
     TwoStepSessionStore,
+    canonical_workflow_hash,
     derive_research_attempt,
+    mint_lease_token,
+    serialize_delta_ops,
 )
 
 _HOST_ACTIONS = frozenset({"tool_call", "apply", "submit"})
@@ -443,18 +454,27 @@ def _run_tool_call(
     budget_usage: BudgetUsage,
     tool_executor: Any,
     web_search_enabled: bool,
-) -> tuple[BudgetUsage, str]:
+) -> tuple[BudgetUsage, str, tuple[str, ...]]:
     """Gate, invoke, and record one registered tool call.
 
     The allowlist/cap/wall-clock gates fire BEFORE dispatch (B02); a denial
     raises :class:`BudgetExceeded` and consumes nothing.  The result is
     projected through the registered ledger projector and recorded in the
-    session transcript (evidence ledger).
+    session transcript (evidence ledger).  A missing dispatcher is a typed
+    denial, never a ``None(...)`` crash.
     """
     check_before_tool_call(
         message_budget, budget_usage, tool, web_search_enabled=web_search_enabled
     )
     budget_usage = consume_tool_call(message_budget, budget_usage, tool)
+    if tool_executor is None:
+        raise BudgetExceeded(
+            family=BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST,
+            limit=0,
+            used=0,
+            route=route,
+            detail=f"no tool dispatcher configured; cannot invoke {tool!r}.",
+        )
     result = tool_executor(tool, args)
     if result is None:
         digest = f"{tool}({sorted(args)})"
@@ -475,7 +495,29 @@ def _run_tool_call(
         },
         turn=turn,
     )
-    return budget_usage, str(digest)
+    return budget_usage, str(digest), tuple(evidence_ids)
+
+
+def _fact_pack_ids(graph: Any) -> tuple[str, ...]:
+    """Stable reply-lens fact IDs for *graph* (surface + topology)."""
+    if not graph:
+        return ()
+    try:
+        from vibecomfy.porting.render import render_fact_pack  # noqa: PLC0415
+
+        refs = render_fact_pack(graph, lenses=("surface", "topology"))
+        return tuple(str(ref.fact_id) for ref in refs)
+    except Exception:  # noqa: BLE001 - fact pack is best-effort context
+        return ()
+
+
+def _no_edit_session_outcome(code: str) -> ApplyBatchOutcome:
+    del code
+    return ApplyBatchOutcome(
+        ok=False,
+        reason="no_edit_session",
+        diagnostics=("this route has no edit session configured; edits are denied",),
+    )
 
 
 def run_execute_turn(
@@ -489,41 +531,78 @@ def run_execute_turn(
     graph_render: str | None = None,
     model_turn_fn: Any = None,
     tool_executor: Any = None,
+    edit_session: Any = None,
+    fact_pack: Any = None,
     max_continuations: int | None = None,
+    web_search_enabled: bool = False,
 ) -> dict[str, Any]:
     """Run ONE bounded two-step execute turn for *request*.
 
     Returns a plain dict (``ok``, ``reply``, ``route``, ``research_attempt``,
-    ``accepted_delta_ids``, ``budget``, ``failure``).  The heavy edit state
-    machine (parse/apply/gate/commit) is B04; B03 owns the bounded loop, host
-    action parsing, tool execution, transcript re-injection, and session
-    identity.
+    ``accepted_delta_ids``, ``evidence_ids``, ``tool_call_ids``,
+    ``lens_fact_ids``, ``budget``, ``graph``, ``claim_validation``,
+    ``self_assessment``, ``replacement_used``, ``durable_response``, or
+    ``failure``).  Every tool call is dispatched through a REAL route-gated
+    ``tool_executor``; every ``apply`` runs through ONE per-turn
+    :class:`TwoStepEditStateMachine` over the retained ``edit_session``; the
+    final ``submit`` is parsed into the authoritative :class:`TwoStepFinal` and
+    fail-closed validated before the reply is persisted.
     """
     from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
+    from .prompts import build_two_step_execute_messages, parse_two_step_submit  # noqa: PLC0415
+    from .contracts import validate_two_step_final  # noqa: PLC0415
 
     if model_turn_fn is None:
         model_turn_fn = run_model_turn
 
-    # Validate identity/staleness/concurrency BEFORE any model work.
-    try:
-        state = session_store.begin_message(
+    fingerprint = getattr(request, "idempotency_key", None) or None
+    lease_token = None if fingerprint else mint_lease_token()
+
+    # Idempotent replay: a completed fingerprint returns its stored outcome
+    # instead of re-running tools/edits.
+    if fingerprint:
+        prior = session_store.completed_outcome(session_id, fingerprint)
+        if prior is not None:
+            return prior
+
+    lease_acquired = False
+
+    def _run(initial_state: TwoStepSessionState) -> dict[str, Any]:
+        state = initial_state
+        message_budget = MessageBudget.for_route(route)
+        budget_usage = BudgetUsage(route=route)
+        turn = (len(state.messages) // 2) + 1
+        state = session_store.append(session_id, "route", {"route": route}, turn=turn)
+        state = session_store.append(
             session_id,
-            base_graph=getattr(request, "graph", None),
-            expected_baseline_hash=getattr(request, "expected_baseline_graph_hash", None),
-            message_fingerprint=getattr(request, "idempotency_key", None),
+            "user_message",
+            {"query": getattr(request, "query", ""), "route": route},
+            turn=turn,
         )
-    except TwoStepSessionError as exc:
-        return {"ok": False, "reply": None, "route": route, "failure": exc}
+        # Persist the current fact pack (reply-lens ids) when supplied, so the
+        # final submit can cite them against the durable lens ledger.
+        if fact_pack:
+            ids = [str(i) for i in (fact_pack or ()) if i]
+            if ids:
+                session_store.append(
+                    session_id, "lens_fact", {"fact_ids": ids, "route": route}, turn=turn
+                )
+                state = session_store.load(session_id)
 
-    message_budget = MessageBudget.for_route(route)
-    budget_usage = BudgetUsage(route=route)
-    turn = (len(state.messages) // 2) + 1
-    state = session_store.append(session_id, "route", {"route": route}, turn=turn)
-    state = session_store.append(
-        session_id, "user_message", {"query": getattr(request, "query", ""), "route": route}, turn=turn
-    )
+        # ONE per-turn atomic edit state machine (B04).
+        last_apply: dict[str, ApplyBatchOutcome] = {}
 
-    try:
+        def apply_fn(code: str) -> ApplyBatchOutcome:
+            outcome = (
+                apply_python_batch(edit_session, code)
+                if edit_session is not None
+                else _no_edit_session_outcome(code)
+            )
+            last_apply["outcome"] = outcome
+            return outcome
+
+        edit_machine = TwoStepEditStateMachine(apply_fn=apply_fn)
+
         continuation = 0
         while True:
             session_budget = state.budget
@@ -531,22 +610,32 @@ def run_execute_turn(
                 session_budget = session_budget.record_model_continuation()
             except Exception as exc:  # BudgetExceeded
                 return {"ok": False, "reply": None, "route": route, "failure": exc}
-            cap = max_continuations if max_continuations is not None else session_budget.max_model_continuations
+            cap = (
+                max_continuations
+                if max_continuations is not None
+                else session_budget.max_model_continuations
+            )
             if continuation >= cap:
-                return {"ok": False, "reply": None, "route": route, "failure": TwoStepSessionError(
-                    "stale_message", "execute continuation budget exhausted", session_id=session_id
-                )}
+                return {
+                    "ok": False,
+                    "reply": None,
+                    "route": route,
+                    "failure": TwoStepSessionError(
+                        "stale_message",
+                        "execute continuation budget exhausted",
+                        session_id=session_id,
+                    ),
+                }
 
             check_before_model_call(message_budget, budget_usage)
             transcript = _render_compact_transcript(state)
-            from .prompts import build_two_step_execute_messages  # noqa: PLC0415
-
             messages = build_two_step_execute_messages(
                 getattr(request, "query", ""),
                 route=route,
                 plan=plan,
                 graph_render=graph_render,
                 transcript=transcript,
+                web_search_enabled=web_search_enabled,
             )
             result = model_turn_fn(
                 getattr(request, "query", ""),
@@ -562,8 +651,6 @@ def run_execute_turn(
             try:
                 budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
             except BudgetExceeded as exc:
-                # Per-message output-token slice exhausted: a typed budget
-                # failure (never a raw exception leaking out of the loop).
                 return {"ok": False, "reply": None, "route": route, "failure": exc}
             session_budget = session_budget.record_output_tokens(tokens)
             state = session_store.append(
@@ -580,7 +667,7 @@ def run_execute_turn(
                 tool = str(action.get("tool") or "")
                 args = action.get("args") if isinstance(action.get("args"), dict) else {}
                 try:
-                    budget_usage, _digest = _run_tool_call(
+                    budget_usage, _digest, _eids = _run_tool_call(
                         store=session_store,
                         session_id=session_id,
                         turn=turn,
@@ -590,32 +677,100 @@ def run_execute_turn(
                         message_budget=message_budget,
                         budget_usage=budget_usage,
                         tool_executor=tool_executor,
-                        web_search_enabled=False,
+                        web_search_enabled=web_search_enabled,
                     )
+                    session_budget = session_budget.record_tool_call()
                 except BudgetExceeded as exc:
                     # Route-allowlist denial or call-cap breach: a typed budget
                     # failure carrying the canonical B02 ``family``.
                     return {"ok": False, "reply": None, "route": route, "failure": exc}
+                state = session_store.append(
+                    session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
+                )
                 state = session_store.load(session_id)
             elif kind == "apply":
-                session_store.append(
-                    session_id,
-                    "apply",
-                    {"python": str(action.get("python") or ""), "route": route},
-                    turn=turn,
+                code = str(action.get("python") or "")
+                was_replacement = edit_machine.replacement_used
+                try:
+                    if was_replacement:
+                        check_replacement_attempt(message_budget, budget_usage)
+                    else:
+                        check_apply_batch(message_budget, budget_usage)
+                except BudgetExceeded as exc:
+                    return {"ok": False, "reply": None, "route": route, "failure": exc}
+                submit = edit_machine.submit(code)
+                if edit_machine.replacement_used and not was_replacement:
+                    budget_usage = consume_replacement_attempt(message_budget, budget_usage)
+                    session_budget = session_budget.record_replacement_attempt()
+                if submit.accepted:
+                    budget_usage = consume_apply_batch(message_budget, budget_usage)
+                    session_budget = session_budget.record_apply_batch()
+                    landed = last_apply.get("outcome")
+                    ops = serialize_delta_ops(getattr(landed, "landed_ops", ()) if landed else ())
+                    graph = submit.graph
+                    if graph is not None:
+                        session_store.write_workflow(session_id, graph)
+                    session_store.append(
+                        session_id,
+                        "delta_accepted",
+                        {
+                            "delta_ids": list(submit.delta_ids),
+                            "ops": list(ops),
+                            "workflow_hash": canonical_workflow_hash(graph),
+                        },
+                        turn=turn,
+                    )
+                    if graph is not None:
+                        new_facts = _fact_pack_ids(graph)
+                        if new_facts:
+                            session_store.append(
+                                session_id,
+                                "lens_fact",
+                                {"fact_ids": list(new_facts), "route": route},
+                                turn=turn,
+                            )
+                    session_store.append(
+                        session_id,
+                        "apply_accepted",
+                        {"delta_ids": list(submit.delta_ids), "route": route},
+                        turn=turn,
+                    )
+                else:
+                    # Feed the rejection diagnostics back so the single allowed
+                    # replacement continuation sees why the batch was refused.
+                    session_store.append(
+                        session_id,
+                        "apply_rejected",
+                        {
+                            "reason": str(submit.reason or "rejected"),
+                            "diagnostics": list(submit.diagnostics or ()),
+                            "replacement_allowed": bool(submit.replacement_allowed),
+                            "no_candidate": bool(submit.no_candidate),
+                            "route": route,
+                        },
+                        turn=turn,
+                    )
+                state = session_store.append(
+                    session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
                 )
                 state = session_store.load(session_id)
             elif kind == "submit":
-                delta_ids = action.get("delta_ids") or ()
                 state = session_store.load(session_id)
-                try:
-                    state.validate_delta_references(delta_ids)
-                except TwoStepSessionError as exc:
-                    # Typed session errors (forged/unknown delta references)
-                    # are a documented dict result, not a propagation: the
-                    # finally block still clears the message marker.
+                final = parse_two_step_submit(action)
+                violations = validate_two_step_final(
+                    final,
+                    accepted_delta_ids=state.accepted_delta_ids(),
+                    lens_fact_ids=state.lens_fact_ids(),
+                    evidence_ids=state.evidence_ids(),
+                )
+                if violations:
+                    exc = TwoStepSessionError(
+                        "missing_delta_reference",
+                        "; ".join(violations),
+                        session_id=session_id,
+                    )
                     return {"ok": False, "reply": None, "route": route, "failure": exc}
-                reply_text = str(action.get("reply") or "")
+                reply_text = final.reply
                 session_store.append(
                     session_id,
                     "reply",
@@ -629,16 +784,58 @@ def run_execute_turn(
                     "route": route,
                     "research_attempt": state.research_attempt(),
                     "accepted_delta_ids": list(state.accepted_delta_ids()),
+                    "evidence_ids": list(state.evidence_ids()),
+                    "tool_call_ids": list(state.evidence_ids()),
+                    "lens_fact_ids": list(state.lens_fact_ids()),
                     "budget": state.budget,
+                    "graph": edit_machine.graph,
+                    "claim_validation": {"status": "ok", "violations": []},
+                    "self_assessment": (
+                        final.self_assessment.to_dict()
+                        if final.self_assessment is not None
+                        else None
+                    ),
+                    "replacement_used": edit_machine.replacement_used,
+                    "durable_response": {
+                        "reply": reply_text,
+                        "session_id": session_id,
+                        "route": route,
+                    },
                 }
             continuation += 1
+
+    try:
+        state = session_store.begin_message(
+            session_id,
+            base_graph=getattr(request, "graph", None),
+            expected_baseline_hash=getattr(request, "expected_baseline_graph_hash", None),
+            message_fingerprint=fingerprint,
+            lease_token=lease_token,
+        )
+        lease_acquired = True
+    except TwoStepSessionError as exc:
+        return {"ok": False, "reply": None, "route": route, "failure": exc}
+
+    outcome: dict[str, Any]
+    try:
+        outcome = _run(state)
     finally:
+        if lease_acquired:
+            try:
+                session_store.end_message(
+                    session_id,
+                    message_fingerprint=fingerprint,
+                    lease_token=lease_token,
+                )
+            except Exception:  # noqa: BLE001 - best-effort marker clear
+                pass
+
+    if fingerprint:
         try:
-            session_store.end_message(
-                session_id, message_fingerprint=getattr(request, "idempotency_key", None)
-            )
-        except Exception:  # noqa: BLE001 - best-effort marker clear
+            session_store.record_completed(session_id, fingerprint, outcome)
+        except Exception:  # noqa: BLE001 - best-effort idempotency record
             pass
+    return outcome
 
 
 __all__ = ["run_classify_turn", "run_reply_turn", "run_execute_turn"]

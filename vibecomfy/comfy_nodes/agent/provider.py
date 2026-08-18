@@ -1634,12 +1634,17 @@ def run_model_turn(
     effort: str | None = None,
     response_contract: str = "json",
     profiling_context: Mapping[str, Any] | None = None,
+    remaining_output_cap: int | None = None,
 ) -> dict[str, Any]:
     """Run a generic JSON/text model turn through the Arnold/Hermes provider.
 
     This is the provider-level compatibility seam used by the executor's
     classify/reply phases.  Agent-edit turns keep using the stricter
     python/batch-specific entry points above.
+
+    ``remaining_output_cap`` (B02 Pro) is the cumulative-session output-token
+    headroom the two-step execute loop computed; it is forwarded to the runtime
+    so every adapter path (not only hermes) observes the real cap.
     """
     route_descriptor = _resolve_agent_route(route)
     selected_route = route_descriptor.normalized_route
@@ -1662,6 +1667,7 @@ def run_model_turn(
                 effort=effort,
                 response_contract=response_contract,
                 profiling_context=profiling_context,
+                remaining_output_cap=remaining_output_cap,
             )
         else:
             run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
@@ -1675,6 +1681,7 @@ def run_model_turn(
                 effort=effort,
                 response_contract=response_contract,
                 profiling_context=profiling_context,
+                remaining_output_cap=remaining_output_cap,
             )
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
