@@ -283,6 +283,7 @@ def _failure_summary(
     stderr_tail: str | None = None,
     elapsed_s: float | None = None,
     killed_before_first_attempt: bool = False,
+    pre_attempt_reason: str | None = None,
 ) -> dict[str, Any]:
     summary = {
         "scenario_id": scenario_id,
@@ -310,6 +311,8 @@ def _failure_summary(
     }
     if killed_before_first_attempt:
         summary["killed_before_first_attempt"] = True
+    if pre_attempt_reason is not None:
+        summary["pre_attempt_reason"] = pre_attempt_reason
     return summary
 
 
@@ -352,6 +355,7 @@ def _attempt_record(summary: dict[str, Any], *, attempt: int) -> dict[str, Any]:
         "live_agentic_success": (summary.get("guard") or {}).get("live_agentic_success"),
         "model_attempts": summary.get("model_attempts", []),
         "killed_before_first_attempt": summary.get("killed_before_first_attempt") is True,
+        "pre_attempt_reason": summary.get("pre_attempt_reason"),
     }
 
 
@@ -497,6 +501,62 @@ def _is_retryable_infra_summary(summary: dict[str, Any]) -> bool:
         _is_outer_timeout_before_first_attempt(summary)
         or _provider_infra_failure_class(summary) in _RETRYABLE_INFRA_CLASSES
     )
+
+
+# Pre-attempt kill reasons (I-B).  A zero-attempt outer kill is classified from
+# the killed child's typed stderr/stdout tail: only exact research-path markers
+# (GitHub code search / registry / Hivemind / research stage) classify as
+# ``research_hang`` — the v5-batch-3 #1/#7 mechanism where api.github.com/
+# search/code ate the whole 1200s wall before a first model attempt.  Any other
+# tail leaves the reason None, so the retry keeps its plain full-budget shape.
+_RESEARCH_HANG_MARKERS = (
+    "api.github.com/search/code",
+    "api.comfy.org",
+    "registry sub-budget",
+    "hivemind",
+    "research stage",
+)
+
+
+def _infer_pre_attempt_reason(text: str | None) -> str | None:
+    """Classify a zero-attempt outer kill's likely pre-attempt stall.
+
+    ``text`` is the tail of the killed child's stderr/stdout — prose, so only
+    exact endpoint/stage markers classify.  Returns ``"research_hang"`` when a
+    research-path marker is present, else None.
+    """
+    if not text:
+        return None
+    lowered = text.lower()
+    if any(marker in lowered for marker in _RESEARCH_HANG_MARKERS):
+        return "research_hang"
+    return None
+
+
+def _research_hang_kill_summary(summary: Mapping[str, Any] | None) -> bool:
+    """True for a zero-attempt outer kill whose reason was a research hang.
+
+    This is the I-B retry lever: the retry must NOT be a second 1200s black
+    hole, so the child research path is hard-bounded below.
+    """
+    return bool(
+        summary is not None
+        and _is_outer_timeout_before_first_attempt(summary)
+        and summary.get("pre_attempt_reason") == "research_hang"
+    )
+
+
+def _bound_research_child_env(child_env: dict[str, str]) -> dict[str, str]:
+    """Hard-bounded research env for the retry of a research-hang kill.
+
+    The GitHub code-search tier (the hang of record) is skipped entirely and
+    the registry sub-budget is cut to a few seconds so the retry reaches the
+    model instead of burning another scenario wall on registry research.
+    """
+    env = dict(child_env)
+    env["VIBECOMFY_REGISTRY_SKIP_GITHUB"] = "1"
+    env["VIBECOMFY_REGISTRY_SUB_BUDGET"] = "8"
+    return env
 
 
 def _build_run_summary(
@@ -760,9 +820,23 @@ def run_tag(
                     if transport is not None:
                         cmd += ["--transport", transport]
                     child_env = _pinned_child_env(transport)
+                    # I-B: the retry of a zero-attempt research-hang kill must
+                    # NOT be a second 1200s black hole — the research path is
+                    # hard-bounded (GitHub tier off, tiny registry sub-budget).
+                    if attempt > 1 and _research_hang_kill_summary(final_summary):
+                        child_env = _bound_research_child_env(child_env)
                     started = time.monotonic()
 
                     def persist_outer_timeout_marker() -> None:
+                        # Best-effort: read whatever stderr the child flushed so
+                        # the persisted marker can carry a pre_attempt_reason.
+                        stderr_tail = ""
+                        try:
+                            stderr_tail = Path(stderr_path).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                        except OSError:
+                            pass
                         partial = _failure_summary(
                             sid,
                             output_base,
@@ -773,6 +847,7 @@ def run_tag(
                             expect_graph_changed=expect_graph_changed,
                             elapsed_s=time.monotonic() - started,
                             killed_before_first_attempt=True,
+                            pre_attempt_reason=_infer_pre_attempt_reason(stderr_tail),
                         )
                         _persist_scenario_summary(
                             partial,
@@ -830,6 +905,8 @@ def run_tag(
                                     "failure_class", "post_flow_exit_cleanup"
                                 )
                         else:
+                            stderr_tail = _timeout_tail(exc, "stderr")
+                            stdout_tail = _timeout_tail(exc, "output")
                             final_summary = _failure_summary(
                                 sid,
                                 output_base,
@@ -838,10 +915,13 @@ def run_tag(
                                 failure_class="infra_timeout",
                                 attempt=attempt,
                                 expect_graph_changed=expect_graph_changed,
-                                stdout_tail=_trim(_timeout_tail(exc, "output")),
-                                stderr_tail=_trim(_timeout_tail(exc, "stderr")),
+                                stdout_tail=_trim(stdout_tail),
+                                stderr_tail=_trim(stderr_tail),
                                 elapsed_s=elapsed_s,
                                 killed_before_first_attempt=True,
+                                pre_attempt_reason=_infer_pre_attempt_reason(
+                                    stderr_tail or stdout_tail
+                                ),
                             )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure
                         elapsed_s = time.monotonic() - started

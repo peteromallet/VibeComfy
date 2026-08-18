@@ -1227,3 +1227,136 @@ def test_github_422_sanitizes_retries_once_and_negative_caches(tmp_path: Path) -
         github_client=github2,
     )
     assert github2.calls == []
+
+
+# ── I-B: process-wide GitHub code-search budget ─────────────────────────────
+# api.github.com/search/code is the pre-first-attempt hang of record: many
+# node classes x one resolve_missing_nodes() call each can eat the whole 1200s
+# scenario wall.  The process-wide budget (one process == one scenario attempt
+# in the live harness) must cap total wall time AND total HTTP requests.
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_github_budget() -> None:
+    """Reset the process-wide GitHub code-search budget around every test so
+    the module's expectations are independent of collection order."""
+    from vibecomfy.registry.pack_resolver import _reset_process_github_code_search_budget
+
+    _reset_process_github_code_search_budget()
+    yield
+    _reset_process_github_code_search_budget()
+
+
+class _BudgetBoundedCodeClient:
+    """GitHub client: 422 on code search (the hang shape), benign repo search."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        request = httpx.Request("GET", url)
+        if url == _CODE_SEARCH_URL:
+            return httpx.Response(422, request=request, json={"message": "Validation Failed"})
+        return httpx.Response(200, request=request, json={"items": []})
+
+
+def test_github_code_search_bounded_by_process_request_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cascade of missing node classes cannot exceed the process-wide request
+    budget: after the cap, the GitHub tier skips itself with a typed warning
+    instead of continuing to hammer api.github.com/search/code."""
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS", "2")
+    github = _BudgetBoundedCodeClient()
+
+    results = [
+        resolve_missing_nodes(
+            query,
+            cache_root=tmp_path,
+            manager_client=_manager_client(),
+            registry_client=_FakeRouteClient({}),
+            github_client=github,
+        )
+        for query in ("ClassOne", "ClassTwo", "ClassThree")
+    ]
+
+    # Class 1: original + sanitized retry (2 real HTTP requests) then tier off.
+    # Classes 2-3: code search skipped by the budget; the repository-search
+    # fallback runs once over HTTP and is then served from the disk cache.
+    assert github.calls == [
+        _CODE_SEARCH_URL,
+        _CODE_SEARCH_URL,
+        "https://api.github.com/search/repositories",
+    ]
+    all_warnings = [warning for result in results for warning in result.warnings]
+    assert any("process request budget exhausted" in warning for warning in all_warnings)
+
+
+class _Slow422CodeClient:
+    """GitHub client that sleeps on every code-search attempt (the hang shape)."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        request = httpx.Request("GET", url)
+        if url == _CODE_SEARCH_URL:
+            time.sleep(0.06)
+            return httpx.Response(422, request=request, json={"message": "Validation Failed"})
+        return httpx.Response(200, request=request, json={"items": []})
+
+
+def test_github_code_search_hang_cannot_exceed_process_wall_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A GitHub code-search hang is bounded by the process wall budget: many
+    classes cannot burn the research/attempt wall on the tier — after the cap
+    the tier skips itself and total elapsed time stays tiny."""
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_GITHUB_SEARCH_BUDGET", "0.05")
+    github = _Slow422CodeClient()
+
+    started = time.monotonic()
+    results = [
+        resolve_missing_nodes(
+            query,
+            cache_root=tmp_path,
+            manager_client=_manager_client(),
+            registry_client=_FakeRouteClient({}),
+            github_client=github,
+        )
+        for query in ("ClassOne", "ClassTwo", "ClassThree", "ClassFour")
+    ]
+    elapsed = time.monotonic() - started
+
+    # Only the first code-search attempt pays the 0.06s sleep; every later
+    # attempt is rejected by the budget before any HTTP I/O.
+    assert github.calls.count(_CODE_SEARCH_URL) == 1
+    assert elapsed < 1.0
+    all_warnings = [warning for result in results for warning in result.warnings]
+    assert any("process wall budget exhausted" in warning for warning in all_warnings)
+
+
+def test_github_tier_skipped_when_retry_env_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The harness's retry-of-research-hang env switch disables the WHOLE
+    GitHub tier (code search AND repository search) with zero GitHub HTTP."""
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_SKIP_GITHUB", "1")
+    github = _BoomClient()
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=_manager_client(),
+        registry_client=_FakeRouteClient({}),
+        github_client=github,
+    )
+
+    assert github.calls == []
+    assert result.candidates == ()
+    assert any("VIBECOMFY_REGISTRY_SKIP_GITHUB" in warning for warning in result.warnings)
