@@ -908,6 +908,7 @@ def test_runner_marks_research_hang_kill_and_bounds_retry_research(
     )
     monkeypatch.delenv("VIBECOMFY_REGISTRY_SKIP_GITHUB", raising=False)
     monkeypatch.delenv("VIBECOMFY_REGISTRY_SUB_BUDGET", raising=False)
+    monkeypatch.delenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", raising=False)
 
     calls = 0
     child_envs: list[dict] = []
@@ -959,6 +960,7 @@ def test_runner_marks_research_hang_kill_and_bounds_retry_research(
     assert "VIBECOMFY_REGISTRY_SUB_BUDGET" not in child_envs[0]
     assert child_envs[1]["VIBECOMFY_REGISTRY_SKIP_GITHUB"] == "1"
     assert child_envs[1]["VIBECOMFY_REGISTRY_SUB_BUDGET"] == "8"
+    assert child_envs[1]["VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"] == "1"
 
 
 def test_runner_retry_without_research_hang_reason_keeps_full_budget(
@@ -977,6 +979,7 @@ def test_runner_retry_without_research_hang_reason_keeps_full_budget(
     )
     monkeypatch.delenv("VIBECOMFY_REGISTRY_SKIP_GITHUB", raising=False)
     monkeypatch.delenv("VIBECOMFY_REGISTRY_SUB_BUDGET", raising=False)
+    monkeypatch.delenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", raising=False)
 
     calls = 0
     child_envs: list[dict] = []
@@ -1023,6 +1026,7 @@ def test_runner_retry_without_research_hang_reason_keeps_full_budget(
     assert first["pre_attempt_reason"] is None
     assert "VIBECOMFY_REGISTRY_SKIP_GITHUB" not in child_envs[1]
     assert "VIBECOMFY_REGISTRY_SUB_BUDGET" not in child_envs[1]
+    assert "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP" not in child_envs[1]
 
 
 def test_outer_timeout_marker_persists_pre_attempt_reason_when_stderr_available(

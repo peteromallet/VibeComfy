@@ -86,6 +86,7 @@ LOGGER = logging.getLogger(__name__)
 # Interval between ``vibecomfy.executor.phase`` ``status="working"`` heartbeat
 # events emitted while the implement phase is running.
 _IMPLEMENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+_RESEARCH_HANG_RETRY_SKIP_ENV = "VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"
 
 
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
@@ -360,7 +361,10 @@ def _accepted_delta_ops(
     if not isinstance(durable, Mapping):
         return ()
     accepted = durable.get("accepted_batch")
-    if not isinstance(accepted, list):
+    # ImplementationResult freezes JSON arrays to tuples.  Accept both the
+    # pre-freeze list and the durable frozen tuple; rejecting the tuple made
+    # the canonical accepted delta disappear precisely at the reply boundary.
+    if not isinstance(accepted, (list, tuple)):
         return ()
     ops = [
         dict(item["op"]) for item in accepted
@@ -1576,6 +1580,15 @@ _LANDED_CLAIM_RE = re.compile(
     r"|\bI\s+(?:have\s+)?made\s+(?:the\s+|these\s+|those\s+|this\s+)?changes?\b"
 )
 
+_NO_LANDED_EDIT_CLAIM_RE = re.compile(
+    r"(?ix)"
+    r"\b(?:the\s+)?(?:workflow|graph)\s+(?:is|was|remains?)\s+(?:exactly\s+)?unchanged\b"
+    r"|\bno\s+(?:workflow\s+)?changes?\s+(?:were|was|have\s+been)\s+(?:successfully\s+)?(?:applied|made)\b"
+    r"|\bno\s+edit\s+(?:was\s+)?(?:applied|landed)\b"
+    r"|\b(?:the\s+)?edit\s+(?:did\s+not|didn't|could\s+not|couldn't)\s+(?:apply|land)\b"
+    r"|\bvalidation\s+(?:failed|did\s+not\s+pass)\b"
+)
+
 # Cue-anchored node id/uid mentions ("node 43", "node ID 120", "uid 742",
 # "node_id 218").  Link ids are a separate namespace and are excluded via the
 # fixed-width lookbehind on ``id``.
@@ -1626,6 +1639,25 @@ def _no_change_reply(reason: str | None = None) -> str:
         "not modify the workflow."
     )
     return "\n\n".join(parts)
+
+
+def _accepted_delta_reply(delta_ops: tuple[dict[str, Any], ...]) -> str:
+    """Truthful fallback when narration contradicts the accepted delta."""
+    from vibecomfy.porting.render import render
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    empty = VibeWorkflow(
+        id="reply-grounding",
+        source=WorkflowSource(id="reply-grounding"),
+    )
+    rendered = str(render(empty, lens="diff", delta=delta_ops))
+    detail = rendered.split("\n", 1)[1] if "\n" in rendered else rendered
+    return (
+        "The workflow edit landed. The accepted change set is:\n\n"
+        f"{detail}\n\n"
+        "This summary is generated from the accepted delta, which is the "
+        "authoritative record of what changed."
+    )
 
 
 def _implementation_landed_edit(result: ImplementationResult | None) -> bool:
@@ -1818,13 +1850,16 @@ def _enforce_reply_grounding(
     landed: bool,
     graph: dict[str, Any] | None,
     reason: str | None = None,
+    delta_ops: tuple[dict[str, Any], ...] = (),
 ) -> str:
     """Enforce the reply fidelity + node-id grounding guards.
 
     1. Fidelity: when *landed* is False (no accepted Δ / graph unchanged), a
        reply that claims an edit landed is a false success and is replaced
        with a deterministic no-change reply — it never passes through.
-    2. Node ids: when *graph* is present, every node id/uid cited by the
+    2. Inverse fidelity: when an accepted delta exists, narration that says
+       the graph stayed unchanged is replaced by that canonical delta.
+    3. Node ids: when *graph* is present, every node id/uid cited by the
        reply must exist in the graph; hallucinated ids are corrected to the
        real id of a uniquely named node class or stripped.
 
@@ -1833,6 +1868,8 @@ def _enforce_reply_grounding(
     """
     if not landed and _reply_claims_landed_edit(reply):
         return _no_change_reply(reason=reason)
+    if landed and delta_ops and _NO_LANDED_EDIT_CLAIM_RE.search(reply or ""):
+        reply = _accepted_delta_reply(delta_ops)
     if graph is not None:
         reply = _ground_reply_node_ids(reply, graph)
     return reply
@@ -1992,6 +2029,7 @@ def _run_reply(
             landed=landed_edit,
             graph=effective_graph,
             reason=_no_candidate_reason(implementation_result),
+            delta_ops=delta_ops,
         )
     except (ProviderError, AuthError, MalformedModelJSON,
             MissingRequiredField, TimeoutError) as exc:
@@ -2338,7 +2376,11 @@ def run_executor(
         )
 
     # ── Phase 2: research (standalone replies only) ──────────────────────
-    if _canonical_route_for_plan(plan) in {"research", "adapt"}:
+    retry_skips_research = bool(os.environ.get(_RESEARCH_HANG_RETRY_SKIP_ENV))
+    if (
+        _canonical_route_for_plan(plan) in {"research", "adapt"}
+        and not retry_skips_research
+    ):
         try:
             research_spec = _resolve_spec(request.profile, "research")
         except Exception as exc:
@@ -2388,7 +2430,11 @@ def run_executor(
             "executor.phase.skipped",
             **request_fields,
             phase="research",
-            reason="plan_disabled",
+            reason=(
+                "research_hang_retry"
+                if retry_skips_research
+                else "plan_disabled"
+            ),
         )
 
     # ── Phase 3: implement (optional) ────────────────────────────────────
@@ -2619,6 +2665,13 @@ def run_executor(
             fallback_reply = (
                 implementation_result.message
                 or "Edit completed. The candidate is ready to review."
+            )
+            fallback_reply = _enforce_reply_grounding(
+                fallback_reply,
+                landed=_implementation_landed_edit(implementation_result),
+                graph=result_graph,
+                reason=_no_candidate_reason(implementation_result),
+                delta_ops=_accepted_delta_ops(implementation_result),
             )
             return _finish(ExecutorResult.success(
                 report=report,

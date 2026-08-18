@@ -3156,6 +3156,43 @@ class TestRouteGateFlows:
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_research_hang_retry_skips_research_but_runs_product_path(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """I-B live path: the retry cannot re-enter the hanging research phase.
+
+        Classify, implement, reply, and the normal result construction still
+        execute.  The switch is scoped to the retry child environment.
+        """
+        monkeypatch.setenv("VIBECOMFY_RESEARCH_HANG_RETRY_SKIP", "1")
+        with mock.patch(
+            "vibecomfy.executor.core._run_agent_owned_research",
+            side_effect=AssertionError("research must be skipped on the retry"),
+        ) as mock_research:
+            result = run_executor(
+                ExecutorRequest(
+                    query="adapt the graph after research infrastructure hung",
+                    graph={"nodes": [{"id": 1, "type": "LoadImage"}]},
+                    profile="default",
+                )
+            )
+
+        assert result.ok is True
+        assert result.report.plan.effective_route == "adapt"
+        assert result.report.research is None
+        assert result.report.implementation is not None
+        mock_research.assert_not_called()
+        mock_edit.assert_called_once()
+        mock_reply.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_adapt)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
     def test_adapt_report_flags_correct_phases(
         self,
         mock_edit: mock.MagicMock,

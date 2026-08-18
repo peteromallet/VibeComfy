@@ -563,11 +563,14 @@ def _research_hang_kill_summary(summary: Mapping[str, Any] | None) -> bool:
 def _bound_research_child_env(child_env: dict[str, str]) -> dict[str, str]:
     """Hard-bounded research env for the retry of a research-hang kill.
 
-    The GitHub code-search tier (the hang of record) is skipped entirely and
-    the registry sub-budget is cut to a few seconds so the retry reaches the
-    model instead of burning another scenario wall on registry research.
+    The research phase itself is skipped on this one retry.  GitHub and the
+    registry are also bounded defensively in case an older child entrypoint
+    does not understand the phase-skip switch.  The retry still runs classify,
+    implement, reply, and every product gate; only the already-proven hanging
+    infrastructure phase is omitted.
     """
     env = dict(child_env)
+    env["VIBECOMFY_RESEARCH_HANG_RETRY_SKIP"] = "1"
     env["VIBECOMFY_REGISTRY_SKIP_GITHUB"] = "1"
     env["VIBECOMFY_REGISTRY_SUB_BUDGET"] = "8"
     return env
