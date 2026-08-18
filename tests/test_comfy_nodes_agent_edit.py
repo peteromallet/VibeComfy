@@ -2818,6 +2818,11 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert "reinterpret such a hint as a request to find workflow precedents" in system
     assert "A local miss is not a product-level failure" in system
     assert "choose the smallest defensible edit" in system
+    assert "Representable-edit preflight (mandatory before clarify/refusal)" in system
+    assert "inspect the rendered node inventory and exact node-variable reference map" in system
+    assert "If any graph-local requested edit is authorable, perform that edit" in system
+    assert "visible `widget_N` is authorable" in system
+    assert "exact class, node variable, and `widget_N`" in system
     assert "never search the raw user sentence or guess class names" in system
     assert "never justifies substituting a merely similar node" in system
     assert "no `search(focus_types=[...])` for guessed names" in system
@@ -5509,23 +5514,26 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     # The final message is narrator/recorded text (non-deterministic); the
     # deterministic budget-stop contract is the failure envelope below.
     assert isinstance(result["message"], str) and result["message"]
-    assert issue["detail"]["turn_count"] == 1
+    # Identity failures get exactly one explicit correction turn even when
+    # the generic consecutive-error budget is one.
+    assert issue["detail"]["turn_count"] == 2
     assert issue["detail"]["budget_state"]["consecutive_errors"] == 1
 
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     batch_meta = audit["metadata"]["batch_repl"]
-    assert batch_meta["turn_count"] == 1
-    assert batch_meta["budget_state"]["remaining_batches"] == 3
+    assert batch_meta["turn_count"] == 2
+    assert batch_meta["budget_state"]["remaining_batches"] == 2
     assert batch_meta["budget_state"]["consecutive_errors"] == 1
     assert batch_meta["exit_mode"] == "budget"
     assert batch_meta["final_summary"] == (
-        "Stopped after 1 turn(s) with 1 consecutive error turn(s) (limit 1)."
+        "Stopped after 2 turn(s) with 1 consecutive error turn(s) (limit 1)."
     )
-    assert "Turn summary: 0 landed, 4 failed, 4 diagnostic(s), 3 turn(s) remaining, 1 consecutive error turn(s)." in batch_meta["feedback"]
+    assert "Turn summary: 0 landed, 4 failed" in batch_meta["feedback"]
+    assert "2 turn(s) remaining, 1 consecutive error turn(s)." in batch_meta["feedback"]
     assert "✗ Statement 1: set_node_field" in batch_meta["feedback"]
     assert "✗ Statement 2: set_node_field" in batch_meta["feedback"]
     assert "batch_transaction_rolled_back" in batch_meta["feedback"]
-    assert "cause: Statement depends on graph name 'extra' whose add-node statement did not land." in batch_meta["feedback"]
+    assert "Batch rejected before commit because it references unbound or stale graph names: 'extra'." in batch_meta["feedback"]
     assert "unknown_target_field: SaveImage has no editable field or input named 'not_a_field'." in batch_meta["feedback"]
     assert "unbound_graph_name: Graph name 'extra' is currently unbound because its add-node statement did not land." in batch_meta["feedback"]
 
@@ -5533,11 +5541,19 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
         Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
     )["turns"]
     turn0 = response_turns[0]["batch_result"]
+    assert turn0["identity_repair"] == {
+        "attempt": 1,
+        "invalid_names": ["extra"],
+        "atomic_rejection": True,
+    }
     assert turn0["batch_ok"] is False
     assert turn0["landed_op_count"] == 0
     assert turn0["statement_count"] == 4
-    assert len(turn0["diagnostics"]) == 4
-    assert turn0["report"] == batch_meta["feedback"]
+    assert {diag["code"] for diag in turn0["diagnostics"]} >= {
+        "unbound_graph_name",
+        "batch_identity_rejected",
+    }
+    assert "IDENTITY CORRECTION REQUIRED" in turn0["report"]
 
     statements = turn0["statements"]
     assert [item["landed"] for item in statements] == [False, False, False, False]
@@ -5554,6 +5570,77 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     assert statements[3]["diagnostics"][0]["teaching_hint"] == (
         "The add-node statement for this name did not land. Fix the node construction call or remove the dependent statement."
     )
+
+
+def test_batch_repl_identity_failure_is_atomic_and_reprompted_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chroma/wan2.2 live path: guessed names/uids cannot poison a batch.
+
+    The first mixed batch includes one otherwise-valid value edit, an unbound
+    delete name, and a phantom uid reference.  It must land nothing.  The real
+    agent loop then exposes the current name inventory once and accepts the
+    corrected second batch.
+    """
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {
+                "batch": "\n".join(
+                    [
+                        'saveimage.filename_prefix = "must-not-land"',
+                        "del cliptextencode_4",
+                        "saveimage.images = n999.IMAGE",
+                        "done()",
+                    ]
+                ),
+                "message": "Tried the requested edit.",
+            },
+            {
+                "batch": 'saveimage.filename_prefix = "after"\ndone()',
+                "message": "Corrected the batch using the rendered name.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "identity-correction-live-path",
+            "max_batches": 2,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": "before",
+            "new": "after",
+        }
+    ]
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    turns = json.loads(
+        Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    first = turns[0]["batch_result"]
+    assert first["landed_op_count"] == 0
+    assert first["identity_repair"] == {
+        "attempt": 1,
+        "invalid_names": ["cliptextencode_4", "n999"],
+        "atomic_rejection": True,
+    }
+    assert "IDENTITY CORRECTION REQUIRED" in first["report"]
+    assert "saveimage" in first["report"]
+    assert turns[1]["batch_result"]["landed_op_count"] == 1
 
 
 def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_repair(
@@ -7576,6 +7663,60 @@ def test_live_batch_schema_less_existing_widget_values_warn_and_keep_queue_open(
     )
     assert result["gates"]["queue_validate_ok"] is True
     assert result["queue_allowed"] is True
+
+
+def test_live_batch_representable_edit_preflight_acts_on_visible_rodin_widget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cc0df7 live path: visible Rodin widget_0 is an action, not a refusal."""
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    graph = {
+        "last_node_id": 91,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 91,
+                "type": "Rodin3D_Regular",
+                "properties": {"vibecomfy_uid": "91"},
+                "inputs": [],
+                "outputs": [],
+                "widgets_values": ["rodin-old-model"],
+            }
+        ],
+        "links": [],
+        "version": 1.0,
+    }
+    seen_system: list[str] = []
+
+    def _client(messages):
+        seen_system.append(messages[0]["content"])
+        return {
+            "batch": "rodin3d_regular.widget_0 = 'rodin-new-model'\ndone()",
+            "message": (
+                "Rodin3D_Regular rodin3d_regular exposes the requested model "
+                "as visible widget_0, so I changed that graph-local value."
+            ),
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "switch the Rodin model to rodin-new-model",
+            "session_id": "rodin-representable-preflight",
+            "max_batches": 2,
+        },
+        schema_provider=_Provider({}),
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert "Representable-edit preflight (mandatory before clarify/refusal)" in seen_system[0]
+    assert result["ok"] is True
+    assert result["report"]["change"]["content_edits"]["edited"] == ["91"]
+    assert len(result["accepted_batch"]) == 1
+    assert result["outcome"]["kind"] == "candidate"
 
 
 def test_handle_agent_edit_research_route_writes_batch_artifacts_but_no_candidate(
