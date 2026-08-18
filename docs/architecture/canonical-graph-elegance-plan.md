@@ -967,10 +967,10 @@ Not new, still true: `detect_workflow_shape` must keep its vibe branch until 1.2
 - Agent-edit UI adapter: [`vibecomfy/comfy_nodes/agent/graph_normalization.py`](../../vibecomfy/comfy_nodes/agent/graph_normalization.py) (stale module docstring `:5-6`; correct function docstring `:22-43`)
 - UI emit (not a compile backend): [`vibecomfy/porting/emit/ui.py`](../../vibecomfy/porting/emit/ui.py) `:1-7, 1994`
 - B02 proof: [`tests/test_porting_normalize_ingest.py`](../../tests/test_porting_normalize_ingest.py) `:642-704`, [`tests/test_b02_rich_preservation.py`](../../tests/test_b02_rich_preservation.py), [`scripts/check_b02_rich_preservation.py`](../../scripts/check_b02_rich_preservation.py)
-- Smoking-gun envelope: [`external_workflows/corpus/90a1d5ff9044902e.json`](../../external_workflows/corpus/90a1d5ff9044902e.json)
+- Smoking-gun envelope: `external_workflows/corpus/90a1d5ff9044902e.json` (corpus is not part of the repo; present only in local/downloaded corpora)
 - B02 parent (scout §5 stale): [`docs/failure-analysis/agentic-pipeline-improvement-2026-08.md`](../failure-analysis/agentic-pipeline-improvement-2026-08.md) item 3 line 82, §5 lines 109-118
 - Stale v0 note: [`docs/vibeworkflow.md`](../vibeworkflow.md)
-- Drifted clone: [`vibecomfy/ir/`](../../vibecomfy/ir/) (5 drift axes; `diagnostic.py:12-14` inheritance claim is false)
+- Drifted clone: `vibecomfy/ir/` (5 drift axes; `diagnostic.py:12-14` inheritance claim is false)
 - Ingest walk (seed of `to_envelope`): [`scripts/ingest_external_workflows.py`](../../scripts/ingest_external_workflows.py) `:85-98`
 - Fixer twin writer: [`vibecomfy/demo_factory/fixer.py`](../../vibecomfy/demo_factory/fixer.py) `:24-132`, unused `ir` import `:51`
 - Leftover readers: live [`_frag_batch_memory.py`](../../vibecomfy/comfy_nodes/agent/_frag_batch_memory.py) `:678-679` (rich-first), `executor/research.py` `:787, 5056-5079` (rich-first + rank), [`intent_judge.py`](../../tests/live_agentic_harness/intent_judge.py) `:85-88` (the only break)
