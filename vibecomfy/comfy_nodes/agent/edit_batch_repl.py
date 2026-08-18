@@ -224,6 +224,36 @@ def _import_from(module_path: str, name: str) -> Any:
     return getattr(importlib.import_module(module_path), name)
 
 
+_BATCH_IDENTITY_DIAGNOSTIC_CODES = frozenset(
+    {
+        "batch_identity_rejected",
+        "unknown_graph_name",
+        "unknown_source_name",
+        "unknown_target_name",
+        "unbound_graph_name",
+        "stale_graph_name",
+    }
+)
+
+
+def _batch_identity_failure_names(batch_result: Any) -> tuple[str, ...]:
+    """Return invalid graph names from one atomically rejected batch."""
+    diagnostics = list(getattr(batch_result, "diagnostics", ()) or ())
+    for statement in tuple(getattr(batch_result, "statements", ()) or ()):
+        diagnostics.extend(tuple(getattr(statement, "diagnostics", ()) or ()))
+    return tuple(
+        sorted(
+            {
+                str(detail.get("name"))
+                for diagnostic in diagnostics
+                if getattr(diagnostic, "code", "") in _BATCH_IDENTITY_DIAGNOSTIC_CODES
+                for detail in (getattr(diagnostic, "detail", {}) or {},)
+                if detail.get("name") is not None
+            }
+        )
+    )
+
+
 def _in_graph_nodes_from_session(session: Any) -> dict[str, Any] | None:
     """Retained-IR in-graph payload for search(); UI-shaped for catalog callers.
 
@@ -1035,6 +1065,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     done_error_nudges = 0
     done_candidate_rejection_nudges = 0
     done_validation_repair_turns = 0
+    identity_repair_turns = 0
     failed_edit_turns = 0
     last_failed_edit_turn = -1
     last_successful_edit_turn_after_failure = -1
@@ -1632,6 +1663,31 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 lint_dropped_count=lint_dropped_count,
                 lint_diagnostics=lint_diag_dicts,
             )
+            identity_failure_names = _batch_identity_failure_names(batch_result)
+            identity_reprompt = bool(
+                identity_failure_names
+                and identity_repair_turns < 1
+                and (turn_number + 1) < max_batches
+                and not research_only_route
+            )
+            if identity_reprompt:
+                available_names = sorted(str(name) for name in session.uid_by_name)
+                shown_names = available_names[:80]
+                inventory_suffix = (
+                    f" (plus {len(available_names) - len(shown_names)} more)"
+                    if len(available_names) > len(shown_names)
+                    else ""
+                )
+                report_text += (
+                    "\n\nIDENTITY CORRECTION REQUIRED: the batch was rejected "
+                    "atomically; none of its edits landed. Invalid graph name(s): "
+                    + ", ".join(repr(name) for name in identity_failure_names)
+                    + ". Re-rendered bound names are: "
+                    + (", ".join(shown_names) or "(none)")
+                    + inventory_suffix
+                    + ". Submit one corrected batch using only those exact names, "
+                    "or a uid that is present in the current render."
+                )
             # Duplicate-query cycle guard (Part C): detect when the agent re-emits
             # an identical search() on consecutive turns after the prior search
             # landed nothing.  Reads the PRIOR turn's search record
@@ -1745,6 +1801,32 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 json.dumps(message_record, sort_keys=True)
                 + "\n"
             )
+            if identity_reprompt:
+                identity_repair_turns += 1
+                turn_record["identity_repair"] = {
+                    "attempt": identity_repair_turns,
+                    "invalid_names": list(identity_failure_names),
+                    "atomic_rejection": True,
+                }
+                if response_log and isinstance(response_log[-1], dict):
+                    batch_response_record = response_log[-1].get("batch_result")
+                    if isinstance(batch_response_record, dict):
+                        batch_response_record["identity_repair"] = dict(
+                            turn_record["identity_repair"]
+                        )
+                    deps.write_json_artifact(
+                        state.model_response_path,
+                        {"turns": response_log},
+                    )
+                # This bounded correction turn is an explicit recovery path,
+                # not a second generic error.  Keep the unchanged render and
+                # do not let max_consecutive_errors suppress the promised
+                # re-prompt.
+                consecutive_errors = max(0, consecutive_errors - 1)
+                current_render = next_render
+                last_diff = diff_text
+                last_report = report_text
+                continue
             if selected_precedent_unknown_class_feedback and not deps._batch_candidate_graph_changed(state):
                 state.batch_exit_mode = deps._BATCH_EXIT_PURE_CLARIFY
                 state.batch_final_summary = (

@@ -17,6 +17,17 @@ from vibecomfy.porting.edit._parse import (
 from vibecomfy.porting.edit._ir_utils import _uids_for_op
 
 
+_IDENTITY_DIAGNOSTIC_CODES = frozenset(
+    {
+        "unknown_graph_name",
+        "unknown_source_name",
+        "unknown_target_name",
+        "unbound_graph_name",
+        "stale_graph_name",
+    }
+)
+
+
 class _ParseExecuteMixin:
 
     def apply_batch(self, code: str) -> BatchResult:
@@ -67,6 +78,48 @@ class _ParseExecuteMixin:
             statement_results = self._overlay_query_results(
                 parsed.expanded, statement_results
             )
+            identity_diagnostics = tuple(
+                diagnostic
+                for outcome in interpreted.statements
+                for diagnostic in tuple(getattr(outcome, "diagnostics", ()) or ())
+                if getattr(diagnostic, "code", "") in _IDENTITY_DIAGNOSTIC_CODES
+            )
+            if identity_diagnostics:
+                names = sorted(
+                    {
+                        str(diagnostic.detail.get("name"))
+                        for diagnostic in identity_diagnostics
+                        if diagnostic.detail.get("name") is not None
+                    }
+                )
+                rejection = _diag(
+                    "batch_identity_rejected",
+                    (
+                        "Batch rejected before commit because it references "
+                        "unbound or stale graph names: "
+                        + (", ".join(repr(name) for name in names) or "unknown")
+                        + ". Re-render and use only names or uids present in the "
+                        "current graph."
+                    ),
+                    severity="error",
+                    detail={"names": names, "atomic": True, "retryable": True},
+                )
+                statement_results = self._enrich_statement_results(statement_results)
+                for statement in statement_results:
+                    if statement.landed:
+                        statement.ok = False
+                        statement.landed = False
+                        statement.status = "rejected"
+                        statement.reason = "batch_identity_rejected"
+                        statement.diagnostics = statement.diagnostics + (rejection,)
+                return BatchResult(
+                    ok=False,
+                    statements=tuple(statement_results),
+                    diagnostics=interpreted.diagnostics + identity_diagnostics + (rejection,),
+                    landed_ops=(),
+                    field_changes=(),
+                    apply_eligible=False,
+                )
             apply_gate_eligible = True
             if interpreted.ok and interpreted.landed_ops:
                 from vibecomfy.porting.edit.apply_gate import verify_apply
