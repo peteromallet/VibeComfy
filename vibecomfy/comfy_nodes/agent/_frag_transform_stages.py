@@ -341,6 +341,71 @@ def _recovery_report_from_ui_payload(
                 return raw_ui
         return node
 
+    def _stable_node_uid(node: Mapping[str, Any]) -> str:
+        properties = node.get("properties")
+        if isinstance(properties, Mapping):
+            uid = properties.get("vibecomfy_uid")
+            if uid is not None and str(uid):
+                return str(uid)
+        uid = node.get("uid")
+        if uid is not None and str(uid):
+            return str(uid)
+        return str(node.get("id", ""))
+
+    def _semantic_connection_signature(
+        node: Mapping[str, Any],
+        *,
+        links_by_id: Mapping[Any, Any],
+        nodes_by_id: Mapping[str, Mapping[str, Any]],
+    ) -> tuple[Any, ...]:
+        """Connection shape with endpoint uids instead of remintable ids."""
+
+        def _endpoint_uid(node_id: Any) -> str:
+            endpoint = nodes_by_id.get(str(node_id))
+            return _stable_node_uid(endpoint) if endpoint is not None else str(node_id)
+
+        inputs: list[tuple[Any, ...]] = []
+        for item in node.get("inputs") if isinstance(node.get("inputs"), list) else []:
+            if not isinstance(item, Mapping):
+                continue
+            link = links_by_id.get(item.get("link"))
+            source: tuple[Any, ...] | None = None
+            if isinstance(link, list) and len(link) >= 3:
+                source = (_endpoint_uid(link[1]), link[2])
+            elif isinstance(link, Mapping):
+                source_id = link.get("origin_id", link.get("from_node"))
+                source_slot = link.get("origin_slot", link.get("from_slot"))
+                if source_id is not None:
+                    source = (_endpoint_uid(source_id), source_slot)
+            inputs.append((item.get("name"), item.get("type"), source))
+
+        outputs: list[tuple[Any, ...]] = []
+        for index, item in enumerate(
+            node.get("outputs") if isinstance(node.get("outputs"), list) else []
+        ):
+            if not isinstance(item, Mapping):
+                continue
+            destinations: list[tuple[Any, ...]] = []
+            link_ids = door_get_links(item)
+            for link_id in link_ids if isinstance(link_ids, list) else []:
+                link = links_by_id.get(link_id)
+                if isinstance(link, list) and len(link) >= 5:
+                    destinations.append((_endpoint_uid(link[3]), link[4]))
+                elif isinstance(link, Mapping):
+                    target_id = link.get("target_id", link.get("to_node"))
+                    target_slot = link.get("target_slot", link.get("to_slot"))
+                    if target_id is not None:
+                        destinations.append((_endpoint_uid(target_id), target_slot))
+            outputs.append(
+                (
+                    item.get("name"),
+                    item.get("type"),
+                    item.get("slot_index", index),
+                    tuple(sorted(destinations, key=str)),
+                )
+            )
+        return (tuple(inputs), tuple(outputs))
+
     def _node_output_slots(node: Mapping[str, Any]) -> dict[tuple[Any, Any, Any], set[Any]]:
         outputs = node.get("outputs")
         slots: dict[tuple[Any, Any, Any], set[Any]] = {}
@@ -445,6 +510,7 @@ def _recovery_report_from_ui_payload(
         candidate_node_ids: set[str],
         candidate_nodes_by_id: Mapping[str, Mapping[str, Any]],
         schema_less_transitive_intermediates: set[str],
+        semantic_connection_shape_unchanged: bool,
     ) -> tuple[bool, str]:
         if original_node is None:
             candidate_node_id = str(candidate_node.get("id", ""))
@@ -469,7 +535,7 @@ def _recovery_report_from_ui_payload(
             candidate_node
         )
         if widgets_changed:
-            if _connection_signature(original_node) == _connection_signature(candidate_node):
+            if semantic_connection_shape_unchanged:
                 # A canonical batch edit can intentionally change an existing
                 # opaque widget value even when no runtime schema is installed.
                 # The unchanged class, widget shape, slots, and topology bound
@@ -588,6 +654,7 @@ def _recovery_report_from_ui_payload(
     original_node_classes: dict[str, str] = {}
     original_node_connections: dict[str, tuple[Any, ...]] = {}
     original_nodes_by_id: dict[str, Mapping[str, Any]] = {}
+    original_nodes_by_uid: dict[str, Mapping[str, Any]] = {}
     candidate_nodes_by_id: dict[str, Mapping[str, Any]] = {}
     original_links_by_id = _ui_links_by_id(original_ui_payload)
     candidate_links_by_id = _ui_links_by_id(ui_payload)
@@ -609,9 +676,11 @@ def _recovery_report_from_ui_payload(
                 original_surface.get("type", original_node.get("class_type", ""))
             )
             if original_node_id and original_class_type:
-                original_node_classes[original_node_id] = original_class_type
+                original_uid = _stable_node_uid(original_surface)
+                original_node_classes[original_uid] = original_class_type
                 original_nodes_by_id[original_node_id] = original_surface
-                original_node_connections[original_node_id] = _connection_signature(
+                original_nodes_by_uid[original_uid] = original_surface
+                original_node_connections[original_uid] = _connection_signature(
                     original_surface
                 )
     for candidate_node in nodes:
@@ -629,10 +698,24 @@ def _recovery_report_from_ui_payload(
         class_type = str(node.get("type", ""))
         if not class_type:
             continue
-        preexisting_ui_node = original_node_classes.get(node_id) == class_type
+        stable_uid = _stable_node_uid(node)
+        preexisting_ui_node = original_node_classes.get(stable_uid) == class_type
         ui_connection_shape_unchanged = (
             preexisting_ui_node
-            and original_node_connections.get(node_id) == _connection_signature(node)
+            and original_node_connections.get(stable_uid) == _connection_signature(node)
+        )
+        semantic_connection_shape_unchanged = (
+            preexisting_ui_node
+            and _semantic_connection_signature(
+                original_nodes_by_uid[stable_uid],
+                links_by_id=original_links_by_id,
+                nodes_by_id=original_nodes_by_id,
+            )
+            == _semantic_connection_signature(
+                node,
+                links_by_id=candidate_links_by_id,
+                nodes_by_id=candidate_nodes_by_id,
+            )
         )
         schema = get_schema(class_type)
         if schema is None:
@@ -641,6 +724,7 @@ def _recovery_report_from_ui_payload(
                 recovery.append(
                     {
                         "node_id": node_id,
+                        "stable_uid": stable_uid,
                         "class_type": class_type,
                         **local_schema_evidence,
                         "preexisting_ui_node": preexisting_ui_node,
@@ -651,7 +735,7 @@ def _recovery_report_from_ui_payload(
                 )
                 continue
             schema_less_safe, schema_less_reason = _preexisting_schema_less_queue_safe(
-                original_node=original_nodes_by_id.get(node_id)
+                original_node=original_nodes_by_uid.get(stable_uid)
                 if preexisting_ui_node
                 else None,
                 candidate_node=node,
@@ -660,10 +744,12 @@ def _recovery_report_from_ui_payload(
                 candidate_node_ids=candidate_node_ids,
                 candidate_nodes_by_id=candidate_nodes_by_id,
                 schema_less_transitive_intermediates=schema_less_transitive_intermediates,
+                semantic_connection_shape_unchanged=semantic_connection_shape_unchanged,
             )
             recovery.append(
                 {
                     "node_id": node_id,
+                    "stable_uid": stable_uid,
                     "class_type": class_type,
                     "provider": None,
                     "confidence": None,
@@ -704,6 +790,7 @@ def _recovery_report_from_ui_payload(
             recovery.append(
                 {
                     "node_id": node_id,
+                    "stable_uid": stable_uid,
                     "class_type": class_type,
                     "provider": getattr(schema, "source_provider", None),
                     "confidence": getattr(schema, "confidence", None),
@@ -734,20 +821,27 @@ def _queue_recovery_report_for_candidate(
     if not existing_recovery_report:
         return resolved_recovery
 
+    def _recovery_identity(entry: Mapping[str, Any]) -> tuple[str, str] | None:
+        node_identity = entry.get("stable_uid", entry.get("uid", entry.get("node_id")))
+        class_type = entry.get("class_type")
+        if node_identity is None or class_type is None:
+            return None
+        return (str(node_identity), str(class_type))
+
     resolved_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for entry in resolved_recovery:
         if not isinstance(entry, Mapping):
             continue
-        node_id = entry.get("node_id")
-        class_type = entry.get("class_type")
-        if node_id is None or class_type is None:
+        key = _recovery_identity(entry)
+        if key is None:
             continue
-        resolved_by_key[(str(node_id), str(class_type))] = dict(entry)
+        resolved_by_key[key] = dict(entry)
 
     queue_fields = (
         "provider",
         "confidence",
         "schema_less",
+        "stable_uid",
         "preexisting_ui_node",
         "ui_connection_shape_unchanged",
         "schema_less_queue_safe",
@@ -760,12 +854,10 @@ def _queue_recovery_report_for_candidate(
         if not isinstance(existing, Mapping):
             continue
         merged_entry = dict(existing)
-        node_id = merged_entry.get("node_id")
-        class_type = merged_entry.get("class_type")
-        if node_id is None or class_type is None:
+        key = _recovery_identity(merged_entry)
+        if key is None:
             merged.append(merged_entry)
             continue
-        key = (str(node_id), str(class_type))
         seen.add(key)
         overlay = resolved_by_key.get(key)
         if overlay is not None:

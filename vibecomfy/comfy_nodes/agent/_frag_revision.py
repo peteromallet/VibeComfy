@@ -84,6 +84,25 @@ def _subtract_existing_blockers(
     return tuple(item for item in current if _stable_blocker_key(item) not in existing_keys)
 
 
+def _unknown_class_type_key(value: Any) -> str:
+    text = str(value)
+    if text.startswith("node_id=") and ":" in text:
+        return text.split(":", 1)[1].strip()
+    return text.strip()
+
+
+def _subtract_existing_unknown_classes(
+    current: tuple[Any, ...],
+    existing: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    existing_classes = {_unknown_class_type_key(item) for item in existing}
+    return tuple(
+        item
+        for item in current
+        if _unknown_class_type_key(item) not in existing_classes
+    )
+
+
 def _localized_additive_scoped_evidence(
     state: AgentEditState,
     *,
@@ -132,7 +151,7 @@ def _localized_additive_scoped_evidence(
             candidate_topology.socket_type_mismatches,
             topology.socket_type_mismatches,
         ),
-        unknown_class_types=_subtract_existing_blockers(
+        unknown_class_types=_subtract_existing_unknown_classes(
             candidate_topology.unknown_class_types,
             topology.unknown_class_types,
         ),

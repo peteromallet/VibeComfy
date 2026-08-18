@@ -1420,7 +1420,12 @@ class TopologyFindings:
 
     @property
     def has_blockers(self) -> bool:
-        """True when any topology problem was found."""
+        """True when any topology problem was found.
+
+        This is an unfiltered inventory predicate.  Post-edit eligibility must
+        compare candidate findings with the original graph and block only new
+        findings; a pre-existing unknown class is not itself a new edit defect.
+        """
         return bool(
             self.missing_graph
             or self.dangling_links

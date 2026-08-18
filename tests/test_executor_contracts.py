@@ -1415,6 +1415,11 @@ class TestBuildReplyMessages:
         assert "Never invent parameters, modes, or settings that are " in system
         assert "absent from the IR" in system
         assert "say it is not present rather than guessing" in system
+        assert "marks a widget `unlabeled`" in system
+        assert "do not name it" in system
+        assert "Do not infer codec families, bit depths, or compositing" in system
+        assert "string `auto`" in system
+        assert "`switch` widget" in system
 
     def test_reply_prompt_forbids_unknowable_refusals_with_ir_evidence(self) -> None:
         """'Semantics unknowable' refusals are forbidden when the workflow IR
@@ -1466,6 +1471,79 @@ class TestParseClassifyResponse:
         assert d.research is True
         assert d.implement is True
         assert d.effort == "medium"
+
+    def test_revise_attempt_with_string_missing_information_reaches_implement(self) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": True,
+                "reply": True,
+                "intent": "edit",
+                "route": "revise",
+                "task": "edit_graph",
+                "plan_summary": "Set the frame count.",
+                "needs_input": {
+                    "decision": "assumed",
+                    "question": "Which frame count?",
+                    "missing_information": "target frame count",
+                    "options": ["49", "81"],
+                    "bounded_assumption": "Use 49 frames.",
+                    "extra_classifier_key": True,
+                },
+            }
+        )
+
+        decision = parse_classify_response(raw)
+
+        assert decision.effective_route == "revise"
+        assert decision.implement is True
+        assert decision.needs_input is not None
+        assert decision.needs_input.missing_information == ("target frame count",)
+
+    def test_valid_revise_drops_malformed_needs_input_sidecar(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": True,
+                "reply": True,
+                "intent": "edit",
+                "route": "revise",
+                "task": "edit_graph",
+                "needs_input": {
+                    "question": "Which frame count?",
+                    "options": 49,
+                },
+            }
+        )
+
+        with caplog.at_level("WARNING", logger="vibecomfy.executor.prompts"):
+            decision = parse_classify_response(raw)
+
+        assert decision.effective_route == "revise"
+        assert decision.implement is True
+        assert getattr(decision, "needs_input", None) is None
+        assert "Dropping malformed needs_input sidecar" in caplog.text
+
+    def test_clarify_with_coerced_missing_information_and_assumption_still_raises(self) -> None:
+        raw = json.dumps(
+            {
+                "research": False,
+                "implement": False,
+                "reply": True,
+                "intent": "respond",
+                "route": "clarify",
+                "needs_input": {
+                    "question": "Which frame count?",
+                    "missing_information": "target frame count",
+                    "bounded_assumption": "Use 49 frames.",
+                },
+            }
+        )
+
+        with pytest.raises(ValueError, match="clarify decision"):
+            parse_classify_response(raw)
 
     def test_missing_keys_default(self) -> None:
         raw = '{"reply": false}'

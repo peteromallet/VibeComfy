@@ -462,6 +462,14 @@ def _topology_blocker_identity(value: Any) -> str:
         return str(value)
 
 
+def _unknown_class_identity(value: Any) -> str:
+    """Identify an unknown class by class_type, independent of node ids."""
+    text = str(value)
+    if text.startswith("node_id=") and ":" in text:
+        return text.split(":", 1)[1].strip()
+    return text.strip()
+
+
 def _has_new_topology_blockers(
     candidate_topology: TopologyFindings,
     original_topology: TopologyFindings | None,
@@ -474,6 +482,16 @@ def _has_new_topology_blockers(
     def _has_added(current: tuple[Any, ...], original: tuple[Any, ...]) -> bool:
         original_keys = {_topology_blocker_identity(item) for item in original}
         return any(_topology_blocker_identity(item) not in original_keys for item in current)
+
+    def _has_added_unknown_class(
+        current: tuple[Any, ...],
+        original: tuple[Any, ...],
+    ) -> bool:
+        original_classes = {_unknown_class_identity(item) for item in original}
+        return any(
+            _unknown_class_identity(item) not in original_classes
+            for item in current
+        )
 
     return bool(
         _has_added(
@@ -488,7 +506,7 @@ def _has_new_topology_blockers(
             candidate_topology.socket_type_mismatches,
             original_topology.socket_type_mismatches if original_topology is not None else (),
         )
-        or _has_added(
+        or _has_added_unknown_class(
             candidate_topology.unknown_class_types,
             original_topology.unknown_class_types if original_topology is not None else (),
         )
