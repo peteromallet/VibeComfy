@@ -1,0 +1,36 @@
+{
+  "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+  "query": "Change the output audio format from MP3 to WAV.",
+  "workflow_path": "external_workflows/corpus/b55994d9cb6aea42.json",
+  "network": true,
+  "timeout": 280,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "Workflow saves output as WAV file instead of MP3.",
+    "quality": "All nodes correctly connected and audio saved in WAV format."
+  },
+  "_tags": {
+    "modality": "audio",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "audio",
+      "text-to-speech",
+      "voice-conversion",
+      "mp3",
+      "chatterbox"
+    ],
+    "source_workflow_id": "b55994d9cb6aea42",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "Straightforward format change that tests parameter editing on a simple TTS workflow."
+  }
+}

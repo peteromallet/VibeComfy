@@ -1,0 +1,37 @@
+{
+  "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
+  "query": "Make the background removal actually produce a transparent background, so the 3D object is isolated on an alpha channel in the final output video.",
+  "workflow_path": "external_workflows/corpus/1a7f84de80346770.json",
+  "network": true,
+  "timeout": 320,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The output video has a transparent background with only the 3D object visible.",
+    "quality": "Background removal is applied correctly before 3D generation, and transparency is preserved through all previews and the video export.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "image_to_video",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-3d",
+      "background-removal",
+      "stable-zero123",
+      "preview",
+      "video-generation"
+    ],
+    "source_workflow_id": "1a7f84de80346770",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This requires reordering or configuring nodes to handle alpha, a concrete yet impactful edit grounded in the workflow\u2019s actual stages."
+  }
+}

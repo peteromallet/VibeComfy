@@ -1,0 +1,38 @@
+{
+  "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
+  "query": "Can you make the static PNG output save the first frame of the generated video instead of a separate placeholder image?",
+  "workflow_path": "external_workflows/corpus/bd3afbc96b77409e.json",
+  "network": true,
+  "timeout": 320,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The PNG output is the first frame of the generated video.",
+    "quality": "The connection does not break the WEBP output, and the PNG saving node functions correctly with the new input.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 1,
+    "task_type": "animation",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-to-video",
+      "svd",
+      "animation",
+      "webp",
+      "png",
+      "video-generation"
+    ],
+    "source_workflow_id": "bd3afbc96b77409e",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "A specific, small edit that tests understanding of data routing between the video generator and dual outputs."
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "multi-image-to-video-generation-with",
+  "query": "Reduce the sampling steps to 30 and switch the sampler to dpmpp_2m.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/5f41ffe9e1194aed.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "specific"
+}

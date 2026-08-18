@@ -1,0 +1,40 @@
+{
+  "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
+  "query": "Integrate a spectral-gating noise reduction pass before the audio separation step, then route the cleaned audio into both the vocal removal and the separation branches.",
+  "workflow_path": "external_workflows/corpus/1b136036c776018a.json",
+  "network": true,
+  "timeout": 380,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The audio is denoised before separation, producing cleaner isolated vocals and accompaniment tracks.",
+    "quality": "The new noise reduction stage is correctly wired as a pre-processing step, and the original vocal removal and separation nodes still function with the cleaned audio stream.",
+    "alternatives_ok": true
+  },
+  "_tags": {
+    "modality": "audio",
+    "query_type": "big_adjustment",
+    "abstraction": "high",
+    "complexity": "high",
+    "manifest_complexity": 5,
+    "task_type": "text_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "audio-generation",
+      "audio-processing",
+      "ace-step",
+      "vocal-removal",
+      "audio-filtering",
+      "audio-normalization",
+      "audio-separation",
+      "latent-audio"
+    ],
+    "source_workflow_id": "1b136036c776018a",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-flash",
+    "author_rationale": "This forces genuine structural reasoning about data flow order and integration of a new processing stage, matching the high complexity bucket."
+  }
+}

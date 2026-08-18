@@ -1,0 +1,63 @@
+{
+  "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
+  "query": "For this Qwen Image inpainting workflow, I frequently get color mismatches between the inpainted area and the original image. Before editing anything, research the best techniques to improve color consistency specifically for ControlNet-based inpainting with Qwen-Image-Lightning. Also explore if there's a better method for mask feathering or blending that could reduce the mismatch.",
+  "workflow_path": "external_workflows/corpus/09fc64f94ce5ed26.json",
+  "network": true,
+  "timeout": 200,
+  "apply": false,
+  "interaction_mode": "answer_only",
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "research",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "inpainting",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "inpainting",
+      "outpainting",
+      "controlnet",
+      "qwen",
+      "image-generation",
+      "lora",
+      "text-to-image"
+    ],
+    "source_workflow_id": "09fc64f94ce5ed26",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "This research query targets a specific, realistic inpainting issue (color mismatches) with clear research boundaries, avoiding generic improvement requests."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/09fc64f94ce5ed26.json",
+    "required_node_evidence": [
+      "ControlNetInpaintingAliMamaApply",
+      "ImagePadForOutpaint",
+      "VAEEncode",
+      "KSampler",
+      "VAEDecode"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Recommend Qwen-Image-Lightning/ControlNet color-consistency and mask-edge techniques that map to this encode/control/sample/decode pipeline, including feathering or compositing checks and relevant trade-offs.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

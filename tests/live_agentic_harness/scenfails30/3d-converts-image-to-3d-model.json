@@ -1,0 +1,12 @@
+{
+  "id": "3d-converts-image-to-3d-model",
+  "query": "The 3D model looks too smooth and featureless \u2014 I want sharper surface detail.",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+  "apply": true,
+  "network": true,
+  "timeout": 300,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "hint_level": "none"
+}

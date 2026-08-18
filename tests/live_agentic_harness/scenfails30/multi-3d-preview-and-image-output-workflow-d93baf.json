@@ -1,0 +1,40 @@
+{
+  "id": "multi-3d-preview-and-image-output-workflow-d93baf",
+  "query": "Change the SaveGLB filename prefix from '3d/ComfyUI' to '3d/moge-top-down'. Keep the mesh input and both normal-map preview branches unchanged.",
+  "workflow_path": "external_workflows/corpus/d93baf73c8a43f57.json",
+  "network": true,
+  "timeout": 320,
+  "apply": true,
+  "assessment": {
+    "expect_graph_changed": true
+  },
+  "desired": {
+    "outcome": "The generated mesh is saved under the 3d/moge-top-down filename prefix.",
+    "quality": "Only SaveGLB's filename prefix changes; its mesh input remains connected and the normal_opengl and normal_directx PreviewImage branches are untouched.",
+    "alternatives_ok": false
+  },
+  "_tags": {
+    "modality": "multi",
+    "query_type": "edit",
+    "abstraction": "low",
+    "complexity": "low",
+    "manifest_complexity": 2,
+    "task_type": "other",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "3d",
+      "glb",
+      "image-loading",
+      "preview",
+      "save"
+    ],
+    "source_workflow_id": "d93baf73c8a43f57",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Specific, simple edit that tests parameter change without breaking the 3D pipeline."
+  },
+  "classification": {
+    "kind": "edit"
+  }
+}
