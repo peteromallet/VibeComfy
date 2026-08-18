@@ -377,6 +377,7 @@ from vibecomfy.executor.two_step import (  # noqa: E402
     consume_tool_call,
 )
 from vibecomfy.executor.two_step_session import (  # noqa: E402
+    DEFAULT_TWO_STEP_SESSION_ROOT,
     TwoStepSessionError,
     TwoStepSessionState,
     TwoStepSessionStore,
@@ -526,8 +527,9 @@ def run_execute_turn(
     plan: ClassifyDecision,
     route: str,
     spec: Any,
-    session_store: TwoStepSessionStore,
+    session_store: TwoStepSessionStore | None = None,
     session_id: str,
+    session_root: str = DEFAULT_TWO_STEP_SESSION_ROOT,
     graph_render: str | None = None,
     model_turn_fn: Any = None,
     tool_executor: Any = None,
@@ -554,6 +556,9 @@ def run_execute_turn(
 
     if model_turn_fn is None:
         model_turn_fn = run_model_turn
+
+    if session_store is None:
+        session_store = TwoStepSessionStore(session_root=session_root)
 
     fingerprint = getattr(request, "idempotency_key", None) or None
     lease_token = None if fingerprint else mint_lease_token()
@@ -652,7 +657,10 @@ def run_execute_turn(
                 budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
             except BudgetExceeded as exc:
                 return {"ok": False, "reply": None, "route": route, "failure": exc}
-            session_budget = session_budget.record_output_tokens(tokens)
+            try:
+                session_budget = session_budget.record_output_tokens(tokens)
+            except BudgetExceeded as exc:
+                return {"ok": False, "reply": None, "route": route, "failure": exc}
             state = session_store.append(
                 session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
             )
@@ -701,10 +709,16 @@ def run_execute_turn(
                 submit = edit_machine.submit(code)
                 if edit_machine.replacement_used and not was_replacement:
                     budget_usage = consume_replacement_attempt(message_budget, budget_usage)
-                    session_budget = session_budget.record_replacement_attempt()
+                    try:
+                        session_budget = session_budget.record_replacement_attempt()
+                    except BudgetExceeded as exc:
+                        return {"ok": False, "reply": None, "route": route, "failure": exc}
                 if submit.accepted:
                     budget_usage = consume_apply_batch(message_budget, budget_usage)
-                    session_budget = session_budget.record_apply_batch()
+                    try:
+                        session_budget = session_budget.record_apply_batch()
+                    except BudgetExceeded as exc:
+                        return {"ok": False, "reply": None, "route": route, "failure": exc}
                     landed = last_apply.get("outcome")
                     ops = serialize_delta_ops(getattr(landed, "landed_ops", ()) if landed else ())
                     graph = submit.graph

@@ -48,6 +48,11 @@ from vibecomfy.workflow import VibeWorkflow
 # Imported deliberately from the law module — it is NOT a production API.
 from tests.test_ir_laws import pi_edit  # noqa: E402
 
+# The REAL outcome boundary, captured ONCE at import time so repeated
+# ``run_two_step`` calls (which share one monkeypatch across a scenario loop)
+# always wrap the genuine production function — never an already-wrapped copy.
+_REAL_TWO_STEP_OUTCOME = two_step_module._two_step_outcome
+
 
 class NullSchemaProvider:
     """Deterministic, offline schema provider: every class type is ``unknown``.
@@ -366,6 +371,30 @@ def run_two_step(scenario: Scenario, monkeypatch: Any, tmp_path: Path) -> ModeRu
         "vibecomfy.executor.agent_backend.run_execute_turn",
         _scripted_execute_turn(scenario),
     )
+    # Isolate the REAL TwoStepSessionStore durable root per test so repeated
+    # gate runs never accumulate the 12-apply-batch session ceiling (B06 Pro).
+    real_two_step_outcome = _REAL_TWO_STEP_OUTCOME
+
+    def _isolated_outcome(
+        *,
+        request: Any,
+        plan: Any,
+        pipeline_mode: Any,
+        client_id: Any,
+        executor_id: Any,
+        additive: bool,
+    ) -> Any:
+        return real_two_step_outcome(
+            request=request,
+            plan=plan,
+            pipeline_mode=pipeline_mode,
+            client_id=client_id,
+            executor_id=executor_id,
+            additive=additive,
+            session_root=tmp_path / "editor_sessions",
+        )
+
+    monkeypatch.setattr(two_step_module, "_two_step_outcome", _isolated_outcome)
 
     request = ExecutorRequest(
         query=scenario.query,

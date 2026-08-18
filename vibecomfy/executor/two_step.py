@@ -996,6 +996,7 @@ def _two_step_outcome(
     client_id: str | None,
     executor_id: str,
     additive: bool,
+    session_root: str | None = None,
 ) -> ExecutorResult:
     """Real B03 execute boundary (was a B01 stub).
 
@@ -1007,6 +1008,7 @@ def _two_step_outcome(
     """
     del client_id, executor_id, additive
     from vibecomfy.executor.two_step_session import (  # noqa: PLC0415
+        DEFAULT_TWO_STEP_SESSION_ROOT,
         TwoStepSessionError,
         TwoStepSessionStore,
         normalize_session_id,
@@ -1034,7 +1036,9 @@ def _two_step_outcome(
             ),
         )
 
-    store = TwoStepSessionStore()
+    if session_root is None:
+        session_root = DEFAULT_TWO_STEP_SESSION_ROOT
+    store = TwoStepSessionStore(session_root=session_root)
     session_id = normalize_session_id(request.session_id)
 
     from vibecomfy.executor.agent_backend import run_execute_turn  # noqa: PLC0415
@@ -1064,9 +1068,42 @@ def _two_step_outcome(
             fact_pack=fact_pack,
         )
     except TwoStepSessionError as exc:
-        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
+        return ExecutorResult.failure(
+            kind=exc.kind,
+            stage="request",
+            message=str(exc),
+            report=Report(
+                plan=plan,
+                pipeline_mode=pipeline_mode,
+                execute=ExecuteReport(
+                    session_id=request.session_id,
+                    route=route,
+                    budget_usage=_execute_budget_usage(None),
+                    claim_validation={"status": "failed", "failure_kind": exc.kind},
+                ),
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 - typed failure envelope
-        return ExecutorResult.failure(kind="ExecuteError", stage="execute", message=str(exc))
+        kind = (
+            getattr(exc, "kind", None)
+            or getattr(exc, "family", None)
+            or "ExecuteError"
+        )
+        return ExecutorResult.failure(
+            kind=kind,
+            stage="execute",
+            message=str(exc),
+            report=Report(
+                plan=plan,
+                pipeline_mode=pipeline_mode,
+                execute=ExecuteReport(
+                    session_id=request.session_id,
+                    route=route,
+                    budget_usage=_execute_budget_usage(None),
+                    claim_validation={"status": "failed", "failure_kind": kind},
+                ),
+            ),
+        )
 
     if not outcome.get("ok"):
         failure = outcome.get("failure")

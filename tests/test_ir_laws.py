@@ -1996,7 +1996,7 @@ class _ModeExecutorAdapter:
         self._monkeypatch = monkeypatch
         self._decision = ClassifyDecision.edit(route="revise", plan_summary="law edit")
 
-    def run(self, mode: str) -> _ModeLawArtifacts:
+    def run(self, mode: str, tmp_path: Path) -> _ModeLawArtifacts:
         if mode not in _LAW_EXECUTOR_MODES:
             raise ValueError(f"Unknown executor mode {mode!r}.")
         final_graph = _law_final_graph()
@@ -2077,6 +2077,33 @@ class _ModeExecutorAdapter:
                 "vibecomfy.executor.agent_backend.run_execute_turn",
                 _scripted_execute_turn,
             )
+            # Isolate the REAL TwoStepSessionStore durable root per test so the
+            # five parameterized law cases never accumulate session budget
+            # across runs (Blocker 1).
+            real_two_step_outcome = two_step_module._two_step_outcome
+
+            def _isolated_outcome(
+                *,
+                request: Any,
+                plan: Any,
+                pipeline_mode: Any,
+                client_id: Any,
+                executor_id: Any,
+                additive: bool,
+            ) -> Any:
+                return real_two_step_outcome(
+                    request=request,
+                    plan=plan,
+                    pipeline_mode=pipeline_mode,
+                    client_id=client_id,
+                    executor_id=executor_id,
+                    additive=additive,
+                    session_root=tmp_path / "executor_sessions",
+                )
+
+            self._monkeypatch.setattr(
+                two_step_module, "_two_step_outcome", _isolated_outcome
+            )
             request = ExecutorRequest(
                 query="edit the law graph",
                 graph=copy.deepcopy(_LAW_BASE_GRAPH),
@@ -2103,13 +2130,14 @@ class _ModeExecutorAdapter:
 def test_law_1_door_fidelity_holds_for_both_executor_modes(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    tmp_path: Path,
 ) -> None:
     """Law 1 (door): the graph each mode produced re-enters the ingest door
     byte-identically, and the accepted edit is reflected — never a silent
     byte-passthrough of the input the executor consumed."""
     from vibecomfy.ingest.normalize import _door_node_fingerprint
 
-    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode, tmp_path)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -2130,12 +2158,13 @@ def test_law_1_door_fidelity_holds_for_both_executor_modes(
 def test_law_2_editable_isomorphism_holds_for_both_executor_modes(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    tmp_path: Path,
 ) -> None:
     """Law 2 (isomorphism): each mode's produced graph round-trips through
     emit → interpret with the identical editable quotient and copy semantics."""
     from vibecomfy.porting.edit._interpret import interpret
 
-    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode, tmp_path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         workflow = from_ui(
@@ -2176,7 +2205,7 @@ def test_law_3_delta_replay_holds_for_both_executor_modes(
     deterministically and minimally (every op is necessary)."""
     from vibecomfy.executor.two_step_session import TwoStepSessionStore
 
-    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode, tmp_path)
     store = TwoStepSessionStore(tmp_path / "sessions")
     store.begin_message(
         "law-session",
@@ -2219,13 +2248,14 @@ def test_law_3_delta_replay_holds_for_both_executor_modes(
 def test_law_4_topology_and_lenses_hold_for_both_executor_modes(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    tmp_path: Path,
 ) -> None:
     """Law 4 (topology/lenses): both modes share the complete reply lens set
     (surface + diff + topology); the topology lens is complete (every IR edge,
     no truncation cap) and the render is deterministic."""
     from vibecomfy.porting.render import render_text
 
-    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode, tmp_path)
     assert artifacts.result.report is not None
     assert artifacts.result.report.pipeline_mode == mode
 
@@ -2258,11 +2288,12 @@ def test_law_4_topology_and_lenses_hold_for_both_executor_modes(
 def test_law_5_bindings_and_provenance_hold_for_both_executor_modes(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    tmp_path: Path,
 ) -> None:
     """Law 5 (bindings/provenance): each mode's produced graph emits
     deterministic bindings, emission is copy-on-write, and every accepted Δ
     target resolves to an emitted binding."""
-    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode)
+    artifacts = _ModeExecutorAdapter(monkeypatch).run(mode, tmp_path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         workflow = from_ui(

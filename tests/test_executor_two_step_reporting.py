@@ -407,3 +407,133 @@ def test_budget_exhaustion_failure_preserves_execute_telemetry(
     assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
     assert all(v == 0 for v in execute.budget_usage.values())
     assert execute.claim_validation["status"] == "failed"
+
+
+def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Driving the REAL bounded loop to session budget exhaustion (12 accepted
+    apply batches, then a 13th) must still surface execute telemetry — never a
+    bare ``Report(plan, pipeline_mode)``.  The exhaustion surfaces as a typed
+    ``session_apply_batches`` failure carrying route + canonical budget usage."""
+    import json as _json
+
+    from vibecomfy.executor import agent_backend as agent_backend_module
+    from vibecomfy.executor import two_step as two_step_module
+    from vibecomfy.executor.two_step import BUDGET_FAMILY_SESSION_APPLY_BATCHES
+    from tests.executor_mode_harness import _law_edit_session, named_field_edit
+
+    scenario = named_field_edit()
+    code = 'lawnodec.prompt = "after"'
+
+    monkeypatch.setattr(
+        "vibecomfy.executor.core._run_classify",
+        lambda *args, **kwargs: scenario.decision,
+    )
+    monkeypatch.setattr(two_step_module, "_two_step_edit_session", _law_edit_session)
+
+    real_run_execute_turn = agent_backend_module.run_execute_turn
+
+    def scripted_execute_turn(request: Any, **kwargs: Any) -> dict[str, Any]:
+        # A fresh apply → submit per message; the real loop + real session
+        # store accumulate apply_batches across the 13 messages.
+        actions = [
+            {"action": "apply", "python": code},
+            {"action": "submit", "reply": "edited", "claim_refs": {"delta_ids": ["d1"]}},
+        ]
+
+        def model_turn_fn(task: Any, messages: Any, **kw: Any) -> dict[str, Any]:
+            action = actions.pop(0) if actions else {
+                "action": "submit",
+                "reply": "done",
+                "claim_refs": {"delta_ids": []},
+            }
+            return {
+                "content": _json.dumps(action),
+                "model_attempts": [{"token_usage": {"completion_tokens": 10}}],
+            }
+
+        return real_run_execute_turn(request, model_turn_fn=model_turn_fn, **kwargs)
+
+    monkeypatch.setattr(
+        "vibecomfy.executor.agent_backend.run_execute_turn", scripted_execute_turn
+    )
+
+    real_two_step_outcome = two_step_module._two_step_outcome
+
+    def isolated_outcome(
+        *,
+        request: Any,
+        plan: Any,
+        pipeline_mode: Any,
+        client_id: Any,
+        executor_id: Any,
+        additive: bool,
+    ) -> ExecutorResult:
+        return real_two_step_outcome(
+            request=request,
+            plan=plan,
+            pipeline_mode=pipeline_mode,
+            client_id=client_id,
+            executor_id=executor_id,
+            additive=additive,
+            session_root=tmp_path / "editor_sessions",
+        )
+
+    monkeypatch.setattr(two_step_module, "_two_step_outcome", isolated_outcome)
+
+    def run_message() -> ExecutorResult:
+        return run_executor(
+            ExecutorRequest(
+                query="edit the graph",
+                graph=scenario.base_raw,
+                pipeline_mode="two_step",
+                session_id="exhaust-session",
+            )
+        )
+
+    # 12 accepted apply batches fit exactly under the session ceiling.
+    for _ in range(12):
+        result = run_message()
+        assert result.ok is True, result.failure_message
+
+    # The 13th apply batch exhausts the session ceiling — but the failure still
+    # carries execute telemetry (route + budget usage), never a bare report.
+    final = run_message()
+    assert final.ok is False
+    assert final.failure_kind == BUDGET_FAMILY_SESSION_APPLY_BATCHES
+    execute = final.report.execute
+    assert execute is not None
+    assert execute.route == "revise"
+    assert execute.session_id == "exhaust-session"
+    assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
+    assert execute.claim_validation["status"] == "failed"
+    assert execute.claim_validation["failure_kind"] == BUDGET_FAMILY_SESSION_APPLY_BATCHES
+
+
+def test_raised_execute_exception_preserves_execute_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raised exception escaping the real loop (not an injected outcome dict)
+    still produces a report with execute telemetry — Blocker 2 part 2."""
+    monkeypatch.setattr(
+        "vibecomfy.executor.core._run_classify",
+        lambda *args, **kwargs: _decision("revise"),
+    )
+
+    def _raise(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("vibecomfy.executor.agent_backend.run_execute_turn", _raise)
+    result = run_executor(
+        ExecutorRequest(query="edit", session_id="sess-raise", pipeline_mode="two_step")
+    )
+    assert result.ok is False
+    assert result.failure_kind == "ExecuteError"
+    execute = result.report.execute
+    assert execute is not None
+    assert execute.route == "revise"
+    assert execute.session_id == "sess-raise"
+    assert set(execute.budget_usage) == _EXECUTE_BUDGET_KEYS
+    assert execute.claim_validation["status"] == "failed"
+    assert execute.claim_validation["failure_kind"] == "ExecuteError"
