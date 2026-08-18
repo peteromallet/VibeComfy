@@ -519,10 +519,22 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             # 3. structural (self-loop / orphaned output) + replay + empty-Δ gate.
             gate = verify_apply(pre, post, landed_ops=ops, schema_provider=self.schema_provider)
             if not gate.ok or not gate.apply_eligible:
+                # Normalize every gate rejection to the advertised
+                # ``verification_failed`` code; the specific reason stays in
+                # the diagnostics/message (Codex generalization fix).
+                specific = gate.reason or "verification_failed"
+                diagnostics = (
+                    _diag(
+                        "verification_failed",
+                        f"apply gate rejected the Δ: {specific}",
+                        severity="error",
+                    ),
+                    *gate.diagnostics,
+                )
                 return ApplyOpsResult(
                     ok=False,
-                    reason=gate.reason or "verification_failed",
-                    diagnostics=gate.diagnostics,
+                    reason="verification_failed",
+                    diagnostics=diagnostics,
                 )
 
             # 4. emit/exit guard: the candidate may only change what the ops

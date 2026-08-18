@@ -3636,7 +3636,114 @@ def _scope_definition_id(scope: Any) -> str | None:
     return text or None
 
 
-def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
+def _link_endpoint_node_ids(link: Any) -> tuple[str | None, str | None]:
+    """Return ``(origin_node_id, target_node_id)`` for a LiteGraph link.
+
+    Handles both the 6-element array form (``[id, from, from_slot, to,
+    to_slot, type]``) and the subgraph object form (``id``/``origin_id``/
+    ``target_id``).
+    """
+    if isinstance(link, Mapping):
+        origin = link.get("origin_id")
+        target = link.get("target_id")
+        return (str(origin) if origin is not None else None, str(target) if target is not None else None)
+    if isinstance(link, Sequence) and not isinstance(link, (str, bytes)) and len(link) >= 5:
+        return (str(link[1]), str(link[3]))
+    return (None, None)
+
+
+def _topology_neighbor_paths(
+    original_ui: Mapping[str, Any] | None,
+    candidate_ui: Mapping[str, Any] | None,
+    ops: Iterable[EditOp],
+) -> dict[tuple[str, str], set[str]]:
+    """Attribute the link bookkeeping of every node a topology op touched.
+
+    ``upsert_link`` displaces the prior source, ``remove_link`` touches both
+    wire endpoints, and ``remove_node`` / ``add_node`` (with inputs) touch the
+    surviving neighbors of the moved/removed wires.  Without attributing these
+    neighbors, ``pin_untouched_ui`` restores their OLD ``outputs[].links`` /
+    ``inputs[].link`` slot JSON, leaving ghost references to removed links.
+    The link *endpoint set* of the emitted original vs candidate UI is the
+    authority: any link whose endpoints changed (removed, added, or re-routed)
+    attributes its source's ``outputs`` and its target's ``inputs``.
+    """
+    if original_ui is None or candidate_ui is None:
+        return {}
+    ops = tuple(ops or ())
+    if not any(
+        isinstance(op, (UpsertLinkOp, RemoveLinkOp, RemoveNodeOp, AddNodeOp))
+        for op in ops
+    ):
+        return {}
+    touched: dict[tuple[str, str], set[str]] = {}
+
+    def _id_index(graph: Mapping[str, Any]) -> dict[tuple[str, str], tuple[str, str]]:
+        index: dict[tuple[str, str], tuple[str, str]] = {}
+        for scope_path, scope in _iter_scopes(graph):
+            nodes = scope.get("nodes")
+            if not isinstance(nodes, list):
+                continue
+            for node in nodes:
+                if not isinstance(node, Mapping):
+                    continue
+                uid = _node_uid(node)
+                node_id = node.get("id")
+                if uid is not None and node_id is not None:
+                    index[(scope_path, str(node_id))] = (scope_path, uid)
+        return index
+
+    orig_ids = _id_index(original_ui)
+
+    def _touch(scope_path: str, node_id: str | None, field: str) -> None:
+        if node_id is None:
+            return
+        key = orig_ids.get((scope_path, node_id))
+        if key is not None:
+            touched.setdefault(key, set()).add(field)
+
+    def _links_by_scope(
+        graph: Mapping[str, Any],
+    ) -> dict[tuple[str, int], tuple[str | None, str | None]]:
+        index: dict[tuple[str, int], tuple[str | None, str | None]] = {}
+        for scope_path, scope in _iter_scopes(graph):
+            links = scope.get("links")
+            if not isinstance(links, list):
+                continue
+            for link in links:
+                link_id = _link_id(link)
+                if link_id is not None:
+                    index[(scope_path, link_id)] = _link_endpoint_node_ids(link)
+        return index
+
+    orig_links = _links_by_scope(original_ui)
+    cand_links = _links_by_scope(candidate_ui)
+
+    # Removed / changed links attribute their original endpoints.
+    for key, endpoints in orig_links.items():
+        if cand_links.get(key) == endpoints:
+            continue
+        scope_path, _ = key
+        origin, target = endpoints
+        _touch(scope_path, origin, "outputs")
+        _touch(scope_path, target, "inputs")
+    # Added links attribute their new endpoints.
+    for key, endpoints in cand_links.items():
+        if key in orig_links:
+            continue
+        scope_path, _ = key
+        origin, target = endpoints
+        _touch(scope_path, origin, "outputs")
+        _touch(scope_path, target, "inputs")
+
+    return touched
+
+
+def _attribution(
+    ops: Iterable[EditOp],
+    original_ui: Mapping[str, Any] | None = None,
+    candidate_ui: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     node_paths: dict[tuple[str, str], set[str]] = {}
     scope_field_paths: dict[str, set[str]] = {}
     removed_nodes: set[tuple[str, str]] = set()
@@ -3709,6 +3816,13 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
                 else:
                     changed_scope_ids.add(sid)
             continue
+    # Topology ops move/remove wires: attribute the surviving neighbors whose
+    # link bookkeeping changed so pin_untouched_ui cannot restore ghost
+    # ``outputs[].links`` / ``inputs[].link`` references (Codex verdict §2).
+    for key, fields in _topology_neighbor_paths(
+        original_ui, candidate_ui, ops
+    ).items():
+        node_paths.setdefault(key, set()).update(fields)
     return {
         "node_paths": node_paths,
         "scope_field_paths": scope_field_paths,
@@ -3780,7 +3894,7 @@ def pin_untouched_ui(
     unattributed nodes and links byte-identical to the ingest UI so
     ``guard_exit_ui`` can fail closed on real drift.
     """
-    attribution = _attribution(ops)
+    attribution = _attribution(ops, original_ui, candidate_ui)
     attributed_nodes = set(attribution["node_paths"]) | set(attribution["new_nodes"])
     pinned = deepcopy(dict(candidate_ui))
     original_nodes = _index_nodes(original_ui)
@@ -3869,7 +3983,7 @@ def guard_exit_ui(
     ops: Sequence[EditOp] = (),
 ) -> ExitGuardResult:
     """Refuse emit candidates that change UI outside the accepted Δ."""
-    attribution = _attribution(ops)
+    attribution = _attribution(ops, original_ui, candidate_ui)
     diagnostics: list[PortIssue] = []
     original_scopes = dict(_iter_scopes(original_ui))
     candidate_scopes = dict(_iter_scopes(candidate_ui))

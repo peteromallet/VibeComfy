@@ -492,6 +492,8 @@ def _replay_widgets_values_ops(
 def _replay_named_field_op(
     workflow: Any,
     op: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
 ) -> Any | None:
     """Map a schema-less named field onto the node's widget channel.
 
@@ -499,13 +501,14 @@ def _replay_named_field_op(
     the model saw in the render (philosophy #9: names over indices — the
     ``edit_node`` tool rejects positional ``widget_N`` fields).  A schema-less
     ingest (the replay default) renames every widget positionally to
-    ``widget_N``, so the recorded name matches neither IR channel.  When the
-    node has exactly ONE widget the mapping is unambiguous: the named literal
-    field IS that widget, and replay stays faithful (the pre-IR replay applied
-    an unknown field to widget index 0).  Returns the translated typed op, or
-    ``None`` when the field resolves in an IR channel, the node has zero or
-    multiple widgets, or the value looks like canvas furniture (list/dict) —
-    in those cases the caller falls through to the canonical parse (the
+    ``widget_N``, so the recorded name matches neither IR channel.  The named
+    field is resolved to the correct widget slot BY POSITION in the node's
+    ``raw_widgets`` / ``widgets_values`` order — schema names when available,
+    else the committed/object_info widget order, else the single-widget
+    heuristic (which was always unambiguous).  Returns the translated typed
+    op, or ``None`` when the field resolves in an IR channel, the node has
+    zero widgets, or the value looks like canvas furniture (list/dict) — in
+    those cases the caller falls through to the canonical parse (the
     ``unknown channel -> inputs`` policy).
     """
     target = op.get("target")
@@ -536,14 +539,33 @@ def _replay_named_field_op(
     if field in widgets or field in inputs:
         return None
     widget_names = list(widgets)
-    if len(widget_names) != 1:
+    if not widget_names:
         return None
+    if len(widget_names) == 1:
+        # Single widget: the named literal field IS that widget.
+        widget_key = widget_names[0]
+    else:
+        # Multi-widget node: resolve the named field to its positional slot.
+        from vibecomfy.porting.widgets.compact_resolver import (  # noqa: PLC0415
+            widget_index_for_field,
+        )
+
+        index = widget_index_for_field(node, field, schema_provider=schema_provider)
+        if index is None:
+            return None
+        positional = f"widget_{index}"
+        if positional in widgets:
+            widget_key = positional
+        elif 0 <= index < len(widget_names):
+            widget_key = widget_names[index]
+        else:
+            return None
     return SetNodeFieldOp(
         op="set_node_field",
         target=NodeFieldTarget(
             # The recorded scope may be the legacy "node" marker; the IR root
             # scope is "" and apply_edit_cow resolves only scopes it created.
-            scope_path="", uid=uid, field_path=str(widget_names[0])
+            scope_path="", uid=uid, field_path=str(widget_key)
         ),
         value=value,
     )
@@ -593,6 +615,51 @@ def _replay_legacy_add_node(op: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _replay_add_node_named_fields(op: Mapping[str, Any]) -> dict[str, Any]:
+    """Translate a canonical ``add_node``'s named fields to positional ``widget_N``.
+
+    The typed ``add_node`` tool records semantic field names (``prompt`` /
+    ``steps`` / ``seed`` …) without widget names.  Schema-less replay
+    classifies only ``widget_N`` keys as widgets, so the named fields would
+    otherwise land in ``inputs`` and emit as ``widgets_values=[]``.  This
+    translation records the field ORDER as the canonical widget order (kept in
+    ``widget_field_names`` for schema-aware consumers) and re-keys the fields
+    positionally so the emit door projects them back into ``widgets_values``.
+    Returns the op unchanged when there is nothing to translate.
+    """
+    fields = op.get("fields")
+    if not isinstance(fields, Mapping) or not fields:
+        return dict(op)
+    ordered = op.get("widget_field_names")
+    if isinstance(ordered, (list, tuple)):
+        names = [str(name) for name in ordered]
+    else:
+        names = [str(name) for name in fields]
+    positional: dict[str, Any] = {}
+    seen: set[str] = set()
+    index = 0
+    for name in names:
+        if name in seen or name not in fields:
+            continue
+        positional[f"widget_{index}"] = fields[name]
+        seen.add(name)
+        index += 1
+    # Any leftover named fields (not in the recorded order) keep their names at
+    # the tail so no value is ever dropped.
+    for name, value in fields.items():
+        if name in seen:
+            continue
+        positional[f"widget_{index}"] = value
+        seen.add(name)
+        index += 1
+    if positional == dict(fields):
+        return dict(op)
+    translated = dict(op)
+    translated["fields"] = positional
+    translated["widget_field_names"] = names
+    return translated
+
+
 def _replay_canonical_op(
     workflow: Any,
     op: Mapping[str, Any],
@@ -620,13 +687,15 @@ def _replay_canonical_op(
             and str(target[2]) == "widgets_values"
         ):
             return _replay_widgets_values_ops(workflow, op)
-        named = _replay_named_field_op(workflow, op)
+        named = _replay_named_field_op(workflow, op, schema_provider=schema_provider)
         if named is not None:
             return (named,)
     if kind == "add_node" and op.get("class_type") is None:
         legacy = _replay_legacy_add_node(op)
         if legacy is not None:
             op = legacy
+    if kind == "add_node":
+        op = _replay_add_node_named_fields(op)
     return (parse_edit_op(op),)
 
 

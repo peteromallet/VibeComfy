@@ -384,6 +384,10 @@ def build_single_op(edit_session: Any, tool: str, args: dict[str, Any]) -> Any:
             uid=uid,
             node_id=node_id,
             title=str(name).strip() if name else None,
+            # Record the field ORDER as the canonical widget order so a
+            # schema-less replay maps named fields positionally to
+            # ``widgets_values`` (Codex generalization fix).
+            widget_field_names=tuple(fields.keys()),
         )
 
     raise EditToolError("unknown_tool", f"unknown edit tool {tool!r}.", retryable=False)
@@ -393,16 +397,81 @@ def build_edit_ops(edit_session: Any, tool: str, args: dict[str, Any]) -> tuple[
     """Build the typed op(s) for one validated tool call.
 
     ``edit_batch`` lowers to a tuple of ops (one durable Δ); every other tool
-    lowers to a single-op tuple.
+    lowers to a single-op tuple.  Batch sub-ops are built against the
+    SEQUENTIAL IR state — each sub-op sees the previous sub-op's effect for
+    uid minting and target resolution (two ``add_node`` entries mint distinct
+    uids; add-then-link resolves the new node) — while the batch is still
+    validated and applied atomically by :meth:`EditSession.apply_ops`.
     """
-    if tool == "edit_batch":
-        ops: list[Any] = []
-        for entry in args["ops"]:
-            sub_tool = str(entry.get("op") or "")
-            sub_args = {k: v for k, v in entry.items() if k != "op"}
-            ops.append(build_single_op(edit_session, sub_tool, sub_args))
-        return tuple(ops)
-    return (build_single_op(edit_session, tool, args),)
+    if tool != "edit_batch":
+        return (build_single_op(edit_session, tool, args),)
+
+    running = _SequentialBuildSession(edit_session)
+    ops: list[Any] = []
+    for entry in args["ops"]:
+        sub_tool = str(entry.get("op") or "")
+        sub_args = {k: v for k, v in entry.items() if k != "op"}
+        op = build_single_op(running, sub_tool, sub_args)
+        ops.append(op)
+        running.apply(op)
+    return tuple(ops)
+
+
+class _SequentialBuildSession:
+    """A read-mostly EditSession facade exposing a running IR for batch builds.
+
+    ``build_single_op`` reads ``edit_session.workflow`` (uid/node-id minting)
+    and ``edit_session.uid_by_name`` (target resolution).  This facade advances
+    a COW copy of the retained IR after each built op so later sub-ops see the
+    prior sub-op's node(s)/bindings, without mutating the real session (the
+    real IR advances only when ``apply_ops`` accepts the whole batch).
+    """
+
+    def __init__(self, edit_session: Any) -> None:
+        self._base = edit_session
+        self.schema_provider = getattr(edit_session, "schema_provider", None)
+        base_workflow = getattr(edit_session, "workflow", None)
+        if base_workflow is None:
+            self.workflow = None
+        else:
+            from vibecomfy.porting.edit._ir_utils import (  # noqa: PLC0415
+                _cow_workflow_copy,
+            )
+
+            self.workflow = _cow_workflow_copy(base_workflow)
+
+    @property
+    def uid_by_name(self) -> dict[str, str]:
+        from vibecomfy.porting.emit.emit_kwargs import (  # noqa: PLC0415
+            _compute_variable_names,
+        )
+
+        if self.workflow is None:
+            return {}
+        try:
+            names = _compute_variable_names(self.workflow.nodes, list(self.workflow.edges))
+        except Exception:  # noqa: BLE001 - binding derivation is best-effort
+            names = {}
+        name_to_uid: dict[str, str] = {}
+        for node_id, name in names.items():
+            node = self.workflow.nodes.get(node_id)
+            uid = str(getattr(node, "uid", "") or "")
+            if uid:
+                name_to_uid.setdefault(name, uid)
+        return name_to_uid
+
+    def apply(self, op: Any) -> None:
+        """Advance the running IR past *op* (best-effort; never fatal)."""
+        if self.workflow is None:
+            return
+        from vibecomfy.porting.edit._ir_utils import apply_edit_cow  # noqa: PLC0415
+
+        try:
+            self.workflow = apply_edit_cow(
+                self.workflow, op, schema_provider=self.schema_provider
+            )
+        except Exception:  # noqa: BLE001 - an invalid sub-op is rejected atomically later
+            pass
 
 
 # ── catalog docs (prompt CHANGE stage) ───────────────────────────────────────
@@ -530,6 +599,12 @@ class EditToolRuntime:
 
             op_dicts = tuple(canonical_op_to_dict(op) for op in ops)
         except EditToolError as exc:
+            # Argument-shape errors (positional ``widget_N`` refs, blank refs)
+            # are malformed input, not an edit attempt: they never consume the
+            # one replacement window.  Only genuine resolution failures
+            # (unknown_target / unknown_field / unknown_port) are semantic.
+            if exc.code == _INVALID_ARGUMENTS:
+                return self._reject_args(exc.code, exc.message, exc.retryable)
             # Semantic resolution failure (unknown target/field/port): this IS
             # an edit attempt — it consumes the one replacement window.
             return self._reject(exc.code, exc.message, retryable=exc.retryable)
