@@ -340,6 +340,28 @@ def queue_stage_diagnostics(
             continue
         if entry.get("schema_less") is True:
             safety = entry.get("schema_less_safety")
+            if safety == "preexisting_schema_less_widget_values_changed":
+                issues.append(
+                    _queue_issue(
+                        code="schema_less_queue_warning",
+                        message=(
+                            f"Node {node_id} ({class_type}) is preexisting schema-less; "
+                            "an existing widget value changed without changing its shape "
+                            "or topology, so queue validation continues with a warning."
+                        ),
+                        detail={
+                            "node_id": node_id,
+                            "class_type": class_type,
+                            "provider": entry.get("provider"),
+                            "confidence": confidence,
+                            "diagnostic": entry.get("diagnostic"),
+                            "schema_less_safety": safety,
+                        },
+                        failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
+                        severity="warning",
+                    )
+                )
+                continue
             if node_id in edited_node_ids:
                 own_surface_changed = True
             elif node_id in preserved_node_ids:

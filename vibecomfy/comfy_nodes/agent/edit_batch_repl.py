@@ -2080,8 +2080,21 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                     turn_result.message,
                     fallback="I made the requested workflow changes.",
                 )
+                edited_node_ids = sorted(
+                    {
+                        str(change.uid)
+                        for change in state.batch_field_changes
+                        if getattr(change, "uid", None) is not None
+                    }
+                )
                 state.report = {
                     "done_summary": done_result.summary,
+                    "change": {
+                        "content_edits": {
+                            "edited": edited_node_ids,
+                            "preserved": [],
+                        }
+                    },
                     "queue_blockers": [],
                 }
                 deps._finalize_revision_evidence_with_candidate(

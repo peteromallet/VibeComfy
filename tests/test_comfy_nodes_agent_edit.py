@@ -246,8 +246,8 @@ def _batch_repl_provider() -> _Provider:
     )
 
 
-def test_schema_less_widget_edit_blocks_even_when_connection_shape_is_unchanged() -> None:
-    """Touched widgets win over the unchanged-connection early return."""
+def test_schema_less_existing_widget_value_edit_warns_when_shape_is_unchanged() -> None:
+    """A bounded value-only edit warns; schema/shape uncertainty still blocks."""
     from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
 
     original = {
@@ -272,8 +272,43 @@ def test_schema_less_widget_edit_blocks_even_when_connection_shape_is_unchanged(
     )
     entry = recovery[0]
     assert entry["ui_connection_shape_unchanged"] is True
-    assert entry["schema_less_safety"] == "schema_less_widgets_changed"
+    assert entry["schema_less_safety"] == "preexisting_schema_less_widget_values_changed"
 
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": ["11"], "preserved": []}},
+    )
+    assert diagnostics.ok is True
+    assert {issue["code"] for issue in diagnostics.issues} == {
+        "schema_less_queue_warning"
+    }
+
+
+def test_schema_less_widget_shape_edit_still_blocks_queueing() -> None:
+    """Adding an opaque widget slot is not the bounded value-only exception."""
+    from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
+
+    original = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "inputs": [],
+                "outputs": [],
+                "widgets_values": ["VibeVoice-Large", 30],
+            }
+        ],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"].append("new opaque slot")
+
+    recovery = _recovery_report_from_ui_payload(
+        candidate,
+        _Provider({}),
+        original_ui_payload=original,
+    )
+    assert recovery[0]["schema_less_safety"] == "schema_less_widget_shape_changed"
     diagnostics = queue_stage_diagnostics(
         recovery_report=recovery,
         change_report={"content_edits": {"edited": ["11"], "preserved": []}},
@@ -7404,6 +7439,143 @@ def test_handle_agent_edit_batch_repl_queue_blocker_keeps_canvas_apply_true_but_
         stage["stage"] == "queue_validate" and stage["ok"] is False
         for stage in result["debug"]["stage_snapshots"]
     )
+
+
+def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """d20410 live path: warning-only queue issues stay non-blocking end to end."""
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    graph = json.loads(json.dumps(_ui_graph()))
+    graph["nodes"].extend(
+        [
+            {
+                "id": node_id,
+                "type": class_type,
+                "properties": {"vibecomfy_uid": str(node_id)},
+                "inputs": [],
+                "outputs": [],
+                "widgets_values": ["opaque"],
+            }
+            for node_id, class_type in (
+                (26, "ADE_AnimateDiffCombine"),
+                (27, "AnimateDiffLoaderV1"),
+                (28, "CheckpointLoaderSimpleWithNoiseSelect"),
+            )
+        ]
+    )
+    graph["last_node_id"] = 28
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {"batch": "done()", "message": "Ready."},
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "warning-only-live-queue",
+            "max_batches": 3,
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    queue_stage = next(
+        stage
+        for stage in result["debug"]["stage_snapshots"]
+        if stage["stage"] == "queue_validate"
+    )
+    assert queue_stage["ok"] is True
+    assert len(queue_stage["issues"]) == 3
+    assert {issue["severity"] for issue in queue_stage["issues"]} == {"warning"}
+    assert result["gates"]["queue_validate_ok"] is True
+    assert result["queue_allowed"] is True
+
+
+def test_live_batch_schema_less_existing_widget_values_warn_and_keep_queue_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """multi-crops live path: exact existing widget values are editable by uid."""
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    graph = {
+        "last_node_id": 528,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 528,
+                "type": "ReActorFaceSwap",
+                "properties": {"vibecomfy_uid": "528"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+                "widgets_values": [
+                    True,
+                    "inswapper_128.onnx",
+                    "retinaface_resnet50",
+                    "none",
+                    1.0,
+                    0.5,
+                    "no",
+                    "no",
+                    "0",
+                    "0",
+                    1,
+                ],
+            }
+        ],
+        "links": [],
+        "version": 1.0,
+    }
+    responses = iter(
+        [
+            {
+                "batch": (
+                    "reactorfaceswap.widget_3 = 'codeformer-v0.1.0.pth'\n"
+                    "reactorfaceswap.widget_4 = 0.5\n"
+                    "done()"
+                ),
+                "message": "Adjusted the existing face restoration values.",
+            }
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "use CodeFormer at 0.5 visibility",
+            "session_id": "crops-schema-less-live-queue",
+            "max_batches": 2,
+        },
+        schema_provider=_Provider({}),
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    queue_stage = next(
+        stage
+        for stage in result["debug"]["stage_snapshots"]
+        if stage["stage"] == "queue_validate"
+    )
+    assert result["report"]["change"]["content_edits"]["edited"] == ["528"]
+    assert queue_stage["ok"] is True
+    warning = next(issue for issue in queue_stage["issues"] if issue["detail"]["node_id"] == "528")
+    assert warning["severity"] == "warning"
+    assert (
+        warning["detail"]["schema_less_safety"]
+        == "preexisting_schema_less_widget_values_changed"
+    )
+    assert result["gates"]["queue_validate_ok"] is True
+    assert result["queue_allowed"] is True
 
 
 def test_handle_agent_edit_research_route_writes_batch_artifacts_but_no_candidate(
@@ -16646,6 +16818,42 @@ def test_batch_repl_response_no_candidate_for_pure_clarify() -> None:
         assert forbidden not in response
     # Graph unchanged
     assert response.get("graph_unchanged") is True
+
+
+def test_batch_repl_response_keeps_blocked_refusal_actionable_after_narration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Kolors live seam: a vague narrator cannot erase the unblocking action."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+
+    vague = (
+        "GroundingDinoSAMSegment and GroundingDinoModelLoader are not available "
+        "in the current authoring schema, so the detector path cannot be replaced "
+        "— how would you like to proceed?"
+    )
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit._narrate_final_message",
+        lambda *args, **kwargs: vague,
+    )
+    state = _make_state(
+        route="clarify",
+        user_message="Replace Ultralytics with GroundingDINO.",
+        ui_payload={"nodes": [], "links": []},
+        batch_exit_mode="pure_clarify",
+        report={"queue_blockers": []},
+    )
+    response = _build_batch_repl_response(
+        state,
+        TurnContext(session_id="kolors-actionable-refusal", turn_id="0001"),
+    )
+
+    message = response["message"]
+    assert "how would you like to proceed" not in message.lower()
+    assert "GroundingDinoSAMSegment" in message
+    assert "provide the missing dependency" in message
+    assert response["outcome"]["question"] == message
+    assert response["clarification_message"] == message
 
 
 def test_batch_repl_response_direct_edit_applyable_with_graph_changes_and_gates() -> None:

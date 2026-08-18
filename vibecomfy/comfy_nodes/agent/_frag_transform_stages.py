@@ -321,6 +321,17 @@ def _recovery_report_from_ui_payload(
             )
         return None
 
+    def _node_widget_shape_signature(node: Mapping[str, Any]) -> Any:
+        widgets = door_get_widgets_values(node)
+        if isinstance(widgets, list):
+            return ("list", len(widgets))
+        if isinstance(widgets, Mapping):
+            return (
+                "mapping",
+                tuple(sorted((str(key) for key in widgets), key=str)),
+            )
+        return (type(widgets).__name__,)
+
     def _original_ui_node(node: Mapping[str, Any]) -> Mapping[str, Any]:
         """Return the LiteGraph surface nested in an ingested IR node, if any."""
         metadata = node.get("metadata")
@@ -440,8 +451,12 @@ def _recovery_report_from_ui_payload(
             if candidate_node_id in schema_less_transitive_intermediates:
                 return (True, "transitive_reroute_intermediate")
             return (False, "new_schema_less_node")
-        if _node_widget_signature(original_node) != _node_widget_signature(candidate_node):
-            return (False, "schema_less_widgets_changed")
+        if original_node.get("type") != candidate_node.get("type"):
+            return (False, "schema_less_class_changed")
+        if _node_widget_shape_signature(original_node) != _node_widget_shape_signature(
+            candidate_node
+        ):
+            return (False, "schema_less_widget_shape_changed")
         if _node_input_shape_signature(original_node) != _node_input_shape_signature(candidate_node):
             return (False, "schema_less_inputs_changed")
         original_slots = _node_output_slots(original_node)
@@ -450,6 +465,17 @@ def _recovery_report_from_ui_payload(
         # inserting a downstream node is not a schema-less slot rename.
         if {key[0] for key in original_slots} != {key[0] for key in candidate_slots}:
             return (False, "schema_less_output_slots_changed")
+        widgets_changed = _node_widget_signature(original_node) != _node_widget_signature(
+            candidate_node
+        )
+        if widgets_changed:
+            if _connection_signature(original_node) == _connection_signature(candidate_node):
+                # A canonical batch edit can intentionally change an existing
+                # opaque widget value even when no runtime schema is installed.
+                # The unchanged class, widget shape, slots, and topology bound
+                # that uncertainty to the preexisting value surface.
+                return (True, "preexisting_schema_less_widget_values_changed")
+            return (False, "schema_less_widgets_and_connections_changed")
         if _connection_signature(original_node) == _connection_signature(candidate_node):
             return (True, "connection_shape_unchanged")
         def _links_for_slot_name(
