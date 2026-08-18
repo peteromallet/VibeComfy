@@ -194,10 +194,16 @@ def _walk_hard_diagnostic_scope(obj: Any, *, skip_failed_batch_turns: bool) -> A
         yield obj
 
 
-def _collect_hard_diagnostics(response: Mapping[str, Any]) -> list[str]:
+def _collect_hard_diagnostics(
+    response: Mapping[str, Any],
+    *,
+    accepted_safe_refusal: bool = False,
+) -> list[str]:
     """Return messages from any object with severity error/fatal."""
     issues: list[str] = []
-    skip_failed_batch_turns = _has_successful_candidate(response)
+    skip_failed_batch_turns = (
+        _has_successful_candidate(response) or accepted_safe_refusal
+    )
     for node in _walk_hard_diagnostic_scope(
         response,
         skip_failed_batch_turns=skip_failed_batch_turns,
@@ -936,7 +942,10 @@ def assess_live_output_dir(
             )
 
         # Any hard diagnostic anywhere in the response envelope.
-        for msg in _collect_hard_diagnostics(response):
+        for msg in _collect_hard_diagnostics(
+            response,
+            accepted_safe_refusal=safe_refusal_accepted,
+        ):
             issues.append(
                 {
                     "check": "hard_diagnostic",
