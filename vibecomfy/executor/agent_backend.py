@@ -255,6 +255,8 @@ def run_reply_turn(
     candidate_present: bool = False,
     interaction_mode: str | None = None,
     research_attempt: str | None = None,
+    landed_edit: bool | None = None,
+    real_node_ids: tuple[str, ...] | None = None,
 ) -> str:
     """Run a single reply model turn through the provider seam.
 
@@ -295,6 +297,12 @@ def run_reply_turn(
         The canonical task driving the reply phase.
     candidate_present:
         Whether a graph edit candidate was produced.
+    landed_edit:
+        Whether an edit actually landed (accepted Δ / returned graph).  When
+        False, the reply must never claim that an edit was applied.
+    real_node_ids:
+        The node ids/uids that exist in the attached graph; the reply must
+        never cite ids outside this set.
     """
     messages = build_reply_messages(
         query,
@@ -315,6 +323,33 @@ def run_reply_turn(
         interaction_mode=interaction_mode,
         research_attempt=research_attempt,
     )
+    # Reply grounding facts (v5-batch-3 #3 / v5-batch-4 #1): the model gets a
+    # deterministic statement of what actually happened so it cannot infer a
+    # landed edit from the implementation message, and the real node id set
+    # so it cannot cite ids that do not exist.  These are advisory — the
+    # executor still enforces both properties post-hoc in core._run_reply.
+    grounding_parts: list[str] = []
+    if landed_edit is False:
+        grounding_parts.append(
+            "Grounding fact: NO edit was applied — the workflow graph is "
+            "unchanged and no edit landed. Do NOT claim that an edit was "
+            "applied, that a value was changed, or that validation passed; "
+            "describe what was found instead."
+        )
+    if real_node_ids:
+        grounding_parts.append(
+            "Grounding fact: the only node ids/uids that exist in the "
+            "attached workflow graph are: "
+            + ", ".join(sorted(str(nid) for nid in real_node_ids))
+            + ". Never cite a node id/uid outside this set — the attached "
+            "graph is authoritative."
+        )
+    if grounding_parts:
+        messages = [dict(message) for message in messages]
+        messages[-1] = dict(messages[-1])
+        messages[-1]["content"] = (
+            messages[-1]["content"] + "\n\n" + "\n".join(grounding_parts)
+        )
     model_turn_id = new_profile_id("model")
     with profiler_span(
         LOGGER,

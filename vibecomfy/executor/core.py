@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -1533,6 +1534,309 @@ def _research_brief_from_plan(
     return brief
 
 
+# ── reply grounding (fidelity + node-id guards) ─────────────────────────────
+#
+# The reply is the user-facing claim about what the executor did.  Two
+# v5 failures were narrative defects, not graph defects:
+#   * v5-batch-3 #3 — graph_unchanged=true / no_candidate_reason="no_changes"
+#     while the reply asserted "the edit landed and validation passed"
+#     (false success: the claim contradicted the accepted Δ).
+#   * v5-batch-4 #1 — the reply cited HyVideoEncode node ID 120 although the
+#     final graph wires node 43 (node-id hallucination).
+# The guards below are deterministic, post-hoc, and applied to every reply
+# before it is returned: the reply's claims must be consistent with the
+# accepted Δ / landed operations, and every cited node id/uid must exist in
+# the graph.  They run after the model turn, so a model that ignores the
+# prompt-level grounding facts still cannot emit a false-success reply.
+
+_LANDED_EDIT_VERBS = (
+    "adjusted|added|applied|bumped|changed|converted|decreased|edited|"
+    "increased|lowered|modified|moved|raised|reconnected|removed|replaced|"
+    "rewired|switched|updated"
+)
+
+# First-person edit claims + declarative success claims.  Only consulted when
+# no edit actually landed, so over-matching is safe: when the graph is
+# unchanged, any of these phrases is a false-success claim that must be
+# corrected.  Negated forms ("No changes were applied", "No edit landed")
+# are excluded via the ``no``/``not`` lookbehinds — those are the truthful
+# statements the guard itself emits.
+_LANDED_CLAIM_RE = re.compile(
+    r"(?ix)"
+    r"(?<!no\s)(?<!not\s)\b(?:the\s+)?edit\s+landed\b"
+    r"|(?<!no\s)(?<!not\s)\b(?:the\s+)?edit\s+was\s+(?:successfully\s+)?applied\b"
+    r"|(?<!no\s)(?<!not\s)\b(?:the\s+)?change\s+(?:has|was)\s+been\s+(?:successfully\s+)?applied\b"
+    r"|(?<!no\s)(?<!not\s)\bchanges?\s+were\s+(?:successfully\s+)?applied\b"
+    r"|\bvalidation\s+passed\b"
+    rf"|\bI\s+(?:have\s+)?(?:{_LANDED_EDIT_VERBS})\b"
+    rf"|\bI've\s+(?:{_LANDED_EDIT_VERBS})\b"
+    r"|\bI\s+set\b(?!\s+up\b)"
+    r"|\bI've\s+set\b(?!\s+up\b)"
+    r"|\bI\s+(?:have\s+)?made\s+(?:the\s+|these\s+|those\s+|this\s+)?changes?\b"
+)
+
+# Cue-anchored node id/uid mentions ("node 43", "node ID 120", "uid 742",
+# "node_id 218").  Link ids are a separate namespace and are excluded via the
+# fixed-width lookbehind on ``id``.
+_NODE_CITE_RE = re.compile(
+    r"(?ix)"
+    r"\bnode\s+ids?\b\s*[#:]?\s*(\d{1,6})"
+    r"|\bnode_id\b\s*[#:]?\s*(\d{1,6})"
+    r"|\bnodes?\b\s*[#:]?\s*(\d{1,6})"
+    r"|\buids?\b\s*[#:]?\s*(\d{1,6})"
+    r"|(?<!\blink\s)\bid\b\s*[#:]?\s*(\d{1,6})"
+)
+
+# Identifiers that are never legitimate node cites ("120 fps" style values
+# are not cue-anchored, so this set only filters prose like "step 5").  The
+# guard additionally requires a surrounding cue word, so bare numbers in the
+# reply are never treated as cites.
+
+
+def _reply_claims_landed_edit(reply: str) -> bool:
+    """Return True when *reply* asserts that a graph edit landed/applied.
+
+    Detects first-person edit claims (``I changed ...``, ``I've updated ...``)
+    and declarative success claims (``the edit landed``, ``validation
+    passed``, ``the change was applied``).  Meaningful only as a guard when
+    no edit actually landed: with ``landed=False`` any such phrase is a
+    false-success claim.
+    """
+    if not reply:
+        return False
+    return _LANDED_CLAIM_RE.search(reply) is not None
+
+
+def _no_change_reply(reason: str | None = None) -> str:
+    """Deterministic truthful reply for the no-edit-landed case.
+
+    Replaces narratives that falsely claimed an edit landed (the fidelity
+    guard).  Cite-free by construction, so it also satisfies the node-id
+    guard.
+    """
+    parts = [
+        "No changes were applied to the workflow: the graph is unchanged and "
+        "no edit landed."
+    ]
+    if reason:
+        parts.append(f"The edit phase reported: {reason}.")
+    parts.append(
+        "If you'd like, I can explain what an edit would require, but I did "
+        "not modify the workflow."
+    )
+    return "\n\n".join(parts)
+
+
+def _implementation_landed_edit(result: ImplementationResult | None) -> bool:
+    """Return True when the implement phase actually landed graph edits.
+
+    The durable response's accepted Δ (``accepted_batch``) is the canonical
+    "what landed" statement (batch 10 — one source, prose never consulted);
+    a returned graph or a candidate outcome also implies a landed edit.
+    Terminal no-candidate responses (``no_changes``, ``clarify``, ``noop``,
+    ...) are by definition not landed.
+    """
+    if result is None:
+        return False
+    if _accepted_delta_ops(result):
+        return True
+    durable = result.durable_response
+    if isinstance(durable, Mapping):
+        if _implementation_response_is_terminal_no_candidate(dict(durable)):
+            return False
+        outcome = durable.get("outcome")
+        if isinstance(outcome, Mapping) and outcome.get("kind") == "candidate":
+            return True
+    return result.graph is not None
+
+
+def _no_candidate_reason(result: ImplementationResult | None) -> str | None:
+    """Return the durable no-candidate reason, if any."""
+    if result is None:
+        return None
+    durable = result.durable_response
+    if not isinstance(durable, Mapping):
+        return None
+    reason = durable.get("no_candidate_reason")
+    return str(reason) if isinstance(reason, str) and reason.strip() else None
+
+
+def _collect_node_identifiers(ids: set[str], node: Any) -> None:
+    """Collect a node dict's ``id`` / ``uid`` / ``properties.vibecomfy_uid``."""
+    if not isinstance(node, Mapping):
+        return
+    for field in ("id", "uid"):
+        value = node.get(field)
+        if value is not None and str(value).strip():
+            ids.add(str(value))
+    properties = node.get("properties")
+    if isinstance(properties, Mapping):
+        value = properties.get("vibecomfy_uid")
+        if value is not None and str(value).strip():
+            ids.add(str(value))
+
+
+def _graph_node_ids(graph: dict[str, Any] | None) -> frozenset[str]:
+    """All node identifiers (ids + uids) that exist in the final graph.
+
+    Understands the canonical UI JSON shape (``nodes`` list with per-node
+    ``id`` / ``properties.vibecomfy_uid``) and mapping-style IR graphs
+    (``nodes`` keyed by node id, with optional per-node ``id``/``uid``).
+    """
+    if not isinstance(graph, Mapping):
+        return frozenset()
+    ids: set[str] = set()
+    nodes = graph.get("nodes")
+    if isinstance(nodes, Mapping):
+        for key, node in nodes.items():
+            ids.add(str(key))
+            _collect_node_identifiers(ids, node)
+    elif isinstance(nodes, list):
+        for node in nodes:
+            _collect_node_identifiers(ids, node)
+    return frozenset(ids)
+
+
+def _collect_node_class(classes: dict[str, list[str]], node_id: str, node: Any) -> None:
+    if not isinstance(node, Mapping):
+        return
+    class_type = node.get("class_type") or node.get("type")
+    if not isinstance(class_type, str) or not class_type.strip():
+        return
+    key = class_type.strip().casefold()
+    if node_id:
+        classes.setdefault(key, []).append(node_id)
+
+
+def _graph_node_classes(graph: dict[str, Any] | None) -> dict[str, tuple[str, ...]]:
+    """casefolded class_type → real node ids (for class-based ID correction)."""
+    if not isinstance(graph, Mapping):
+        return {}
+    classes: dict[str, list[str]] = {}
+    nodes = graph.get("nodes")
+    if isinstance(nodes, Mapping):
+        for key, node in nodes.items():
+            _collect_node_class(classes, str(key), node)
+    elif isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            node_id = node.get("id")
+            if node_id is None:
+                node_id = node.get("uid")
+            _collect_node_class(classes, "" if node_id is None else str(node_id), node)
+    return {name: tuple(ids) for name, ids in classes.items()}
+
+
+def _ground_cited_id(
+    sentence: str,
+    classes: Mapping[str, tuple[str, ...]],
+) -> str | None:
+    """Return a real node id when *sentence* uniquely names a node class.
+
+    ``None`` when the sentence names no class, names several nodes of one
+    class, or names nothing resolvable — the caller then strips the cite.
+    """
+    sentence_l = sentence.casefold()
+    for class_name, node_ids in classes.items():
+        if len(node_ids) != 1 or len(class_name) < 4:
+            continue
+        if re.search(
+            rf"(?<![a-z0-9]){re.escape(class_name)}(?![a-z0-9])",
+            sentence_l,
+        ):
+            return node_ids[0]
+    return None
+
+
+def _strip_cited_id(matched: str) -> str:
+    """Remove a hallucinated numeric cite while keeping the prose readable.
+
+    ``node 120`` → ``node``; ``node ID 120`` → ``node``; ``ID 120`` /
+    ``uid 120`` → ``""`` (a bare id cite without a number is meaningless).
+    """
+    lowered = matched.casefold()
+    if lowered.startswith(("node id", "node ids", "node_id")):
+        return "node"
+    if lowered.startswith("nodes "):
+        return "nodes"
+    if lowered.startswith("node "):
+        return "node"
+    return ""
+
+
+def _ground_reply_node_ids(reply: str, graph: dict[str, Any] | None) -> str:
+    """Correct or strip node ids cited in *reply* that do not exist in *graph*.
+
+    Every cue-anchored node id/uid mention (``node 43``, ``node ID 120``,
+    ``uid 742``, ...) must reference a real node identifier in the final
+    graph.  Hallucinated ids are replaced with the real id when the
+    surrounding sentence uniquely names the node class (e.g. the reply says
+    ``HyVideoEncode`` and the graph has exactly one such node); otherwise the
+    bogus cite is stripped.  Real cites are left untouched.
+    """
+    real = _graph_node_ids(graph)
+    if not real or not reply:
+        return reply
+    classes = _graph_node_classes(graph)
+    spans: dict[tuple[int, int], str] = {}
+    for match in _NODE_CITE_RE.finditer(reply):
+        cited = next(
+            (group for group in match.groups() if group is not None),
+            None,
+        )
+        if cited is None or cited in real:
+            continue
+        start, end = match.span()
+        s_start = reply.rfind(".", 0, start)
+        s_start = 0 if s_start == -1 else s_start + 1
+        s_end = reply.find(".", end)
+        if s_end == -1:
+            s_end = len(reply)
+        sentence = reply[s_start:s_end]
+        grounded = _ground_cited_id(sentence, classes)
+        if grounded is not None:
+            spans[(start, end)] = match.group(0).replace(cited, grounded)
+        else:
+            spans[(start, end)] = _strip_cited_id(match.group(0))
+    if not spans:
+        return reply
+    out: list[str] = []
+    pos = 0
+    for span in sorted(spans):
+        out.append(reply[pos:span[0]])
+        out.append(spans[span])
+        pos = span[1]
+    out.append(reply[pos:])
+    return "".join(out)
+
+
+def _enforce_reply_grounding(
+    reply: str,
+    *,
+    landed: bool,
+    graph: dict[str, Any] | None,
+    reason: str | None = None,
+) -> str:
+    """Enforce the reply fidelity + node-id grounding guards.
+
+    1. Fidelity: when *landed* is False (no accepted Δ / graph unchanged), a
+       reply that claims an edit landed is a false success and is replaced
+       with a deterministic no-change reply — it never passes through.
+    2. Node ids: when *graph* is present, every node id/uid cited by the
+       reply must exist in the graph; hallucinated ids are corrected to the
+       real id of a uniquely named node class or stripped.
+
+    The reply's claims therefore always agree with the accepted Δ / landed
+    operations (v5-batch-3 #3, v5-batch-4 #1).
+    """
+    if not landed and _reply_claims_landed_edit(reply):
+        return _no_change_reply(reason=reason)
+    if graph is not None:
+        reply = _ground_reply_node_ids(reply, graph)
+    return reply
+
+
 # ── reply phase ──────────────────────────────────────────────────────────────
 
 
@@ -1598,6 +1902,8 @@ def _run_reply(
     )
 
     try:
+        landed_edit = _implementation_landed_edit(implementation_result)
+        real_node_ids = _graph_node_ids(effective_graph)
         reply_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
@@ -1612,6 +1918,8 @@ def _run_reply(
             "effective_task": effective_task,
             "candidate_present": candidate_present,
             "interaction_mode": request.interaction_mode,
+            "landed_edit": landed_edit,
+            "real_node_ids": tuple(sorted(real_node_ids)) if real_node_ids else None,
         }
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
@@ -1619,6 +1927,7 @@ def _run_reply(
             "graph_summary", "research_memo", "research_ledger",
             "effective_route", "effective_task",
             "candidate_present", "interaction_mode", "research_attempt",
+            "landed_edit", "real_node_ids",
         )
         while True:
             try:
@@ -1638,24 +1947,50 @@ def _run_reply(
                     raise
                 reply_kwargs.pop(rejected_key, None)
         if isinstance(result, str):
-            return result
-        if isinstance(result, dict):
+            reply = result
+        elif isinstance(result, dict):
+            reply = ""
             for key in ("reply", "message", "text"):
                 value = result.get(key)
                 if isinstance(value, str) and value.strip():
-                    return value
-        failure = failure_envelope(
-            FailureKind.VALIDATION_ERROR,
-            "reply",
-            agent_failure_context={
-                "explanation": "Reply phase returned a response without reply text."
-            },
-        )
-        raise _ExecutorPhaseError(
-            stage="reply",
-            failure_kind=failure.kind.value,
-            message=failure.user_facing_message,
-            failure_envelope=failure,
+                    reply = value
+                    break
+            if not reply:
+                failure = failure_envelope(
+                    FailureKind.VALIDATION_ERROR,
+                    "reply",
+                    agent_failure_context={
+                        "explanation": "Reply phase returned a response without reply text."
+                    },
+                )
+                raise _ExecutorPhaseError(
+                    stage="reply",
+                    failure_kind=failure.kind.value,
+                    message=failure.user_facing_message,
+                    failure_envelope=failure,
+                )
+        else:
+            failure = failure_envelope(
+                FailureKind.VALIDATION_ERROR,
+                "reply",
+                agent_failure_context={
+                    "explanation": "Reply phase returned a response without reply text."
+                },
+            )
+            raise _ExecutorPhaseError(
+                stage="reply",
+                failure_kind=failure.kind.value,
+                message=failure.user_facing_message,
+                failure_envelope=failure,
+            )
+        # Fidelity + node-id grounding: the reply's claims must match the
+        # accepted Δ / landed operations, and cited node ids must exist in
+        # the graph (v5-batch-3 #3, v5-batch-4 #1).
+        return _enforce_reply_grounding(
+            reply,
+            landed=landed_edit,
+            graph=effective_graph,
+            reason=_no_candidate_reason(implementation_result),
         )
     except (ProviderError, AuthError, MalformedModelJSON,
             MissingRequiredField, TimeoutError) as exc:
@@ -2171,7 +2506,16 @@ def run_executor(
                 research=research_result,
                 implementation=implementation_result,
             )
-            reply_text = implementation_result.message
+            # Fidelity guard (v5-batch-3 #3): the terminal no-candidate path
+            # passes the implement message straight through as the reply, so
+            # a message that claims a landed edit while graph_unchanged=true
+            # would be a false success.  Enforce grounding here as well.
+            reply_text = _enforce_reply_grounding(
+                implementation_result.message,
+                landed=_implementation_landed_edit(implementation_result),
+                graph=None,
+                reason=_no_candidate_reason(implementation_result),
+            )
             profiler_log(
                 LOGGER,
                 "executor.result",

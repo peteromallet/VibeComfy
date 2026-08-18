@@ -1299,3 +1299,345 @@ def test_semantic_judge_retry_exhausted_is_undetermined_not_hard_fail(
     assert len(calls) == 2
     assert verdict["pass_"] is None
     assert "after retry" in (verdict.get("error") or "")
+
+
+# ── reply grounding (v5-batch-3 #3 fidelity, v5-batch-4 #1 node ids) ───────
+
+
+def test_reply_fidelity_guard_corrects_false_success_narrative() -> None:
+    """v5-batch-3 #3: a no_changes reply must never claim the edit landed.
+
+    The i2v-gen failure was graph_unchanged=true / no_candidate_reason=
+    "no_changes" while the narrative asserted "I changed ... from 25 to 24"
+    and "the edit landed and validation passed".  The fidelity guard must
+    replace that narrative with a truthful no-change reply.
+    """
+    from vibecomfy.executor.core import (
+        _enforce_reply_grounding,
+        _reply_claims_landed_edit,
+    )
+
+    false_success = (
+        "I changed the frame-rate constant from 25 to 24 so the audio "
+        "pipeline matches the video's 24 fps output. The edit landed and "
+        "validation passed."
+    )
+    assert _reply_claims_landed_edit(false_success) is True
+
+    corrected = _enforce_reply_grounding(
+        false_success,
+        landed=False,
+        graph=None,
+        reason="no_changes",
+    )
+    assert "No changes were applied" in corrected
+    assert "no_changes" in corrected
+    # The truthful template may state "no edit landed" (negated); the
+    # false-claim phrasing must be gone.
+    assert "the edit landed" not in corrected
+    assert "validation passed" not in corrected
+    assert "I changed" not in corrected
+    # The corrected reply must itself pass the guard (no false claim left).
+    assert _reply_claims_landed_edit(corrected) is False
+
+
+def test_reply_fidelity_guard_keeps_truthful_no_change_narrative() -> None:
+    """A truthful no-change narrative passes through unmodified."""
+    from vibecomfy.executor.core import (
+        _enforce_reply_grounding,
+        _reply_claims_landed_edit,
+    )
+
+    truthful = "No changes were applied: the graph is unchanged."
+    assert _reply_claims_landed_edit(truthful) is False
+    assert (
+        _enforce_reply_grounding(truthful, landed=False, graph=None)
+        == truthful
+    )
+
+
+def test_reply_fidelity_guard_keeps_claims_when_edit_landed() -> None:
+    """When an edit genuinely landed, first-person claims are preserved."""
+    from vibecomfy.executor.core import _enforce_reply_grounding
+
+    landed_reply = "I changed the frame rate on node 43 to 24."
+    out = _enforce_reply_grounding(
+        landed_reply,
+        landed=True,
+        graph={
+            "nodes": [
+                {"id": 43, "type": "Float", "widgets_values": [25]},
+            ],
+            "links": [],
+        },
+    )
+    assert out == landed_reply
+
+
+def test_implementation_landed_edit_distinguishes_no_changes_from_candidate() -> None:
+    """The landed signal follows the durable Δ, not the message prose."""
+    from vibecomfy.executor.contracts import ImplementationResult
+    from vibecomfy.executor.core import _implementation_landed_edit
+
+    no_changes = ImplementationResult(
+        graph=None,
+        message="I changed the frame-rate constant from 25 to 24.",
+        durable_response={
+            "ok": True,
+            "graph_unchanged": True,
+            "no_candidate_reason": "no_changes",
+            "outcome": {"kind": "noop"},
+            "accepted_batch": [],
+        },
+    )
+    assert _implementation_landed_edit(no_changes) is False
+
+    landed = ImplementationResult(
+        graph={"nodes": [{"id": 43, "type": "Float"}]},
+        message="I set node 43 to 24.",
+        durable_response={
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate",
+                "changes": [{"uid": "43", "field_path": "value", "old": 25, "new": 24}],
+            },
+            "accepted_batch": [
+                {"op": {"op": "set_node_field", "uid": "43", "field_path": "value", "value": 24}}
+            ],
+        },
+    )
+    assert _implementation_landed_edit(landed) is True
+
+    assert _implementation_landed_edit(None) is False
+
+
+def test_terminal_no_candidate_message_is_grounded_like_a_reply() -> None:
+    """The terminal-no-candidate path passes the implement message through as
+    the reply, so the fidelity guard must apply there too (the exact
+    v5-batch-3 #3 shape: message claims success, durable says no_changes)."""
+    from vibecomfy.executor.contracts import ImplementationResult
+    from vibecomfy.executor.core import (
+        _enforce_reply_grounding,
+        _implementation_landed_edit,
+    )
+
+    result = ImplementationResult(
+        graph=None,
+        message=(
+            "I changed the frame-rate constant from 25 to 24 so the audio "
+            "pipeline matches the video's 24 fps output... **the edit landed "
+            "and validation passed**."
+        ),
+        durable_response={
+            "ok": True,
+            "graph_unchanged": True,
+            "no_candidate_reason": "no_changes",
+            "outcome": {"kind": "noop"},
+            "accepted_batch": [],
+        },
+    )
+    reply = _enforce_reply_grounding(
+        result.message,
+        landed=_implementation_landed_edit(result),
+        graph=None,
+        reason="no_changes",
+    )
+    assert "No changes were applied" in reply
+    assert "the edit landed" not in reply
+
+
+def test_node_id_hallucination_is_corrected_via_class_match() -> None:
+    """v5-batch-4 #1: the reply cited HyVideoEncode node ID 120 while the
+    final graph wires node 43.  The class name in the sentence grounds the
+    hallucinated id to the real node."""
+    from vibecomfy.executor.core import _ground_reply_node_ids
+
+    graph = {
+        "nodes": [
+            {
+                "id": 43,
+                "type": "HyVideoEncode",
+                "properties": {"vibecomfy_uid": "43"},
+            },
+            {"id": 90, "type": "VHS_VideoCombine"},
+        ],
+        "links": [
+            [6, 43, 0, 90, 0],
+            [7, 43, 1, 90, 1],
+        ],
+    }
+    reply = (
+        "I wired HyVideoEncode node ID 120 to the VHS_VideoCombine node 90 "
+        "so the samples and image_cond_latents flow through."
+    )
+    grounded = _ground_reply_node_ids(reply, graph)
+    assert "node ID 43" in grounded
+    assert "120" not in grounded
+    assert "node 90" in grounded
+
+
+def test_node_id_hallucination_without_class_match_is_stripped() -> None:
+    """Without a uniquely named class the bogus cite is removed, never kept."""
+    from vibecomfy.executor.core import _ground_reply_node_ids
+
+    graph = {"nodes": [{"id": 43, "type": "HyVideoEncode"}], "links": []}
+    reply = "The frame_rate comes from node 120, which feeds the encoder."
+    grounded = _ground_reply_node_ids(reply, graph)
+    assert "node 120" not in grounded
+    assert grounded == "The frame_rate comes from node, which feeds the encoder."
+
+
+def test_real_node_cites_kept_and_link_ids_ignored() -> None:
+    """Real node ids pass through; link ids (a separate namespace) are not
+    treated as node cites."""
+    from vibecomfy.executor.core import _ground_reply_node_ids
+
+    graph = {
+        "nodes": [
+            {"id": 43, "type": "HyVideoEncode"},
+            {"id": 90, "type": "VHS_VideoCombine"},
+        ],
+        "links": [[5, 43, 0, 90, 0]],
+    }
+    reply = "The update touches nodes 43 and 90; link id 5 carries the samples."
+    grounded = _ground_reply_node_ids(reply, graph)
+    assert grounded == reply
+
+
+def test_reply_phase_enforces_fidelity_guard(monkeypatch) -> None:
+    """The full _run_reply path corrects a false-success model reply."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorRequest,
+        ImplementationResult,
+    )
+    from vibecomfy.executor.core import _run_reply
+
+    false_success = (
+        "I changed the frame-rate constant from 25 to 24. The edit landed "
+        "and validation passed."
+    )
+    seen: dict[str, object] = {}
+
+    def fake_reply_turn(query, **kwargs):  # noqa: ANN001, ANN002
+        seen["query"] = query
+        seen["landed_edit"] = kwargs.get("landed_edit")
+        seen["real_node_ids"] = kwargs.get("real_node_ids")
+        return false_success
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_reply_turn", fake_reply_turn)
+    implementation = ImplementationResult(
+        graph=None,
+        message=false_success,
+        durable_response={
+            "ok": True,
+            "graph_unchanged": True,
+            "no_candidate_reason": "no_changes",
+            "outcome": {"kind": "noop"},
+            "accepted_batch": [],
+        },
+    )
+    reply = _run_reply(
+        ExecutorRequest(query="change the frame rate to 24"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        plan=ClassifyDecision(route="adapt"),
+        effective_graph=None,
+        implementation_result=implementation,
+    )
+    assert seen["landed_edit"] is False
+    assert seen["real_node_ids"] is None
+    assert "No changes were applied" in reply
+    assert "the edit landed" not in reply
+
+
+def test_reply_phase_grounds_hallucinated_node_ids(monkeypatch) -> None:
+    """The full _run_reply path corrects a reply that cites a non-existent
+    node id, and passes the real node id set into the model turn."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorRequest,
+        ImplementationResult,
+    )
+    from vibecomfy.executor.core import _run_reply
+
+    graph = {
+        "nodes": [
+            {"id": 43, "type": "HyVideoEncode"},
+            {"id": 90, "type": "VHS_VideoCombine"},
+        ],
+        "links": [[6, 43, 0, 90, 0]],
+    }
+    hallucinated = (
+        "I wired HyVideoEncode node ID 120 to VHS_VideoCombine node 90."
+    )
+    seen: dict[str, object] = {}
+
+    def fake_reply_turn(query, **kwargs):  # noqa: ANN001, ANN002
+        seen["query"] = query
+        seen["landed_edit"] = kwargs.get("landed_edit")
+        seen["real_node_ids"] = kwargs.get("real_node_ids")
+        return hallucinated
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_reply_turn", fake_reply_turn)
+    implementation = ImplementationResult(
+        graph=graph,
+        message=hallucinated,
+        durable_response={
+            "ok": True,
+            "graph_unchanged": False,
+            "outcome": {
+                "kind": "candidate",
+                "changes": [{"uid": "43", "field_path": "x", "old": 1, "new": 2}],
+            },
+            "accepted_batch": [
+                {"op": {"op": "set_node_field", "uid": "43", "field_path": "x", "value": 2}}
+            ],
+        },
+    )
+    reply = _run_reply(
+        ExecutorRequest(query="wire the encoder"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        plan=ClassifyDecision(route="adapt"),
+        effective_graph=graph,
+        implementation_result=implementation,
+    )
+    assert seen["landed_edit"] is True
+    assert set(seen["real_node_ids"]) == {"43", "90"}  # type: ignore[arg-type]
+    assert "node ID 43" in reply
+    assert "120" not in reply
+
+
+def test_reply_grounding_facts_are_injected_into_the_prompt(monkeypatch) -> None:
+    """agent_backend appends the grounding facts to the reply user message."""
+    from vibecomfy.executor.agent_backend import run_reply_turn
+    from vibecomfy.executor.contracts import ClassifyDecision
+
+    captured: dict[str, object] = {}
+
+    def fake_run_model_turn(query, messages, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        captured["messages"] = messages
+        return {"content": "ok"}
+
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.provider.run_model_turn",
+        fake_run_model_turn,
+    )
+    reply = run_reply_turn(
+        "why is the output gray?",
+        route="openrouter",
+        model="x",
+        plan=ClassifyDecision(route="respond"),
+        landed_edit=False,
+        real_node_ids=("43", "90"),
+    )
+    assert reply == "ok"
+    content = captured["messages"][1]["content"]
+    assert "NO edit was applied" in content
+    assert "43" in content
+    assert "90" in content
+    assert "Never cite a node id/uid outside this set" in content
