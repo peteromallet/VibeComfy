@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -1292,6 +1293,99 @@ def test_github_code_search_bounded_by_process_request_budget(
     ]
     all_warnings = [warning for result in results for warning in result.warnings]
     assert any("process request budget exhausted" in warning for warning in all_warnings)
+
+
+class _SuccessfulCodeSearchClient:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.calls.append(url)
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "items": [
+                    {
+                        "name": "CachedNode.py",
+                        "repository": {
+                            "full_name": "example/ComfyUI-Cached",
+                            "html_url": "https://github.com/example/ComfyUI-Cached",
+                        },
+                    }
+                ]
+            },
+        )
+
+
+def test_github_code_search_disk_cache_hit_is_free_after_request_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cached code-search result remains usable after the HTTP cap is full."""
+    from vibecomfy.registry.pack_resolver import _GitHubEvidenceClient
+
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS", "1")
+    http = _SuccessfulCodeSearchClient()
+    github = _GitHubEvidenceClient(cache_root=tmp_path, client=http, token=None)
+
+    first, first_warnings = github.resolve("CachedNode", ())
+    second, second_warnings = github.resolve("CachedNode", ())
+
+    assert http.calls == [_CODE_SEARCH_URL]
+    assert first and second
+    assert first[0].evidence[0].cache_hit is False
+    assert second[0].evidence[0].cache_hit is True
+    assert not first_warnings
+    assert not second_warnings
+
+
+class _BlockingCodeSearchClient(_SuccessfulCodeSearchClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        if url == _CODE_SEARCH_URL:
+            self.started.set()
+            assert self.release.wait(timeout=5), "test did not release code search"
+            return super().get(url, **kwargs)
+        self.calls.append(url)
+        return httpx.Response(
+            200, request=httpx.Request("GET", url), json={"items": []}
+        )
+
+
+def test_github_code_search_request_cap_is_atomic_across_concurrent_resolvers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two concurrent misses cannot both reserve the final HTTP slot."""
+    from vibecomfy.registry.pack_resolver import _GitHubEvidenceClient
+
+    monkeypatch.setenv("VIBECOMFY_REGISTRY_GITHUB_SEARCH_MAX_REQUESTS", "1")
+    http = _BlockingCodeSearchClient()
+    github = _GitHubEvidenceClient(cache_root=tmp_path, client=http, token=None)
+    first_result: list[object] = []
+
+    thread = threading.Thread(
+        target=lambda: first_result.append(github.resolve("FirstNode", ())),
+        daemon=True,
+    )
+    thread.start()
+    assert http.started.wait(timeout=5), "first code search did not start"
+
+    second_candidates, second_warnings = github.resolve("SecondNode", ())
+    http.release.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert first_result
+    assert len([url for url in http.calls if url == _CODE_SEARCH_URL]) == 1
+    assert any("process request budget exhausted" in warning for warning in second_warnings)
+    assert second_candidates == []
 
 
 class _Slow422CodeClient:

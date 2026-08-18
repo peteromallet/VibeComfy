@@ -187,6 +187,15 @@ def _derive_verdict(
             if value is not None:
                 criteria[key] = value
     missing = [key for key in criterion_keys if key not in criteria]
+    # An explicit returned False is already a decisive hard failure.  Do this
+    # before the missing-policy branch so a second absent/malformed criterion
+    # cannot mask the failure as retryable/undetermined.
+    if any(value is False for value in criteria.values()):
+        return {
+            "pass_": False,
+            "criteria": criteria,
+            "rationale": str(parsed.get("rationale", "")),
+        }
     if missing_policy == "undetermined" and missing:
         return {
             "pass_": None,

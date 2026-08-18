@@ -976,6 +976,37 @@ def test_rc14_classify_retry_respond_on_expected_edit_is_rejected(monkeypatch) -
     assert calls["n"] == 3
 
 
+def test_rc14_inspect_on_expected_edit_is_rejected_as_non_applyable(monkeypatch) -> None:
+    """inspect cannot satisfy an assessment that requires a landed graph edit."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
+
+    calls = {"n": 0}
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls["n"] += 1
+        return ClassifyDecision(
+            intent="explain_graph", route="inspect", implement=False, reply=True
+        )
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    try:
+        _run_classify(
+            ExecutorRequest(query="make this workflow faster"),
+            SimpleNamespace(agent="openrouter", model="x", effort="low"),
+            expect_graph_changed=True,
+        )
+    except _ExecutorPhaseError as exc:
+        assert exc.stage == "classify"
+        assert "expect_graph_changed" in str(exc)
+        assert "inspect" in str(exc)
+    else:
+        raise AssertionError("expected classify phase error for inspect misroute")
+    assert calls["n"] == 2
+
+
 def test_named_fields_map_uses_executor_surface() -> None:
     original, post, ops = _fc240f_ui_pair()
     named = _named_fields_for_delta(
@@ -1176,6 +1207,36 @@ def test_refusal_criterion_explicit_false_still_fails_without_retry(
     assert len(calls) == 1  # explicit False decides without a retry
     assert verdict["pass_"] is False
     assert verdict["criteria"]["no_fabricated_inability"] is False
+
+
+def test_false_refusal_criterion_wins_over_another_missing_without_retry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A missing key cannot mask an explicit False as undetermined."""
+    _refusal_359848_artifacts(tmp_path)
+    calls: list[int] = []
+
+    def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        calls.append(len(calls))
+        criteria = {
+            "supported_blocker": True,
+            "no_representable_edit": False,
+            "specific_next_action": True,
+            # no_fabricated_inability intentionally absent
+        }
+        return {"content": json.dumps(_refusal_verdict_content(criteria=criteria))}
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.intent_judge.run_model_turn",
+        fake_run_model_turn,
+    )
+    verdict = judge_grounded_refusal(tmp_path, {"query": "swap in AnimateDiff"})
+
+    assert len(calls) == 1
+    assert verdict["pass_"] is False
+    assert verdict["criteria"]["no_representable_edit"] is False
+    assert "missing_criteria" not in verdict
 
 
 # ── v5-batch-4 #7 (d1caec): harden the semantic judge JSON parse ────────────
@@ -1486,6 +1547,22 @@ def test_node_id_hallucination_without_class_match_is_stripped() -> None:
     grounded = _ground_reply_node_ids(reply, graph)
     assert "node 120" not in grounded
     assert grounded == "The frame_rate comes from node, which feeds the encoder."
+
+
+def test_node_id_grounding_fails_closed_when_attached_graph_has_no_node_ids() -> None:
+    """An attached empty/malformed graph must not bypass the cite guard.
+
+    With no authoritative IDs available, every node-ID claim is ungrounded and
+    must be stripped rather than passed through unchanged.
+    """
+    from vibecomfy.executor.core import _ground_reply_node_ids
+
+    reply = "I updated node ID 120 and uid 742."
+    grounded = _ground_reply_node_ids(reply, {"nodes": [], "links": []})
+    assert "120" not in grounded
+    assert "742" not in grounded
+    assert "node ID" not in grounded
+    assert "uid" not in grounded
 
 
 def test_real_node_cites_kept_and_link_ids_ignored() -> None:

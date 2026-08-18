@@ -151,9 +151,8 @@ _CLASSIFY_SYSTEM = (
     "- No research=true for respond, inspect, or revise.\n"
     "- Hard rule: when the interaction expects a graph change "
     "(expect_graph_changed=true is declared), route MUST be an edit route "
-    "(\"revise\", \"adapt\", \"reorganise\") or \"inspect\" — never "
-    "\"respond\". Routing an expected-edit scenario to respond is a no-op and "
-    "is rejected.\n"
+    "(\"revise\", \"adapt\", \"reorganise\"). Non-applyable routes including "
+    "\"inspect\" and \"respond\" are rejected.\n"
     "- Be conservative only when the user request is ambiguous, underspecified, "
     "or references nodes/options/attachments without enough detail to safely "
     "edit; then prefer route=\"clarify\" with a concise clarification_question "
@@ -324,8 +323,8 @@ _CLASSIFY_SYSTEM = (
 _CLASSIFY_EXPECT_GRAPH_CHANGED = (
     "This interaction expects a graph change (expect_graph_changed=true). "
     "Classify route MUST be an edit route (\"revise\", \"adapt\", "
-    "\"reorganise\") or \"inspect\" — never \"respond\". A respond route on an "
-    "expected-edit scenario is a no-op and will be rejected."
+    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
+    "\"respond\" will be rejected."
 )
 
 
@@ -352,8 +351,8 @@ def build_classify_messages(
 
     *expect_graph_changed* declares the interaction's edit contract: when
     True the scenario expects a graph change, and the classifier is told its
-    route MUST be an edit route or ``inspect`` — never ``respond`` (RC14:
-    a respond route on an expected-edit scenario is a no-op).
+    route MUST be an applyable edit route; ``inspect`` and ``respond`` are
+    non-applyable and therefore rejected (RC14).
     """
     parts = [f"User request:\n{query}"]
     if has_graph:

@@ -152,8 +152,8 @@ def run_classify_turn(
 
     *expect_graph_changed* declares the interaction's edit contract (RC14):
     when True, the built messages instruct the classifier that the route MUST
-    be an edit route or ``inspect`` — never ``respond`` — so a malformed-JSON
-    retry cannot re-route an expected-edit scenario into a no-op respond.
+    be an applyable edit route — never ``inspect`` or ``respond`` — so a
+    malformed-JSON retry cannot re-route an expected-edit scenario into a no-op.
 
     Parameters
     ----------

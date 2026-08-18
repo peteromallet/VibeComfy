@@ -435,8 +435,9 @@ def _github_tier_disabled() -> bool:
     return bool(os.environ.get(GITHUB_SKIP_ENV))
 
 
-def _github_code_search_allow() -> tuple[bool, str | None]:
-    """True when the process-wide code-search budget allows one more attempt."""
+def _reserve_github_code_search() -> tuple[bool, str | None]:
+    """Atomically reserve one real HTTP attempt from the process-wide cap."""
+    global _PROCESS_GITHUB_CODE_SEARCH_REQUESTS
     budget = _github_code_search_budget_seconds()
     max_requests = _github_code_search_max_requests()
     with _PROCESS_GITHUB_MUTEX:
@@ -450,20 +451,28 @@ def _github_code_search_allow() -> tuple[bool, str | None]:
                 "GitHub code search skipped: process wall budget exhausted "
                 f"({_PROCESS_GITHUB_CODE_SEARCH_SPENT:.1f}s/{budget:.1f}s)."
             )
+        # Check + charge is one critical section: concurrent resolvers cannot
+        # both observe the last slot as available and overspend the cap.
+        _PROCESS_GITHUB_CODE_SEARCH_REQUESTS += 1
     return True, None
 
 
-def _charge_github_code_search(elapsed_seconds: float, *, http_request: bool) -> None:
-    """Charge one code-search attempt against the process budget.
+def _finish_github_code_search(elapsed_seconds: float, *, http_request: bool) -> None:
+    """Finish a reserved attempt, charging only real HTTP work.
 
-    Disk-cache hits (``http_request=False``) are ~0 wall time and are not
-    counted so healthy repeated lookups never starve the tier.
+    The normal path reserves only after a cache miss.  ``http_request=False``
+    handles the narrow race where another resolver fills the disk cache after
+    our first cache check; that reservation is refunded and no wall time is
+    charged.
     """
     global _PROCESS_GITHUB_CODE_SEARCH_SPENT, _PROCESS_GITHUB_CODE_SEARCH_REQUESTS
     with _PROCESS_GITHUB_MUTEX:
-        _PROCESS_GITHUB_CODE_SEARCH_SPENT += max(0.0, elapsed_seconds)
         if http_request:
-            _PROCESS_GITHUB_CODE_SEARCH_REQUESTS += 1
+            _PROCESS_GITHUB_CODE_SEARCH_SPENT += max(0.0, elapsed_seconds)
+        else:
+            _PROCESS_GITHUB_CODE_SEARCH_REQUESTS = max(
+                0, _PROCESS_GITHUB_CODE_SEARCH_REQUESTS - 1
+            )
 
 
 def _reset_process_github_code_search_budget() -> None:
@@ -896,19 +905,10 @@ class _ExternalJsonCache:
         A brief negative-cache marker (R2-B2) short-circuits repeated 422
         validation failures as ``(None, True, 422)`` with no HTTP call.
         """
+        cached_result = self._read_cached_json_url(url, params)
+        if cached_result is not None:
+            return cached_result
         cache_file = self._cache_file_for_url(url, params)
-        if cache_file.exists():
-            cached = _read_json_file(cache_file)
-            if _is_negative_cache(cached):
-                try:
-                    expires_at = float(cached.get("expires_at") or 0.0)
-                except (TypeError, ValueError):
-                    expires_at = 0.0
-                if expires_at > time.time():
-                    return None, True, 422, httpx.Headers()
-                # Expired negative entry → refetch below (and overwrite on success).
-            else:
-                return cached, True, 200, httpx.Headers()
         self._check_budget()
         response = self.client.get(
             url,
@@ -925,6 +925,26 @@ class _ExternalJsonCache:
             payload = response.json()
         _atomic_write_json(cache_file, payload)
         return payload, False, response.status_code, response.headers
+
+    def _read_cached_json_url(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+    ) -> tuple[Any, bool, int, httpx.Headers] | None:
+        """Return a live disk-cache entry without consulting network budgets."""
+        cache_file = self._cache_file_for_url(url, params)
+        if not cache_file.exists():
+            return None
+        cached = _read_json_file(cache_file)
+        if _is_negative_cache(cached):
+            try:
+                expires_at = float(cached.get("expires_at") or 0.0)
+            except (TypeError, ValueError):
+                expires_at = 0.0
+            if expires_at > time.time():
+                return None, True, 422, httpx.Headers()
+            return None
+        return cached, True, 200, httpx.Headers()
 
     def _cache_file_for_url(self, url: str, params: dict[str, str] | None) -> Path:
         query = urlencode(sorted((params or {}).items()))
@@ -1127,10 +1147,17 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
         headers: dict[str, str],
         warnings: list[str],
     ) -> tuple[Any, bool, int, httpx.Headers]:
-        # I-B: the process-wide code-search budget is checked before EVERY
-        # attempt (original query and sanitized retry alike), so a cascade of
-        # missing node classes cannot eat the scenario wall on this tier.
-        allowed, reason = _github_code_search_allow()
+        params = {"q": f"{query} ComfyUI"}
+        # Cache is authoritative and free: a hit must still work after the
+        # process HTTP cap/wall budget is exhausted.
+        cached = self._read_cached_json_url(self.CODE_SEARCH_URL, params)
+        if cached is not None:
+            return cached
+
+        # Reserve atomically before EVERY real attempt (original query and
+        # sanitized retry alike), so concurrent missing-class resolutions
+        # cannot all consume the final process-budget slot.
+        allowed, reason = _reserve_github_code_search()
         if not allowed:
             warnings.append(reason)
             return None, False, 599, httpx.Headers()
@@ -1138,14 +1165,21 @@ class _GitHubEvidenceClient(_ExternalJsonCache):
         try:
             payload, cache_hit, status, response_headers = self._get_json_url(
                 self.CODE_SEARCH_URL,
-                params={"q": f"{query} ComfyUI"},
+                params=params,
                 headers=headers,
             )
+        except _BudgetExceeded:
+            _finish_github_code_search(
+                time.monotonic() - started, http_request=False
+            )
+            raise
         except httpx.HTTPError as exc:
-            _charge_github_code_search(time.monotonic() - started, http_request=True)
+            _finish_github_code_search(time.monotonic() - started, http_request=True)
             warnings.append(f"GitHub code search failed ({type(exc).__name__}); falling back to repository search.")
             return None, False, 599, httpx.Headers()
-        _charge_github_code_search(time.monotonic() - started, http_request=not cache_hit)
+        _finish_github_code_search(
+            time.monotonic() - started, http_request=not cache_hit
+        )
         return payload, cache_hit, status, response_headers
 
 

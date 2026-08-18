@@ -48,6 +48,7 @@ from vibecomfy.executor.profiler import (
     profiler_span,
     short_text,
 )
+from vibecomfy.ingest.normalize import door_get_nodes
 
 from .agent_backend import run_classify_turn, run_reply_turn
 from .agent_research_stage import (
@@ -691,10 +692,14 @@ _CLASSIFY_JSON_NUDGE = (
 _CLASSIFY_EDIT_ROUTING_NUDGE = (
     "This interaction expects a graph change (expect_graph_changed=true). "
     "Classify route MUST be an edit route (\"revise\", \"adapt\", "
-    "\"reorganise\") or \"inspect\" — never \"respond\". A respond route on an "
-    "expected-edit scenario is a no-op and will be rejected; choose the "
-    "concrete edit/inspect route the request supports."
+    "or \"reorganise\"). Non-applyable routes such as \"inspect\" and "
+    "\"respond\" will be rejected; choose the concrete edit route the request supports."
 )
+
+
+def _satisfies_expected_graph_change(plan: ClassifyDecision) -> bool:
+    """True only for routes that can actually return an edited graph."""
+    return plan.effective_route in {"revise", "adapt", "reorganise"}
 
 
 def _classify_parse_is_retryable(exc: BaseException) -> bool:
@@ -714,13 +719,11 @@ def _reroute_expected_edit(
     request: ExecutorRequest,
     kwargs: dict[str, Any],
 ) -> ClassifyDecision:
-    """Re-ask a classify turn that routed an expected-edit interaction to respond.
+    """Re-ask a classify turn that chose a non-applyable expected-edit route.
 
-    RC14: when ``expect_graph_changed`` is true, a ``respond`` plan is a no-op
-    that fails the edit-intent judge (v5-batch-2 #2, v5-batch-4 #6).  Re-ask
-    once with an edit-routing nudge; if the model still routes to respond,
-    raise a clear classify error instead of letting the executor proceed to a
-    no-op respond.
+    RC14: when ``expect_graph_changed`` is true, ``respond`` and ``inspect``
+    are both no-ops for the apply gate. Re-ask once with an edit-routing nudge;
+    if the model still chooses a non-applyable route, fail loudly.
     """
     base_messages = kwargs.get("messages")
     if not isinstance(base_messages, list):
@@ -736,16 +739,16 @@ def _reroute_expected_edit(
         {"role": "user", "content": _CLASSIFY_EDIT_ROUTING_NUDGE},
     ]
     plan = run_classify_turn(request.query, **reroute_kwargs)
-    if plan.effective_route == "respond":
+    if not _satisfies_expected_graph_change(plan):
         raise _ExecutorPhaseError(
             stage="classify",
             failure_kind=FailureKind.MISSING_REQUIRED_FIELD.value,
             message=(
                 "Classification failed: the scenario expects a graph change "
                 "(expect_graph_changed=true), but classify still routed to "
-                "respond. The classify route must be an edit route or "
-                "\"inspect\" — never respond — so the request was rejected "
-                "instead of proceeding as a no-op."
+                f"{plan.effective_route}. The classify route must be an "
+                "applyable edit route (revise, adapt, or reorganise), so the "
+                "request was rejected instead of proceeding as a no-op."
             ),
         )
     return plan
@@ -764,10 +767,9 @@ def _run_classify(
     ``classify_failure`` so raw exceptions never leak.
 
     *expect_graph_changed* declares the interaction's edit contract (RC14).
-    When True, a ``respond`` plan is a no-op and is never returned: the first
-    attempt is re-asked once, and a malformed-JSON / missing-fields retry is
-    re-asked once, then rejected with a clear classify error if the model
-    keeps routing to respond.
+    When True, a non-applyable plan is never returned: the first attempt is
+    re-asked once, and a malformed-JSON / missing-fields retry is re-asked
+    once, then rejected if the model still does not choose an edit route.
     """
     try:
         # Build enriched messages when session context carries actual data
@@ -814,9 +816,9 @@ def _run_classify(
             ):
                 raise
         else:
-            if expect_graph_changed is True and plan.effective_route == "respond":
-                # Hard rule: an expected-edit interaction never proceeds as a
-                # respond no-op (RC14).  Re-ask once, then fail loudly.
+            if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
+                # Hard rule: an expected-edit interaction never proceeds via a
+                # non-applyable route (RC14). Re-ask once, then fail loudly.
                 plan = _reroute_expected_edit(request, classify_kwargs)
             return plan
         retry_kwargs = dict(classify_kwargs)
@@ -837,10 +839,9 @@ def _run_classify(
             {"role": "user", "content": retry_content},
         ]
         plan = run_classify_turn(request.query, **retry_kwargs)
-        if expect_graph_changed is True and plan.effective_route == "respond":
-            # The retry corrected the JSON but misrouted the expected-edit
-            # scenario to respond — re-ask once, then reject instead of
-            # returning a no-op respond plan (RC14).
+        if expect_graph_changed is True and not _satisfies_expected_graph_change(plan):
+            # The retry corrected the JSON but chose a non-applyable route —
+            # re-ask once, then reject instead of returning a no-op (RC14).
             plan = _reroute_expected_edit(request, retry_kwargs)
         return plan
     except _ExecutorPhaseError:
@@ -1686,7 +1687,7 @@ def _graph_node_ids(graph: dict[str, Any] | None) -> frozenset[str]:
     if not isinstance(graph, Mapping):
         return frozenset()
     ids: set[str] = set()
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if isinstance(nodes, Mapping):
         for key, node in nodes.items():
             ids.add(str(key))
@@ -1713,7 +1714,7 @@ def _graph_node_classes(graph: dict[str, Any] | None) -> dict[str, tuple[str, ..
     if not isinstance(graph, Mapping):
         return {}
     classes: dict[str, list[str]] = {}
-    nodes = graph.get("nodes")
+    nodes = door_get_nodes(graph)
     if isinstance(nodes, Mapping):
         for key, node in nodes.items():
             _collect_node_class(classes, str(key), node)
@@ -1775,9 +1776,9 @@ def _ground_reply_node_ids(reply: str, graph: dict[str, Any] | None) -> str:
     ``HyVideoEncode`` and the graph has exactly one such node); otherwise the
     bogus cite is stripped.  Real cites are left untouched.
     """
-    real = _graph_node_ids(graph)
-    if not real or not reply:
+    if graph is None or not reply:
         return reply
+    real = _graph_node_ids(graph)
     classes = _graph_node_classes(graph)
     spans: dict[tuple[int, int], str] = {}
     for match in _NODE_CITE_RE.finditer(reply):
@@ -2230,6 +2231,7 @@ def run_executor(
                 request,
                 classify_spec,
                 session_context=session_context,
+                expect_graph_changed=request.expect_graph_changed,
             )
             span.update(
                 plan_research=plan.research,
@@ -2513,7 +2515,7 @@ def run_executor(
             reply_text = _enforce_reply_grounding(
                 implementation_result.message,
                 landed=_implementation_landed_edit(implementation_result),
-                graph=None,
+                graph=effective_graph,
                 reason=_no_candidate_reason(implementation_result),
             )
             profiler_log(

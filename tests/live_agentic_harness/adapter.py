@@ -184,6 +184,16 @@ def run_headless_scenario(
     if graph is None:
         graph = _load_workflow(scenario.get("workflow_path"))
 
+    assessment = scenario.get("assessment")
+    expect_graph_changed = None
+    if isinstance(assessment, Mapping) and "expect_graph_changed" in assessment:
+        value = assessment["expect_graph_changed"]
+        if not isinstance(value, bool):
+            raise ValueError(
+                "Scenario `assessment.expect_graph_changed` must be a boolean."
+            )
+        expect_graph_changed = value
+
     request = HeadlessAgentRequest(
         query=query,
         graph=graph,
@@ -197,6 +207,7 @@ def run_headless_scenario(
         timeout=scenario.get("timeout"),
         additive=bool(scenario.get("additive", False)),
         interaction_mode=scenario.get("interaction_mode"),
+        expect_graph_changed=expect_graph_changed,
         max_batches=scenario.get("max_batches"),
     )
 

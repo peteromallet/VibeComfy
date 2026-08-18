@@ -880,6 +880,13 @@ def test_infer_pre_attempt_reason_classifies_research_hang_only() -> None:
     # Implement-stage silence (v5-batch-3 #2/#6) is NOT a research hang: the
     # retry keeps its plain full-budget shape.
     assert _infer_pre_attempt_reason("profiler worker_profile backend_phase=batch") is None
+    assert (
+        _infer_pre_attempt_reason(
+            "old: GET https://api.github.com/search/code?q=StaleNode ComfyUI\n"
+            "current: profiler worker_profile backend_phase=batch"
+        )
+        is None
+    )
     assert _infer_pre_attempt_reason(None) is None
     assert _infer_pre_attempt_reason("") is None
 
@@ -984,7 +991,10 @@ def test_runner_retry_without_research_hang_reason_keeps_full_budget(
                 cmd=cmd,
                 timeout=kwargs.get("timeout"),
                 output=b"",
-                stderr=b"profiler worker_profile backend_phase=batch",
+                stderr=(
+                    b"old: GET https://api.github.com/search/code?q=StaleNode ComfyUI\n"
+                    b"current: profiler worker_profile backend_phase=batch"
+                ),
             )
         out_file = Path(cmd[cmd.index("--single-out") + 1])
         tag = cmd[cmd.index("--tag") + 1]
@@ -1057,3 +1067,38 @@ def test_outer_timeout_marker_persists_pre_attempt_reason_when_stderr_available(
     assert scenario["attempts"][0]["killed_before_first_attempt"] is True
     # No stderr content reached the marker: reason stays None (never invented).
     assert scenario["attempts"][0]["pre_attempt_reason"] is None
+def test_live_scenario_assessment_wires_expect_graph_changed_into_request(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Harness assessment metadata must reach the real headless contract."""
+    from types import SimpleNamespace
+
+    from tests.live_agentic_harness.adapter import run_headless_scenario
+
+    seen: dict[str, object] = {}
+
+    def fake_run_headless(request, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["headless"] = request.expect_graph_changed
+        seen["executor"] = request.to_executor_request().expect_graph_changed
+        return SimpleNamespace(
+            status="ok",
+            ok=True,
+            output_dir=tmp_path,
+            readiness={"ready": True},
+            error=None,
+            response={},
+        )
+
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    monkeypatch.setattr("vibecomfy.agent.service.run_headless", fake_run_headless)
+    summary = run_headless_scenario(
+        {
+            "id": "expected-edit",
+            "query": "change the sampler",
+            "assessment": {"expect_graph_changed": True},
+        },
+        output_base=tmp_path,
+    )
+
+    assert summary["ok"] is True
+    assert seen == {"headless": True, "executor": True}

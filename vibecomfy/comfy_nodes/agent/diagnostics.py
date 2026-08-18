@@ -339,13 +339,6 @@ def queue_stage_diagnostics(
             )
             continue
         if entry.get("schema_less") is True:
-            if (
-                entry.get("preexisting_ui_node") is True
-                and entry.get("ui_connection_shape_unchanged") is True
-            ):
-                continue
-            if entry.get("schema_less_queue_safe") is True:
-                continue
             safety = entry.get("schema_less_safety")
             if node_id in edited_node_ids:
                 own_surface_changed = True
@@ -361,10 +354,58 @@ def queue_stage_diagnostics(
                     "schema_less_output_slots_changed",
                     "schema_less_widgets_changed",
                 } or entry.get("preexisting_ui_node") is not True
+            # Touched/own-surface checks are authoritative and must run before
+            # connection-shape or queue-safe shortcuts. A widget/class/slot
+            # edit cannot become safe merely because its links are unchanged.
+            if own_surface_changed:
+                issues.append(
+                    _queue_issue(
+                        code="schema_less_queue_blocker",
+                        message=(
+                            f"Node {node_id} ({class_type}) is schema-less and cannot be queued safely."
+                        ),
+                        detail={
+                            "node_id": node_id,
+                            "class_type": class_type,
+                            "provider": entry.get("provider"),
+                            "confidence": confidence,
+                            "diagnostic": entry.get("diagnostic"),
+                            "schema_less_safety": safety,
+                        },
+                        failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
+                    )
+                )
+                continue
+            if (
+                entry.get("preexisting_ui_node") is True
+                and entry.get("ui_connection_shape_unchanged") is True
+            ):
+                issues.append(
+                    _queue_issue(
+                        code="schema_less_queue_warning",
+                        message=(
+                            f"Node {node_id} ({class_type}) is preexisting schema-less "
+                            "and was not itself edited; queue continues."
+                        ),
+                        detail={
+                            "node_id": node_id,
+                            "class_type": class_type,
+                            "provider": entry.get("provider"),
+                            "confidence": confidence,
+                            "diagnostic": entry.get("diagnostic"),
+                            "schema_less_safety": safety,
+                        },
+                        failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
+                        severity="warning",
+                    )
+                )
+                continue
+            if entry.get("schema_less_queue_safe") is True:
+                continue
             # RC12a: untouched preexisting schema-less (destination / link-id
             # churn only) is a warning. New schema-less nodes and nodes whose
             # own class / slot names changed stay a hard block.
-            if safety != "new_schema_less_node" and not own_surface_changed:
+            if safety != "new_schema_less_node":
                 issues.append(
                     _queue_issue(
                         code="schema_less_queue_warning",

@@ -984,6 +984,9 @@ class ExecutorRequest:
     # ``apply``: that flag only says whether a candidate is applied, not
     # whether editing is permitted.  None = ordinary interaction.
     interaction_mode: str | None = None
+    # Explicit assessment contract from headless/live-agentic callers.  When
+    # True, classify must choose an applyable edit route.
+    expect_graph_changed: bool | None = None
     # Batch-REPL per-request turn budget (PR-D).  Integer 1..MAX_BATCHES_LIMIT;
     # None = default (DEFAULT_MAX_BATCHES).  Forwarded into the implement
     # payload as ``max_batches`` and enforced again at the edit entrypoint.
@@ -999,6 +1002,12 @@ class ExecutorRequest:
                 self,
                 "max_batches",
                 coerce_max_batches(self.max_batches, field_name="max_batches"),
+            )
+        if self.expect_graph_changed is not None and not isinstance(
+            self.expect_graph_changed, bool
+        ):
+            raise ValueError(
+                "ExecutorRequest `expect_graph_changed` must be a boolean or null."
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1025,6 +1034,8 @@ class ExecutorRequest:
             payload["on_demand_schemas"] = self.on_demand_schemas
         if self.interaction_mode is not None:
             payload["interaction_mode"] = self.interaction_mode
+        if self.expect_graph_changed is not None:
+            payload["expect_graph_changed"] = self.expect_graph_changed
         if self.max_batches is not None:
             payload["max_batches"] = self.max_batches
         return payload
@@ -1098,6 +1109,11 @@ class ExecutorRequest:
             raise ValueError(
                 "ExecutorRequest `interaction_mode` must be a string or null."
             )
+        expect_graph_changed = payload.get("expect_graph_changed")
+        if expect_graph_changed is not None and not isinstance(expect_graph_changed, bool):
+            raise ValueError(
+                "ExecutorRequest `expect_graph_changed` must be a boolean or null."
+            )
         max_batches = coerce_max_batches(payload.get("max_batches"), field_name="max_batches")
         if expected_baseline_graph_hash is not None and not isinstance(
             expected_baseline_graph_hash, str
@@ -1119,6 +1135,7 @@ class ExecutorRequest:
             expected_baseline_graph_hash_present=expected_baseline_graph_hash_present,
             on_demand_schemas=on_demand_schemas,
             interaction_mode=interaction_mode,
+            expect_graph_changed=expect_graph_changed,
             max_batches=max_batches,
         )
 

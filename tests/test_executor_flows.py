@@ -145,6 +145,38 @@ def test_terminal_no_candidate_response_allows_real_changed_candidate() -> None:
     assert result.graph == candidate
 
 
+def test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph(
+    profile_dir: Path,
+) -> None:
+    """The direct terminal reply path cannot bypass node-ID grounding."""
+    request = ExecutorRequest(
+        query="change the checkpoint",
+        graph={"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}], "links": []},
+        profile="default",
+    )
+    plan = ClassifyDecision(
+        route="adapt", implement=True, research=True, intent="edit", task="edit_graph"
+    )
+
+    with mock.patch("vibecomfy.executor.core.run_classify_turn", return_value=plan):
+        with mock.patch(
+            "vibecomfy.executor.core.handle_agent_edit",
+            return_value={
+                "ok": True,
+                "message": "No safe candidate was produced for node 999.",
+                "graph_unchanged": True,
+                "no_candidate_reason": "no_changes",
+                "outcome": {"kind": "noop"},
+                "accepted_batch": [],
+            },
+        ):
+            result = run_executor(request)
+
+    assert result.ok is True
+    assert "999" not in result.reply
+    assert "node 999" not in result.reply
+
+
 def _write_toml(dir_path: Path, name: str, content: str) -> Path:
     """Write a TOML profile file into *dir_path* and return its path."""
     file_path = dir_path / f"{name}.toml"
@@ -5308,3 +5340,30 @@ def test_batch12_3c978e_live_reply_gets_complete_controlnet_topology(
         assert (
             f"{origin} -> {target} ({origin}.0 -> {target}.{target_input})"
         ) in reply_ctx, f"ControlNet chain link {origin}->{target} missing from reply topology"
+def test_expect_graph_changed_contract_reaches_production_classify(monkeypatch) -> None:
+    """The request field is not fixture-only: run_executor forwards it."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import run_executor
+
+    request = ExecutorRequest.from_payload(
+        {"query": "change the sampler", "expect_graph_changed": True}
+    )
+    assert request.to_dict()["expect_graph_changed"] is True
+
+    seen: dict[str, object] = {}
+
+    def fake_classify(req, spec, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        seen["expect_graph_changed"] = kwargs.get("expect_graph_changed")
+        return ClassifyDecision(intent="edit", route="revise")
+
+    monkeypatch.setattr("vibecomfy.executor.core._run_classify", fake_classify)
+    monkeypatch.setattr(
+        "vibecomfy.executor.core._resolve_spec",
+        lambda *args, **kwargs: SimpleNamespace(agent="test", model="test", effort="low"),
+    )
+
+    result = run_executor(request, classify_only=True)
+    assert result.ok is True
+    assert seen["expect_graph_changed"] is True

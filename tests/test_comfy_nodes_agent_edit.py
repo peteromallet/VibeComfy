@@ -246,6 +246,77 @@ def _batch_repl_provider() -> _Provider:
     )
 
 
+def test_schema_less_widget_edit_blocks_even_when_connection_shape_is_unchanged() -> None:
+    """Touched widgets win over the unchanged-connection early return."""
+    from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
+
+    original = {
+        "nodes": [
+            {
+                "id": 11,
+                "type": "VibeVoiceTTS",
+                "inputs": [{"name": "voice", "type": "AUDIO", "link": 2}],
+                "outputs": [{"name": "AUDIO", "type": "AUDIO", "links": [1]}],
+                "widgets_values": ["VibeVoice-Large", 30],
+            }
+        ],
+        "links": [],
+    }
+    candidate = json.loads(json.dumps(original))
+    candidate["nodes"][0]["widgets_values"][1] = 31
+
+    recovery = _recovery_report_from_ui_payload(
+        candidate,
+        _Provider({}),
+        original_ui_payload=original,
+    )
+    entry = recovery[0]
+    assert entry["ui_connection_shape_unchanged"] is True
+    assert entry["schema_less_safety"] == "schema_less_widgets_changed"
+
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": ["11"], "preserved": []}},
+    )
+    assert diagnostics.ok is False
+    assert {issue["code"] for issue in diagnostics.issues} == {
+        "schema_less_queue_blocker"
+    }
+
+
+def test_schema_less_unchanged_shape_uses_touched_status_before_warning() -> None:
+    """The same recovery entry blocks when edited and warns when preserved."""
+    from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
+
+    recovery = [
+        {
+            "node_id": "11",
+            "class_type": "VibeVoiceTTS",
+            "schema_less": True,
+            "preexisting_ui_node": True,
+            "ui_connection_shape_unchanged": True,
+            "schema_less_queue_safe": True,
+            "schema_less_safety": "connection_shape_unchanged",
+        }
+    ]
+
+    edited = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": ["11"], "preserved": []}},
+    )
+    preserved = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": [], "preserved": ["11"]}},
+    )
+
+    assert {issue["code"] for issue in edited.issues} == {
+        "schema_less_queue_blocker"
+    }
+    assert {issue["code"] for issue in preserved.issues} == {
+        "schema_less_queue_warning"
+    }
+
+
 def _hotshotxl_video_provider() -> _Provider:
     return _Provider(
         {

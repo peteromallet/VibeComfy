@@ -516,19 +516,33 @@ _RESEARCH_HANG_MARKERS = (
     "hivemind",
     "research stage",
 )
+_IMPLEMENT_STAGE_MARKERS = (
+    "backend_phase=batch",
+    "backend_phase=implement",
+    "phase=implement",
+    'phase="implement"',
+)
 
 
-def _infer_pre_attempt_reason(text: str | None) -> str | None:
+def _infer_pre_attempt_reason(
+    stderr_text: str | None,
+    stdout_text: str | None = None,
+) -> str | None:
     """Classify a zero-attempt outer kill's likely pre-attempt stall.
 
-    ``text`` is the tail of the killed child's stderr/stdout — prose, so only
-    exact endpoint/stage markers classify.  Returns ``"research_hang"`` when a
-    research-path marker is present, else None.
+    Only the bounded current tails from the killed child are considered.  A
+    current implement-stage marker wins over an older research marker, so
+    historical GitHub/registry text cannot misclassify a later implement
+    timeout as a research hang.
     """
-    if not text:
+    current = "\n".join(
+        part for part in (_trim(stderr_text or ""), _trim(stdout_text or "")) if part
+    ).lower()
+    if not current:
         return None
-    lowered = text.lower()
-    if any(marker in lowered for marker in _RESEARCH_HANG_MARKERS):
+    if any(marker in current for marker in _IMPLEMENT_STAGE_MARKERS):
+        return None
+    if any(marker in current for marker in _RESEARCH_HANG_MARKERS):
         return "research_hang"
     return None
 
@@ -831,8 +845,15 @@ def run_tag(
                         # Best-effort: read whatever stderr the child flushed so
                         # the persisted marker can carry a pre_attempt_reason.
                         stderr_tail = ""
+                        stdout_tail = ""
                         try:
                             stderr_tail = Path(stderr_path).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                        except OSError:
+                            pass
+                        try:
+                            stdout_tail = Path(stdout_path).read_text(
                                 encoding="utf-8", errors="replace"
                             )
                         except OSError:
@@ -847,7 +868,9 @@ def run_tag(
                             expect_graph_changed=expect_graph_changed,
                             elapsed_s=time.monotonic() - started,
                             killed_before_first_attempt=True,
-                            pre_attempt_reason=_infer_pre_attempt_reason(stderr_tail),
+                            pre_attempt_reason=_infer_pre_attempt_reason(
+                                stderr_tail, stdout_tail
+                            ),
                         )
                         _persist_scenario_summary(
                             partial,
@@ -920,7 +943,7 @@ def run_tag(
                                 elapsed_s=elapsed_s,
                                 killed_before_first_attempt=True,
                                 pre_attempt_reason=_infer_pre_attempt_reason(
-                                    stderr_tail or stdout_tail
+                                    stderr_tail, stdout_tail
                                 ),
                             )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure

@@ -442,8 +442,6 @@ def _recovery_report_from_ui_payload(
             return (False, "new_schema_less_node")
         if _node_widget_signature(original_node) != _node_widget_signature(candidate_node):
             return (False, "schema_less_widgets_changed")
-        if _connection_signature(original_node) == _connection_signature(candidate_node):
-            return (True, "connection_shape_unchanged")
         if _node_input_shape_signature(original_node) != _node_input_shape_signature(candidate_node):
             return (False, "schema_less_inputs_changed")
         original_slots = _node_output_slots(original_node)
@@ -452,6 +450,8 @@ def _recovery_report_from_ui_payload(
         # inserting a downstream node is not a schema-less slot rename.
         if {key[0] for key in original_slots} != {key[0] for key in candidate_slots}:
             return (False, "schema_less_output_slots_changed")
+        if _connection_signature(original_node) == _connection_signature(candidate_node):
+            return (True, "connection_shape_unchanged")
         def _links_for_slot_name(
             slots: Mapping[tuple[Any, Any, Any], set[Any]],
             slot_name: Any,
