@@ -50,6 +50,7 @@ class NodeEvidence:
     widgets: tuple[WidgetEvidence, ...] = ()
     input_slots: tuple[SlotEvidence, ...] = ()
     output_slots: tuple[SlotEvidence, ...] = ()
+    type_name: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "widgets", tuple(self.widgets))
@@ -184,9 +185,23 @@ def _node_title(node: VibeNode) -> str | None:
     raw_ui = metadata.get("_ui")
     if not isinstance(raw_ui, dict):
         return None
-    title = raw_ui.get("title")
-    if isinstance(title, str) and title.strip():
-        return title
+    for key in ("title", "name"):
+        title = raw_ui.get(key)
+        if isinstance(title, str) and title.strip():
+            return title
+    return None
+
+
+def _node_type_name(node: VibeNode) -> str | None:
+    metadata = node.metadata
+    if not isinstance(metadata, dict):
+        return None
+    raw_ui = metadata.get("_ui")
+    if not isinstance(raw_ui, dict):
+        return None
+    type_name = raw_ui.get("type")
+    if isinstance(type_name, str) and type_name.strip():
+        return type_name
     return None
 
 
@@ -235,14 +250,26 @@ def _schema_widget_names_for_node(node: VibeNode) -> tuple[str, ...]:
 
 
 def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
+    from vibecomfy.porting.widgets.compact_resolver import (
+        compact_widget_names_for_node,
+        widget_index_for_field,
+    )
+
+    def _named_or_none(name: Any) -> str | None:
+        if not isinstance(name, str) or not name or name.startswith("widget_"):
+            return None
+        return name
+
     raw = node.raw_widgets
     values = getattr(raw, "values", None)
-    schema_names = _schema_widget_names_for_node(node)
+    resolution = compact_widget_names_for_node(node)
     if isinstance(values, list):
         return tuple(
             WidgetEvidence(
                 index=index,
-                name=schema_names[index] if index < len(schema_names) else None,
+                name=_named_or_none(
+                    resolution.names[index] if index < len(resolution.names) else None
+                ),
                 value=value,
             )
             for index, value in enumerate(values)
@@ -252,7 +279,19 @@ def _widgets_from_ir(node: VibeNode) -> tuple[WidgetEvidence, ...]:
     widgets = node.widgets
     if isinstance(widgets, dict) and widgets:
         for offset, name in enumerate(sorted((str(key) for key in widgets), key=_sort_widget_name)):
-            named.append(WidgetEvidence(index=offset, name=name, value=widgets[name]))
+            index = widget_index_for_field(node, name)
+            if index is None:
+                index = offset
+            resolved_name = (
+                resolution.names[index] if index < len(resolution.names) else name
+            )
+            named.append(
+                WidgetEvidence(
+                    index=index,
+                    name=_named_or_none(resolved_name),
+                    value=widgets[name],
+                )
+            )
     inputs = node.inputs
     if isinstance(inputs, dict):
         base = len(named)
@@ -289,6 +328,7 @@ def _node_from_ir(
         widgets=_widgets_from_ir(node),
         input_slots=input_slots,
         output_slots=output_slots,
+        type_name=_node_type_name(node),
     )
 
 
@@ -793,6 +833,12 @@ def _render_key_nodes_section(
         if node.title:
             label += f" ({node.title})"
         sections.append(f"- **{label}**\n")
+        identity = [f"class_type={ct}"]
+        if node.type_name and node.type_name != ct:
+            identity.append(f"type={node.type_name}")
+        if node.title and node.title not in {ct, node.type_name}:
+            identity.append(f"display_title={node.title}")
+        sections.append(f"  - Identity: {', '.join(identity)}\n")
 
         # Widget values
         if node.widgets:
@@ -802,7 +848,7 @@ def _render_key_nodes_section(
                 if w.name:
                     widget_strs.append(f"{w.name}={val_repr}")
                 else:
-                    widget_strs.append(f"w[{w.index}]={val_repr}")
+                    widget_strs.append(f"unlabeled[{w.index}]={val_repr}")
             sections.append(f"  - Widgets: {', '.join(widget_strs)}\n")
         else:
             sections.append("  - Widgets: none\n")

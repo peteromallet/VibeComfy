@@ -343,7 +343,7 @@ class TestInspectGraphBasic:
         assert evidence.node_count == 2
         moonvalley = next(node for node in evidence.nodes if node.class_type == "MoonvalleyImg2VideoNode")
         save_video = next(node for node in evidence.nodes if node.class_type == "SaveVideo")
-        assert any(widget.name == "widget_3" and widget.value == 7 for widget in moonvalley.widgets)
+        assert any(widget.name is None and widget.value == 7 for widget in moonvalley.widgets)
         assert any(widget.name == "codec" and widget.value == "auto" for widget in save_video.widgets)
         assert evidence.edges[0].origin_node == 34
         assert evidence.edges[0].target_node == 27
@@ -964,9 +964,9 @@ class TestRenderInspectMarkdown:
         evidence = inspect_graph(single_node_graph)
         md = render_inspect_markdown(evidence)
         assert "Widgets:" in md
-        assert "w[0]=42" in md
-        assert "w[1]=7.5" in md
-        assert "w[2]=euler" in md
+        assert "seed=42" in md
+        assert "unlabeled[1]=7.5" in md
+        assert "steps=euler" in md
 
     def test_key_nodes_widget_values_from_flat_fixture(
         self, flat_graph: dict
@@ -977,8 +977,42 @@ class TestRenderInspectMarkdown:
         # CheckpointLoaderSimple has one widget (ckpt_name)
         assert "v1-5-pruned-emaonly.ckpt" in md
         # KSampler has seed=42, steps=20, cfg=7.5, etc.
-        assert "w[0]=42" in md
-        assert "w[2]=20" in md  # widget index 2 is steps
+        assert "seed=42" in md
+        assert "steps=20" in md
+
+    def test_unresolved_widget_is_explicitly_unlabeled_never_widget_token(self) -> None:
+        workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
+        workflow.nodes["1"] = VibeNode(
+            id="1",
+            class_type="UnknownSwitchNode",
+            widgets={"widget_0": "auto"},
+        )
+
+        evidence = inspect_workflow(workflow)
+        md = render_inspect_markdown(evidence)
+
+        assert evidence.nodes[0].widgets[0].name is None
+        assert "unlabeled[0]=auto" in md
+        assert "widget_0" not in md
+
+    def test_identity_prints_distinct_class_type_type_and_display_title(self) -> None:
+        workflow = VibeWorkflow(id="inspect", source=WorkflowSource(id="inspect"))
+        workflow.nodes["1"] = VibeNode(
+            id="1",
+            class_type="ResolvedClass",
+            metadata={
+                "_ui": {
+                    "type": "2f4ef4bf-uuid-type",
+                    "title": "Human Display Title",
+                }
+            },
+        )
+
+        md = render_inspect_markdown(inspect_workflow(workflow))
+
+        assert "class_type=ResolvedClass" in md
+        assert "type=2f4ef4bf-uuid-type" in md
+        assert "display_title=Human Display Title" in md
 
     def test_key_nodes_shows_widgets_none_for_no_widgets(self) -> None:
         """Node with no widgets shows 'Widgets: none'."""
