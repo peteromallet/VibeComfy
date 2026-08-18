@@ -1,0 +1,22 @@
+{
+  "round": 1,
+  "r5_score": "3/30",
+  "r6_score": "5/30",
+  "flipped": [
+    "image-qwen-image-inpainting-with-controlnet-09fc64",
+    "multi-ai-video-upscaling-with-detail-daemon-*",
+    "multi-flux2-image-and-video-generation-*",
+    "multi-svd-image-to-video-with-animation-*"
+  ],
+  "regressed": [
+    "image-animatediff-image-to-video-with-latent-composi-17dc9b",
+    "image-gemini-prompt-splitter-and-text-display-workfl-caae97"
+  ],
+  "still_fail_count": 23,
+  "passed_kept": 1,
+  "rcs": [
+    "RC-P0 ingest authority",
+    "RC-P1 schema + API slots + linked-input fix"
+  ],
+  "dominant_remaining": "offline schema coverage for custom node classes (Rodin3D_Fusion, DetailDaemon, Whisper) + research-loop budget death"
+}
