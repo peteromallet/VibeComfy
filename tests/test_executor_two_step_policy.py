@@ -760,3 +760,68 @@ class TestCumulativeSessionEnforcement:
         payload["max_user_messages"] = 1
         with pytest.raises(ValueError, match="frozen"):
             SessionBudget.from_dict(payload)
+
+
+# ── RC3: wall-clock scoping (per model turn, never queueing) ─────────────────
+
+
+class TestWallClockScoping:
+    def test_reset_wall_clock_scopes_to_the_model_turn(self) -> None:
+        """``reset_wall_clock`` rebases ``started_at`` so long pre-model
+        queueing (classify/research/worker overhead) does not consume the
+        per-message wall-clock ceiling."""
+        budget = MessageBudget.for_route("inspect")  # 1200 s
+        usage = BudgetUsage(route="inspect", started_at=0.0)
+        # 10_000 s of pre-model queueing, then the model turn begins.
+        usage = usage.reset_wall_clock(now=10_000.0)
+        # 100 s of active model/tool time is within budget.
+        check_wall_clock(budget, usage, now=10_100.0)
+
+    def test_without_reset_queueing_counts_against_wall_clock(self) -> None:
+        """Control: without the reset, the same pre-model time exhausts the
+        ceiling even though no model work has happened yet."""
+        budget = MessageBudget.for_route("inspect")
+        usage = BudgetUsage(route="inspect", started_at=0.0)
+        with pytest.raises(BudgetExceeded) as excinfo:
+            check_wall_clock(budget, usage, now=10_000.0)
+        assert excinfo.value.family == BUDGET_FAMILY_WALL_CLOCK
+
+
+# ── RC5: respond-route applyability (routing, not contract weakening) ────────
+
+
+class TestRespondRouteApplyability:
+    def test_respond_with_named_change_promotes_to_revise(self) -> None:
+        """A respond plan that names a concrete node+value change is routed to
+        ``revise`` so the execute turn may emit an applyable candidate."""
+        from vibecomfy.executor.contracts import ClassifyDecision
+
+        plan = ClassifyDecision(
+            route="respond",
+            intent="respond",
+            change_goal="raise style strength to 1.4-1.8",
+            target_node_type="StyleModelApply",
+        )
+        assert ts._resolve_two_step_route(plan, None) == "revise"
+
+    def test_respond_without_edit_signal_stays_answer_only(self) -> None:
+        """The non-edit contract is preserved: a plain answer-only respond plan
+        stays ``respond`` (no tools, no Python edits)."""
+        from vibecomfy.executor.contracts import ClassifyDecision
+
+        plan = ClassifyDecision.respond_only(route="respond")
+        assert ts._resolve_two_step_route(plan, None) == "respond"
+        assert ts._resolve_two_step_route(plan, "answer_only") == "respond"
+
+    def test_non_respond_routes_are_never_promoted(self) -> None:
+        """Only ``respond`` is subject to promotion; edit routes are untouched."""
+        from vibecomfy.executor.contracts import ClassifyDecision
+
+        for route in ("revise", "adapt", "research", "inspect", "clarify"):
+            plan = ClassifyDecision(
+                route=route,
+                intent="edit" if route in ("revise", "adapt") else "respond",
+                change_goal="some change",
+                target_node_type="SomeNode",
+            )
+            assert ts._resolve_two_step_route(plan, None) == route, route

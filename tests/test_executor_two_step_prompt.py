@@ -148,3 +148,47 @@ class TestContinuityAndDenial:
                 "CURRENT MESSAGE",
             ):
                 assert section in user, (route, section)
+
+
+GROUNDING_SENTENCE = (
+    "Never assert a causal mechanism for a widget/setting unless you can cite "
+    "the schema or documentation that states it; if unsure, describe the "
+    "observed value and mark the mechanism as unverified."
+)
+
+
+class TestGroundingInstruction:
+    def test_grounding_present_in_research_and_reply(self) -> None:
+        """RC6: the execute prompt constrains causal widget-semantics claims in
+        both the RESEARCH and REPLY sections."""
+        for route in ROUTES:
+            user = _build(route)[1]["content"]
+            assert GROUNDING_SENTENCE in user, route
+            # Present in BOTH the RESEARCH and REPLY sections.
+            research = user.split("RESEARCH")[1].split("PRECEDENT TRANSLATION")[0]
+            reply = user.split("REPLY")[1].split("PRIOR TURNS")[0]
+            assert GROUNDING_SENTENCE in research, route
+            assert GROUNDING_SENTENCE in reply, route
+
+
+class TestKnownGraphContextFallback:
+    def test_known_graph_context_renders_in_research_section(self) -> None:
+        """RC4: the graph census is injected into the RESEARCH section so a
+        research route that exhausts its search budget can still answer from
+        known graph context."""
+        messages = build_two_step_execute_messages(
+            FIXED_QUERY,
+            route="research",
+            graph_render=FIXED_GRAPH_RENDER,
+            known_graph_context="node 7: KSampler (steps=20)",
+        )
+        user = messages[1]["content"]
+        assert "Known graph context" in user
+        assert "node 7: KSampler (steps=20)" in user
+        # It lands in the RESEARCH section (before PRECEDENT TRANSLATION).
+        research = user.split("RESEARCH")[1].split("PRECEDENT TRANSLATION")[0]
+        assert "node 7: KSampler (steps=20)" in research
+
+    def test_absent_known_graph_context_omits_the_block(self) -> None:
+        user = _build("research")[1]["content"]
+        assert "Known graph context" not in user

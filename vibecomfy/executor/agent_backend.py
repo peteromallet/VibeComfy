@@ -521,6 +521,61 @@ def _no_edit_session_outcome(code: str) -> ApplyBatchOutcome:
     )
 
 
+def _finish_reason(result: dict[str, Any]) -> str | None:
+    """Return the provider finish reason for the last model turn, if present.
+
+    The worker surfaces ``finish_reason`` both as a top-level key (parse-failure
+    envelopes) and inside each ``model_attempt``; either is authoritative.
+    """
+    value = result.get("finish_reason")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    for attempt in reversed(coerce_model_attempts(result.get("model_attempts"))):
+        value = attempt.get("finish_reason")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _is_truncated(result: dict[str, Any]) -> bool:
+    """True when the provider cut the model off mid-generation (length cap)."""
+    return _finish_reason(result) == "length"
+
+
+def _plan_known_graph_context(plan: Any) -> str | None:
+    """Return the plan's ``known_graph_context`` when present (RC4)."""
+    if plan is None:
+        return None
+    value = getattr(plan, "known_graph_context", None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _graceful_degradation_reply(state: Any, edit_machine: Any, route: str) -> str:
+    """Build a user-facing partial-product reply for a mid-turn budget hit.
+
+    Never echoes the budget diagnostic (RC2): the returned prose is a concrete
+    "I ran out of budget before completing X; here's what I have" summary of
+    whatever partial product exists (collected research evidence, an accepted
+    Δ, or a partial edit graph).
+    """
+    del route
+    deltas = list(state.accepted_delta_ids())
+    evidence = list(state.evidence_ids())
+    graph = getattr(edit_machine, "graph", None)
+    if deltas or graph is not None:
+        product = "a partial edit was applied"
+    elif evidence:
+        product = f"{len(evidence)} research result(s) were collected"
+    else:
+        product = "no changes were made yet"
+    return (
+        "I ran out of budget before completing the request; here's what I have: "
+        f"{product}."
+    )
+
+
 def run_execute_turn(
     request: Any,
     *,
@@ -608,30 +663,51 @@ def run_execute_turn(
 
         edit_machine = TwoStepEditStateMachine(apply_fn=apply_fn)
 
+        def _failure_outcome(failure: BaseException) -> dict[str, Any]:
+            """Wrap a loop failure with a graceful reply for budget hits (RC2).
+
+            Budget denial/exhaustion (and the continuation-cap ``stale_message``)
+            must never leak the diagnostic string as the user-facing reply:
+            attach a concrete partial-product reply and let the caller surface
+            it.  Genuine fail-closed errors (parse / submit validation) keep
+            ``reply=None`` and are reported as typed failures.
+            """
+            graceful = isinstance(failure, BudgetExceeded) or (
+                isinstance(failure, TwoStepSessionError)
+                and getattr(failure, "kind", None) == "stale_message"
+            )
+            reply = (
+                _graceful_degradation_reply(state, edit_machine, route)
+                if graceful
+                else None
+            )
+            return {"ok": False, "reply": reply, "route": route, "failure": failure}
+
         continuation = 0
         while True:
             session_budget = state.budget
             try:
                 session_budget = session_budget.record_model_continuation()
-            except Exception as exc:  # BudgetExceeded
-                return {"ok": False, "reply": None, "route": route, "failure": exc}
+            except BudgetExceeded as exc:
+                return _failure_outcome(exc)
             cap = (
                 max_continuations
                 if max_continuations is not None
                 else session_budget.max_model_continuations
             )
             if continuation >= cap:
-                return {
-                    "ok": False,
-                    "reply": None,
-                    "route": route,
-                    "failure": TwoStepSessionError(
+                return _failure_outcome(
+                    TwoStepSessionError(
                         "stale_message",
                         "execute continuation budget exhausted",
                         session_id=session_id,
-                    ),
-                }
+                    )
+                )
 
+            # RC3: measure wall clock from THIS model turn, never from session
+            # open — classify/research/worker queueing that precedes the first
+            # model call must not consume the per-message ceiling.
+            budget_usage = budget_usage.reset_wall_clock()
             check_before_model_call(message_budget, budget_usage)
             transcript = _render_compact_transcript(state)
             messages = build_two_step_execute_messages(
@@ -639,6 +715,7 @@ def run_execute_turn(
                 route=route,
                 plan=plan,
                 graph_render=graph_render,
+                known_graph_context=_plan_known_graph_context(plan),
                 transcript=transcript,
                 web_search_enabled=web_search_enabled,
             )
@@ -653,14 +730,37 @@ def run_execute_turn(
             )
             raw = _extract_content(result)
             tokens = _completion_tokens(result, raw)
+
+            # RC1: a provider length-cap (finish_reason=length) is NOT a
+            # terminal failure — record the truncated output, count it, and
+            # re-invoke the model with the accumulated transcript so it resumes
+            # from where it was cut off.
+            if _is_truncated(result):
+                try:
+                    budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
+                    session_budget = session_budget.record_output_tokens(tokens)
+                except BudgetExceeded as exc:
+                    return _failure_outcome(exc)
+                state = session_store.append(
+                    session_id,
+                    "model_truncated",
+                    {"content": raw or ""},
+                    turn=turn,
+                )
+                state = session_store.append(
+                    session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
+                )
+                continuation += 1
+                continue
+
             try:
                 budget_usage = consume_output_tokens(message_budget, budget_usage, tokens)
             except BudgetExceeded as exc:
-                return {"ok": False, "reply": None, "route": route, "failure": exc}
+                return _failure_outcome(exc)
             try:
                 session_budget = session_budget.record_output_tokens(tokens)
             except BudgetExceeded as exc:
-                return {"ok": False, "reply": None, "route": route, "failure": exc}
+                return _failure_outcome(exc)
             state = session_store.append(
                 session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
             )
@@ -668,7 +768,7 @@ def run_execute_turn(
             try:
                 action = _parse_host_action(raw)
             except Exception as exc:
-                return {"ok": False, "reply": None, "route": route, "failure": exc}
+                return _failure_outcome(exc)
 
             kind = action.get("action")
             if kind == "tool_call":
@@ -691,7 +791,7 @@ def run_execute_turn(
                 except BudgetExceeded as exc:
                     # Route-allowlist denial or call-cap breach: a typed budget
                     # failure carrying the canonical B02 ``family``.
-                    return {"ok": False, "reply": None, "route": route, "failure": exc}
+                    return _failure_outcome(exc)
                 state = session_store.append(
                     session_id, "budget", {"budget": session_budget.to_dict()}, turn=turn
                 )
@@ -705,20 +805,20 @@ def run_execute_turn(
                     else:
                         check_apply_batch(message_budget, budget_usage)
                 except BudgetExceeded as exc:
-                    return {"ok": False, "reply": None, "route": route, "failure": exc}
+                    return _failure_outcome(exc)
                 submit = edit_machine.submit(code)
                 if edit_machine.replacement_used and not was_replacement:
                     budget_usage = consume_replacement_attempt(message_budget, budget_usage)
                     try:
                         session_budget = session_budget.record_replacement_attempt()
                     except BudgetExceeded as exc:
-                        return {"ok": False, "reply": None, "route": route, "failure": exc}
+                        return _failure_outcome(exc)
                 if submit.accepted:
                     budget_usage = consume_apply_batch(message_budget, budget_usage)
                     try:
                         session_budget = session_budget.record_apply_batch()
                     except BudgetExceeded as exc:
-                        return {"ok": False, "reply": None, "route": route, "failure": exc}
+                        return _failure_outcome(exc)
                     landed = last_apply.get("outcome")
                     ops = serialize_delta_ops(getattr(landed, "landed_ops", ()) if landed else ())
                     graph = submit.graph

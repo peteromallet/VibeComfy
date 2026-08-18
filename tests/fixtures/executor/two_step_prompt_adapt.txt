@@ -105,6 +105,7 @@ node 2: SaveImage
 RESEARCH
 --------
 (none yet — gather it if the route allows and the request needs it)
+Never assert a causal mechanism for a widget/setting unless you can cite the schema or documentation that states it; if unsure, describe the observed value and mark the mechanism as unverified.
 
 PRECEDENT TRANSLATION
 ---------------------
@@ -119,6 +120,7 @@ REPLY
 Produce a concrete, user-facing reply in the SUBMIT contract.  Acknowledge
 what was done; name nodes, templates, or parameters where relevant.  Never
 mention internal gate names, provider routes, or pipeline stages.
+Never assert a causal mechanism for a widget/setting unless you can cite the schema or documentation that states it; if unsure, describe the observed value and mark the mechanism as unverified.
 
 PRIOR TURNS (this window)
 ------------------------

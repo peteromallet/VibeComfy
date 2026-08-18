@@ -2619,10 +2619,12 @@ class ExecutorResult:
         stage: str,
         message: str,
         report: Report | None = None,
+        reply: str | None = None,
     ) -> "ExecutorResult":
         return cls(
             ok=False,
             report=report or Report(),
+            reply=reply,
             failure_kind=kind,
             failure_stage=stage,
             failure_message=message,

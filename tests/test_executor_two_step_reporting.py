@@ -409,6 +409,44 @@ def test_budget_exhaustion_failure_preserves_execute_telemetry(
     assert execute.claim_validation["status"] == "failed"
 
 
+def test_budget_exhaustion_surfaces_graceful_reply_not_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RC2: when the loop degrades gracefully on budget exhaustion, the final
+    envelope's reply is the graceful partial-product prose — never the budget
+    diagnostic string."""
+    from vibecomfy.executor.two_step import BUDGET_FAMILY_OUTPUT_TOKENS, BudgetExceeded
+
+    graceful = (
+        "I ran out of budget before completing the request; here's what I have: "
+        "no changes were made yet."
+    )
+    result = _run_two_step_failure(
+        monkeypatch,
+        {
+            "ok": False,
+            "route": "adapt",
+            "reply": graceful,
+            "failure": BudgetExceeded(
+                family=BUDGET_FAMILY_OUTPUT_TOKENS,
+                limit=1_000_000,
+                used=1_000_001,
+                route="adapt",
+            ),
+        },
+        route="adapt",
+        session_id="sess-grace",
+    )
+    assert result.ok is False
+    assert result.failure_kind == BUDGET_FAMILY_OUTPUT_TOKENS
+    # The typed failure is still reported, but the reply is graceful.
+    payload = result.to_dict()
+    assert payload["reply"] == graceful
+    # The diagnostic must never be the reply.
+    assert "used" not in payload["reply"]
+    assert "limit" not in payload["reply"]
+
+
 def test_real_loop_budget_exhaustion_preserves_execute_telemetry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

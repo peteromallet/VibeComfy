@@ -808,6 +808,12 @@ _TWO_STEP_NON_EDIT_CONTRACT = (
     "  edited outcome.\n"
 )
 
+_GROUNDING_CONSTRAINT = (
+    "Never assert a causal mechanism for a widget/setting unless you can cite the "
+    "schema or documentation that states it; if unsure, describe the observed "
+    "value and mark the mechanism as unverified."
+)
+
 
 def _two_step_stage_catalogs(route: str, *, web_search_enabled: bool) -> tuple[str, str, bool]:
     """Return (research_docs, change_docs, python_allowed) for *route*.
@@ -873,6 +879,7 @@ def build_two_step_execute_messages(
     plan: ClassifyDecision | None = None,
     graph_render: str | None = None,
     research_context: str | None = None,
+    known_graph_context: str | None = None,
     precedent_context: str | None = None,
     editing_context: str | None = None,
     transcript: str | None = None,
@@ -925,10 +932,24 @@ def build_two_step_execute_messages(
         f"{graph_render if graph_render else '(no graph attached to this request)'}"
     )
 
+    research_text = research_context or (
+        "(none yet — gather it if the route allows and the request needs it)"
+    )
+    if known_graph_context:
+        # RC4: the graph census is already available — make it the primary
+        # grounding source so a research route that exhausts its search budget
+        # (or returns nothing useful) still answers from known graph context.
+        research_text = (
+            "Known graph context (already available; ground the answer here and "
+            "never re-search what is stated):\n"
+            f"{known_graph_context}\n"
+            f"\n{research_text}"
+        )
     parts.append(
         "\nRESEARCH\n"
         "--------\n"
-        f"{research_context if research_context else '(none yet — gather it if the route allows and the request needs it)'}"
+        f"{research_text}\n"
+        f"{_GROUNDING_CONSTRAINT}"
     )
 
     parts.append(
@@ -948,7 +969,8 @@ def build_two_step_execute_messages(
         "-----\n"
         "Produce a concrete, user-facing reply in the SUBMIT contract.  Acknowledge\n"
         "what was done; name nodes, templates, or parameters where relevant.  Never\n"
-        "mention internal gate names, provider routes, or pipeline stages."
+        "mention internal gate names, provider routes, or pipeline stages.\n"
+        f"{_GROUNDING_CONSTRAINT}"
     )
 
     parts.append(

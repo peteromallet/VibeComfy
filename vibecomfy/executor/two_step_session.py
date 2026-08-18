@@ -1176,6 +1176,21 @@ class TwoStepSessionStore:
                 state,
                 messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
             )
+        elif kind == "model_truncated":
+            # A provider ``finish_reason=length`` cut the model off mid-action.
+            # The partial output is retained so the next continuation sees what
+            # was already produced and resumes it (RC1).
+            state = replace(
+                state,
+                messages=state.messages + (
+                    {
+                        "turn": turn,
+                        "role": "assistant_partial",
+                        "content": str(event.get("content") or "")[:2000],
+                        "route": route,
+                    },
+                ),
+            )
         elif kind == "budget":
             state = replace(state, budget=SessionBudget.from_dict(event.get("budget") or {}))
         elif kind == "closed":

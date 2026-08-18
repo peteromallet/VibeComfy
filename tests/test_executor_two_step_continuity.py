@@ -818,3 +818,129 @@ def test_run_execute_turn_real_edit_session_apply_then_submit(tmp_path) -> None:
     state = store.load("win-real")
     assert state is not None
     assert state.accepted_delta_ids() == ("d1",)
+
+
+# ── RC1 / RC2: truncation retry + graceful degradation ───────────────────────
+
+
+def test_truncation_continues_instead_of_failing_closed(tmp_path) -> None:
+    """RC1: a provider ``finish_reason=length`` is retryable — the loop records
+    the truncated output as a continuation and re-invokes the model with the
+    accumulated transcript, instead of failing with a placeholder reply."""
+    store = _store(tmp_path)
+    calls: list[list[dict]] = []
+
+    def model_turn_fn(task, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            # Provider cut the model off mid-action before a valid JSON object.
+            return {
+                "content": '{"action": "tool_call", "tool": "node_schema", ',
+                "finish_reason": "length",
+                "model_attempts": [
+                    {
+                        "finish_reason": "length",
+                        "token_usage": {"completion_tokens": 40},
+                    }
+                ],
+            }
+        return {
+            "content": json.dumps(
+                {"action": "submit", "reply": "done", "delta_ids": []}
+            ),
+            "model_attempts": [{"token_usage": {"completion_tokens": 100}}],
+        }
+
+    request = SimpleNamespace(
+        query="inspect the node",
+        graph={"nodes": []},
+        session_id="win-a",
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+    outcome = run_execute_turn(
+        request,
+        plan=_plan(),
+        route="revise",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+    )
+    assert outcome["ok"] is True
+    # Two model turns: the truncated one and the resumed one.
+    assert len(calls) == 2
+    # The resumed call's flattened transcript carries the truncated partial
+    # output so the model can continue from where it was cut off.
+    user_payload = calls[1][1]["content"]
+    assert "assistant_partial" in user_payload
+    assert "node_schema" in user_payload
+    # The truncated fragment was durable session state.
+    state = store.load("win-a")
+    assert any(m.get("role") == "assistant_partial" for m in state.messages)
+
+
+def test_truncation_degrades_gracefully_when_continuation_budget_exhausted(
+    tmp_path,
+) -> None:
+    """RC1+RC2: when every continuation is truncated, the continuation budget
+    eventually exhausts and the reply degrades gracefully — never the
+    diagnostic string."""
+    store = _store(tmp_path)
+
+    def model_turn_fn(task, messages, **kwargs):
+        return {
+            "content": '{"action": "tool_call", "tool": "node_schema", ',
+            "finish_reason": "length",
+            "model_attempts": [{"finish_reason": "length"}],
+        }
+
+    request = SimpleNamespace(
+        query="inspect the node",
+        graph={"nodes": []},
+        session_id="win-a",
+        idempotency_key=None,
+        expected_baseline_graph_hash=None,
+    )
+    outcome = run_execute_turn(
+        request,
+        plan=_plan(),
+        route="revise",
+        spec=_spec(),
+        session_store=store,
+        session_id="win-a",
+        model_turn_fn=model_turn_fn,
+        max_continuations=2,
+    )
+    assert outcome["ok"] is False
+    assert getattr(outcome["failure"], "kind", None) == "stale_message"
+    reply = outcome["reply"]
+    assert reply is not None
+    assert "ran out of budget" in reply
+    # The diagnostic must never be the reply.
+    assert "continuation budget" not in reply
+
+
+def test_budget_denial_never_echoes_diagnostic_as_reply(tmp_path) -> None:
+    """RC2: a budget denial mid-session returns a graceful partial-product
+    reply — the raw diagnostic string is never the user-facing reply."""
+    from vibecomfy.executor.two_step import BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
+
+    store = _store(tmp_path)
+    outcome = _execute_turn(
+        store,
+        "win-a",
+        query="deny me",
+        route="revise",
+        model_turn_fn=_scripted_model(
+            {"action": "tool_call", "tool": "hivemind_search", "args": {"q": "x"}}
+        ),
+    )
+    assert outcome["ok"] is False
+    assert outcome["failure"].family == BUDGET_FAMILY_ROUTE_TOOL_ALLOWLIST
+    reply = outcome["reply"]
+    assert reply is not None
+    assert "ran out of budget" in reply
+    # The diagnostic string must never leak into the reply.
+    assert "route_tool_allowlist" not in reply
+    assert "hivemind_search" not in reply

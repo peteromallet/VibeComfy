@@ -234,6 +234,9 @@ TWO_STEP_ROUTE_POLICIES: Mapping[str, TwoStepRoutePolicy] = MappingProxyType(
             effort="low",
         ),
         "respond": _policy(
+            # Answer-only by contract (RC5): no tools, no Python edits.  A
+            # respond plan that names a concrete node+value change is promoted
+            # to ``revise`` by :func:`_promote_respond_to_edit`.
             route="respond",
             allowed_tools=frozenset(),
             max_output_tokens=1_000_000,
@@ -501,6 +504,20 @@ class BudgetUsage:
         if seconds < 0:
             raise ValueError("seconds must be >= 0.")
         return replace(self, active_model_seconds=self.active_model_seconds + seconds)
+
+    def reset_wall_clock(self, *, now: float | None = None) -> "BudgetUsage":
+        """Restart the per-turn wall-clock baseline (B02, Pro scope).
+
+        ``started_at`` defaults to construction time, so any classify/research/
+        worker/queueing overhead that precedes the first model call would
+        silently consume the per-message wall-clock ceiling (a one-widget edit
+        must never die because classification of a large graph took long).
+        Callers reset the baseline at the start of each model turn so
+        :func:`check_wall_clock` measures active model/tool work, never
+        queueing.  ``now`` is the monotonic clock (defaults to
+        ``time.monotonic()``); tests inject a fake clock.
+        """
+        return replace(self, started_at=time.monotonic() if now is None else now)
 
 
 # ── B02: per-message enforcement helpers ─────────────────────────────────────
@@ -1128,6 +1145,7 @@ def _two_step_outcome(
             kind=kind,
             stage="execute",
             message=str(failure),
+            reply=outcome.get("reply"),
             report=Report(
                 plan=plan,
                 pipeline_mode=pipeline_mode,
@@ -1240,10 +1258,34 @@ def _resolve_two_step_route(
       edit (mirrors :func:`vibecomfy.executor.core._answer_only_plan`).
     """
     if plan is not None:
-        return plan.effective_route or _fallback_route(plan)
+        route = plan.effective_route or _fallback_route(plan)
+        return _promote_respond_to_edit(plan, route)
     if interaction_mode == "answer_only":
         return "research"
     return "adapt"
+
+
+def _promote_respond_to_edit(plan: ClassifyDecision, route: str) -> str:
+    """Promote an answer-only ``respond`` route to ``revise`` when the plan
+    already names a concrete change (RC5).
+
+    ``respond`` is answer-only by contract — no tools and no Python edits (see
+    :data:`vibecomfy.executor.prompts._NON_EDIT_ROUTES`).  A plan that resolves
+    to ``respond`` while carrying an explicit edit signal (``intent=edit``, a
+    non-empty ``target_node_type``, or a non-empty ``change_goal``) is a
+    correction/complaint turn that the scenario expects to change the graph:
+    route it to ``revise`` so the execute turn may emit an applyable candidate
+    instead of throwing the Δ away.  The non-edit contract itself is never
+    weakened — only the routing is corrected.
+    """
+    if route != "respond":
+        return route
+    edit_signal = (
+        plan.intent == "edit"
+        or bool(plan.target_node_type)
+        or bool(plan.change_goal and plan.change_goal.strip())
+    )
+    return "revise" if edit_signal else route
 
 
 class _TwoStepToolSession:
