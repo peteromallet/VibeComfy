@@ -1370,7 +1370,45 @@ def _two_step_edit_session(graph: Any) -> Any:
         return None
     from vibecomfy.porting.edit.session import EditSession  # noqa: PLC0415
 
-    return EditSession(dict(graph))
+    return EditSession(dict(graph), schema_provider=_two_step_schema_provider())
+
+
+def _two_step_schema_provider() -> Any:
+    """Build the schema provider handed to the retained :class:`EditSession`.
+
+    Named-field edits on real graphs need the schema to resolve widget/input
+    names to positional ``widget_N`` slots (RC-P1).  The provider must reach
+    the session even when the live ComfyUI runtime is absent, so we compose:
+
+    1. ``get_schema_provider("auto")`` — the runtime provider when a ComfyUI
+       runtime is reachable (serves every installed custom node), else the
+       local ``node_index.json`` provider (possibly empty).
+    2. ``get_authoring_schema_provider()`` — the offline authoring provider
+       (committed ``object_info`` cache + source scan + on-demand), which
+       still resolves core + cached custom nodes with no runtime.
+
+    ``CompositeSchemaProvider`` is first-match-wins, so a reachable runtime
+    wins for every class it knows; the authoring cache fills the rest.
+    """
+    from vibecomfy.schema import (  # noqa: PLC0415
+        get_authoring_schema_provider,
+        get_schema_provider,
+    )
+    from vibecomfy.schema.provider import CompositeSchemaProvider  # noqa: PLC0415
+
+    try:
+        auto = get_schema_provider("auto")
+    except Exception:  # noqa: BLE001 - any provider failure must not block ingest
+        auto = None
+    try:
+        authoring = get_authoring_schema_provider()
+    except Exception:  # noqa: BLE001 - best-effort offline fallback
+        authoring = None
+    if auto is None:
+        return authoring
+    if authoring is None:
+        return auto
+    return CompositeSchemaProvider(auto, authoring)
 
 
 def _two_step_fact_pack(graph: Any) -> tuple[str, ...]:

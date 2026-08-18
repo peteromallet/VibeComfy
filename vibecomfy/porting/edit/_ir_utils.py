@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -17,6 +18,7 @@ from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
     missing_widget_value_sentinel,
+    widget_index_for_field,
     widget_value_for_field,
 )
 from vibecomfy.schema import schema_for
@@ -637,6 +639,103 @@ def _tag_fresh_node_provenance(node: Any, *source_nodes: Any) -> None:
     _prov.tag(node, merged)
 
 
+def _set_node_field_value(
+    node: Any,
+    field: str,
+    value: Any,
+    *,
+    schema_provider: Any = None,
+) -> None:
+    """Write a named field onto a node, resolving positional ``widget_N`` slots.
+
+    Real graphs store widget values positionally (``widget_0..N`` keys inside
+    ``widgets`` or ``inputs``, plus a ``raw_widgets.values`` list).  The agent
+    names fields it sees (philosophy #9); the apply engine must map that name
+    back to the positional slot.  Precedence:
+
+    1. the named key already present on ``widgets`` / ``inputs``;
+    2. a positional ``widget_<index>`` resolved via
+       :func:`widget_index_for_field` (schema / object_info / widget-schema);
+    3. last resort — the canonical ``inputs`` channel (the old behaviour).
+    """
+    widgets = getattr(node, "widgets", None)
+    inputs = getattr(node, "inputs", None)
+    if isinstance(widgets, dict) and field in widgets:
+        widgets[field] = value
+        _sync_raw_widget_value(node, field_key=field, value=value)
+        return
+    if isinstance(inputs, dict) and field in inputs:
+        inputs[field] = value
+        return
+
+    # A field that is a LINKED input (present in the node's raw UI input list
+    # or as an incoming edge target) is never a widget: the grammar/typed
+    # path writes literals onto linked inputs via the canonical inputs channel
+    # (Law-5 session-rebuild semantics).  Only fields that are NOT already
+    # bound as inputs may resolve to positional widget slots.
+    _ui = getattr(node, "metadata", {}) or {}
+    raw_ui = _ui.get("_ui") or {}
+    raw_input_names = {
+        str(entry.get("name"))
+        for entry in (raw_ui.get("inputs") or [])
+        if isinstance(entry, Mapping)
+    }
+    if field in raw_input_names:
+        if not isinstance(inputs, dict):
+            inputs = {}
+            try:
+                node.inputs = inputs
+            except Exception:  # noqa: BLE001 - frozen node fallback
+                return
+        inputs[field] = value
+        return
+
+    index = widget_index_for_field(node, field, schema_provider=schema_provider)
+    if index is not None:
+        key = f"widget_{index}"
+        if isinstance(widgets, dict) and key in widgets:
+            widgets[key] = value
+            _sync_raw_widget_value(node, field_key=key, value=value)
+            return
+        if isinstance(inputs, dict) and key in inputs:
+            inputs[key] = value
+            return
+        if isinstance(widgets, dict):
+            widgets[key] = value
+            _sync_raw_widget_value(node, field_key=key, value=value)
+            return
+        if isinstance(inputs, dict):
+            inputs[key] = value
+            return
+
+    if not isinstance(inputs, dict):
+        inputs = {}
+        try:
+            node.inputs = inputs
+        except Exception:  # noqa: BLE001 - frozen node fallback
+            return
+    inputs[field] = value
+
+
+def _sync_raw_widget_value(node: Any, *, field_key: str, value: Any) -> None:
+    """Keep ``raw_widgets.values`` aligned with a positional widget write.
+
+    Best-effort: emit reads the ``widgets`` mapping first, but the raw payload
+    is emit furniture that must not drift out of sync for untouched nodes.
+    """
+    match = re.match(r"^widget_(\d+)$", field_key)
+    if match is None:
+        return
+    index = int(match.group(1))
+    raw = getattr(node, "raw_widgets", None)
+    values = getattr(raw, "values", None)
+    if isinstance(values, list) and 0 <= index < len(values):
+        try:
+            values[index] = value
+        except Exception:  # noqa: BLE001 - immutable payload is non-fatal
+            return
+
+
 def apply_edit_cow(
     workflow: "VibeWorkflow",
     op: EditOp,
@@ -661,14 +760,7 @@ def apply_edit_cow(
             raise KeyError(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
-        field = op.target.field_path
-        if field in node.widgets:
-            node.widgets[field] = op.value
-        elif field in node.inputs:
-            node.inputs[field] = op.value
-        else:
-            # Unknown channel: the IR's canonical value channel is inputs.
-            node.inputs[field] = op.value
+        _set_node_field_value(node, op.target.field_path, op.value, schema_provider=schema_provider)
         _tag_agent_edit_provenance(node)
         return post
 

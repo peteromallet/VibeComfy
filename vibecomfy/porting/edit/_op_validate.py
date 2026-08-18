@@ -123,7 +123,25 @@ def _validate_set_node_field(workflow: Any, op: SetNodeFieldOp, schema_provider:
 
     # The field is legitimate if the schema declares it (as an input, widget or
     # otherwise) or the instance already carries it in either channel.
+    positional_index: int | None = None
     known = spec is not None or field in widgets or field in inputs
+    if not known:
+        # RC-P1 positional fallback: real graphs store widget values as
+        # ``widget_N`` keys (``widgets`` or ``inputs``) + ``raw_widgets``.
+        # A named field that maps to a widget position resolves without the
+        # schema (schema / object_info / widget-schema name sources).
+        try:
+            from vibecomfy.porting.widgets.compact_resolver import widget_index_for_field
+        except Exception:  # noqa: BLE001 - best-effort name resolution
+            widget_index_for_field = None
+        if widget_index_for_field is not None:
+            try:
+                positional_index = widget_index_for_field(
+                    node, field, schema_provider=schema_provider
+                )
+            except Exception:  # noqa: BLE001 - resolution is best-effort
+                positional_index = None
+            known = positional_index is not None
     if not known:
         raise ApplyOpsError(
             "unknown_field",
@@ -133,12 +151,25 @@ def _validate_set_node_field(workflow: Any, op: SetNodeFieldOp, schema_provider:
 
     # No-op: setting a field to its already-current value produces no Δ.
     current = widgets.get(field, inputs.get(field))
+    if positional_index is not None:
+        positional_key = f"widget_{positional_index}"
+        current = widgets.get(positional_key, inputs.get(positional_key, current))
     if field in widgets and _values_equal(widgets[field], op.value):
         raise ApplyOpsError("no_op", f"{field!r} is already set to that value.")
     if field in inputs and not isinstance(inputs.get(field), (list, tuple)):
         if _values_equal(inputs[field], op.value):
             raise ApplyOpsError("no_op", f"{field!r} is already set to that value.")
-    if spec is None and field not in widgets and field not in inputs:
+    if positional_index is not None:
+        positional_key = f"widget_{positional_index}"
+        if positional_key in widgets:
+            positional_current = widgets[positional_key]
+        elif positional_key in inputs:
+            positional_current = inputs[positional_key]
+        else:
+            positional_current = None
+        if _values_equal(positional_current, op.value):
+            raise ApplyOpsError("no_op", f"{field!r} is already set to that value.")
+    if spec is None and field not in widgets and field not in inputs and positional_index is None:
         raise ApplyOpsError("unknown_field", f"field {field!r} is not present on the node.")
 
     # Type check for literal widget fields only (socket fields are linked, not

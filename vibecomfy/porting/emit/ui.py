@@ -3597,6 +3597,18 @@ _EMIT_FURNITURE_PREFIXES = (
     "order",
     "properties.vibecomfy_id",
     "properties._vibecomfy_schema_provider",
+    # RC-P1: a touched node's re-emit normalizes captured geometry and slot
+    # furniture (``size`` dict→list, ``inputs`` null→[], ``outputs[*].shape``
+    # dropped, ``properties.vibecomfy_uid`` retained).  These are not
+    # editable-quotient changes; link structure is guarded separately at the
+    # top-level ``links`` array, so node-level input/output slot re-emission
+    # is safe to treat as furniture for the node-diff check.
+    "size",
+    "pos",
+    "flags",
+    "inputs",
+    "outputs",
+    "properties.vibecomfy_uid",
 )
 _EMIT_SCOPE_FURNITURE = frozenset({"version", "id", "extra", "config"})
 
