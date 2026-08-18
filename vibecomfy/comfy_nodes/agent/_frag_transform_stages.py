@@ -17,7 +17,7 @@ import time
 from typing import Any, Mapping
 
 
-from vibecomfy.ingest.normalize import door_get_links, door_get_nodes
+from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
 def load_agent_generated_scratchpad(path: Any) -> Any:
     """T-039 required_post_split surface: top-level edit-module attr.
 
@@ -307,6 +307,29 @@ def _recovery_report_from_ui_payload(
             signature.append((item.get("name"), item.get("type")))
         return tuple(signature)
 
+    def _node_widget_signature(node: Mapping[str, Any]) -> Any:
+        def _stable(value: Any) -> str:
+            return json.dumps(value, sort_keys=True, default=str)
+
+        widgets = door_get_widgets_values(node)
+        if isinstance(widgets, list):
+            return tuple(_stable(value) for value in widgets)
+        if isinstance(widgets, Mapping):
+            return tuple(
+                (str(key), _stable(value))
+                for key, value in sorted(widgets.items(), key=lambda item: str(item[0]))
+            )
+        return None
+
+    def _original_ui_node(node: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Return the LiteGraph surface nested in an ingested IR node, if any."""
+        metadata = node.get("metadata")
+        if isinstance(metadata, Mapping):
+            raw_ui = metadata.get("_ui")
+            if isinstance(raw_ui, Mapping):
+                return raw_ui
+        return node
+
     def _node_output_slots(node: Mapping[str, Any]) -> dict[tuple[Any, Any, Any], set[Any]]:
         outputs = node.get("outputs")
         slots: dict[tuple[Any, Any, Any], set[Any]] = {}
@@ -417,6 +440,8 @@ def _recovery_report_from_ui_payload(
             if candidate_node_id in schema_less_transitive_intermediates:
                 return (True, "transitive_reroute_intermediate")
             return (False, "new_schema_less_node")
+        if _node_widget_signature(original_node) != _node_widget_signature(candidate_node):
+            return (False, "schema_less_widgets_changed")
         if _connection_signature(original_node) == _connection_signature(candidate_node):
             return (True, "connection_shape_unchanged")
         if _node_input_shape_signature(original_node) != _node_input_shape_signature(candidate_node):
@@ -550,13 +575,18 @@ def _recovery_report_from_ui_payload(
         for original_node in original_nodes:
             if not isinstance(original_node, Mapping):
                 continue
-            original_node_id = str(original_node.get("id", ""))
-            original_class_type = str(original_node.get("type", ""))
+            original_surface = _original_ui_node(original_node)
+            original_node_id = str(
+                original_surface.get("id", original_node.get("id", original_node.get("uid", "")))
+            )
+            original_class_type = str(
+                original_surface.get("type", original_node.get("class_type", ""))
+            )
             if original_node_id and original_class_type:
                 original_node_classes[original_node_id] = original_class_type
-                original_nodes_by_id[original_node_id] = original_node
+                original_nodes_by_id[original_node_id] = original_surface
                 original_node_connections[original_node_id] = _connection_signature(
-                    original_node
+                    original_surface
                 )
     for candidate_node in nodes:
         if isinstance(candidate_node, Mapping):

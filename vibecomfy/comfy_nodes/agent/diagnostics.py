@@ -284,6 +284,15 @@ def queue_stage_diagnostics(
     change_report: dict[str, Any] | None = None,
 ) -> QueueDiagnostics:
     issues: list[dict[str, Any]] = []
+    content_edits = change_report.get("content_edits", {}) if isinstance(change_report, dict) else {}
+    edited_node_ids = {
+        str(node_id)
+        for node_id in (content_edits.get("edited") or [])
+    } if isinstance(content_edits, dict) else set()
+    preserved_node_ids = {
+        str(node_id)
+        for node_id in (content_edits.get("preserved") or [])
+    } if isinstance(content_edits, dict) else set()
     per_node_entries = [
         entry
         for entry in recovery_report or ()
@@ -338,10 +347,20 @@ def queue_stage_diagnostics(
             if entry.get("schema_less_queue_safe") is True:
                 continue
             safety = entry.get("schema_less_safety")
-            own_surface_changed = safety in {
-                "schema_less_inputs_changed",
-                "schema_less_output_slots_changed",
-            } or entry.get("preexisting_ui_node") is not True
+            if node_id in edited_node_ids:
+                own_surface_changed = True
+            elif node_id in preserved_node_ids:
+                # The emitted representation of a schema-less node can rename
+                # an opaque output (for example AUDIO -> AUDIO_0). The typed
+                # content delta is authoritative about whether the node itself
+                # was edited; downstream link churn alone must not hard-block.
+                own_surface_changed = False
+            else:
+                own_surface_changed = safety in {
+                    "schema_less_inputs_changed",
+                    "schema_less_output_slots_changed",
+                    "schema_less_widgets_changed",
+                } or entry.get("preexisting_ui_node") is not True
             # RC12a: untouched preexisting schema-less (destination / link-id
             # churn only) is a warning. New schema-less nodes and nodes whose
             # own class / slot names changed stay a hard block.
@@ -419,7 +438,6 @@ def queue_stage_diagnostics(
                     failure_kind=FailureKind.LOW_CONFIDENCE_QUEUE_BLOCKER,
                 )
             )
-    content_edits = change_report.get("content_edits", {}) if isinstance(change_report, dict) else {}
     stripped_helpers = content_edits.get("stripped_helpers", [])
     if isinstance(stripped_helpers, list) and stripped_helpers:
         issues.append(
