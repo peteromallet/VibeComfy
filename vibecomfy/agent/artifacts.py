@@ -323,6 +323,29 @@ def _result_graph(result: Any) -> dict[str, Any] | None:
     return None
 
 
+class ArtifactConsistencyError(RuntimeError):
+    """Typed artifact-consistency failure: refuse to fabricate unchanged evidence.
+
+    Raised when accepted-delta evidence (non-empty ``accepted_delta_ids``)
+    contradicts an unchanged projection (``graph_unchanged=true`` / unchanged
+    route) and no candidate/retained graph can be loaded that reflects the
+    accepted batch.  The artifact boundary fails closed instead of writing
+    ``final == original``.
+    """
+
+    kind = "artifact_consistency"
+
+
+def _accepted_delta_ids(response: Mapping[str, Any]) -> tuple[str, ...]:
+    """Normalized accepted-delta id tuple from the response envelope."""
+    ids = response.get("accepted_delta_ids")
+    if isinstance(ids, (list, tuple)):
+        return tuple(str(item) for item in ids if str(item))
+    if isinstance(ids, str) and ids:
+        return (ids,)
+    return ()
+
+
 def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
@@ -334,7 +357,14 @@ def _load_ui_mapping(path: Path) -> dict[str, Any] | None:
 
 
 def _route_projects_final_from_original(response: Mapping[str, Any]) -> bool:
-    """Unchanged / refused / clarify / inspect / research routes project final=original."""
+    """Unchanged / refused / clarify / inspect / research routes project final=original.
+
+    Accepted-delta evidence outranks prose: a non-empty ``accepted_delta_ids``
+    means an edit batch was accepted, so ``graph_unchanged=true`` (or an
+    unchanged route label) can never be authoritative for the final artifact.
+    """
+    if _accepted_delta_ids(response):
+        return False
     route = response.get("route")
     if isinstance(route, str) and route in _UNCHANGED_UI_ROUTES:
         return True
@@ -395,6 +425,18 @@ def persist_universal_ui_evidence(
             final = _result_graph(result)
         if final is None:
             final = original
+
+    # Accepted-delta consistency guard: a non-empty accepted batch can never be
+    # projected as ``final == original``.  If no candidate/retained graph was
+    # loaded (or the loaded projection equals the original), fail closed with a
+    # typed error instead of fabricating unchanged evidence.
+    if _accepted_delta_ids(response) and final == original:
+        raise ArtifactConsistencyError(
+            "accepted_delta_ids is non-empty but the final artifact projection "
+            "equals the original graph; the accepted batch was hidden by the "
+            "response projection (candidate/retained graph missing or replay "
+            "did not produce a change). Refusing to write final == original."
+        )
 
     _safe_write(original_path, _redact(original))
     _append_manifest(manifest, "original.ui.json")

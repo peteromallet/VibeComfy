@@ -1257,6 +1257,69 @@ def _is_vibe_envelope(raw: dict[str, Any]) -> bool:
     )
 
 
+class WorkflowIngestError(ValueError):
+    """Typed ingest failure: a raw graph could not decode through a named door.
+
+    Raised when the raw shape is unknown (fail closed, never a silent zero-node
+    IR) or when a non-empty source node set decodes to zero IR nodes.  It is a
+    ``ValueError`` so existing callers that already guard the ingest door keep
+    working, while carrying an explicit ``kind`` so the two-step execute
+    boundary surfaces a typed failure instead of a silent no-edit session.
+    """
+
+    kind = "workflow_ingest"
+
+
+def _source_node_count(raw: dict[str, Any], shape: str) -> int:
+    """Node cardinality of the raw source, keyed by detected shape.
+
+    A metadata-bearing graph may legitimately carry zero nodes, so this counts
+    the shape-specific node container (envelope mapping / UI list / API node
+    mapping) rather than ``bool(raw)``.
+    """
+    if shape == "vibe":
+        nodes = raw.get("nodes")
+        return len(nodes) if isinstance(nodes, Mapping) else 0
+    if shape == "ui":
+        nodes = raw.get("nodes")
+        return len(nodes) if isinstance(nodes, (list, tuple)) else 0
+    if shape == "api":
+        api = raw.get("prompt") if isinstance(raw.get("prompt"), Mapping) else raw
+        return sum(
+            1
+            for node in api.values()
+            if isinstance(node, Mapping) and "class_type" in node
+        )
+    return 0
+
+
+def _assert_nonempty_ingest_preserved(
+    raw: Mapping[str, Any],
+    workflow: VibeWorkflow,
+) -> None:
+    """Fail closed when a positive source node count decodes to zero IR nodes.
+
+    The non-empty guard is shape-aware: a metadata-bearing graph may carry zero
+    nodes (and must stay allowed), but a source that DECLARES nodes and decodes
+    to an empty IR is an ingest failure, never a silent zero-node session.
+    """
+    raw_dict = dict(raw)
+    shape = detect_workflow_shape(raw_dict)
+    if shape == "unknown":
+        raise WorkflowIngestError(
+            "unknown workflow shape: cannot route raw graph to a named ingest "
+            f"door (top-level keys: {sorted(str(k) for k in raw_dict)!r})."
+        )
+    source = _source_node_count(raw_dict, shape)
+    decoded = len(getattr(workflow, "nodes", None) or {})
+    if source > 0 and decoded == 0:
+        raise WorkflowIngestError(
+            f"ingest lost the graph: {shape} source declares {source} node(s) "
+            f"but the decoded IR has {decoded} node(s); refusing a silent "
+            "zero-node session."
+        )
+
+
 def _named_import(
     raw: dict[str, Any],
     *,
@@ -1266,7 +1329,14 @@ def _named_import(
     use_comfy_converter: bool = True,
     comfy_converter_strict: bool = True,
 ) -> VibeWorkflow:
-    """Happy-path import: envelope, then UI, then API. Never ``compile()`` to reach IR."""
+    """Single ingest dispatch authority: envelope, then UI, then API.
+
+    The three named decoders (:func:`from_envelope`, :func:`from_ui`,
+    :func:`from_api`) remain the actual doors; this helper is the ONE place that
+    routes a raw graph by shape so render and edit share identical IR semantics.
+    Unknown shapes fail closed (typed :class:`WorkflowIngestError`).  Never
+    ``compile()`` to reach IR.
+    """
     if _is_vibe_envelope(raw):
         return from_envelope(raw)
     if isinstance(raw.get("nodes"), list):
@@ -1277,6 +1347,12 @@ def _named_import(
             schema_provider=schema_provider,
             use_comfy_converter=use_comfy_converter,
             comfy_converter_strict=comfy_converter_strict,
+        )
+    shape = detect_workflow_shape(raw)
+    if shape == "unknown":
+        raise WorkflowIngestError(
+            "unknown workflow shape: cannot route raw graph to a named ingest "
+            f"door (top-level keys: {sorted(str(k) for k in raw)!r})."
         )
     api = normalize_to_api(
         raw,

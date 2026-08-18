@@ -955,3 +955,116 @@ def test_budget_denial_never_echoes_diagnostic_as_reply(tmp_path) -> None:
     # The diagnostic string must never leak into the reply.
     assert "route_tool_allowlist" not in reply
     assert "hivemind_search" not in reply
+
+
+# ── RC-P0: _two_step_edit_session + real typed tool runtime (envelope + API) ──
+
+
+def _named_widget_envelope() -> dict:
+    """A minimal valid Vibe envelope whose KSampler carries named widgets."""
+    return {
+        "vibecomfy_format_version": "1.0",
+        "id": "test-envelope",
+        "source": {"id": "test-envelope", "path": None, "source_type": "test"},
+        "requirements": {
+            "models": [],
+            "custom_nodes": [],
+            "missing_models": [],
+            "missing_nodes": [],
+            "unsupported": [],
+        },
+        "metadata": {},
+        "strict_types": False,
+        "groups": [],
+        "inputs": {},
+        "outputs": [],
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "EmptyLatentImage",
+                "uid": "1",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {"width": 512, "height": 512, "batch_size": 1},
+                "metadata": {},
+            },
+            "2": {
+                "id": "2",
+                "class_type": "KSampler",
+                "uid": "2",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {
+                    "seed": 42,
+                    "steps": 20,
+                    "cfg": 8.0,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0,
+                },
+                "metadata": {},
+            },
+            "3": {
+                "id": "3",
+                "class_type": "VAEDecode",
+                "uid": "3",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {},
+                "metadata": {},
+            },
+        },
+        "edges": [
+            {"from_node": "1", "from_output": "0", "to_node": "2", "to_input": "latent_image"},
+            {"from_node": "2", "from_output": "0", "to_node": "3", "to_input": "samples"},
+        ],
+    }
+
+
+def _bare_api_fixture() -> dict:
+    """A bare Comfy-API graph derived from the LiteGraph flat fixture."""
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    flat = json.loads(
+        (Path(__file__).parent / "fixtures" / "agent_edit" / "flat.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return normalize_to_api(flat, use_comfy_converter=False)
+
+
+def test_two_step_edit_session_typed_runtime_accepts_edit_for_envelope_and_api() -> None:
+    """RC-P0: the real typed edit runtime accepts one edit for BOTH the
+    envelope and bare-API ingest shapes, returns ``d1``, and retains the entire
+    original graph plus the edit (no silent zero-node session)."""
+    from vibecomfy.executor.edit_tools import EditToolRuntime
+    from vibecomfy.executor.two_step import _two_step_edit_session
+
+    # Envelope input: before the fix this decoded to zero nodes and no edit
+    # could ever resolve.
+    envelope_session = _two_step_edit_session(_named_widget_envelope())
+    assert envelope_session is not None
+    assert set(envelope_session.workflow.nodes.keys()) == {"1", "2", "3"}
+    envelope_runtime = EditToolRuntime(edit_session=envelope_session)
+    envelope_out = envelope_runtime.dispatch(
+        "edit_node", {"target": "ksampler", "field": "seed", "value": 99}
+    )
+    assert envelope_out.ok is True, envelope_out.diagnostics
+    assert envelope_out.delta_id == "d1"
+    assert set(envelope_session.workflow.nodes.keys()) == {"1", "2", "3"}
+    assert envelope_session.workflow.nodes["2"].widgets.get("seed") == 99
+
+    # Bare-API input: the same dispatch authority must retain every node.
+    api_session = _two_step_edit_session(_bare_api_fixture())
+    assert api_session is not None
+    api_nodes = set(api_session.workflow.nodes.keys())
+    assert api_nodes
+    api_runtime = EditToolRuntime(edit_session=api_session)
+    api_out = api_runtime.dispatch(
+        "edit_node", {"target": "cliptextencode", "field": "text", "value": "a dog"}
+    )
+    assert api_out.ok is True, api_out.diagnostics
+    assert api_out.delta_id == "d1"
+    assert set(api_session.workflow.nodes.keys()) == api_nodes
+    assert api_session.workflow.nodes["2"].inputs.get("text") == "a dog"
+

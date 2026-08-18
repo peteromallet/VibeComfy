@@ -659,3 +659,71 @@ def test_edit_route_final_ui_uses_candidate_when_graph_changed(tmp_path: Path) -
     )
     assert _read_json(output_dir / "original.ui.json") == original_graph
     assert _read_json(output_dir / "final.ui.json") == candidate_graph
+
+
+def test_accepted_delta_with_graph_unchanged_persists_candidate_not_original(
+    tmp_path: Path,
+) -> None:
+    """P1: a non-empty accepted_delta_ids outranks graph_unchanged=true.
+
+    The final artifact must carry the candidate/retained graph — never
+    ``final == original`` — even when the response projection says unchanged.
+    """
+    original_graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    candidate_graph = {
+        "nodes": [{"id": 1, "type": "LoadImage"}, {"id": 2, "type": "SaveImage"}],
+        "links": [],
+    }
+    output_dir = tmp_path / "accepted-delta-out"
+    synthesize_headless_artifacts(
+        request={"query": "add save", "graph": original_graph},
+        result=ExecutorResult.success(
+            report=Report(
+                plan=ClassifyDecision(route="revise", implement=True),
+                implementation=ImplementationResult(message="edited"),
+            ),
+            graph=candidate_graph,
+        ),
+        response={
+            "ok": True,
+            "route": "revise",
+            "graph_unchanged": True,
+            "accepted_delta_ids": ["d1"],
+        },
+        output_dir=output_dir,
+        status="success",
+    )
+    assert _read_json(output_dir / "original.ui.json") == original_graph
+    final = _read_json(output_dir / "final.ui.json")
+    assert final == candidate_graph
+    assert final != original_graph
+
+
+def test_accepted_delta_with_graph_unchanged_and_no_candidate_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """P1: when the accepted batch has no candidate/retained graph to persist,
+    the artifact boundary must fail closed — never write final == original."""
+    from vibecomfy.agent.artifacts import ArtifactConsistencyError
+
+    original_graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+    output_dir = tmp_path / "no-candidate-out"
+    with pytest.raises(ArtifactConsistencyError):
+        synthesize_headless_artifacts(
+            request={"query": "edit", "graph": original_graph},
+            result=ExecutorResult.success(
+                report=Report(plan=ClassifyDecision(route="revise", implement=True)),
+                reply="edited",
+            ),
+            response={
+                "ok": True,
+                "route": "revise",
+                "graph_unchanged": True,
+                "accepted_delta_ids": ["d1"],
+            },
+            output_dir=output_dir,
+            status="success",
+        )
+    # Fail closed: the final artifact was never written as the original.
+    assert not (output_dir / "final.ui.json").exists()
+

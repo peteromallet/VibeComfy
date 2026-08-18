@@ -123,25 +123,17 @@ def _coerce_workflow(wf: VibeWorkflow | Mapping[str, Any]) -> VibeWorkflow:
             f"{type(wf).__name__}."
         )
     from vibecomfy.ingest.normalize import (
-        detect_workflow_shape,
-        from_api,
-        from_envelope,
-        from_ui,
+        _assert_nonempty_ingest_preserved,
+        _named_import,
     )
 
-    shape = detect_workflow_shape(dict(wf))
-    if shape == "vibe":
-        return from_envelope(dict(wf))
-    if shape == "ui":
-        # Offline normalizer only: the renderer must stay deterministic
-        # without a live ComfyUI install.
-        return from_ui(dict(wf), use_comfy_converter=False)
-    if shape == "api":
-        return from_api(dict(wf))
-    raise TypeError(
-        "render could not determine the shape of the raw graph dict "
-        f"(detected {shape!r})."
-    )
+    # Single ingest dispatch authority shared with EditSession: envelope →
+    # from_envelope, LiteGraph UI → from_ui (offline converter), bare API →
+    # from_api.  Unknown shapes and non-empty→zero decodes fail closed so the
+    # renderer never reads raw graph keys itself.
+    workflow = _named_import(dict(wf), use_comfy_converter=False)
+    _assert_nonempty_ingest_preserved(wf, workflow)
+    return workflow
 
 
 def _normalise_delta(delta: Any) -> tuple[Any, ...]:

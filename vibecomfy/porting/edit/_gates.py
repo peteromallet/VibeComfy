@@ -298,13 +298,18 @@ class _GatesMixin:
             )
 
     def _workflow_from_ui(self, ui_json: Mapping[str, Any]) -> VibeWorkflow:
-        from vibecomfy.ingest.normalize import from_ui
+        from vibecomfy.ingest.normalize import (
+            _assert_nonempty_ingest_preserved,
+            _named_import,
+        )
 
-        return from_ui(
+        workflow = _named_import(
             dict(ui_json),
             schema_provider=self.schema_provider,
             use_comfy_converter=False,
         )
+        _assert_nonempty_ingest_preserved(ui_json, workflow)
+        return workflow
 
     def _done_gate_b_workflows(
         self,

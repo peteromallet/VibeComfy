@@ -6256,3 +6256,218 @@ class TestSessionDeltaHistory:
         assert pi_edit(final) == pi_edit(session.workflow)
         replayed = interpret(pre, "widget.seed = 42\n")
         assert pi_edit(replayed.workflow) == pi_edit(session.workflow)
+
+
+# ---------------------------------------------------------------------------
+# RC-P0: one ingest dispatch authority (envelope / UI / bare-API)
+# ---------------------------------------------------------------------------
+#
+# ``EditSession`` and ``render`` must share ONE shape-aware ingest dispatcher so
+# the retained IR matches the graph the agent actually saw.  Before this fix,
+# ``EditSession`` forced every raw graph through ``from_ui`` and a Vibe envelope
+# (or bare-API) request silently became a zero-node IR while ``render`` showed
+# the real graph.
+
+
+_ENVELOPE_CORPUS_PATH = Path(__file__).parent / "fixtures" / "b02_corpus_mini" / "bbb556b30438a62c.json"
+
+
+def _load_envelope_corpus_fixture() -> dict[str, Any]:
+    """A real rich-envelope fixture (``nodes`` is a mapping, 3 nodes)."""
+    return json.loads(_ENVELOPE_CORPUS_PATH.read_text(encoding="utf-8"))
+
+
+def _load_api_fixture() -> dict[str, Any]:
+    """A bare Comfy-API graph derived from the LiteGraph flat fixture."""
+    return normalize_to_api(deepcopy(_load_flat_fixture_raw()), use_comfy_converter=False)
+
+
+def _named_widget_envelope() -> dict[str, Any]:
+    """A minimal valid Vibe envelope whose KSampler carries NAMED widgets."""
+    return {
+        "vibecomfy_format_version": "1.0",
+        "id": "test-envelope",
+        "source": {"id": "test-envelope", "path": None, "source_type": "test"},
+        "requirements": {
+            "models": [],
+            "custom_nodes": [],
+            "missing_models": [],
+            "missing_nodes": [],
+            "unsupported": [],
+        },
+        "metadata": {},
+        "strict_types": False,
+        "groups": [],
+        "inputs": {},
+        "outputs": [],
+        "nodes": {
+            "1": {
+                "id": "1",
+                "class_type": "EmptyLatentImage",
+                "uid": "1",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {"width": 512, "height": 512, "batch_size": 1},
+                "metadata": {},
+            },
+            "2": {
+                "id": "2",
+                "class_type": "KSampler",
+                "uid": "2",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {
+                    "seed": 42,
+                    "steps": 20,
+                    "cfg": 8.0,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0,
+                },
+                "metadata": {},
+            },
+            "3": {
+                "id": "3",
+                "class_type": "VAEDecode",
+                "uid": "3",
+                "mode": 0,
+                "inputs": {},
+                "widgets": {},
+                "metadata": {},
+            },
+        },
+        "edges": [
+            {"from_node": "1", "from_output": "0", "to_node": "2", "to_input": "latent_image"},
+            {"from_node": "2", "from_output": "0", "to_node": "3", "to_input": "samples"},
+        ],
+    }
+
+
+class TestFormatAwareIngestDispatch:
+    """RC-P0: the three ingest shapes enter ``EditSession`` with the full IR."""
+
+    def test_envelope_fixture_enters_edit_session_with_full_ir(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+
+        raw = _load_envelope_corpus_fixture()
+        source_nodes = set(raw["nodes"].keys())
+        source_edges = len(raw.get("edges", []))
+
+        session = EditSession(raw)
+        workflow = session.workflow
+        assert workflow is not None
+        # Before the fix this was 0 nodes (envelope forced through from_ui).
+        assert set(workflow.nodes.keys()) == source_nodes
+        assert len(workflow.edges) == source_edges
+        uids = {str(getattr(node, "uid", "") or "") for node in workflow.nodes.values()}
+        assert uids == source_nodes
+
+        # A render-visible name and uid resolve through the retained IR.
+        name = session.name_by_uid.get("1")
+        assert name is not None
+        assert session.uid_by_name.get(name) == "1"
+
+    def test_envelope_named_widget_edit_lands_without_losing_nodes(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+
+        raw = _named_widget_envelope()
+        session = EditSession(raw)
+        original_nodes = set(session.workflow.nodes.keys())
+        assert original_nodes == {"1", "2", "3"}
+
+        name = session.name_by_uid["2"]
+        assert name == "ksampler"
+        result = session.apply_batch(f"{name}.seed = 99\n")
+        assert result.ok is True, result.diagnostics
+        # The untouched node set is preserved.
+        assert set(session.workflow.nodes.keys()) == original_nodes
+        assert session.workflow.nodes["2"].widgets.get("seed") == 99
+        # Untouched node is byte-for-byte unchanged.
+        assert session.workflow.nodes["1"].widgets.get("width") == 512
+
+    def test_api_fixture_enters_edit_session_with_full_ir(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+
+        raw = _load_api_fixture()
+        source_nodes = set(raw.keys())
+
+        session = EditSession(raw)
+        workflow = session.workflow
+        assert workflow is not None
+        assert set(workflow.nodes.keys()) == source_nodes
+
+        name = session.name_by_uid.get("2")
+        assert name is not None
+        assert session.uid_by_name.get(name) == "2"
+
+    def test_api_named_widget_edit_lands_without_losing_nodes(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+
+        raw = _load_api_fixture()
+        session = EditSession(raw)
+        original_nodes = set(session.workflow.nodes.keys())
+
+        result = session.apply_batch("cliptextencode.text = 'a dog'\n")
+        assert result.ok is True, result.diagnostics
+        assert set(session.workflow.nodes.keys()) == original_nodes
+        assert session.workflow.nodes["2"].inputs.get("text") == "a dog"
+
+    def test_ui_fixture_round_trip_preserved(self) -> None:
+        """The LiteGraph UI fixture stays on the offline from_ui path."""
+        from vibecomfy.porting.edit.session import EditSession
+
+        raw = _load_flat_fixture_raw()
+        session = EditSession(raw)
+        assert len(session.workflow.nodes) == 7
+        assert len(session.workflow.edges) == 9
+        # The untouched UI graph still round-trips through the emit door.
+        assert session.done().ok is True
+
+    def test_unknown_shape_fails_closed(self) -> None:
+        from vibecomfy.ingest.normalize import WorkflowIngestError
+        from vibecomfy.porting.edit.session import EditSession
+
+        with pytest.raises(WorkflowIngestError, match="unknown workflow shape"):
+            EditSession({"foo": "bar"})
+
+    def test_nonempty_source_decoding_to_zero_fails_closed(self) -> None:
+        from vibecomfy.ingest.normalize import (
+            WorkflowIngestError,
+            _assert_nonempty_ingest_preserved,
+        )
+
+        class _EmptyWorkflow:
+            nodes: dict[str, Any] = {}
+
+        # A UI-shaped source with one node, decoded (hypothetically) to zero.
+        raw = {"nodes": [{"id": 1, "type": "T"}], "links": []}
+        with pytest.raises(WorkflowIngestError, match="ingest lost the graph"):
+            _assert_nonempty_ingest_preserved(raw, _EmptyWorkflow())
+
+    def test_legitimately_empty_graphs_are_not_rejected(self) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+
+        # A metadata-bearing graph may legitimately have zero nodes.
+        for raw in ({}, {"nodes": [], "links": []}):
+            session = EditSession(raw)
+            assert len(session.workflow.nodes) == 0
+
+    @pytest.mark.parametrize("name", ["envelope", "ui", "api"])
+    def test_render_and_edit_session_share_identical_uid_node_set(self, name: str) -> None:
+        from vibecomfy.porting.edit.session import EditSession
+        from vibecomfy.porting.render import _coerce_workflow
+
+        raw = {
+            "envelope": _load_envelope_corpus_fixture,
+            "ui": _load_flat_fixture_raw,
+            "api": _load_api_fixture,
+        }[name]()
+
+        edit_workflow = EditSession(raw).workflow
+        render_workflow = _coerce_workflow(raw)
+
+        assert set(edit_workflow.nodes.keys()) == set(render_workflow.nodes.keys())
+        edit_uids = {str(getattr(n, "uid", "") or "") for n in edit_workflow.nodes.values()}
+        render_uids = {str(getattr(n, "uid", "") or "") for n in render_workflow.nodes.values()}
+        assert edit_uids == render_uids
+

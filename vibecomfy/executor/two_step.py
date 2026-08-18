@@ -1357,15 +1357,20 @@ def _two_step_graph_render(graph: Any) -> str | None:
 
 
 def _two_step_edit_session(graph: Any) -> Any:
-    """Construct the retained :class:`EditSession` from the request graph."""
+    """Construct the retained :class:`EditSession` from the request graph.
+
+    Ingest failures (unknown shape, non-empty source decoding to zero nodes)
+    propagate instead of degrading to ``None``: the ``run_execute_turn``
+    boundary above maps the raised :class:`~vibecomfy.ingest.normalize.
+    WorkflowIngestError` (and any other ingest error) to a typed
+    ``ExecutorResult.failure`` — a graph that cannot be ingested must never
+    silently become a no-edit session.
+    """
     if not graph:
         return None
-    try:
-        from vibecomfy.porting.edit.session import EditSession  # noqa: PLC0415
+    from vibecomfy.porting.edit.session import EditSession  # noqa: PLC0415
 
-        return EditSession(dict(graph))
-    except Exception:  # noqa: BLE001 - a graph that cannot be ingested yields no edits
-        return None
+    return EditSession(dict(graph))
 
 
 def _two_step_fact_pack(graph: Any) -> tuple[str, ...]:
