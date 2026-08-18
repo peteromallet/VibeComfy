@@ -1,0 +1,61 @@
+{
+  "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
+  "query": "Can you explain the dual-UNet staging in this Wan2.2 pipeline? Specifically, how do the high-noise and low-noise models divide the sampling work, and where does the LoRA get applied to improve output quality?",
+  "workflow_path": "external_workflows/corpus/62682a77ae33b43a.json",
+  "network": true,
+  "timeout": 320,
+  "apply": false,
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "video",
+    "query_type": "explain",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "text_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "text-to-video",
+      "wan2.2",
+      "lora",
+      "video-generation",
+      "hunyuan"
+    ],
+    "source_workflow_id": "62682a77ae33b43a",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Hones in on the workflow's key architectural trick \u2014 high/low-noise UNet split with LoRA \u2014 requiring clear reasoning about denoising stages."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/62682a77ae33b43a.json",
+    "required_node_evidence": [
+      "UNETLoader",
+      "LoraLoaderModelOnly",
+      "ModelSamplingSD3",
+      "KSamplerAdvanced",
+      "CreateVideo",
+      "SaveVideo"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Explain the sigma/noise-range handoff between the two UNet sampler stages and identify exactly where each LoRA-modified model is applied before decode/output.",
+      "Give a coherent end-to-end explanation of the connected stages and their distinct causal roles; do not merely list node names.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}

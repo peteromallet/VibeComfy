@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30b3",
+  "scenario_count": 5,
+  "entries": [
+    {
+      "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+      "path": "tests/live_agentic_harness/scen30b3/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
+      "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "d813fedaabea87b7",
+        "path": "external_workflows/corpus/d813fedaabea87b7.json",
+        "sha256": "501fe619c5f4f686d93053390843ade4100e8c8b8b20556e68c35451a4afccc0"
+      }
+    },
+    {
+      "id": "image-sd3-image-generation-with-controlnet-19d221",
+      "path": "tests/live_agentic_harness/scen30b3/image-sd3-image-generation-with-controlnet-19d221.json",
+      "descriptor_sha256": "8e47d2b6369512263e8193b9232372c8b97c970f162783789c597bbdf28d1f9e",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "19d221f074b42462",
+        "path": "external_workflows/corpus/19d221f074b42462.json",
+        "sha256": "9acadc5405b97c0998e99a66dea4c064ab271e5feb34953fad3e6205d64ba83d"
+      }
+    },
+    {
+      "id": "image-two-stage-qwen-image-generation",
+      "path": "tests/live_agentic_harness/scen30b3/image-two-stage-qwen-image-generation.json",
+      "descriptor_sha256": "0a2e921da3a8268c66a9459fd6c8374d823a890c34318fdac439bb12dad14635",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "8ac746c940b127b4",
+        "path": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+        "sha256": "f8c0e7b8e9247725c51b6e804a579be8c0a24ead7912c32863e45cc12986d8cc"
+      }
+    },
+    {
+      "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+      "path": "tests/live_agentic_harness/scen30b3/image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5.json",
+      "descriptor_sha256": "b9c51894e6c3889a7beef0a58a0fc44f1ac9c59ad2fe4844e5666d10549ace2c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "a7ecc54027245cb7",
+        "path": "external_workflows/corpus/a7ecc54027245cb7.json",
+        "sha256": "358bf188ef9d1452d9ccc30f226ac9062d98adccbc1415fb3343ddd98a171c81"
+      }
+    },
+    {
+      "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+      "path": "tests/live_agentic_harness/scen30b3/multi-3d-gaussian-splatting-from-video-with-hunyuan-432652.json",
+      "descriptor_sha256": "73775928b403370e2a56c5757de461103c610963fef8c9d7c6c206c41edebe22",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "432652b04ff0738b",
+        "path": "external_workflows/corpus/432652b04ff0738b.json",
+        "sha256": "2e0605381ff0570cb18ebf0cba85cb7199fd45a46e8b5fb9c87a1e98866226d1"
+      }
+    }
+  ]
+}

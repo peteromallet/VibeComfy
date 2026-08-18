@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30b2",
+  "scenario_count": 5,
+  "entries": [
+    {
+      "id": "audio-tts-narration-using-indextts-2",
+      "path": "tests/live_agentic_harness/scen30b2/audio-tts-narration-using-indextts-2.json",
+      "descriptor_sha256": "4e55deceb5b3cb551aea17a49436b5749ee5a9ef0c8109239503c7297cf242ff",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "0d470a47b5d7c601",
+        "path": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+        "sha256": "c77073490f3892e5b847588c734ae3ba2565b3e1de9326f927170496f28b7727"
+      }
+    },
+    {
+      "id": "image-animatediff-video-generation-with-vae-d20410",
+      "path": "tests/live_agentic_harness/scen30b2/image-animatediff-video-generation-with-vae-d20410.json",
+      "descriptor_sha256": "e18c6090e4b86904a4bbbbfe85bdbf6a46c0595f11f464306cea7c46ac8d2a5c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "d20410227419c47a",
+        "path": "external_workflows/corpus/d20410227419c47a.json",
+        "sha256": "6bfafa1aa997bad786f7080669ebc7aac1d53ea8578a7a4bb18ff4f5d0f87f31"
+      }
+    },
+    {
+      "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
+      "path": "tests/live_agentic_harness/scen30b2/image-dual-checkpoint-xl-image-generation-with-refin-c9df19.json",
+      "descriptor_sha256": "1e7062329f4613d39cf741a8a7110116ebdcea839c524fac15fb8212af79583b",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "c9df19048aae0738",
+        "path": "external_workflows/corpus/c9df19048aae0738.json",
+        "sha256": "205c6a0aa195069e3ee4add27e8625dee2894f6750a8ca38b95d25fbcd008865"
+      }
+    },
+    {
+      "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
+      "path": "tests/live_agentic_harness/scen30b2/image-gemini-prompt-splitter-and-text-display-workfl-caae97.json",
+      "descriptor_sha256": "d649bc94213323e06a83a5ade9c89ef79d75c2e910cd7a9ffe1c172e497f9d97",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "caae974fd091bde7",
+        "path": "external_workflows/corpus/caae974fd091bde7.json",
+        "sha256": "1639eab3d5038e907e2cc858031ddb436c056fb76974012fc0ce59940c475456"
+      }
+    },
+    {
+      "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
+      "path": "tests/live_agentic_harness/scen30b2/image-inpainting-with-differential-diffusion-and-rea-1d414c.json",
+      "descriptor_sha256": "7c5daa18f946968142a11c8acd6a41d70d1195d3cb40ecdcbc1fc6ae47d1cc69",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "1d414c3424d15ae2",
+        "path": "external_workflows/corpus/1d414c3424d15ae2.json",
+        "sha256": "77200b0a1ecbad29f6951bd9dc07f189236925e8539e174bde1e174d0ad7f911"
+      }
+    }
+  ]
+}

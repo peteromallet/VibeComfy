@@ -1,0 +1,62 @@
+{
+  "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
+  "query": "I'm running this dual-checkpoint XL pipeline with juggernautXL as the base and sd_xl_refiner as the refiner. Are there any newer, better refiner models I should consider, and what are the tradeoffs between using a dedicated refiner vs. a single high-quality XL checkpoint that handles fine details natively? I'm particularly interested in how the LoRA timing (before or after the refiner) affects flexibility.",
+  "workflow_path": "external_workflows/corpus/c9df19048aae0738.json",
+  "network": true,
+  "timeout": 200,
+  "apply": false,
+  "interaction_mode": "answer_only",
+  "assessment": {
+    "expect_graph_changed": false
+  },
+  "_tags": {
+    "modality": "image",
+    "query_type": "research",
+    "abstraction": "med",
+    "complexity": "med",
+    "manifest_complexity": 3,
+    "task_type": "text_to_image",
+    "requires_custom_nodes": true,
+    "techniques": [
+      "image-generation",
+      "stable-diffusion",
+      "xl",
+      "refiner",
+      "lora",
+      "ksampler",
+      "text-to-image"
+    ],
+    "source_workflow_id": "c9df19048aae0738",
+    "source": "external_workflows/corpus",
+    "staged": true,
+    "authored_by": "deepseek-v4-pro",
+    "author_rationale": "Asks for a comparative analysis of modern alternatives and architectural tradeoffs specific to the dual-checkpoint + refiner + LoRA stage, requiring up-to-date knowledge and reasoning beyond a simple model list."
+  },
+  "classification": {
+    "kind": "semantic_product"
+  },
+  "answer_rubric": {
+    "judge": "semantic_answer",
+    "workflow_path": "external_workflows/corpus/c9df19048aae0738.json",
+    "required_node_evidence": [
+      "CheckpointLoaderSimple",
+      "KSamplerAdvanced",
+      "Power Lora Loader (rgthree)",
+      "VAEDecode"
+    ],
+    "expected_criteria": [
+      "Ground substantive claims in the inspected workflow, naming relevant nodes, settings, or connections from the required evidence; do not infer behavior from the scenario title alone.",
+      "Describe the base/refiner handoff visible in the two-checkpoint/two-sampler graph, compare current refiner or single-checkpoint options, and address whether LoRA is applied before or after the handoff.",
+      "Compare concrete alternatives and trade-offs, give a usable recommendation, and clearly distinguish inspected workflow evidence from external or time-sensitive claims.",
+      "Answer the user's actual question directly, with enough specific technical content to be useful and no workflow modification."
+    ],
+    "pass_condition": "Pass only when the answer is grounded, relevant, technically correct, and satisfies every expected criterion.",
+    "fail_conditions": [
+      "hallucinated nodes, settings, connections, model behavior, citations, or provider facts",
+      "technically wrong or materially misleading claims",
+      "irrelevant or generic advice that does not address this workflow and question",
+      "vacuous node-name listing without causal explanation, comparison, or diagnosis",
+      "empty, whitespace-only, refusal-only, or structurally valid but substantively empty answer"
+    ]
+  }
+}
