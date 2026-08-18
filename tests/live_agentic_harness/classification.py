@@ -1,49 +1,64 @@
-"""Deterministic all-100 classification bootstrap + 50-case selection (B07 Pro).
+"""All-100 classification capture + 50-case selection for the paired comparison.
 
-This module is the single source of truth for the frozen
-``classification_lock.json`` and ``two_step_50_manifest.json``.  Everything here
-is DETERMINISTIC: no model calls, no network, no wall-clock, no filesystem
-mutation beyond reading the canonical scenario descriptors + workflows.
+The frozen ``classification_lock.json`` and ``two_step_50_manifest.json`` are
+the single source of truth for the Pro B07 comparator.  This module is the ONLY
+place that writes them.
+
+Two capture paths
+-----------------
+1. **Real classifier capture** — :func:`capture_classifications` runs the
+   ACTUAL classifier (``vibecomfy.executor.core._run_classify``'s underlying
+   ``run_classify_turn`` seam, or ``_run_classify`` itself) over all 100
+   canonical scenarios and freezes the decisions.  This is the only path that
+   produces a lock with ``provenance.capture == "real_classifier"``.  It makes
+   one model call per scenario, so it is invoked exclusively by
+   ``compare_pipeline_modes --bootstrap --capture-classifications`` (or
+   ``--capture-classifications`` alone) and run by the host — never inside the
+   deterministic gate.
+
+2. **Provisional freeze** — :func:`build_classification_lock` builds the
+   deterministic heuristic lock currently committed to
+   ``classification_lock.json`` (``provenance.capture ==
+   "provisional_heuristic"``, ``bootstrap_pending == true``).  It exists so the
+   gate, ``--validate-only``, and ``--run`` can consume a byte-stable lock until
+   the host executes the real bootstrap.  It is NOT the classification
+   authority; it is an audited placeholder and is marked as such in the lock
+   payload.
+
+The two share the same lock schema, selection (hard quotas exact, media/size
+best-fit with a documented stable-hash fallback), and validation, so switching
+from the provisional freeze to the real capture is a pure re-run.
 
 Classification dimensions
 -------------------------
-* ``route`` — one of the eight two-step routes (``vibecomfy.executor.two_step
-  .TWO_STEP_ROUTE_POLICIES`` keys).  Derived from the descriptor's canonical
-  classification (``classification.kind`` / ``answer_rubric`` / ``_tags.
-  query_type``) plus an explicit, documented bootstrap-override table for the
-  routes the corpus does not naturally populate (see :data:`EXPLICIT_ROUTES`).
-* ``behavior`` — derived from ``route``: edit-intent routes (``revise``,
-  ``adapt``, ``reorganise``, ``requires_custom_nodes``) are ``"edit"``; the
-  answer routes (``clarify``, ``respond``, ``inspect``, ``research``) are
-  ``"non-edit"``.  By construction the route quotas (12+8+2+2 = 24 edit,
-  2+8+8+8 = 26 non-edit) make the behavior quota exact.
-* ``ledger`` — ``"in"`` when the scenario id appears in the committed
-  ``scenfails57_manifest.json`` (the 57-ledger that shares billing with the
-  paired comparison), else ``"out"``.
-* ``graph_size`` — small (<=15 nodes), medium (16-40), large (>40), counted from
-  the source workflow (``nodes`` dict, ``nodes`` list, or ComfyUI API top-level
-  node map).  Graph-less descriptors default to ``"small"``.
-* ``media`` — image / video / multimodal / audio / 3d / special.  Derived from
-  ``_tags.modality``, falling back to the id prefix, with ``"special"`` reserved
-  for graph-less descriptors (the research health control has no source graph).
+* ``route`` — the LOCKED route: the classifier's decision in the 8-route
+  vocabulary (``clarify`` / ``respond`` / ``inspect`` / ``research`` /
+  ``requires_custom_nodes`` / ``revise`` / ``adapt`` / ``reorganise``).  The
+  install-intent route ``requires_custom_nodes`` is a *locked* route here even
+  though the executor canonicalizes it (see below).
+* ``effective_route`` — the route the executor actually runs after its
+  install-intent migration (``_normalize_explicit_route``).  For
+  ``requires_custom_nodes`` with edit intent this is ``adapt``; for every other
+  route it equals ``route``.  Both are recorded so the locked route is never
+  silently conflated with the canonical route.
+* ``decision`` — the frozen :class:`~vibecomfy.executor.contracts.ClassifyDecision`
+  payload (``to_dict()``) that the comparator injects identically into both
+  pipeline legs.  In the real capture it is the classifier's actual output; in
+  the provisional freeze it is the documented per-route stand-in.
+* ``behavior`` — ``edit`` for ``revise``/``adapt``/``reorganise``/
+  ``requires_custom_nodes``, else ``non-edit``.
+* ``ledger`` — ``in`` when the id is in the 57-ledger (``ledger_scenario_ids()``),
+  else ``out``.
+* ``graph_size`` — small (<=15 nodes), medium (16-40), large (>40).
+* ``media`` — image / video / multimodal / audio / 3d / special.
 
 Selection
 ---------
-The 50-case selection is exact on the HARD quotas (route, behavior, ledger) and
-best-fit on media/size with a documented stable-hash fallback:
-
-1. Routes whose pool size equals their quota are forced in.
-2. The remaining four routes (inspect/research/revise/adapt) allocate their
-   in-57/out-57 split by enumerating every feasible allocation and picking the
-   one that minimizes media+size target deviation (ties broken
-   lexicographically by the allocation tuple).
-3. Within a route, candidates are ordered by (media under-fill, size
-   under-fill, sha256(scenario_id)) — the stable hash is the documented
-   tie-break fallback.
-
-The committed actual media/size table is recorded in ``classification_lock.json``
-under ``quota_table.actual`` so any deviation from the soft targets is auditable
-without re-running the selection.
+The 50-case selection is exact on the HARD quotas (route / behavior / ledger)
+and best-fit on media/size with a documented stable-hash fallback (see the
+module body).  The committed actual media/size table is recorded under
+``quota_table.actual`` so soft-target deviation is auditable without re-running
+the selection.
 """
 
 from __future__ import annotations
@@ -98,18 +113,13 @@ _MEDIUM_MAX_NODES = 40
 
 # ── Bootstrap route overrides ─────────────────────────────────────────────────
 #
-# The live corpus has no natural tool-free-Q&A (``respond``), clarifying-question
-# (``clarify``), missing-custom-node (``requires_custom_nodes``), or layout-only
-# (``reorganise``) descriptors, so those lanes are filled by an explicit,
-# audited override table.  ``route_source: "explicit"`` is recorded on each
-# override so the bootstrap nature stays visible.
-#
-# reorganise — layout-only edits (arrange/grid).
-# requires_custom_nodes — edits that need a different custom node/checkpoint.
-# clarify — a health control whose query explicitly asks for a clarifying
-#           question, plus the vaguest diagnose descriptor.
-# respond — the lightest non-edit descriptors (explain walk-throughs), re-labeled
-#           as the lightweight answer lane (bootstrap approximation).
+# PROVISIONAL ONLY.  The live corpus has no natural tool-free-Q&A (``respond``),
+# clarifying-question (``clarify``), missing-custom-node
+# (``requires_custom_nodes``), or layout-only (``reorganise``) descriptors, so
+# the provisional freeze fills those lanes with this explicit, audited override
+# table.  ``route_source: "explicit"`` is recorded on each override so the
+# bootstrap nature stays visible.  The real capture REPLACES these overrides
+# with the actual classifier output.
 EXPLICIT_ROUTES: dict[str, str] = {
     # reorganise (2)
     "image-generates-a-2x2-seed-variation": "reorganise",
@@ -130,6 +140,65 @@ EXPLICIT_ROUTES: dict[str, str] = {
     "video-seedvr2-video-upscaling-workflow-052e59": "respond",
     "video-video-loading-and-saving-workflow-1c7ad8": "respond",
 }
+
+# ── Provisional per-route decision stand-in ──────────────────────────────────
+#
+# Used ONLY by the provisional freeze to synthesize a frozen
+# ``ClassifyDecision`` per locked route.  The real capture replaces these with
+# the classifier's actual ``ClassifyDecision`` output.  ``requires_custom_nodes``
+# maps to an edit-intent decision; the executor's install-intent migration
+# canonicalizes it to ``adapt`` — which is exactly why the lock records BOTH
+# ``route`` (locked) and ``effective_route`` (canonical).
+_ROUTE_PLAN_FIELDS: dict[str, dict[str, Any]] = {
+    "clarify": {"research": False, "implement": False, "intent": "respond", "task": ""},
+    "respond": {"research": False, "implement": False, "intent": "respond", "task": ""},
+    "inspect": {"research": False, "implement": False, "intent": "explain_graph", "task": "inspect_graph"},
+    "research": {"research": True, "implement": False, "intent": "research", "task": "research_nodes"},
+    "requires_custom_nodes": {"research": False, "implement": False, "intent": "edit", "task": "edit_graph"},
+    "revise": {"research": False, "implement": True, "intent": "edit", "task": "edit_graph"},
+    "adapt": {"research": True, "implement": True, "intent": "edit", "task": "research_precedent"},
+    "reorganise": {"research": False, "implement": True, "intent": "edit", "task": "layout_reorganise"},
+}
+
+_PROVISIONAL_CLASSIFIER_NOTE = (
+    "Provisional freeze: routes derive from descriptor heuristics, not live "
+    "classifier calls.  Run `python -m tests.live_agentic_harness."
+    "compare_pipeline_modes --bootstrap --capture-classifications` to capture "
+    "the 100 real classifier decisions."
+)
+
+
+class ClassificationError(ValueError):
+    """Raised when the frozen lock/manifest is internally inconsistent."""
+
+
+# ── provisional decision synthesis ───────────────────────────────────────────
+
+
+def provisional_decision(route: str) -> dict[str, Any]:
+    """Return the frozen provisional ``ClassifyDecision.to_dict()`` for *route*.
+
+    Only used by the provisional freeze; the real capture records the actual
+    classifier output instead.
+    """
+    from vibecomfy.executor.contracts import ClassifyDecision  # noqa: PLC0415
+
+    if route not in _ROUTE_PLAN_FIELDS:
+        raise ClassificationError(f"unknown provisional route {route!r}")
+    plan = ClassifyDecision(route=route, reply=True, **_ROUTE_PLAN_FIELDS[route])
+    return plan.to_dict()
+
+
+def provisional_effective_route(route: str) -> str:
+    """Return the executor-canonical route for the provisional *route*."""
+    from vibecomfy.executor.contracts import ClassifyDecision  # noqa: PLC0415
+
+    if route not in _ROUTE_PLAN_FIELDS:
+        raise ClassificationError(f"unknown provisional route {route!r}")
+    return ClassifyDecision(route=route, reply=True, **_ROUTE_PLAN_FIELDS[route]).effective_route
+
+
+# ── deterministic dimension derivation (provisional heuristic) ──────────────
 
 
 def _node_count(graph: Any) -> int | None:
@@ -181,7 +250,7 @@ def _media(scenario: Mapping[str, Any]) -> str:
 
 
 def _route_for(scenario: Mapping[str, Any]) -> tuple[str, str]:
-    """Return ``(route, route_source)`` for one scenario descriptor."""
+    """Return ``(route, route_source)`` for the provisional heuristic."""
     scenario_id = str(scenario.get("id") or "")
     if scenario_id in EXPLICIT_ROUTES:
         return EXPLICIT_ROUTES[scenario_id], "explicit"
@@ -197,41 +266,171 @@ def _route_for(scenario: Mapping[str, Any]) -> tuple[str, str]:
     if scenario.get("answer_rubric"):
         route = "research" if query_type == "research" else "inspect"
         return route, "query_type"
-    # edit-intent descriptor (expect_graph_changed == True)
     if query_type == "big_adjustment":
         return "adapt", "query_type"
     return "revise", "query_type_default"
+
+
+def _load_graph(scenario: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Load the source workflow graph for a scenario descriptor."""
+    if scenario.get("workflow_path"):
+        path = Path(str(scenario["workflow_path"]))
+        if path.is_file():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return None
+    if isinstance(scenario.get("graph"), dict):
+        return scenario["graph"]
+    return None
+
+
+# ── classification (shared by both capture paths) ───────────────────────────
 
 
 def classify_scenario(
     scenario: Mapping[str, Any],
     *,
     in_57_ids: frozenset[str],
-    workflow_loader: Any | None = None,
 ) -> dict[str, Any]:
-    """Classify one scenario descriptor into the five dimensions."""
+    """Classify one descriptor into the five dimensions (provisional heuristic).
+
+    Produces the provisional ``route`` / ``effective_route`` / ``decision``.
+    The real capture path (:func:`capture_classifications`) produces the same
+    entry shape but fills ``route`` / ``effective_route`` / ``decision`` from
+    the live classifier.
+    """
     scenario_id = str(scenario.get("id") or "")
     route, route_source = _route_for(scenario)
-
-    graph: Any = None
-    if scenario.get("workflow_path"):
-        path = Path(str(scenario["workflow_path"]))
-        if path.is_file():
-            graph = json.loads(path.read_text(encoding="utf-8"))
-    elif isinstance(scenario.get("graph"), dict):
-        graph = scenario["graph"]
-
-    node_count = _node_count(graph)
+    effective_route = provisional_effective_route(route)
+    decision = provisional_decision(route)
+    node_count = _node_count(_load_graph(scenario))
     return {
         "id": scenario_id,
         "route": route,
+        "effective_route": effective_route,
         "route_source": route_source,
         "behavior": "edit" if route in EDIT_ROUTES else "non-edit",
         "ledger": "in" if scenario_id in in_57_ids else "out",
         "graph_size": _graph_size(node_count),
         "media": _media(scenario),
         "node_count": node_count,
+        "decision": decision,
     }
+
+
+# ── real classifier capture (--capture-classifications) ─────────────────────
+
+
+def _classify_scenario_once(
+    scenario: Mapping[str, Any],
+    spec: Any,
+) -> tuple[str, str, dict[str, Any]]:
+    """Run the REAL classifier once and return ``(locked, effective, decision)``.
+
+    Mirrors ``vibecomfy.executor.core._run_classify``'s inner
+    ``run_classify_turn`` seam but ALSO preserves the raw ``route`` field the
+    classifier emitted BEFORE the executor's install-intent migration, so the
+    install-intent route ``requires_custom_nodes`` survives as the locked route
+    instead of being silently folded into ``adapt``.
+    """
+    from vibecomfy.executor.core import _render_census_text  # noqa: PLC0415
+    from vibecomfy.executor.agent_backend import _extract_content  # noqa: PLC0415
+    from vibecomfy.executor.prompts import (  # noqa: PLC0415
+        build_classify_messages,
+        parse_classify_response,
+    )
+    from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
+
+    graph = _load_graph(scenario)
+    query = str(scenario.get("query") or "").strip()
+    has_graph = graph is not None
+    graph_summary = _render_census_text(graph)
+    messages = build_classify_messages(
+        query,
+        has_graph=has_graph,
+        graph_summary=graph_summary,
+    )
+    result = run_model_turn(
+        query,
+        messages,
+        route=spec.agent,
+        model=spec.model,
+        effort=spec.effort,
+        response_contract="json",
+        profiling_context={"backend_phase": "classify"},
+    )
+    raw = _extract_content(result)
+    raw_route = ""
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and isinstance(parsed.get("route"), str):
+            raw_route = parsed["route"].strip()
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    decision = parse_classify_response(raw)
+    locked = raw_route or decision.effective_route or "respond"
+    return locked, decision.effective_route, decision.to_dict()
+
+
+def _real_classify_entry(
+    scenario: Mapping[str, Any],
+    *,
+    in_57_ids: frozenset[str],
+    spec: Any,
+) -> dict[str, Any]:
+    scenario_id = str(scenario.get("id") or "")
+    locked, effective, decision = _classify_scenario_once(scenario, spec)
+    node_count = _node_count(_load_graph(scenario))
+    behavior = "edit" if locked in EDIT_ROUTES else "non-edit"
+    return {
+        "id": scenario_id,
+        "route": locked,
+        "effective_route": effective,
+        "route_source": "classifier",
+        "behavior": behavior,
+        "ledger": "in" if scenario_id in in_57_ids else "out",
+        "graph_size": _graph_size(node_count),
+        "media": _media(scenario),
+        "node_count": node_count,
+        "decision": decision,
+    }
+
+
+def capture_classifications(
+    scenarios: list[Mapping[str, Any]],
+    *,
+    in_57_ids: frozenset[str],
+    profile: str | None = "default",
+    max_workers: int = 1,
+) -> dict[str, Any]:
+    """Run the REAL classifier over all *scenarios* and freeze a lock payload.
+
+    One model call per scenario.  ``provenance.capture`` is ``"real_classifier"``
+    and ``bootstrap_pending`` is false.  Invoked only by ``--bootstrap
+    --capture-classifications`` (host).
+    """
+    from vibecomfy.executor.core import _resolve_spec  # noqa: PLC0415
+
+    spec = _resolve_spec(profile, "classify")
+
+    def _one(scenario: Mapping[str, Any]) -> dict[str, Any]:
+        return _real_classify_entry(scenario, in_57_ids=in_57_ids, spec=spec)
+
+    if max_workers and max_workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            entries = list(pool.map(_one, scenarios))
+    else:
+        entries = [_one(s) for s in scenarios]
+
+    entries.sort(key=lambda e: e["id"])
+    selected_ids, actual_quota = select_50(entries)
+    return _assemble_lock(entries, selected_ids, actual_quota, capture="real_classifier")
+
+
+# ── selection ────────────────────────────────────────────────────────────────
 
 
 def _stable_key(scenario_id: str) -> str:
@@ -273,7 +472,6 @@ def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, 
     need_in = LEDGER_QUOTA["in"] - forced_in
     need_out = LEDGER_QUOTA["out"] - forced_out
 
-    # Per-route in/out availability (excluding forced).
     avail: dict[str, tuple[list[str], list[str]]] = {}
     for route in remaining_routes:
         ins = [s for s in pools[route] if s not in forced and by_id[s]["ledger"] == "in"]
@@ -281,7 +479,6 @@ def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, 
         avail[route] = (ins, outs)
 
     def pick_for_allocation(alloc: dict[str, int]) -> tuple[set[str], int]:
-        """Greedy within-route pick for a fixed in/out allocation."""
         selected = set(forced)
         media_counts: Counter[str] = Counter(by_id[s]["media"] for s in selected)
         size_counts: Counter[str] = Counter(by_id[s]["graph_size"] for s in selected)
@@ -307,7 +504,6 @@ def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, 
             size_counts, SIZE_TARGET
         )
 
-    # Enumerate feasible allocations (small integer space) and keep the best.
     best: tuple[tuple[int, ...], set[str], dict[str, int]] | None = None
     for insp_in in range(4, 9):
         for res_in in range(4, 9):
@@ -332,13 +528,7 @@ def select_50(lock_entries: list[dict[str, Any]]) -> tuple[list[str], dict[str, 
                     if not feasible:
                         continue
                     selected, deviation = pick_for_allocation(alloc)
-                    key = (
-                        deviation,
-                        insp_in,
-                        res_in,
-                        rev_in,
-                        adapt_in,
-                    )
+                    key = (deviation, insp_in, res_in, rev_in, adapt_in)
                     if best is None or key < best[0]:
                         best = (key, selected, alloc)
 
@@ -370,20 +560,28 @@ def _actual_quota_table(
     }
 
 
-def build_classification_lock(
-    scenarios: list[Mapping[str, Any]],
+# ── lock assembly ────────────────────────────────────────────────────────────
+
+
+def _assemble_lock(
+    entries: list[dict[str, Any]],
+    selected_ids: list[str],
+    actual_quota: dict[str, Any],
     *,
-    in_57_ids: frozenset[str],
+    capture: str,
 ) -> dict[str, Any]:
-    """Classify all *scenarios* deterministically and freeze the lock payload."""
-    entries = [classify_scenario(s, in_57_ids=in_57_ids) for s in scenarios]
-    entries.sort(key=lambda e: e["id"])
-    selected_ids, actual_quota = select_50(entries)
+    is_real = capture == "real_classifier"
     return {
         "schema_version": 1,
         "scenario_count": len(entries),
         "selected_count": len(selected_ids),
         "selected_ids": selected_ids,
+        "provenance": {
+            "capture": capture,
+            "bootstrap_pending": not is_real,
+            "classifier_target": "vibecomfy.executor.core._run_classify",
+            "note": "" if is_real else _PROVISIONAL_CLASSIFIER_NOTE,
+        },
         "quota_table": {
             "routes": dict(ROUTE_QUOTA),
             "behavior": dict(BEHAVIOR_QUOTA),
@@ -394,7 +592,7 @@ def build_classification_lock(
         },
         "rules": {
             "behavior": "derived from route (edit = revise/adapt/reorganise/requires_custom_nodes)",
-            "ledger": "in == scenario id present in scenfails57_manifest.json",
+            "ledger": "in == scenario id present in the 57-ledger (ledger_scenario_ids())",
             "graph_size_thresholds": {
                 "small": f"<= {_SMALL_MAX_NODES} nodes",
                 "medium": f"{_SMALL_MAX_NODES + 1}-{_MEDIUM_MAX_NODES} nodes",
@@ -404,9 +602,31 @@ def build_classification_lock(
             "media": "modality tag -> id prefix -> special (graph-less) / image fallback",
             "stable_hash_fallback": "sha256(scenario_id) breaks selection ties",
             "explicit_route_overrides": dict(EXPLICIT_ROUTES),
+            "effective_route": (
+                "executor-canonical route after _normalize_explicit_route; "
+                "requires_custom_nodes -> adapt (edit intent) is recorded, not hidden."
+            ),
         },
         "entries": entries,
     }
+
+
+def build_classification_lock(
+    scenarios: list[Mapping[str, Any]],
+    *,
+    in_57_ids: frozenset[str],
+) -> dict[str, Any]:
+    """Build the deterministic PROVISIONAL lock payload (idempotent).
+
+    This is the provisional freeze only.  It reproduces the committed
+    ``classification_lock.json`` byte-for-byte (modulo formatting) so the gate
+    and ``--validate-only``/``--run`` can consume a stable lock until the host
+    runs the real capture.
+    """
+    entries = [classify_scenario(s, in_57_ids=in_57_ids) for s in scenarios]
+    entries.sort(key=lambda e: e["id"])
+    selected_ids, actual_quota = select_50(entries)
+    return _assemble_lock(entries, selected_ids, actual_quota, capture="provisional_heuristic")
 
 
 def build_two_step_manifest(
@@ -439,6 +659,7 @@ def build_two_step_manifest(
         cls = lock_by_id[scenario_id]
         entry["classification"] = {
             "route": cls["route"],
+            "effective_route": cls["effective_route"],
             "route_source": cls["route_source"],
             "behavior": cls["behavior"],
             "ledger": cls["ledger"],
@@ -459,10 +680,6 @@ def build_two_step_manifest(
 # ── lock / manifest validation ───────────────────────────────────────────────
 
 
-class ClassificationError(ValueError):
-    """Raised when the frozen lock/manifest is internally inconsistent."""
-
-
 def validate_lock(
     lock: Mapping[str, Any],
     *,
@@ -472,6 +689,11 @@ def validate_lock(
     """Validate a classification lock against the canonical descriptor set."""
     if lock.get("schema_version") != 1:
         raise ClassificationError("lock schema_version must be 1")
+    provenance = lock.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ClassificationError("lock must carry a provenance block")
+    if provenance.get("capture") not in {"provisional_heuristic", "real_classifier"}:
+        raise ClassificationError("lock provenance.capture is invalid")
     entries = lock.get("entries")
     if not isinstance(entries, list) or len(entries) != len(scenario_ids):
         raise ClassificationError("lock must classify exactly the canonical scenarios")
@@ -482,7 +704,7 @@ def validate_lock(
             f"extra={sorted(lock_ids - set(scenario_ids))}"
         )
     for entry in entries:
-        for field in ("route", "behavior", "ledger", "graph_size", "media"):
+        for field in ("route", "effective_route", "behavior", "ledger", "graph_size", "media"):
             if not entry.get(field):
                 raise ClassificationError(f"lock entry {entry.get('id')!r} missing {field}")
         if entry["route"] not in ROUTES:
@@ -491,14 +713,30 @@ def validate_lock(
             raise ClassificationError(f"lock entry {entry.get('id')!r} bad behavior")
         expected_behavior = "edit" if entry["route"] in EDIT_ROUTES else "non-edit"
         if entry["behavior"] != expected_behavior:
-            raise ClassificationError(
-                f"lock entry {entry.get('id')!r} behavior/route mismatch"
-            )
+            raise ClassificationError(f"lock entry {entry.get('id')!r} behavior/route mismatch")
         if entry["ledger"] not in {"in", "out"}:
             raise ClassificationError(f"lock entry {entry.get('id')!r} bad ledger")
         expected_ledger = "in" if entry["id"] in in_57_ids else "out"
         if entry["ledger"] != expected_ledger:
             raise ClassificationError(f"lock entry {entry.get('id')!r} ledger mismatch")
+        decision = entry.get("decision")
+        if not isinstance(decision, Mapping):
+            raise ClassificationError(f"lock entry {entry.get('id')!r} missing decision")
+        if entry["effective_route"] not in ROUTES:
+            raise ClassificationError(
+                f"lock entry {entry.get('id')!r} bad effective_route {entry['effective_route']!r}"
+            )
+        if entry["route"] == "requires_custom_nodes":
+            if entry["effective_route"] == "requires_custom_nodes":
+                raise ClassificationError(
+                    f"lock entry {entry.get('id')!r}: requires_custom_nodes must record "
+                    "its canonical effective_route, not itself"
+                )
+        elif entry["effective_route"] != entry["route"]:
+            raise ClassificationError(
+                f"lock entry {entry.get('id')!r}: effective_route {entry['effective_route']!r} "
+                f"diverges from locked route {entry['route']!r} unexpectedly"
+            )
 
 
 def validate_manifest_quotas(manifest: Mapping[str, Any], lock: Mapping[str, Any]) -> None:

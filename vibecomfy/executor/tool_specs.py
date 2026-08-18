@@ -199,6 +199,36 @@ def _hivemind_get_projector(
     for key in ("url", "author", "channel", "created_at", "status", "confidence", "score"):
         if key in row and row[key] is not None and str(row[key]).strip():
             lines.append(f"  {key}: {_shorten_query_text(str(row[key]), max_chars=140)}")
+    # B04: the typed record view is the model-facing content.  Workflow records
+    # are served as the COMBINED bounded surface+topology projection (never the
+    # raw workflow JSON); non-workflow records expose their typed text; a
+    # malformed record exposes the typed error — the raw row is never echoed.
+    record_view = body.get("record_view")
+    if isinstance(record_view, Mapping):
+        record_type = str(record_view.get("record_type") or "")
+        if record_type == "workflow":
+            from vibecomfy.executor.precedents import render_precedent_view  # noqa: PLC0415
+
+            lines.append(
+                "  workflow view (sanitized; raw workflow JSON not echoed):\n"
+                + render_precedent_view(
+                    record_view.get("surface_lens"),
+                    record_view.get("topology"),
+                    shape=record_view.get("shape"),
+                )
+            )
+        elif record_type == "non_workflow":
+            content = record_view.get("content")
+            if isinstance(content, str) and content.strip():
+                excerpt = _shorten_query_text(content, max_chars=1200)
+                truncated = " [truncated]" if len(content) > 1200 else ""
+                lines.append(
+                    f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}"
+                )
+        elif record_type == "malformed_record":
+            error = record_view.get("error")
+            if isinstance(error, str) and error.strip():
+                lines.append(f"  record is malformed: {_shorten_query_text(error, max_chars=300)}")
     return artifacts, entry, "\n".join(lines)
 
 
@@ -384,31 +414,29 @@ def _ready_template_load_projector(
         f"  id: {template_id} path: {body.get('path') or ''} scope: {body.get('scope') or ''}",
         f"  sha256: {body.get('sha256')} size: {body.get('size_bytes')} bytes",
     ]
-    content = body.get("content")
-    if isinstance(content, str) and content.strip():
-        excerpt = _shorten_query_text(content, max_chars=1200)
-        truncated = " [truncated]" if len(content) > 1200 else ""
-        lines.append(f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}")
     # B04: a workflow-valued ready-template observation is sanitized through
     # the precedent projection (surface + bounded topology).  The raw workflow
-    # JSON is never echoed — only the sanitized surface/topology view.
+    # JSON is never echoed — only the sanitized surface/topology view, and the
+    # raw content excerpt is suppressed for workflow-valued templates (the
+    # result payload already drops the raw content entirely).
     workflow_view = body.get("workflow_view")
     if isinstance(workflow_view, Mapping):
-        topology = workflow_view.get("topology")
-        if isinstance(topology, Mapping):
-            from vibecomfy.executor.precedents import render_precedent_topology  # noqa: PLC0415
+        from vibecomfy.executor.precedents import render_precedent_view  # noqa: PLC0415
 
-            lines.append(
-                "  workflow view (sanitized; raw workflow JSON not echoed):\n"
-                + render_precedent_topology(topology)
+        lines.append(
+            "  workflow view (sanitized; raw workflow JSON not echoed):\n"
+            + render_precedent_view(
+                workflow_view.get("surface_lens"),
+                workflow_view.get("topology"),
+                shape=workflow_view.get("shape"),
             )
-        else:
-            surface = workflow_view.get("surface_lens")
-            if isinstance(surface, str) and surface.strip():
-                lines.append(
-                    "  workflow view surface (sanitized):\n"
-                    + _shorten_query_text(surface, max_chars=1200)
-                )
+        )
+    else:
+        content = body.get("content")
+        if isinstance(content, str) and content.strip():
+            excerpt = _shorten_query_text(content, max_chars=1200)
+            truncated = " [truncated]" if len(content) > 1200 else ""
+            lines.append(f"  content excerpt (evidence_id {evidence_id}; full body not echoed):{truncated}\n{excerpt}")
     return artifacts, entry, "\n".join(lines)
 
 

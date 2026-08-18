@@ -523,9 +523,11 @@ def _render_diff_summary(delta: tuple[Any, ...]) -> str:
 # per canonical rendered line; the topology lens contributes one fact per
 # canonical edge tuple ``(origin_uid, origin_socket, target_uid, target_input)``
 # (the exact items ``render(wf, "topology")`` returns).  Fact IDs are stable
-# content hashes over ``(lens, index, canonical item)`` so the same workflow
-# always yields the same IDs, and a cited ID always references the canonical
-# item it was derived from.
+# content hashes over ``(lens, canonical item, occurrence)`` so the same
+# workflow always yields the same IDs, a cited ID always references the
+# canonical item it was derived from, and duplicated lines/edges stay
+# addressable without a global item index: the occurrence counter only
+# distinguishes duplicate occurrences of the SAME item in the SAME lens.
 #
 # This is intentionally separate from the canonical topology renderer
 # (:func:`_render_topology_facts` / :func:`_render_topology_text`): those keep
@@ -543,9 +545,16 @@ class FactRef:
     content: Any  # str (text line) or tuple (topology edge fact)
 
 
-def _fact_id(lens: str, index: int, content: Any) -> str:
+def _fact_id(lens: str, occurrence: int, content: Any) -> str:
+    """Stable ID over the canonical item, NOT the global item index.
+
+    *occurrence* is the duplicate-occurrence discriminator (0 for the first
+    occurrence of an item in a lens, 1 for the second, ...) — identical items
+    get distinct IDs while reordering/inserting unrelated items elsewhere in
+    the workflow does not perturb existing IDs.
+    """
     raw = json.dumps(
-        {"lens": lens, "index": index, "content": content},
+        {"lens": lens, "content": content, "occurrence": occurrence},
         sort_keys=True,
         ensure_ascii=False,
         default=str,
@@ -575,14 +584,23 @@ def render_fact_pack(
     _enforce_ceiling(names, ceiling)
 
     facts: list[FactRef] = []
+    # Duplicate-occurrence discriminator per (lens, canonical item): identical
+    # lines/edges get distinct stable IDs without a global item index.
+    seen: dict[tuple[str, Any], int] = {}
     for name in names:
         if name == LENS_TOPOLOGY:
-            for index, edge in enumerate(_edge_facts(workflow)):
-                facts.append(FactRef(_fact_id(name, index, edge), name, edge))
+            for edge in _edge_facts(workflow):
+                key = (name, edge)
+                occurrence = seen.get(key, 0)
+                seen[key] = occurrence + 1
+                facts.append(FactRef(_fact_id(name, occurrence, edge), name, edge))
             continue
         rendered = str(_render_lens_value(workflow, name, ()))
-        for index, line in enumerate(rendered.splitlines()):
-            facts.append(FactRef(_fact_id(name, index, line), name, line))
+        for line in rendered.splitlines():
+            key = (name, line)
+            occurrence = seen.get(key, 0)
+            seen[key] = occurrence + 1
+            facts.append(FactRef(_fact_id(name, occurrence, line), name, line))
     return tuple(facts)
 
 

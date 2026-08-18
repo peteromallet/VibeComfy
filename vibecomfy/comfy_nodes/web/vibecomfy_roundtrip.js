@@ -481,6 +481,15 @@ const submitFlow = createSubmitFlow({
   api,
   normalizeRoutePreference,
   agentPanelFailure,
+  // Two-step browser-owned session identity (B05): the server never mints a
+  // session id for two-step, so the browser binds a scope-owned UUID before
+  // the first POST and reuses it for every retry/follow-up in the chat
+  // window.  getOrCreateScopedSessionId resolves the scope-owned binding for
+  // the SUBMITTING panel (per-tab chatScopeId) — the deps object is built
+  // once at module init, so the scope is read from the panel at submit time.
+  getOrCreateBoundSessionId: (submitPanel) => (
+    getOrCreateScopedSessionId(submitPanel?.state?.chatScopeId)
+  ),
   // Non-terminal inactivity stall: surface "still working" in the thread and
   // keep the watchdog waiting until the absolute deadline (see
   // agent_submit_flow.js runSubmitFetchWithDeadline).
@@ -632,6 +641,7 @@ const VIBECOMFY_LOGO_URL = resolveModuleAssetUrl("./vibecomfy_agent_icon_cream.p
 // without pulling in the full ComfyUI runtime (app, api, etc.).
 import {
   _tabNonce,
+  getOrCreateScopedSessionId,
   getScopedSessionId,
   setScopedSessionId,
   forgetScopedSessionId,
@@ -641,6 +651,7 @@ import {
 // Re-export for test consumers that import from this module.
 export {
   _tabNonce,
+  getOrCreateScopedSessionId,
   getScopedSessionId,
   setScopedSessionId,
   forgetScopedSessionId,
@@ -8309,6 +8320,12 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         try {
           const body = submitFlow.buildSubmitBody(snapshot, task, panel, {
             sessionIdOverride: retryContext.sessionId,
+            // Two-step: the browser owns session identity.  getOrCreateBoundSessionId
+            // binds a scope-owned UUID before the first POST and returns the same
+            // bound id for every retry/follow-up in this chat window (the server
+            // never mints ids for two-step).  When a server-bound session already
+            // exists (sessionIdOverride / panel.state.sessionId) it wins.
+            twoStepMode: true,
           });
           const res = await submitFlow.runSubmitFetchWithDeadline(
             fetch("/vibecomfy/agent-executor", {

@@ -43,7 +43,6 @@ from vibecomfy.executor.contracts import (
     ExecutorResult,
     PipelineMode,
     Report,
-    resolve_pipeline_mode,
 )
 from vibecomfy.executor.profiler import (
     ProfilerSpan,
@@ -795,6 +794,7 @@ def _run_two_step(
     request: ExecutorRequest,
     *,
     plan: ClassifyDecision,
+    pipeline_mode: PipelineMode,
     client_id: str | None = None,
     executor_id: str,
     additive: bool = False,
@@ -804,8 +804,9 @@ def _run_two_step(
     The request has already been classified by
     :func:`vibecomfy.executor.core.run_executor`; for ``answer_only``
     interactions the plan has additionally been rewritten to forbid edits
-    before this seam is reached.  This entrypoint re-resolves the pipeline
-    mode and delegates to the injectable outcome boundary.
+    before this seam is reached.  The pipeline mode is resolved ONCE in
+    ``run_executor`` and passed in here — this entrypoint never re-resolves
+    it.  It delegates to the injectable outcome boundary.
 
     B05: the explicit two-step ``execute`` profile stage is resolved here —
     NEVER a fallback to ``implement``; a missing stage is a typed
@@ -817,7 +818,6 @@ def _run_two_step(
     execution (lazy import of the full-mode route authority).
     """
     assert_route_policy_coverage()
-    pipeline_mode = resolve_pipeline_mode(request)
 
     # Lazy imports: ``core`` imports this module during its own
     # initialization, so module-level imports would observe the
@@ -993,7 +993,12 @@ def _two_step_outcome(
             "invalid_request",
             "two-step execute requires a session_id (the server never mints ids).",
         )
-        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
+        return ExecutorResult.failure(
+            kind=exc.kind,
+            stage="request",
+            message=str(exc),
+            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+        )
 
     route = plan.effective_route or _fallback_route(plan)
     store = TwoStepSessionStore()
@@ -1014,9 +1019,19 @@ def _two_step_outcome(
             session_id=session_id,
         )
     except TwoStepSessionError as exc:
-        return ExecutorResult.failure(kind=exc.kind, stage="request", message=str(exc))
+        return ExecutorResult.failure(
+            kind=exc.kind,
+            stage="request",
+            message=str(exc),
+            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+        )
     except Exception as exc:  # noqa: BLE001 - typed failure envelope
-        return ExecutorResult.failure(kind="ExecuteError", stage="execute", message=str(exc))
+        return ExecutorResult.failure(
+            kind="ExecuteError",
+            stage="execute",
+            message=str(exc),
+            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+        )
 
     if not outcome.get("ok"):
         failure = outcome.get("failure")
@@ -1027,7 +1042,12 @@ def _two_step_outcome(
             or getattr(failure, "family", None)
             or "ExecuteError"
         )
-        return ExecutorResult.failure(kind=kind, stage="execute", message=str(failure))
+        return ExecutorResult.failure(
+            kind=kind,
+            stage="execute",
+            message=str(failure),
+            report=Report(plan=plan, pipeline_mode=pipeline_mode),
+        )
     # B04: map accepted work into the existing ImplementationResult + durable
     # candidate + ExecutorResult envelope.  Delta IDs are metadata pointing at
     # the canonical accepted-batch operations (already in the session ledger) —

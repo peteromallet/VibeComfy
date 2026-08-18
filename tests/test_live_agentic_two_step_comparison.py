@@ -714,15 +714,41 @@ def test_pro_selection_hits_hard_quotas_exactly() -> None:
 
 def test_pro_injection_plan_covers_all_routes() -> None:
     from tests.live_agentic_harness import classification as C
-    from tests.live_agentic_harness.compare_pipeline_modes import build_injected_plan
+    from tests.live_agentic_harness.compare_pipeline_modes import (
+        _locked_and_effective,
+        build_injected_plan,
+    )
 
     for route in C.ROUTES:
         plan = build_injected_plan(route)
         assert isinstance(plan.to_dict(), dict)
-        # The executor normalizes the install-intent route to an executable
-        # route; every other route round-trips its locked value exactly.
+        locked, effective = _locked_and_effective(route)
+        assert locked == route
+        assert effective == plan.effective_route
+        # Every non-install-intent route round-trips its locked value exactly;
+        # the install-intent route records its canonical route separately.
         if route != "requires_custom_nodes":
-            assert plan.effective_route == route
+            assert effective == route
+
+
+def test_pro_lock_records_requires_custom_nodes_route_separately() -> None:
+    """The install-intent route is never silently folded into `adapt`.
+
+    The lock records BOTH the locked route (``requires_custom_nodes``) and the
+    executor-canonical ``effective_route`` (``adapt``) so the paired lane is
+    exercised under its locked identity while the canonicalization stays
+    auditable.
+    """
+    from tests.live_agentic_harness import classification as C
+    from tests.live_agentic_harness.compare_pipeline_modes import load_lock
+
+    lock = load_lock()
+    for entry in lock["entries"]:
+        if entry["route"] == "requires_custom_nodes":
+            assert entry["effective_route"] == "adapt"
+            assert entry["decision"]["route"] == "adapt"  # executor-canonical
+        else:
+            assert entry["effective_route"] == entry["route"]
 
 
 def test_pro_validate_only_gate() -> None:
@@ -757,3 +783,130 @@ def test_pro_regeneration_is_idempotent() -> None:
     assert C.build_two_step_manifest(regenerated)["entries"] == json.loads(
         TWO_STEP_50_MANIFEST.read_text(encoding="utf-8")
     )["entries"]
+
+
+# ── Pro B07: frozen CLI, real comparator wiring, honest infra + claim metrics ─
+
+
+def test_pro_cli_exposes_frozen_flags() -> None:
+    """The frozen CLI carries --ledger/--tag/--capture-classifications/
+    --max-workers/--json and resolves `--ledger current` to the v3 artifact."""
+    from tests.live_agentic_harness.compare_pipeline_modes import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args(["--ledger", "current", "--validate-only"])
+    assert args.ledger == "current"
+    assert args.tag == "paired"
+    assert args.capture_classifications is False
+    assert args.max_workers == 1
+    assert args.json is False
+
+    args = parser.parse_args(
+        [
+            "--ledger", "ir-everywhere-57-v3",
+            "--tag", "t",
+            "--capture-classifications",
+            "--max-workers", "4",
+            "--json",
+        ]
+    )
+    assert args.ledger == "ir-everywhere-57-v3"
+    assert args.tag == "t"
+    assert args.capture_classifications is True
+    assert args.max_workers == 4
+    assert args.json is True
+
+    # `--ledger current` resolves to the canonical v3 artifact (the only valid
+    # post-migration ledger label) and selects exactly the 57 ledger ids.
+    from tests.live_agentic_harness.ledger_selection import (
+        LEDGER_ARTIFACT_LABEL,
+        resolve_ledger_label,
+    )
+
+    assert resolve_ledger_label("current") == LEDGER_ARTIFACT_LABEL
+
+
+def test_pro_validate_only_resolves_ledger_lane() -> None:
+    """`--ledger current --validate-only` reports the 57-ledger lane and the
+    25-scenario overlap with the 50-lane (never billed twice)."""
+    from tests.live_agentic_harness.compare_pipeline_modes import validate_only
+
+    result = validate_only(ledger_label="current")
+    assert result["ok"] is True
+    assert result["ledger_label"] == "ir-everywhere-57-v3"
+    assert result["ledger_ids"] == 57
+    assert result["ledger_overlap_50_lane"] == 25
+
+
+def test_pro_comparator_uses_real_quotient_and_replay() -> None:
+    """The comparator wires the REAL pi_edit quotient and canonical Δ replay.
+
+    ``validate_only`` confirms both seams import (no model calls), and the
+    per-scenario delta records ``pi_edit_post_equal`` and
+    ``canonical_delta_replay_equal`` as SEPARATE computations — the post-edit
+    quotient of ``final.ui.json`` and the replay of the accepted Δ ops over
+    ``original.ui.json`` respectively, never the same node-id/class hash.
+    """
+    from tests.live_agentic_harness.compare_pipeline_modes import (
+        _graph_signature,
+        _scenario_comparison,
+        validate_only,
+    )
+
+    result = validate_only()
+    assert result["comparator_wiring"]["pi_edit_import"] is True
+    assert result["comparator_wiring"]["delta_replay_import"] is True
+    assert result["comparator_wiring"]["claim_validation_import"] is True
+
+    # Synthetic summaries with no output_dir → both signatures are empty and
+    # the two delta fields are independent (never aliased to one digest).
+    synthetic = _synthetic_summary("a-1", mode="full", route="revise")
+    synthetic["output_dir"] = None
+    two = _synthetic_summary("a-1", mode="two_step", route="revise")
+    two["output_dir"] = None
+    comparison = _scenario_comparison(
+        {"id": "a-1"}, route="revise", full=synthetic, two_step=two
+    )
+    assert "pi_edit_post_equal" in comparison["delta"]
+    assert "canonical_delta_replay_equal" in comparison["delta"]
+    assert comparison["delta"]["pi_edit_post_equal"] is False
+    assert comparison["delta"]["canonical_delta_replay_equal"] is False
+    assert comparison["delta"]["pair_outcome"] in {"pass", "fail", "blocked"}
+
+    # The graph signature is computed from the real quotient/replay helpers.
+    sig = _graph_signature(None)
+    assert set(sig) == {
+        "original_pi_edit_digest",
+        "final_pi_edit_digest",
+        "canonical_delta_replay_digest",
+    }
+    assert all(v is None for v in sig.values())
+
+
+def test_pro_comparator_honest_infra_and_claim_metrics() -> None:
+    """Blocked legs → pair `blocked` (typed evidence only), and the claim/
+    evidence metric extraction stays honest on absent artifacts."""
+    from tests.live_agentic_harness.compare_pipeline_modes import (
+        _claim_evidence_metrics,
+        is_infra_blocked,
+        pair_outcome,
+    )
+
+    # (a) honest infra: typed failure_class/score_class only, never prose.
+    blocked = _synthetic_summary("a-1", mode="full", route="revise", blocked=True)
+    assert is_infra_blocked(blocked) is True
+    assert pair_outcome(
+        blocked, _synthetic_summary("a-1", mode="two_step", route="revise", ok=True)
+    ) == "blocked"
+    assert pair_outcome(
+        _synthetic_summary("a-1", mode="full", route="revise", ok=True),
+        _synthetic_summary("a-1", mode="two_step", route="revise", ok=True),
+    ) == "pass"
+
+    # (b) claim/evidence metrics are honest when no run artifact exists.
+    metrics = _claim_evidence_metrics(None)
+    assert metrics["claim_validation_status"] is None
+    assert metrics["replacement_used"] is None
+    assert metrics["unsupported_claims"] is None
+    assert metrics["self_assessment"] is None
+

@@ -200,6 +200,59 @@ def render_precedent_topology(
     return ""
 
 
+def render_precedent_view(
+    surface_lens: str | None,
+    topology: Mapping[str, Any] | None,
+    *,
+    shape: str | None = None,
+    max_bytes: int = PRECEDENT_MAX_RENDERED_BYTES,
+) -> str:
+    """Render the COMBINED bounded surface+topology view of one precedent.
+
+    The 64 KiB byte ceiling applies to the combined text — the surface lens
+    is unbounded on its own, so it is rendered inside the same trim that
+    bounds the topology.  The truthful omission counters live in the header
+    (always echoed), and ``global_topology_complete=false`` is always shown
+    so a bounded precedent view can never be mistaken for the Law-4 complete
+    topology contract.  The raw workflow JSON never rides in this view.
+    """
+    lines = ["## Precedent View"]
+    if shape:
+        lines.append(f"shape: {shape}")
+    omitted_nodes = int((topology or {}).get(_TOPOLOGY_KEY_OMITTED_NODES) or 0)
+    omitted_edges = int((topology or {}).get(_TOPOLOGY_KEY_OMITTED_EDGES) or 0)
+    surface = str(surface_lens or "").strip()
+    nodes = [str(item) for item in ((topology or {}).get(_TOPOLOGY_KEY_NODES) or ())]
+    edges = [str(item) for item in ((topology or {}).get(_TOPOLOGY_KEY_EDGES) or ())]
+    lines.append(
+        f"surface lines: {len(surface.splitlines()) if surface else 0}; "
+        f"{len(nodes)} node(s), {len(edges)} edge(s) "
+        f"(omitted nodes: {omitted_nodes}, omitted edges: {omitted_edges}, "
+        "complete: false)"
+    )
+    if surface:
+        lines.append("## Surface")
+        lines.append(surface)
+    lines.append("## Precedent Topology")
+    lines.append("nodes:")
+    lines.extend(f"  {node}" for node in nodes)
+    lines.append("edges:")
+    lines.extend(f"  {edge}" for edge in edges)
+
+    text = "\n".join(lines)
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    # Trim to the byte ceiling without splitting a UTF-8 sequence.  The header
+    # (counts, completeness) is rendered first, so it survives the trim.
+    encoded = text.encode("utf-8")[:max_bytes]
+    while encoded:
+        try:
+            return encoded.decode("utf-8")
+        except UnicodeDecodeError:
+            encoded = encoded[:-1]
+    return ""
+
+
 def sanitize_workflow_text(
     content: str,
     *,
@@ -256,5 +309,6 @@ __all__ = [
     "PRECEDENT_MAX_RENDERED_BYTES",
     "project_precedent_topology",
     "render_precedent_topology",
+    "render_precedent_view",
     "sanitize_workflow_text",
 ]

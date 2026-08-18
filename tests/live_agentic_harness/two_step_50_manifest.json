@@ -17,6 +17,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -38,6 +39,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -59,6 +61,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -80,6 +83,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -101,6 +105,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -122,6 +127,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -143,6 +149,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -164,6 +171,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -185,6 +193,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -206,6 +215,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "out",
@@ -227,6 +237,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -248,6 +259,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -269,6 +281,7 @@
       },
       "classification": {
         "route": "requires_custom_nodes",
+        "effective_route": "adapt",
         "route_source": "explicit",
         "behavior": "edit",
         "ledger": "out",
@@ -290,6 +303,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "out",
@@ -311,6 +325,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -332,6 +347,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -353,6 +369,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -374,6 +391,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -395,6 +413,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -416,6 +435,7 @@
       },
       "classification": {
         "route": "requires_custom_nodes",
+        "effective_route": "adapt",
         "route_source": "explicit",
         "behavior": "edit",
         "ledger": "in",
@@ -437,6 +457,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -458,6 +479,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -479,6 +501,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -500,6 +523,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -521,6 +545,7 @@
       },
       "classification": {
         "route": "reorganise",
+        "effective_route": "reorganise",
         "route_source": "explicit",
         "behavior": "edit",
         "ledger": "out",
@@ -542,6 +567,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -563,6 +589,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -584,6 +611,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -605,6 +633,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -626,6 +655,7 @@
       },
       "classification": {
         "route": "reorganise",
+        "effective_route": "reorganise",
         "route_source": "explicit",
         "behavior": "edit",
         "ledger": "in",
@@ -647,6 +677,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -668,6 +699,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -689,6 +721,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -710,6 +743,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -731,6 +765,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -752,6 +787,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -773,6 +809,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -794,6 +831,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -815,6 +853,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -836,6 +875,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -857,6 +897,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -878,6 +919,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -899,6 +941,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -920,6 +963,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -941,6 +985,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -962,6 +1007,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -979,6 +1025,7 @@
       "source_workflow": null,
       "classification": {
         "route": "clarify",
+        "effective_route": "clarify",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1000,6 +1047,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1021,6 +1069,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1042,6 +1091,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1063,6 +1113,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1084,6 +1135,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -1105,6 +1157,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1126,6 +1179,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1147,6 +1201,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1168,6 +1223,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -1189,6 +1245,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1210,6 +1267,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1231,6 +1289,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1252,6 +1311,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1273,6 +1333,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1294,6 +1355,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -1315,6 +1377,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1336,6 +1399,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1357,6 +1421,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1378,6 +1443,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1399,6 +1465,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1420,6 +1487,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -1441,6 +1509,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1462,6 +1531,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1483,6 +1553,7 @@
       },
       "classification": {
         "route": "adapt",
+        "effective_route": "adapt",
         "route_source": "query_type",
         "behavior": "edit",
         "ledger": "in",
@@ -1500,6 +1571,7 @@
       "source_workflow": null,
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "health_control",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1521,6 +1593,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1542,6 +1615,7 @@
       },
       "classification": {
         "route": "research",
+        "effective_route": "research",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1563,6 +1637,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1584,6 +1659,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1605,6 +1681,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1626,6 +1703,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -1647,6 +1725,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1668,6 +1747,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1689,6 +1769,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1710,6 +1791,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1731,6 +1813,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -1752,6 +1835,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1773,6 +1857,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1794,6 +1879,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1815,6 +1901,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1836,6 +1923,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1857,6 +1945,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1878,6 +1967,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1899,6 +1989,7 @@
       },
       "classification": {
         "route": "respond",
+        "effective_route": "respond",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1920,6 +2011,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1941,6 +2033,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "in",
@@ -1962,6 +2055,7 @@
       },
       "classification": {
         "route": "clarify",
+        "effective_route": "clarify",
         "route_source": "explicit",
         "behavior": "non-edit",
         "ledger": "in",
@@ -1983,6 +2077,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -2004,6 +2099,7 @@
       },
       "classification": {
         "route": "revise",
+        "effective_route": "revise",
         "route_source": "query_type_default",
         "behavior": "edit",
         "ledger": "out",
@@ -2025,6 +2121,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -2046,6 +2143,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "out",
@@ -2067,6 +2165,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",
@@ -2088,6 +2187,7 @@
       },
       "classification": {
         "route": "inspect",
+        "effective_route": "inspect",
         "route_source": "query_type",
         "behavior": "non-edit",
         "ledger": "in",

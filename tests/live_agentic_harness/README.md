@@ -127,4 +127,3 @@ auto-enabled):
    two-step budget.
 4. **adapt** — reported and measured in comparisons, but OPT-IN only; it is
    never enabled by default until the earlier tiers hold.
-

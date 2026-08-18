@@ -61,6 +61,7 @@ TWO_STEP_TRANSCRIPT_NAME = "two_step_execute.jsonl"
 TWO_STEP_BASE_GRAPH_NAME = "two_step_base_graph.json"
 TWO_STEP_WORKFLOW_NAME = "two_step_workflow.json"
 TWO_STEP_IN_FLIGHT_NAME = ".two_step_in_flight"
+TWO_STEP_OUTCOMES_NAME = "two_step_outcomes.jsonl"
 
 # ── Typed error kinds ────────────────────────────────────────────────────────
 
@@ -102,6 +103,50 @@ class TwoStepSessionError(Exception):
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def mint_lease_token() -> str:
+    """A fresh, collision-resistant lease token for one whole-turn session lease.
+
+    Used when a message arrives without an idempotency key: the session still
+    holds a durable in-flight lease (scoped to this token) so a concurrent
+    message for the same session can be detected, and ``end_message`` can
+    release exactly the lease this turn acquired.
+    """
+    return f"anon:{uuid.uuid4().hex}"
+
+
+def _jsonish(value: Any) -> Any:
+    """Coerce *value* to a JSON-safe primitive (best-effort, non-lossy-ish).
+
+    Dataclasses/exceptions map to their ``__dict__``-like shape; ``Mapping`` /
+    sequences recurse; anything else is ``str()``-fallback.  Used only for the
+    durable completed-outcome record, never for the authoritative transcript.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(k): _jsonish(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonish(item) for item in value]
+    if isinstance(value, BaseException):
+        return {
+            "type": type(value).__name__,
+            "message": str(value),
+        }
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return _jsonish(to_dict())
+        except Exception:  # noqa: BLE001
+            pass
+    if hasattr(value, "__dict__"):
+        return {str(k): _jsonish(v) for k, v in vars(value).items()}
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
 
 
 # ── Research-attempt derivation ──────────────────────────────────────────────
@@ -355,31 +400,272 @@ def _apply_delta_ops(base_graph: Mapping[str, Any] | None, ops: Any) -> dict[str
         if kind == "set_node_field":
             target = op.get("target")
             if isinstance(target, (list, tuple)) and len(target) >= 3:
-                uid, field_path = target[1], target[2]
-                _set_node_field(nodes, uid, field_path, op.get("value"))
+                _set_node_field(nodes, target[1], target[2], op.get("value"))
+        elif kind == "set_mode":
+            target = op.get("target")
+            if isinstance(target, (list, tuple)) and len(target) >= 2:
+                _set_node_mode(nodes, target[1], op.get("mode"))
         elif kind == "add_node":
-            uid = op.get("uid")
-            fields = op.get("fields")
-            if uid is not None and isinstance(fields, Mapping):
-                nodes.append({"id": uid, **dict(fields)})
+            _add_node(nodes, op)
         elif kind == "remove_node":
             target = op.get("target")
             if isinstance(target, (list, tuple)) and len(target) >= 2:
                 uid = target[1]
-                nodes[:] = [n for n in nodes if not (isinstance(n, Mapping) and n.get("id") == uid)]
+                nodes[:] = [
+                    n for n in nodes
+                    if not (isinstance(n, Mapping) and str(n.get("id")) == str(uid))
+                ]
+        elif kind == "upsert_link":
+            _upsert_link(graph, nodes, op)
+        elif kind == "remove_link":
+            _remove_link(graph, nodes, op)
+        elif kind == "subgraph_interface":
+            _subgraph_interface(graph, op)
     return graph
 
 
+def _node_by_uid(nodes: list[Any], uid: Any) -> tuple[int, dict[str, Any]] | None:
+    for index, node in enumerate(nodes):
+        if isinstance(node, dict) and str(node.get("id")) == str(uid):
+            return index, node
+    return None
+
+
 def _set_node_field(nodes: list[Any], uid: Any, field_path: Any, value: Any) -> None:
-    for node in nodes:
-        if not isinstance(node, dict) or node.get("id") != uid:
-            continue
-        if field_path == "class_type" or field_path == "type":
-            node["type"] = value
-            node["class_type"] = value
-        else:
-            node[str(field_path)] = value
+    found = _node_by_uid(nodes, uid)
+    if found is None:
         return
+    _index, node = found
+    field = str(field_path)
+    if field in ("class_type", "type"):
+        node["type"] = value
+        node["class_type"] = value
+        return
+    node[field] = value
+
+
+def _set_node_mode(nodes: list[Any], uid: Any, mode: Any) -> None:
+    found = _node_by_uid(nodes, uid)
+    if found is None:
+        return
+    _index, node = found
+    node["mode"] = mode
+
+
+def _add_node(nodes: list[Any], op: Mapping[str, Any]) -> None:
+    # Canonical add_node: {scope_path, uid, node_id, class_type, fields, inputs}
+    # Legacy add_node: {uid, fields}
+    uid = op.get("uid")
+    if uid is None:
+        return
+    fields = op.get("fields") if isinstance(op.get("fields"), Mapping) else {}
+    node: dict[str, Any] = {"id": uid, **{k: v for k, v in fields.items() if k != "id"}}
+    if op.get("class_type"):
+        node["type"] = op["class_type"]
+        node["class_type"] = op["class_type"]
+    nodes.append(node)
+
+
+def _input_slot_index(node: dict[str, Any], input_field: Any) -> int | None:
+    inputs = node.get("inputs")
+    if isinstance(inputs, list):
+        for index, entry in enumerate(inputs):
+            if isinstance(entry, dict) and str(entry.get("name")) == str(input_field):
+                return index
+        if str(input_field).isdigit():
+            return int(input_field)
+    return None
+
+
+def _output_slot_index(node: dict[str, Any], output_slot: Any) -> int | None:
+    outputs = node.get("outputs")
+    if isinstance(outputs, list):
+        for index, entry in enumerate(outputs):
+            if isinstance(entry, dict) and str(entry.get("name")) == str(output_slot):
+                return index
+        if isinstance(output_slot, int):
+            return output_slot
+    return 0
+
+
+def _link_type_for(node: dict[str, Any], output_slot: Any) -> str:
+    outputs = node.get("outputs")
+    if isinstance(outputs, list):
+        for index, entry in enumerate(outputs):
+            if isinstance(entry, dict) and str(entry.get("name")) == str(output_slot):
+                return str(entry.get("type") or "*")
+    return "*"
+
+
+def _next_link_id(graph: dict[str, Any]) -> int:
+    links = graph.get("links")
+    max_id = 0
+    if isinstance(links, list):
+        for link in links:
+            if isinstance(link, (list, tuple)) and link and isinstance(link[0], int):
+                max_id = max(max_id, link[0])
+            elif isinstance(link, Mapping) and isinstance(link.get("id"), int):
+                max_id = max(max_id, link["id"])
+    return max_id + 1
+
+
+def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any]) -> None:
+    source = op.get("from")
+    target = op.get("to")
+    if not (isinstance(source, (list, tuple)) and len(source) >= 3):
+        return
+    if not (isinstance(target, (list, tuple)) and len(target) >= 3):
+        return
+    suid, sslot, tuid, tfield = source[1], source[2], target[1], target[2]
+    src = _node_by_uid(nodes, suid)
+    dst = _node_by_uid(nodes, tuid)
+    if src is None or dst is None:
+        return
+    _src_index, src_node = src
+    _dst_index, dst_node = dst
+    to_slot = _input_slot_index(dst_node, tfield)
+    if to_slot is None:
+        to_slot = 0
+    from_slot = _output_slot_index(src_node, sslot)
+    link_type = _link_type_for(src_node, sslot)
+    links = graph.setdefault("links", [])
+    if not isinstance(links, list):
+        links = []
+        graph["links"] = links
+    # Remove any existing link terminating at (tuid, to_slot).
+    removed_ids: set[int] = set()
+    kept: list[Any] = []
+    for link in links:
+        if isinstance(link, (list, tuple)) and len(link) >= 5:
+            if str(link[3]) == str(tuid) and link[4] == to_slot:
+                removed_ids.add(link[0])
+                continue
+        elif isinstance(link, Mapping):
+            if str(link.get("to_node", link.get("to"))) == str(tuid) and (
+                link.get("to_slot", link.get("to_input")) == to_slot
+            ):
+                if isinstance(link.get("id"), int):
+                    removed_ids.add(link["id"])
+                continue
+        kept.append(link)
+    new_id = _next_link_id(graph)
+    kept.append([new_id, suid, from_slot, tuid, to_slot, link_type])
+    graph["links"] = kept
+    # Patch the target node's input link reference.
+    inputs = dst_node.get("inputs")
+    if isinstance(inputs, list) and 0 <= to_slot < len(inputs):
+        entry = inputs[to_slot]
+        if isinstance(entry, dict):
+            entry["link"] = new_id
+    # Patch the source node's output link reference.
+    outputs = src_node.get("outputs")
+    if isinstance(outputs, list):
+        for entry in outputs:
+            if isinstance(entry, dict):
+                refs = entry.get("links")
+                if isinstance(refs, list):
+                    refs[:] = [r for r in refs if r not in removed_ids]
+                    if new_id not in refs:
+                        refs.append(new_id)
+
+
+def _remove_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any]) -> None:
+    links = graph.get("links")
+    if not isinstance(links, list):
+        return
+    remove_id = op.get("id")
+    to = op.get("to")
+    tuid = tfield = None
+    if isinstance(to, (list, tuple)) and len(to) >= 3:
+        tuid, tfield = to[1], to[2]
+    removed_ids: set[int] = set()
+    kept: list[Any] = []
+    for link in links:
+        drop = False
+        if isinstance(link, (list, tuple)) and len(link) >= 5:
+            if remove_id is not None and link[0] == remove_id:
+                drop = True
+            elif tuid is not None and str(link[3]) == str(tuid) and _input_slot_index(
+                _node_by_uid(nodes, tuid)[1] if _node_by_uid(nodes, tuid) else {}, tfield
+            ) == link[4]:
+                drop = True
+            if drop:
+                removed_ids.add(link[0])
+        elif isinstance(link, Mapping):
+            if remove_id is not None and link.get("id") == remove_id:
+                drop = True
+            elif tuid is not None and str(link.get("to_node", link.get("to"))) == str(tuid):
+                drop = True
+            if drop and isinstance(link.get("id"), int):
+                removed_ids.add(link["id"])
+        if not drop:
+            kept.append(link)
+    graph["links"] = kept
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        for entry in (node.get("inputs") or ()):
+            if isinstance(entry, dict) and entry.get("link") in removed_ids:
+                entry.pop("link", None)
+        for entry in (node.get("outputs") or ()):
+            if isinstance(entry, dict) and isinstance(entry.get("links"), list):
+                entry["links"] = [r for r in entry["links"] if r not in removed_ids]
+
+
+def _subgraph_interface(graph: dict[str, Any], op: Mapping[str, Any]) -> None:
+    action = op.get("action")
+    name = op.get("name")
+    definitions = graph.setdefault("definitions", {})
+    if not isinstance(definitions, dict):
+        definitions = {}
+        graph["definitions"] = definitions
+    subgraphs = definitions.setdefault("subgraphs", [])
+    if not isinstance(subgraphs, list):
+        subgraphs = []
+        definitions["subgraphs"] = subgraphs
+    identity = op.get("id") or name
+    if action == "add":
+        subgraphs.append(
+            {
+                "name": name,
+                "inputs": [list(p) for p in (op.get("inputs") or ())],
+                "outputs": [list(p) for p in (op.get("outputs") or ())],
+            }
+        )
+    elif action == "remove":
+        subgraphs[:] = [
+            s for s in subgraphs
+            if not (isinstance(s, Mapping) and (s.get("name") == name or s.get("id") == identity))
+        ]
+    elif action == "change":
+        for sub in subgraphs:
+            if isinstance(sub, Mapping) and (sub.get("name") == name or sub.get("id") == identity):
+                if op.get("inputs") is not None:
+                    sub["inputs"] = [list(p) for p in op.get("inputs")]
+                if op.get("outputs") is not None:
+                    sub["outputs"] = [list(p) for p in op.get("outputs")]
+
+
+def serialize_delta_ops(landed_ops: Any) -> tuple[dict[str, Any], ...]:
+    """Serialize landed typed edit ops to canonical dicts for the Δ ledger.
+
+    The canonical dict form is produced by
+    :func:`vibecomfy.porting.edit.ops.canonical_op_to_dict` — the same shape
+    :func:`_apply_delta_ops` replays — so restart reconstruction and the live
+    apply path share ONE interpreter contract for every operation kind.
+    """
+    from vibecomfy.porting.edit.ops import canonical_op_to_dict  # noqa: PLC0415
+
+    serialized: list[dict[str, Any]] = []
+    for op in landed_ops or ():
+        if isinstance(op, Mapping):
+            serialized.append(dict(op))
+            continue
+        try:
+            serialized.append(canonical_op_to_dict(op))
+        except Exception:  # noqa: BLE001 - best-effort serialization
+            continue
+    return tuple(serialized)
 
 
 def canonical_workflow_hash(graph: Any) -> str | None:
@@ -514,6 +800,23 @@ class TwoStepSessionStore:
                 pass
         return self.replay_workflow(state)
 
+    def write_workflow(self, session_id: str, graph: Mapping[str, Any]) -> None:
+        """Persist the retained revision sidecar (durable candidate graph).
+
+        Written under the reused process-safe lock so a concurrent reader never
+        observes a half-written revision.  Replay stays the authority when the
+        sidecar is absent; this is the durable candidate the execute phase
+        returns after an accepted edit.
+        """
+        safe_id = normalize_session_id(session_id)
+        session_dir = self.session_dir(safe_id)
+        with SessionStateLock(session_dir, timeout_seconds=self.lock_timeout_seconds):
+            session_dir.mkdir(parents=True, exist_ok=True)
+            self.workflow_path(safe_id).write_text(
+                json.dumps(dict(graph), sort_keys=True, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
     # -- mutation ------------------------------------------------------------
 
     def append(
@@ -590,6 +893,7 @@ class TwoStepSessionStore:
         base_graph: Mapping[str, Any] | None = None,
         expected_baseline_hash: str | None = None,
         message_fingerprint: str | None = None,
+        lease_token: str | None = None,
     ) -> TwoStepSessionState:
         """Validate identity + staleness/concurrency BEFORE any model work.
 
@@ -597,7 +901,14 @@ class TwoStepSessionStore:
         * Closed session → ``session_expired`` (never a fresh session).
         * ``expected_baseline_hash`` that disagrees with the retained revision
           → ``stale_message``.
-        * ``message_fingerprint`` already in flight → ``concurrent_message``.
+        * ``message_fingerprint`` (or *lease_token*) already in flight →
+          ``concurrent_message``.
+
+        Every message — with or without an idempotency key — acquires a durable
+        whole-turn lease (keyed by ``message_fingerprint`` when present, else a
+        fresh :func:`mint_lease_token`).  Leases from different fingerprints
+        coexist (a second, distinct message is NOT lost), while a replay of the
+        SAME key is refused so tools/edits are never duplicated.
         """
         if not session_id:
             raise TwoStepSessionError(
@@ -605,6 +916,7 @@ class TwoStepSessionStore:
                 "two-step execute requires a session_id (the server never mints ids).",
             )
         safe_id = normalize_session_id(session_id)
+        lease_key = lease_token or message_fingerprint or mint_lease_token()
         session_dir = self.session_dir(safe_id)
         with SessionStateLock(session_dir, timeout_seconds=self.lock_timeout_seconds):
             existing = self.load(safe_id)
@@ -626,55 +938,128 @@ class TwoStepSessionStore:
                             "retained": existing.last_workflow_hash,
                         },
                     )
-            if message_fingerprint:
-                marker = self._read_in_flight(safe_id)
-                if marker is not None and marker.get("fingerprint") == message_fingerprint:
-                    raise TwoStepSessionError(
-                        ERROR_CONCURRENT_MESSAGE,
-                        "a message for this session is already in flight.",
-                        session_id=safe_id,
-                        detail={"fingerprint": message_fingerprint},
-                    )
-                self._write_in_flight(safe_id, message_fingerprint)
+            marker = self._read_in_flight(safe_id)
+            if lease_key in marker:
+                raise TwoStepSessionError(
+                    ERROR_CONCURRENT_MESSAGE,
+                    "a message for this session is already in flight.",
+                    session_id=safe_id,
+                    detail={"fingerprint": lease_key},
+                )
+            self._acquire_in_flight(safe_id, lease_key)
             state = self.open_session(safe_id, base_graph=base_graph)
             return state
 
-    def end_message(self, session_id: str, *, message_fingerprint: str | None = None) -> None:
-        """Clear the in-flight marker set by :meth:`begin_message`."""
-        if not session_id or not message_fingerprint:
+    def end_message(
+        self,
+        session_id: str,
+        *,
+        message_fingerprint: str | None = None,
+        lease_token: str | None = None,
+    ) -> None:
+        """Release the in-flight lease set by :meth:`begin_message`.
+
+        Only the lease this turn acquired is released — a distinct message's
+        lease (and a replay-refused lease) is never cleared.  Pass
+        *lease_token* for anonymous (no-idempotency-key) turns.
+        """
+        key = lease_token or message_fingerprint
+        if not session_id or not key:
             return
         safe_id = normalize_session_id(session_id)
         session_dir = self.session_dir(safe_id)
         with SessionStateLock(session_dir, timeout_seconds=self.lock_timeout_seconds):
-            marker = self._read_in_flight(safe_id)
-            if marker is not None and marker.get("fingerprint") == message_fingerprint:
-                self._in_flight_path(safe_id).unlink(missing_ok=True)
+            self._release_in_flight(safe_id, key)
 
     # -- internal ------------------------------------------------------------
 
     def _in_flight_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / TWO_STEP_IN_FLIGHT_NAME
 
-    def _read_in_flight(self, session_id: str) -> dict[str, Any] | None:
+    def _read_in_flight(self, session_id: str) -> dict[str, Any]:
         path = self._in_flight_path(session_id)
         if not path.is_file():
-            return None
+            return {}
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else None
+            return payload if isinstance(payload, dict) else {}
         except (OSError, json.JSONDecodeError):
-            return None
+            return {}
 
-    def _write_in_flight(self, session_id: str, fingerprint: str) -> None:
+    def _acquire_in_flight(self, session_id: str, lease_key: str) -> None:
+        marker = self._read_in_flight(session_id)
+        marker[lease_key] = {"ts": self._now()}
         self.session_dir(session_id).mkdir(parents=True, exist_ok=True)
         self._in_flight_path(session_id).write_text(
-            json.dumps(
-                {"fingerprint": fingerprint, "ts": self._now()},
-                sort_keys=True,
-            )
-            + "\n",
+            json.dumps(marker, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    def _release_in_flight(self, session_id: str, lease_key: str) -> None:
+        marker = self._read_in_flight(session_id)
+        marker.pop(lease_key, None)
+        path = self._in_flight_path(session_id)
+        if marker:
+            path.write_text(json.dumps(marker, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+
+    # -- completed fingerprint → outcome (idempotent retry) ------------------
+
+    def outcomes_path(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / TWO_STEP_OUTCOMES_NAME
+
+    def record_completed(
+        self,
+        session_id: str,
+        fingerprint: str,
+        outcome: Mapping[str, Any],
+    ) -> None:
+        """Persist a completed fingerprint → outcome record.
+
+        A later retry of the SAME fingerprint returns the stored outcome instead
+        of re-running tools/edits (idempotent replay).
+        """
+        if not fingerprint:
+            return
+        safe_id = normalize_session_id(session_id)
+        session_dir = self.session_dir(safe_id)
+        with SessionStateLock(session_dir, timeout_seconds=self.lock_timeout_seconds):
+            session_dir.mkdir(parents=True, exist_ok=True)
+            record = {
+                "fingerprint": fingerprint,
+                "ts": self._now_iso(),
+                "outcome": _jsonish(outcome),
+            }
+            with self.outcomes_path(safe_id).open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
+
+    def completed_outcome(
+        self, session_id: str, fingerprint: str
+    ) -> dict[str, Any] | None:
+        """Return the most recent completed outcome for *fingerprint*, if any."""
+        if not fingerprint:
+            return None
+        path = self.outcomes_path(session_id)
+        if not path.is_file():
+            return None
+        found: dict[str, Any] | None = None
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(record, Mapping) and record.get("fingerprint") == fingerprint:
+                        outcome = record.get("outcome")
+                        found = outcome if isinstance(outcome, Mapping) else None
+        except OSError:
+            return None
+        return dict(found) if found is not None else None
 
     def _read_base_graph(self, session_id: str) -> dict[str, Any] | None:
         path = self.base_graph_path(session_id)
@@ -792,5 +1177,7 @@ __all__ = [
     "canonical_workflow_hash",
     "derive_research_attempt",
     "fresh_state",
+    "mint_lease_token",
     "normalize_session_id",
+    "serialize_delta_ops",
 ]

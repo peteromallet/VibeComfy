@@ -195,6 +195,7 @@ class TestRouteCoverage:
             ts._run_two_step(
                 ExecutorRequest(query="x"),
                 plan=ClassifyDecision.edit(route="adapt", plan_summary="s"),
+                pipeline_mode="two_step",
                 executor_id="e",
             )
 

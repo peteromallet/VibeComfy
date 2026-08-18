@@ -706,7 +706,9 @@ def ready_template_load(
 
     # B04: a workflow-valued ready-template observation is sanitized through
     # the precedent projection (surface + bounded topology) — the raw workflow
-    # JSON is never echoed as precedent content.
+    # JSON is never echoed as precedent content.  When the content IS a
+    # workflow, the raw source text is dropped from the payload entirely (the
+    # sanitized view is the only model-facing content).
     workflow_view: dict[str, Any] | None = None
     if content:
         from vibecomfy.executor.precedents import sanitize_workflow_text  # noqa: PLC0415
@@ -720,8 +722,11 @@ def ready_template_load(
         "scope": "repo" if owning_root == READY_ROOT.expanduser().resolve() else "dynamic",
         "sha256": hashlib.sha256(data).hexdigest(),
         "size_bytes": len(data),
-        "content": content,
-        "content_truncated": truncated,
+        # Workflow-valued content is replaced by its sanitized view: the raw
+        # workflow JSON never rides in the payload (or the evidence artifact
+        # body derived from it).  Non-workflow content is served as-is.
+        "content": None if workflow_view is not None else content,
+        "content_truncated": False if workflow_view is not None else truncated,
         "is_research_evidence": READY_IS_RESEARCH_EVIDENCE,
         "evidence_label": READY_EVIDENCE_LABEL,
     }

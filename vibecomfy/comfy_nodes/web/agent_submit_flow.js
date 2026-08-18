@@ -40,6 +40,8 @@ export function createSubmitFlow(deps) {
     // Optional two-step bound-session resolver.  When twoStepMode is set on a
     // submit, buildSubmitBody sends the browser-owned (get-or-create) session
     // id instead of `undefined` — the server never mints ids for two-step.
+    // The resolver receives the submitting panel so the host can read the
+    // per-tab scope; zero-arg resolvers keep working (extra args are ignored).
     getOrCreateBoundSessionId,
     // Optional UI hook invoked when the inactivity watchdog expires while the
     // absolute deadline still has time (see runSubmitFetchWithDeadline). The
@@ -84,7 +86,7 @@ export function createSubmitFlow(deps) {
         sessionIdOverride
         || panel.state.sessionId
         || (options.twoStepMode && typeof getOrCreateBoundSessionId === "function"
-          ? getOrCreateBoundSessionId()
+          ? getOrCreateBoundSessionId(panel)
           : undefined),
       client_id: api?.clientId || undefined,
       client_graph_hash: snapshot.graphHash,

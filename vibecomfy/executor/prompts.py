@@ -712,7 +712,9 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "for the current message; the turn may span several model continuations.\n"
     "Each continuation returns exactly one host action JSON object (a tool call,\n"
     "a Python edit batch, or the final SUBMIT contract).  Return ONLY that JSON\n"
-    "object — no markdown fences, no commentary.\n"
+    "object — no markdown fences, no commentary, and NEVER raw workflow JSON: the\n"
+    "host rejects any raw graph payload; every change is a Python edit batch\n"
+    "interpreted against the current retained revision.\n"
     "\n"
     "STAGES AND AVAILABLE TOOLS\n"
     "==========================\n"
@@ -733,6 +735,27 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "unavailable tool is rejected before it runs.  Use only the tools shown\n"
     "above for this exact route.\n"
     "\n"
+    "BASELINE / CAS\n"
+    "==============\n"
+    "The host enforces compare-and-swap: a Python batch is interpreted against the\n"
+    "current retained revision ONLY.  You never supply per-op old-values — the\n"
+    "host derives them from the revision.  A batch whose baseline no longer\n"
+    "matches the retained revision is rejected as stale_baseline and is never\n"
+    "partially applied.\n"
+    "\n"
+    "PRECEDENT\n"
+    "=========\n"
+    "Precedent (templates, community workflows) is IMMUTABLE evidence you cite by\n"
+    "id — never a payload you mutate or splice into the user's graph by value.\n"
+    "\n"
+    "ATOMIC EDIT BATCHES\n"
+    "===================\n"
+    "Exactly ONE complete Python batch may be accepted per message.  A rejected\n"
+    "batch may be followed by ONE replacement attempt; a second rejection returns\n"
+    "no candidate.  After an accepted batch, further edit submissions are denied.\n"
+    "Never claim an edit (self_assessment.outcome=edited) before the host has\n"
+    "accepted a Δ AND produced the post-edit lens.\n"
+    "\n"
     "SAME-WINDOW CONTINUITY\n"
     "======================\n"
     "You are ONE thread-continuous session for this chat window.  Prior turns in\n"
@@ -747,19 +770,21 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "Return a single JSON object with these keys:\n"
     "  \"action\": \"submit\"\n"
     "  \"reply\": string — the user-facing prose.\n"
-    "  \"delta_ids\": array of strings — accepted Δ ids, in THIS session only.\n"
-    "  \"lens_fact_ids\": array of strings — lens fact ids, in THIS session only.\n"
-    "  \"evidence_ids\": array of strings — evidence ids, in THIS session only.\n"
-    "  \"edit_applied\": true/false.\n"
-    "  \"self_check\": {\"research\": \"never|empty|thin|grounded\", \"confidence\":\n"
-    "                  string, \"notes\": string}.\n"
+    "  \"claim_refs\": {\n"
+    "      \"delta_ids\": array of strings — accepted Δ ids, in THIS session only.\n"
+    "      \"lens_fact_ids\": array of strings — lens fact ids, in THIS session only.\n"
+    "      \"evidence_ids\": array of strings — evidence ids, in THIS session only.\n"
+    "  }\n"
+    "  \"self_assessment\": {\"outcome\": \"edited|no_change|...\", \"confidence\":\n"
+    "                      string, \"note\": string}.\n"
     "__NON_EDIT_CONTRACT__"
     "SELF-CHECK\n"
     "==========\n"
     "Before SUBMIT, verify: (1) every cited id exists in this session's ledger;\n"
-    "(2) an edit_applied=true contract cites at least one accepted Δ;\n"
-    "(3) the reply prose is concrete and never mentions internal gate names;\n"
-    "(4) you used no tool outside this route's allowed catalog.\n"
+    "(2) an outcome=edited (or edit_success/applied) assessment cites at least one\n"
+    "accepted Δ — never claim an edit before the accepted Δ AND the post-edit lens\n"
+    "exist; (3) the reply prose is concrete and never mentions internal gate\n"
+    "names; (4) you used no tool outside this route's allowed catalog.\n"
     "\n"
     "CONTINUATION ACTIONS (while working, before SUBMIT)\n"
     "===================================================\n"
@@ -773,25 +798,31 @@ _TWO_STEP_NON_EDIT_NOTE = (
     "\n"
     "NON-EDIT ROUTE\n"
     "==============\n"
-    "This route may not submit any change: delta_ids must be [] and edit_applied\n"
-    "must be false.  Do not emit a Python batch or an apply action.\n"
+    "This route may not submit any change: claim_refs.delta_ids must be [] and\n"
+    "the self_assessment outcome must not claim an edit.  Do not emit a Python\n"
+    "batch or an apply action.\n"
 )
 
 _TWO_STEP_NON_EDIT_CONTRACT = (
-    "  For THIS non-edit route: \"delta_ids\": [], \"edit_applied\": false.\n"
+    "  For THIS non-edit route: \"claim_refs\": {\"delta_ids\": [], ...}, and no\n"
+    "  edited outcome.\n"
 )
 
 
 def _two_step_stage_catalogs(route: str, *, web_search_enabled: bool) -> tuple[str, str, bool]:
     """Return (research_docs, change_docs, python_allowed) for *route*.
 
-    The catalogs are the exact route-allowed tools partitioned by phase — never
-    the union catalog, and never ``phase=None`` (which would leak implement
-    tools into RESEARCH or research tools into CHANGE).
+    The full route catalog is the canonical B02 ``phase=None`` builder
+    (:func:`vibecomfy.executor.two_step.route_catalog_docs`) — never a
+    phase-specific ``tool_catalog_docs(phase=\"research\"|...)`` call, which
+    would hide implement-phase tools (``node_schema`` / template tools) from
+    the research route.  The full catalog is then PARTITIONED into the
+    RESEARCH / CHANGE stages by each tool's registered phase, still filtered
+    to the route's effective allowlist.
     """
     from vibecomfy.executor.tool_specs import (  # noqa: PLC0415
-        PHASE_IMPLEMENT,
-        PHASE_RESEARCH,
+        IMPLEMENT_PHASE_TOOLS,
+        RESEARCH_PHASE_TOOLS,
         tool_catalog_docs,
     )
     from vibecomfy.executor.two_step import (  # noqa: PLC0415
@@ -800,8 +831,14 @@ def _two_step_stage_catalogs(route: str, *, web_search_enabled: bool) -> tuple[s
     )
 
     effective = effective_route_tools(route, web_search_enabled=web_search_enabled)
-    research = tool_catalog_docs(phase=PHASE_RESEARCH, allowed_names=effective)
-    change = tool_catalog_docs(phase=PHASE_IMPLEMENT, allowed_names=effective)
+    # phase=None + allowed_names is the route-only catalog authority; the
+    # research/change split below never widens it beyond the effective set.
+    research = tool_catalog_docs(
+        phase=None, allowed_names=frozenset(effective) & RESEARCH_PHASE_TOOLS
+    )
+    change = tool_catalog_docs(
+        phase=None, allowed_names=frozenset(effective) & IMPLEMENT_PHASE_TOOLS
+    )
     policy = TWO_STEP_ROUTE_POLICIES[route]
     return research, change, policy.allows_python_edits
 
@@ -957,6 +994,51 @@ def _extract_json_object(text: str) -> dict[str, Any]:
             pass
 
     raise ValueError(f"Could not extract a JSON object from: {text[:200]!r}")
+
+
+def parse_two_step_submit(payload: Mapping[str, Any]) -> "TwoStepFinal":
+    """Parse one two-step SUBMIT payload into the authoritative :class:`TwoStepFinal`.
+
+    The authoritative shape (advertised by the prompt) is nested
+    ``claim_refs`` / ``self_assessment``.  For backward compatibility with
+    older clients the legacy top-level keys (``delta_ids`` / ``lens_fact_ids``
+    / ``evidence_ids`` / ``edit_applied`` / ``self_check``) are still accepted
+    and normalized into the SAME typed shape — the two forms never diverge
+    downstream.
+    """
+    from .contracts import TwoStepClaimRefs, TwoStepFinal, TwoStepSelfAssessment
+
+    reply = str(payload.get("reply") or "")
+    refs = payload.get("claim_refs")
+    if isinstance(refs, Mapping):
+        claim_refs = TwoStepClaimRefs.from_mapping(refs)
+    else:
+        claim_refs = TwoStepClaimRefs(
+            delta_ids=tuple(payload.get("delta_ids") or ()),
+            lens_fact_ids=tuple(payload.get("lens_fact_ids") or ()),
+            evidence_ids=tuple(payload.get("evidence_ids") or ()),
+        )
+    assessment = payload.get("self_assessment")
+    if isinstance(assessment, Mapping):
+        self_assessment = TwoStepSelfAssessment.from_mapping(assessment)
+    else:
+        self_check = payload.get("self_check")
+        if isinstance(self_check, Mapping):
+            outcome = (
+                "edited"
+                if bool(payload.get("edit_applied"))
+                else str(self_check.get("outcome") or self_check.get("research") or "")
+            )
+            self_assessment = TwoStepSelfAssessment(
+                outcome=outcome,
+                confidence=self_check.get("confidence"),
+                note=str(self_check.get("notes") or ""),
+            )
+        elif bool(payload.get("edit_applied")):
+            self_assessment = TwoStepSelfAssessment(outcome="edited")
+        else:
+            self_assessment = None
+    return TwoStepFinal(reply=reply, claim_refs=claim_refs, self_assessment=self_assessment)
 
 
 def parse_classify_response(raw: str) -> ClassifyDecision:

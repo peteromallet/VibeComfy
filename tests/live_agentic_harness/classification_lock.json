@@ -54,6 +54,12 @@
     "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
     "video-wanvideo-text-to-video-generation-71f825"
   ],
+  "provenance": {
+    "capture": "provisional_heuristic",
+    "bootstrap_pending": true,
+    "classifier_target": "vibecomfy.executor.core._run_classify",
+    "note": "Provisional freeze: routes derive from descriptor heuristics, not live classifier calls.  Run `python -m tests.live_agentic_harness.compare_pipeline_modes --bootstrap --capture-classifications` to capture the 100 real classifier decisions."
+  },
   "quota_table": {
     "routes": {
       "clarify": 2,
@@ -128,7 +134,7 @@
   },
   "rules": {
     "behavior": "derived from route (edit = revise/adapt/reorganise/requires_custom_nodes)",
-    "ledger": "in == scenario id present in scenfails57_manifest.json",
+    "ledger": "in == scenario id present in the 57-ledger (ledger_scenario_ids())",
     "graph_size_thresholds": {
       "small": "<= 15 nodes",
       "medium": "16-40 nodes",
@@ -152,1008 +158,2099 @@
       "video-inpaint-and-video-composition-with-spline-path-0c2716": "respond",
       "video-seedvr2-video-upscaling-workflow-052e59": "respond",
       "video-video-loading-and-saving-workflow-1c7ad8": "respond"
-    }
+    },
+    "effective_route": "executor-canonical route after _normalize_explicit_route; requires_custom_nodes -> adapt (edit intent) is recorded, not hidden."
   },
   "entries": [
     {
       "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "3d",
-      "node_count": 17
+      "node_count": 17,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "3d",
-      "node_count": 18
+      "node_count": 18,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "3d",
-      "node_count": 20
+      "node_count": 20,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "3d-3d-model-generation-and-rigging-from-image-352066",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 11
+      "node_count": 11,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 15
+      "node_count": 15,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 4
+      "node_count": 4,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "3d-3d-shape-generation-and-export-workflow-8800a9",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 7
+      "node_count": 7,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "3d-converts-image-to-3d-model",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 3
+      "node_count": 3,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "3d-generates-a-3d-mesh-from",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "3d",
-      "node_count": 10
+      "node_count": 10,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
       "media": "audio",
-      "node_count": 46
+      "node_count": 46,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 13
+      "node_count": 13,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-acestep-audio-generation-workflow-2a31ec",
       "route": "requires_custom_nodes",
+      "effective_route": "adapt",
       "route_source": "explicit",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 7
+      "node_count": 7,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
       "media": "audio",
-      "node_count": 85
+      "node_count": 85,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 6
+      "node_count": 6,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-audio-processing-with-voice-tts-and-noise-remo-b80848",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 7
+      "node_count": 7,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "audio",
-      "node_count": 41
+      "node_count": 41,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "audio-transcribes-audio-appends-text-regenerates",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "audio",
-      "node_count": 11
+      "node_count": 11,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "audio-tts-narration-using-indextts-2",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "audio",
-      "node_count": 21
+      "node_count": 21,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "hotshot-16-frames-agent-edit",
       "route": "requires_custom_nodes",
+      "effective_route": "adapt",
       "route_source": "explicit",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "image",
-      "node_count": 8
+      "node_count": 8,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 16
+      "node_count": 16,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-animatediff-video-from-images-with",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 20
+      "node_count": 20,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-animatediff-video-generation-with-vae-d20410",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "image",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-auraflow-image-generation-with-qwen-clip-9a3109",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-background-removal-and-grid-composition-54a681",
       "route": "reorganise",
+      "effective_route": "reorganise",
       "route_source": "explicit",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "reorganise",
+        "task": "layout_reorganise"
+      }
     },
     {
       "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 20
+      "node_count": 20,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-face-detection-and-cropping-workflow-949658",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 33
+      "node_count": 33,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "image",
-      "node_count": 72
+      "node_count": 72,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "image",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-generates-a-2x2-seed-variation",
       "route": "reorganise",
+      "effective_route": "reorganise",
       "route_source": "explicit",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 25
+      "node_count": 25,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "reorganise",
+        "task": "layout_reorganise"
+      }
     },
     {
       "id": "image-image-comparison-and-enhancement-with-florence-007018",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "image",
-      "node_count": 43
+      "node_count": 43,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "image-image-editing-with-qwen-image",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 15
+      "node_count": 15,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "image",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-image-to-image-with-controlnet-and-dwpreproces-49d057",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 15
+      "node_count": 15,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 17
+      "node_count": 17,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-image-to-image-with-stable-zero123-and-backgro-def5b5",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 11
+      "node_count": 11,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 19
+      "node_count": 19,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 6
+      "node_count": 6,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-llava-image-captioning-and-keyword-extraction-d38dc8",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 24
+      "node_count": 24,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "image-sd3-image-generation-with-controlnet-19d221",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-sdxl-txt2img-cat-in-spacesuit",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 10
+      "node_count": 10,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-style-transfer-using-ip-adapter",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "image",
-      "node_count": 13
+      "node_count": 13,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-two-stage-qwen-image-generation",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 24
+      "node_count": 24,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "image",
-      "node_count": 25
+      "node_count": 25,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "live-graph-explanation-smoke",
       "route": "clarify",
+      "effective_route": "clarify",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "image",
-      "node_count": 3
+      "node_count": 3,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "clarify"
+      }
     },
     {
       "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "multi-3d-preview-and-image-output-workflow-d93baf",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 8
+      "node_count": 8,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 29
+      "node_count": 29,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 136
+      "node_count": 136,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 16
+      "node_count": 16,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "multi-audio-to-image-mel-band-roformer-workflow-b22937",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 8
+      "node_count": 8,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "multi-crops-face-previews-it-sets",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 5
+      "node_count": 5,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-deforum-stable-diffusion-animation-with-ip-ada-78afac",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 32
+      "node_count": 32,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 34
+      "node_count": 34,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 8
+      "node_count": 8,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-image-to-video-generation-with",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 20
+      "node_count": 20,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-image-to-video-generation-with-2",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 56
+      "node_count": 56,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-image-to-video-with-llm",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 38
+      "node_count": 38,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 56
+      "node_count": 56,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 21
+      "node_count": 21,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 13
+      "node_count": 13,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "multimodal",
-      "node_count": 4
+      "node_count": 4,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-video-based-character-replacement-using",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 41
+      "node_count": 41,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-wan-vace-video-retargeting-driven",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 75
+      "node_count": 75,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 76
+      "node_count": 76,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 22
+      "node_count": 22,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "multimodal",
-      "node_count": 38
+      "node_count": 38,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
       "route": "adapt",
+      "effective_route": "adapt",
       "route_source": "query_type",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "multimodal",
-      "node_count": 178
+      "node_count": 178,
+      "decision": {
+        "research": true,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "adapt",
+        "task": "research_precedent"
+      }
     },
     {
       "id": "speed-distillation-research",
       "route": "research",
+      "effective_route": "research",
       "route_source": "health_control",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "special",
-      "node_count": null
+      "node_count": null,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 21
+      "node_count": 21,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "video-animatediff-video-with-controlnet-and-depth-89b02a",
       "route": "research",
+      "effective_route": "research",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "video",
-      "node_count": 72
+      "node_count": 72,
+      "decision": {
+        "research": true,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "research",
+        "route": "research",
+        "task": "research_nodes"
+      }
     },
     {
       "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 38
+      "node_count": 38,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "video",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-generates-a-video-from-a",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "video",
-      "node_count": 3
+      "node_count": 3,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-hunyuan-video-text-to-video-generation-265847",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 17
+      "node_count": 17,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 27
+      "node_count": 27,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "video",
-      "node_count": 4
+      "node_count": 4,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-image-to-video-with-svd-and-webp-output-1882aa",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 7
+      "node_count": 7,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "video-inpaint-and-video-composition-with-spline-path-0c2716",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 12
+      "node_count": 12,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "video-ltx-video-upscaling-and-enhancement",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 19
+      "node_count": 19,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "video",
-      "node_count": 78
+      "node_count": 78,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-seedvr2-video-upscaling-workflow-052e59",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 11
+      "node_count": 11,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "video-svd-image-to-video-generation-fc240f",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 9
+      "node_count": 9,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-video-combine-with-image-loading-5b31ce",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 4
+      "node_count": 4,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-video-frame-by-frame-style",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-video-generation-from-resized-image",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 22
+      "node_count": 22,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 6
+      "node_count": 6,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-video-loading-and-saving-workflow-1c7ad8",
       "route": "respond",
+      "effective_route": "respond",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 13
+      "node_count": 13,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "respond"
+      }
     },
     {
       "id": "video-video-output-workflow-f855de",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 9
+      "node_count": 9,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 14
+      "node_count": 14,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
       "route": "clarify",
+      "effective_route": "clarify",
       "route_source": "explicit",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "large",
       "media": "video",
-      "node_count": 168
+      "node_count": 168,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "respond",
+        "route": "clarify"
+      }
     },
     {
       "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 28
+      "node_count": 28,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
       "route": "revise",
+      "effective_route": "revise",
       "route_source": "query_type_default",
       "behavior": "edit",
       "ledger": "out",
       "graph_size": "small",
       "media": "video",
-      "node_count": 15
+      "node_count": 15,
+      "decision": {
+        "research": false,
+        "implement": true,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "edit",
+        "route": "revise",
+        "task": "edit_graph"
+      }
     },
     {
       "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 16
+      "node_count": 16,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "out",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 17
+      "node_count": 17,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "medium",
       "media": "video",
-      "node_count": 37
+      "node_count": 37,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     },
     {
       "id": "video-wanvideo-text-to-video-generation-71f825",
       "route": "inspect",
+      "effective_route": "inspect",
       "route_source": "query_type",
       "behavior": "non-edit",
       "ledger": "in",
       "graph_size": "small",
       "media": "video",
-      "node_count": 13
+      "node_count": 13,
+      "decision": {
+        "research": false,
+        "implement": false,
+        "reply": true,
+        "effort": "low",
+        "plan_summary": "",
+        "intent": "explain_graph",
+        "route": "inspect",
+        "task": "inspect_graph"
+      }
     }
   ]
 }

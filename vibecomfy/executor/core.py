@@ -1979,6 +1979,7 @@ def run_executor(
         return _finish(_run_two_step(
             request,
             plan=plan,
+            pipeline_mode=pipeline_mode,
             client_id=client_id,
             executor_id=executor_id,
             additive=additive,
