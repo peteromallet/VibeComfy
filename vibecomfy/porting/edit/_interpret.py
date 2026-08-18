@@ -320,6 +320,10 @@ class _InterpretRunner:
         self._source_lines = source.splitlines()
         self.unbound: set[str] = set()
         self.transient: dict[str, str] = dict(name_hints or {})
+        # Names are uid-anchored for this interpreter/batch.  Once a live
+        # binding disappears its spelling is retired rather than reassigned to
+        # a different surviving node after class+order renumbering.
+        self._retired_name_uids: dict[str, str] = {}
         self._pre_helper_uids = {
             str(node.uid)
             for node in pre_workflow.nodes.values()
@@ -1002,6 +1006,16 @@ class _InterpretRunner:
                     detail={"name": name},
                 ),
             )
+        if name in self._retired_name_uids and name not in self.name_to_uid:
+            uid = self._retired_name_uids[name]
+            return None, (
+                _diag(
+                    "stale_graph_name",
+                    f"Graph name {name!r} referred to removed uid {uid!r} earlier in this batch.",
+                    severity="error",
+                    detail={"name": name, "uid": uid},
+                ),
+            )
         uid = self.name_to_uid.get(name) or self.transient.get(name)
         if uid is None:
             node = self._node_by_uid(name)
@@ -1220,14 +1234,57 @@ class _InterpretRunner:
             names = _compute_variable_names(self.workflow.nodes, list(self.workflow.edges))
         except Exception:
             names = {}
-        self.name_to_uid: dict[str, str] = {}
+        live_uids = {
+            str(getattr(node, "uid", "") or "")
+            for node in self.workflow.nodes.values()
+            if str(getattr(node, "uid", "") or "")
+        }
+        previous = dict(getattr(self, "name_to_uid", {}) or {})
+        bindings: dict[str, str] = {}
+        bound_uids: set[str] = set()
+        for name, uid in previous.items():
+            if uid in live_uids:
+                bindings[name] = uid
+                bound_uids.add(uid)
+            else:
+                self._retired_name_uids.setdefault(name, uid)
+
+        # Assignment names for nodes added in this batch outrank computed
+        # class-order names, but may never steal a still-live or retired name.
+        for name, uid in self.transient.items():
+            if (
+                uid in live_uids
+                and uid not in bound_uids
+                and name not in bindings
+                and name not in self._retired_name_uids
+            ):
+                bindings[name] = uid
+                bound_uids.add(uid)
+
+        used_names = set(bindings) | set(self._retired_name_uids)
+
+        def fresh_name(preferred: str) -> str:
+            if preferred not in used_names:
+                return preferred
+            match = re.match(r"^(.*?)(?:_(\d+))?$", preferred)
+            base = (match.group(1) if match else preferred) or preferred
+            suffix = int(match.group(2) or 1) + 1 if match else 2
+            candidate = f"{base}_{suffix}"
+            while candidate in used_names:
+                suffix += 1
+                candidate = f"{base}_{suffix}"
+            return candidate
+
         for node_id, name in names.items():
             node = self.workflow.nodes.get(str(node_id))
             uid = str(getattr(node, "uid", "") or "")
-            if uid:
-                self.name_to_uid.setdefault(name, uid)
-        for name, uid in self.transient.items():
-            self.name_to_uid.setdefault(name, uid)
+            if not uid or uid in bound_uids:
+                continue
+            stable_name = fresh_name(name)
+            bindings[stable_name] = uid
+            used_names.add(stable_name)
+            bound_uids.add(uid)
+        self.name_to_uid = bindings
 
     def _apply(self, item: _ExpandedStatement, op: EditOp) -> StatementOutcome | None:
         try:

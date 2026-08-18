@@ -6030,6 +6030,60 @@ class TestImmutableInterpreter:
         assert first.workflow.nodes["1"].inputs["prompt"] == "after"
         assert pi_edit_nodes(first) == pi_edit_nodes(second)
 
+    def test_uid_anchored_names_do_not_renumber_mid_batch(self) -> None:
+        """Deleting an earlier sibling cannot retarget a later live name."""
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("stable-batch-names", WorkflowSource("stable-batch-names"))
+        for index in range(1, 5):
+            workflow.nodes[str(index)] = VibeNode(
+                str(index),
+                "CLIPTextEncode",
+                inputs={"text": f"text-{index}"},
+                uid=f"clip-{index}",
+            )
+
+        result = interpret(
+            workflow,
+            'del cliptextencode_2\ncliptextencode_4.text = "updated"\n',
+        )
+
+        assert result.ok is True
+        assert len(result.landed_ops) == 2
+        assert "2" not in result.workflow.nodes
+        assert result.workflow.nodes["4"].inputs["text"] == "updated"
+        assert result.workflow.nodes["3"].inputs["text"] == "text-3"
+        assert not any(
+            diagnostic.code == "batch_identity_rejected"
+            for diagnostic in result.diagnostics
+        )
+
+    def test_removed_name_is_not_reassigned_mid_batch(self) -> None:
+        from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+        workflow = VibeWorkflow("retired-batch-name", WorkflowSource("retired-batch-name"))
+        for index in range(1, 4):
+            workflow.nodes[str(index)] = VibeNode(
+                str(index),
+                "CLIPTextEncode",
+                inputs={"text": f"text-{index}"},
+                uid=f"clip-{index}",
+            )
+
+        result = interpret(
+            workflow,
+            'del cliptextencode_2\ncliptextencode_2.text = "wrong target"\n',
+        )
+
+        assert result.ok is False
+        assert result.landed_ops == ()
+        assert any(
+            diagnostic.code == "stale_graph_name"
+            for diagnostic in result.diagnostics
+        )
+
     def test_cas_rejects_stale_expected_value(self) -> None:
         from vibecomfy.porting.edit._interpret import interpret
 
