@@ -1,0 +1,397 @@
+{
+  "schema_version": 1,
+  "scenario_root": "tests/live_agentic_harness/scen30",
+  "scenario_count": 30,
+  "entries": [
+    {
+      "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
+      "path": "tests/live_agentic_harness/scen30/3d-3d-model-generation-and-preview-workflow-cc0df7.json",
+      "descriptor_sha256": "cace0fcd18209e4aa4197e4f4571bb4de4d15bc8f1b9148edf5b63e2906cbb43",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "cc0df70583f28c98",
+        "path": "external_workflows/corpus/cc0df70583f28c98.json",
+        "sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583"
+      }
+    },
+    {
+      "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
+      "path": "tests/live_agentic_harness/scen30/3d-3d-model-generation-and-retargeting-workflow-f65774.json",
+      "descriptor_sha256": "56ec24c8f324bb7d0f94befd5e3392d6f90d850e3556a25e970f54754adff64d",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "f657743bc2a3db17",
+        "path": "external_workflows/corpus/f657743bc2a3db17.json",
+        "sha256": "4874162874ab6ddce8b7a248382e5ee20a392158f423c14f8ce1fffd4f21833e"
+      }
+    },
+    {
+      "id": "3d-converts-image-to-3d-model",
+      "path": "tests/live_agentic_harness/scen30/3d-converts-image-to-3d-model.json",
+      "descriptor_sha256": "5f131e3f6743491dc8ce59b63d5e52d50091d8f4bf7c199f76b130ada6f2214c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "b3530ba884ac4625",
+        "path": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+        "sha256": "d587fb6ac78718887c0a77b00a778ba43e662ccf69d024e54dcb1b12ca4c0aa0"
+      }
+    },
+    {
+      "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
+      "path": "tests/live_agentic_harness/scen30/audio-audio-processing-with-chatterbox-tts-and-vc-b55994.json",
+      "descriptor_sha256": "aa3859ee4661d125044bdb9d1ba907ed3944c1e28010cacbd0826ed0baea1de4",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "b55994d9cb6aea42",
+        "path": "external_workflows/corpus/b55994d9cb6aea42.json",
+        "sha256": "cf18d35e10586b45a798da007c09965f0abd89a5339a1d15507605c651fcdc22"
+      }
+    },
+    {
+      "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
+      "path": "tests/live_agentic_harness/scen30/audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf.json",
+      "descriptor_sha256": "c10b4644cd9431a288e5d3726eecc1032a25da914c1c7b640cf4ee4a39d82a45",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "c80bbf22890fc8df",
+        "path": "external_workflows/corpus/c80bbf22890fc8df.json",
+        "sha256": "50d0bae8056606a96cef8612a070d362eefefaf4863c1650a7ba073ae8cc3726"
+      }
+    },
+    {
+      "id": "audio-tts-narration-using-indextts-2",
+      "path": "tests/live_agentic_harness/scen30/audio-tts-narration-using-indextts-2.json",
+      "descriptor_sha256": "4e55deceb5b3cb551aea17a49436b5749ee5a9ef0c8109239503c7297cf242ff",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "0d470a47b5d7c601",
+        "path": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+        "sha256": "c77073490f3892e5b847588c734ae3ba2565b3e1de9326f927170496f28b7727"
+      }
+    },
+    {
+      "id": "image-animatediff-video-generation-with-vae-d20410",
+      "path": "tests/live_agentic_harness/scen30/image-animatediff-video-generation-with-vae-d20410.json",
+      "descriptor_sha256": "e18c6090e4b86904a4bbbbfe85bdbf6a46c0595f11f464306cea7c46ac8d2a5c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "d20410227419c47a",
+        "path": "external_workflows/corpus/d20410227419c47a.json",
+        "sha256": "6bfafa1aa997bad786f7080669ebc7aac1d53ea8578a7a4bb18ff4f5d0f87f31"
+      }
+    },
+    {
+      "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
+      "path": "tests/live_agentic_harness/scen30/image-dual-checkpoint-xl-image-generation-with-refin-c9df19.json",
+      "descriptor_sha256": "1e7062329f4613d39cf741a8a7110116ebdcea839c524fac15fb8212af79583b",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "c9df19048aae0738",
+        "path": "external_workflows/corpus/c9df19048aae0738.json",
+        "sha256": "205c6a0aa195069e3ee4add27e8625dee2894f6750a8ca38b95d25fbcd008865"
+      }
+    },
+    {
+      "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
+      "path": "tests/live_agentic_harness/scen30/image-gemini-prompt-splitter-and-text-display-workfl-caae97.json",
+      "descriptor_sha256": "d649bc94213323e06a83a5ade9c89ef79d75c2e910cd7a9ffe1c172e497f9d97",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "caae974fd091bde7",
+        "path": "external_workflows/corpus/caae974fd091bde7.json",
+        "sha256": "1639eab3d5038e907e2cc858031ddb436c056fb76974012fc0ce59940c475456"
+      }
+    },
+    {
+      "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
+      "path": "tests/live_agentic_harness/scen30/image-inpainting-with-differential-diffusion-and-rea-1d414c.json",
+      "descriptor_sha256": "7c5daa18f946968142a11c8acd6a41d70d1195d3cb40ecdcbc1fc6ae47d1cc69",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "1d414c3424d15ae2",
+        "path": "external_workflows/corpus/1d414c3424d15ae2.json",
+        "sha256": "77200b0a1ecbad29f6951bd9dc07f189236925e8539e174bde1e174d0ad7f911"
+      }
+    },
+    {
+      "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
+      "path": "tests/live_agentic_harness/scen30/image-kolors-image-generation-with-segs-detailer-and-d813fe.json",
+      "descriptor_sha256": "ef8986a84b013095867c780445bb5bead578be31973f398e7c0245396c79a790",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "d813fedaabea87b7",
+        "path": "external_workflows/corpus/d813fedaabea87b7.json",
+        "sha256": "501fe619c5f4f686d93053390843ade4100e8c8b8b20556e68c35451a4afccc0"
+      }
+    },
+    {
+      "id": "image-sd3-image-generation-with-controlnet-19d221",
+      "path": "tests/live_agentic_harness/scen30/image-sd3-image-generation-with-controlnet-19d221.json",
+      "descriptor_sha256": "8e47d2b6369512263e8193b9232372c8b97c970f162783789c597bbdf28d1f9e",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "19d221f074b42462",
+        "path": "external_workflows/corpus/19d221f074b42462.json",
+        "sha256": "9acadc5405b97c0998e99a66dea4c064ab271e5feb34953fad3e6205d64ba83d"
+      }
+    },
+    {
+      "id": "image-two-stage-qwen-image-generation",
+      "path": "tests/live_agentic_harness/scen30/image-two-stage-qwen-image-generation.json",
+      "descriptor_sha256": "0a2e921da3a8268c66a9459fd6c8374d823a890c34318fdac439bb12dad14635",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "8ac746c940b127b4",
+        "path": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+        "sha256": "f8c0e7b8e9247725c51b6e804a579be8c0a24ead7912c32863e45cc12986d8cc"
+      }
+    },
+    {
+      "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
+      "path": "tests/live_agentic_harness/scen30/image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5.json",
+      "descriptor_sha256": "b9c51894e6c3889a7beef0a58a0fc44f1ac9c59ad2fe4844e5666d10549ace2c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "a7ecc54027245cb7",
+        "path": "external_workflows/corpus/a7ecc54027245cb7.json",
+        "sha256": "358bf188ef9d1452d9ccc30f226ac9062d98adccbc1415fb3343ddd98a171c81"
+      }
+    },
+    {
+      "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
+      "path": "tests/live_agentic_harness/scen30/multi-3d-gaussian-splatting-from-video-with-hunyuan-432652.json",
+      "descriptor_sha256": "73775928b403370e2a56c5757de461103c610963fef8c9d7c6c206c41edebe22",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "432652b04ff0738b",
+        "path": "external_workflows/corpus/432652b04ff0738b.json",
+        "sha256": "2e0605381ff0570cb18ebf0cba85cb7199fd45a46e8b5fb9c87a1e98866226d1"
+      }
+    },
+    {
+      "id": "multi-3d-preview-and-image-output-workflow-d93baf",
+      "path": "tests/live_agentic_harness/scen30/multi-3d-preview-and-image-output-workflow-d93baf.json",
+      "descriptor_sha256": "95517c4f76820fb5afc914d92fff2820f00b156f70f7a338baf1cdad93ea43dc",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "d93baf73c8a43f57",
+        "path": "external_workflows/corpus/d93baf73c8a43f57.json",
+        "sha256": "7ff1a0cdf47cec5a91ddb9090f78d676da6bc46cbf824afd9f795d9a3b6e27e3"
+      }
+    },
+    {
+      "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
+      "path": "tests/live_agentic_harness/scen30/multi-animatediff-video-face-swapping-with-deflicker-506ebd.json",
+      "descriptor_sha256": "05fb91ec0c493f3364574d81b5de485746cfc30b41e73aa241dcc0477277bdc8",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "506ebdde037e22d8",
+        "path": "external_workflows/corpus/506ebdde037e22d8.json",
+        "sha256": "90cc22c6fc702255a32df98b0388a886bab8747061452ca79e5f928c1d4ed274"
+      }
+    },
+    {
+      "id": "multi-animatediff-video-generation-with-controlnet-a7e2af",
+      "path": "tests/live_agentic_harness/scen30/multi-animatediff-video-generation-with-controlnet-a7e2af.json",
+      "descriptor_sha256": "720ee6a201b2f55a3ce04ae187ab106f1696cbcfd00a07f22618e83c6440e7e6",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "a7e2af6f0472627b",
+        "path": "external_workflows/corpus/a7e2af6f0472627b.json",
+        "sha256": "5d64cc12202fb36e3ca3b25b013712b78c1c08f077b18e450b8d31e6d670ec13"
+      }
+    },
+    {
+      "id": "multi-image-to-video-generation-with-2",
+      "path": "tests/live_agentic_harness/scen30/multi-image-to-video-generation-with-2.json",
+      "descriptor_sha256": "cafe328c12d6ae6d74908354991a95c1da3fc5634149d5fa050a620d384b3819",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "8d606b5c56f1243a",
+        "path": "tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json",
+        "sha256": "a9d8ce67507977b3ceaeef81373cee4d77eb1f74693c1a1f15ee24a0e8591797"
+      }
+    },
+    {
+      "id": "multi-image-to-video-with-llm",
+      "path": "tests/live_agentic_harness/scen30/multi-image-to-video-with-llm.json",
+      "descriptor_sha256": "0ffb8c2943a475ba80c8328db6b85bb6081a1f9936cea3c6acbed561263de8e1",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "0099685f34b68456",
+        "path": "tests/fixtures/live_agentic_corpus/0099685f34b68456.json",
+        "sha256": "287ee5ba6b895449763a1f6589d6d5b66fa225844ace8892e957c62d07504d22"
+      }
+    },
+    {
+      "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+      "path": "tests/live_agentic_harness/scen30/multi-svd-image-to-video-with-animation-builder-99e2a9.json",
+      "descriptor_sha256": "7f7753d1f23a9a376d1926a1110a5d7673bf44f9698d6cf453b4de3f9ff2b531",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "99e2a967a579197f",
+        "path": "external_workflows/corpus/99e2a967a579197f.json",
+        "sha256": "f149b2397b765bcf5f0b82c91d63e0a806afe8aac0558352f626708ea8ac4263"
+      }
+    },
+    {
+      "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+      "path": "tests/live_agentic_harness/scen30/video-animatediff-video-with-ipadapter-and-controlne-4eebf3.json",
+      "descriptor_sha256": "7b47cafe952646c9a0c0fb89f517e7f45b1591068b0c184633fce8b5b1efaf1c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "4eebf3dc07942c52",
+        "path": "external_workflows/corpus/4eebf3dc07942c52.json",
+        "sha256": "1b6b276f31d6959bad780bba577b9570e1addd72429be1432a9e2d25d5764afa"
+      }
+    },
+    {
+      "id": "video-seedvr2-video-upscaling-workflow-052e59",
+      "path": "tests/live_agentic_harness/scen30/video-seedvr2-video-upscaling-workflow-052e59.json",
+      "descriptor_sha256": "6a6ef6f9f992f2bdbebf847bbf0be5cb00cefc37475c80e79db36424cb33d4ce",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "052e59d2d54625ac",
+        "path": "external_workflows/corpus/052e59d2d54625ac.json",
+        "sha256": "ffa4b51b3a241cf0b1a5902b2edfa494c342034f827affe0ec0e63aa8dc648bd"
+      }
+    },
+    {
+      "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
+      "path": "tests/live_agentic_harness/scen30/video-video-inpainting-with-spline-based-cut-and-dra-485ff2.json",
+      "descriptor_sha256": "7dac91561e39270ea35e71c8eb1e7e4335dda4bc70f5efe8e271bd7ee841beb1",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "485ff2fa6dcc1917",
+        "path": "external_workflows/corpus/485ff2fa6dcc1917.json",
+        "sha256": "7a12d7bfb8fbef41e0ae847a755545c25fbbc4f9d6f57103829542403abfaa8f"
+      }
+    },
+    {
+      "id": "video-video-loading-and-saving-workflow-1c7ad8",
+      "path": "tests/live_agentic_harness/scen30/video-video-loading-and-saving-workflow-1c7ad8.json",
+      "descriptor_sha256": "4a42efa6c4cd9a67e3e627741da499170930bda6be1368618aed1fefa1edd01c",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "1c7ad8a2a8c0224b",
+        "path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+        "sha256": "5106b5b32b6866c2c45e61f1c9f9b99ac09763d2a907fc480ad47fb43763a8c3"
+      }
+    },
+    {
+      "id": "video-video-output-workflow-f855de",
+      "path": "tests/live_agentic_harness/scen30/video-video-output-workflow-f855de.json",
+      "descriptor_sha256": "c18f241b403ed7d3c533330a9f4851f6e0870bb450c9d6edda713db827785be0",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "f855deb7cdef4ace",
+        "path": "external_workflows/corpus/f855deb7cdef4ace.json",
+        "sha256": "213b367cc227ceb5b18f2ea26a36ff922f29306c047c1bde675969b32326d05a"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
+      "path": "tests/live_agentic_harness/scen30/video-wan2-2-text-to-video-with-dual-unet-and-model-03fced.json",
+      "descriptor_sha256": "f4b4d6aadc320f1e02d88c0c33fdaf05ba3f146e63ebf9c13780569d081cca87",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "edit",
+      "source_workflow": {
+        "id": "03fcedf997c13003",
+        "path": "external_workflows/corpus/03fcedf997c13003.json",
+        "sha256": "59dd2c79a049f5cc7c822e01265c9874f7215565f71e7eda403426c23bac774a"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
+      "path": "tests/live_agentic_harness/scen30/video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3.json",
+      "descriptor_sha256": "b39a28160c01c811f0ef1f70811960ee4b6a4b45b2c8cbed619375f59e3addac",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "7c8bb3b65e8084ae",
+        "path": "external_workflows/corpus/7c8bb3b65e8084ae.json",
+        "sha256": "93eb79de70cc379a83d40bcb131b6e9d8c9b1133de89e961b325ab5c7078ee83"
+      }
+    },
+    {
+      "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
+      "path": "tests/live_agentic_harness/scen30/video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a.json",
+      "descriptor_sha256": "637dfff0f769548b04e2b699b7f9e54aa1f156b9a6142e82bcc3b9ef76619c52",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "62682a77ae33b43a",
+        "path": "external_workflows/corpus/62682a77ae33b43a.json",
+        "sha256": "a518f843af614e923733dbee9e3cd7d346fb1d220bc1404abb9c5cc640545969"
+      }
+    },
+    {
+      "id": "video-wanvideo-text-to-video-generation-71f825",
+      "path": "tests/live_agentic_harness/scen30/video-wanvideo-text-to-video-generation-71f825.json",
+      "descriptor_sha256": "df4959641e24bfcd7b62ad558dc4cede081febf7e14f44475fd3a70855f60d31",
+      "inclusion_status": "included",
+      "revision_status": "matched",
+      "scenario_kind": "semantic_product",
+      "source_workflow": {
+        "id": "71f825e4550c95b7",
+        "path": "external_workflows/corpus/71f825e4550c95b7.json",
+        "sha256": "87bcefccfcba650f83aa8568f6572b623151ccd4e296a44d442048f2f737bef3"
+      }
+    }
+  ]
+}
