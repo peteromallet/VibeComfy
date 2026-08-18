@@ -5346,7 +5346,11 @@ def test_runtime_worker_timeout_raises_builtin_timeout(monkeypatch) -> None:
     def _timeout(*_args, **_kwargs):
         raise subprocess.TimeoutExpired(cmd=["worker"], timeout=2)
 
-    monkeypatch.setattr(runtime.subprocess, "run", _timeout)
+    # `_run_worker_subprocess` is the actual subprocess seam (Popen + wait);
+    # patching `subprocess.run` would miss it and spawn the real hermes worker,
+    # which needs the `arnold` package and a provider credential — neither is
+    # guaranteed in CI. Patch the seam so the test is hermetic and deterministic.
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", _timeout)
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
     monkeypatch.setattr(runtime, "_TURN_TIMEOUT_SECONDS", 2)
 
