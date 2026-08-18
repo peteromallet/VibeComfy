@@ -16,6 +16,15 @@ Two capture paths
    ``--capture-classifications`` alone) and run by the host — never inside the
    deterministic gate.
 
+   Each scenario's classify turn carries the SAME bounded parse-retry ladder
+   as production (``core._run_classify``): up to ``_CLASSIFY_CAPTURE_ATTEMPTS``
+   attempts with the production nudge message appended after a malformed /
+   missing-fields reply.  A retry-exhausted scenario is NOT an abort: its
+   entry records ``classification_failed: true``, a ``classification_failure``
+   block (failure type + raw-text preview + attempts), the heuristic route as
+   the locked route, and ``route_source: "heuristic_fallback"`` — so one bad
+   model response cannot kill the whole 100-scenario bootstrap.
+
 2. **Provisional freeze** — :func:`build_classification_lock` builds the
    deterministic heuristic lock currently committed to
    ``classification_lock.json`` (``provenance.capture ==
@@ -65,9 +74,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping
+
+LOGGER = logging.getLogger(__name__)
 
 # ── route vocabulary (mirrors vibecomfy.executor.two_step.TWO_STEP_ROUTE_POLICIES)
 ROUTES: tuple[str, ...] = (
@@ -321,18 +333,123 @@ def classify_scenario(
 
 # ── real classifier capture (--capture-classifications) ─────────────────────
 
+# Bounded parse-retry for the real capture, mirroring production
+# ``vibecomfy.executor.core._run_classify`` (core.py:702-784): a single
+# classify model call is retried up to a small budget with the SAME nudge
+# message production appends after a malformed/missing-fields reply, and a
+# retry-exhausted scenario is recorded as a documented heuristic fallback
+# instead of aborting the whole 100-scenario bootstrap.
+_CLASSIFY_CAPTURE_ATTEMPTS = 3
+
+# Mirrors ``vibecomfy.executor.core._CLASSIFY_JSON_NUDGE`` (the retry nudge
+# ``_run_classify`` appends at core.py:777-780).  Kept local so the capture
+# path never depends on a private core symbol.
+_CLASSIFY_RETRY_NUDGE = (
+    "Your previous reply was missing required fields or was not valid JSON. "
+    "Return the exact JSON object required by the classify schema and nothing else."
+)
+
+_CLASSIFY_RAW_PREVIEW_LIMIT = 500
+
+
+class ClassificationCaptureError(ClassificationError):
+    """Real-classifier parse exhaustion for ONE scenario (never a global abort).
+
+    Carries the raw-output preview + failure type so the caller can record a
+    documented heuristic fallback for that single scenario.
+    """
+
+    def __init__(self, *, raw_preview: str, failure_type: str, attempts: int) -> None:
+        super().__init__(
+            f"real classifier produced no parseable decision after {attempts} attempts"
+        )
+        self.raw_preview = raw_preview
+        self.failure_type = failure_type
+        self.attempts = attempts
+
+
+def _raw_preview(raw: str | None) -> str:
+    """Bounded, whitespace-normalized preview of raw model output."""
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    normalized = " ".join(raw.split())
+    if len(normalized) <= _CLASSIFY_RAW_PREVIEW_LIMIT:
+        return normalized
+    return normalized[:_CLASSIFY_RAW_PREVIEW_LIMIT] + "…"
+
+
+def _classify_capture_is_retryable(exc: BaseException) -> bool:
+    """True when *exc* is a model-output parse failure worth one more nudge.
+
+    Mirrors ``vibecomfy.executor.core._classify_parse_is_retryable``:
+    provider JSON-contract failures (``MalformedModelJSON`` /
+    ``MissingRequiredField``) and the plain ``ValueError`` that
+    ``parse_classify_response`` raises on prose / malformed JSON / empty
+    content are retryable.  Auth / timeout / generic provider errors are
+    infrastructure failures and propagate immediately.
+    """
+    from vibecomfy.comfy_nodes.agent.provider import (  # noqa: PLC0415
+        AuthError,
+        MalformedModelJSON,
+        MissingRequiredField,
+        ProviderError,
+    )
+
+    if isinstance(exc, (MalformedModelJSON, MissingRequiredField)):
+        return True
+    if isinstance(exc, (AuthError, TimeoutError)):
+        return False
+    if isinstance(exc, ProviderError):
+        return False
+    return isinstance(exc, ValueError)
+
+
+def _classify_capture_failure_type(exc: BaseException, raw: str | None) -> str:
+    """Best-effort failure taxonomy for a retry-exhausted classifier reply."""
+    from vibecomfy.executor.agent_backend import _downstream_failure_type  # noqa: PLC0415
+
+    raw_for_type = raw
+    if not isinstance(raw_for_type, str) or not raw_for_type.strip():
+        raw_for_type = getattr(exc, "raw_response", None)
+        if not isinstance(raw_for_type, str) or not raw_for_type.strip():
+            raw_for_type = getattr(exc, "raw_response_preview", None)
+    return _downstream_failure_type(raw_for_type if isinstance(raw_for_type, str) else None)
+
+
+def _extract_raw_route(raw: str) -> str:
+    """Return the classifier's RAW ``route`` field, pre-normalization.
+
+    The executor's install-intent migration canonicalizes
+    ``requires_custom_nodes`` to ``adapt`` inside :class:`ClassifyDecision`,
+    so the raw route is read back out of the JSON text itself to keep the
+    install-intent route as the locked route.
+    """
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and isinstance(parsed.get("route"), str):
+            return parsed["route"].strip()
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return ""
+
 
 def _classify_scenario_once(
     scenario: Mapping[str, Any],
     spec: Any,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Run the REAL classifier once and return ``(locked, effective, decision)``.
+    """Run the REAL classifier with a bounded parse-retry and return
+    ``(locked, effective, decision)``.
 
     Mirrors ``vibecomfy.executor.core._run_classify``'s inner
     ``run_classify_turn`` seam but ALSO preserves the raw ``route`` field the
     classifier emitted BEFORE the executor's install-intent migration, so the
     install-intent route ``requires_custom_nodes`` survives as the locked route
     instead of being silently folded into ``adapt``.
+
+    A model output that cannot be parsed after ``_CLASSIFY_CAPTURE_ATTEMPTS``
+    raises :class:`ClassificationCaptureError` (with a raw preview + failure
+    type); it is the CALLER's job to record a per-scenario fallback so one bad
+    response cannot abort the whole bootstrap.
     """
     from vibecomfy.executor.core import _render_census_text  # noqa: PLC0415
     from vibecomfy.executor.agent_backend import _extract_content  # noqa: PLC0415
@@ -346,31 +463,58 @@ def _classify_scenario_once(
     query = str(scenario.get("query") or "").strip()
     has_graph = graph is not None
     graph_summary = _render_census_text(graph)
-    messages = build_classify_messages(
+    base_messages = build_classify_messages(
         query,
         has_graph=has_graph,
         graph_summary=graph_summary,
     )
-    result = run_model_turn(
-        query,
-        messages,
-        route=spec.agent,
-        model=spec.model,
-        effort=spec.effort,
-        response_contract="json",
-        profiling_context={"backend_phase": "classify"},
+
+    scenario_id = str(scenario.get("id") or "")
+    last_exc: BaseException | None = None
+    last_raw: str | None = None
+    for attempt in range(1, _CLASSIFY_CAPTURE_ATTEMPTS + 1):
+        messages = list(base_messages)
+        if attempt > 1:
+            # Production appends the nudge as a user turn (core.py:777-780).
+            messages.append({"role": "user", "content": _CLASSIFY_RETRY_NUDGE})
+        try:
+            result = run_model_turn(
+                query,
+                messages,
+                route=spec.agent,
+                model=spec.model,
+                effort=spec.effort,
+                response_contract="json",
+                profiling_context={"backend_phase": "classify"},
+            )
+            raw = _extract_content(result)
+            last_raw = raw
+            raw_route = _extract_raw_route(raw)
+            decision = parse_classify_response(raw)
+            locked = raw_route or decision.effective_route or "respond"
+            return locked, decision.effective_route, decision.to_dict()
+        except Exception as exc:  # noqa: BLE001 - retry/fallback at the seam
+            last_exc = exc
+            if not _classify_capture_is_retryable(exc):
+                raise
+            LOGGER.info(
+                "classify capture retry %d/%d for %r (%s)",
+                attempt,
+                _CLASSIFY_CAPTURE_ATTEMPTS,
+                scenario_id,
+                type(exc).__name__,
+            )
+
+    raw_evidence = (
+        last_raw
+        if isinstance(last_raw, str) and last_raw.strip()
+        else getattr(last_exc, "raw_response", None)
     )
-    raw = _extract_content(result)
-    raw_route = ""
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict) and isinstance(parsed.get("route"), str):
-            raw_route = parsed["route"].strip()
-    except (ValueError, TypeError, json.JSONDecodeError):
-        pass
-    decision = parse_classify_response(raw)
-    locked = raw_route or decision.effective_route or "respond"
-    return locked, decision.effective_route, decision.to_dict()
+    raise ClassificationCaptureError(
+        raw_preview=_raw_preview(raw_evidence),
+        failure_type=_classify_capture_failure_type(last_exc, last_raw),
+        attempts=_CLASSIFY_CAPTURE_ATTEMPTS,
+    ) from last_exc
 
 
 def _real_classify_entry(
@@ -380,14 +524,40 @@ def _real_classify_entry(
     spec: Any,
 ) -> dict[str, Any]:
     scenario_id = str(scenario.get("id") or "")
-    locked, effective, decision = _classify_scenario_once(scenario, spec)
+    try:
+        locked, effective, decision = _classify_scenario_once(scenario, spec)
+        route_source = "classifier"
+        classification_failed = False
+        classification_failure: dict[str, Any] | None = None
+    except ClassificationCaptureError as exc:
+        # Documented per-scenario fallback: keep the heuristic route so the
+        # selection stays feasible, but mark the entry as classifier-failed
+        # with the raw preview + failure taxonomy instead of aborting.
+        locked, _ = _route_for(scenario)
+        effective = provisional_effective_route(locked)
+        decision = provisional_decision(locked)
+        route_source = "heuristic_fallback"
+        classification_failed = True
+        classification_failure = {
+            "failure_type": exc.failure_type,
+            "attempts": exc.attempts,
+            "raw_text_preview": exc.raw_preview,
+        }
+        LOGGER.warning(
+            "classify capture fallback for %r: %s after %d attempts",
+            scenario_id,
+            exc.failure_type,
+            exc.attempts,
+        )
+
     node_count = _node_count(_load_graph(scenario))
     behavior = "edit" if locked in EDIT_ROUTES else "non-edit"
-    return {
+    entry: dict[str, Any] = {
         "id": scenario_id,
         "route": locked,
         "effective_route": effective,
-        "route_source": "classifier",
+        "route_source": route_source,
+        "classification_failed": classification_failed,
         "behavior": behavior,
         "ledger": "in" if scenario_id in in_57_ids else "out",
         "graph_size": _graph_size(node_count),
@@ -395,6 +565,10 @@ def _real_classify_entry(
         "node_count": node_count,
         "decision": decision,
     }
+    if classification_failure is not None:
+        entry["classification_failure"] = classification_failure
+    return entry
+
 
 
 def capture_classifications(
@@ -605,6 +779,12 @@ def _assemble_lock(
             "effective_route": (
                 "executor-canonical route after _normalize_explicit_route; "
                 "requires_custom_nodes -> adapt (edit intent) is recorded, not hidden."
+            ),
+            "classification_failure_fallback": (
+                "real capture only: a retry-exhausted classifier reply records "
+                "classification_failed=true + classification_failure "
+                "(failure_type/attempts/raw_text_preview), the heuristic route as "
+                "route, and route_source='heuristic_fallback' — never an abort."
             ),
         },
         "entries": entries,
