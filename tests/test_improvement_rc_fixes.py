@@ -744,6 +744,74 @@ def test_rc13_empty_allowlist_defaults_on_missing_class(
     assert any(item["judge"] == "grounded_refusal" for item in assessment["judge_results"])
 
 
+def test_rc5_c80bbf_named_absence_enters_grounded_refusal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A typed AudioLDM2 clarify is assessed as a grounded refusal, not noop."""
+    from tests.live_agentic_harness.assessor import assess_live_output_dir
+
+    output_dir = tmp_path / "rc5-c80bbf"
+    output_dir.mkdir()
+    graph = {"nodes": [], "links": []}
+    (output_dir / "original.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (output_dir / "final.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (output_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph_unchanged": True,
+                "outcome": {
+                    "kind": "clarify",
+                    "missing_classes": ["AudioLDM2"],
+                    "question": (
+                        "AudioLDM2 is absent. Choose (a) current audio, "
+                        "(b) another installed class, or (c) tune LTX audio?"
+                    ),
+                },
+                "message": "AudioLDM2 is absent from the local schema.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[object] = []
+
+    def _judge(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {
+            "pass_": True,
+            "criteria": {
+                "supported_blocker": True,
+                "no_representable_edit": True,
+                "specific_next_action": True,
+                "no_fabricated_inability": True,
+            },
+            "rationale": "AudioLDM2 is absent from schema",
+        }
+
+    monkeypatch.setattr(
+        "tests.live_agentic_harness.assessor.judge_grounded_refusal",
+        _judge,
+    )
+    assessment = assess_live_output_dir(
+        output_dir,
+        scenario={
+            "query": "Replace the sampler with AudioLDM2",
+            "assessment": {
+                "expect_graph_changed": True,
+                "allow_safe_refusal_outcome_kinds": [
+                    "clarify",
+                    "requires_custom_nodes",
+                ],
+            },
+        },
+    )
+
+    assert calls
+    assert assessment["verdict"] == "pass"
+    assert any(item["judge"] == "grounded_refusal" for item in assessment["judge_results"])
+
+
 def test_rc13_face_mtcnn_refusal_still_fails_when_substitution_exists(
     tmp_path: Path,
     monkeypatch,

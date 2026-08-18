@@ -515,6 +515,88 @@ def _sync_narrated_clarify_outcome(
     return synced_internal, synced_public
 
 
+def _batch_named_schema_absences(state: AgentEditState) -> tuple[str, ...]:
+    """Return exact schema misses that the current edit request named.
+
+    ``search(focus_types=[...])`` records provider-backed misses in statement
+    detail.  We intentionally do not infer absence from refusal prose: a class
+    must be both a structured exact miss and a named target in this request.
+    """
+    request_text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(state, "task", ""),
+            state.request_payload.get("query")
+            if isinstance(getattr(state, "request_payload", None), Mapping)
+            else "",
+        )
+    )
+    missing: list[str] = []
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        for statement in turn.get("statements") or ():
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            for raw_class_type in detail.get("missing_classes") or ():
+                class_type = str(raw_class_type or "").strip()
+                if not class_type or class_type in missing:
+                    continue
+                if re.search(
+                    rf"(?<![A-Za-z0-9_]){re.escape(class_type)}(?![A-Za-z0-9_])",
+                    request_text,
+                    re.IGNORECASE,
+                ):
+                    missing.append(class_type)
+    return tuple(missing)
+
+
+def _clarification_has_question_and_options(message: Any) -> bool:
+    """Recognise an actual question with at least two explicit choices."""
+    if not isinstance(message, str) or "?" not in message:
+        return False
+    option_markers = re.findall(
+        r"(?:\([a-z]\)|(?:^|[\s;])\d+[.)](?=\s))",
+        message,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    return len(option_markers) >= 2
+
+
+def _record_named_schema_absence_blocker(
+    state: AgentEditState,
+    *,
+    has_candidate: bool,
+) -> tuple[str, ...]:
+    """Attach typed class-absence proof for a no-candidate terminal choice."""
+    if has_candidate or not _clarification_has_question_and_options(state.user_message):
+        return ()
+    missing = _batch_named_schema_absences(state)
+    if not missing:
+        return ()
+    report = dict(state.report) if isinstance(state.report, Mapping) else {}
+    blocker = (
+        dict(report.get("authoring_blocker"))
+        if isinstance(report.get("authoring_blocker"), Mapping)
+        else {}
+    )
+    blocker.update(
+        {
+            "reason": "named_class_absent_from_schema",
+            "missing_runtime_classes": list(missing),
+            "message": state.user_message,
+        }
+    )
+    report["authoring_blocker"] = blocker
+    report["clarification_required"] = True
+    report["graph_unchanged"] = True
+    state.report = report
+    return missing
+
+
 _SPECIFIC_CLARIFY_ACTION_RE = re.compile(
     r"\b(?:install|provide|choose|select|specify|confirm|share|name|tell me|"
     r"connect|add|remove|enable|disable|retry)\b|\bwhich\s+[a-z0-9_]",
@@ -705,11 +787,16 @@ def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
     markdown = _format_clarify_markdown_message(message)
     response = dict(response)
     response["message"] = markdown
-    response["outcome"] = {
+    sanitized_outcome = {
         "kind": "clarify",
         "question": markdown,
         "clarification": {"message": markdown},
     }
+    for key in ("missing_classes", "options"):
+        value = outcome.get(key)
+        if isinstance(value, (list, tuple)) and value:
+            sanitized_outcome[key] = list(value)
+    response["outcome"] = sanitized_outcome
     internal_outcome = response.get("internal_outcome")
     if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
         response["internal_outcome"] = {"kind": "clarify", "question": markdown}
@@ -1072,6 +1159,9 @@ def _build_batch_repl_response(
     )
     if has_candidate and not delta_evidence_valid:
         has_candidate = False
+    named_schema_absence_terminal = bool(
+        _record_named_schema_absence_blocker(state, has_candidate=has_candidate)
+    )
     response_apply_eligibility = derive_apply_eligibility(
         context,
         has_candidate=has_candidate,
@@ -1114,7 +1204,7 @@ def _build_batch_repl_response(
     # external evidence is not a success: the edit cannot satisfy the request
     # with only the partial graph change. Weak registry/code-search leads are
     # not authoring capability and should not force a special product route.
-    unresolved_schema_terminal = (
+    unresolved_schema_terminal = named_schema_absence_terminal or (
         state.batch_exit_mode in (_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY)
         and any(
             _resolver_candidate_is_authoring_capability(candidate)

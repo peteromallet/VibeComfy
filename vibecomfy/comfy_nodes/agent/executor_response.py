@@ -114,11 +114,17 @@ def _sanitize_clarify_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     sanitized["message"] = markdown
     sanitized["clarification_required"] = True
     sanitized["clarification_message"] = markdown
-    sanitized["outcome"] = {
+    sanitized_outcome = {
         "kind": "clarify",
         "question": markdown,
         "clarification": {"message": markdown},
     }
+    if isinstance(outcome, Mapping):
+        for key in ("missing_classes", "options"):
+            value = outcome.get(key)
+            if isinstance(value, (list, tuple)) and value:
+                sanitized_outcome[key] = list(value)
+    sanitized["outcome"] = sanitized_outcome
     internal_outcome = sanitized.get("internal_outcome")
     if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
         sanitized["internal_outcome"] = {"kind": "clarify", "question": markdown}

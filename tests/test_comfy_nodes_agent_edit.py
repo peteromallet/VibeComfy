@@ -3027,6 +3027,68 @@ def test_batch_repl_search_partial_exact_miss_reports_missing_classes() -> None:
     ) in query_output
     assert "Use workflow precedent as pattern evidence" in query_output
     assert "ADE_AnimateDiffLoaderWithContext" in report
+    assert result.statements[0].detail["missing_classes"] == [
+        "ADE_AnimateDiffLoaderWithContext",
+        "ADE_AnimateDiffUniformContextOptions",
+    ]
+
+
+def test_rc5_named_schema_absence_with_real_options_promotes_typed_refusal() -> None:
+    """c80bbf-shaped: an exact named miss plus a real choice is not candidate."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+
+    question = (
+        "AudioLDM2 is not available in the local schema. Would you like to "
+        "(a) keep the current synchronized audio, (b) name another installed "
+        "audio class, or (c) adjust the current audio parameters?"
+    )
+    state = _make_state(
+        task="Replace the existing sampler with AudioLDM2",
+        request_payload={"query": "Replace the sampler with AudioLDM2"},
+        route="adapt",
+        user_message=question,
+        ui_payload={"nodes": [], "links": []},
+        batch_exit_mode="edit_clarify",
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "detail": {
+                            "query": "search",
+                            "missing_classes": ["AudioLDM2"],
+                        }
+                    }
+                ]
+            }
+        ],
+        report={"queue_blockers": []},
+    )
+    response = _build_batch_repl_response(
+        state,
+        TurnContext(session_id="rc5-c80bbf", turn_id="0001"),
+    )
+
+    assert response["outcome"]["kind"] == "requires_custom_nodes"
+    assert response["outcome"]["missing_classes"] == ["AudioLDM2"]
+    assert response["graph_unchanged"] is True
+    assert "candidate" not in response
+
+
+def test_rc5_named_schema_miss_does_not_override_representable_candidate() -> None:
+    from vibecomfy.comfy_nodes.agent._frag_response_contract import (
+        _record_named_schema_absence_blocker,
+    )
+
+    state = _make_state(
+        task="Replace FaceDetector with MTCNN",
+        request_payload={"query": "Replace FaceDetector with MTCNN"},
+        user_message="MTCNN is absent. Choose (a) current detector or (b) another detector?",
+        batch_turns=[{"statements": [{"detail": {"missing_classes": ["MTCNN"]}}]}],
+        report={},
+    )
+    assert _record_named_schema_absence_blocker(state, has_candidate=True) == ()
+    assert state.report == {}
 
 
 def test_batch_repl_web_url_only_research_prompts_concrete_workflow_followup() -> None:

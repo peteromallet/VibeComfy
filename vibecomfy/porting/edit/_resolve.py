@@ -781,12 +781,23 @@ class _ResolveMixin:
 
         output_text = str(output)
         focus_types = kwargs.get("focus_types")
+        missing_classes: list[str] = []
+        if isinstance(focus_types, (list, tuple)):
+            get_schema = getattr(self.schema_provider, "get_schema", None)
+            if callable(get_schema):
+                for raw_class_type in focus_types:
+                    class_type = str(raw_class_type or "").strip()
+                    if (
+                        class_type
+                        and class_type not in missing_classes
+                        and get_schema(class_type) is None
+                    ):
+                        missing_classes.append(class_type)
         if (
-            isinstance(focus_types, (list, tuple))
-            and focus_types
+            missing_classes
             and "No node signature found" in output_text
         ):
-            exact_focus = ", ".join(str(item) for item in focus_types if str(item).strip())
+            exact_focus = ", ".join(missing_classes)
             output_text += (
                 "\nThis local schema miss does not prove the named external workflow "
                 f"or model family is unavailable. Missing class name(s): {exact_focus}. "
@@ -796,13 +807,19 @@ class _ResolveMixin:
                 "by this edit session."
             )
 
+        detail: dict[str, Any] = {"query": "search", "query_output": output_text}
+        if missing_classes:
+            # Exact focus-type misses are structured proof from the active
+            # schema provider.  Response shaping may use this only when the
+            # user named the same class and the batch ends in a real choice.
+            detail["missing_classes"] = missing_classes
         return StatementResult(
             statement_index=statement_index,
             source=source,
             ok=True,
             landed=False,
             op_kind="query",
-            detail={"query": "search", "query_output": output_text},
+            detail=detail,
         )
 
     def _resolve_tool_call_statement(

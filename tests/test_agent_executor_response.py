@@ -69,6 +69,25 @@ def test_serialize_executor_result_shapes_clarify_response_without_apply_fields(
     }
 
 
+def test_serialize_clarify_preserves_class_absence_proof_and_options() -> None:
+    payload = {
+        "ok": True,
+        "route": "clarify",
+        "reply": "AudioLDM2 is absent. Choose (a) current audio or (b) another class?",
+        "outcome": {
+            "kind": "clarify",
+            "missing_classes": ["AudioLDM2"],
+            "options": ["current audio", "another class"],
+        },
+    }
+
+    serialized = serialize_executor_result(payload)
+
+    assert serialized["outcome"]["kind"] == "clarify"
+    assert serialized["outcome"]["missing_classes"] == ["AudioLDM2"]
+    assert serialized["outcome"]["options"] == ["current audio", "another class"]
+
+
 def test_serialize_executor_result_strips_non_applyable_response_fields() -> None:
     payload = {
         "ok": True,
