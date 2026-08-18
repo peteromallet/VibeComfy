@@ -2726,12 +2726,202 @@ def _claim_operations(payload: Any) -> list[Any]:
     return []
 
 
+# ── P2: UNGROUNDED-ANSWER grounding gates ────────────────────────────────────
+#
+# Deterministic, narrow prose gates over the submit ``reply`` (B04): a
+# causal/mechanistic claim must cite grounding evidence; a
+# recommendation-shaped number must cite node_schema or fetched-doc evidence.
+# These gate the QUALITY of citations, not their ledger membership (which
+# :func:`validate_two_step_final` already checks).  They are CORRECTABLE —
+# the executor feeds the diagnostics back for ONE bounded continuation before
+# failing closed.
+
+# Resolved-record tools: their evidence is "grounding" (a fetched/read record),
+# never a bare search hit.
+_GROUNDING_TOOL_NAMES = frozenset(
+    {"hivemind_get", "node_schema", "registry_lookup", "ready_template_load"}
+)
+
+# Narrow causal/mechanistic verbs — a widget/setting is asserted to DO
+# something algorithmic.  Generic edit verbs ("changed", "set", "swapped")
+# are deliberately absent so an edit narrative is never misread as a
+# mechanism claim.
+_MECHANISM_VERBS = (
+    "injects",
+    "injecting",
+    "amplifies",
+    "amplifying",
+    "maximizes",
+    "maximizing",
+    "minimizes",
+    "minimizing",
+    "denoises",
+    "denoising",
+    "sharpens",
+    "sharpening",
+    "smooths",
+    "smoothing",
+    "upscales",
+    "upscaling",
+    "downscales",
+    "downscaling",
+    "attenuates",
+    "attenuating",
+    "modulates",
+    "modulating",
+    "enhances",
+    "enhancing",
+    "boosts",
+    "boosting",
+    "compresses",
+    "compressing",
+)
+_MECHANISM_RE = re.compile(
+    r"\b(?:" + "|".join(_MECHANISM_VERBS) + r")\b", re.IGNORECASE
+)
+
+# Recommendation-shaped numbers.  Two high-precision shapes:
+#   1. a bolded setting name + directive (``**detail_amount**: Increase ...``),
+#   2. a directive verb followed shortly by a numeric value that is NOT part of
+#      a "from X to Y" before/after narration.
+_RECOMMENDATION_DIRECTIVES = (
+    "increase",
+    "decrease",
+    "set",
+    "try",
+    "raise",
+    "lower",
+    "adjust",
+    "use",
+    "reduce",
+)
+_REC_BOLD_RE = re.compile(
+    r"\*\*\w[\w -]*\*\*\s*:\s*\b(?:"
+    + "|".join(_RECOMMENDATION_DIRECTIVES)
+    + r")\b",
+    re.IGNORECASE,
+)
+_REC_INLINE_RE = re.compile(
+    r"(?:^|[.:\n])\s*\b(?:"
+    + "|".join(_RECOMMENDATION_DIRECTIVES)
+    + r")\b[^\n.]{0,60}?\d+(?:\.\d+)?",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _infer_tool_from_evidence_id(evidence_id: str) -> str:
+    """Best-effort tool provenance from an evidence id (no ledger available)."""
+    if evidence_id.startswith("tool:node_schema-"):
+        return "node_schema"
+    if evidence_id.startswith("tool:registry_lookup-"):
+        return "registry_lookup"
+    if evidence_id.startswith("tool:ready_template_load-"):
+        return "ready_template_load"
+    if evidence_id.startswith("tool:hivemind_get-") or evidence_id.startswith(
+        "hivemind:"
+    ):
+        return "hivemind_get"
+    if evidence_id.startswith("web:"):
+        return "web_search"
+    return ""
+
+
+def _cited_tools(
+    cited: Iterable[str], evidence_tools: Mapping[str, str] | None
+) -> set[str]:
+    tools: set[str] = set()
+    for evidence_id in cited:
+        if evidence_tools and evidence_id in evidence_tools:
+            tools.add(evidence_tools[evidence_id])
+        else:
+            tools.add(_infer_tool_from_evidence_id(evidence_id))
+    return tools
+
+
+def _has_mechanistic_claim(reply: str) -> bool:
+    return _MECHANISM_RE.search(reply) is not None
+
+
+def _has_numeric_recommendation(reply: str) -> bool:
+    if _REC_BOLD_RE.search(reply):
+        return True
+    for match in _REC_INLINE_RE.finditer(reply):
+        span = match.group(0)
+        if re.search(r"\bfrom\b", span, re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
+def grounding_violations(
+    final: TwoStepFinal | Mapping[str, Any],
+    *,
+    evidence_tools: Mapping[str, str] | None = None,
+    accepted_delta_ids: Iterable[str] = (),
+) -> tuple[str, ...]:
+    """Return the P2 grounding violations for *final*'s reply (B04).
+
+    Deterministic and narrow: a causal/mechanistic claim requires cited
+    grounding evidence (``hivemind_get`` / ``node_schema`` / ``registry_lookup``
+    / ``ready_template_load``); a recommendation-shaped number requires cited
+    ``node_schema`` or fetched-doc evidence.  An edit product (an edit-success
+    outcome or a cited accepted Δ) is grounded by the Δ itself and is never
+    flagged.  The caller feeds the returned diagnostics back for ONE bounded
+    corrective continuation, then fails closed.
+    """
+    if isinstance(final, TwoStepFinal):
+        reply = final.reply
+        claim_refs = final.claim_refs
+        assessment = final.self_assessment
+    elif isinstance(final, Mapping):
+        reply = str(final.get("reply") or "")
+        raw_refs = final.get("claim_refs")
+        claim_refs = (
+            TwoStepClaimRefs.from_mapping(raw_refs)
+            if isinstance(raw_refs, Mapping)
+            else TwoStepClaimRefs()
+        )
+        raw_assessment = final.get("self_assessment")
+        assessment = (
+            TwoStepSelfAssessment.from_mapping(raw_assessment)
+            if isinstance(raw_assessment, Mapping)
+            else None
+        )
+    else:
+        return ()
+
+    if not reply:
+        return ()
+
+    cited = set(claim_refs.evidence_ids)
+    accepted = {str(item) for item in accepted_delta_ids}
+    is_edit = bool(accepted) or (
+        assessment is not None and assessment.outcome in _EDIT_SUCCESS_OUTCOMES
+    )
+    if is_edit:
+        return ()
+
+    violations: list[str] = []
+    tools = _cited_tools(cited, evidence_tools)
+    if _has_mechanistic_claim(reply) and not (tools & _GROUNDING_TOOL_NAMES):
+        violations.append(
+            "causal/mechanistic claim requires cited grounding evidence "
+            "(hivemind_get / node_schema / registry_lookup / ready_template_load)"
+        )
+    if _has_numeric_recommendation(reply) and not (tools & {"node_schema", "hivemind_get"}):
+        violations.append(
+            "numeric recommendations require cited node_schema or fetched-doc evidence"
+        )
+    return tuple(violations)
+
+
 def validate_two_step_final(
     final: TwoStepFinal | Mapping[str, Any],
     *,
     accepted_delta_ids: Iterable[str] = (),
     lens_fact_ids: Iterable[str] = (),
     evidence_ids: Iterable[str] = (),
+    evidence_tools: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
     """Validate a two-step final's claim references (B04).  Fail closed.
 
@@ -2746,6 +2936,8 @@ def validate_two_step_final(
     * a turn-1 Δ id referenced in a later turn is valid only while that Δ is
       present in this session's ledger; forged or cross-session references
       (an id absent from the ledger) always produce a violation.
+    * P2 grounding gates (see :func:`grounding_violations`): causal/mechanistic
+      claims and recommendation-shaped numbers must carry qualifying citations.
 
     *final* may be a :class:`TwoStepFinal` or a raw submit-payload mapping.
     """
@@ -2791,6 +2983,13 @@ def validate_two_step_final(
         violations.append(
             "edit-success outcome requires at least one accepted Δ"
         )
+    violations.extend(
+        grounding_violations(
+            final,
+            evidence_tools=evidence_tools,
+            accepted_delta_ids=accepted_delta_ids,
+        )
+    )
     return tuple(violations)
 
 

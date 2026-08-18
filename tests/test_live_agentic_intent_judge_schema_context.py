@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from tests.live_agentic_harness.intent_judge import (
+    ConflictingVerdictsError,
     _parse_refusal_verdict,
     _parse_semantic_verdict,
     _parse_verdict,
@@ -1024,3 +1025,51 @@ def test_intent_judge_3c978e_sees_same_controlnet_facts_as_reply(
                 f"ControlNet chain link {origin}->{target} missing from judge "
                 f"{side} lens payload"
             )
+
+
+class TestJudgeTrailingJsonTolerantParse:
+    """P3: judge verdict parsers are tolerant of trailing prose, never of
+    conflicting verdict objects."""
+
+    def test_semantic_verdict_ignores_trailing_prose(self) -> None:
+        raw = json.dumps(_semantic_verdict_content()) + "\n\n(extra data after)"
+        verdict = _parse_semantic_verdict(raw)
+        assert verdict["pass_"] is True
+        assert verdict["criteria"]["grounded"] is True
+
+    def test_edit_verdict_ignores_trailing_prose(self) -> None:
+        raw = json.dumps(_edit_verdict_content()) + " trailing prose"
+        verdict = _parse_verdict(raw)
+        assert verdict["pass_"] is True
+
+    def test_refusal_verdict_ignores_trailing_prose(self) -> None:
+        raw = json.dumps(_refusal_verdict_content()) + " some trailing text"
+        verdict = _parse_refusal_verdict(raw)
+        assert verdict["pass_"] is True
+
+    def test_braces_inside_rationale_are_balanced(self) -> None:
+        content = _semantic_verdict_content()
+        content["rationale"] = "the answer maps {grounded} to {correct} but not {missing}"
+        raw = json.dumps(content) + " extra"
+        verdict = _parse_semantic_verdict(raw)
+        assert verdict["pass_"] is True
+        assert "{grounded}" in verdict["rationale"]
+
+    def test_conflicting_verdict_objects_raise(self) -> None:
+        import pytest
+
+        raw = json.dumps(_semantic_verdict_content()) + json.dumps(
+            _semantic_verdict_content(pass_=False)
+        )
+        with pytest.raises(ConflictingVerdictsError):
+            _parse_semantic_verdict(raw)
+
+    def test_trailing_non_verdict_object_does_not_conflict(self) -> None:
+        # A trailing JSON object that is NOT verdict-shaped (no pass_/criteria)
+        # is just trailing prose — parse the first verdict, ignore the rest.
+        raw = (
+            json.dumps(_semantic_verdict_content())
+            + '{"note": "not a verdict", "other": 1}'
+        )
+        verdict = _parse_semantic_verdict(raw)
+        assert verdict["pass_"] is True

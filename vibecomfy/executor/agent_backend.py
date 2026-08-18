@@ -378,6 +378,7 @@ from vibecomfy.executor.two_step import (  # noqa: E402
 )
 from vibecomfy.executor.two_step_session import (  # noqa: E402
     DEFAULT_TWO_STEP_SESSION_ROOT,
+    ERROR_UNGROUNDED_ANSWER,
     TwoStepSessionError,
     TwoStepSessionState,
     TwoStepSessionStore,
@@ -607,7 +608,7 @@ def run_execute_turn(
     """
     from vibecomfy.comfy_nodes.agent.provider import run_model_turn  # noqa: PLC0415
     from .prompts import build_two_step_execute_messages, parse_two_step_submit  # noqa: PLC0415
-    from .contracts import validate_two_step_final  # noqa: PLC0415
+    from .contracts import grounding_violations, validate_two_step_final  # noqa: PLC0415
 
     if model_turn_fn is None:
         model_turn_fn = run_model_turn
@@ -684,6 +685,7 @@ def run_execute_turn(
             return {"ok": False, "reply": reply, "route": route, "failure": failure}
 
         continuation = 0
+        grounding_retry_used = False
         while True:
             session_budget = state.budget
             try:
@@ -871,11 +873,38 @@ def run_execute_turn(
             elif kind == "submit":
                 state = session_store.load(session_id)
                 final = parse_two_step_submit(action)
+                grounding = grounding_violations(
+                    final,
+                    evidence_tools=state.evidence_tool_map(),
+                    accepted_delta_ids=state.accepted_delta_ids(),
+                )
+                if grounding:
+                    if not grounding_retry_used:
+                        # P2: ONE bounded corrective continuation.  Feed the
+                        # diagnostics back so the model can re-submit with
+                        # proper citations; the second violation fails closed.
+                        grounding_retry_used = True
+                        session_store.append(
+                            session_id,
+                            "grounding_retry",
+                            {"violations": list(grounding)},
+                            turn=turn,
+                        )
+                        state = session_store.load(session_id)
+                        continuation += 1
+                        continue
+                    exc = TwoStepSessionError(
+                        ERROR_UNGROUNDED_ANSWER,
+                        "; ".join(grounding),
+                        session_id=session_id,
+                    )
+                    return {"ok": False, "reply": None, "route": route, "failure": exc}
                 violations = validate_two_step_final(
                     final,
                     accepted_delta_ids=state.accepted_delta_ids(),
                     lens_fact_ids=state.lens_fact_ids(),
                     evidence_ids=state.evidence_ids(),
+                    evidence_tools=state.evidence_tool_map(),
                 )
                 if violations:
                     exc = TwoStepSessionError(

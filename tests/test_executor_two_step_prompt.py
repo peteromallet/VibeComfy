@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vibecomfy.executor.prompts import build_two_step_execute_messages
+from vibecomfy.executor.prompts import (
+    _extract_json_object,
+    build_two_step_execute_messages,
+)
+from vibecomfy.executor.agent_backend import _parse_host_action
 from vibecomfy.executor.tool_specs import IMPLEMENT_PHASE_TOOLS, RESEARCH_PHASE_TOOLS
 from vibecomfy.executor.two_step import TWO_STEP_ROUTE_POLICIES, effective_route_tools
 
@@ -153,7 +157,9 @@ class TestContinuityAndDenial:
 GROUNDING_SENTENCE = (
     "Never assert a causal mechanism for a widget/setting unless you can cite "
     "the schema or documentation that states it; if unsure, describe the "
-    "observed value and mark the mechanism as unverified."
+    "observed value and mark the mechanism as unverified.  When no schema or "
+    "fetched-doc evidence is available for a setting, state \"unknown\" and "
+    "give NO numeric recommendations."
 )
 
 
@@ -192,3 +198,101 @@ class TestKnownGraphContextFallback:
     def test_absent_known_graph_context_omits_the_block(self) -> None:
         user = _build("research")[1]["content"]
         assert "Known graph context" not in user
+
+
+class TestHostActionParseFirstWins:
+    """P0 PARSE-MULTI-JSON: the parser is balanced and FIRST-WINS.
+
+    A ``{apply}{submit}`` concatenation must yield only the apply; the
+    trailing submit is quarantined, never silently executed.
+    """
+
+    def test_apply_submit_concatenation_yields_apply_only(self) -> None:
+        action = _parse_host_action(
+            '{"action": "apply", "python": "rodin3d_regular.widget_2 = \'1M-Triangle\'"}'
+            '{"action": "submit", "reply": "done"}'
+        )
+        assert action["action"] == "apply"
+        assert "python" in action
+
+    def test_tool_call_plus_submit_yields_tool_call(self) -> None:
+        action = _parse_host_action(
+            '{"action": "tool_call", "tool": "node_schema", "args": {"node_class": "KSampler"}}'
+            '{"action": "submit", "reply": "done"}'
+        )
+        assert action["action"] == "tool_call"
+        assert action["tool"] == "node_schema"
+
+    def test_fenced_json_object(self) -> None:
+        parsed = _extract_json_object(
+            '```json\n{"action": "apply", "python": "x = 1"}\n```'
+        )
+        assert parsed["action"] == "apply"
+
+    def test_braces_inside_strings_are_balanced(self) -> None:
+        # The greedy ``\{.*\}`` regex used to span braces inside strings; the
+        # balanced raw_decode scan must not.
+        parsed = _extract_json_object(
+            '{"action": "apply", "python": "s = \\"{not json} and {more}\\""}'
+            '{"action": "submit", "reply": "done"}'
+        )
+        assert parsed["action"] == "apply"
+        assert "{not json} and {more}" in parsed["python"]
+
+    def test_trailing_prose_is_ignored(self) -> None:
+        parsed = _extract_json_object(
+            '{"action": "apply", "python": "x = 1"} trailing prose after the object'
+        )
+        assert parsed["action"] == "apply"
+
+    def test_no_json_object_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError):
+            _extract_json_object("no json here at all")
+
+    def test_unknown_action_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError):
+            _parse_host_action('{"action": "dance", "steps": 3}')
+
+
+class TestEditDeliveryRefusalPrompt:
+    """P1: the prompt instructs graph-checked refusal and exact bindings."""
+
+    def test_edit_delivery_section_present(self) -> None:
+        for route in ROUTES:
+            system = _build(route)[0]["content"]
+            assert "EDIT DELIVERY AND REFUSAL" in system, route
+
+    def test_check_graph_before_claiming_absence(self) -> None:
+        for route in ROUTES:
+            system = _build(route)[0]["content"]
+            assert "inspect the" in system and "CURRENT WORKFLOW render" in system, route
+            assert "registered and may be reused or re-instantiated" in system, route
+
+    def test_copy_exact_rendered_binding(self) -> None:
+        for route in ROUTES:
+            system = _build(route)[0]["content"]
+            assert "Copy the EXACT rendered" in system, route
+
+    def test_refusal_only_after_proven_absence(self) -> None:
+        for route in ROUTES:
+            system = _build(route)[0]["content"]
+            assert (
+                "Emit the `requires_custom_nodes` refusal ONLY after a named class"
+                in system
+            ), route
+            assert "proven absent by a failed `node_schema` lookup" in system, route
+
+
+class TestSingleObjectPerMessagePrompt:
+    """P0 prompt strengthening: one object per continuation, wait for feedback."""
+
+    def test_never_emit_two_objects_instruction(self) -> None:
+        for route in ROUTES:
+            system = _build(route)[0]["content"]
+            assert "Return EXACTLY ONE object per message" in system, route
+            assert "Never emit two objects back-to-back" in system, route
+            assert "after an apply, STOP and wait for host feedback" in system, route

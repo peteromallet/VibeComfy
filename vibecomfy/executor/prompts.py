@@ -756,6 +756,18 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "Never claim an edit (self_assessment.outcome=edited) before the host has\n"
     "accepted a Δ AND produced the post-edit lens.\n"
     "\n"
+    "EDIT DELIVERY AND REFUSAL\n"
+    "=========================\n"
+    "Before claiming a node class is missing or cannot be added, inspect the\n"
+    "CURRENT WORKFLOW render: any class_type already present in the graph is\n"
+    "registered and may be reused or re-instantiated.  Copy the EXACT rendered\n"
+    "binding (the variable name shown beside each node) into your Python batch —\n"
+    "never invent a class-derived name.  Reuse an existing node where possible,\n"
+    "and call `node_schema` or attempt the edit BEFORE claiming a node is\n"
+    "absent.  Emit the `requires_custom_nodes` refusal ONLY after a named class\n"
+    "is proven absent by a failed `node_schema` lookup or a rejected edit —\n"
+    "never from an unverified assumption.\n"
+    "\n"
     "SAME-WINDOW CONTINUITY\n"
     "======================\n"
     "You are ONE thread-continuous session for this chat window.  Prior turns in\n"
@@ -792,6 +804,9 @@ _TWO_STEP_EXECUTE_SYSTEM_TEMPLATE = (
     "  - Tool call:     {\"action\": \"tool_call\", \"tool\": \"<name>\", \"args\": {...}}\n"
     "  - Python batch:  {\"action\": \"apply\", \"python\": \"<edit statements>\"}\n"
     "  - Final:         the SUBMIT contract above.\n"
+    "Return EXACTLY ONE object per message.  Never emit two objects back-to-back\n"
+    "(e.g. `{apply}{submit}`); after an apply, STOP and wait for host feedback\n"
+    "before emitting anything else.\n"
 )
 
 _TWO_STEP_NON_EDIT_NOTE = (
@@ -811,7 +826,9 @@ _TWO_STEP_NON_EDIT_CONTRACT = (
 _GROUNDING_CONSTRAINT = (
     "Never assert a causal mechanism for a widget/setting unless you can cite the "
     "schema or documentation that states it; if unsure, describe the observed "
-    "value and mark the mechanism as unverified."
+    "value and mark the mechanism as unverified.  When no schema or fetched-doc "
+    "evidence is available for a setting, state \"unknown\" and give NO numeric "
+    "recommendations."
 )
 
 
@@ -993,17 +1010,17 @@ def build_two_step_execute_messages(
 
 # ── response parsers ─────────────────────────────────────────────────────────
 
-# Matches a JSON object that starts with { and ends with } across lines.
-# More permissive than the top-level json.loads so we can extract from
-# model output that may have stray whitespace or a trailing period.
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
-
 
 def _extract_json_object(text: str) -> dict[str, Any]:
-    """Extract the first JSON object from potentially noisy model output.
+    """Extract the FIRST valid JSON object from potentially noisy model output.
 
-    Strips markdown fences, trims surrounding whitespace, and falls back to
-    regex extraction before handing off to ``json.loads``.
+    Strips markdown fences, then scans with ``json.JSONDecoder.raw_decode`` —
+    a balanced parse, never the greedy ``\\{.*\\}`` regex that used to span
+    concatenated objects.  FIRST-WINS semantics: a ``{apply}{submit}``
+    concatenation yields only the ``apply`` object; any trailing content (a
+    second object, prose, stray tokens) is quarantined and ignored.  Callers
+    that need a fresh continuation (e.g. the trailing ``submit``) request it
+    themselves — a trailing object is never silently executed.
     """
     stripped = text.strip()
     # Strip outermost ``` fences (with or without ``json`` language tag).
@@ -1012,24 +1029,18 @@ def _extract_json_object(text: str) -> dict[str, Any]:
         if match:
             stripped = match.group(1).strip()
 
-    # Try direct parse first (fast path).
-    try:
-        parsed = json.loads(stripped)
+    decoder = json.JSONDecoder()
+    # Walk candidate ``{`` positions; raw_decode is balanced so braces inside
+    # strings and nested objects are handled correctly.
+    for idx, ch in enumerate(stripped):
+        if ch != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(stripped, idx)
+        except json.JSONDecodeError:
+            continue
         if isinstance(parsed, dict):
             return parsed
-    except json.JSONDecodeError:
-        pass
-
-    # Fall back to regex extraction: find the first { ... } span.
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-
     raise ValueError(f"Could not extract a JSON object from: {text[:200]!r}")
 
 

@@ -12,7 +12,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from vibecomfy.comfy_nodes.agent.provider import run_model_turn
 from vibecomfy.porting.edit.constants import MODE_LABELS
@@ -180,6 +180,80 @@ def _derive_verdict(parsed: Any, criterion_keys: tuple[str, ...]) -> dict[str, A
     }
 
 
+_VERDICT_KEYS = frozenset({"pass_", "criteria"})
+
+
+class ConflictingVerdictsError(ValueError):
+    """Two or more verdict-shaped JSON objects were found in one response.
+
+    The judge never "processes all" of them or silently picks a winner — the
+    caller retries once, then remains undetermined.
+    """
+
+
+def _is_verdict_object(value: Any) -> bool:
+    return isinstance(value, dict) and any(key in value for key in _VERDICT_KEYS)
+
+
+def _first_json_object(text: str) -> dict[str, Any]:
+    """Parse the FIRST valid JSON object in *text* (fence-stripped already).
+
+    Trailing prose is ignored; a balanced ``JSONDecoder.raw_decode`` scan
+    handles nested objects and braces inside strings.  If a SECOND
+    verdict-shaped JSON object follows the first, raise
+    :class:`ConflictingVerdictsError` — the caller must not silently resolve
+    between conflicting verdicts.
+    """
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if _trailing_verdict_object(text[end:]):
+            raise ConflictingVerdictsError(
+                "conflicting verdict objects in judge response"
+            )
+        return parsed
+    raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def _trailing_verdict_object(rest: str) -> bool:
+    """True when *rest* (after the first object) begins another verdict object."""
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(rest):
+        if ch != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(rest, idx)
+        except json.JSONDecodeError:
+            continue
+        return _is_verdict_object(parsed)
+    return False
+
+
+def _parse_judge_response_with_retry(
+    raw: str,
+    parse_verdict: Callable[[str], dict[str, Any]],
+    *,
+    retry_call: Callable[[], str],
+) -> dict[str, Any]:
+    """Parse a judge response; on conflicting verdict objects, retry ONCE.
+
+    The second conflict (or an unparseable retry) propagates so the caller can
+    remain undetermined — never "process all" conflicting verdicts.
+    """
+    try:
+        return parse_verdict(raw)
+    except ConflictingVerdictsError:
+        retry_raw = retry_call()
+        return parse_verdict(retry_raw)
+
+
 def _parse_verdict(raw: str) -> dict[str, Any]:
     """Parse the judge's JSON response into a normalized dict.
 
@@ -187,9 +261,11 @@ def _parse_verdict(raw: str) -> dict[str, Any]:
     model's self-declared ``pass_``: it is True iff every required criterion
     is an explicit JSON boolean ``true`` and ``pass_`` itself is an explicit
     boolean.  String-typed booleans, missing criteria, false criteria, and
-    contradictory self-declarations all fail closed.
+    contradictory self-declarations all fail closed.  Trailing prose after the
+    verdict object is ignored; a second verdict object raises
+    :class:`ConflictingVerdictsError`.
     """
-    parsed = json.loads(_strip_code_fences(raw))
+    parsed = _first_json_object(_strip_code_fences(raw))
     return _derive_verdict(parsed, _EDIT_CRITERION_KEYS)
 
 
@@ -201,7 +277,7 @@ def _parse_refusal_verdict(raw: str) -> dict[str, Any]:
     representable edit, specific next action, no fabricated inability), not
     from the model's self-declared ``pass_``.
     """
-    parsed = json.loads(_strip_code_fences(raw))
+    parsed = _first_json_object(_strip_code_fences(raw))
     return _derive_verdict(parsed, _REFUSAL_CRITERION_KEYS)
 
 
@@ -210,10 +286,11 @@ def _parse_semantic_verdict(raw: str) -> dict[str, Any]:
 
     Same fail-closed contract as :func:`_parse_verdict`: the verdict is
     derived from grounded/relevant/correct, not from the model's
-    self-declared ``pass_``. Malformed parsed objects fail; only
-    ``json.loads`` raising stays undetermined in the caller.
+    self-declared ``pass_``.  Malformed parsed objects fail; only a genuinely
+    unparsable response (or conflicting verdict objects) stays undetermined in
+    the caller.
     """
-    parsed = json.loads(_strip_code_fences(raw))
+    parsed = _first_json_object(_strip_code_fences(raw))
     return _derive_verdict(parsed, _SEMANTIC_CRITERION_KEYS)
 
 
@@ -1005,17 +1082,22 @@ def judge_edit_intent(
         payload["pregrade"] = pregrade
     user_content = json.dumps(payload, indent=2)
 
-    try:
-        response = run_model_turn(
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    def _call_model() -> dict[str, Any]:
+        return run_model_turn(
             "evaluate workflow edit against intent",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             route=route,
             model=model,
             response_contract="json",
         )
+
+    try:
+        response = _call_model()
     except Exception as exc:  # noqa: BLE001
         return {"pass_": None, "error": f"model call failed: {exc}"}
 
@@ -1024,7 +1106,17 @@ def judge_edit_intent(
         return {"pass_": None, "error": "model returned empty content"}
 
     try:
-        verdict = _parse_verdict(raw)
+        verdict = _parse_judge_response_with_retry(
+            raw,
+            _parse_verdict,
+            retry_call=lambda: (_call_model().get("content") or ""),
+        )
+    except ConflictingVerdictsError as exc:
+        return {
+            "pass_": None,
+            "error": f"conflicting verdict objects: {exc}",
+            "raw": raw[:500],
+        }
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return {
             "pass_": None,
@@ -1118,17 +1210,22 @@ def judge_grounded_refusal(
         payload["node_inventory"] = node_inventory
     user_content = json.dumps(payload, indent=2)
 
-    try:
-        response = run_model_turn(
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    def _call_model() -> dict[str, Any]:
+        return run_model_turn(
             "evaluate whether a workflow-edit refusal is grounded",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             route=route,
             model=model,
             response_contract="json",
         )
+
+    try:
+        response = _call_model()
     except Exception as exc:  # noqa: BLE001
         return {"pass_": None, "error": f"model call failed: {exc}"}
 
@@ -1137,7 +1234,17 @@ def judge_grounded_refusal(
         return {"pass_": None, "error": "model returned empty content"}
 
     try:
-        verdict = _parse_refusal_verdict(raw)
+        verdict = _parse_judge_response_with_retry(
+            raw,
+            _parse_refusal_verdict,
+            retry_call=lambda: (_call_model().get("content") or ""),
+        )
+    except ConflictingVerdictsError as exc:
+        return {
+            "pass_": None,
+            "error": f"conflicting verdict objects: {exc}",
+            "raw": raw[:500],
+        }
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return {
             "pass_": None,
@@ -1216,17 +1323,22 @@ def judge_semantic_answer(
     payload["mode_labels"] = _mode_labels_payload()
     user_content = json.dumps(payload, indent=2)
 
-    try:
-        model_response = run_model_turn(
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    def _call_model() -> dict[str, Any]:
+        return run_model_turn(
             "evaluate whether a workflow answer is grounded, relevant, and correct",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             route=route,
             model=model,
             response_contract="json",
         )
+
+    try:
+        model_response = _call_model()
     except Exception as exc:  # noqa: BLE001
         return {"pass_": None, "error": f"model call failed: {exc}"}
 
@@ -1235,7 +1347,17 @@ def judge_semantic_answer(
         return {"pass_": None, "error": "model returned empty content"}
 
     try:
-        verdict = _parse_semantic_verdict(raw)
+        verdict = _parse_judge_response_with_retry(
+            raw,
+            _parse_semantic_verdict,
+            retry_call=lambda: (_call_model().get("content") or ""),
+        )
+    except ConflictingVerdictsError as exc:
+        return {
+            "pass_": None,
+            "error": f"conflicting verdict objects: {exc}",
+            "raw": raw[:500],
+        }
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return {
             "pass_": None,

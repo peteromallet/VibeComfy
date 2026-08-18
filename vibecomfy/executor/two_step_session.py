@@ -30,6 +30,10 @@ model work:
                                in flight (detected via the in-flight marker).
 * ``missing_delta_reference`` — a final contract cites a Δ id that is not in
                                the session's accumulated accepted-Δ ledger.
+* ``ungrounded_answer``       — a submit's reply asserts a causal mechanism or
+                               a numeric recommendation without the required
+                               grounding citation, after one corrective
+                               continuation already ran.
 """
 
 from __future__ import annotations
@@ -76,6 +80,7 @@ ERROR_SESSION_EXPIRED = "session_expired"
 ERROR_STALE_MESSAGE = "stale_message"
 ERROR_CONCURRENT_MESSAGE = "concurrent_message"
 ERROR_MISSING_DELTA_REFERENCE = "missing_delta_reference"
+ERROR_UNGROUNDED_ANSWER = "ungrounded_answer"
 
 _TWO_STEP_ERROR_KINDS = frozenset(
     {
@@ -84,6 +89,7 @@ _TWO_STEP_ERROR_KINDS = frozenset(
         ERROR_STALE_MESSAGE,
         ERROR_CONCURRENT_MESSAGE,
         ERROR_MISSING_DELTA_REFERENCE,
+        ERROR_UNGROUNDED_ANSWER,
     }
 )
 
@@ -240,6 +246,20 @@ class TwoStepSessionState:
                 if evidence_id:
                     ids.append(str(evidence_id))
         return tuple(ids)
+
+    def evidence_tool_map(self) -> dict[str, str]:
+        """Return ``{evidence_id: tool}`` provenance from the evidence ledger.
+
+        First tool wins per evidence id (ids are minted per tool call, so a
+        collision is a harness bug, not a real ambiguity).
+        """
+        tools: dict[str, str] = {}
+        for entry in self.evidence_ledger:
+            tool = str(entry.get("tool") or "")
+            for evidence_id in (entry.get("evidence_ids") or ()):
+                if evidence_id and str(evidence_id) not in tools:
+                    tools[str(evidence_id)] = tool
+        return tools
 
     def research_attempt(self) -> str:
         return derive_research_attempt(self.evidence_ledger)
@@ -1176,6 +1196,18 @@ class TwoStepSessionStore:
                 state,
                 messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
             )
+        elif kind == "grounding_retry":
+            diagnostics = " | ".join(str(d) for d in (event.get("violations") or ()))
+            text = (
+                "submit rejected for missing grounding: " + diagnostics
+                + " — re-submit with proper claim_refs (cite node_schema / "
+                + "fetched-doc evidence, or state 'unknown' and drop numeric "
+                + "recommendations)."
+            )
+            state = replace(
+                state,
+                messages=state.messages + ({"turn": turn, "role": "assistant_feedback", "content": text, "route": route},),
+            )
         elif kind == "model_truncated":
             # A provider ``finish_reason=length`` cut the model off mid-action.
             # The partial output is retained so the next continuation sees what
@@ -1212,6 +1244,7 @@ __all__ = [
     "ERROR_MISSING_DELTA_REFERENCE",
     "ERROR_SESSION_EXPIRED",
     "ERROR_STALE_MESSAGE",
+    "ERROR_UNGROUNDED_ANSWER",
     "EditSessionCache",
     "SessionBudget",
     "TwoStepSessionError",

@@ -17,6 +17,7 @@ from vibecomfy.executor.contracts import (
     TwoStepExecutionReport,
     TwoStepFinal,
     TwoStepSelfAssessment,
+    grounding_violations,
     validate_two_step_final,
 )
 
@@ -160,3 +161,84 @@ def test_accepts_raw_mapping_final() -> None:
 def test_non_mapping_final_reports_violation() -> None:
     violations = validate_two_step_final(42)  # type: ignore[arg-type]
     assert violations != ()
+
+
+# ── P2: UNGROUNDED-ANSWER grounding gates ────────────────────────────────────
+
+
+def _reply_final(
+    reply: str,
+    *,
+    evidence_ids: tuple[str, ...] = (),
+    outcome: str = "no_change",
+) -> TwoStepFinal:
+    return TwoStepFinal(
+        reply=reply,
+        claim_refs=TwoStepClaimRefs(evidence_ids=evidence_ids),
+        self_assessment=TwoStepSelfAssessment(outcome=outcome),
+    )
+
+
+def test_mechanism_claim_without_grounding_fails() -> None:
+    final = _reply_final(
+        "The DetailDaemon sampler injects a detail-enhancement guidance signal "
+        "that amplifies high-frequency textures and transients."
+    )
+    violations = validate_two_step_final(final, evidence_tools={"e1": "hivemind_search"})
+    assert any("causal/mechanistic claim" in v for v in violations)
+
+
+def test_mechanism_claim_with_grounding_citation_passes() -> None:
+    final = _reply_final(
+        "The sampler injects a detail signal.",
+        evidence_ids=("e1",),
+    )
+    violations = validate_two_step_final(
+        final,
+        evidence_ids=("e1",),
+        evidence_tools={"e1": "hivemind_get"},
+    )
+    assert violations == ()
+
+
+def test_numeric_recommendation_without_schema_fails() -> None:
+    final = _reply_final(
+        "**detail_amount**: Increase to 0.2-0.25.\n**start**: Set to 0.25."
+    )
+    violations = validate_two_step_final(final, evidence_tools={"e1": "hivemind_search"})
+    assert any("numeric recommendations" in v for v in violations)
+
+
+def test_numeric_recommendation_with_schema_passes() -> None:
+    final = _reply_final(
+        "**detail_amount**: Increase to 0.2-0.25.",
+        evidence_ids=("tool:node_schema-DetailDaemonSamplerNode",),
+    )
+    violations = validate_two_step_final(
+        final,
+        evidence_ids=("tool:node_schema-DetailDaemonSamplerNode",),
+        evidence_tools={"tool:node_schema-DetailDaemonSamplerNode": "node_schema"},
+    )
+    assert violations == ()
+
+
+def test_observed_value_is_not_a_recommendation() -> None:
+    # A declarative statement of the CURRENT value is not advice; it must not
+    # trip the recommendation gate.
+    final = _reply_final("The detail_amount is set to 0.1 in this workflow.")
+    violations = validate_two_step_final(final)
+    assert violations == ()
+
+
+def test_edit_product_is_never_flagged_for_grounding() -> None:
+    # An edit narrative (before/after) is grounded by the Δ itself.
+    final = _reply_final("I reduced the frame count from 16 to 8.", outcome="edited")
+    violations = validate_two_step_final(final, accepted_delta_ids=("d1",))
+    assert violations == ()
+
+
+def test_grounding_violations_helper_matches_validate() -> None:
+    final = _reply_final("The node amplifies detail without any citation.")
+    grounding = grounding_violations(final)
+    assert grounding != ()
+    assert set(grounding) <= set(validate_two_step_final(final))
