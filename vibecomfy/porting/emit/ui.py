@@ -927,6 +927,27 @@ def _emitted_socket_slot_for_link(
     return None
 
 
+def _emitted_input_slot_for_link(
+    sockets: list[dict[str, Any]] | None,
+    canonical_name: str,
+) -> int | None:
+    """Resolve an inbound endpoint by its canonical input name only.
+
+    Widget materialization may collapse the physical input array.  Old slot
+    numbers and ``slot_index`` furniture are therefore not identity evidence
+    for inbound links.  A unique canonical name is required; ambiguity or a
+    missing name fails closed through the caller's B2 refusal path.
+    """
+    if not isinstance(sockets, list) or not canonical_name:
+        return None
+    matches = [
+        index
+        for index, socket in enumerate(sockets)
+        if isinstance(socket, dict) and socket.get("name") == canonical_name
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _emitted_socket_array_evidence(
     sockets: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -1016,6 +1037,29 @@ def _remap_attempts_evidence(
                 if isinstance(socket, dict) and socket.get("slot_index") == slot
             ],
         },
+    ]
+
+
+def _input_remap_attempts_evidence(
+    sockets: list[dict[str, Any]] | None,
+    slot: int,
+    canonical_name: str,
+) -> list[dict[str, Any]]:
+    """Evidence for strict canonical-name inbound endpoint resolution."""
+    if not isinstance(sockets, list):
+        return [{"strategy": "invalid_socket_array", "detail": type(sockets).__name__}]
+    return [
+        {
+            "strategy": "canonical_input_name_scan",
+            "sought_name": canonical_name,
+            "requested_slot": slot,
+            "found_at": [
+                index
+                for index, socket in enumerate(sockets)
+                if isinstance(socket, dict) and socket.get("name") == canonical_name
+            ],
+            "requires_unique_match": True,
+        }
     ]
 
 
@@ -3073,12 +3117,10 @@ def emit_ui_json(
             else:
                 from_slot = remapped
         if emitted_inputs is not None:
-            remapped = _emitted_socket_slot_for_link(
-                emitted_inputs, to_slot, edge.to_input
-            )
+            remapped = _emitted_input_slot_for_link(emitted_inputs, edge.to_input)
             if remapped is None:
                 target_socket_missing = True
-                target_endpoint["attempted_remaps"] = _remap_attempts_evidence(
+                target_endpoint["attempted_remaps"] = _input_remap_attempts_evidence(
                     emitted_inputs, to_slot, edge.to_input
                 )
             else:
@@ -3555,6 +3597,138 @@ def _index_links(graph: Mapping[str, Any]) -> dict[tuple[str, int], Any]:
     return index
 
 
+def _nodes_by_native_id(scope: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    nodes = scope.get("nodes")
+    if not isinstance(nodes, list):
+        return {}
+    return {
+        str(node.get("id")): node
+        for node in nodes
+        if isinstance(node, Mapping) and node.get("id") is not None
+    }
+
+
+def _socket_name_at(node: Mapping[str, Any] | None, direction: str, slot: Any) -> str | None:
+    if not isinstance(node, Mapping) or not isinstance(slot, int):
+        return None
+    sockets = node.get("inputs" if direction == "input" else "outputs")
+    if not isinstance(sockets, list) or not (0 <= slot < len(sockets)):
+        return None
+    socket = sockets[slot]
+    if not isinstance(socket, Mapping):
+        return None
+    name = socket.get("name")
+    return str(name) if isinstance(name, str) and name else None
+
+
+def _remap_preserved_inbound_links(
+    original_scope: Mapping[str, Any],
+    candidate_scope: Mapping[str, Any],
+    links: Sequence[Any],
+    *,
+    changed_target_ids: set[str],
+    materialized_input_names: Mapping[str, set[str]] | None = None,
+) -> list[Any]:
+    """Re-slot preserved links whose target input array was materialized anew."""
+    if not changed_target_ids:
+        return deepcopy(list(links))
+    original_nodes = _nodes_by_native_id(original_scope)
+    candidate_nodes = _nodes_by_native_id(candidate_scope)
+    remapped_links: list[Any] = []
+    dangling_links: list[dict[str, Any]] = []
+    for raw_link in links:
+        if not isinstance(raw_link, (list, tuple)) or len(raw_link) != 6:
+            remapped_links.append(deepcopy(raw_link))
+            continue
+        link = list(raw_link)
+        _, from_node, from_slot, to_node, to_slot, _socket_type = link
+        target_id = str(to_node)
+        if target_id not in changed_target_ids:
+            remapped_links.append(deepcopy(link))
+            continue
+        original_target = original_nodes.get(target_id)
+        candidate_target = candidate_nodes.get(target_id)
+        canonical_name = _socket_name_at(original_target, "input", to_slot)
+        candidate_inputs = (
+            candidate_target.get("inputs")
+            if isinstance(candidate_target, Mapping)
+            else None
+        )
+        remapped = _emitted_input_slot_for_link(candidate_inputs, canonical_name or "")
+        if remapped is not None:
+            link[4] = remapped
+            remapped_links.append(link)
+            continue
+        if canonical_name in (materialized_input_names or {}).get(target_id, set()):
+            # The field write itself replaces this inbound link with a widget
+            # value.  Only that explicitly named endpoint may disappear; all
+            # remaining links must resolve by canonical name below.
+            continue
+        source = candidate_nodes.get(str(from_node)) or original_nodes.get(str(from_node))
+        outputs = source.get("outputs") if isinstance(source, Mapping) else None
+        dangling_links.append(
+            {
+                "key": f"{from_node}.{from_slot} -> {to_node}.{canonical_name or to_slot}",
+                "evidence": {
+                    "source": {
+                        "node_id": str(from_node),
+                        "requested_output": _socket_name_at(source, "output", from_slot)
+                        or str(from_slot),
+                        "requested_slot": from_slot,
+                        "emitted_sockets": _emitted_socket_array_evidence(outputs),
+                    },
+                    "target": {
+                        "node_id": target_id,
+                        "requested_input": canonical_name,
+                        "requested_slot": to_slot,
+                        "emitted_sockets": _emitted_socket_array_evidence(candidate_inputs),
+                        "attempted_remaps": _input_remap_attempts_evidence(
+                            candidate_inputs,
+                            to_slot,
+                            canonical_name or "",
+                        ),
+                    },
+                    "missing": "target_socket",
+                },
+            }
+        )
+    if dangling_links:
+        from vibecomfy.porting.refuse import (  # noqa: PLC0415
+            refused_dangling_links as _refused_dangling_links,
+        )
+
+        raise _refused_dangling_links(dangling_links)
+    return remapped_links
+
+
+def _link_preserves_canonical_target(
+    original_link: Any,
+    candidate_link: Any,
+    original_scope: Mapping[str, Any],
+    candidate_scope: Mapping[str, Any],
+) -> bool:
+    """True for a derived target re-slot that preserves endpoint identity."""
+    if not (
+        isinstance(original_link, (list, tuple))
+        and isinstance(candidate_link, (list, tuple))
+        and len(original_link) == 6
+        and len(candidate_link) == 6
+    ):
+        return False
+    if list(original_link[:4]) != list(candidate_link[:4]) or original_link[5] != candidate_link[5]:
+        return False
+    original_nodes = _nodes_by_native_id(original_scope)
+    candidate_nodes = _nodes_by_native_id(candidate_scope)
+    target_id = str(original_link[3])
+    original_name = _socket_name_at(
+        original_nodes.get(target_id), "input", original_link[4]
+    )
+    candidate_name = _socket_name_at(
+        candidate_nodes.get(target_id), "input", candidate_link[4]
+    )
+    return bool(original_name and original_name == candidate_name)
+
+
 def _scope_node_uids(scope_graph: Mapping[str, Any]) -> list[str]:
     nodes = scope_graph.get("nodes")
     if not isinstance(nodes, list):
@@ -3646,6 +3820,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     new_scope_ids: set[str] = set()
     removed_scope_ids: set[str] = set()
     changed_scope_ids: set[str] = set()
+    set_node_fields: dict[tuple[str, str], set[str]] = {}
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -3654,6 +3829,9 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs", "properties")
+            set_node_fields.setdefault(
+                (op.target.scope_path, op.target.uid), set()
+            ).add(op.target.field_path)
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")
@@ -3709,6 +3887,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "new_scope_ids": new_scope_ids,
         "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
+        "set_node_fields": set_node_fields,
     }
 
 
@@ -3803,7 +3982,36 @@ def pin_untouched_ui(
         if original_scope is None:
             continue
         if scope_path not in attribution["link_ops"] and "links" in original_scope:
-            scope["links"] = deepcopy(original_scope.get("links") or [])
+            changed_target_ids: set[str] = set()
+            materialized_input_names: dict[str, set[str]] = {}
+            candidate_by_uid = {
+                _node_uid(node): node
+                for node in scope.get("nodes") or []
+                if isinstance(node, Mapping) and _node_uid(node) is not None
+            }
+            for (node_scope, uid), allowed in attribution["node_paths"].items():
+                if node_scope != scope_path or "inputs" not in allowed:
+                    continue
+                original_node = original_nodes.get((scope_path, uid))
+                candidate_node = candidate_by_uid.get(uid)
+                if (
+                    isinstance(original_node, Mapping)
+                    and isinstance(candidate_node, Mapping)
+                    and original_node.get("inputs") != candidate_node.get("inputs")
+                    and candidate_node.get("id") is not None
+                ):
+                    native_id = str(candidate_node["id"])
+                    changed_target_ids.add(native_id)
+                    materialized_input_names[native_id] = set(
+                        attribution["set_node_fields"].get((node_scope, uid), set())
+                    )
+            scope["links"] = _remap_preserved_inbound_links(
+                original_scope,
+                scope,
+                original_scope.get("links") or [],
+                changed_target_ids=changed_target_ids,
+                materialized_input_names=materialized_input_names,
+            )
         allowed_scope = set(attribution["scope_field_paths"].get(scope_path, set()))
         scope_id = _scope_definition_id(scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:
@@ -3964,6 +4172,13 @@ def guard_exit_ui(
                 continue
             if scope_has_link_ops:
                 continue
+            if _link_preserves_canonical_target(
+                original_link,
+                candidate_links[link_id],
+                original_scope,
+                candidate_scope,
+            ):
+                continue
             diagnostics.append(
                 _issue(
                     "full_ui_link_changed_unattributed",
@@ -4050,6 +4265,3 @@ def guard_exit_ui(
         ok=not any(issue.severity == "error" for issue in diagnostics),
         diagnostics=tuple(diagnostics),
     )
-
-
-

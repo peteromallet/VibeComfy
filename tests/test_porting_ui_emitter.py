@@ -3359,26 +3359,26 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
     the node must be re-slotted or the candidate fails projection with
     "Missing stable link to port" (the sdxl scenario failure).
     """
-    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from copy import deepcopy
+
     from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.porting.emit.ui import _remap_preserved_inbound_links
 
     raw = _corpus("tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json")
     _, ui = ingest_workflow_and_ui(raw)
     node16 = next(n for n in ui["nodes"] if str(n.get("id")) == "16")
-    uid = node16["properties"]["vibecomfy_uid"]
-    envelope = {
-        "schema_version": "2.0.0",
-        "ops": [
-            {
-                "op": "set_node_field",
-                "target": ["", uid, "text_g"],
-                "value": "rich fabric texture, natural cotton weave, detailed",
-            }
-        ],
-    }
-    ok, candidate, error, _ = recompute_apply(ui, envelope)
-    assert ok is True, error
-    assert candidate is not None
+    candidate = deepcopy(ui)
+    emitted16 = next(n for n in candidate["nodes"] if str(n.get("id")) == "16")
+    emitted16["inputs"] = [
+        slot for slot in emitted16["inputs"] if slot.get("name") != "text_g"
+    ]
+    candidate["links"] = _remap_preserved_inbound_links(
+        ui,
+        candidate,
+        ui["links"],
+        changed_target_ids={"16"},
+        materialized_input_names={"16": {"text_g"}},
+    )
     by_id = {str(n["id"]): n for n in candidate["nodes"]}
     assert not [
         link
@@ -3391,6 +3391,93 @@ def test_c8_sdxl_widget_override_renumbers_remaining_link_slots() -> None:
         link for link in candidate["links"] if link[3] == 16 and link[1] == 21
     )
     assert text_l_link[4] == 1
+
+
+def test_rc7_live_acn_widget_collapse_preserves_all_named_inbound_links() -> None:
+    """The live Advanced ControlNet node has five canonical links spread over
+    physical slots 0-3 and 9.  Materializing ``strength`` collapses the input
+    array; every preserved link must follow its canonical input name.
+    """
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.comfy_nodes.agent.projection_registry_v1 import (
+        _graph_link_identities,
+        project_graph_v1,
+    )
+    from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+
+    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
+    _, ui = ingest_workflow_and_ui(raw)
+    original60 = next(n for n in ui["nodes"] if str(n.get("id")) == "60")
+    uid = original60["properties"]["vibecomfy_uid"]
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", uid, "strength"],
+                "value": 0.5,
+            }
+        ],
+    }
+    ok, candidate, error, _ = recompute_apply(ui, envelope)
+    assert ok is True, error
+    assert candidate is not None
+    by_id = {str(n["id"]): n for n in candidate["nodes"]}
+    emitted60 = by_id["60"]
+    assert emitted60["widgets_values"][0] == 0.5
+    assert [slot["name"] for slot in emitted60["inputs"]] == [
+        "control_net",
+        "image",
+        "negative",
+        "positive",
+        "vae_optional",
+    ]
+    expected_by_source = {
+        "61": "control_net",
+        "62": "image",
+        "10": "negative",
+        "54": "positive",
+        "7": "vae_optional",
+    }
+    inbound = [link for link in candidate["links"] if str(link[3]) == "60"]
+    assert len(inbound) == len(expected_by_source)
+    for link in inbound:
+        assert 0 <= link[4] < len(emitted60["inputs"])
+        assert emitted60["inputs"][link[4]]["name"] == expected_by_source[str(link[1])]
+    assert len(_graph_link_identities(candidate, candidate["nodes"])) == len(candidate["links"])
+    assert len(project_graph_v1(candidate, "structural_v1")["links"]) == len(candidate["links"])
+
+
+def test_rc7_live_acn_phantom_source_refuses_instead_of_guessing() -> None:
+    """A phantom output on an unrelated source is never repaired by target
+    remapping; emission fails closed with the existing endpoint evidence.
+    """
+    from vibecomfy.workflow import VibeWorkflow
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
+    wf = VibeWorkflow.from_envelope(raw)
+    edge = next(
+        edge
+        for edge in wf.edges
+        if edge.from_node == "7"
+        and edge.to_node == "60"
+        and edge.to_input == "vae_optional"
+    )
+    edge.from_output = "9"
+    with pytest.raises(RefusedEmit) as exc_info:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            emit_ui_json(wf, schema_provider=get_authoring_schema_provider())
+    entry = exc_info.value.diff["links"]["7.9 -> 60.vae_optional"]
+    _assert_refusal_evidence(entry)
+    assert entry["missing"] == "source_socket"
+    assert entry["source"]["requested_output"] == "9"
+    assert entry["source"]["requested_slot"] == 9
+    assert entry["source"]["emitted_sockets"]
+    assert entry["source"]["attempted_remaps"]
+    assert entry["target"]["requested_input"] == "vae_optional"
+    assert entry["target"]["emitted_sockets"]
 
 
 def test_d2_api_origin_widget_shape_materializes_from_named_inputs() -> None:
@@ -3519,7 +3606,8 @@ def _assert_refusal_evidence(entry: dict[str, Any]) -> None:
     if entry["missing"] in {"target_socket", "source_and_target_socket"}:
         assert "requested_input" in target
         strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
-        assert set(strategies) == {"in_range_slot", "canonical_name_scan", "slot_index_scan"}
+        assert set(strategies) == {"canonical_input_name_scan"}
+        assert strategies["canonical_input_name_scan"]["requires_unique_match"] is True
 
 
 def test_s02_dangling_source_endpoint_refuses_with_full_evidence() -> None:
@@ -3582,11 +3670,8 @@ def test_s02_dangling_target_endpoint_refuses_with_full_evidence() -> None:
     assert target["requested_slot"] == 3
     assert target["emitted_sockets"] == [{"slot": 0, "name": "in_0", "slot_index": None}]
     strategies = {s["strategy"]: s for s in target["attempted_remaps"]}
-    assert strategies["in_range_slot"]["out_of_range"] is True
-    assert strategies["canonical_name_scan"]["sought_name"] == "in_3"
-    assert strategies["canonical_name_scan"]["found_at"] == []
-    assert strategies["slot_index_scan"]["sought_slot"] == 3
-    assert strategies["slot_index_scan"]["found_at"] == []
+    assert strategies["canonical_input_name_scan"]["sought_name"] == "in_3"
+    assert strategies["canonical_input_name_scan"]["found_at"] == []
 
     # Source endpoint evidence is included too.
     source = entry["source"]
@@ -3610,12 +3695,16 @@ def test_s02_both_endpoints_dangling_refuses_once_with_aggregated_evidence() -> 
     _assert_refusal_evidence(entry)
     assert entry["missing"] == "source_and_target_socket"
     assert "1 dangling link" in exc_info.value.reason
-    # Both sides ran the full remap attempt set.
-    for side in ("source", "target"):
-        strategies = {s["strategy"]: s for s in entry[side]["attempted_remaps"]}
-        assert strategies["in_range_slot"]["out_of_range"] is True
-        assert strategies["canonical_name_scan"]["found_at"] == []
-        assert strategies["slot_index_scan"]["found_at"] == []
+    source_strategies = {
+        s["strategy"]: s for s in entry["source"]["attempted_remaps"]
+    }
+    assert source_strategies["in_range_slot"]["out_of_range"] is True
+    assert source_strategies["canonical_name_scan"]["found_at"] == []
+    assert source_strategies["slot_index_scan"]["found_at"] == []
+    target_strategies = {
+        s["strategy"]: s for s in entry["target"]["attempted_remaps"]
+    }
+    assert target_strategies["canonical_input_name_scan"]["found_at"] == []
 
 
 def test_s02_phantom_slot_remap_by_canonical_name_still_emits() -> None:
