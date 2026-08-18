@@ -51,6 +51,12 @@ from vibecomfy.comfy_nodes.agent.session import (
 )
 from vibecomfy.executor.tool_specs import RESEARCH_PHASE_TOOLS
 from vibecomfy.executor.two_step import SessionBudget
+from vibecomfy.ingest.normalize import (  # Law 5 door helpers
+    door_get_links,
+    door_pop_links,
+    door_setdefault_links,
+    door_setdefault_nodes,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -387,7 +393,6 @@ class EditSessionCache:
 def _apply_delta_ops(base_graph: Mapping[str, Any] | None, ops: Any) -> dict[str, Any] | None:
     if not isinstance(base_graph, Mapping):
         return None
-    from vibecomfy.ingest.normalize import door_setdefault_nodes  # Law 5 door
 
     graph: dict[str, Any] = json.loads(json.dumps(dict(base_graph)))
     nodes = door_setdefault_nodes(graph, [])
@@ -498,7 +503,7 @@ def _link_type_for(node: dict[str, Any], output_slot: Any) -> str:
 
 
 def _next_link_id(graph: dict[str, Any]) -> int:
-    links = graph.get("links")
+    links = door_get_links(graph)
     max_id = 0
     if isinstance(links, list):
         for link in links:
@@ -528,10 +533,10 @@ def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
         to_slot = 0
     from_slot = _output_slot_index(src_node, sslot)
     link_type = _link_type_for(src_node, sslot)
-    links = graph.setdefault("links", [])
+    links = door_setdefault_links(graph, [])
     if not isinstance(links, list):
-        links = []
-        graph["links"] = links
+        door_pop_links(graph, None)
+        links = door_setdefault_links(graph, [])
     # Remove any existing link terminating at (tuid, to_slot).
     removed_ids: set[int] = set()
     kept: list[Any] = []
@@ -550,7 +555,7 @@ def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
         kept.append(link)
     new_id = _next_link_id(graph)
     kept.append([new_id, suid, from_slot, tuid, to_slot, link_type])
-    graph["links"] = kept
+    links[:] = kept
     # Patch the target node's input link reference.
     inputs = dst_node.get("inputs")
     if isinstance(inputs, list) and 0 <= to_slot < len(inputs):
@@ -562,7 +567,7 @@ def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
     if isinstance(outputs, list):
         for entry in outputs:
             if isinstance(entry, dict):
-                refs = entry.get("links")
+                refs = door_get_links(entry)
                 if isinstance(refs, list):
                     refs[:] = [r for r in refs if r not in removed_ids]
                     if new_id not in refs:
@@ -570,7 +575,7 @@ def _upsert_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
 
 
 def _remove_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any]) -> None:
-    links = graph.get("links")
+    links = door_get_links(graph)
     if not isinstance(links, list):
         return
     remove_id = op.get("id")
@@ -600,7 +605,7 @@ def _remove_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
                 removed_ids.add(link["id"])
         if not drop:
             kept.append(link)
-    graph["links"] = kept
+    links[:] = kept
     for node in nodes:
         if not isinstance(node, dict):
             continue
@@ -608,8 +613,11 @@ def _remove_link(graph: dict[str, Any], nodes: list[Any], op: Mapping[str, Any])
             if isinstance(entry, dict) and entry.get("link") in removed_ids:
                 entry.pop("link", None)
         for entry in (node.get("outputs") or ()):
-            if isinstance(entry, dict) and isinstance(entry.get("links"), list):
-                entry["links"] = [r for r in entry["links"] if r not in removed_ids]
+            if not isinstance(entry, dict):
+                continue
+            refs = door_get_links(entry)
+            if isinstance(refs, list):
+                refs[:] = [r for r in refs if r not in removed_ids]
 
 
 def _subgraph_interface(graph: dict[str, Any], op: Mapping[str, Any]) -> None:
