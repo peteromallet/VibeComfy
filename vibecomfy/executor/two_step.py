@@ -821,9 +821,26 @@ class SessionBudget:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SessionBudget":
-        """Rebuild from a :meth:`to_dict` payload (unknown keys ignored)."""
-        fields = set(cls.__dataclass_fields__)
-        return cls(**{key: data[key] for key in fields if key in data})
+        """Rebuild from a :meth:`to_dict` payload (unknown keys ignored).
+
+        Usage counters are restored from the payload; the CEILINGS always
+        come from the current code (``SESSION_BUDGET_CEILINGS``), never from
+        a persisted transcript — budgets are session-scoped policy, so a
+        transcript written under older ceilings must still load under the
+        current ones (improve-loop: stale 48k/1800 transcripts broke the
+        frozen ``__post_init__`` check after the 1M/7200 raise).
+        """
+        usage_fields = {
+            "output_tokens",
+            "model_continuations",
+            "tool_calls",
+            "wall_clock_seconds",
+            "apply_batches",
+            "replacement_attempts",
+            "user_messages",
+        }
+        kwargs = {key: data[key] for key in usage_fields if key in data}
+        return cls(**kwargs)
 
 
 # ── B01 entrypoint (unchanged semantics + coverage assertion) ────────────────

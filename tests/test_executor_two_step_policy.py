@@ -751,15 +751,18 @@ class TestCumulativeSessionEnforcement:
         assert restored.replacement_attempts == 1
         assert restored.user_messages == 1
 
-    def test_from_dict_rejects_tampered_ceilings(self) -> None:
+    def test_from_dict_ignores_tampered_ceilings(self) -> None:
+        # Ceilings always come from code, never from a payload (improve-loop:
+        # stale persisted transcripts must load under current budgets).  A
+        # tampered ceiling in the payload is ignored; usage is restored.
         payload = SessionBudget().to_dict()
         payload["max_output_tokens"] = 99_999
-        with pytest.raises(ValueError, match="frozen"):
-            SessionBudget.from_dict(payload)
+        budget = SessionBudget.from_dict(payload)
+        assert budget.max_output_tokens == 1_000_000
         payload = SessionBudget().to_dict()
         payload["max_user_messages"] = 1
-        with pytest.raises(ValueError, match="frozen"):
-            SessionBudget.from_dict(payload)
+        budget = SessionBudget.from_dict(payload)
+        assert budget.max_user_messages == 32
 
 
 # ── RC3: wall-clock scoping (per model turn, never queueing) ─────────────────
